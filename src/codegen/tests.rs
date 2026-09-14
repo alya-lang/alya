@@ -310,4 +310,3 @@ foo(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
     assert!(asm_arm64.contains("sub sp, sp, #16"));
     assert!(asm_arm64.contains("bl fn_foo"));
 }
-
