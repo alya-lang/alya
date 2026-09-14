@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>alyac</id>
-    <version>0.0.15</version>
+    <version>0.0.16</version>
     <packageSourceUrl>https://github.com/alya-lang/alya/tree/main/packages/distribution/chocolatey</packageSourceUrl>
     <owners>Alya Language</owners>
     <title>Alya Programming Language Compiler (alyac)</title>
@@ -27,7 +27,7 @@ Alya is a simple, intuitive, and modern multi-platform compiled programming lang
 - **Built-in Package Manager & REPL:** Built-in tools (`alyac add`, `alyac test`, `alyac fmt`, `alyac repl`).
 - **Offline & Standalone Ready:** Works seamlessly without external runtime dependencies.
 ]]></description>
-    <releaseNotes>https://github.com/alya-lang/alya/releases/tag/v0.0.15</releaseNotes>
+    <releaseNotes>https://github.com/alya-lang/alya/releases/tag/v0.0.16</releaseNotes>
   </metadata>
   <files>
     <file src="tools\**" target="tools" />
