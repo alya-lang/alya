@@ -93,13 +93,18 @@ jobs:
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.bin }}" -Destination $StandaloneName
           Copy-Item README.md, LICENSE -Destination $StandaloneName
           
-          # Download and bundle minimal toolchain
-          $tcUrl = "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-windows-x64.zip"
+          # Download and bundle minimal toolchain (tracking latest release, with fallback)
+          $tcUrl = "https://github.com/alya-lang/toolchain/releases/latest/download/alya-toolchain-windows-x64.zip"
           $tcZip = Join-Path $StandaloneName "toolchain.zip"
           $tcDir = Join-Path $StandaloneName "toolchain"
           try {
               [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-              Invoke-WebRequest -Uri $tcUrl -OutFile $tcZip -UseBasicParsing
+              try {
+                  Invoke-WebRequest -Uri $tcUrl -OutFile $tcZip -UseBasicParsing
+              } catch {
+                  Write-Host "Latest toolchain download failed, falling back to v1.0.0: $_"
+                  Invoke-WebRequest -Uri "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-windows-x64.zip" -OutFile $tcZip -UseBasicParsing
+              }
               Expand-Archive -Path $tcZip -DestinationPath $tcDir -Force
               Remove-Item -Force $tcZip
           } catch {

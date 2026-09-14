@@ -266,27 +266,12 @@ pub fn install_toolchain(
     let target_dir = get_local_toolchain_dir()
         .ok_or_else(|| "Error: Cannot resolve ~/.alya home directory".to_string())?;
 
-    let (archive_name, primary_url) = match (os, arch) {
-        (OperatingSystem::Windows, Architecture::X64) => (
-            "alya-toolchain-windows-x64.zip",
-            "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-windows-x64.zip",
-        ),
-        (OperatingSystem::Linux, Architecture::X64) => (
-            "alya-toolchain-linux-x64.tar.gz",
-            "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-linux-x64.tar.gz",
-        ),
-        (OperatingSystem::Linux, Architecture::ARM64) => (
-            "alya-toolchain-linux-arm64.tar.gz",
-            "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-linux-arm64.tar.gz",
-        ),
-        (OperatingSystem::MacOS, Architecture::ARM64) => (
-            "alya-toolchain-macos-arm64.tar.gz",
-            "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-macos-arm64.tar.gz",
-        ),
-        (OperatingSystem::MacOS, Architecture::X64) => (
-            "alya-toolchain-macos-x64.tar.gz",
-            "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-macos-x64.tar.gz",
-        ),
+    let archive_name = match (os, arch) {
+        (OperatingSystem::Windows, Architecture::X64) => "alya-toolchain-windows-x64.zip",
+        (OperatingSystem::Linux, Architecture::X64) => "alya-toolchain-linux-x64.tar.gz",
+        (OperatingSystem::Linux, Architecture::ARM64) => "alya-toolchain-linux-arm64.tar.gz",
+        (OperatingSystem::MacOS, Architecture::ARM64) => "alya-toolchain-macos-arm64.tar.gz",
+        (OperatingSystem::MacOS, Architecture::X64) => "alya-toolchain-macos-x64.tar.gz",
         _ => {
             return Err(format!(
                 "Error: No pre-built minimal toolchain available for {:?} on {:?}",
@@ -299,7 +284,14 @@ pub fn install_toolchain(
         vec![custom]
     } else {
         vec![
-            primary_url.to_string(),
+            format!(
+                "https://github.com/alya-lang/toolchain/releases/latest/download/{}",
+                archive_name
+            ),
+            format!(
+                "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/{}",
+                archive_name
+            ),
             format!(
                 "https://cdn.jsdelivr.net/gh/alya-lang/toolchain@releases/{}",
                 archive_name
