@@ -284,3 +284,30 @@ say cos(0)
     let libs = super::collect_extern_libraries(&ast);
     assert_eq!(libs, vec!["m"]);
 }
+
+#[test]
+fn test_codegen_arm64_more_than_eight_params() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = r#"
+function foo(a, b, c, d, e, f, g, h, i, j)
+    return i + j
+end
+
+foo(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::MacOS);
+    // In callee: parameter 8 and 9 read from caller's stack frame
+    assert!(asm_arm64.contains("ldr x9, [x29, #16]"));
+    assert!(asm_arm64.contains("ldr x9, [x29, #24]"));
+    // In caller: stack space allocated and extra arguments copied
+    assert!(asm_arm64.contains("sub sp, sp, #16"));
+    assert!(asm_arm64.contains("bl fn_foo"));
+}
+
