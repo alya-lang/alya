@@ -30,5 +30,5 @@ choco uninstall alyac -y
 
 Once tested, push the package to Chocolatey:
 ```powershell
-choco push alyac.0.0.15.nupkg --api-key <YOUR_CHOCO_API_KEY> --source https://push.chocolatey.org/
+choco push alyac.0.0.16.nupkg --api-key <YOUR_CHOCO_API_KEY> --source https://push.chocolatey.org/
 ```

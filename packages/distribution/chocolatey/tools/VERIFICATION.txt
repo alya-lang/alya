@@ -6,7 +6,7 @@ in verifying that this package's contents are trustworthy.
    https://github.com/alya-lang/alya/releases/download/v0.0.16/alyac-v0.0.16-x86_64-windows.zip
 
 2. Checksum (SHA-256):
-   (Recorded upon GitHub Release asset generation)
+   4b32a4ede7abe42e5097d0be0832058f81cee2768a687d11f4f0dfa7c8f413e3
 
 3. Release verification:
    The official release, release notes, and SHA-256 checksums are published at:
