@@ -64,48 +64,12 @@ pub fn emit_say_offset(
 ) {
     if matches!(os, OperatingSystem::Windows) {
         out.push_str(&format!("    mov -{}(%rbp), %rdx\n", offset));
-        out.push_str("    lea alya_str_buf(%rip), %r11\n");
-        out.push_str("    cmp %r11, %rdx\n");
-        out.push_str("    jb 1f\n");
-        out.push_str("    lea 67108864(%r11), %r10\n");
-        out.push_str("    cmp %r10, %rdx\n");
-        out.push_str("    jb 2f\n");
-        out.push_str("1:\n");
-        out.push_str("    lea alya_rodata_start(%rip), %r11\n");
-        out.push_str("    cmp %r11, %rdx\n");
-        out.push_str("    jb 3f\n");
-        out.push_str("    lea alya_rodata_end(%rip), %r10\n");
-        out.push_str("    cmp %r10, %rdx\n");
-        out.push_str("    jb 2f\n");
-        out.push_str("3:\n");
         out.push_str(&format!("    lea {}(%rip), %rcx\n", fmt_label));
-        out.push_str("    jmp 4f\n");
-        out.push_str("2:\n");
-        out.push_str("    lea alya_fmt_say_str(%rip), %rcx\n");
-        out.push_str("4:\n");
         out.push_str("    xor %rax, %rax\n");
         emit_call_printf(out, stack_offset, os);
     } else {
         out.push_str(&format!("    mov -{}(%rbp), %rsi\n", offset));
-        out.push_str("    lea alya_str_buf(%rip), %r11\n");
-        out.push_str("    cmp %r11, %rsi\n");
-        out.push_str("    jb 1f\n");
-        out.push_str("    lea 67108864(%r11), %r10\n");
-        out.push_str("    cmp %r10, %rsi\n");
-        out.push_str("    jb 2f\n");
-        out.push_str("1:\n");
-        out.push_str("    lea alya_rodata_start(%rip), %r11\n");
-        out.push_str("    cmp %r11, %rsi\n");
-        out.push_str("    jb 3f\n");
-        out.push_str("    lea alya_rodata_end(%rip), %r10\n");
-        out.push_str("    cmp %r10, %rsi\n");
-        out.push_str("    jb 2f\n");
-        out.push_str("3:\n");
         out.push_str(&format!("    lea {}(%rip), %rdi\n", fmt_label));
-        out.push_str("    jmp 4f\n");
-        out.push_str("2:\n");
-        out.push_str("    lea alya_fmt_say_str(%rip), %rdi\n");
-        out.push_str("4:\n");
         out.push_str("    xor %rax, %rax\n");
         emit_call_printf(out, stack_offset, os);
     }
@@ -134,48 +98,12 @@ pub fn emit_say_num_const(
 pub fn emit_say_acc(out: &mut String, fmt_label: &str, stack_offset: i32, os: OperatingSystem) {
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov %rax, %rdx\n");
-        out.push_str("    lea alya_str_buf(%rip), %r11\n");
-        out.push_str("    cmp %r11, %rdx\n");
-        out.push_str("    jb 1f\n");
-        out.push_str("    lea 67108864(%r11), %r10\n");
-        out.push_str("    cmp %r10, %rdx\n");
-        out.push_str("    jb 2f\n");
-        out.push_str("1:\n");
-        out.push_str("    lea alya_rodata_start(%rip), %r11\n");
-        out.push_str("    cmp %r11, %rdx\n");
-        out.push_str("    jb 3f\n");
-        out.push_str("    lea alya_rodata_end(%rip), %r10\n");
-        out.push_str("    cmp %r10, %rdx\n");
-        out.push_str("    jb 2f\n");
-        out.push_str("3:\n");
         out.push_str(&format!("    lea {}(%rip), %rcx\n", fmt_label));
-        out.push_str("    jmp 4f\n");
-        out.push_str("2:\n");
-        out.push_str("    lea alya_fmt_say_str(%rip), %rcx\n");
-        out.push_str("4:\n");
         out.push_str("    xor %rax, %rax\n");
         emit_call_printf(out, stack_offset, os);
     } else {
         out.push_str("    mov %rax, %rsi\n");
-        out.push_str("    lea alya_str_buf(%rip), %r11\n");
-        out.push_str("    cmp %r11, %rsi\n");
-        out.push_str("    jb 1f\n");
-        out.push_str("    lea 67108864(%r11), %r10\n");
-        out.push_str("    cmp %r10, %rsi\n");
-        out.push_str("    jb 2f\n");
-        out.push_str("1:\n");
-        out.push_str("    lea alya_rodata_start(%rip), %r11\n");
-        out.push_str("    cmp %r11, %rsi\n");
-        out.push_str("    jb 3f\n");
-        out.push_str("    lea alya_rodata_end(%rip), %r10\n");
-        out.push_str("    cmp %r10, %rsi\n");
-        out.push_str("    jb 2f\n");
-        out.push_str("3:\n");
         out.push_str(&format!("    lea {}(%rip), %rdi\n", fmt_label));
-        out.push_str("    jmp 4f\n");
-        out.push_str("2:\n");
-        out.push_str("    lea alya_fmt_say_str(%rip), %rdi\n");
-        out.push_str("4:\n");
         out.push_str("    xor %rax, %rax\n");
         emit_call_printf(out, stack_offset, os);
     }

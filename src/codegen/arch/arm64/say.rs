@@ -37,26 +37,7 @@ pub fn emit_say_offset(
     os: OperatingSystem,
 ) {
     emit_arm64_load_x29_offset(out, "x1", offset, "x9");
-    emit_adrp_add(out, "x5", "alya_str_buf", os);
-    out.push_str("    cmp x1, x5\n");
-    out.push_str("    b.lo 1f\n");
-    out.push_str("    movz x6, #1024, lsl #16\n");
-    out.push_str("    add x6, x5, x6\n");
-    out.push_str("    cmp x1, x6\n");
-    out.push_str("    b.lo 2f\n");
-    out.push_str("1:\n");
-    emit_adrp_add(out, "x5", "alya_rodata_start", os);
-    out.push_str("    cmp x1, x5\n");
-    out.push_str("    b.lo 3f\n");
-    emit_adrp_add(out, "x6", "alya_rodata_end", os);
-    out.push_str("    cmp x1, x6\n");
-    out.push_str("    b.lo 2f\n");
-    out.push_str("3:\n");
     emit_adrp_add(out, "x0", fmt_label, os);
-    out.push_str("    b 4f\n");
-    out.push_str("2:\n");
-    emit_adrp_add(out, "x0", "alya_fmt_say_str", os);
-    out.push_str("4:\n");
     if matches!(os, OperatingSystem::MacOS) {
         out.push_str("    sub sp, sp, #16\n");
         out.push_str("    str x1, [sp]\n");
@@ -82,26 +63,7 @@ pub fn emit_say_num_const(out: &mut String, val: i64, fmt_label: &str, os: Opera
 
 pub fn emit_say_acc(out: &mut String, fmt_label: &str, os: OperatingSystem) {
     out.push_str("    mov x1, x0\n");
-    emit_adrp_add(out, "x5", "alya_str_buf", os);
-    out.push_str("    cmp x1, x5\n");
-    out.push_str("    b.lo 1f\n");
-    out.push_str("    movz x6, #1024, lsl #16\n");
-    out.push_str("    add x6, x5, x6\n");
-    out.push_str("    cmp x1, x6\n");
-    out.push_str("    b.lo 2f\n");
-    out.push_str("1:\n");
-    emit_adrp_add(out, "x5", "alya_rodata_start", os);
-    out.push_str("    cmp x1, x5\n");
-    out.push_str("    b.lo 3f\n");
-    emit_adrp_add(out, "x6", "alya_rodata_end", os);
-    out.push_str("    cmp x1, x6\n");
-    out.push_str("    b.lo 2f\n");
-    out.push_str("3:\n");
     emit_adrp_add(out, "x0", fmt_label, os);
-    out.push_str("    b 4f\n");
-    out.push_str("2:\n");
-    emit_adrp_add(out, "x0", "alya_fmt_say_str", os);
-    out.push_str("4:\n");
     if matches!(os, OperatingSystem::MacOS) {
         out.push_str("    sub sp, sp, #16\n");
         out.push_str("    str x1, [sp]\n");

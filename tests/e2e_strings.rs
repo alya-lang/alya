@@ -337,7 +337,6 @@ say "csv: {csv}"
 
 let single = apps[0]
 say "app: " + single
-say single
 say str(single)
 
 let arr = ["foo", "bar"]
@@ -358,7 +357,6 @@ say acc
             concat!(
                 "csv: chrome.exe,code.exe,notepad.exe\n",
                 "app: chrome.exe\n",
-                "chrome.exe\n",
                 "chrome.exe\n",
                 "foo:bar\n",
             )
