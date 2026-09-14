@@ -33,6 +33,7 @@ pub fn print_usage() {
     );
     println!("  install               Resolve and lock all dependencies in alya.lock");
     println!("  pkg <cmd>             Package manager commands (init, add, install, list, update)");
+    println!("  toolchain <cmd>       Manage C/Assembly build toolchains (status, install, clean)");
     println!("  help                  Display help information");
     println!("  version               Display version information\n");
     println!("OPTIONS:");

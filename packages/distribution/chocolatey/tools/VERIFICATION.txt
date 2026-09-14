@@ -1,0 +1,13 @@
+VERIFICATION
+Verification is intended to assist the Chocolatey moderators and community
+in verifying that this package's contents are trustworthy.
+
+1. The package archive is downloaded directly from the official Alya GitHub release:
+   https://github.com/alya-lang/alya/releases/download/v0.0.15/alyac-v0.0.15-x86_64-windows.zip
+
+2. Checksum (SHA-256):
+   209e56cb48c02b726e31b5eb5f7a769cc4ab5affc7c2164d708b6bf9700afe41
+
+3. Release verification:
+   The official release, release notes, and SHA-256 checksums are published at:
+   https://github.com/alya-lang/alya/releases/tag/v0.0.15

@@ -36,18 +36,24 @@ pub fn emit_function_prologue(out: &mut String, name: &str) {
 
 pub fn emit_function_param_push(out: &mut String, param_idx: usize, stack_offset: &mut i32) {
     *stack_offset += 16;
-    let reg = match param_idx {
-        0 => "x0",
-        1 => "x1",
-        2 => "x2",
-        3 => "x3",
-        4 => "x4",
-        5 => "x5",
-        6 => "x6",
-        7 => "x7",
-        _ => "x0",
-    };
-    out.push_str(&format!("    str {}, [sp, #-16]!\n", reg));
+    if param_idx < 8 {
+        let reg = match param_idx {
+            0 => "x0",
+            1 => "x1",
+            2 => "x2",
+            3 => "x3",
+            4 => "x4",
+            5 => "x5",
+            6 => "x6",
+            7 => "x7",
+            _ => unreachable!(),
+        };
+        out.push_str(&format!("    str {}, [sp, #-16]!\n", reg));
+    } else {
+        let src_offset = 16 + (param_idx - 8) * 8;
+        out.push_str(&format!("    ldr x9, [x29, #{}]\n", src_offset));
+        out.push_str("    str x9, [sp, #-16]!\n");
+    }
 }
 
 pub fn emit_function_epilogue(out: &mut String) {
@@ -56,45 +62,60 @@ pub fn emit_function_epilogue(out: &mut String) {
     out.push_str("    ret\n\n");
 }
 
-pub fn emit_function_call(out: &mut String, name: &str, args_count: usize) {
-    for i in (0..args_count).rev() {
-        let reg = match i {
-            0 => "x0",
-            1 => "x1",
-            2 => "x2",
-            3 => "x3",
-            4 => "x4",
-            5 => "x5",
-            6 => "x6",
-            7 => "x7",
-            _ => "x0",
-        };
-        out.push_str(&format!("    ldr {}, [sp], #16\n", reg));
+fn emit_call_target(out: &mut String, target: &str, args_count: usize) {
+    if args_count <= 8 {
+        for i in (0..args_count).rev() {
+            let reg = match i {
+                0 => "x0",
+                1 => "x1",
+                2 => "x2",
+                3 => "x3",
+                4 => "x4",
+                5 => "x5",
+                6 => "x6",
+                7 => "x7",
+                _ => unreachable!(),
+            };
+            out.push_str(&format!("    ldr {}, [sp], #16\n", reg));
+        }
+        out.push_str(&format!("    bl {}\n", target));
+    } else {
+        let extra_args = args_count - 8;
+        let needed = extra_args as i32 * 8;
+        let total_alloc = if needed % 16 == 0 { needed } else { needed + 8 };
+
+        for i in 0..8 {
+            let offset = (args_count - 1 - i) * 16;
+            out.push_str(&format!("    ldr x{}, [sp, #{}]\n", i, offset));
+        }
+
+        out.push_str(&format!("    sub sp, sp, #{}\n", total_alloc));
+
+        for k in 8..args_count {
+            let src_off = total_alloc + ((args_count - 1 - k) * 16) as i32;
+            let dst_off = ((k - 8) * 8) as i32;
+            out.push_str(&format!("    ldr x9, [sp, #{}]\n", src_off));
+            out.push_str(&format!("    str x9, [sp, #{}]\n", dst_off));
+        }
+
+        out.push_str(&format!("    bl {}\n", target));
+
+        let total_restore = total_alloc + args_count as i32 * 16;
+        out.push_str(&format!("    add sp, sp, #{}\n", total_restore));
     }
-    out.push_str(&format!("    bl fn_{}\n", name));
+}
+
+pub fn emit_function_call(out: &mut String, name: &str, args_count: usize) {
+    emit_call_target(out, &format!("fn_{}", name), args_count);
 }
 
 pub fn emit_c_function_call(out: &mut String, name: &str, args_count: usize, os: OperatingSystem) {
-    for i in (0..args_count).rev() {
-        let reg = match i {
-            0 => "x0",
-            1 => "x1",
-            2 => "x2",
-            3 => "x3",
-            4 => "x4",
-            5 => "x5",
-            6 => "x6",
-            7 => "x7",
-            _ => "x0",
-        };
-        out.push_str(&format!("    ldr {}, [sp], #16\n", reg));
-    }
     let target = if matches!(os, OperatingSystem::MacOS) {
         format!("_{}", name)
     } else {
         name.to_string()
     };
-    out.push_str(&format!("    bl {}\n", target));
+    emit_call_target(out, &target, args_count);
 }
 
 pub fn emit_stack_restore(out: &mut String, delta: i32) {

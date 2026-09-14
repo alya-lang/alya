@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>alyac</id>
+    <version>0.0.15</version>
+    <packageSourceUrl>https://github.com/alya-lang/alya/tree/main/packages/distribution/chocolatey</packageSourceUrl>
+    <owners>Alya Language</owners>
+    <title>Alya Programming Language Compiler (alyac)</title>
+    <authors>Alya Language Contributors</authors>
+    <projectUrl>https://github.com/alya-lang/alya</projectUrl>
+    <copyright>Copyright (c) 2026 Alya Language Contributors</copyright>
+    <licenseUrl>https://github.com/alya-lang/alya/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/alya-lang/alya</projectSourceUrl>
+    <docsUrl>https://github.com/alya-lang/alya#readme</docsUrl>
+    <bugTrackerUrl>https://github.com/alya-lang/alya/issues</bugTrackerUrl>
+    <tags>alya compiler programming-language native cli foss</tags>
+    <summary>Official compiler and CLI for the Alya programming language</summary>
+    <description><![CDATA[
+# Alya Programming Language
+
+Alya is a simple, intuitive, and modern multi-platform compiled programming language.
+
+## Key Features
+- **Native Assembly Codegen:** Directly compiles to native GNU assembly and coordinates with minimal toolchains.
+- **Zero-Setup Toolchain Resolver:** Automatically downloads and configures a minimal GCC/MinGW toolchain on Windows if not present.
+- **Built-in Package Manager & REPL:** Built-in tools (`alyac add`, `alyac test`, `alyac fmt`, `alyac repl`).
+- **Offline & Standalone Ready:** Works seamlessly without external runtime dependencies.
+]]></description>
+    <releaseNotes>https://github.com/alya-lang/alya/releases/tag/v0.0.15</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

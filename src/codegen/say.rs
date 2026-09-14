@@ -78,20 +78,29 @@ impl CodeGen {
                 self.emit_string_directive(&format_str);
                 self.output.push_str(".text\n");
 
+                let initial_stack_offset = self.ctx.stack_offset;
+                let word_size: i32 = match self.arch {
+                    Architecture::ARM64 => 16,
+                    Architecture::X86 => 4,
+                    _ => 8,
+                };
                 match self.arch {
                     Architecture::X86 => {
-                        for expr in exprs.iter().rev() {
+                        for (idx, expr) in exprs.iter().rev().enumerate() {
+                            self.ctx.stack_offset = initial_stack_offset + (idx as i32 * word_size);
                             self.generate_expression(expr);
                             arch::emit_push_temp(&mut self.output, self.arch);
                         }
                     }
                     _ => {
-                        for expr in exprs.iter() {
+                        for (idx, expr) in exprs.iter().enumerate() {
+                            self.ctx.stack_offset = initial_stack_offset + (idx as i32 * word_size);
                             self.generate_expression(expr);
                             arch::emit_push_temp(&mut self.output, self.arch);
                         }
                     }
                 }
+                self.ctx.stack_offset = initial_stack_offset;
 
                 arch::emit_say_interpolated(
                     &mut self.output,

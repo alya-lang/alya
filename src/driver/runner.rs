@@ -34,7 +34,10 @@ pub fn compile_with_gcc(
         gcc_args.push(format!("-l{}", lib));
     }
 
-    let gcc_result = Command::new("gcc").args(&gcc_args).output();
+    let toolchain = crate::driver::toolchain::resolve_toolchain(arch, os, false)?;
+    let gcc_result = Command::new(&toolchain.compiler_path)
+        .args(&gcc_args)
+        .output();
 
     let _ = fs::remove_file(asm_file);
 
@@ -47,13 +50,28 @@ pub fn compile_with_gcc(
                 } else {
                     ""
                 };
-                Err(format!("GCC compilation failed:\n{}{}", stderr, hint))
+                Err(format!(
+                    "Compiler ({}) invocation failed:\n{}{}",
+                    toolchain.compiler_path.display(),
+                    stderr,
+                    hint
+                ))
             } else {
+                // On macOS ARM64 (Apple Silicon), automatically ad-hoc codesign binary
+                if matches!(os, OperatingSystem::MacOS)
+                    && matches!(arch, Architecture::ARM64)
+                    && cfg!(target_os = "macos")
+                {
+                    let _ = Command::new("codesign")
+                        .args(["-s", "-", "-f", exe_file])
+                        .output();
+                }
                 Ok(())
             }
         }
         Err(e) => Err(format!(
-            "Error: Failed to run GCC: {}\nMake sure GCC is installed and in your PATH.",
+            "Error: Failed to execute compiler '{}': {}\nMake sure the toolchain is installed properly (run 'alyac toolchain status').",
+            toolchain.compiler_path.display(),
             e
         )),
     }

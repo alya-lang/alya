@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
+PackageIdentifier: Alya.alyac
+PackageVersion: 0.0.15
+PackageLocale: en-US
+PackageName: Alya Programming Language Compiler
+Publisher: Alya Language
+PublisherUrl: https://github.com/alya-lang
+PublisherSupportUrl: https://github.com/alya-lang/alya/issues
+Author: Alya Language Contributors
+License: MIT
+LicenseUrl: https://github.com/alya-lang/alya/blob/main/LICENSE
+Copyright: Copyright (c) 2026 Alya Language Contributors
+ShortDescription: A simple, intuitive, and modern multi-platform compiled programming language.
+Description: |
+  Alya compiles directly to native assembly and coordinates with minimal toolchains.
+  With the zero-setup toolchain resolver, you can compile and run Alya programs
+  instantly on Windows with zero manual GCC configuration.
+Moniker: alyac
+Tags:
+  - alya
+  - compiler
+  - programming-language
+  - native
+  - cli
+PackageUrl: https://github.com/alya-lang/alya
+Installers:
+  - Architecture: x64
+    InstallerType: zip
+    InstallerUrl: https://github.com/alya-lang/alya/releases/download/v0.0.15/alyac-v0.0.15-x86_64-windows.zip
+    InstallerSha256: 209e56cb48c02b726e31b5eb5f7a769cc4ab5affc7c2164d708b6bf9700afe41
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: alyac-v0.0.15-x86_64-windows/alyac.exe
+        PortableCommandAlias: alyac
+ManifestType: singleton
+ManifestVersion: 1.6.0
