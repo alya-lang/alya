@@ -112,16 +112,39 @@ pub fn detect_system_toolchain(os: OperatingSystem) -> Option<ToolchainInfo> {
     None
 }
 
-/// Detects local toolchain inside ~/.alya/toolchain
+/// Detects local toolchain inside sibling directory or ~/.alya/toolchain
 pub fn detect_local_toolchain(os: OperatingSystem) -> Option<ToolchainInfo> {
-    let base = get_local_toolchain_dir()?;
-    let bin_dir = base.join("bin");
-
     let candidates: &[&str] = match os {
         OperatingSystem::Windows => &["gcc.exe", "clang.exe"],
         OperatingSystem::MacOS => &["clang", "gcc"],
         OperatingSystem::Linux => &["gcc", "clang"],
     };
+
+    // 1. Check portable sibling directory (e.g. <dir>/alyac.exe and <dir>/toolchain/bin/gcc.exe)
+    if let Ok(current_exe) = env::current_exe() {
+        if let Some(parent) = current_exe.parent() {
+            let sibling_bin = parent.join("toolchain").join("bin");
+            if sibling_bin.exists() {
+                for name in candidates {
+                    let exe_path = sibling_bin.join(name);
+                    if exe_path.exists() {
+                        if let Some((kind, version_str)) = probe_compiler(&exe_path) {
+                            return Some(ToolchainInfo {
+                                kind,
+                                compiler_path: exe_path.clone(),
+                                source: ToolchainSource::Local(exe_path),
+                                version_str,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Check global ~/.alya/toolchain
+    let base = get_local_toolchain_dir()?;
+    let bin_dir = base.join("bin");
 
     for name in candidates {
         let exe_path = bin_dir.join(name);
@@ -342,7 +365,10 @@ pub fn install_toolchain(
                 .unwrap_or(false);
         }
 
-        if ok && temp_archive.exists() && fs::metadata(&temp_archive).map(|m| m.len()).unwrap_or(0) > 0 {
+        if ok
+            && temp_archive.exists()
+            && fs::metadata(&temp_archive).map(|m| m.len()).unwrap_or(0) > 0
+        {
             download_ok = true;
             break;
         } else {
@@ -363,7 +389,10 @@ pub fn install_toolchain(
     if let Ok(bytes) = fs::read(&temp_archive) {
         let computed_hash = crate::tools::pkg::hash::sha256_hex(&bytes);
         if !quiet {
-            println!("[Alya Toolchain] Download verified (SHA-256: {}...)", &computed_hash[..16]);
+            println!(
+                "[Alya Toolchain] Download verified (SHA-256: {}...)",
+                &computed_hash[..16]
+            );
         }
     }
 

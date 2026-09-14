@@ -1,0 +1,26 @@
+{
+  "version": "0.0.15",
+  "description": "A simple, intuitive, and modern multi-platform compiled programming language",
+  "homepage": "https://github.com/alya-lang/alya",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/alya-lang/alya/releases/download/v0.0.15/alyac-v0.0.15-x86_64-windows.zip",
+      "hash": "auto"
+    }
+  },
+  "bin": "alyac.exe",
+  "suggest": {
+    "MinGW-w64": "main/mingw"
+  },
+  "checkver": {
+    "github": "https://github.com/alya-lang/alya"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/alya-lang/alya/releases/download/v$version/alyac-v$version-x86_64-windows.zip"
+      }
+    }
+  }
+}
