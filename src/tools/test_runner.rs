@@ -166,8 +166,14 @@ pub fn run_tests(path_str: &str, arch: Architecture, os: OperatingSystem) -> Res
                     "  \x1b[1;31m✗\x1b[0m {:<40} ({:>4} ms) - FAILED",
                     display_name, ms
                 );
-                for line in out.lines().take(8) {
-                    println!("      \x1b[90m|\x1b[0m {}", line);
+                if out.trim().is_empty() {
+                    println!(
+                        "      \x1b[91m| (Process terminated abnormally with no output)\x1b[0m"
+                    );
+                } else {
+                    for line in out.lines().take(8) {
+                        println!("      \x1b[90m|\x1b[0m {}", line);
+                    }
                 }
             }
             Err(err) => {

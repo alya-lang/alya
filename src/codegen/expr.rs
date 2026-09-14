@@ -746,6 +746,7 @@ impl CodeGen {
 
                 let initial_stack_offset = self.ctx.stack_offset;
                 let word_size: i32 = match self.arch {
+                    Architecture::ARM64 => 16,
                     Architecture::X86 => 4,
                     _ => 8,
                 };
@@ -1138,20 +1139,31 @@ impl CodeGen {
                     || matches!(**index, Expr::String(_))
                 {
                     let actual_args = [array.as_ref(), index.as_ref()];
+                    let initial_stack_offset = self.ctx.stack_offset;
+                    let word_size: i32 = match self.arch {
+                        Architecture::ARM64 => 16,
+                        Architecture::X86 => 4,
+                        _ => 8,
+                    };
                     match self.arch {
                         Architecture::X86 => {
-                            for arg in actual_args.iter().rev() {
+                            for (idx, arg) in actual_args.iter().rev().enumerate() {
+                                self.ctx.stack_offset =
+                                    initial_stack_offset + (idx as i32 * word_size);
                                 self.generate_expression(arg);
                                 arch::emit_push_temp(&mut self.output, self.arch);
                             }
                         }
                         _ => {
-                            for arg in actual_args.iter() {
+                            for (idx, arg) in actual_args.iter().enumerate() {
+                                self.ctx.stack_offset =
+                                    initial_stack_offset + (idx as i32 * word_size);
                                 self.generate_expression(arg);
                                 arch::emit_push_temp(&mut self.output, self.arch);
                             }
                         }
                     }
+                    self.ctx.stack_offset = initial_stack_offset;
                     arch::emit_function_call(
                         &mut self.output,
                         self.arch,
@@ -1162,20 +1174,31 @@ impl CodeGen {
                     );
                 } else if is_string_expr(array, &self.ctx.variables) {
                     let actual_args = [array.as_ref(), index.as_ref()];
+                    let initial_stack_offset = self.ctx.stack_offset;
+                    let word_size: i32 = match self.arch {
+                        Architecture::ARM64 => 16,
+                        Architecture::X86 => 4,
+                        _ => 8,
+                    };
                     match self.arch {
                         Architecture::X86 => {
-                            for arg in actual_args.iter().rev() {
+                            for (idx, arg) in actual_args.iter().rev().enumerate() {
+                                self.ctx.stack_offset =
+                                    initial_stack_offset + (idx as i32 * word_size);
                                 self.generate_expression(arg);
                                 arch::emit_push_temp(&mut self.output, self.arch);
                             }
                         }
                         _ => {
-                            for arg in actual_args.iter() {
+                            for (idx, arg) in actual_args.iter().enumerate() {
+                                self.ctx.stack_offset =
+                                    initial_stack_offset + (idx as i32 * word_size);
                                 self.generate_expression(arg);
                                 arch::emit_push_temp(&mut self.output, self.arch);
                             }
                         }
                     }
+                    self.ctx.stack_offset = initial_stack_offset;
                     arch::emit_function_call(
                         &mut self.output,
                         self.arch,
@@ -1185,11 +1208,19 @@ impl CodeGen {
                         self.os,
                     );
                 } else {
+                    let initial_stack_offset = self.ctx.stack_offset;
+                    let temp_offset: i32 = match self.arch {
+                        Architecture::ARM64 => 16,
+                        Architecture::X86 => 4,
+                        _ => 8,
+                    };
                     self.generate_expression(array);
                     arch::emit_push_temp(&mut self.output, self.arch);
+                    self.ctx.stack_offset += temp_offset;
 
                     self.generate_expression(index);
                     arch::emit_array_get(&mut self.output, self.arch);
+                    self.ctx.stack_offset = initial_stack_offset;
                 }
             }
             Expr::InterpolatedString(parts) => {
