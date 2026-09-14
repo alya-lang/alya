@@ -106,6 +106,8 @@ pub fn emit_data_sections(
     out.push_str(&format!("    {} \"ab\"\n", str_directive));
     out.push_str("alya_fmt_prompt:\n");
     out.push_str(&format!("    {} \"%s\"\n", str_directive));
+    out.push_str("alya_fmt_say_str:\n");
+    out.push_str(&format!("    {} \"%s\\n\"\n", str_directive));
     out.push_str("alya_str_console_clear:\n");
     out.push_str(
         "    .byte 0x1b, 0x5b, 0x32, 0x4a, 0x1b, 0x5b, 0x33, 0x4a, 0x1b, 0x5b, 0x48, 0x00\n",
@@ -190,6 +192,10 @@ pub fn emit_data_sections(
             ));
         }
     }
+
+    out.push_str(".global alya_rodata_end\n");
+    out.push_str("alya_rodata_end:\n");
+    out.push_str("    .byte 0\n");
 
     // Struct descriptors in data section
     if is_macos {

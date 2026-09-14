@@ -207,6 +207,12 @@ impl CodeGen {
 
         arch::emit_header(&mut self.output, self.arch, self.os);
 
+        self.emit_rodata_section();
+        self.output.push_str(".global alya_rodata_start\n");
+        self.output.push_str("alya_rodata_start:\n");
+        self.output.push_str("    .byte 0\n");
+        self.output.push_str(".text\n");
+
         // Emit external symbol declarations
         let mut declared_externs = std::collections::HashSet::new();
         for name in self.ctx.extern_functions.keys() {

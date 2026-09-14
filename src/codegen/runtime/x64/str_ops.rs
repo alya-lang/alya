@@ -494,6 +494,36 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     } else {
         out.push_str("    mov %rdi, %rax\n");
     }
+    // If argument is already a string in alya_str_buf, return it directly
+    out.push_str("    lea alya_str_buf(%rip), %r11\n");
+    out.push_str("    cmp %r11, %rax\n");
+    out.push_str("    jb .L_x64_str_chk_rodata\n");
+    out.push_str("    lea 67108864(%r11), %r10\n");
+    out.push_str("    cmp %r10, %rax\n");
+    out.push_str("    jae .L_x64_str_chk_rodata\n");
+    out.push_str("    pop %r14\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    pop %rbx\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n");
+    out.push_str(".L_x64_str_chk_rodata:\n");
+    // If argument is already a string literal in .rodata, return it directly
+    out.push_str("    lea alya_rodata_start(%rip), %r11\n");
+    out.push_str("    cmp %r11, %rax\n");
+    out.push_str("    jb .L_x64_str_convert\n");
+    out.push_str("    lea alya_rodata_end(%rip), %r10\n");
+    out.push_str("    cmp %r10, %rax\n");
+    out.push_str("    jae .L_x64_str_convert\n");
+    out.push_str("    pop %r14\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    pop %rbx\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n");
+    out.push_str(".L_x64_str_convert:\n");
     super::emit_str_buf_ctx(out, os);
     out.push_str("    mov (%r9), %rbx\n");
     out.push_str("    cmp $950000, %rbx\n");

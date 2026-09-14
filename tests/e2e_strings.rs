@@ -314,3 +314,54 @@ say f1 + f2
         );
     }
 }
+
+#[test]
+fn test_e2e_dynamic_string_concat_and_array_indexing() {
+    let code = r#"
+import "std/json"
+
+let raw = "{\"apps\": [\"chrome.exe\", \"code.exe\", \"notepad.exe\"]}"
+let data = json_parse(raw)
+let apps = data["apps"]
+
+let csv = ""
+let i = 0
+while i < len(apps)
+    if i > 0
+        csv += ","
+    end
+    csv += apps[i]
+    i += 1
+end
+say "csv: {csv}"
+
+let single = apps[0]
+say "app: " + single
+say single
+say str(single)
+
+let arr = ["foo", "bar"]
+let acc = ""
+acc += arr[0]
+acc += ":"
+acc += arr[1]
+say acc
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(
+            output,
+            concat!(
+                "csv: chrome.exe,code.exe,notepad.exe\n",
+                "app: chrome.exe\n",
+                "chrome.exe\n",
+                "chrome.exe\n",
+                "foo:bar\n",
+            )
+        );
+    }
+}
