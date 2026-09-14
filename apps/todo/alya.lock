@@ -2,8 +2,8 @@
 version = 1
 
 [[package]]
-name = "term_table"
-version = "0.1.0"
-source = "path:../../packages/term_table"
-entry = "../../packages/term_table/src/lib.alya"
-checksum = "sha256:c8295ad700b4b5d8eeb16aaa6efa7acec822400c824e010e951ba4849699d633"
+name = "term"
+version = "v0.1.0"
+source = "git:https://github.com/alya-lang/term#v0.1.0"
+entry = ".alya/packages/term/src/lib.alya"
+checksum = "sha256:43aa65a21d5b6b6626e355a3716990006e97a278ecd5e130d3f6581484d70007"

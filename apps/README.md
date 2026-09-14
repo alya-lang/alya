@@ -16,7 +16,7 @@ Each application showcases the language's capabilities: near-C execution perform
 | **[Port Scanner](#4-tcp-port-scanner-port_scanner)** | [`apps/port_scanner/`](port_scanner/main.alya) | Security / Networking | Asynchronous TCP port prober, service identification, ASCII progress bar, `std/net`, `std/time` |
 | **[Snake](#5-snake-arcade-game-snake)** | [`apps/snake/`](snake/main.alya) | Terminal Game / AI | Interactive manual mode (WASD), autonomous AI autopilot mode, high-score tracking, `std/color` |
 | **[Tic Tac Toe](#6-tic-tac-toe-tictactoe)** | [`apps/tictactoe/`](tictactoe/main.alya) | Terminal Game / AI | Player-vs-Player and Player-vs-AI with unbeatable Minimax algorithm, ANSI board, `std/console` |
-| **[Todo Manager](#7-terminal-todo-manager-todo)** | [`apps/todo/`](todo/src/main.alya) | Productivity / Tooling | Package manager integration (`term_table`), task DB, ANSI badges, progress bar, `std/fs` |
+| **[Todo Manager](#7-terminal-todo-manager-todo)** | [`apps/todo/`](todo/src/main.alya) | Productivity / Tooling | Package manager integration (`term`), task DB, ANSI badges, progress bar, `std/fs` |
 
 ---
 
@@ -139,7 +139,7 @@ An interactive, ANSI-colored board game supporting two-player local matches and 
 ### 7. Terminal Todo Manager (`todo`)
 A persistent terminal task manager and productivity tracker built using the **Alya Package Manager (`alyac pkg`)**.
 
-* **Key Features**: Consumes the reusable [`packages/term_table`](../packages/term_table) package (`import "term_table" as ui`) locked in `alya.lock`, auto-increment IDs, priority classification (🔴 HIGH, 🟡 MED, 🟢 LOW), category tags (`#core`, `#docs`, `#apps`), disk persistence (`todo.db`), real-time completion progress bar, and dual CLI / interactive REPL modes.
+* **Key Features**: Consumes the official [`term`](https://github.com/alya-lang/term) package (`import "term" as ui`) locked in `alya.lock`, auto-increment IDs, priority classification (🔴 HIGH, 🟡 MED, 🟢 LOW), category tags (`#core`, `#docs`, `#apps`), disk persistence (`todo.db`), real-time completion progress bar, and dual CLI / interactive REPL modes.
 * **Run**:
   ```bash
   # Run as a package (automatically resolves alya.toml and dependencies)

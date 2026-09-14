@@ -2,13 +2,13 @@
 
 A sleek, persistent terminal task manager and productivity tracker built in **Alya**.
 
-Demonstrates the **Alya Package Manager (`alyac pkg`)** in action by consuming the external reusable package **`term_table`** declared in [`alya.toml`](alya.toml) and deterministically locked in [`alya.lock`](alya.lock).
+Demonstrates the **Alya Package Manager (`alyac pkg`)** in action by consuming the external reusable package **`term`** declared in [`alya.toml`](alya.toml) and deterministically locked in [`alya.lock`](alya.lock).
 
 ---
 
 ## Features
 
-- **Package Manager Integration**: Consumes the reusable [`packages/term_table`](../../packages/term_table) package (`import "term_table" as ui`) for standardized Unicode box borders and ANSI badges.
+- **Package Manager Integration**: Consumes the official [`term`](https://github.com/alya-lang/term) package (`import "term" as ui`) for standardized Unicode box borders and ANSI badges.
 - **Persistent Disk Storage**: Saves your tasks into a local database file (`todo.db`) across terminal sessions.
 - **Priority Badging**: Classify tasks by priority with distinctive ANSI badges:
   - 🔴 **HIGH**: Critical and urgent milestones
@@ -31,7 +31,7 @@ Demonstrates the **Alya Package Manager (`alyac pkg`)** in action by consuming t
 [package]
 name = "todo"
 version = "1.0.0"
-alya-version = "0.0.5"
+alya-version = "0.0.16"
 entry = "src/main.alya"
 description = "A sleek terminal task manager with priorities, tags, and persistence"
 authors = ["Alya Language Contributors <https://github.com/alya-lang>"]
@@ -41,7 +41,7 @@ repository = "https://github.com/alya-lang/alya"
 keywords = ["alya", "alya-lang", "package", "todo", "cli", "app", "productivity"]
 
 [dependencies]
-term_table = { path = "../../packages/term_table" }
+term = { git = "https://github.com/alya-lang/term", tag = "v0.1.0" }
 ```
 
 ### Inspect Package Status
@@ -57,7 +57,7 @@ Entry:   src/main.alya
 About:   A sleek terminal task manager with priorities, tags, and persistence
 
 Dependencies (1):
-  • term_table       path: ../../packages/term_table     [locked: sha256:c8295ad700...]
+  • term             git: https://github.com/alya-lang/term (tag: v0.1.0) [locked: sha256:43aa65a21d...]
 ```
 
 ---
@@ -117,6 +117,6 @@ alyac run apps/todo/src/main.alya -- --test
 
 ## Architecture & Structure
 
-- [`alya.toml`](alya.toml): Project manifest declaring the `term_table` package dependency.
+- [`alya.toml`](alya.toml): Project manifest declaring the `term` package dependency.
 - [`alya.lock`](alya.lock): Cryptographic SHA-256 lockfile ensuring reproducible dependency resolution.
-- [`src/main.alya`](src/main.alya): Application entry importing `term_table` as `ui`.
+- [`src/main.alya`](src/main.alya): Application entry importing `term` as `ui`.

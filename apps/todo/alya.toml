@@ -1,7 +1,7 @@
 [package]
 name = "todo"
 version = "1.0.0"
-alya-version = "0.0.8"
+alya-version = "0.0.16"
 entry = "src/main.alya"
 description = "A sleek terminal task manager with priorities, tags, and persistence"
 authors = ["Alya Language Contributors <https://github.com/alya-lang>"]
@@ -11,4 +11,4 @@ repository = "https://github.com/alya-lang/alya"
 keywords = ["alya", "alya-lang", "package", "todo", "cli", "app", "productivity"]
 
 [dependencies]
-term_table = { path = "../../packages/term_table" }
+term = { git = "https://github.com/alya-lang/term", tag = "v0.1.0" }
