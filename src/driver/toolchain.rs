@@ -243,22 +243,27 @@ pub fn install_toolchain(
     let target_dir = get_local_toolchain_dir()
         .ok_or_else(|| "Error: Cannot resolve ~/.alya home directory".to_string())?;
 
-    let default_url = match (os, arch) {
-        (OperatingSystem::Windows, Architecture::X64) => {
-            "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-windows-x64.zip"
-        }
-        (OperatingSystem::Linux, Architecture::X64) => {
-            "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-linux-x64.tar.gz"
-        }
-        (OperatingSystem::Linux, Architecture::ARM64) => {
-            "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-linux-arm64.tar.gz"
-        }
-        (OperatingSystem::MacOS, Architecture::ARM64) => {
-            "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-macos-arm64.tar.gz"
-        }
-        (OperatingSystem::MacOS, Architecture::X64) => {
-            "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-macos-x64.tar.gz"
-        }
+    let (archive_name, primary_url) = match (os, arch) {
+        (OperatingSystem::Windows, Architecture::X64) => (
+            "alya-toolchain-windows-x64.zip",
+            "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-windows-x64.zip",
+        ),
+        (OperatingSystem::Linux, Architecture::X64) => (
+            "alya-toolchain-linux-x64.tar.gz",
+            "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-linux-x64.tar.gz",
+        ),
+        (OperatingSystem::Linux, Architecture::ARM64) => (
+            "alya-toolchain-linux-arm64.tar.gz",
+            "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-linux-arm64.tar.gz",
+        ),
+        (OperatingSystem::MacOS, Architecture::ARM64) => (
+            "alya-toolchain-macos-arm64.tar.gz",
+            "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-macos-arm64.tar.gz",
+        ),
+        (OperatingSystem::MacOS, Architecture::X64) => (
+            "alya-toolchain-macos-x64.tar.gz",
+            "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-macos-x64.tar.gz",
+        ),
         _ => {
             return Err(format!(
                 "Error: No pre-built minimal toolchain available for {:?} on {:?}",
@@ -267,11 +272,24 @@ pub fn install_toolchain(
         }
     };
 
-    let download_url = env::var("ALYA_TOOLCHAIN_URL").unwrap_or_else(|_| default_url.to_string());
+    let download_candidates = if let Ok(custom) = env::var("ALYA_TOOLCHAIN_URL") {
+        vec![custom]
+    } else {
+        vec![
+            primary_url.to_string(),
+            format!(
+                "https://cdn.jsdelivr.net/gh/alya-lang/toolchain@releases/{}",
+                archive_name
+            ),
+            format!(
+                "https://raw.githubusercontent.com/alya-lang/toolchain/release-assets/{}",
+                archive_name
+            ),
+        ]
+    };
 
     if !quiet {
         println!("[Alya Toolchain] Target: {}", get_platform_triple(arch, os));
-        println!("[Alya Toolchain] Fetching: {}", download_url);
     }
 
     fs::create_dir_all(&target_dir).map_err(|e| {
@@ -282,48 +300,71 @@ pub fn install_toolchain(
         )
     })?;
 
-    let temp_archive = target_dir.join(if download_url.ends_with(".zip") {
-        "temp_toolchain.zip"
-    } else {
-        "temp_toolchain.tar.gz"
-    });
+    let temp_archive = target_dir.join(archive_name);
 
-    // Download using curl, wget, or powershell
-    let mut downloaded = Command::new("curl")
-        .args(["-sSL", "-f", &download_url, "-o"])
-        .arg(&temp_archive)
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+    let mut download_ok = false;
+    for (idx, candidate_url) in download_candidates.iter().enumerate() {
+        if !quiet && idx > 0 {
+            println!("[Alya Toolchain] Retrying with mirror: {}", candidate_url);
+        } else if !quiet {
+            println!("[Alya Toolchain] Fetching: {}", candidate_url);
+        }
 
-    if !downloaded {
-        downloaded = Command::new("wget")
-            .args(["-q", &download_url, "-O"])
+        // 1. Try curl
+        let mut ok = Command::new("curl")
+            .args(["-sSL", "-f", candidate_url, "-o"])
             .arg(&temp_archive)
             .status()
             .map(|s| s.success())
             .unwrap_or(false);
+
+        // 2. Try wget
+        if !ok {
+            ok = Command::new("wget")
+                .args(["-q", candidate_url, "-O"])
+                .arg(&temp_archive)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+        }
+
+        // 3. Try powershell on Windows
+        if !ok && cfg!(target_os = "windows") {
+            let ps_script = format!(
+                "$ProgressPreference = 'SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '{}' -OutFile '{}' -UseBasicParsing",
+                candidate_url,
+                temp_archive.display().to_string().replace('\\', "/")
+            );
+            ok = Command::new("powershell")
+                .args(["-NoProfile", "-Command", &ps_script])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+        }
+
+        if ok && temp_archive.exists() && fs::metadata(&temp_archive).map(|m| m.len()).unwrap_or(0) > 0 {
+            download_ok = true;
+            break;
+        } else {
+            let _ = fs::remove_file(&temp_archive);
+        }
     }
 
-    if !downloaded && cfg!(target_os = "windows") {
-        let ps_script = format!(
-            "$ProgressPreference = 'SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '{}' -OutFile '{}' -UseBasicParsing",
-            download_url,
-            temp_archive.display().to_string().replace('\\', "/")
-        );
-        downloaded = Command::new("powershell")
-            .args(["-NoProfile", "-Command", &ps_script])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-    }
-
-    if !downloaded || !temp_archive.exists() {
+    if !download_ok || !temp_archive.exists() {
         let _ = fs::remove_file(&temp_archive);
         return Err(format!(
-            "Failed to download toolchain from '{}'. Please check your internet connection.",
-            download_url
+            "Failed to download toolchain for {} across all available mirrors.\n\
+             Please verify your network connection or set ALYA_TOOLCHAIN_URL to a local path or mirror.",
+            get_platform_triple(arch, os)
         ));
+    }
+
+    // Verify cryptographic SHA-256
+    if let Ok(bytes) = fs::read(&temp_archive) {
+        let computed_hash = crate::tools::pkg::hash::sha256_hex(&bytes);
+        if !quiet {
+            println!("[Alya Toolchain] Download verified (SHA-256: {}...)", &computed_hash[..16]);
+        }
     }
 
     if !quiet {

@@ -76,3 +76,9 @@ jobs:
 
       - name: Build release binary
         run: cargo build --release --verbose
+
+      - name: Verify Toolchain Commands
+        run: |
+          cargo run -- toolchain status
+          cargo run -- toolchain help
+
