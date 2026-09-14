@@ -26,6 +26,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_x64_concat_ok:\n");
     out.push_str("    lea (%r8, %rbx), %rdi\n");
     out.push_str("    mov %rdi, %rax\n");
+    out.push_str("    cmp $65536, %rsi\n");
+    out.push_str("    jb .L_x64_copy2_start\n");
     out.push_str(".L_x64_copy1:\n");
     out.push_str("    movb (%rsi), %cl\n");
     out.push_str("    test %cl, %cl\n");
@@ -36,6 +38,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    jmp .L_x64_copy1\n");
     out.push_str(".L_x64_copy2_start:\n");
     out.push_str("    mov %r10, %rsi\n");
+    out.push_str("    cmp $65536, %rsi\n");
+    out.push_str("    jb .L_x64_concat_end\n");
     out.push_str(".L_x64_copy2:\n");
     out.push_str("    movb (%rsi), %cl\n");
     out.push_str("    test %cl, %cl\n");
@@ -716,6 +720,33 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    xor %rcx, %rcx\n");
     out.push_str("    test %rsi, %rsi\n");
     out.push_str("    jz .L_x64_s2i_done\n");
+    out.push_str("    lea alya_str_buf(%rip), %r11\n");
+    out.push_str("    cmp %r11, %rsi\n");
+    out.push_str("    jb .L_x64_s2i_chk_rodata\n");
+    out.push_str("    lea 67108864(%r11), %r10\n");
+    out.push_str("    cmp %r10, %rsi\n");
+    out.push_str("    jb .L_x64_s2i_skip\n");
+    out.push_str(".L_x64_s2i_chk_rodata:\n");
+    out.push_str("    lea alya_rodata_start(%rip), %r11\n");
+    out.push_str("    cmp %r11, %rsi\n");
+    out.push_str("    jb .L_x64_s2i_not_str\n");
+    out.push_str("    lea alya_rodata_end(%rip), %r10\n");
+    out.push_str("    cmp %r10, %rsi\n");
+    out.push_str("    jb .L_x64_s2i_skip\n");
+    out.push_str(".L_x64_s2i_not_str:\n");
+    out.push_str("    mov %rsi, %rdx\n");
+    out.push_str("    sar $52, %rdx\n");
+    out.push_str("    and $0x7ff, %rdx\n");
+    out.push_str("    test %rdx, %rdx\n");
+    out.push_str("    jz .L_x64_s2i_as_int\n");
+    out.push_str("    cmp $0x7ff, %rdx\n");
+    out.push_str("    je .L_x64_s2i_as_int\n");
+    out.push_str("    movq %rsi, %xmm0\n");
+    out.push_str("    cvttsd2siq %xmm0, %rax\n");
+    out.push_str("    jmp .L_x64_s2i_done\n");
+    out.push_str(".L_x64_s2i_as_int:\n");
+    out.push_str("    mov %rsi, %rax\n");
+    out.push_str("    jmp .L_x64_s2i_done\n");
     out.push_str(".L_x64_s2i_skip:\n");
     out.push_str("    movzbq (%rsi), %rdx\n");
     out.push_str("    test %rdx, %rdx\n");
@@ -766,14 +797,47 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    push %rbp\n");
     out.push_str("    mov %rsp, %rbp\n");
     if matches!(os, OperatingSystem::Windows) {
-        out.push_str("    test %rcx, %rcx\n");
-        out.push_str("    jz .L_x64_s2f_zero\n");
+        out.push_str("    mov %rcx, %rsi\n");
+    } else {
+        out.push_str("    mov %rdi, %rsi\n");
+    }
+    out.push_str("    test %rsi, %rsi\n");
+    out.push_str("    jz .L_x64_s2f_zero\n");
+    out.push_str("    lea alya_str_buf(%rip), %r11\n");
+    out.push_str("    cmp %r11, %rsi\n");
+    out.push_str("    jb .L_x64_s2f_chk_rodata\n");
+    out.push_str("    lea 67108864(%r11), %r10\n");
+    out.push_str("    cmp %r10, %rsi\n");
+    out.push_str("    jb .L_x64_s2f_call_atof\n");
+    out.push_str(".L_x64_s2f_chk_rodata:\n");
+    out.push_str("    lea alya_rodata_start(%rip), %r11\n");
+    out.push_str("    cmp %r11, %rsi\n");
+    out.push_str("    jb .L_x64_s2f_not_str\n");
+    out.push_str("    lea alya_rodata_end(%rip), %r10\n");
+    out.push_str("    cmp %r10, %rsi\n");
+    out.push_str("    jb .L_x64_s2f_call_atof\n");
+    out.push_str(".L_x64_s2f_not_str:\n");
+    out.push_str("    mov %rsi, %rdx\n");
+    out.push_str("    sar $52, %rdx\n");
+    out.push_str("    and $0x7ff, %rdx\n");
+    out.push_str("    test %rdx, %rdx\n");
+    out.push_str("    jz .L_x64_s2f_from_int\n");
+    out.push_str("    cmp $0x7ff, %rdx\n");
+    out.push_str("    je .L_x64_s2f_from_int\n");
+    out.push_str("    mov %rsi, %rax\n");
+    out.push_str("    jmp .L_x64_s2f_end\n");
+    out.push_str(".L_x64_s2f_from_int:\n");
+    out.push_str("    cvtsi2sdq %rsi, %xmm0\n");
+    out.push_str("    movq %xmm0, %rax\n");
+    out.push_str("    jmp .L_x64_s2f_end\n");
+    out.push_str(".L_x64_s2f_call_atof:\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %rsi, %rcx\n");
         out.push_str("    sub $32, %rsp\n");
         out.push_str("    call atof\n");
         out.push_str("    add $32, %rsp\n");
     } else {
-        out.push_str("    test %rdi, %rdi\n");
-        out.push_str("    jz .L_x64_s2f_zero\n");
+        out.push_str("    mov %rsi, %rdi\n");
         out.push_str(&format!("    call {}atof\n", p));
     }
     out.push_str("    movq %xmm0, %rax\n");
