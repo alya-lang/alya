@@ -560,14 +560,14 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movz x6, #1024, lsl #16\n");
     out.push_str("    add x6, x5, x6\n");
     out.push_str("    cmp x0, x6\n");
-    out.push_str("    b.lo .L_arm_s2i_skip\n");
+    out.push_str("    b.lo .L_arm_s2i_is_str\n");
     out.push_str(".L_arm_s2i_chk_rodata:\n");
     emit_adrp_add(out, "x5", "alya_rodata_start", os);
     out.push_str("    cmp x0, x5\n");
     out.push_str("    b.lo .L_arm_s2i_not_str\n");
     emit_adrp_add(out, "x6", "alya_rodata_end", os);
     out.push_str("    cmp x0, x6\n");
-    out.push_str("    b.lo .L_arm_s2i_skip\n");
+    out.push_str("    b.lo .L_arm_s2i_is_str\n");
     out.push_str(".L_arm_s2i_not_str:\n");
     out.push_str("    lsr x2, x0, #52\n");
     out.push_str("    and x2, x2, #0x7ff\n");
@@ -578,10 +578,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    fmov d0, x0\n");
     out.push_str("    fcvtzs x0, d0\n");
     out.push_str("    ret\n");
-    out.push_str(".L_arm_s2i_skip:\n");
+    out.push_str(".L_arm_s2i_is_str:\n");
     out.push_str("    mov x1, x0\n");
     out.push_str("    mov x0, #0\n");
     out.push_str("    mov x2, #0\n");
+    out.push_str(".L_arm_s2i_skip:\n");
     out.push_str("    ldrb w3, [x1]\n");
     out.push_str("    cbz w3, .L_arm_s2i_done\n");
     out.push_str("    cmp w3, #' '\n");
@@ -651,6 +652,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x3, #0x7ff\n");
     out.push_str("    cmp x2, x3\n");
     out.push_str("    b.eq .L_arm_s2f_from_int\n");
+    out.push_str("    fmov d0, x0\n");
     out.push_str("    ret\n");
     out.push_str(".L_arm_s2f_from_int:\n");
     out.push_str("    scvtf d0, x0\n");
