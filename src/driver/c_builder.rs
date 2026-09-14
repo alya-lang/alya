@@ -172,18 +172,24 @@ pub fn build_c_objects(
                 gcc_args.push(flag.clone());
             }
 
-            let output = Command::new("gcc").args(&gcc_args).output().map_err(|e| {
-                format!(
-                    "Failed to invoke GCC to compile C source '{}': {}",
-                    canon_src.display(),
-                    e
-                )
-            })?;
+            let toolchain = crate::driver::toolchain::resolve_toolchain(arch, os, false)?;
+            let output = Command::new(&toolchain.compiler_path)
+                .args(&gcc_args)
+                .output()
+                .map_err(|e| {
+                    format!(
+                        "Failed to invoke compiler '{}' to compile C source '{}': {}",
+                        toolchain.compiler_path.display(),
+                        canon_src.display(),
+                        e
+                    )
+                })?;
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 return Err(format!(
-                    "GCC failed to compile C source '{}':\n{}",
+                    "Compiler ({}) failed to compile C source '{}':\n{}",
+                    toolchain.compiler_path.display(),
                     canon_src.display(),
                     stderr
                 ));

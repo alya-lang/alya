@@ -7,8 +7,14 @@ use std::path::Path;
 use std::time::Instant;
 pub mod c_builder;
 pub mod runner;
+pub mod toolchain;
 
 pub fn run(args: CliArgs) -> Result<(), String> {
+    if let CommandKind::Toolchain(ref tc_cmd) = args.command {
+        toolchain::run_toolchain_cmd(tc_cmd, args.arch, args.os)?;
+        return Ok(());
+    }
+
     if let CommandKind::Pkg(ref pkg_cmd) = args.command {
         crate::tools::pkg::run_pkg(pkg_cmd)?;
         return Ok(());

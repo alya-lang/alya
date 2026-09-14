@@ -1,4 +1,5 @@
 use crate::codegen::{Architecture, OperatingSystem};
+use crate::driver::toolchain::ToolchainCommand;
 use crate::tools::pkg::PkgCommand;
 use std::env;
 use std::process;
@@ -14,6 +15,7 @@ pub enum CommandKind {
     Test,
     Repl,
     Pkg(PkgCommand),
+    Toolchain(ToolchainCommand),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,6 +135,11 @@ impl CliArgs {
                 }
             };
             return Ok(Some(Self::create_pkg_args(pkg_cmd)));
+        }
+
+        if first == "toolchain" {
+            let tc_cmd = parse_toolchain_args(&args[2..])?;
+            return Ok(Some(Self::create_toolchain_args(tc_cmd)));
         }
 
         let mut command = CommandKind::Build;
@@ -433,6 +440,39 @@ impl CliArgs {
         }
     }
 
+    fn create_toolchain_args(tc_cmd: ToolchainCommand) -> Self {
+        let arch = if cfg!(target_arch = "aarch64") {
+            Architecture::ARM64
+        } else if cfg!(target_arch = "x86") {
+            Architecture::X86
+        } else {
+            Architecture::X64
+        };
+        let os = if cfg!(target_os = "windows") {
+            OperatingSystem::Windows
+        } else if cfg!(target_os = "macos") {
+            OperatingSystem::MacOS
+        } else {
+            OperatingSystem::Linux
+        };
+        Self {
+            command: CommandKind::Toolchain(tc_cmd),
+            input_file: String::new(),
+            output_file: None,
+            output_binary: false,
+            arch,
+            os,
+            quiet: false,
+            time: false,
+            stats: false,
+            check_only: false,
+            bundle: false,
+            bundle_id: None,
+            icon_path: None,
+            run_args: Vec::new(),
+        }
+    }
+
     pub fn print_version() {
         crate::cli::help::print_version();
     }
@@ -596,4 +636,20 @@ fn parse_pkg_clean_args(args: &[String]) -> Result<PkgCommand, String> {
         }
     }
     Ok(PkgCommand::Clean { all })
+}
+
+fn parse_toolchain_args(args: &[String]) -> Result<ToolchainCommand, String> {
+    if args.is_empty() {
+        return Ok(ToolchainCommand::Status);
+    }
+    match args[0].as_str() {
+        "status" => Ok(ToolchainCommand::Status),
+        "install" => Ok(ToolchainCommand::Install),
+        "clean" | "purge" => Ok(ToolchainCommand::Clean),
+        "help" | "-h" | "--help" => Ok(ToolchainCommand::Help),
+        other => Err(format!(
+            "Error: Unknown toolchain subcommand '{}'. Run 'alyac toolchain help' for usage.",
+            other
+        )),
+    }
 }
