@@ -120,14 +120,17 @@ Alya is engineered for rapid compilation and high-performance native execution a
 
 | Category | Benchmark | C (GCC -O2) | Alya (Native) | Bun (JS JIT) | Python 3.12 | Alya vs Bun | Alya vs Python |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| `Algorithms` | **Recursive Fibonacci (n=30)** | `2.3 ms` | **`8.6 ms`** | `12.9 ms` | `121.6 ms` | **1.5x faster** | **14.1x faster** |
-| `Algorithms` | **Quicksort (50k items)** | `14.7 ms` | **`128.1 ms`** | `28.1 ms` | `1807.2 ms` | `4.6x slower` | **14.1x faster** |
-| `Algorithms` | **Sieve of Eratosthenes (50k)** | `1.0 ms` | **`1.6 ms`** | `6.8 ms` | `17.5 ms` | **4.3x faster** | **11.1x faster** |
-| `Collections` | **Binary Trees (Depth 14)** | `107.4 ms` | **`432.2 ms`** | `96.8 ms` | `2784.8 ms` | `4.5x slower` | **6.4x faster** |
-| `Collections` | **Hash Map (20k entries)** | `4.3 ms` | **`10.5 ms`** | `14.7 ms` | `23.8 ms` | **1.4x faster** | **2.3x faster** |
-| `Numeric` | **Mandelbrot Fractal (200×100)** | `3.1 ms` | **`8.1 ms`** | `9.1 ms` | `122.0 ms` | **1.1x faster** | **15.0x faster** |
-| `Numeric` | **Matrix Multiply (120×120)** | `1.2 ms` | **`7.3 ms`** | `11.8 ms` | `189.7 ms` | **1.6x faster** | **26.0x faster** |
-| `Strings` | **FNV-1a String Hash (50k)** | `4.7 ms` | **`8.8 ms`** | `12.6 ms` | `426.1 ms` | **1.4x faster** | **48.3x faster** |
+| `Algorithms` | **Recursive Fibonacci (n=30)** | `14.3 ms` | **`18.1 ms`** | `30.8 ms` | `131.1 ms` | **1.7x faster** | **7.3x faster** |
+| `Algorithms` | **Quicksort (50k items)** | `23.6 ms` | **`117.2 ms`** | `47.0 ms` | `1604.6 ms` | `2.5x slower` | **13.7x faster** |
+| `Algorithms` | **Sieve of Eratosthenes (50k)** | `11.9 ms` | **`15.4 ms`** | `29.8 ms` | `46.2 ms` | **1.9x faster** | **3.0x faster** |
+| `Algorithms` | **Collatz (100k limit)** | `24.7 ms` | **`84.7 ms`** | `60.6 ms` | `796.5 ms` | `1.4x slower` | **9.4x faster** |
+| `Algorithms` | **Binary Search (100k items)** | `14.6 ms` | **`20.9 ms`** | `31.2 ms` | `121.1 ms` | **1.5x faster** | **5.8x faster** |
+| `Collections` | **Binary Trees (Depth 14)** | `246.9 ms` | **`482.2 ms`** | `142.6 ms` | `2371.7 ms` | `3.4x slower` | **4.9x faster** |
+| `Collections` | **Hash Map (20k entries)** | `14.8 ms` | **`27.3 ms`** | `34.7 ms` | `45.0 ms` | **1.3x faster** | **1.6x faster** |
+| `Numeric` | **Mandelbrot Fractal (200×100)** | `14.3 ms` | **`18.4 ms`** | `31.3 ms` | `114.7 ms` | **1.7x faster** | **6.2x faster** |
+| `Numeric` | **Matrix Multiply (120×120)** | `11.6 ms` | **`19.0 ms`** | `31.8 ms` | `163.7 ms` | **1.7x faster** | **8.6x faster** |
+| `Numeric` | **Monte Carlo (500k iters)** | `60.2 ms` | **`21.6 ms`** | `38.0 ms` | `181.4 ms` | **1.8x faster** | **8.4x faster** |
+| `Strings` | **FNV-1a String Hash (50k)** | `15.1 ms` | **`20.4 ms`** | `41.8 ms` | `386.3 ms` | **2.0x faster** | **18.9x faster** |
 
 > 📊 For full cross-platform benchmark results (Linux, macOS, Windows), compiler throughput benchmarks, and reproduction instructions, see **[alya-lang/benchmarks](https://github.com/alya-lang/benchmarks)**.
 
