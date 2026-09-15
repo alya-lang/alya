@@ -812,22 +812,13 @@ pub fn collect_known_string_vars(program: &Program) -> HashSet<String> {
 pub fn infer_param_is_string_with(
     func_name: &str,
     param_idx: usize,
-    program: &Program,
+    _program: &Program,
     known_strings: &HashSet<String>,
 ) -> bool {
     let bare = func_name.rsplit("::").next().unwrap_or(func_name);
     let bare = bare.rsplit("__").next().unwrap_or(bare);
     known_strings.contains(&format!("fn_param_str:{}:{}", func_name, param_idx))
         || known_strings.contains(&format!("fn_param_str:{}:{}", bare, param_idx))
-        || program.statements.iter().any(|s| {
-            if let Some(arg) = find_call_arg(s, func_name, param_idx) {
-                expr_is_definitely_string(arg, known_strings)
-            } else if let Some(arg) = find_call_arg(s, bare, param_idx) {
-                expr_is_definitely_string(arg, known_strings)
-            } else {
-                false
-            }
-        })
 }
 
 pub fn infer_param_is_string_array_with(
