@@ -332,20 +332,26 @@ pub fn try_git_clone(
         for t in &tags_to_try {
             let mut cmd = Command::new("git");
             cmd.arg("clone")
+                .arg("-q")
                 .arg("--depth")
                 .arg("1")
                 .arg("--branch")
                 .arg(t)
                 .arg(url)
                 .arg(target_dir);
-            match cmd.status() {
-                Ok(status) if status.success() => return Ok(()),
-                Ok(status) => {
+            match cmd.output() {
+                Ok(out) if out.status.success() => return Ok(()),
+                Ok(out) => {
                     let _ = fs::remove_dir_all(target_dir);
-                    last_err = format!(
-                        "git clone exited with status {}",
-                        status.code().unwrap_or(-1)
-                    );
+                    let err_msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                    last_err = if !err_msg.is_empty() {
+                        err_msg
+                    } else {
+                        format!(
+                            "git clone exited with status {}",
+                            out.status.code().unwrap_or(-1)
+                        )
+                    };
                 }
                 Err(e) => {
                     let _ = fs::remove_dir_all(target_dir);
@@ -357,20 +363,25 @@ pub fn try_git_clone(
     }
 
     let mut cmd = Command::new("git");
-    cmd.arg("clone").arg("--depth").arg("1");
+    cmd.arg("clone").arg("-q").arg("--depth").arg("1");
     if let Some(b) = branch {
         cmd.arg("--branch").arg(b);
     }
     cmd.arg(url).arg(target_dir);
 
-    match cmd.status() {
-        Ok(status) if status.success() => Ok(()),
-        Ok(status) => {
+    match cmd.output() {
+        Ok(out) if out.status.success() => Ok(()),
+        Ok(out) => {
             let _ = fs::remove_dir_all(target_dir);
-            Err(format!(
-                "git clone exited with status {}",
-                status.code().unwrap_or(-1)
-            ))
+            let err_msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            Err(if !err_msg.is_empty() {
+                err_msg
+            } else {
+                format!(
+                    "git clone exited with status {}",
+                    out.status.code().unwrap_or(-1)
+                )
+            })
         }
         Err(e) => {
             let _ = fs::remove_dir_all(target_dir);
@@ -385,18 +396,18 @@ pub fn update_git_dependency(tag: Option<&str>, branch: Option<&str>, target_dir
     }
     let _ = Command::new("git")
         .current_dir(target_dir)
-        .args(["fetch", "--depth", "1"])
-        .status();
+        .args(["fetch", "-q", "--depth", "1"])
+        .output();
     if let Some(t) = tag {
         let _ = Command::new("git")
             .current_dir(target_dir)
-            .args(["checkout", t])
-            .status();
+            .args(["checkout", "-q", t])
+            .output();
     } else if let Some(b) = branch {
         let _ = Command::new("git")
             .current_dir(target_dir)
-            .args(["checkout", b])
-            .status();
+            .args(["checkout", "-q", b])
+            .output();
     }
 }
 
