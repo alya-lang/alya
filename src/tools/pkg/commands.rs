@@ -223,6 +223,12 @@ pub fn run_add(
                         &cached_pkg_dir,
                     );
                 }
+                if cached_pkg_dir.exists() && !cached_pkg_dir.join(".alya-source").exists() {
+                    let _ = fs::write(
+                        cached_pkg_dir.join(".alya-source"),
+                        format!("git:{}#head", url),
+                    );
+                }
                 if let Ok(manifest_src) = fs::read_to_string(cached_pkg_dir.join("alya.toml")) {
                     if let Ok(parsed) = parse_manifest(&manifest_src) {
                         detected_ver = Some(parsed.package.version);
