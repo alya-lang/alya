@@ -144,7 +144,7 @@ pub fn emit_data_sections(
     if matches!(arch, Architecture::X86) {
         out.push_str(&format!("    {} \"%d\"\n", str_directive));
     } else {
-        out.push_str(&format!("    {} \"%ld\"\n", str_directive));
+        out.push_str(&format!("    {} \"%lld\"\n", str_directive));
     }
     out.push_str("alya_fmt_arr_comma:\n");
     out.push_str(&format!("    {} \", \"\n", str_directive));
@@ -172,8 +172,9 @@ pub fn emit_data_sections(
     if matches!(arch, Architecture::X86) {
         out.push_str(&format!("    {} \"%s: %d\"\n", str_directive));
     } else {
-        out.push_str(&format!("    {} \"%s: %ld\"\n", str_directive));
+        out.push_str(&format!("    {} \"%s: %lld\"\n", str_directive));
     }
+
     out.push_str("alya_fmt_struct_comma:\n");
     out.push_str(&format!("    {} \", \"\n", str_directive));
 

@@ -62,7 +62,7 @@ impl CodeGen {
                                 } else if is_flt {
                                     format_str.push_str("%g");
                                 } else {
-                                    format_str.push_str("%ld");
+                                    format_str.push_str("%lld");
                                 }
                                 exprs.push(part);
                                 is_floats.push(is_flt);
@@ -143,7 +143,7 @@ impl CodeGen {
                 if is_flt {
                     self.emit_string_directive("%g\\n");
                 } else {
-                    self.emit_string_directive("%ld\\n");
+                    self.emit_string_directive("%lld\\n");
                 }
                 self.output.push_str(".text\n");
 
@@ -207,7 +207,8 @@ impl CodeGen {
                             let fmt_label = self.ctx.next_string_label();
                             self.emit_rodata_section();
                             self.output.push_str(&format!("{}:\n", fmt_label));
-                            self.emit_string_directive("%ld\\n");
+                            self.emit_string_directive("%lld\\n");
+
                             self.output.push_str(".text\n");
 
                             arch::emit_say_offset(
@@ -374,7 +375,7 @@ impl CodeGen {
                     let fmt_label = self.ctx.next_string_label();
                     self.emit_rodata_section();
                     self.output.push_str(&format!("{}:\n", fmt_label));
-                    self.emit_string_directive("%ld\\n");
+                    self.emit_string_directive("%lld\\n");
                     self.output.push_str(".text\n");
 
                     arch::emit_say_num_const(
@@ -431,8 +432,9 @@ impl CodeGen {
                 } else if is_flt {
                     self.emit_string_directive("%g\\n");
                 } else {
-                    self.emit_string_directive("%ld\\n");
+                    self.emit_string_directive("%lld\\n");
                 }
+
                 self.output.push_str(".text\n");
 
                 if is_flt {
