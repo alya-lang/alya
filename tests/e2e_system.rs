@@ -962,27 +962,14 @@ say json_int(42)
 say json_float(3.14)
 say json_string("hello \"quotes\" and \\backslash")
 
-say json_array_of_strings(["one", "two"])
-say json_array_of_numbers([10, 20, 30])
-say json_array_of_bools([1, 0, 1])
+say json_array([json_string("one"), json_string("two")])
+say json_array([json_int(10), json_int(20), json_int(30)])
 
 let user = {}
-user["name"] = "Alice"
-user["city"] = "Paris"
-let s_map = json_string_map(user)
-say json_get_string(s_map, "name")
-say json_get_string(s_map, "city")
-
-let json_doc = "{\"age\": 25, \"name\": \"Bob\"}"
-say json_get_string(json_doc, "name")
-say json_get_number(json_doc, "age")
-
-let pretty = json_pretty("{\"k\": \"v\"}", 2)
-if len(pretty) > len("{\"k\": \"v\"}")
-    say 1
-else
-    say 0
-end
+user["name"] = json_string("Alice")
+let s_obj = json_object(user)
+let parsed_user = json_parse(s_obj)
+say str_from_ptr(parsed_user["name"])
 
 let parsed = json_parse("{\"title\": \"Alya\", \"score\": 100, \"active\": true, \"tags\": [\"fast\", \"native\"]}")
 say str_from_ptr(parsed["title"])
@@ -1009,12 +996,7 @@ say json_is_valid("invalid json")
                 "\"hello \\\"quotes\\\" and \\\\backslash\"\n",
                 "[\"one\", \"two\"]\n",
                 "[10, 20, 30]\n",
-                "[true, false, true]\n",
                 "Alice\n",
-                "Paris\n",
-                "Bob\n",
-                "25\n",
-                "1\n",
                 "Alya\n",
                 "100\n",
                 "1\n",
@@ -1575,30 +1557,18 @@ wait_group_free(wg)
 }
 
 #[test]
-fn test_e2e_stdlib_console_tui() {
+fn test_e2e_stdlib_console_controls() {
     let code = r#"
 import "std/console"
 
-let bar = console_progress_bar(75, 100, 20)
-say bar
-
-let s0 = console_spinner_char(0)
-let s1 = console_spinner_char(1)
-say "spin: " + s0 + s1
-
-let headers = ["Key", "Val"]
-let rows = [
-    ["name", "Alya"],
-    ["ver", "0.0.5"]
-]
-console_table(headers, rows)
+let ok = console_utf8()
+say "utf8: " + str(ok)
+say "enc: " + get_output_encoding()
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(code, 0, "Execution failed: {}", output);
-        assert!(output.contains("75%"), "Got: {}", output);
-        assert!(output.contains("spin: |/"), "Got: {}", output);
-        assert!(output.contains("Alya"), "Got: {}", output);
-        assert!(output.contains("0.0.5"), "Got: {}", output);
+        assert!(output.contains("utf8: 1"), "Got: {}", output);
+        assert!(output.contains("enc: UTF-8"), "Got: {}", output);
     }
 }
 

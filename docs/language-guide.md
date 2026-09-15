@@ -344,18 +344,18 @@ say product    # 60
 | `std/net` | TCP & UDP socket networking | `tcp_connect`, `tcp_send`, `tcp_recv`, `tcp_close`, `tcp_listen`, `tcp_accept`, `udp_socket`, `udp_bind`, `udp_send`, `udp_recv` |
 | `std/console` | Terminal control & code pages | `console_utf8`, `console_clear`, `console_title`, `console_beep`, `console_cursor_to`, `console_cursor_hide`, `console_cursor_show` |
 | `std/glob` | Wildcard matching & globbing | `glob_match`, `glob_match_simple`, `glob_filter`, `glob`, `glob_dir`, `glob_escape` |
-| `std/rand` | PRNG, UUID v4/v7 & ULID | `rand_auto_seed`, `rand_int`, `rand_float`, `rand_alphanumeric`, `shuffle`, `uuid_v4`, `uuid_v7`, `ulid` |
+| `std/rand` | Lightweight PRNG & range generators | `rand_auto_seed`, `rand_seed_state`, `rand_next`, `rand_int`, `rand_float`, `rand_float_range`, `rand_bool`, `rand_chance`, `rand_choice` |
 | `std/color` | ANSI colors & TrueColor RGB | `color_red`, `color_green`, `color_rgb`, `bg_rgb`, `style_bold`, `strip_ansi` |
 | `std/log` | Leveled logging & formatting | `log_debug`, `log_info`, `log_warn`, `log_error`, `log_fatal`, `logger_new` |
 | `std/hash` | Hashing & binary encoding | `djb2`, `fnv1a`, `hex_encode`, `hex_decode`, `base64_encode`, `base64_decode` |
 | `std/collections` | High-level data structures | `Stack` (`stack_new`, `stack_push`, `stack_pop`), `Queue` (`queue_new`, `queue_push`), `Set` (`set_new`, `set_add`, `set_has`, `set_remove`) |
 | `std/test` | Micro-testing framework | `test_suite`, `assert`, `assert_eq`, `assert_str_eq`, `test_summary` |
-| `std/json` | JSON serialization | `json_number`, `json_string`, `json_bool`, `json_array`, `json_object`, `json_map` |
+| `std/json` | JSON serialization | `json_number`, `json_string`, `json_bool`, `json_array`, `json_object`, `json_map`, `json_parse` |
 | `std/time` | System clock & timers | `time`, `clock_ms`, `sleep_ms` |
 | `std/os` | Operating system interop | `os_name`, `arch_name`, `env`, `env_or`, `os_exit`, `exec` |
 | `std/mem` | Low-level & arena allocator | `arena_new`, `arena_alloc_mem`, `arena_clear`, `alloc_mem`, `free_mem`, `peek_byte`, `poke_byte` |
 
-> 📦 **Looking for `csv`, `url`, `http`, or `crypto`?** These rich domain libraries are maintained as official standalone packages (`alyac add csv`, `alyac add url`, `alyac add http`, `alyac add crypto`).
+> 📦 **Looking for `uuid`, `csv`, `url`, `http`, `crypto`, `term`, or `logger`?** These rich domain libraries are maintained as official standalone packages (`alyac add uuid`, `alyac add csv`, `alyac add url`, `alyac add http`, `alyac add crypto`, `alyac add term`, `alyac add logger`).
 
 ---
 

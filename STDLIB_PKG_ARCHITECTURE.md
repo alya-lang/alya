@@ -126,6 +126,14 @@ Per Rule 5 (Clean Break / Zero Backward Compatibility), all transitional shims a
 - [x] **`Lib/rand`**: Deleted `rand_*` and `ulid_generate` legacy aliases in `src/lib.alya` and `tests/test_basic.alya`.
 - [x] **Compiler (`Src/alya`)**: Removed hardcoded `"has moved to a standalone package"` compile errors in `src/parser/mod.rs` and updated compiler tests.
 
+### Phase 4: Full Stdlib & Package Method Deduplication (Completed)
+- [x] **`std/console` Pruning**: Removed high-level TUI widgets (`console_table`, `console_progress_bar`, `console_spinner_char`) from `Src/alya/stdlib/console.alya` (reduced to 94 lines). High-level UI/TUI belongs exclusively to `alya-lang/term`.
+- [x] **`Lib/term` ANSI Deduplication**: Refactored `Lib/term/src/style.alya` to delegate all ANSI color and text decoration formatting directly to `std/color` (`import "std/color" as c`), eliminating duplicate ANSI escape code arrays and styling logic across the ecosystem.
+- [x] **`Lib/logger` Disambiguation**: Renamed `struct Logger` to `struct AppLogger` in `Lib/logger/src/types.alya` to resolve global struct identifier collisions with `std/log`. Exposed clean namespaced top-level methods (`info`, `warn`, `error`, `debug`, etc.).
+- [x] **`std/json` Pruning**: Removed redundant typed array helpers (`json_array_of_strings`, `json_array_of_numbers`, `json_array_of_bools`), map helper `json_string_map`, ad-hoc substring getters (`json_get_string`, `json_get_number`, `_parse_int`), and pretty printer `json_pretty` from `Src/alya/stdlib/json.alya`. Preserved clean, fast core serializers and recursive descent parser.
+- [x] **Compiler Analysis Table Cleanup**: Removed obsolete stdlib symbols (`json_pretty`, `json_get_string`, `json_string_map`, `uuid_v4`, `uuid_v4_simple`, `uuid_v7`, `uuid_v7_at`, `uuid_v7_simple`, `uuid_v7_simple_at`, `ulid_generate`, `ulid_at`, `console_progress_bar`, `console_spinner_char`) from `Src/alya/src/codegen/analysis/predicates.rs` and `strings.rs`.
+- [x] **Documentation Modernization**: Updated `standard-library.md` and `language-guide.md` to accurately reflect pruned stdlib modules and direct developers to official standalone packages (`alya-lang/uuid`, `alya-lang/term`, `alya-lang/logger`).
+
 ---
 
 ## 5. Ongoing Governance & Anti-Duplication Rules

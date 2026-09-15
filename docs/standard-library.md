@@ -177,12 +177,10 @@ Cross-platform terminal control, ANSI sequences, Windows code page management, a
 * `console_cursor_to(row, col)`: Position cursor at specified row and column.
 * `console_cursor_hide()`, `console_cursor_show()`: Toggle cursor visibility.
 * `console_output_cp()`, `console_input_cp()`: Inspect active code page.
-* **UI & TUI Components**:
-  * `console_progress_bar(current, total, width)`: Formats progress bar (e.g. `"[==========>          ] 50%"`).
-  * `console_spinner_char(step)`: Cycles through `'|'`, `'/'`, `'-'`, `'\\'`.
+* **Console Input Helpers**:
   * `console_prompt(prompt_text)`: Prompts user and reads full line from stdin.
   * `console_confirm(prompt_text, default_yes)`: Yes/No confirmation prompt (returns `1` or `0`).
-  * `console_table(headers, rows)`: Prints formatted ASCII table with auto-aligned column widths.
+* *(For rich TUI components, dynamic tables, boxes, charts, and progress bars, use official `alya-lang/term`)*
 
 ---
 
@@ -200,31 +198,34 @@ Wildcard pattern matching supporting `*`, `**`, `?`, character classes `[a-z]`, 
 
 ---
 
-### 🎲 `std/rand` — SplitMix64 PRNG, UUID & ULID
+### 🎲 `std/rand` — Lightweight PRNG & Range Generators
 ```alya
 import "std/rand"
 ```
-High-entropy pseudo-random number generator, range distributions, and unique IDs:
-* `rand_auto_seed()`: Seed PRNG using high-precision CPU cycle counter and system time.
+Lightweight pseudo-random number generator for scripting, ranges, floats, and probability checks:
+* `rand_auto_seed()`: Seed PRNG using system time and high-resolution timer.
+* `rand_seed_state(s)`: Explicitly seed the global PRNG with integer `s`.
+* `rand_next()`: Pseudo-random integer in `[0, 2147483647]`.
 * `rand_int(min, max)`: Random integer in inclusive range `[min, max]`.
 * `rand_float()`: Random float in range `[0.0, 1.0)`.
 * `rand_float_range(min, max)`: Random float in range `[min, max)`.
-* `rand_alphanumeric(len)`, `rand_digits(len)`, `rand_hex(len)`: Random formatted strings.
-* `shuffle(arr)`: In-place array Fisher-Yates shuffle.
-* `uuid_v4()`: Generate RFC 4122 compliant UUID Version 4 string.
-* `uuid_v7()`, `uuid_v7_at(ms)`: Generate RFC 9562 time-ordered UUID Version 7 string.
-* `ulid()`, `ulid_at(ms)`: Generate 26-character sortable ULID string.
+* `rand_bool()`: Boolean (1 or 0) with 50% probability.
+* `rand_chance(pct)`: Returns 1 if event with probability `pct` (0..100) occurs.
+* `rand_choice(arr)`: Randomly selected element from `arr`.
 
 ---
 
-### 📦 Standalone Ecosystem Packages: `csv`, `url`, `http`, `crypto`
+### 📦 Standalone Ecosystem Packages: `csv`, `url`, `http`, `crypto`, `uuid`, `term`, `logger`
 
 Specialized domain libraries are maintained as official standalone packages rather than bundled compiler bloat. Install them into your project with `alyac add`:
 
+* **`uuid`**: RFC 4122 UUID v4, RFC 9562 UUID v7, ULID, and NanoID generator (`alyac add uuid`). See [alya-lang/uuid](https://github.com/alya-lang/uuid).
 * **`csv`**: RFC 4180 compliant CSV & TSV parser, serializer, and file I/O (`alyac add csv`). See [alya-lang/csv](https://github.com/alya-lang/csv).
 * **`url`**: WHATWG and RFC 3986 compliant URL and `UrlSearchParams` parser and builder (`alyac add url`). See [alya-lang/url](https://github.com/alya-lang/url).
 * **`http`**: HTTP Client & Server framework with middleware and routing (`alyac add http`). See [alya-lang/http](https://github.com/alya-lang/http).
-* **`crypto`**: SHA, HMAC, PBKDF2, Base64/Base64URL, and Constant-Time Equality (`alyac add crypto`). See [alya-lang/crypto](https://github.com/alya-lang/crypto).
+* **`crypto`**: AES, ChaCha20, SHA, HMAC, PBKDF2, Base64/Base64URL, and Constant-Time Equality (`alyac add crypto`). See [alya-lang/crypto](https://github.com/alya-lang/crypto).
+* **`term`**: Rich TUI toolkit with boxes, tables, charts, trees, and progress bars (`alyac add term`). See [alya-lang/term](https://github.com/alya-lang/term).
+* **`logger`**: Structured multi-target logging with file rotation, JSON formatting, and async sinks (`alyac add logger`). See [alya-lang/logger](https://github.com/alya-lang/logger).
 
 ---
 
