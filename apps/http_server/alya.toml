@@ -11,5 +11,5 @@ repository = "https://github.com/alya-lang/alya"
 keywords = ["alya", "alya-lang", "package", "http", "server", "web", "multithreading", "tcp", "network"]
 
 [dependencies]
-mime = { git = "https://github.com/alya-lang/mime", tag = "v0.3.0" }
-term = { git = "https://github.com/alya-lang/term", tag = "v0.2.0" }
+mime = { git = "https://github.com/alya-lang/mime", branch = "main" }
+term = { git = "https://github.com/alya-lang/term", branch = "main" }

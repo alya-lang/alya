@@ -11,4 +11,4 @@ repository = "https://github.com/alya-lang/alya"
 keywords = ["alya", "alya-lang", "package", "todo", "cli", "app", "productivity"]
 
 [dependencies]
-term = { git = "https://github.com/alya-lang/term", tag = "v0.2.0" }
+term = { git = "https://github.com/alya-lang/term", branch = "main" }

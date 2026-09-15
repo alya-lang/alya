@@ -3,14 +3,14 @@ version = 1
 
 [[package]]
 name = "rand"
-version = "v0.2.0"
-source = "git:https://github.com/alya-lang/rand#v0.2.0"
+version = "main"
+source = "git:https://github.com/alya-lang/rand#main"
 entry = ".alya/packages/rand/src/lib.alya"
 checksum = "sha256:6ecba6621f0df7b9020cb49f1df050ad38a05444d979fef3511ef95648510a99"
 
 [[package]]
 name = "term"
-version = "v0.2.0"
-source = "git:https://github.com/alya-lang/term#v0.2.0"
+version = "main"
+source = "git:https://github.com/alya-lang/term#main"
 entry = ".alya/packages/term/src/lib.alya"
 checksum = "sha256:43aa65a21d5b6b6626e355a3716990006e97a278ecd5e130d3f6581484d70007"
