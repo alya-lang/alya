@@ -267,7 +267,21 @@ fn test_pkg_subcommands() {
     let parsed2 = CliArgs::parse_from(&args2).unwrap().unwrap();
     assert_eq!(
         parsed2.command,
-        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update)
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update { upgrade: false })
+    );
+
+    let args_u = to_args(&["alyac", "update", "-u"]);
+    let parsed_u = CliArgs::parse_from(&args_u).unwrap().unwrap();
+    assert_eq!(
+        parsed_u.command,
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update { upgrade: true })
+    );
+
+    let args_outdated = to_args(&["alyac", "pkg", "outdated"]);
+    let parsed_outdated = CliArgs::parse_from(&args_outdated).unwrap().unwrap();
+    assert_eq!(
+        parsed_outdated.command,
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update { upgrade: false })
     );
 
     let args3 = to_args(&["alyac", "pkg", "cache"]);

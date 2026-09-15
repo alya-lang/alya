@@ -18,7 +18,9 @@ pub enum PkgCommand {
     },
     Install,
     List,
-    Update,
+    Update {
+        upgrade: bool,
+    },
     Cache {
         clean: bool,
         all: bool,

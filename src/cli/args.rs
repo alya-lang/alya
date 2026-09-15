@@ -115,6 +115,15 @@ impl CliArgs {
             let pkg_cmd = parse_pkg_clean_args(&args[2..])?;
             return Ok(Some(Self::create_pkg_args(pkg_cmd)));
         }
+        if first == "update" {
+            let pkg_cmd = parse_pkg_update_args(&args[2..])?;
+            return Ok(Some(Self::create_pkg_args(pkg_cmd)));
+        }
+        if first == "outdated" {
+            return Ok(Some(Self::create_pkg_args(PkgCommand::Update {
+                upgrade: false,
+            })));
+        }
         if first == "pkg" {
             if args.len() < 3 || args[2] == "-h" || args[2] == "--help" || args[2] == "help" {
                 return Ok(Some(Self::create_pkg_args(PkgCommand::Help)));
@@ -125,7 +134,8 @@ impl CliArgs {
                 "add" => parse_pkg_add_args(&args[3..])?,
                 "install" => PkgCommand::Install,
                 "list" => PkgCommand::List,
-                "update" => PkgCommand::Update,
+                "update" => parse_pkg_update_args(&args[3..])?,
+                "outdated" => PkgCommand::Update { upgrade: false },
                 "cache" => parse_pkg_cache_args(&args[3..])?,
                 "clean" => parse_pkg_clean_args(&args[3..])?,
                 "help" | "-h" | "--help" => PkgCommand::Help,
@@ -656,6 +666,23 @@ fn parse_pkg_clean_args(args: &[String]) -> Result<PkgCommand, String> {
         }
     }
     Ok(PkgCommand::Clean { all })
+}
+
+fn parse_pkg_update_args(args: &[String]) -> Result<PkgCommand, String> {
+    let mut upgrade = false;
+    for arg in args {
+        match arg.as_str() {
+            "-u" | "--upgrade" => upgrade = true,
+            "-h" | "--help" | "help" => return Ok(PkgCommand::Help),
+            other => {
+                return Err(format!(
+                    "Error: Unknown option '{}' for 'update'. Supported flags: -u, --upgrade",
+                    other
+                ))
+            }
+        }
+    }
+    Ok(PkgCommand::Update { upgrade })
 }
 
 fn parse_toolchain_args(args: &[String]) -> Result<ToolchainCommand, String> {
