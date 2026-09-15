@@ -2,3 +2,12 @@
 quick = "build --profile quick"
 install-quick = "install --path . --profile quick --force"
 install-dev = "install --path . --debug --force"
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.i686-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
