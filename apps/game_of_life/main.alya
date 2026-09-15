@@ -18,10 +18,11 @@
 #   alyac run apps/game_of_life/main.alya -- --test
 # ═══════════════════════════════════════════════════════════════
 
+import "term" as ui
+import "rand" as r
 import "std/color"
 import "std/console"
 import "std/time"
-import "std/rand"
 import "std/str"
 import "std/os"
 
@@ -76,7 +77,7 @@ function init_random(b, pct)
     while y < b.h
         let x = 0
         while x < b.w
-            if rand_chance(pct) == 1
+            if r::chance(pct) == 1
                 place_cell(b, x, y)
             end
             x += 1
@@ -154,11 +155,8 @@ function step_life(b)
 end
 
 function show_banner(pattern_name)
-    say color_cyan("  ╔══════════════════════════════════════════════════╗")
-    say color_cyan("  ║") + "         " + style_bold(color_yellow("🧬 CONWAY'S GAME OF LIFE (ALYA) 🧬")) + "        " + color_cyan("║")
-    say color_cyan("  ╠══════════════════════════════════════════════════╣")
-    say color_cyan("  ║") + "  Pattern: " + color_green(pattern_name) + "    Rule: B3/S23 (Standard Conway)" + color_cyan("║")
-    say color_cyan("  ╚══════════════════════════════════════════════════╝")
+    let info = "Pattern: " + ui::color_green(pattern_name) + "  |  Rule: B3/S23 (Standard Conway)"
+    say ui::box_render(ui::box_new(info, "🧬 CONWAY'S GAME OF LIFE (ALYA) 🧬", "rounded"))
 end
 
 function render_life(b, gen, alive)
@@ -169,22 +167,22 @@ function render_life(b, gen, alive)
         i += 1
     end
     top = top + "╗"
-    say color_cyan(top)
+    say ui::color_cyan(top)
 
     let y = 0
     while y < b.h
-        let row = "  " + color_cyan("║")
+        let row = "  " + ui::color_cyan("║")
         let x = 0
         while x < b.w
             let c = b.cells[y * b.w + x]
             if c == 1
-                row = row + color_bright_cyan("■ ")
+                row = row + ui::color_bright_cyan("■ ")
             else
                 row = row + "  "
             end
             x += 1
         end
-        row = row + color_cyan("║")
+        row = row + ui::color_cyan("║")
         say row
         y += 1
     end
@@ -196,9 +194,9 @@ function render_life(b, gen, alive)
         i += 1
     end
     bottom = bottom + "╝"
-    say color_cyan(bottom)
+    say ui::color_cyan(bottom)
 
-    say "  " + style_bold("Generation") + ": " + color_yellow(str(gen)) + "    " + style_bold("Live Population") + ": " + color_green(str(alive)) + "    " + style_bold("Dimensions") + ": " + str(b.w) + "x" + str(b.h)
+    say "  " + ui::style_bold("Generation") + ": " + ui::color_yellow(str(gen)) + "    " + ui::style_bold("Live Population") + ": " + ui::color_green(str(alive)) + "    " + ui::style_bold("Dimensions") + ": " + str(b.w) + "x" + str(b.h)
     say ""
 end
 

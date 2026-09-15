@@ -1,0 +1,14 @@
+[package]
+name = "port_scanner"
+version = "1.0.0"
+alya-version = "0.0.16"
+entry = "main.alya"
+description = "Fast TCP port scanner with progress bar and formatted results table"
+authors = ["Alya Language Contributors <https://github.com/alya-lang>"]
+license = "MIT"
+homepage = "https://github.com/alya-lang/alya"
+repository = "https://github.com/alya-lang/alya"
+keywords = ["alya", "alya-lang", "package", "port_scanner", "network", "security", "cli"]
+
+[dependencies]
+term = { git = "https://github.com/alya-lang/term", tag = "v0.2.0" }

@@ -3,7 +3,7 @@
 # 24-bit TrueColor (RGB), 256-color palette, and ANSI stripping utilities.
 
 function _esc(code, s)
-    return "\e[" + code + "m" + str_from_ptr(s) + "\e[0m"
+    return "\e[" + code + "m" + str(s) + "\e[0m"
 end
 
 # --- Foreground Colors ---
@@ -53,25 +53,25 @@ function color_rgb(s, r, g, b)
     let rc = str(r)
     let gc = str(g)
     let bc = str(b)
-    return "\e[38;2;" + rc + ";" + gc + ";" + bc + "m" + str_from_ptr(s) + "\e[0m"
+    return "\e[38;2;" + rc + ";" + gc + ";" + bc + "m" + str(s) + "\e[0m"
 end
 
 function bg_rgb(s, r, g, b)
     let rc = str(r)
     let gc = str(g)
     let bc = str(b)
-    return "\e[48;2;" + rc + ";" + gc + ";" + bc + "m" + str_from_ptr(s) + "\e[0m"
+    return "\e[48;2;" + rc + ";" + gc + ";" + bc + "m" + str(s) + "\e[0m"
 end
 
 # --- 256-Color Palette ---
 function color_256(s, code)
     let c = str(code)
-    return "\e[38;5;" + c + "m" + str_from_ptr(s) + "\e[0m"
+    return "\e[38;5;" + c + "m" + str(s) + "\e[0m"
 end
 
 function bg_256(s, code)
     let c = str(code)
-    return "\e[48;5;" + c + "m" + str_from_ptr(s) + "\e[0m"
+    return "\e[48;5;" + c + "m" + str(s) + "\e[0m"
 end
 
 # --- Raw ANSI Code Snippets ---
@@ -83,7 +83,7 @@ function ansi_underline() return "\e[4m" end
 
 # Strips all ANSI CSI escape sequences from text
 function ansi_strip(text)
-    let s = str_from_ptr(text)
+    let s = str(text)
     let slen = len(s)
     let res = ""
     let i = 0

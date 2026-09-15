@@ -1,0 +1,15 @@
+[package]
+name = "snake"
+version = "1.0.0"
+alya-version = "0.0.16"
+entry = "main.alya"
+description = "Classic Snake arcade game with AI Autopilot mode and ANSI terminal rendering"
+authors = ["Alya Language Contributors <https://github.com/alya-lang>"]
+license = "MIT"
+homepage = "https://github.com/alya-lang/alya"
+repository = "https://github.com/alya-lang/alya"
+keywords = ["alya", "alya-lang", "package", "snake", "game", "arcade", "autopilot", "cli"]
+
+[dependencies]
+term = { git = "https://github.com/alya-lang/term", tag = "v0.2.0" }
+rand = { git = "https://github.com/alya-lang/rand", tag = "v0.2.0" }

@@ -17,6 +17,8 @@
 #   alyac run apps/http_bench/main.alya -- -u http://127.0.0.1:8080/json -n 5000 -c 8 -k
 # ═══════════════════════════════════════════════════════════════
 
+import "url" as u
+import "term" as ui
 import "std/net"
 import "std/str"
 import "std/time"
@@ -80,39 +82,19 @@ struct BenchUrl
 end
 
 function parse_bench_url(url_str)
-    let rem = str_from_ptr(url_str)
-    if starts_with(rem, "http://")
-        rem = substr(rem, 7, len(rem) - 7)
-    elif starts_with(rem, "https://")
-        rem = substr(rem, 8, len(rem) - 8)
-    end
-
-    let path = "/"
-    let query = ""
-    let q_idx = index_of(rem, "?")
-    if q_idx >= 0
-        query = substr(rem, q_idx + 1, len(rem) - q_idx - 1)
-        rem = substr(rem, 0, q_idx)
-    end
-
-    let slash_idx = index_of(rem, "/")
-    if slash_idx >= 0
-        path = substr(rem, slash_idx, len(rem) - slash_idx)
-        rem = substr(rem, 0, slash_idx)
-    end
-
-    let host = rem
+    let parsed = u::parse(url_str)
+    let host = parsed.host
     let port = 80
-    let colon_idx = index_of(rem, ":")
-    if colon_idx >= 0
-        host = substr(rem, 0, colon_idx)
-        let p_str = substr(rem, colon_idx + 1, len(rem) - colon_idx - 1)
-        if len(p_str) > 0
-            port = int(p_str)
-        end
+    if len(parsed.port) > 0
+        port = int(parsed.port)
+    elif parsed.scheme == "https"
+        port = 443
     end
-
-    return BenchUrl(host, port, path, query)
+    let path = parsed.path
+    if len(path) == 0
+        path = "/"
+    end
+    return BenchUrl(host, port, path, parsed.query)
 end
 
 function run_single_probe(url_str)

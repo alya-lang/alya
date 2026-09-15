@@ -22,10 +22,10 @@
 #   alyac run apps/snake/main.alya -- --test
 # ═══════════════════════════════════════════════════════════════
 
-import "std/color"
+import "term" as ui
+import "rand" as r
 import "std/console"
 import "std/time"
-import "std/rand"
 import "std/str"
 import "std/os"
 
@@ -44,8 +44,8 @@ end
 function spawn_food(width, height, body)
     let tries = 0
     while tries < 100
-        let fx = rand_int(1, width - 2)
-        let fy = rand_int(1, height - 2)
+        let fx = r::int(1, width - 2)
+        let fy = r::int(1, height - 2)
         let collision = 0
         let i = 0
         while i < arr_len(body)
@@ -77,31 +77,15 @@ function is_body_collision(x, y, body)
 end
 
 function show_header(score, moves, is_ai)
-    let mode_str = color_green("MANUAL")
-    let mode_len = 6
+    let mode_str = ui::color_green("MANUAL")
     if is_ai == 1
-        mode_str = color_yellow("AI AUTO")
-        mode_len = 7
+        mode_str = ui::color_yellow("AI AUTO")
     end
 
     let score_str = str(score)
     let moves_str = str(moves)
-
-    # Calculate padding to ensure right border lands at exactly column 40
-    let used = 8 + len(score_str) + 9 + len(moves_str) + 8 + mode_len
-    let pad_len = 40 - used
-    let pad = ""
-    let p = 0
-    while p < pad_len
-        pad = pad + " "
-        p += 1
-    end
-
-    say color_cyan("  ╔════════════════════════════════════════╗")
-    say color_cyan("  ║") + "         " + style_bold(color_green("🐍 ALYA SNAKE GAME 🐍")) + "          " + color_cyan("║")
-    say color_cyan("  ╠════════════════════════════════════════╣")
-    say color_cyan("  ║") + " Score: " + style_bold(color_bright_yellow(score_str)) + "  Moves: " + moves_str + "  Mode: " + mode_str + pad + color_cyan("║")
-    say color_cyan("  ╚════════════════════════════════════════╝")
+    let info = "Score: " + ui::style_bold(ui::color_bright_yellow(score_str)) + "  |  Moves: " + moves_str + "  |  Mode: " + mode_str
+    say ui::box_render(ui::box_new(info, "🐍 ALYA SNAKE GAME 🐍", "rounded"))
 end
 
 function draw_board(width, height, body, food, head_dx, head_dy)
@@ -114,26 +98,26 @@ function draw_board(width, height, body, food, head_dx, head_dy)
         i += 1
     end
     top = top + "╗"
-    say color_cyan(top)
+    say ui::color_cyan(top)
 
     let head = body[0]
     let y = 1
     while y < height - 1
-        let row = "  " + color_cyan("║")
+        let row = "  " + ui::color_cyan("║")
         let x = 1
         while x < width - 1
             if x == food.x and y == food.y
-                row = row + color_bright_red("★ ")
+                row = row + ui::color_bright_red("★ ")
             elif x == head.x and y == head.y
-                row = row + color_bright_yellow("● ")
+                row = row + ui::color_bright_yellow("● ")
             elif is_body_collision(x, y, body) == 1
-                row = row + color_bright_green("■ ")
+                row = row + ui::color_bright_green("■ ")
             else
                 row = row + "  "
             end
             x += 1
         end
-        row = row + color_cyan("║")
+        row = row + ui::color_cyan("║")
         say row
         y += 1
     end
@@ -145,7 +129,7 @@ function draw_board(width, height, body, food, head_dx, head_dy)
         i += 1
     end
     bottom = bottom + "╝"
-    say color_cyan(bottom)
+    say ui::color_cyan(bottom)
 end
 
 function get_player_move(cur_dx, cur_dy)
@@ -166,15 +150,15 @@ function get_player_move(cur_dx, cur_dy)
     return cur_dx, cur_dy
 end
 
-function count_free_neighbors(width, height, body, x, y)
+function count_free_neighbors(body, x, y)
     let count = 0
     let test_dirs = [Point(0, -1), Point(0, 1), Point(-1, 0), Point(1, 0)]
     let j = 0
     while j < 4
         let td = test_dirs[j]
-        let tx = x + td.x
-        let ty = y + td.y
-        if tx >= 1 and tx < width - 1 and ty >= 1 and ty < height - 1
+        let tx = x + int(td.x)
+        let ty = y + int(td.y)
+        if tx >= 1 and ty >= 1
             if is_body_collision(tx, ty, body) == 0
                 count += 1
             end
@@ -203,13 +187,13 @@ function choose_ai_move(width, height, body, food, cur_dx, cur_dy)
         let d = dirs[i]
         # Avoid reversing immediately
         if not (d.x == 0 - cur_dx and d.y == 0 - cur_dy)
-            let nx = head.x + d.x
-            let ny = head.y + d.y
+            let nx = int(head.x) + int(d.x)
+            let ny = int(head.y) + int(d.y)
             # Check bounds
             if nx >= 1 and nx < width - 1 and ny >= 1 and ny < height - 1
                 # Check body collision
                 if is_body_collision(nx, ny, body) == 0
-                    let neighbors = count_free_neighbors(width, height, body, nx, ny)
+                    let neighbors = count_free_neighbors(body, nx, ny)
                     let penalty = 0
                     if neighbors == 0 and arr_len(body) > 3
                         penalty = 1000
@@ -281,21 +265,21 @@ function main()
     let moves = 0
 
     if is_test == 1
-        say color_yellow("[SNAKE]") + " Running automated simulation test..."
+        say ui::color_yellow("[SNAKE]") + " Running automated simulation test..."
         # Simulate 25 game loop steps
         let step = 0
         while step < 25
             let next_dx, next_dy = choose_ai_move(width, height, body, food, dx, dy)
             dx = next_dx
             dy = next_dy
-            let new_head = Point(body[0].x + dx, body[0].y + dy)
+            let new_head = Point(int(body[0].x) + dx, int(body[0].y) + dy)
 
             # Check food
             let grow = 0
             if new_head.x == food.x and new_head.y == food.y
                 score += 10
                 grow = 1
-                food = Point(rand_int(2, width - 3), rand_int(2, height - 3))
+                food = Point(r::int(2, width - 3), r::int(2, height - 3))
             end
 
             body = advance_snake(body, new_head, grow)
@@ -304,12 +288,12 @@ function main()
         end
 
         draw_board(width, height, body, food, dx, dy)
-        say color_green("[SUCCESS]") + " Snake test passed (" + str(moves) + " moves simulated, score: " + str(score) + ")."
+        say ui::color_green("[SUCCESS]") + " Snake test passed (" + str(moves) + " moves simulated, score: " + str(score) + ")."
         return
     end
 
     console_clear()
-    say color_bright_green("Welcome to Alya Snake!")
+    say ui::color_bright_green("Welcome to Alya Snake!")
     say ""
 
     let is_ai_completed = 0
@@ -334,7 +318,7 @@ function main()
             dy = p_dy
         end
 
-        let new_head = Point(body[0].x + dx, body[0].y + dy)
+        let new_head = Point(int(body[0].x) + dx, int(body[0].y) + dy)
 
         # Check wall collision
         if new_head.x <= 0 or new_head.x >= width - 1 or new_head.y <= 0 or new_head.y >= height - 1
@@ -371,12 +355,12 @@ function main()
     draw_board(width, height, body, food, dx, dy)
     say ""
     if is_ai_completed == 1
-        say color_bright_green("  ✨ AI DEMONSTRATION COMPLETED! ✨")
-        say color_yellow("  AI demonstration completed 100 moves successfully!")
+        say ui::color_bright_green("  ✨ AI DEMONSTRATION COMPLETED! ✨")
+        say ui::color_yellow("  AI demonstration completed 100 moves successfully!")
     else
-        say color_red("  💥 GAME OVER! 💥")
+        say ui::color_red("  💥 GAME OVER! 💥")
     end
-    say "  Final Score: " + style_bold(color_yellow(str(score)))
+    say "  Final Score: " + ui::style_bold(ui::color_yellow(str(score)))
     say "  Total Moves: " + str(moves)
     say ""
 end

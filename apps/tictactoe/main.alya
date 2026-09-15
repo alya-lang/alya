@@ -6,9 +6,10 @@
 # Features:
 #   - Player vs Player (PvP) mode
 #   - Player vs AI mode (unbeatable Minimax algorithm)
-#   - ANSI colored game board
+#   - Modern Terminal UI styled with 'term' ecosystem package
 #   - Persistent score tracking across multiple rounds
 #   - Robust input validation with error handling
+#   - Non-hanging automated smoke test mode (--test)
 #
 # Controls:
 #   Enter a number 1-9 to place your mark:
@@ -17,12 +18,15 @@
 #     7 | 8 | 9
 #
 # Usage:
-#   alyac run apps/tictactoe/main.alya
+#   alyac run
+#   alyac run -- --test
 # ═══════════════════════════════════════════════════════════════
 
+import "term" as ui
 import "std/color"
 import "std/console"
 import "std/mem"
+import "std/os"
 
 # ─── Score Tracking Struct ───────────────────────────────────
 
@@ -52,51 +56,36 @@ function clear_screen()
 end
 
 function show_banner()
-    let c = "\e[1;36m"
-    let y = "\e[1;93m"
-    let g = "\e[90m"
-    let r = "\e[0m"
-    say ""
-    say c + "  ╔═══════════════════════════════╗" + r
-    say c + "  ║" + y + "       T I C  T A C  T O E     " + c + "║" + r
-    say c + "  ╠═══════════════════════════════╣" + r
-    say c + "  ║" + g + "   Written in Alya Language    " + c + "║" + r
-    say c + "  ╚═══════════════════════════════╝" + r
+    let banner_text = "       T I C  T A C  T O E\n    Written in Alya Language"
+    say ui::box_render(ui::box_new(banner_text, "ALYA TIC-TAC-TOE", "rounded"))
     say ""
 end
 
 function cell_display(val, pos)
     if val == 1
-        return "\e[1;91m X \e[0m"
+        return ui::style_bold(ui::color_bright_red(" X "))
     elif val == 2
-        return "\e[1;94m O \e[0m"
+        return ui::style_bold(ui::color_bright_blue(" O "))
     end
-    return "\e[90m " + str(pos) + " \e[0m"
+    return ui::color_gray(" " + str(pos) + " ")
 end
 
 function draw_board(board)
-    let c = "\e[36m"
-    let r = "\e[0m"
-    say c + "    ┌───┬───┬───┐" + r
-    say c + "    │" + r + cell_display(board[0], 1) + c + "│" + r + cell_display(board[1], 2) + c + "│" + r + cell_display(board[2], 3) + c + "│" + r
-    say c + "    ├───┼───┼───┤" + r
-    say c + "    │" + r + cell_display(board[3], 4) + c + "│" + r + cell_display(board[4], 5) + c + "│" + r + cell_display(board[5], 6) + c + "│" + r
-    say c + "    ├───┼───┼───┤" + r
-    say c + "    │" + r + cell_display(board[6], 7) + c + "│" + r + cell_display(board[7], 8) + c + "│" + r + cell_display(board[8], 9) + c + "│" + r
-    say c + "    └───┴───┴───┘" + r
+    say ui::color_cyan("    ┌───┬───┬───┐")
+    say ui::color_cyan("    │") + cell_display(board[0], 1) + ui::color_cyan("│") + cell_display(board[1], 2) + ui::color_cyan("│") + cell_display(board[2], 3) + ui::color_cyan("│")
+    say ui::color_cyan("    ├───┼───┼───┤")
+    say ui::color_cyan("    │") + cell_display(board[3], 4) + ui::color_cyan("│") + cell_display(board[4], 5) + ui::color_cyan("│") + cell_display(board[5], 6) + ui::color_cyan("│")
+    say ui::color_cyan("    ├───┼───┼───┤")
+    say ui::color_cyan("    │") + cell_display(board[6], 7) + ui::color_cyan("│") + cell_display(board[7], 8) + ui::color_cyan("│") + cell_display(board[8], 9) + ui::color_cyan("│")
+    say ui::color_cyan("    └───┴───┴───┘")
     say ""
 end
 
 function show_scores(n1, n2, sc)
-    let c = "\e[1;36m"
-    let r = "\e[0m"
-    let b = "\e[1m"
-    say c + "  ═══════ SCOREBOARD ════════" + r
-    say "    \e[1;91m" + n1 + " (X)\e[0m : " + b + str(sc.p1) + r
-    say "    \e[1;94m" + n2 + " (O)\e[0m : " + b + str(sc.p2) + r
-    say "    \e[90mDraws\e[0m    : " + b + str(sc.draws) + r
-    say "    \e[90mRounds\e[0m   : " + b + str(sc.rounds) + r
-    say c + "  ══════════════════════════════" + r
+    let headers = ["Participant", "Mark", "Score"]
+    let rows = [ [n1, ui::color_bright_red("X"), str(sc.p1)], [n2, ui::color_bright_blue("O"), str(sc.p2)], ["Draws", "-", str(sc.draws)], ["Total Rounds", "-", str(sc.rounds)] ]
+    let tbl = ui::table_create(headers, rows, "unicode")
+    say ui::table_render(tbl)
     say ""
 end
 
@@ -231,14 +220,14 @@ function get_move(board, name, mark)
                     return pos - 1
                 end
                 console_beep()
-                say color_yellow("    ! Position already taken. Choose another.")
+                say ui::color_yellow("    ! Position already taken. Choose another.")
             else
                 console_beep()
-                say color_yellow("    ! Please enter a number between 1 and 9.")
+                say ui::color_yellow("    ! Please enter a number between 1 and 9.")
             end
         catch err
             console_beep()
-            say color_yellow("    ! Invalid input. Please enter a number.")
+            say ui::color_yellow("    ! Invalid input. Please enter a number.")
         end
     end
 end
@@ -246,6 +235,19 @@ end
 # ═══════════════════════════════════════════════════════════════
 #                        MAIN GAME
 # ═══════════════════════════════════════════════════════════════
+
+# Check for automated smoke test mode
+let cli_args = args()
+if len(cli_args) > 0 and cli_args[0] == "--test"
+    say ui::color_cyan("[TEST]") + " Running TicTacToe Minimax AI smoke test..."
+    let test_board = [1, 2, 1, 2, 2, 1, 0, 1, 0]
+    let m = ai_best_move(test_board)
+    say ui::color_green("[TEST]") + " AI move calculated: position " + str(m)
+    let t_scores = Scores(1, 1, 0, 2)
+    show_scores("Player 1", "Alya AI", t_scores)
+    say ui::color_green("[TEST]") + " Smoke test completed successfully."
+    return
+end
 
 # Initialize console with UTF-8 encoding and title
 console_utf8()
@@ -259,7 +261,7 @@ let str_arena = arena_new(4096)
 
 # --- Player Setup ---
 
-say color_bright_cyan("  Welcome to TicTacToe!")
+say ui::color_bright_cyan("  Welcome to TicTacToe!")
 say ""
 
 let p1_raw = ask "  Enter Player 1 name: "
@@ -271,8 +273,8 @@ else
 end
 
 say ""
-say "  " + color_bright_green("[1]") + " Player vs Player (PvP)"
-say "  " + color_bright_green("[2]") + " Player vs AI"
+say "  " + ui::color_bright_green("[1]") + " Player vs Player (PvP)"
+say "  " + ui::color_bright_green("[2]") + " Player vs AI"
 say ""
 
 let mode_raw = ask "  Choose mode (1/2): "
@@ -285,7 +287,7 @@ if mode == "2"
     is_ai = 1
     name2 = "Alya AI"
     say ""
-    say color_bright_magenta("  You will face the unbeatable Alya AI! Good luck!")
+    say ui::color_bright_magenta("  You will face the unbeatable Alya AI! Good luck!")
     sleep(1500)
 else
     say ""
@@ -321,7 +323,7 @@ while playing == 1
 
         if current == 2 and is_ai == 1
             # AI turn
-            say color_bright_magenta("    Alya AI is thinking...")
+            say ui::color_bright_magenta("    Alya AI is thinking...")
             sleep(700)
             let ai_pos = ai_best_move(board)
             board[ai_pos] = 2
@@ -359,14 +361,14 @@ while playing == 1
     if result == 1
         console_beep()
         scores.p1 += 1
-        say "\e[1;92m    " + name1 + " (X) wins! Congratulations!\e[0m"
+        say ui::style_bold(ui::color_bright_green("    " + name1 + " (X) wins! Congratulations!"))
     elif result == 2
         console_beep()
         scores.p2 += 1
-        say "\e[1;92m    " + name2 + " (O) wins! Congratulations!\e[0m"
+        say ui::style_bold(ui::color_bright_green("    " + name2 + " (O) wins! Congratulations!"))
     else
         scores.draws += 1
-        say "\e[1;93m    It's a draw! Well played!\e[0m"
+        say ui::style_bold(ui::color_bright_yellow("    It's a draw! Well played!"))
     end
 
     say ""
@@ -383,8 +385,8 @@ end
 
 say ""
 show_scores(name1, name2, scores)
-say color_bright_cyan("  Thanks for playing TicTacToe!")
-say color_gray("  See you next time!")
+say ui::color_bright_cyan("  Thanks for playing TicTacToe!")
+say ui::color_gray("  See you next time!")
 say ""
 
 # Free persistent string arena

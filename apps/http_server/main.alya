@@ -8,17 +8,19 @@
 #   - HTTP/1.1 Persistent Connections (Keep-Alive)
 #   - Multi-threaded Worker Pool via OS threads (std/thread)
 #   - Non-blocking I/O multiplexing & Event Polling (tcp_poll)
-#   - Static file serving (HTML, CSS, text)
+#   - Static file serving with automated MIME detection via 'mime' package
+#   - Modern terminal logging and UI via 'term' package
 #   - Dynamic REST JSON API endpoints (/api/status, /api/echo)
-#   - ANSI colored access logging with status codes
 #   - Configurable port and worker threads via CLI arguments
 #
 # Usage:
-#   alyac run apps/http_server/main.alya
-#   alyac run apps/http_server/main.alya --port 8080 --workers 4
-#   alyac run apps/http_server/main.alya -p 8080 -w 8 -q
+#   alyac run
+#   alyac run -- --port 8080 --workers 4
+#   alyac run -- --test
 # ═══════════════════════════════════════════════════════════════
 
+import "mime" as m
+import "term" as ui
 import "std/net"
 import "std/str"
 import "std/color"
@@ -70,18 +72,18 @@ function parse_server_config()
 end
 
 function extract_request_line(raw)
-    let m = "GET"
-    let p = "/"
+    let meth = "GET"
+    let path = "/"
     let rlen = len(raw)
     if rlen == 0
-        return m, p
+        return meth, path
     end
 
     let sp1 = index_of(raw, " ")
     if sp1 < 0
-        return m, p
+        return meth, path
     end
-    m = substring(raw, 0, sp1)
+    meth = substring(raw, 0, sp1)
 
     let rest = substring(raw, sp1 + 1, rlen - (sp1 + 1))
     let sp2 = index_of(rest, " ")
@@ -94,17 +96,17 @@ function extract_request_line(raw)
             end
         end
     end
-    p = substring(rest, 0, sp2)
-    return m, p
+    path = substring(rest, 0, sp2)
+    return meth, path
 end
 
-function build_response(status_code, content_type, body, keep_alive)
+function build_response(status_code, content_type_str, body, keep_alive)
     let status_text = http_status_text(status_code)
     let blen = len(body)
     let resp = "HTTP/1.1 " + str(status_code) + " " + status_text + "\r\n"
-    resp = resp + "Content-Type: " + content_type + "\r\n"
+    resp = resp + "Content-Type: " + content_type_str + "\r\n"
     resp = resp + "Content-Length: " + str(blen) + "\r\n"
-    resp = resp + "Server: Alya-Native-Server/0.0.5\r\n"
+    resp = resp + "Server: Alya-Native-Server/0.1.0\r\n"
     if keep_alive == 1
         resp = resp + "Connection: keep-alive\r\n"
         resp = resp + "Keep-Alive: timeout=5, max=1000\r\n\r\n"
@@ -129,7 +131,7 @@ function handle_client(client_sock, start_time, quiet, html_content)
             break
         end
 
-        let m, p = extract_request_line(req)
+        let req_method, req_path = extract_request_line(req)
 
         # Detect Connection: keep-alive vs close
         let keep_alive = 1
@@ -147,32 +149,44 @@ function handle_client(client_sock, start_time, quiet, html_content)
         let ctype = "text/html; charset=utf-8"
         let body = ""
 
-        if p == "/" or p == "/index.html" or p == "/html"
-            ctype = "text/html; charset=utf-8"
+        if req_path == "/" or req_path == "/index.html" or req_path == "/html"
+            ctype = m::content_type("index.html", "text/html; charset=utf-8")
             body = html_content
-        elif p == "/json"
-            ctype = "application/json"
+        elif req_path == "/json"
+            ctype = m::content_type("data.json", "application/json")
             body = "{\"message\":\"Hello, World!\"}"
-        elif p == "/api/status"
-            ctype = "application/json"
-            body = "{\"status\": \"ok\", \"server\": \"Alya-Native-Server\", \"version\": \"0.0.5\", \"uptime_ms\": " + str(uptime) + ", \"timestamp\": " + str(now) + "}"
-        elif starts_with(p, "/api/echo")
-            ctype = "application/json"
-            body = "{\"method\": \"" + m + "\", \"path\": \"" + p + "\", \"server_time_ms\": " + str(now) + ", \"engine\": \"Alya Native Compiler\"}"
+        elif req_path == "/api/status"
+            ctype = m::content_type("status.json", "application/json")
+            body = "{\"status\": \"ok\", \"server\": \"Alya-Native-Server\", \"version\": \"0.1.0\", \"uptime_ms\": " + str(uptime) + ", \"timestamp\": " + str(now) + "}"
+        elif starts_with(req_path, "/api/echo")
+            ctype = m::content_type("echo.json", "application/json")
+            body = "{\"method\": \"" + req_method + "\", \"path\": \"" + req_path + "\", \"server_time_ms\": " + str(now) + ", \"engine\": \"Alya Native Compiler\"}"
         else
-            status = 404
-            body = "<!DOCTYPE html><html><body><h1>404 Not Found</h1><p>The requested path '" + p + "' was not found on this server.</p></body></html>"
+            # Check for static file in public directory
+            let pub_path = "public" + req_path
+            let app_pub_path = "apps/http_server/public" + req_path
+            if file_exists(pub_path) == 1
+                ctype = m::content_type(req_path, "application/octet-stream")
+                body = read_file(pub_path)
+            elif file_exists(app_pub_path) == 1
+                ctype = m::content_type(req_path, "application/octet-stream")
+                body = read_file(app_pub_path)
+            else
+                status = 404
+                ctype = "text/html; charset=utf-8"
+                body = "<!DOCTYPE html><html><body><h1>404 Not Found</h1><p>The requested path '" + req_path + "' was not found on this server.</p></body></html>"
+            end
         end
 
         let resp = build_response(status, ctype, body, keep_alive)
         tcp_send(client_sock, resp)
 
         if quiet == 0
-            let stat_color = color_green(str(status))
+            let stat_color = ui::color_green(str(status))
             if status >= 400
-                stat_color = color_red(str(status))
+                stat_color = ui::color_red(str(status))
             end
-            say color_cyan("[HTTP]") + " " + style_bold(m) + " " + p + " -> " + stat_color + " (" + str(len(body)) + " bytes)"
+            say ui::color_cyan("[HTTP]") + " " + ui::style_bold(req_method) + " " + req_path + " -> " + stat_color + " (" + str(len(body)) + " bytes)"
         end
 
         if keep_alive == 0
@@ -203,7 +217,7 @@ function main()
     let cfg = parse_server_config()
     let server = tcp_listen(cfg.port, 128)
     if server < 0
-        say color_red("Error:") + " Failed to bind TCP server on port " + str(cfg.port)
+        say ui::color_red("Error:") + " Failed to bind TCP server on port " + str(cfg.port)
         return
     end
 
@@ -217,25 +231,14 @@ function main()
     end
 
     let start_time = clock_ms()
-    say color_cyan("╔═════════════════════════════════════════════════╗")
-    say color_cyan("║") + "         " + style_bold(color_yellow("⚡ ALYA NATIVE HTTP SERVER ⚡")) + "          " + color_cyan("║")
-    say color_cyan("╠═════════════════════════════════════════════════╣")
-    say color_cyan("║") + "  Listening at: " + color_green("http://127.0.0.1:" + str(cfg.port)) + "          " + color_cyan("║")
-    if cfg.workers > 1
-        say color_cyan("║") + "  Workers     : " + color_magenta(str(cfg.workers) + " threads (pool)") + "          " + color_cyan("║")
-    else
-        say color_cyan("║") + "  Workers     : " + color_white("1 thread (single)") + "            " + color_cyan("║")
-    end
-    say color_cyan("║") + "  Features    : " + color_white("Keep-Alive, Non-blocking I/O") + "    " + color_cyan("║")
-    say color_cyan("║") + "  Endpoints   : " + color_white("/, /index.html, /json, /api/status") + " " + color_cyan("║")
-    say color_cyan("║") + "  Press Ctrl+C to shutdown server                 " + color_cyan("║")
-    say color_cyan("╚═════════════════════════════════════════════════╝")
+    let banner_info = "Listening at : " + ui::color_green("http://127.0.0.1:" + str(cfg.port)) + "\nWorkers      : " + ui::color_magenta(str(cfg.workers) + " threads (pool)") + "\nFeatures     : Keep-Alive, Non-blocking I/O, MIME Auto-detect\nEndpoints    : /, /index.html, /json, /api/status, /api/echo"
+    say ui::box_render(ui::box_new(banner_info, "⚡ ALYA NATIVE HTTP SERVER ⚡", "rounded"))
     say ""
 
     if cfg.smoke_test == 1
-        say color_yellow("[SERVER]") + " Single-run test mode active. Port verified."
+        say ui::color_yellow("[SERVER]") + " Single-run test mode active. Port verified."
         tcp_close(server)
-        say color_green("[SERVER]") + " Server shutdown cleanly."
+        say ui::color_green("[SERVER]") + " Server shutdown cleanly."
         return
     end
 
@@ -265,7 +268,7 @@ function main()
                 end
                 served += 1
                 if cfg.max_requests > 0 and served >= cfg.max_requests
-                    say color_yellow("[SERVER]") + " Reached max requests (" + str(served) + "). Shutting down."
+                    say ui::color_yellow("[SERVER]") + " Reached max requests (" + str(served) + "). Shutting down."
                     break
                 end
             end

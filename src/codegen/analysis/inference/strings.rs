@@ -676,7 +676,18 @@ fn collect_string_vars_from_stmts(
                 if stmts_return_string(body, &fn_locals)
                     && !matches!(
                         bare,
-                        "json_parse_array"
+                        "int"
+                            | "float"
+                            | "len"
+                            | "arr_len"
+                            | "ord"
+                            | "time"
+                            | "clock_ms"
+                            | "rand"
+                            | "rand_int"
+                            | "abs"
+                            | "abs_val"
+                            | "json_parse_array"
                             | "parse_array"
                             | "json_parse_object"
                             | "parse_object"

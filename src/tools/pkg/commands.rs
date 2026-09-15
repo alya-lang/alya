@@ -471,10 +471,7 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
                     } else if head_hit {
                         let _ = copy_dir_all(&head_cached_dir, &cached_pkg_dir, true);
                         let _ = fs::write(cached_pkg_dir.join(".alya-source"), &source);
-                        println!(
-                            "  Using package '{}' (v{}) from global cache",
-                            name, v
-                        );
+                        println!("  Using package '{}' (v{}) from global cache", name, v);
                         if target_dir.exists() {
                             let _ = fs::remove_dir_all(&target_dir);
                         }

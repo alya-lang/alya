@@ -1,0 +1,15 @@
+[package]
+name = "game_of_life"
+version = "1.0.0"
+alya-version = "0.0.16"
+entry = "main.alya"
+description = "Conway's Game of Life cellular automaton with ANSI terminal animation"
+authors = ["Alya Language Contributors <https://github.com/alya-lang>"]
+license = "MIT"
+homepage = "https://github.com/alya-lang/alya"
+repository = "https://github.com/alya-lang/alya"
+keywords = ["alya", "alya-lang", "package", "game_of_life", "conway", "cellular-automata", "simulation"]
+
+[dependencies]
+term = { git = "https://github.com/alya-lang/term", tag = "v0.2.0" }
+rand = { git = "https://github.com/alya-lang/rand", tag = "v0.2.0" }

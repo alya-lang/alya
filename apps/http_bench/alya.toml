@@ -1,0 +1,15 @@
+[package]
+name = "http_bench"
+version = "1.0.0"
+alya-version = "0.0.16"
+entry = "main.alya"
+description = "High-throughput concurrent HTTP load testing benchmark tool"
+authors = ["Alya Language Contributors <https://github.com/alya-lang>"]
+license = "MIT"
+homepage = "https://github.com/alya-lang/alya"
+repository = "https://github.com/alya-lang/alya"
+keywords = ["alya", "alya-lang", "package", "http", "benchmark", "wrk", "performance"]
+
+[dependencies]
+url = { git = "https://github.com/alya-lang/url", tag = "v0.3.0" }
+term = { git = "https://github.com/alya-lang/term", tag = "v0.2.0" }
