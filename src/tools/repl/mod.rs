@@ -14,6 +14,7 @@ pub use session::*;
 
 /// Starts the interactive REPL read-eval-print loop.
 pub fn start_repl(arch: Architecture, os: OperatingSystem) -> Result<(), String> {
+    crate::driver::init_console();
     println!("\x1b[1;36m╔════════════════════════════════════════════════════════╗\x1b[0m");
     println!("\x1b[1;36m║             \x1b[1;33m⚡ ALYA INTERACTIVE REPL ⚡\x1b[0m                \x1b[1;36m║\x1b[0m");
     println!(

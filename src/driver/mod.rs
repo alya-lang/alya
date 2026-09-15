@@ -6,10 +6,15 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 pub mod c_builder;
+pub mod console;
 pub mod runner;
 pub mod toolchain;
 
+pub use console::init_console;
+
 pub fn run(args: CliArgs) -> Result<(), String> {
+    init_console();
+
     if let CommandKind::Toolchain(ref tc_cmd) = args.command {
         toolchain::run_toolchain_cmd(tc_cmd, args.arch, args.os)?;
         return Ok(());
