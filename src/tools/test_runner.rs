@@ -26,8 +26,9 @@ pub fn discover_test_files(path: &Path) -> Vec<PathBuf> {
     }
 
     // If path is a directory, check tests/ directory or search for test_*.alya / *_test.alya
-    let target_dir = if path == Path::new(".") && Path::new("tests").is_dir() {
-        Path::new("tests")
+    let tests_subdir = path.join("tests");
+    let target_dir = if tests_subdir.is_dir() {
+        &tests_subdir
     } else {
         path
     };
