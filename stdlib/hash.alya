@@ -1,5 +1,5 @@
 # Alya Standard Library - Hash Module
-# Provides hashing algorithms (FNV-1a, DJB2) and encoding/decoding utilities (Base64, Hex).
+# Provides hashing algorithms (FNV-1a, DJB2, CRC-32, Adler-32, SDBM) and encoding/decoding utilities (Base64, Hex).
 
 function djb2(s)
     let slen = len(s)
@@ -170,6 +170,19 @@ function crc32(s)
         i += 1
     end
     return bit_xor(crc, 4294967295)
+end
+
+function adler32(s)
+    let slen = len(s)
+    let a = 1
+    let b = 0
+    let i = 0
+    while i < slen
+        a = (a + ord(char_at(s, i))) % 65521
+        b = (b + a) % 65521
+        i += 1
+    end
+    return bit_or(bit_shl(b, 16), a)
 end
 
 function sdbm(s)

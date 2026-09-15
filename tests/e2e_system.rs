@@ -901,6 +901,15 @@ else
     say 0
 end
 
+let a1 = adler32("hello world")
+let a2 = adler32("hello world")
+let a3 = adler32("different")
+if a1 == a2 and a1 != a3
+    say 1
+else
+    say 0
+end
+
 let s1 = sdbm("alya")
 let s2 = sdbm("alya")
 if s1 == s2 and s1 > 0
@@ -931,6 +940,7 @@ say from_base64("QWx5YQ==")
                 "0\n",
                 "2\nfirst line\nsecond line\n",
                 "3\n",
+                "1\n",
                 "1\n",
                 "1\n",
                 "1\n",
