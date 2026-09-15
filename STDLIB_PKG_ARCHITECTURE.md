@@ -91,36 +91,40 @@ A systematic code audit identified the following 4 areas of overlap across `std/
 
 ---
 
-## 4. Action Plan & Refactoring Steps
+## 4. Action Plan & Refactoring Steps (Completed)
 
 ### Phase 1: Stdlib Clarification & Pruning
-1. **Prune `std/hash`**:
-   - Keep in `std/hash`: Non-cryptographic hash table hashing algorithms exclusively:
-     `djb2`, `sdbm`, `fnv1`, `fnv1a`, `fnv1a64`, `murmur3_32`, `murmur3`, `jenkins`, `elf_hash`, `crc16`, `crc32`, `crc64`, `adler32`, `hash_combine`.
-   - Deprecate/Move Encoding: Move `base64_*` and `hex_*` functions out of `std/hash`. Place minimal string encoding helpers into `std/str` (or a dedicated lightweight `std/encoding` if Tier 1 allows), or leave full encoding to `crypto`/`encoding` packages.
-2. **Preserve `std/rand` Pruned State**:
-   - Ensure `std/rand` remains strictly under ~85 lines, acting only as a fast, zero-dependency LCG wrapper.
+- [x] **Prune `std/hash`**:
+  - Kept in `std/hash`: Non-cryptographic hash table hashing algorithms exclusively (`djb2`, `sdbm`, `fnv1`, `fnv1a`, `fnv1a64`, `murmur3_32`, `murmur3`, `jenkins`, `elf_hash`, `crc16`, `crc32`, `crc64`, `adler32`, `hash_combine`).
+  - Relocated Encoding: `base64_encode`, `base64_decode`, `hex_encode`, `hex_decode`, `is_hex`, `is_base64` moved cleanly to `std/str`.
+  - Updated `std/net` imports to use `std/str`.
+- [x] **Preserve `std/rand` Pruned State**:
+  - Kept `std/rand` strictly under 85 lines as a lightweight, zero-dependency LCG wrapper (`rand_seed_state`, `rand_auto_seed`, `rand_next`, `rand_int`, `rand_float`, `rand_float_range`, `rand_bool`, `rand_chance`, `rand_choice`).
 
 ### Phase 2: Package Deduplication Refactoring
-1. **Clean `Lib/crypto` Boundaries**:
-   - Remove `random_uuid()` from `Lib/crypto/src/random/entropy.alya`.
-   - In `Lib/crypto/src/lib.alya`, remove `random_uuid` export.
-   - Users requiring UUIDs should import `alya-lang/uuid` (Tier 3 canonical package).
-   - Retain `random_bytes(count)` and `random_hex(count)` as legitimate cryptographic entropy helpers.
-2. **Align `Lib/rand` Identifiers**:
-   - In `Lib/rand`, document that `identifiers.alya` (`uuid_v4`, `uuid_v7`, `ulid`, `nanoid`) is a convenience module for simulation, while `alya-lang/uuid` is the official RFC-compliant identifier package.
-   - Ensure `Lib/uuid` depends cleanly on `rand` for entropy without circular references.
-3. **Harmonize Checksums**:
-   - Document that `std/hash::crc32` is for fast string hashing in standalone scripts.
-   - Document that `compress::crc32` is for hardware/C-accelerated byte stream container verification.
+- [x] **Clean `Lib/crypto` Boundaries**:
+  - Removed `random_uuid()` from `Lib/crypto/src/random/entropy.alya` and its export in `src/lib.alya`.
+  - Retained `random_bytes(count)` and `random_hex(count)` as legitimate cryptographic entropy helpers.
+  - Canonical home for UUIDs is `alya-lang/uuid`.
+- [x] **Prune Duplicate Identifiers from `Lib/rand`**:
+  - Removed `src/core/identifiers.alya` (`uuid_v4`, `uuid_v7`, `ulid`, `nanoid`) from `Lib/rand`.
+  - Removed `rng_uuid_v4`, `rng_uuid_v7`, `rng_ulid`, `rng_nanoid` from `Lib/rand/src/lib.alya`.
+  - Updated tests, benchmarks, examples, and documentation to reference `alya-lang/uuid`.
+- [x] **Clean `Lib/url` Struct Layout**:
+  - Removed duplicate `url_*` struct fields (`url_scheme`, `url_host`, etc.) from `struct Url` in `Lib/url/src/types.alya`.
+  - Updated `parser.alya`, `normalize.alya`, `path.alya`, and `query.alya` to strictly use the canonical 8-field layout.
+- [x] **Harmonize Checksums**:
+  - Documented dual-tier boundary: `std/hash` provides fast pure-Alya polynomial string checksums (`crc32`, `adler32`), while `Lib/compress` provides C-accelerated (`miniz` FFI) byte-stream verification for RFC 1950/1952 containers.
 
-### Phase 3: Purging Legacy Compatibility Layers Across Packages
-As part of the clean-break policy, existing packages must delete all transitional backward-compatibility shims:
-1. **`Lib/cli`**: Delete `src/core/compat.alya` and `tests/test_compat.alya`.
-2. **`Lib/logger`**: Delete `src/core/compat.alya` and `tests/test_compat.alya`.
-3. **`Lib/term`**: Delete `src/compat.alya` and `tests/test_compat.alya`.
-4. **`Lib/csv`**: Delete legacy stdlib aliases in `src/lib.alya` and `tests/test_legacy.alya`.
-5. **`Lib/json`**: Delete legacy stdlib aliases in `src/lib.alya` and `tests/test_compat.alya`.
+### Phase 3: Purging Legacy Compatibility Layers Across Packages (Clean Break)
+Per Rule 5 (Clean Break / Zero Backward Compatibility), all transitional shims and backward compatibility layers were permanently eliminated:
+- [x] **`Lib/cli`**: Deleted `src/core/compat.alya` and `tests/test_compat.alya`; updated README.
+- [x] **`Lib/logger`**: Deleted `src/core/compat.alya` and `tests/test_compat.alya`; updated README.
+- [x] **`Lib/term`**: Deleted `src/compat.alya` and `tests/test_compat.alya`; updated README.
+- [x] **`Lib/csv`**: Deleted legacy stdlib aliases in `src/lib.alya` and `tests/test_legacy.alya`.
+- [x] **`Lib/json`**: Deleted `std_json_*` legacy aliases in `src/lib.alya`, `tests/test_compat.alya`, and updated README.
+- [x] **`Lib/rand`**: Deleted `rand_*` and `ulid_generate` legacy aliases in `src/lib.alya` and `tests/test_basic.alya`.
+- [x] **Compiler (`Src/alya`)**: Removed hardcoded `"has moved to a standalone package"` compile errors in `src/parser/mod.rs` and updated compiler tests.
 
 ---
 
