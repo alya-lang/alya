@@ -49,6 +49,8 @@ pub fn print_usage() {
         "  --arch <arch>         Target architecture: x86, x64, arm64 (default: auto-detected)"
     );
     println!("  --os <os>             Target OS: windows, linux, macos (default: auto-detected)");
+    println!("  -j, --jobs <N>        Number of parallel test worker jobs (default: CPU cores)");
+    println!("  --sequential          Run tests sequentially in single thread (alias for -j 1)");
     println!("  -q, --quiet           Suppress status messages and compiler banner");
     println!("  --time                Display timing for each compilation phase");
     println!("  --stats, --bench      Display detailed compilation and execution metrics");

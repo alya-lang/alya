@@ -2,10 +2,17 @@ use crate::codegen::{self, Architecture, OperatingSystem};
 use crate::driver::runner;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
+use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Instant;
+
+static TEST_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
 /// Discovers test files in the specified path.
 pub fn discover_test_files(path: &Path) -> Vec<PathBuf> {
@@ -76,12 +83,12 @@ pub fn execute_test_file(
 
     // 5. Compile with GCC to temp executable
     let pid = std::process::id();
-    let rand_id = (start_time.elapsed().as_nanos() % 100000) as u32;
-    let temp_asm = format!("temp_test_{}_{}.s", pid, rand_id);
+    let test_id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_asm = format!("temp_test_{}_{}.s", pid, test_id);
     let temp_exe = if matches!(os, OperatingSystem::Windows) {
-        format!("temp_test_{}_{}.exe", pid, rand_id)
+        format!("temp_test_{}_{}.exe", pid, test_id)
     } else {
-        format!("temp_test_{}_{}", pid, rand_id)
+        format!("temp_test_{}_{}", pid, test_id)
     };
 
     fs::write(&temp_asm, &asm_code)
@@ -132,8 +139,51 @@ pub fn execute_test_file(
     }
 }
 
-/// Runs the Alya test suite on the specified path.
-pub fn run_tests(path_str: &str, arch: Architecture, os: OperatingSystem) -> Result<(), String> {
+struct TestResultItem {
+    display_name: String,
+    outcome: Result<(bool, String, u128), String>,
+}
+
+fn handle_test_result(
+    display_name: &str,
+    outcome: Result<(bool, String, u128), String>,
+    passed: &mut usize,
+    failed: &mut usize,
+) {
+    match outcome {
+        Ok((true, _out, ms)) => {
+            *passed += 1;
+            println!("  \x1b[1;32m✓\x1b[0m {:<40} ({:>4} ms)", display_name, ms);
+        }
+        Ok((false, out, ms)) => {
+            *failed += 1;
+            println!(
+                "  \x1b[1;31m✗\x1b[0m {:<40} ({:>4} ms) - FAILED",
+                display_name, ms
+            );
+            if out.trim().is_empty() {
+                println!("      \x1b[91m| (Process terminated abnormally with no output)\x1b[0m");
+            } else {
+                for line in out.lines().take(8) {
+                    println!("      \x1b[90m|\x1b[0m {}", line);
+                }
+            }
+        }
+        Err(err) => {
+            *failed += 1;
+            println!("  \x1b[1;31m✗\x1b[0m {:<40} - ERROR", display_name);
+            println!("      \x1b[91m{}\x1b[0m", err);
+        }
+    }
+}
+
+/// Runs the Alya test suite on the specified path with optional parallel worker jobs.
+pub fn run_tests(
+    path_str: &str,
+    arch: Architecture,
+    os: OperatingSystem,
+    jobs: Option<usize>,
+) -> Result<(), String> {
     let root = Path::new(path_str);
     let test_files = discover_test_files(root);
 
@@ -142,61 +192,92 @@ pub fn run_tests(path_str: &str, arch: Architecture, os: OperatingSystem) -> Res
         return Ok(());
     }
 
+    let default_threads = thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let num_workers = jobs.unwrap_or(default_threads).max(1).min(test_files.len());
+
     println!("\n=== Running Alya Test Suite ===");
-    println!(
-        "Discovered {} test file(s) in '{}'\n",
-        test_files.len(),
-        path_str
-    );
+    if num_workers == 1 {
+        println!(
+            "Discovered {} test file(s) in '{}' (sequential)\n",
+            test_files.len(),
+            path_str
+        );
+    } else {
+        println!(
+            "Discovered {} test file(s) in '{}' (parallel, {} workers)\n",
+            test_files.len(),
+            path_str,
+            num_workers
+        );
+    }
 
     let mut passed = 0;
     let mut failed = 0;
     let total_start = Instant::now();
 
-    for file in &test_files {
-        let display_name = file.display().to_string();
-        match execute_test_file(file, arch, os) {
-            Ok((true, _out, ms)) => {
-                passed += 1;
-                println!("  \x1b[1;32m✓\x1b[0m {:<40} ({:>4} ms)", display_name, ms);
-            }
-            Ok((false, out, ms)) => {
-                failed += 1;
-                println!(
-                    "  \x1b[1;31m✗\x1b[0m {:<40} ({:>4} ms) - FAILED",
-                    display_name, ms
-                );
-                if out.trim().is_empty() {
-                    println!(
-                        "      \x1b[91m| (Process terminated abnormally with no output)\x1b[0m"
-                    );
-                } else {
-                    for line in out.lines().take(8) {
-                        println!("      \x1b[90m|\x1b[0m {}", line);
+    if num_workers == 1 {
+        for file in &test_files {
+            let display_name = file.display().to_string();
+            let outcome = execute_test_file(file, arch, os);
+            handle_test_result(&display_name, outcome, &mut passed, &mut failed);
+        }
+    } else {
+        let (tx, rx) = mpsc::channel();
+        let queue = Arc::new(Mutex::new(test_files.into_iter().collect::<VecDeque<_>>()));
+
+        let mut handles = Vec::new();
+        for _ in 0..num_workers {
+            let q = Arc::clone(&queue);
+            let sender = tx.clone();
+            handles.push(thread::spawn(move || loop {
+                let file = {
+                    let mut locked = q.lock().unwrap();
+                    locked.pop_front()
+                };
+                match file {
+                    Some(path) => {
+                        let display_name = path.display().to_string();
+                        let outcome = execute_test_file(&path, arch, os);
+                        let _ = sender.send(TestResultItem {
+                            display_name,
+                            outcome,
+                        });
                     }
+                    None => break,
                 }
-            }
-            Err(err) => {
-                failed += 1;
-                println!("  \x1b[1;31m✗\x1b[0m {:<40} - ERROR", display_name);
-                println!("      \x1b[91m{}\x1b[0m", err);
-            }
+            }));
+        }
+        drop(tx);
+
+        while let Ok(item) = rx.recv() {
+            handle_test_result(&item.display_name, item.outcome, &mut passed, &mut failed);
+        }
+
+        for h in handles {
+            let _ = h.join();
         }
     }
 
     let total_time = total_start.elapsed().as_millis();
     println!("\n----------------------------------------");
+    let mode_str = if num_workers == 1 {
+        "sequential".to_string()
+    } else {
+        format!("parallel, {} workers", num_workers)
+    };
     if failed == 0 {
         println!(
-            "\x1b[1;32m✓ Test Results: {} passed, 0 failed in {} ms\x1b[0m",
-            passed, total_time
+            "\x1b[1;32m✓ Test Results: {} passed, 0 failed in {} ms ({})\x1b[0m",
+            passed, total_time, mode_str
         );
         println!("----------------------------------------\n");
         Ok(())
     } else {
         println!(
-            "\x1b[1;31m✗ Test Results: {} passed, {} failed in {} ms\x1b[0m",
-            passed, failed, total_time
+            "\x1b[1;31m✗ Test Results: {} passed, {} failed in {} ms ({})\x1b[0m",
+            passed, failed, total_time, mode_str
         );
         println!("----------------------------------------\n");
         Err(format!("Test suite completed with {} failure(s).", failed))

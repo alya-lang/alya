@@ -26,7 +26,7 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     }
 
     if args.command == CommandKind::Test {
-        crate::tools::test_runner::run_tests(&args.input_file, args.arch, args.os)?;
+        crate::tools::test_runner::run_tests(&args.input_file, args.arch, args.os, args.test_jobs)?;
         return Ok(());
     }
 

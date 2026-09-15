@@ -307,3 +307,21 @@ fn test_pkg_subcommands() {
         })
     );
 }
+
+#[test]
+fn test_subcommand_test_with_jobs_and_sequential() {
+    let args1 = to_args(&["alyac", "test", "--sequential"]);
+    let parsed1 = CliArgs::parse_from(&args1).unwrap().unwrap();
+    assert_eq!(parsed1.command, CommandKind::Test);
+    assert_eq!(parsed1.test_jobs, Some(1));
+
+    let args2 = to_args(&["alyac", "test", "-j", "4"]);
+    let parsed2 = CliArgs::parse_from(&args2).unwrap().unwrap();
+    assert_eq!(parsed2.command, CommandKind::Test);
+    assert_eq!(parsed2.test_jobs, Some(4));
+
+    let args3 = to_args(&["alyac", "test", "--jobs", "8"]);
+    let parsed3 = CliArgs::parse_from(&args3).unwrap().unwrap();
+    assert_eq!(parsed3.command, CommandKind::Test);
+    assert_eq!(parsed3.test_jobs, Some(8));
+}

@@ -34,6 +34,7 @@ pub struct CliArgs {
     pub bundle_id: Option<String>,
     pub icon_path: Option<String>,
     pub run_args: Vec<String>,
+    pub test_jobs: Option<usize>,
 }
 
 impl CliArgs {
@@ -81,6 +82,7 @@ impl CliArgs {
                 bundle_id: None,
                 icon_path: None,
                 run_args: Vec::new(),
+                test_jobs: None,
             }));
         }
 
@@ -196,6 +198,7 @@ impl CliArgs {
         let mut os_explicit = false;
         let mut arch_explicit = false;
         let mut run_args = Vec::new();
+        let mut test_jobs = None;
         let mut arch = if cfg!(target_arch = "aarch64") {
             Architecture::ARM64
         } else if cfg!(target_arch = "x86") {
@@ -259,6 +262,20 @@ impl CliArgs {
                 }
                 "-q" | "--quiet" => {
                     quiet = true;
+                }
+                "--sequential" => {
+                    test_jobs = Some(1);
+                }
+                "-j" | "--jobs" | "--test-threads" => {
+                    if i + 1 < args.len() {
+                        let val = args[i + 1]
+                            .parse::<usize>()
+                            .map_err(|_| format!("Error: Invalid jobs count '{}'", args[i + 1]))?;
+                        test_jobs = Some(val.max(1));
+                        i += 1;
+                    } else {
+                        return Err("Error: Missing argument for '-j/--jobs'".to_string());
+                    }
                 }
                 "--time" => {
                     time = true;
@@ -404,6 +421,7 @@ impl CliArgs {
             bundle_id,
             icon_path,
             run_args,
+            test_jobs,
         }))
     }
 
@@ -437,6 +455,7 @@ impl CliArgs {
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
+            test_jobs: None,
         }
     }
 
@@ -470,6 +489,7 @@ impl CliArgs {
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
+            test_jobs: None,
         }
     }
 

@@ -7,6 +7,9 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
+
+static C_BUILD_MUTEX: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Default)]
 pub struct CBuildPlan {
@@ -97,6 +100,8 @@ pub fn build_c_objects(
     if plan.sources.is_empty() {
         return Ok(Vec::new());
     }
+
+    let _lock = C_BUILD_MUTEX.lock().unwrap();
 
     let cache_dir = get_global_c_obj_dir().unwrap_or_else(|| PathBuf::from(".alya").join("c_obj"));
     let cache_dir = clean_canonicalize(&cache_dir);
