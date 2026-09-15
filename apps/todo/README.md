@@ -41,7 +41,7 @@ repository = "https://github.com/alya-lang/alya"
 keywords = ["alya", "alya-lang", "package", "todo", "cli", "app", "productivity"]
 
 [dependencies]
-term = { git = "https://github.com/alya-lang/term", tag = "v0.1.0" }
+term = { git = "https://github.com/alya-lang/term", tag = "v0.2.0" }
 ```
 
 ### Inspect Package Status
@@ -57,7 +57,7 @@ Entry:   src/main.alya
 About:   A sleek terminal task manager with priorities, tags, and persistence
 
 Dependencies (1):
-  • term             git: https://github.com/alya-lang/term (tag: v0.1.0) [locked: sha256:43aa65a21d...]
+  • term             git: https://github.com/alya-lang/term (tag: v0.2.0) [locked: sha256:799a42f235...]
 ```
 
 ---
