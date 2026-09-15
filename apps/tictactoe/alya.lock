@@ -6,11 +6,11 @@ name = "rand"
 version = "main"
 source = "git:https://github.com/alya-lang/rand#main"
 entry = ".alya/packages/rand/src/lib.alya"
-checksum = "sha256:6ecba6621f0df7b9020cb49f1df050ad38a05444d979fef3511ef95648510a99"
+checksum = "sha256:8fb64db51b094e1210e335ff42ab96cec9222867a423639c6d520fa958100daa"
 
 [[package]]
 name = "term"
 version = "main"
 source = "git:https://github.com/alya-lang/term#main"
 entry = ".alya/packages/term/src/lib.alya"
-checksum = "sha256:43aa65a21d5b6b6626e355a3716990006e97a278ecd5e130d3f6581484d70007"
+checksum = "sha256:e2c92ee0158effa8297190f1df49a064f0722c647f383f6ae20de77a5dfa9841"
