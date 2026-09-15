@@ -429,7 +429,14 @@ pub fn fetch_git_or_archive_dependency(
 
     // 1. Try Git clone first if git CLI is installed
     let git_err = match try_git_clone(url, tag, branch, target_dir) {
-        Ok(()) => return Ok(()),
+        Ok(()) => {
+            // Strip .git directory so cached packages remain clean and lightweight
+            let git_dir = target_dir.join(".git");
+            if git_dir.exists() {
+                let _ = fs::remove_dir_all(&git_dir);
+            }
+            return Ok(());
+        }
         Err(e) => e,
     };
 
