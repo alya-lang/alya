@@ -619,6 +619,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    cmp %ecx, %esi\n");
     out.push_str("    jb .L_x86_s2i_skip\n");
     out.push_str(".L_x86_s2i_not_str:\n");
+    out.push_str("    cmp $65536, %esi\n");
+    out.push_str("    jae .L_x86_s2i_skip\n");
     out.push_str("    mov %esi, %eax\n");
     out.push_str("    jmp .L_x86_s2i_done\n");
     out.push_str(".L_x86_s2i_skip:\n");

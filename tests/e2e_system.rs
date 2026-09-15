@@ -123,6 +123,10 @@ for arg in a
 end
 if a.length() > 0
     say "first: {a[0]}"
+    let num = int(a[2])
+    say "parsed_int: {num}"
+    let next_num = num + 8
+    say "calc: {next_num}"
 end
 "#;
     // Test with CLI arguments
@@ -130,7 +134,15 @@ end
         assert_eq!(code, 0);
         assert_eq!(
             output,
-            concat!("3\n", "hello\n", "alya\n", "42\n", "first: hello\n",)
+            concat!(
+                "3\n",
+                "hello\n",
+                "alya\n",
+                "42\n",
+                "first: hello\n",
+                "parsed_int: 42\n",
+                "calc: 50\n",
+            )
         );
     }
 

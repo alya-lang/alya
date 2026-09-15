@@ -213,12 +213,15 @@ function main()
         let a = cli_args[i]
         if (a == "-p" or a == "--pattern") and i + 1 < arr_len(cli_args)
             pattern_name = cli_args[i + 1]
+            i += 1
         elif (a == "-g" or a == "--gens") and i + 1 < arr_len(cli_args)
             let g = int(cli_args[i + 1])
             if g > 0 max_gens = g end
+            i += 1
         elif (a == "-d" or a == "--delay") and i + 1 < arr_len(cli_args)
             let d = int(cli_args[i + 1])
             if d >= 0 delay_ms = d end
+            i += 1
         elif a == "--test" or a == "--simulate"
             is_test = 1
         end
@@ -262,8 +265,8 @@ function main()
         show_banner(pattern_name)
         render_life(b, gen, cur_alive)
 
-        if gen == max_gens
-            say color_green("Simulation complete!") + " (" + str(gen) + " generations)"
+        if gen >= max_gens
+            say ui::color_green("Simulation complete!") + " (" + str(gen) + " generations)"
             break
         end
 
