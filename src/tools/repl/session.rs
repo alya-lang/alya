@@ -651,28 +651,22 @@ impl ReplSession {
                 println!("\x1b[1;36m============================\x1b[0m");
             }
             ":help" | ":h" => {
-                println!(
-                    "\x1b[1;36m╔════════════════════════════════════════════════════════╗\x1b[0m"
-                );
-                println!("\x1b[1;36m║                  \x1b[1;33mALYA REPL COMMANDS\x1b[0m                    \x1b[1;36m║\x1b[0m");
-                println!(
-                    "\x1b[1;36m╠════════════════════════════════════════════════════════╣\x1b[0m"
-                );
-                println!("\x1b[1;36m║\x1b[0m  \x1b[1;32m:help, :h\x1b[0m     Show this help guide                     \x1b[1;36m║\x1b[0m");
-                println!("\x1b[1;36m║\x1b[0m  \x1b[1;32m:vars, :v\x1b[0m     List defined variables and functions     \x1b[1;36m║\x1b[0m");
-                println!("\x1b[1;36m║\x1b[0m  \x1b[1;32m:code\x1b[0m         View accumulated session code            \x1b[1;36m║\x1b[0m");
-                println!("\x1b[1;36m║\x1b[0m  \x1b[1;32m:clear, :c\x1b[0m    Reset session state                      \x1b[1;36m║\x1b[0m");
-                println!("\x1b[1;36m║\x1b[0m  \x1b[1;32m:exit, :q\x1b[0m     Exit the REPL                            \x1b[1;36m║\x1b[0m");
-                println!(
-                    "\x1b[1;36m╠════════════════════════════════════════════════════════╣\x1b[0m"
-                );
-                println!("\x1b[1;36m║\x1b[0m  \x1b[1;33mFeatures:\x1b[0m                                             \x1b[1;36m║\x1b[0m");
-                println!("\x1b[1;36m║\x1b[0m  • Expressions (e.g. 1 + 2, [1, 2, 3]) auto-evaluate   \x1b[1;36m║\x1b[0m");
-                println!("\x1b[1;36m║\x1b[0m  • Multi-line blocks continue until 'end' keyword       \x1b[1;36m║\x1b[0m");
-                println!("\x1b[1;36m║\x1b[0m  • Standard library support (e.g. import \"std/math\")   \x1b[1;36m║\x1b[0m");
-                println!(
-                    "\x1b[1;36m╚════════════════════════════════════════════════════════╝\x1b[0m"
-                );
+                const W: usize = 56;
+                let border = "═".repeat(W);
+                println!("\x1b[1;36m╔{}╗\x1b[0m", border);
+                crate::driver::console::print_box_row("                  \x1b[1;33mALYA REPL COMMANDS\x1b[0m", W);
+                println!("\x1b[1;36m╠{}╣\x1b[0m", border);
+                crate::driver::console::print_box_row("  \x1b[1;32m:help, :h\x1b[0m     Show this help guide", W);
+                crate::driver::console::print_box_row("  \x1b[1;32m:vars, :v\x1b[0m     List defined variables and functions", W);
+                crate::driver::console::print_box_row("  \x1b[1;32m:code\x1b[0m         View accumulated session code", W);
+                crate::driver::console::print_box_row("  \x1b[1;32m:clear, :c\x1b[0m    Reset session state", W);
+                crate::driver::console::print_box_row("  \x1b[1;32m:exit, :q\x1b[0m     Exit the REPL", W);
+                println!("\x1b[1;36m╠{}╣\x1b[0m", border);
+                crate::driver::console::print_box_row("  \x1b[1;33mFeatures:\x1b[0m", W);
+                crate::driver::console::print_box_row("  • Expressions (e.g. 1 + 2, [1, 2, 3]) auto-evaluate", W);
+                crate::driver::console::print_box_row("  • Multi-line blocks continue until 'end' keyword", W);
+                crate::driver::console::print_box_row("  • Standard library support (e.g. import \"std/math\")", W);
+                println!("\x1b[1;36m╚{}╝\x1b[0m", border);
             }
             other => {
                 eprintln!(

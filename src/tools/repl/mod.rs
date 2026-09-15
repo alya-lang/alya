@@ -14,50 +14,16 @@ pub use session::*;
 
 fn print_repl_banner() {
     const INNER_WIDTH: usize = 56;
-
-    fn visible_width(s: &str) -> usize {
-        let mut width = 0;
-        let mut in_escape = false;
-        for ch in s.chars() {
-            if in_escape {
-                if ch.is_ascii_alphabetic() {
-                    in_escape = false;
-                }
-            } else if ch == '\x1b' {
-                in_escape = true;
-            } else if ch == '⚡' || (ch >= '\u{1F300}' && ch <= '\u{1FAFF}') {
-                width += 2;
-            } else {
-                width += 1;
-            }
-        }
-        width
-    }
-
-    fn print_row(content: &str) {
-        let vis = visible_width(content);
-        let pad = if INNER_WIDTH > vis {
-            INNER_WIDTH - vis
-        } else {
-            0
-        };
-        println!(
-            "\x1b[1;36m║\x1b[0m{}{}\x1b[1;36m║\x1b[0m",
-            content,
-            " ".repeat(pad)
-        );
-    }
-
     let border = "═".repeat(INNER_WIDTH);
     println!("\x1b[1;36m╔{}╗\x1b[0m", border);
-    print_row("              \x1b[1;33m⚡ ALYA INTERACTIVE REPL ⚡\x1b[0m");
-    print_row(&format!(
+    crate::driver::console::print_box_row("              \x1b[1;33m⚡ ALYA INTERACTIVE REPL ⚡\x1b[0m", INNER_WIDTH);
+    crate::driver::console::print_box_row(&format!(
         "  \x1b[0mVersion {} ({}-{})",
         env!("CARGO_PKG_VERSION"),
         std::env::consts::OS,
         std::env::consts::ARCH
-    ));
-    print_row("  \x1b[0mType \x1b[1;32m:help\x1b[0m for commands, \x1b[1;31m:exit\x1b[0m to quit");
+    ), INNER_WIDTH);
+    crate::driver::console::print_box_row("  \x1b[0mType \x1b[1;32m:help\x1b[0m for commands, \x1b[1;31m:exit\x1b[0m to quit", INNER_WIDTH);
     println!("\x1b[1;36m╚{}╝\x1b[0m\n", border);
 }
 

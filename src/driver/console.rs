@@ -39,3 +39,38 @@ pub fn init_console() {
 pub fn init_console() {
     // Linux and macOS support VT escape sequences and UTF-8 natively.
 }
+
+/// Computes visible display width of a string (ignoring ANSI escape codes and accounting for wide characters/emojis).
+pub fn visible_width(s: &str) -> usize {
+    let mut width = 0;
+    let mut in_escape = false;
+    for ch in s.chars() {
+        if in_escape {
+            if ch.is_ascii_alphabetic() {
+                in_escape = false;
+            }
+        } else if ch == '\x1b' {
+            in_escape = true;
+        } else if ch == '⚡' || (ch >= '\u{1F300}' && ch <= '\u{1FAFF}') {
+            width += 2;
+        } else {
+            width += 1;
+        }
+    }
+    width
+}
+
+/// Prints a row inside a box with left and right `║` borders, padding spaces automatically to `inner_width`.
+pub fn print_box_row(content: &str, inner_width: usize) {
+    let vis = visible_width(content);
+    let pad = if inner_width > vis {
+        inner_width - vis
+    } else {
+        0
+    };
+    println!(
+        "\x1b[1;36m║\x1b[0m{}{}\x1b[1;36m║\x1b[0m",
+        content,
+        " ".repeat(pad)
+    );
+}
