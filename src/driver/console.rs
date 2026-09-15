@@ -51,7 +51,7 @@ pub fn visible_width(s: &str) -> usize {
             }
         } else if ch == '\x1b' {
             in_escape = true;
-        } else if ch == '⚡' || (ch >= '\u{1F300}' && ch <= '\u{1FAFF}') {
+        } else if ch == '⚡' || ('\u{1F300}'..='\u{1FAFF}').contains(&ch) {
             width += 2;
         } else {
             width += 1;
@@ -63,11 +63,7 @@ pub fn visible_width(s: &str) -> usize {
 /// Prints a row inside a box with left and right `║` borders, padding spaces automatically to `inner_width`.
 pub fn print_box_row(content: &str, inner_width: usize) {
     let vis = visible_width(content);
-    let pad = if inner_width > vis {
-        inner_width - vis
-    } else {
-        0
-    };
+    let pad = inner_width.saturating_sub(vis);
     println!(
         "\x1b[1;36m║\x1b[0m{}{}\x1b[1;36m║\x1b[0m",
         content,
