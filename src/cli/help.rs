@@ -32,7 +32,11 @@ pub fn print_usage() {
         "  add <name>            Add a dependency to alya.toml (--path, --git, --tag, --branch)"
     );
     println!("  install               Resolve and lock all dependencies in alya.lock");
-    println!("  pkg <cmd>             Package manager commands (init, add, install, list, update)");
+    println!(
+        "  update [-u]           Check or upgrade dependencies (-u updates alya.toml & locks)"
+    );
+    println!("  outdated              Check for newer dependency versions without upgrading");
+    println!("  pkg <cmd>             Package manager commands (init, add, install, update, cache, clean)");
     println!("  toolchain <cmd>       Manage C/Assembly build toolchains (status, install, clean)");
     println!("  help                  Display help information");
     println!("  version               Display version information\n");
@@ -45,6 +49,7 @@ pub fn print_usage() {
     println!("  --bundle-id <id>      Set CFBundleIdentifier (default: com.alya.<name>)");
     println!("  --icon <path>         Set custom application icon (.icns) for macOS bundle");
     println!("  --check               Check formatting without modifying (with fmt)");
+    println!("  -u, --upgrade         Rewrite alya.toml with latest versions (with update)");
     println!(
         "  --arch <arch>         Target architecture: x86, x64, arm64 (default: auto-detected)"
     );
@@ -62,6 +67,8 @@ pub fn print_usage() {
     println!("  alyac init my_app                    # Initialize a new package");
     println!("  alyac add raylib --path ../raylib    # Add local path dependency");
     println!("  alyac install                        # Lock and install dependencies");
+    println!("  alyac update                         # Check for newer package versions");
+    println!("  alyac update -u                      # Upgrade alya.toml and re-lock");
     println!("  alyac run                            # Run package entry from alya.toml");
     println!("  alyac run hello.alya                 # Compile & run in one step");
     println!("  alyac build hello.alya               # Produce executable (hello.exe / hello)");
