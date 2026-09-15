@@ -38,6 +38,10 @@ pub struct PackageInfo {
     pub description: Option<String>,
     pub entry: String,
     pub license: Option<String>,
+    pub homepage: Option<String>,
+    pub repository: Option<String>,
+    pub keywords: Vec<String>,
+    pub extra: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

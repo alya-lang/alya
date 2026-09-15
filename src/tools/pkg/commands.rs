@@ -101,6 +101,10 @@ pub fn run_init(path: Option<&str>, name: Option<&str>, is_lib: bool) -> Result<
             description: Some(format!("Alya package {}", pkg_name)),
             entry: entry_file.to_string(),
             license: Some("MIT".to_string()),
+            homepage: None,
+            repository: None,
+            keywords: Vec::new(),
+            extra: BTreeMap::new(),
         },
         dependencies: BTreeMap::new(),
         build: None,
@@ -431,6 +435,28 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
 
                     let cache_hit =
                         cached_pkg_dir.exists() && cached_pkg_dir.join("alya.toml").exists();
+
+                    let head_cache_key = compute_cache_key(&name, "head", &url);
+                    let head_cached_dir = global_cache_dir.join(&head_cache_key);
+                    let head_hit = if !cache_hit
+                        && head_cached_dir.exists()
+                        && head_cached_dir.join("alya.toml").exists()
+                    {
+                        if let Ok(manifest_src) =
+                            fs::read_to_string(head_cached_dir.join("alya.toml"))
+                        {
+                            if let Ok(parsed) = parse_manifest(&manifest_src) {
+                                parsed.package.version == *v || v == "*"
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
                     if cache_hit {
                         println!(
                             "  Using cached package '{}' ({}) from global cache",
@@ -442,12 +468,23 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
                             }
                             copy_dir_all(&cached_pkg_dir, &target_dir, true)?;
                         }
+                    } else if head_hit {
+                        let _ = copy_dir_all(&head_cached_dir, &cached_pkg_dir, true);
+                        let _ = fs::write(cached_pkg_dir.join(".alya-source"), &source);
+                        println!(
+                            "  Using package '{}' (v{}) from global cache",
+                            name, v
+                        );
+                        if target_dir.exists() {
+                            let _ = fs::remove_dir_all(&target_dir);
+                        }
+                        copy_dir_all(&cached_pkg_dir, &target_dir, true)?;
                     } else {
                         let _ = fs::create_dir_all(&global_cache_dir);
                         if cached_pkg_dir.exists() {
                             let _ = fs::remove_dir_all(&cached_pkg_dir);
                         }
-                        let fetch_res = fetch_git_or_archive_dependency(
+                        let mut fetch_res = fetch_git_or_archive_dependency(
                             &name,
                             &url,
                             tag_cand.as_deref(),
@@ -455,6 +492,60 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
                             None,
                             &cached_pkg_dir,
                         );
+                        if fetch_res.is_err() {
+                            // Fallback 1: Check if 'head' in global cache matches the requested version
+                            let head_cache_key = compute_cache_key(&name, "head", &url);
+                            let head_cached_dir = global_cache_dir.join(&head_cache_key);
+                            if head_cached_dir.exists()
+                                && head_cached_dir.join("alya.toml").exists()
+                            {
+                                if let Ok(manifest_src) =
+                                    fs::read_to_string(head_cached_dir.join("alya.toml"))
+                                {
+                                    if let Ok(parsed) = parse_manifest(&manifest_src) {
+                                        if parsed.package.version == *v || v == "*" {
+                                            println!(
+                                                "  Notice: Tag '{}' not found on remote; using matching head version '{}'",
+                                                tag_or_branch, parsed.package.version
+                                            );
+                                            let _ = copy_dir_all(
+                                                &head_cached_dir,
+                                                &cached_pkg_dir,
+                                                true,
+                                            );
+                                            fetch_res = Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                            // Fallback 2: Try fetching default branch (head) directly
+                            if fetch_res.is_err() {
+                                if let Ok(()) = fetch_git_or_archive_dependency(
+                                    &name,
+                                    &url,
+                                    None,
+                                    None,
+                                    None,
+                                    &cached_pkg_dir,
+                                ) {
+                                    if let Ok(manifest_src) =
+                                        fs::read_to_string(cached_pkg_dir.join("alya.toml"))
+                                    {
+                                        if let Ok(parsed) = parse_manifest(&manifest_src) {
+                                            if parsed.package.version == *v || v == "*" {
+                                                println!(
+                                                    "  Notice: Tag '{}' not found on remote; using matching head version '{}'",
+                                                    tag_or_branch, parsed.package.version
+                                                );
+                                                fetch_res = Ok(());
+                                            } else {
+                                                let _ = fs::remove_dir_all(&cached_pkg_dir);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         if let Err(e) = fetch_res {
                             if !target_dir.exists() || !target_dir.join("alya.toml").exists() {
                                 return Err(e);
@@ -468,14 +559,35 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
                         }
                     }
                 } else if !target_dir.exists() || !target_dir.join("alya.toml").exists() {
-                    fetch_git_or_archive_dependency(
+                    let mut fetch_res = fetch_git_or_archive_dependency(
                         &name,
                         &url,
                         tag_cand.as_deref(),
                         None,
                         None,
                         &target_dir,
-                    )?;
+                    );
+                    if fetch_res.is_err() {
+                        if let Ok(()) = fetch_git_or_archive_dependency(
+                            &name,
+                            &url,
+                            None,
+                            None,
+                            None,
+                            &target_dir,
+                        ) {
+                            if let Ok(manifest_src) =
+                                fs::read_to_string(target_dir.join("alya.toml"))
+                            {
+                                if let Ok(parsed) = parse_manifest(&manifest_src) {
+                                    if parsed.package.version == *v || v == "*" {
+                                        fetch_res = Ok(());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    fetch_res?;
                 } else {
                     update_git_dependency(tag_cand.as_deref(), None, &target_dir);
                 }

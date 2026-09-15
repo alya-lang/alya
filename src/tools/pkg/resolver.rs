@@ -1,7 +1,7 @@
 use std::env;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 pub fn resolve_registry_url(name: &str) -> String {
     if let Ok(reg) = env::var("ALYA_REGISTRY") {
@@ -213,10 +213,12 @@ pub fn try_download_and_extract_archive(
         let temp_archive =
             temp_dir.join(format!("alya_pkg_{}_{}_{}.{}", pkg_name, pid, millis, ext));
 
-        // 1. Download archive using curl, wget, or PowerShell
+        // 1. Download archive using curl, wget, or PowerShell (suppress noise on probe 404s)
         let mut download_ok = Command::new("curl")
             .args(["-sSL", "-f", url, "-o"])
             .arg(&temp_archive)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status()
             .map(|s| s.success())
             .unwrap_or(false);
@@ -225,6 +227,8 @@ pub fn try_download_and_extract_archive(
             download_ok = Command::new("wget")
                 .args(["-q", url, "-O"])
                 .arg(&temp_archive)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false);
@@ -232,12 +236,14 @@ pub fn try_download_and_extract_archive(
 
         if !download_ok && cfg!(windows) {
             let ps_script = format!(
-                "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri '{}' -OutFile '{}'",
+                "$ProgressPreference = 'SilentlyContinue'; try {{ Invoke-WebRequest -Uri '{}' -OutFile '{}' -ErrorAction Stop }} catch {{ exit 1 }}",
                 url,
                 temp_archive.display().to_string().replace('\\', "/")
             );
             download_ok = Command::new("powershell")
                 .args(["-NoProfile", "-Command", &ps_script])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false);
