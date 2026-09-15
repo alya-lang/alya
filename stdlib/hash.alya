@@ -394,6 +394,10 @@ function adler32(s)
     return bit_or(bit_shl(b, 16), a)
 end
 
+function adler32_hex(s)
+    return int_to_hex(adler32(s), 8)
+end
+
 function sdbm(s)
     let slen = len(s)
     let h = 0

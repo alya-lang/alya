@@ -38,4 +38,8 @@ assert_str_eq(int_to_hex(0, 4), "0000", "int_to_hex zero padded")
 assert_str_eq(int_to_hex(255, 2), "ff", "int_to_hex 255")
 assert_str_eq(int_to_hex(4096, 4), "1000", "int_to_hex 4096")
 
+# 6. Adler-32
+assert_eq(adler32("Wikipedia"), 300286872, "adler32 'Wikipedia'")
+assert_str_eq(adler32_hex("Wikipedia"), "11e60398", "adler32_hex 'Wikipedia'")
+
 say "All std/hash tests passed successfully!"
