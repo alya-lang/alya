@@ -39,7 +39,7 @@ pub fn dir_size_and_count(path: &Path) -> (u64, usize) {
             for entry in entries.flatten() {
                 let p = entry.path();
                 if p.is_dir() {
-                    if p.file_name().map_or(false, |n| n == ".git") {
+                    if p.file_name().is_some_and(|n| n == ".git") {
                         continue;
                     }
                     stack.push(p);
@@ -114,12 +114,12 @@ pub fn inspect_packages_dir(dir: &Path, lock: Option<&PackageLock>) -> Vec<Cache
                                 let is_semver = folder_tag
                                     .chars()
                                     .next()
-                                    .map_or(false, |c| c.is_ascii_digit())
+                                    .is_some_and(|c| c.is_ascii_digit())
                                     || (folder_tag.starts_with('v')
                                         && folder_tag
                                             .chars()
                                             .nth(1)
-                                            .map_or(false, |c| c.is_ascii_digit()));
+                                            .is_some_and(|c| c.is_ascii_digit()));
                                 if !is_semver && folder_tag != "unknown" {
                                     version = format!("{} ({})", folder_tag, v_str);
                                 } else {
