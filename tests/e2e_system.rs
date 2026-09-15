@@ -873,6 +873,7 @@ fn test_e2e_fs_and_hash_stdlib_extended() {
     let code = r#"
 import "std/fs"
 import "std/hash"
+import "std/str"
 
 let path = "test_ext_fs_io.txt"
 write_lines(path, ["first line", "second line"])
@@ -1136,7 +1137,7 @@ say "should fail"
     let mut parser = alya::parser::Parser::new(tokens);
     let mut ast = parser.parse().expect("Parse failed");
     let err = alya::parser::resolve_imports(&mut ast, std::path::Path::new(".")).unwrap_err();
-    assert!(err.contains("alyac add csv"));
+    assert!(err.contains("Cannot find standard library module 'std/csv'"));
 }
 
 #[test]
@@ -1150,7 +1151,7 @@ say "should fail"
     let mut parser = alya::parser::Parser::new(tokens);
     let mut ast = parser.parse().expect("Parse failed");
     let err = alya::parser::resolve_imports(&mut ast, std::path::Path::new(".")).unwrap_err();
-    assert!(err.contains("alyac add url"));
+    assert!(err.contains("Cannot find standard library module 'std/url'"));
 }
 
 #[test]
