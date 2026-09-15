@@ -102,14 +102,14 @@ Enable community library sharing, versioned dependency resolution, and automated
 - **Transitive Dependency Resolution (Queue / BFS)**:
   - Recursive multi-tier dependency tree resolution locking all nested packages in a flat, deterministic `alya.lock`.
   - Compiler import resolver walks up parent directories to seamlessly bind transitive sub-dependencies.
-- **Compiler Migration Diagnostics**:
-  - Automatic diagnostics directing legacy standard library imports (`std/csv`, `std/url`, `std/uuid`, `std/crypto`) to their official standalone packages (`alyac add <pkg>`).
 
 ---
 
 ### Standard Library (Stdlib) vs Package (Pkg) Architecture
 
 To preserve compiler binary lightness, rapid community evolution, and zero-middleware performance, Alya adheres to a clear three-tier architectural separation between embedded standard library modules (`std/*`) and standalone packages (`alya.toml`).
+
+> Detailed boundary rules, deduplication audit, and design guidelines are documented in [`STDLIB_PKG_ARCHITECTURE.md`](STDLIB_PKG_ARCHITECTURE.md).
 
 #### 1. Architectural Philosophy
 
@@ -156,7 +156,7 @@ To preserve compiler binary lightness, rapid community evolution, and zero-middl
 
 3. **Tier 3 (Standalone Domain Packages - Unbundled):**
    - Domain-heavy libraries completely removed from compiler binary.
-   - Friendly compiler migration diagnostics guide users when deprecated stdlib paths are imported (e.g. `import "std/csv"` ➔ suggests `alyac add csv`, `import "std/url"` ➔ `alyac add url`, `import "std/uuid"` ➔ `alyac add uuid`, `import "std/crypto"` ➔ `alyac add crypto`).
+   - Clean break: zero backward-compatibility baggage or deprecated shims; standalone packages are resolved exclusively via `alya.toml`.
 
 #### 3. Official Package Ecosystem Directory
 
