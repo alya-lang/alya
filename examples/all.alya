@@ -1,0 +1,184 @@
+# ==============================================================================
+# Alya v0.0.18 - New Language Features Showcase (all.alya)
+# ==============================================================================
+
+say "=== [1] ENUMS (Enumerations) ==="
+
+enum TaskStatus
+    Pending
+    InProgress
+    Completed
+    Failed
+end
+
+enum HttpStatus
+    Ok = 200
+    Created = 201
+    BadRequest = 400
+    NotFound = 404
+end
+
+enum LogLevel
+    Debug = "DEBUG"
+    Info = "INFO"
+    Warn = "WARN"
+    Error = "ERROR"
+end
+
+# Dot notation & Scope notation access
+let current_status = TaskStatus.InProgress
+let finish_status = TaskStatus::Completed
+say "TaskStatus.Pending: " + str(TaskStatus.Pending)
+say "TaskStatus.InProgress: " + str(current_status)
+say "TaskStatus::Completed: " + str(finish_status)
+say "HttpStatus.Ok: " + str(HttpStatus.Ok)
+say "HttpStatus::NotFound: " + str(HttpStatus::NotFound)
+say "LogLevel.Info: " + LogLevel.Info
+say "LogLevel::Error: " + LogLevel::Error
+
+# Pattern matching with enums
+when current_status
+    is TaskStatus.Pending then say "Status: Pending"
+    is TaskStatus.InProgress then say "Status: In Progress"
+    is TaskStatus.Completed then say "Status: Completed"
+    else say "Status: Unknown"
+end
+
+say ""
+say "=== [2] CONSTANTS (const) ==="
+
+const APP_NAME = "Alya Showcase"
+const VERSION = "0.0.18"
+const PI = 3.14159
+const MAX_CONNECTIONS = 500, TIMEOUT_SEC = 30
+const BUFFER_SIZE = 1024 * 64
+
+say "App: " + APP_NAME + " v" + VERSION
+say "Max Connections: " + str(MAX_CONNECTIONS)
+say "Timeout: " + str(TIMEOUT_SEC) + "s"
+say "Buffer Size: " + str(BUFFER_SIZE) + " bytes"
+
+function calculate_capacity(multiplier)
+    const BASE_UNIT = 16
+    return MAX_CONNECTIONS * multiplier + BASE_UNIT
+end
+
+say "Capacity (factor 2): " + str(calculate_capacity(2))
+
+say ""
+say "=== [3] STRUCT DEFAULT VALUES ==="
+
+struct ServerConfig
+    host = "127.0.0.1"
+    port = 8080
+    ssl = false
+    max_clients = 1000
+end
+
+struct User
+    id
+    name = "Anonymous"
+    role = "member"
+end
+
+# Full default initialization
+let default_srv = ServerConfig {}
+say "Default Server: " + default_srv.host + ":" + str(default_srv.port) + " (ssl: " + str(default_srv.ssl) + ")"
+
+# Partial override with named fields
+let custom_srv = ServerConfig { port: 9000, ssl: true }
+say "Custom Server:  " + custom_srv.host + ":" + str(custom_srv.port) + " (ssl: " + str(custom_srv.ssl) + ")"
+
+# Positional constructor with default arguments
+let pos_srv = ServerConfig("0.0.0.0", 3000)
+say "Positional Srv: " + pos_srv.host + ":" + str(pos_srv.port) + " (max: " + str(pos_srv.max_clients) + ")"
+
+# Struct with mixed required and default fields
+let guest = User { id: 101 }
+let admin = User { id: 102, name: "Alice", role: "admin" }
+say "User 1: " + guest.name + " (" + guest.role + ")"
+say "User 2: " + admin.name + " (" + admin.role + ")"
+
+say ""
+say "=== [4] VARIABLE SWAP & MULTI-ASSIGNMENT ==="
+
+# Atomic variable swap
+let a = 10
+let b = 20
+say "Before swap: a = " + str(a) + ", b = " + str(b)
+a, b = b, a
+say "After swap:  a = " + str(a) + ", b = " + str(b)
+
+# String swap
+let first = "World"
+let second = "Hello"
+first, second = second, first
+say "Greeting: " + first + " " + second
+
+# Multi-assignment of distinct values
+let x = 0
+let y = 0
+let z = 0
+x, y, z = 100, 200, 300
+say "Multi-assign: x=" + str(x) + ", y=" + str(y) + ", z=" + str(z)
+
+# 3-way circular rotation swap
+x, y, z = z, x, y
+say "Rotated (z, x, y): x=" + str(x) + ", y=" + str(y) + ", z=" + str(z)
+
+# Expressions in multi-assignment
+x, y = x + 10, y * 2
+say "Expressions: x=" + str(x) + ", y=" + str(y)
+
+say ""
+say "=== [5] GRADUAL TYPING ==="
+
+# Full type annotations (parameters and return type)
+function add(num1: int, num2: int) -> int
+    return num1 + num2
+end
+
+function format_greeting(name: str, prefix: str = "Welcome") -> str
+    return prefix + ", " + name + "!"
+end
+
+function compute_area(radius: float) -> float
+    return PI * radius * radius
+end
+
+# Gradual typing (mixed typed and untyped parameters)
+function summarize(label: str, count, is_valid: int) -> str
+    return label + ": " + str(count) + " (valid=" + str(is_valid) + ")"
+end
+
+# Array type annotation
+function array_length(items: int[]) -> int
+    return len(items)
+end
+
+say "add(15, 27): " + str(add(15, 27))
+say "format_greeting('Alya Developer'): " + format_greeting("Alya Developer")
+say "format_greeting('Admin', 'Hello'): " + format_greeting("Admin", "Hello")
+say "compute_area(2.5): {compute_area(2.5)}"
+say "summarize('Active Tasks', 42, 1): " + summarize("Active Tasks", 42, 1)
+say "array_length([10, 20, 30, 40]): " + str(array_length([10, 20, 30, 40]))
+
+say ""
+say "=== [6] MONOTONIC CLOCK (clock_ms) ==="
+
+let t0 = clock_ms()
+say "Start timestamp: " + str(t0) + " ms"
+
+# Brief work simulation (20M loop iterations)
+let counter = 0
+for i in 1..20000000
+    counter = counter + 1
+end
+
+let t1 = clock_ms()
+let elapsed = t1 - t0
+say "End timestamp:   " + str(t1) + " ms"
+say "Elapsed time:    " + str(elapsed) + " ms"
+
+say ""
+say "=== All Alya v0.0.18 features demonstrated successfully! ==="
