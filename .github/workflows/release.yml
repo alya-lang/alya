@@ -162,3 +162,28 @@ jobs:
           body_path: RELEASE_NOTES.md
           generate_release_notes: false
           files: dist/*
+
+      - name: Update Distribution Manifests and Push Checksums
+        run: |
+          TAG="${{ steps.notes.outputs.tag }}"
+          WIN_SHA=$(cut -d' ' -f1 < dist/alyac-${TAG}-x86_64-windows.zip.sha256)
+          echo "Updating distribution manifests for $TAG with Windows ZIP SHA-256: $WIN_SHA"
+          python3 .github/scripts/update_distribution_checksums.py "$TAG" "$WIN_SHA"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if [ -n "$(git status --porcelain packages/distribution)" ]; then
+            git checkout main
+            git pull origin main --rebase
+            git add packages/distribution
+            git commit -m "chore(distribution): record $TAG release checksums for winget, choco, and scoop [skip ci]"
+            git push origin main
+
+            git fetch origin develop
+            git checkout develop
+            git merge main -m "chore: sync $TAG distribution checksums to develop [skip ci]"
+            git push origin develop
+          else
+            echo "Distribution manifests are already up-to-date."
+          fi
