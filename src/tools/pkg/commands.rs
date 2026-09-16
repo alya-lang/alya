@@ -930,27 +930,64 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
                     }
                 } else if let Some(b) = branch {
                     let remote_head = query_remote_branch_head(url, b);
-                    let short_sha = remote_head.as_deref().map(|s| &s[..7.min(s.len())]);
-                    let latest_disp = if let Some(sha) = short_sha {
+                    let short_remote_sha = remote_head.as_deref().map(|s| &s[..7.min(s.len())]);
+                    let latest_disp = if let Some(sha) = short_remote_sha {
                         format!("{} ({})", b, sha)
                     } else {
                         b.clone()
                     };
-                    upgradable_count += 1;
+
+                    let local_pkg = manifest_dir.join(".alya").join("packages").join(name);
                     let cache_key = compute_cache_key(name, b, url);
-                    rows.push(UpdateRow {
-                        name: name.clone(),
-                        current: format!("branch '{}'", b),
-                        latest: latest_disp,
-                        status: if upgrade {
-                            "Branch refreshed to latest commit".to_string()
-                        } else {
-                            "Branch tracked (will fetch latest commit)".to_string()
-                        },
-                        can_upgrade: true,
-                        new_source: None,
-                        clear_cache_key: Some(cache_key),
-                    });
+                    let cached_dir = get_global_cache_dir().map(|c| c.join(&cache_key));
+
+                    let local_rev = fs::read_to_string(local_pkg.join(".alya-rev"))
+                        .ok()
+                        .or_else(|| {
+                            cached_dir
+                                .as_ref()
+                                .and_then(|c| fs::read_to_string(c.join(".alya-rev")).ok())
+                        })
+                        .map(|s| s.trim().to_string());
+
+                    let short_local_sha = local_rev.as_deref().map(|s| &s[..7.min(s.len())]);
+                    let current_disp = if let Some(sha) = short_local_sha {
+                        format!("{} ({})", b, sha)
+                    } else {
+                        format!("branch '{}'", b)
+                    };
+
+                    let is_already_at_head = match (&local_rev, &remote_head) {
+                        (Some(l), Some(r)) => l == r,
+                        _ => false,
+                    };
+
+                    if is_already_at_head {
+                        rows.push(UpdateRow {
+                            name: name.clone(),
+                            current: current_disp,
+                            latest: latest_disp,
+                            status: "Up to date".to_string(),
+                            can_upgrade: false,
+                            new_source: None,
+                            clear_cache_key: None,
+                        });
+                    } else {
+                        upgradable_count += 1;
+                        rows.push(UpdateRow {
+                            name: name.clone(),
+                            current: current_disp,
+                            latest: latest_disp,
+                            status: if upgrade {
+                                "Branch refreshed to latest commit".to_string()
+                            } else {
+                                "New commit available on branch".to_string()
+                            },
+                            can_upgrade: true,
+                            new_source: None,
+                            clear_cache_key: Some(cache_key),
+                        });
+                    }
                 } else if let Some(r) = rev {
                     let short_rev = &r[..7.min(r.len())];
                     rows.push(UpdateRow {
@@ -1015,6 +1052,11 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
         } else {
             println!("\nAll dependencies are up to date!");
         }
+        return Ok(());
+    }
+
+    if upgradable_count == 0 {
+        println!("\nAll dependencies are already up to date!");
         return Ok(());
     }
 

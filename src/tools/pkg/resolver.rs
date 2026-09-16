@@ -430,6 +430,28 @@ pub fn fetch_git_or_archive_dependency(
     // 1. Try Git clone first if git CLI is installed
     let git_err = match try_git_clone(url, tag, branch, target_dir) {
         Ok(()) => {
+            // Record commit SHA before deleting .git so local package manager can track branch updates accurately
+            let rev_sha = Command::new("git")
+                .current_dir(target_dir)
+                .args(["rev-parse", "HEAD"])
+                .output()
+                .ok()
+                .and_then(|o| {
+                    if o.status.success() {
+                        let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                        if !s.is_empty() {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                });
+            if let Some(sha) = rev_sha {
+                let _ = fs::write(target_dir.join(".alya-rev"), sha);
+            }
+
             // Strip .git directory so cached packages remain clean and lightweight
             let git_dir = target_dir.join(".git");
             if git_dir.exists() {
@@ -457,6 +479,13 @@ pub fn fetch_git_or_archive_dependency(
 
     match try_download_and_extract_archive(&candidate_urls, target_dir, name) {
         Ok(()) => {
+            if let Some(r) = rev {
+                let _ = fs::write(target_dir.join(".alya-rev"), r);
+            } else if let Some(b) = branch {
+                if let Some(sha) = query_remote_branch_head(url, b) {
+                    let _ = fs::write(target_dir.join(".alya-rev"), sha);
+                }
+            }
             println!(
                 "  ✓ Successfully downloaded and unpacked '{}' archive without Git",
                 name
