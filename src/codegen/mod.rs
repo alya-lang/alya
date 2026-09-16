@@ -258,10 +258,14 @@ impl CodeGen {
 
         for func in functions {
             if let Stmt::Function {
-                name, params, body, ..
+                name,
+                params,
+                param_types,
+                body,
+                ..
             } = func
             {
-                self.generate_function(name, params, body, program, &inference);
+                self.generate_function(name, params, param_types, body, program, &inference);
             }
         }
 
@@ -272,6 +276,7 @@ impl CodeGen {
         &mut self,
         name: &str,
         params: &[String],
+        param_types: &[Option<String>],
         body: &[Stmt],
         program: &Program,
         inference: &ProgramInference,
@@ -308,7 +313,8 @@ impl CodeGen {
 
             let is_str = inference.infer_param_is_string(name, i, program);
             let is_flt = inference.infer_param_is_float(name, i, program);
-            let is_arr = inference.infer_param_is_array(name, i, program);
+            let is_arr = inference.infer_param_is_array(name, i, program)
+                || param_types.get(i).and_then(|t| t.as_deref()) == Some("...");
             let is_str_arr = inference.infer_param_is_string_array(name, i, program);
             let is_flt_arr = inference.infer_param_is_float_array(name, i, program);
             let is_map = inference.infer_param_is_map(name, i, program);

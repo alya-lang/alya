@@ -575,7 +575,7 @@ fn resolve_stmt_imports(
 }
 
 pub fn expand_default_args(program: &mut Program) {
-    let mut fn_defs: std::collections::HashMap<String, (usize, Vec<Option<Expr>>)> =
+    let mut fn_defs: std::collections::HashMap<String, (usize, Vec<Option<Expr>>, bool)> =
         std::collections::HashMap::new();
 
     collect_fn_defaults(&program.statements, &mut fn_defs);
@@ -587,21 +587,23 @@ pub fn expand_default_args(program: &mut Program) {
 
 fn collect_fn_defaults(
     stmts: &[Stmt],
-    fn_defs: &mut std::collections::HashMap<String, (usize, Vec<Option<Expr>>)>,
+    fn_defs: &mut std::collections::HashMap<String, (usize, Vec<Option<Expr>>, bool)>,
 ) {
     for stmt in stmts {
         match stmt {
             Stmt::Function {
                 name,
                 params,
+                param_types,
                 defaults,
                 body,
                 ..
             } => {
-                fn_defs.insert(name.clone(), (params.len(), defaults.clone()));
+                let has_rest = param_types.last().and_then(|t| t.as_deref()) == Some("...");
+                fn_defs.insert(name.clone(), (params.len(), defaults.clone(), has_rest));
                 let bare = name.rsplit("::").next().unwrap_or(name.as_str());
                 if bare != name {
-                    fn_defs.insert(bare.to_string(), (params.len(), defaults.clone()));
+                    fn_defs.insert(bare.to_string(), (params.len(), defaults.clone(), has_rest));
                 }
                 collect_fn_defaults(body, fn_defs);
             }
@@ -640,7 +642,7 @@ fn collect_fn_defaults(
 
 fn expand_defaults_in_stmt(
     stmt: &mut Stmt,
-    fn_defs: &std::collections::HashMap<String, (usize, Vec<Option<Expr>>)>,
+    fn_defs: &std::collections::HashMap<String, (usize, Vec<Option<Expr>>, bool)>,
 ) {
     match stmt {
         Stmt::Function { body, .. } => {
@@ -735,7 +737,7 @@ fn expand_defaults_in_stmt(
 
 fn expand_defaults_in_expr(
     expr: &mut Expr,
-    fn_defs: &std::collections::HashMap<String, (usize, Vec<Option<Expr>>)>,
+    fn_defs: &std::collections::HashMap<String, (usize, Vec<Option<Expr>>, bool)>,
 ) {
     match expr {
         Expr::Call { name, args } => {
@@ -743,8 +745,30 @@ fn expand_defaults_in_expr(
                 expand_defaults_in_expr(arg, fn_defs);
             }
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
-            if let Some((param_count, defaults)) = fn_defs.get(name).or_else(|| fn_defs.get(bare)) {
-                if args.len() < *param_count {
+            if let Some((param_count, defaults, has_rest)) =
+                fn_defs.get(name).or_else(|| fn_defs.get(bare))
+            {
+                if *has_rest {
+                    let fixed_count = param_count.saturating_sub(1);
+                    if args.len() < fixed_count {
+                        for i in args.len()..fixed_count {
+                            if let Some(Some(def_expr)) = defaults.get(i) {
+                                args.push(def_expr.clone());
+                            }
+                        }
+                        args.push(Expr::Array(vec![]));
+                    } else if args.len() == fixed_count {
+                        args.push(Expr::Array(vec![]));
+                    } else if args.len() == *param_count {
+                        if !matches!(args.last(), Some(Expr::Array(_))) {
+                            let last = args.pop().unwrap();
+                            args.push(Expr::Array(vec![last]));
+                        }
+                    } else {
+                        let rest_items: Vec<Expr> = args.drain(fixed_count..).collect();
+                        args.push(Expr::Array(rest_items));
+                    }
+                } else if args.len() < *param_count {
                     for i in args.len()..*param_count {
                         if let Some(Some(def_expr)) = defaults.get(i) {
                             args.push(def_expr.clone());

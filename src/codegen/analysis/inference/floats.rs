@@ -313,7 +313,7 @@ pub fn collect_known_float_vars(program: &Program) -> HashSet<String> {
         let prev_len = known_floats.len();
         let mut scope = known_floats.clone();
         collect_float_vars_from_stmts(&program.statements, &mut scope, &mut known_floats, true);
-        for (name, params, _) in &funcs {
+        for (name, params, _, _) in &funcs {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             for (idx, _param) in params.iter().enumerate() {

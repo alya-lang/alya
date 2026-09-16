@@ -2,14 +2,23 @@ use crate::ast::*;
 
 pub fn collect_function_defs<'a>(
     stmts: &'a [Stmt],
-    defs: &mut Vec<(&'a str, &'a [String], &'a [Stmt])>,
+    defs: &mut Vec<(&'a str, &'a [String], &'a [Option<String>], &'a [Stmt])>,
 ) {
     for stmt in stmts {
         match stmt {
             Stmt::Function {
-                name, params, body, ..
+                name,
+                params,
+                param_types,
+                body,
+                ..
             } => {
-                defs.push((name.as_str(), params.as_slice(), body.as_slice()));
+                defs.push((
+                    name.as_str(),
+                    params.as_slice(),
+                    param_types.as_slice(),
+                    body.as_slice(),
+                ));
                 collect_function_defs(body, defs);
             }
             Stmt::If {

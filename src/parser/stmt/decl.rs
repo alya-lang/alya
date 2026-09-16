@@ -188,6 +188,164 @@ impl Parser {
         let first_line = self.current_token().line;
         let first_col = self.current_token().column;
 
+        // 1. Array destructuring: let [a, b, ...rest] = arr
+        if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+            self.advance(); // skip '['
+            let mut names = Vec::new();
+            let mut rest_name = None;
+
+            while !matches!(self.current_token().token_type, TokenType::RightBracket) {
+                if matches!(
+                    self.current_token().token_type,
+                    TokenType::DotDotDot | TokenType::DotDot
+                ) {
+                    self.advance(); // skip '...'
+                    let rname = match &self.current_token().token_type {
+                        TokenType::Identifier(s) => s.clone(),
+                        _ => {
+                            return Err(format!(
+                                "Expected identifier after '...' at line {}, column {}",
+                                self.current_token().line,
+                                self.current_token().column
+                            ))
+                        }
+                    };
+                    self.advance();
+                    rest_name = Some(rname);
+                    break;
+                }
+
+                let name = match &self.current_token().token_type {
+                    TokenType::Identifier(s) => s.clone(),
+                    _ => {
+                        return Err(format!(
+                            "Expected identifier in array destructuring at line {}, column {}",
+                            self.current_token().line,
+                            self.current_token().column
+                        ))
+                    }
+                };
+                self.advance();
+                names.push(name);
+
+                if matches!(self.current_token().token_type, TokenType::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            self.expect(TokenType::RightBracket)?;
+            self.expect(TokenType::Assign)?;
+            let rhs = self.parse_expression()?;
+
+            let tmp_name = format!("__destruct_arr_{}_{}", first_line, first_col);
+            let mut stmts = vec![Stmt::Let {
+                name: tmp_name.clone(),
+                value: rhs,
+            }];
+
+            for (i, name) in names.iter().enumerate() {
+                stmts.push(Stmt::Let {
+                    name: name.clone(),
+                    value: Expr::Index {
+                        array: Box::new(Expr::Identifier(tmp_name.clone())),
+                        index: Box::new(Expr::Number(i as f64)),
+                    },
+                });
+            }
+
+            if let Some(rname) = rest_name {
+                stmts.push(Stmt::Let {
+                    name: rname,
+                    value: Expr::Call {
+                        name: "slice".to_string(),
+                        args: vec![
+                            Expr::Identifier(tmp_name.clone()),
+                            Expr::Number(names.len() as f64),
+                            Expr::Call {
+                                name: "len".to_string(),
+                                args: vec![Expr::Identifier(tmp_name.clone())],
+                            },
+                        ],
+                    },
+                });
+            }
+
+            return Ok(stmts);
+        }
+
+        // 2. Map destructuring: let { x, y } = map or let { x: new_x, y } = map
+        if matches!(self.current_token().token_type, TokenType::LeftBrace) {
+            self.advance(); // skip '{'
+            let mut fields = Vec::new();
+
+            while !matches!(self.current_token().token_type, TokenType::RightBrace) {
+                let field_key = match &self.current_token().token_type {
+                    TokenType::Identifier(s) => s.clone(),
+                    TokenType::String(s) => s.clone(),
+                    _ => {
+                        return Err(format!(
+                            "Expected property name in map destructuring at line {}, column {}",
+                            self.current_token().line,
+                            self.current_token().column
+                        ))
+                    }
+                };
+                self.advance();
+
+                let var_name = if matches!(self.current_token().token_type, TokenType::Colon) {
+                    self.advance();
+                    match &self.current_token().token_type {
+                        TokenType::Identifier(s) => {
+                            let vname = s.clone();
+                            self.advance();
+                            vname
+                        }
+                        _ => {
+                            return Err(format!(
+                                "Expected identifier after ':' in map destructuring at line {}, column {}",
+                                self.current_token().line,
+                                self.current_token().column
+                            ))
+                        }
+                    }
+                } else {
+                    field_key.clone()
+                };
+
+                fields.push((field_key, var_name));
+
+                if matches!(self.current_token().token_type, TokenType::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            self.expect(TokenType::RightBrace)?;
+            self.expect(TokenType::Assign)?;
+            let rhs = self.parse_expression()?;
+
+            let tmp_name = format!("__destruct_map_{}_{}", first_line, first_col);
+            let mut stmts = vec![Stmt::Let {
+                name: tmp_name.clone(),
+                value: rhs,
+            }];
+
+            for (field, var_name) in fields {
+                stmts.push(Stmt::Let {
+                    name: var_name,
+                    value: Expr::Index {
+                        array: Box::new(Expr::Identifier(tmp_name.clone())),
+                        index: Box::new(Expr::String(field)),
+                    },
+                });
+            }
+
+            return Ok(stmts);
+        }
+
         let has_parens = if matches!(self.current_token().token_type, TokenType::LeftParen) {
             self.advance();
             true
@@ -389,6 +547,16 @@ impl Parser {
         let mut param_types = Vec::new();
         let mut defaults = Vec::new();
         while !matches!(self.current_token().token_type, TokenType::RightParen) {
+            let is_rest = if matches!(
+                self.current_token().token_type,
+                TokenType::DotDotDot | TokenType::DotDot
+            ) {
+                self.advance();
+                true
+            } else {
+                false
+            };
+
             if let TokenType::Identifier(s) = &self.current_token().token_type {
                 let param_name = s.clone();
                 self.advance();
@@ -412,11 +580,15 @@ impl Parser {
                         t_str.push_str("[]");
                     }
                     Some(t_str)
+                } else if is_rest {
+                    Some("...".to_string())
                 } else {
                     None
                 };
 
-                let default_val = if matches!(self.current_token().token_type, TokenType::Assign) {
+                let default_val = if is_rest {
+                    Some(Expr::Array(vec![]))
+                } else if matches!(self.current_token().token_type, TokenType::Assign) {
                     self.advance();
                     Some(self.parse_expression()?)
                 } else {

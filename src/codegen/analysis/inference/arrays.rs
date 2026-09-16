@@ -255,8 +255,13 @@ fn stmt_uses_param_as_array(param: &str, stmt: &Stmt) -> bool {
             expr_uses_param_as_array(param, condition)
                 || body.iter().any(|s| stmt_uses_param_as_array(param, s))
         }
-        Stmt::Repeat { body } | Stmt::For { body, .. } | Stmt::ForEach { body, .. } => {
+        Stmt::Repeat { body } | Stmt::For { body, .. } => {
             body.iter().any(|s| stmt_uses_param_as_array(param, s))
+        }
+        Stmt::ForEach { iterable, body, .. } => {
+            expr_uses_param_as_array(param, iterable)
+                || matches!(iterable, Expr::Identifier(id) if id == param)
+                || body.iter().any(|s| stmt_uses_param_as_array(param, s))
         }
         Stmt::Return(Some(expr)) | Stmt::Throw(Some(expr)) => expr_uses_param_as_array(param, expr),
         Stmt::TryCatch {
@@ -339,9 +344,16 @@ fn stmt_forwards_param_to_array(stmt: &Stmt, param: &str, known_arrays: &HashSet
                     .iter()
                     .any(|s| stmt_forwards_param_to_array(s, param, known_arrays))
         }
-        Stmt::Repeat { body } | Stmt::For { body, .. } | Stmt::ForEach { body, .. } => body
+        Stmt::Repeat { body } | Stmt::For { body, .. } => body
             .iter()
             .any(|s| stmt_forwards_param_to_array(s, param, known_arrays)),
+        Stmt::ForEach { iterable, body, .. } => {
+            expr_forwards_param_to_array(iterable, param, known_arrays)
+                || matches!(iterable, Expr::Identifier(id) if id == param)
+                || body
+                    .iter()
+                    .any(|s| stmt_forwards_param_to_array(s, param, known_arrays))
+        }
         Stmt::Return(Some(expr)) | Stmt::Throw(Some(expr)) => {
             expr_forwards_param_to_array(expr, param, known_arrays)
         }
@@ -400,14 +412,24 @@ fn collect_array_vars_from_stmts(
                 collect_array_vars_from_stmts(body, fn_scope, known_arrays);
             }
             Stmt::Function {
-                name, params, body, ..
+                name,
+                params,
+                param_types,
+                body,
+                ..
             } => {
                 let bare = name.rsplit("::").next().unwrap_or(name);
                 let bare = bare.rsplit("__").next().unwrap_or(bare);
                 for (idx, param) in params.iter().enumerate() {
-                    if known_arrays.contains(&format!("fn_param_arr:{}:{}", name, idx))
+                    let is_rest = param_types.get(idx).and_then(|t| t.as_deref()) == Some("...");
+                    if is_rest
+                        || known_arrays.contains(&format!("fn_param_arr:{}:{}", name, idx))
                         || known_arrays.contains(&format!("fn_param_arr:{}:{}", bare, idx))
                     {
+                        if is_rest {
+                            known_arrays.insert(format!("fn_param_arr:{}:{}", name, idx));
+                            known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                        }
                         known_arrays.insert(format!("{}:{}", name, param));
                         if bare != name {
                             known_arrays.insert(format!("{}:{}", bare, param));
@@ -431,7 +453,7 @@ pub fn collect_known_array_vars(program: &Program) -> HashSet<String> {
     for _ in 0..7 {
         let prev_len = known_arrays.len();
         collect_array_vars_from_stmts(&program.statements, None, &mut known_arrays);
-        for (name, params, body) in &funcs {
+        for (name, params, param_types, body) in &funcs {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
 
@@ -443,6 +465,12 @@ pub fn collect_known_array_vars(program: &Program) -> HashSet<String> {
             }
 
             for (idx, param) in params.iter().enumerate() {
+                if param_types.get(idx).and_then(|t| t.as_deref()) == Some("...") {
+                    known_arrays.insert(format!("fn_param_arr:{}:{}", name, idx));
+                    known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                    continue;
+                }
+
                 if known_arrays.contains(&format!("fn_param_arr:{}:{}", name, idx))
                     || known_arrays.contains(&format!("fn_param_arr:{}:{}", bare, idx))
                 {

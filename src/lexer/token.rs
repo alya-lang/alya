@@ -90,6 +90,7 @@ pub enum TokenType {
     NullCoalesce, // ??
     Dot,          // .
     DotDot,       // ..
+    DotDotDot,    // ...
     Newline,      // \n
 
     // Special
@@ -234,6 +235,7 @@ impl std::fmt::Display for TokenType {
             TokenType::NullCoalesce => write!(f, "'??'"),
             TokenType::Dot => write!(f, "'.'"),
             TokenType::DotDot => write!(f, "'..'"),
+            TokenType::DotDotDot => write!(f, "'...'"),
             TokenType::Newline => write!(f, "newline"),
             TokenType::Eof => write!(f, "end of file"),
         }

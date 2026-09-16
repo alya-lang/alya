@@ -511,3 +511,83 @@ end
         assert!(output.contains("role\nadmin"));
     }
 }
+
+#[test]
+fn test_e2e_destructuring_and_spread() {
+    // 1. Array destructuring
+    let code1 = r#"
+let [a, b, ...rest] = [10, 20, 30, 40, 50]
+say a
+say b
+say len(rest)
+say rest[0]
+say rest[1]
+say rest[2]
+"#;
+    if let Some((code, output)) = run_alya_code_full(code1) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "10\n20\n3\n30\n40\n50\n");
+    }
+
+    // 2. Map destructuring
+    let code2 = r#"
+let person = { "name": "Alya", "age": 5, "city": "Istanbul" }
+let { name: my_name, age, city } = person
+say my_name
+say age
+say city
+"#;
+    if let Some((code, output)) = run_alya_code_full(code2) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "Alya\n5\nIstanbul\n");
+    }
+
+    // 3. Variadic function arguments
+    let code3 = r#"
+function calc_total(base, ...numbers)
+    let sum = base
+    for n in numbers
+        sum += n
+    end
+    return sum
+end
+
+say calc_total(100, 1, 2, 3, 4)
+say calc_total(50)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code3) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "110\n50\n");
+    }
+
+    // 4. Array spread
+    let code4 = r#"
+let a = [1, 2]
+let b = [4, 5]
+let combined = [...a, 3, ...b]
+say len(combined)
+for x in combined
+    say x
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code4) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "5\n1\n2\n3\n4\n5\n");
+    }
+
+    // 5. Map spread
+    let code5 = r#"
+let m1 = { "a": 1, "b": 2 }
+let m2 = { "b": 20, "c": 30 }
+let merged = { ...m1, ...m2, "d": 40 }
+say merged["a"]
+say merged["b"]
+say merged["c"]
+say merged["d"]
+"#;
+    if let Some((code, output)) = run_alya_code_full(code5) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "1\n20\n30\n40\n");
+    }
+}
+

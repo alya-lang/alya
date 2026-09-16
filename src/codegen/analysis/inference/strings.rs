@@ -833,7 +833,7 @@ pub fn collect_known_string_vars(program: &Program) -> HashSet<String> {
     for _ in 0..5 {
         let prev_len = known_strings.len();
         collect_string_vars_from_stmts(&program.statements, &struct_defs, &mut known_strings);
-        for (name, params, _) in &funcs {
+        for (name, params, _, _) in &funcs {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             for (idx, _param) in params.iter().enumerate() {

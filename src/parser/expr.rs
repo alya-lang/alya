@@ -509,6 +509,16 @@ impl Parser {
         let mut defaults = Vec::new();
 
         while !matches!(self.current_token().token_type, TokenType::RightParen) {
+            let is_rest = if matches!(
+                self.current_token().token_type,
+                TokenType::DotDotDot | TokenType::DotDot
+            ) {
+                self.advance();
+                true
+            } else {
+                false
+            };
+
             if let TokenType::Identifier(p) = &self.current_token().token_type {
                 let param_name = p.clone();
                 self.advance();
@@ -532,11 +542,15 @@ impl Parser {
                         t_str.push_str("[]");
                     }
                     Some(t_str)
+                } else if is_rest {
+                    Some("...".to_string())
                 } else {
                     None
                 };
 
-                let default_val = if matches!(self.current_token().token_type, TokenType::Assign) {
+                let default_val = if is_rest {
+                    Some(Expr::Array(vec![]))
+                } else if matches!(self.current_token().token_type, TokenType::Assign) {
                     self.advance();
                     Some(self.parse_expression()?)
                 } else {
@@ -807,9 +821,26 @@ impl Parser {
             TokenType::LeftBracket => {
                 self.advance();
                 self.skip_newlines();
+                enum ArrayElem {
+                    Normal(Expr),
+                    Spread(Expr),
+                }
                 let mut elements = Vec::new();
+                let mut has_spread = false;
+
                 while !matches!(self.current_token().token_type, TokenType::RightBracket) {
-                    elements.push(self.parse_expression()?);
+                    if matches!(
+                        self.current_token().token_type,
+                        TokenType::DotDotDot | TokenType::DotDot
+                    ) {
+                        self.advance();
+                        has_spread = true;
+                        let expr = self.parse_expression()?;
+                        elements.push(ArrayElem::Spread(expr));
+                    } else {
+                        let expr = self.parse_expression()?;
+                        elements.push(ArrayElem::Normal(expr));
+                    }
                     self.skip_newlines();
                     if matches!(self.current_token().token_type, TokenType::Comma) {
                         self.advance();
@@ -823,7 +854,83 @@ impl Parser {
                     }
                 }
                 self.expect(TokenType::RightBracket)?;
-                Ok(Expr::Array(elements))
+
+                if !has_spread {
+                    let normal_elems = elements
+                        .into_iter()
+                        .map(|e| match e {
+                            ArrayElem::Normal(ex) => ex,
+                            _ => unreachable!(),
+                        })
+                        .collect();
+                    Ok(Expr::Array(normal_elems))
+                } else {
+                    let lambda_name = format!("__alya_spread_arr_{}", self.lambda_counter);
+                    self.lambda_counter += 1;
+                    let tmp_res = "__arr_res".to_string();
+                    let mut body = vec![Stmt::Let {
+                        name: tmp_res.clone(),
+                        value: Expr::Array(vec![]),
+                    }];
+                    let mut params = Vec::new();
+                    let mut param_types = Vec::new();
+                    let mut defaults = Vec::new();
+                    let mut call_args = Vec::new();
+
+                    for (i, item) in elements.into_iter().enumerate() {
+                        let p_name = format!("__arg_{}", i);
+                        match item {
+                            ArrayElem::Normal(expr) => {
+                                call_args.push(expr);
+                                params.push(p_name.clone());
+                                param_types.push(None);
+                                defaults.push(None);
+                                body.push(Stmt::Expr(Expr::Call {
+                                    name: "push".to_string(),
+                                    args: vec![
+                                        Expr::Identifier(tmp_res.clone()),
+                                        Expr::Identifier(p_name),
+                                    ],
+                                }));
+                            }
+                            ArrayElem::Spread(expr) => {
+                                call_args.push(expr);
+                                params.push(p_name.clone());
+                                param_types.push(None);
+                                defaults.push(None);
+                                let it_var = format!("__item_{}", i);
+                                body.push(Stmt::ForEach {
+                                    var: it_var.clone(),
+                                    value_var: None,
+                                    iterable: Expr::Identifier(p_name),
+                                    body: vec![Stmt::Expr(Expr::Call {
+                                        name: "push".to_string(),
+                                        args: vec![
+                                            Expr::Identifier(tmp_res.clone()),
+                                            Expr::Identifier(it_var),
+                                        ],
+                                    })],
+                                });
+                            }
+                        }
+                    }
+
+                    body.push(Stmt::Return(Some(Expr::Identifier(tmp_res))));
+
+                    self.lambda_functions.push(Stmt::Function {
+                        name: lambda_name.clone(),
+                        params,
+                        param_types,
+                        return_type: None,
+                        defaults,
+                        body,
+                    });
+
+                    Ok(Expr::Call {
+                        name: lambda_name,
+                        args: call_args,
+                    })
+                }
             }
             _ => Err(format!(
                 "Unexpected token {} at line {}, column {}",
@@ -837,50 +944,151 @@ impl Parser {
     fn parse_map_literal(&mut self) -> Result<Expr, String> {
         self.expect(TokenType::LeftBrace)?;
         self.skip_newlines();
+
+        enum MapElem {
+            Normal(Expr, Expr),
+            Spread(Expr),
+        }
         let mut entries = Vec::new();
+        let mut has_spread = false;
+
         while !matches!(self.current_token().token_type, TokenType::RightBrace) {
             self.skip_newlines();
             if matches!(self.current_token().token_type, TokenType::RightBrace) {
                 break;
             }
-            let key = match &self.current_token().token_type {
-                TokenType::Identifier(id) => {
-                    let name = id.clone();
-                    self.advance();
-                    Expr::String(name)
-                }
-                _ => self.parse_expression()?,
-            };
-            self.skip_newlines();
+
             if matches!(
                 self.current_token().token_type,
-                TokenType::Colon | TokenType::Assign
+                TokenType::DotDotDot | TokenType::DotDot
             ) {
                 self.advance();
+                has_spread = true;
+                let expr = self.parse_expression()?;
+                entries.push(MapElem::Spread(expr));
             } else {
-                return Err(format!(
-                    "Expected ':' or '=' after map key at line {}, column {}",
-                    self.current_token().line,
-                    self.current_token().column
-                ));
+                let key = match &self.current_token().token_type {
+                    TokenType::Identifier(id) => {
+                        let name = id.clone();
+                        self.advance();
+                        Expr::String(name)
+                    }
+                    _ => self.parse_expression()?,
+                };
+                self.skip_newlines();
+                if matches!(
+                    self.current_token().token_type,
+                    TokenType::Colon | TokenType::Assign
+                ) {
+                    self.advance();
+                } else {
+                    return Err(format!(
+                        "Expected ':' or '=' after map key at line {}, column {}",
+                        self.current_token().line,
+                        self.current_token().column
+                    ));
+                }
+                self.skip_newlines();
+                let val = self.parse_expression()?;
+                entries.push(MapElem::Normal(key, val));
             }
-            self.skip_newlines();
-            let val = self.parse_expression()?;
-            entries.push((key, val));
+
             self.skip_newlines();
             if matches!(self.current_token().token_type, TokenType::Comma) {
                 self.advance();
                 self.skip_newlines();
             } else if !matches!(self.current_token().token_type, TokenType::RightBrace) {
                 return Err(format!(
-                    "Expected ',' or '}}' after map value at line {}, column {}",
+                    "Expected ',' or '}}' after map element at line {}, column {}",
                     self.current_token().line,
                     self.current_token().column
                 ));
             }
         }
         self.expect(TokenType::RightBrace)?;
-        Ok(Expr::Map(entries))
+
+        if !has_spread {
+            let normal_entries = entries
+                .into_iter()
+                .map(|e| match e {
+                    MapElem::Normal(k, v) => (k, v),
+                    _ => unreachable!(),
+                })
+                .collect();
+            Ok(Expr::Map(normal_entries))
+        } else {
+            let lambda_name = format!("__alya_spread_map_{}", self.lambda_counter);
+            self.lambda_counter += 1;
+            let tmp_res = "__map_res".to_string();
+            let mut body = vec![Stmt::Let {
+                name: tmp_res.clone(),
+                value: Expr::Call {
+                    name: "map".to_string(),
+                    args: vec![],
+                },
+            }];
+            let mut params = Vec::new();
+            let mut param_types = Vec::new();
+            let mut defaults = Vec::new();
+            let mut call_args = Vec::new();
+
+            for (i, item) in entries.into_iter().enumerate() {
+                match item {
+                    MapElem::Normal(k, v) => {
+                        let k_arg = format!("__k_{}", i);
+                        let v_arg = format!("__v_{}", i);
+                        call_args.push(k);
+                        params.push(k_arg.clone());
+                        param_types.push(None);
+                        defaults.push(None);
+                        call_args.push(v);
+                        params.push(v_arg.clone());
+                        param_types.push(None);
+                        defaults.push(None);
+                        body.push(Stmt::IndexAssign {
+                            array: Expr::Identifier(tmp_res.clone()),
+                            index: Expr::Identifier(k_arg),
+                            value: Expr::Identifier(v_arg),
+                        });
+                    }
+                    MapElem::Spread(expr) => {
+                        let m_arg = format!("__m_{}", i);
+                        call_args.push(expr);
+                        params.push(m_arg.clone());
+                        param_types.push(None);
+                        defaults.push(None);
+                        let k_var = format!("__k_it_{}", i);
+                        let v_var = format!("__v_it_{}", i);
+                        body.push(Stmt::ForEach {
+                            var: k_var.clone(),
+                            value_var: Some(v_var.clone()),
+                            iterable: Expr::Identifier(m_arg),
+                            body: vec![Stmt::IndexAssign {
+                                array: Expr::Identifier(tmp_res.clone()),
+                                index: Expr::Identifier(k_var),
+                                value: Expr::Identifier(v_var),
+                            }],
+                        });
+                    }
+                }
+            }
+
+            body.push(Stmt::Return(Some(Expr::Identifier(tmp_res))));
+
+            self.lambda_functions.push(Stmt::Function {
+                name: lambda_name.clone(),
+                params,
+                param_types,
+                return_type: None,
+                defaults,
+                body,
+            });
+
+            Ok(Expr::Call {
+                name: lambda_name,
+                args: call_args,
+            })
+        }
     }
 }
 
