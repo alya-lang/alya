@@ -576,11 +576,22 @@ alyac run script.alya -- hello world 42
 
 ---
 
-### 15. Hash Maps & Dictionaries (`map()`)
+### 15. Hash Maps & Dictionaries (`map()`, `{}`)
 
-Associative key-value mappings:
+Associative key-value mappings with inline literal and constructor syntax:
 
 ```alya
+# Map literal syntax
+let config = {
+    "host": "127.0.0.1",
+    "port": 8080,
+    "debug": true
+}
+say config["host"]           # 127.0.0.1
+say config["port"]           # 8080
+
+# Empty map literal or constructor
+let empty_map = {}
 let user = map()
 user["name"] = "Alice"
 user["role"] = "Admin"
@@ -590,6 +601,13 @@ say user["name"]            # Alice
 say user.get("role")        # Admin
 say user.contains("level")  # 1
 say user.len()              # 3
+
+# Nested map literals
+let server = {
+    "network": { "ip": "0.0.0.0", "port": 3000 },
+    "active": 1
+}
+say server["network"]["port"] # 3000
 
 # Keys and iteration
 for key in user.keys()

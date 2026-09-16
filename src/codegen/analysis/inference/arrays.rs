@@ -54,7 +54,9 @@ fn expr_is_definitely_array(
                     | "fs_list_dir_recursive"
                     | "glob"
                     | "glob_dir"
-            ) || (bare == "slice" && !args.is_empty() && expr_is_definitely_array(&args[0], fn_scope, known_arrays))
+            ) || (bare == "slice"
+                && !args.is_empty()
+                && expr_is_definitely_array(&args[0], fn_scope, known_arrays))
                 || known_arrays.contains(&format!("fn_ret_arr:{}", name))
                 || known_arrays.contains(&format!("fn_ret_arr:{}", bare))
         }

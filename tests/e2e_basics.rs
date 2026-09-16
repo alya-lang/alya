@@ -728,3 +728,68 @@ say count_items([1, 2, 3, 4])
         assert_eq!(output, "42\nHello, Alya\n7.5\nResult: 99\n50\n15\n4\n");
     }
 }
+
+#[test]
+fn test_e2e_optional_chaining() {
+    let code = r#"
+struct Address
+    city
+    zip
+end
+
+struct User
+    name
+    age
+    address
+end
+
+function format_user(u)
+    return "User: " + u.name
+end
+
+let u1 = User {
+    name: "Alice",
+    age: 30,
+    address: Address {
+        city: "Istanbul",
+        zip: 34000
+    }
+}
+let u2 = null
+
+# 1. Combined with null coalescing ??
+say u1?.name ?? "Anonymous"
+say u2?.name ?? "Anonymous"
+
+# 2. Numeric field access
+say u1?.age ?? 0
+say u2?.age ?? 0
+
+# 3. Nested optional chaining
+say u1?.address?.city ?? "Unknown City"
+say u2?.address?.city ?? "Unknown City"
+
+# 4. Optional method call
+say u1?.format_user() ?? "No user"
+say u2?.format_user() ?? "No user"
+
+# 5. Optional array indexing
+let arr1 = [100, 200, 300]
+let arr2 = null
+say arr1?.[1] ?? -1
+say arr2?.[1] ?? -1
+
+# 6. Optional array slicing
+let sub1 = arr1?.[0..2]
+say sub1?.[0] ?? -1
+say sub1?.[1] ?? -1
+let sub2 = arr2?.[0..2]
+say sub2 == null ? 1 : 0
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "Alice\nAnonymous\n30\n0\nIstanbul\nUnknown City\nUser: Alice\nNo user\n200\n-1\n100\n200\n1\n"
+        );
+    }
+}

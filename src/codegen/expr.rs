@@ -1005,61 +1005,7 @@ impl CodeGen {
                 arch::emit_pop_temp(&mut self.output, self.arch);
             }
             Expr::FieldAccess { object, field } => {
-                let mut field_idx = 0;
-                let mut struct_found = false;
-
-                if let Expr::Identifier(obj_name) = &**object {
-                    if let Some(VarType::Struct { struct_name, .. }) =
-                        self.ctx.variables.get(obj_name)
-                    {
-                        let bare = struct_name.rsplit("::").next().unwrap_or(struct_name);
-                        let bare = bare.rsplit("__").next().unwrap_or(bare);
-                        if let Some(sdef) = self
-                            .ctx
-                            .structs
-                            .get(struct_name)
-                            .or_else(|| self.ctx.structs.get(bare))
-                        {
-                            if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
-                                field_idx = idx;
-                                struct_found = true;
-                            }
-                        }
-                    }
-                } else if let Expr::FieldAccess {
-                    field: inner_field, ..
-                } = &**object
-                {
-                    if let Some(VarType::Struct { struct_name, .. }) = self
-                        .ctx
-                        .variables
-                        .get(&format!("struct_field_struct:{}", inner_field))
-                    {
-                        let bare = struct_name.rsplit("::").next().unwrap_or(struct_name);
-                        let bare = bare.rsplit("__").next().unwrap_or(bare);
-                        if let Some(sdef) = self
-                            .ctx
-                            .structs
-                            .get(struct_name)
-                            .or_else(|| self.ctx.structs.get(bare))
-                        {
-                            if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
-                                field_idx = idx;
-                                struct_found = true;
-                            }
-                        }
-                    }
-                }
-
-                if !struct_found {
-                    for sdef in self.ctx.structs.values() {
-                        if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
-                            field_idx = idx;
-                            break;
-                        }
-                    }
-                }
-
+                let field_idx = self.resolve_struct_field_index(object, field);
                 self.generate_expression(object);
                 arch::emit_struct_field_get(&mut self.output, self.arch, field_idx);
                 match self.arch {
@@ -1355,6 +1301,124 @@ impl CodeGen {
                     self.generate_expression(&acc);
                 }
             }
+            Expr::OptionalFieldAccess { object, field } => {
+                let null_label = self.ctx.next_label();
+                let end_label = self.ctx.next_label();
+
+                let field_idx = self.resolve_struct_field_index(object, field);
+
+                self.generate_expression(object);
+                arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+                arch::emit_cond_jump(
+                    &mut self.output,
+                    self.arch,
+                    BinaryOp::Equal,
+                    false,
+                    &null_label,
+                );
+
+                arch::emit_struct_field_get(&mut self.output, self.arch, field_idx);
+                match self.arch {
+                    Architecture::X64 => {
+                        self.output.push_str("    movq %rax, %xmm0\n");
+                    }
+                    Architecture::ARM64 => {
+                        self.output.push_str("    fmov d0, x0\n");
+                    }
+                    Architecture::X86 => {}
+                }
+                arch::emit_jump(&mut self.output, self.arch, &end_label);
+
+                self.output.push_str(&format!("{}:\n", null_label));
+                match self.arch {
+                    Architecture::X64 => {
+                        self.output.push_str("    movq $0, %rax\n");
+                        self.output.push_str("    xorpd %xmm0, %xmm0\n");
+                    }
+                    Architecture::ARM64 => {
+                        self.output.push_str("    mov x0, #0\n");
+                        self.output.push_str("    fmov d0, xzr\n");
+                    }
+                    Architecture::X86 => {
+                        self.output.push_str("    movl $0, %eax\n");
+                    }
+                }
+                self.output.push_str(&format!("{}:\n", end_label));
+            }
+            Expr::OptionalIndex { array, index } => {
+                let null_label = self.ctx.next_label();
+                let end_label = self.ctx.next_label();
+
+                self.generate_expression(array);
+                arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+                arch::emit_cond_jump(
+                    &mut self.output,
+                    self.arch,
+                    BinaryOp::Equal,
+                    false,
+                    &null_label,
+                );
+
+                self.generate_expression(&Expr::Index {
+                    array: array.clone(),
+                    index: index.clone(),
+                });
+                arch::emit_jump(&mut self.output, self.arch, &end_label);
+
+                self.output.push_str(&format!("{}:\n", null_label));
+                match self.arch {
+                    Architecture::X64 => {
+                        self.output.push_str("    movq $0, %rax\n");
+                        self.output.push_str("    xorpd %xmm0, %xmm0\n");
+                    }
+                    Architecture::ARM64 => {
+                        self.output.push_str("    mov x0, #0\n");
+                        self.output.push_str("    fmov d0, xzr\n");
+                    }
+                    Architecture::X86 => {
+                        self.output.push_str("    movl $0, %eax\n");
+                    }
+                }
+                self.output.push_str(&format!("{}:\n", end_label));
+            }
+            Expr::OptionalCall { callee, args } => {
+                let null_label = self.ctx.next_label();
+                let end_label = self.ctx.next_label();
+
+                if let Some(target) = args.first() {
+                    self.generate_expression(target);
+                    arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+                    arch::emit_cond_jump(
+                        &mut self.output,
+                        self.arch,
+                        BinaryOp::Equal,
+                        false,
+                        &null_label,
+                    );
+                }
+
+                self.generate_expression(&Expr::Call {
+                    name: callee.clone(),
+                    args: args.clone(),
+                });
+                arch::emit_jump(&mut self.output, self.arch, &end_label);
+
+                self.output.push_str(&format!("{}:\n", null_label));
+                match self.arch {
+                    Architecture::X64 => {
+                        self.output.push_str("    movq $0, %rax\n");
+                        self.output.push_str("    xorpd %xmm0, %xmm0\n");
+                    }
+                    Architecture::ARM64 => {
+                        self.output.push_str("    mov x0, #0\n");
+                        self.output.push_str("    fmov d0, xzr\n");
+                    }
+                    Architecture::X86 => {
+                        self.output.push_str("    movl $0, %eax\n");
+                    }
+                }
+                self.output.push_str(&format!("{}:\n", end_label));
+            }
         }
     }
 
@@ -1396,5 +1460,70 @@ impl CodeGen {
             self.ctx.stack_offset,
             self.os,
         );
+    }
+
+    fn resolve_struct_field_index(&self, object: &Expr, field: &str) -> usize {
+        let mut field_idx = 0;
+        let mut struct_found = false;
+
+        let base_obj = match object {
+            Expr::OptionalFieldAccess { object: inner, .. } => inner.as_ref(),
+            _ => object,
+        };
+
+        if let Expr::Identifier(obj_name) = base_obj {
+            if let Some(VarType::Struct { struct_name, .. }) = self.ctx.variables.get(obj_name) {
+                let bare = struct_name.rsplit("::").next().unwrap_or(struct_name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if let Some(sdef) = self
+                    .ctx
+                    .structs
+                    .get(struct_name)
+                    .or_else(|| self.ctx.structs.get(bare))
+                {
+                    if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
+                        field_idx = idx;
+                        struct_found = true;
+                    }
+                }
+            }
+        } else if let Expr::FieldAccess {
+            field: inner_field, ..
+        }
+        | Expr::OptionalFieldAccess {
+            field: inner_field, ..
+        } = base_obj
+        {
+            if let Some(VarType::Struct { struct_name, .. }) = self
+                .ctx
+                .variables
+                .get(&format!("struct_field_struct:{}", inner_field))
+            {
+                let bare = struct_name.rsplit("::").next().unwrap_or(struct_name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if let Some(sdef) = self
+                    .ctx
+                    .structs
+                    .get(struct_name)
+                    .or_else(|| self.ctx.structs.get(bare))
+                {
+                    if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
+                        field_idx = idx;
+                        struct_found = true;
+                    }
+                }
+            }
+        }
+
+        if !struct_found {
+            for sdef in self.ctx.structs.values() {
+                if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
+                    field_idx = idx;
+                    break;
+                }
+            }
+        }
+
+        field_idx
     }
 }

@@ -237,6 +237,13 @@ impl Lexer {
                             line,
                             column,
                         });
+                    } else if self.current_char() == Some('.') {
+                        self.advance();
+                        tokens.push(Token {
+                            token_type: TokenType::QuestionDot,
+                            line,
+                            column,
+                        });
                     } else {
                         tokens.push(Token {
                             token_type: TokenType::Question,

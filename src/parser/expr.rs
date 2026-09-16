@@ -260,7 +260,8 @@ impl Parser {
                     TokenType::DotDot | TokenType::Colon
                 ) {
                     self.advance();
-                    let end = if matches!(self.current_token().token_type, TokenType::RightBracket) {
+                    let end = if matches!(self.current_token().token_type, TokenType::RightBracket)
+                    {
                         Expr::Number(-1.0)
                     } else {
                         self.parse_expression()?
@@ -277,11 +278,12 @@ impl Parser {
                         TokenType::DotDot | TokenType::Colon
                     ) {
                         self.advance();
-                        let end = if matches!(self.current_token().token_type, TokenType::RightBracket) {
-                            Expr::Number(-1.0)
-                        } else {
-                            self.parse_expression()?
-                        };
+                        let end =
+                            if matches!(self.current_token().token_type, TokenType::RightBracket) {
+                                Expr::Number(-1.0)
+                            } else {
+                                self.parse_expression()?
+                            };
                         self.expect(TokenType::RightBracket)?;
                         expr = Expr::Call {
                             name: "slice".into(),
@@ -328,6 +330,103 @@ impl Parser {
                         object: Box::new(expr),
                         field,
                     };
+                }
+            } else if matches!(self.current_token().token_type, TokenType::QuestionDot)
+                || (matches!(self.current_token().token_type, TokenType::Question)
+                    && self
+                        .peek_token()
+                        .map_or(false, |t| matches!(t.token_type, TokenType::LeftBracket)))
+            {
+                let is_qdot = matches!(self.current_token().token_type, TokenType::QuestionDot);
+                self.advance();
+                if (is_qdot && matches!(self.current_token().token_type, TokenType::LeftBracket))
+                    || !is_qdot
+                {
+                    if is_qdot {
+                        self.advance();
+                    } else {
+                        self.advance();
+                    }
+                    if matches!(
+                        self.current_token().token_type,
+                        TokenType::DotDot | TokenType::Colon
+                    ) {
+                        self.advance();
+                        let end =
+                            if matches!(self.current_token().token_type, TokenType::RightBracket) {
+                                Expr::Number(-1.0)
+                            } else {
+                                self.parse_expression()?
+                            };
+                        self.expect(TokenType::RightBracket)?;
+                        expr = Expr::OptionalCall {
+                            callee: "slice".into(),
+                            args: vec![expr, Expr::Number(0.0), end],
+                        };
+                    } else {
+                        let first = self.parse_expression()?;
+                        if matches!(
+                            self.current_token().token_type,
+                            TokenType::DotDot | TokenType::Colon
+                        ) {
+                            self.advance();
+                            let end = if matches!(
+                                self.current_token().token_type,
+                                TokenType::RightBracket
+                            ) {
+                                Expr::Number(-1.0)
+                            } else {
+                                self.parse_expression()?
+                            };
+                            self.expect(TokenType::RightBracket)?;
+                            expr = Expr::OptionalCall {
+                                callee: "slice".into(),
+                                args: vec![expr, first, end],
+                            };
+                        } else {
+                            self.expect(TokenType::RightBracket)?;
+                            expr = Expr::OptionalIndex {
+                                array: Box::new(expr),
+                                index: Box::new(first),
+                            };
+                        }
+                    }
+                } else {
+                    let field = match &self.current_token().token_type {
+                        TokenType::Identifier(f) => f.clone(),
+                        _ => {
+                            return Err(format!(
+                                "Expected field or method name after '?.' at line {}, column {}",
+                                self.current_token().line,
+                                self.current_token().column
+                            ))
+                        }
+                    };
+                    self.advance();
+                    if matches!(self.current_token().token_type, TokenType::LeftParen) {
+                        self.advance();
+                        let mut args = vec![expr];
+                        if !matches!(self.current_token().token_type, TokenType::RightParen) {
+                            loop {
+                                args.push(self.parse_expression()?);
+                                if matches!(self.current_token().token_type, TokenType::Comma) {
+                                    self.advance();
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                        self.expect(TokenType::RightParen)?;
+                        expr = Expr::OptionalCall {
+                            callee: field,
+                            args,
+                        };
+                    } else {
+                        expr = Expr::OptionalFieldAccess {
+                            object: Box::new(expr),
+                            field,
+                        };
+                    }
                 }
             } else {
                 break;

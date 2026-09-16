@@ -211,6 +211,27 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         Expr::NullCoalesce { value, default } => {
             is_string_expr(value, vars) || is_string_expr(default, vars)
         }
+        Expr::OptionalFieldAccess { object, field } => is_string_expr(
+            &Expr::FieldAccess {
+                object: object.clone(),
+                field: field.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalIndex { array, index } => is_string_expr(
+            &Expr::Index {
+                array: array.clone(),
+                index: index.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalCall { callee, args } => is_string_expr(
+            &Expr::Call {
+                name: callee.clone(),
+                args: args.clone(),
+            },
+            vars,
+        ),
         _ => false,
     }
 }
@@ -312,6 +333,27 @@ pub fn is_array_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         Expr::NullCoalesce { value, default } => {
             is_array_expr(value, vars) || is_array_expr(default, vars)
         }
+        Expr::OptionalFieldAccess { object, field } => is_array_expr(
+            &Expr::FieldAccess {
+                object: object.clone(),
+                field: field.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalIndex { array, index } => is_array_expr(
+            &Expr::Index {
+                array: array.clone(),
+                index: index.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalCall { callee, args } => is_array_expr(
+            &Expr::Call {
+                name: callee.clone(),
+                args: args.clone(),
+            },
+            vars,
+        ),
         _ => false,
     }
 }
@@ -387,6 +429,27 @@ pub fn is_map_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         Expr::NullCoalesce { value, default } => {
             is_map_expr(value, vars) || is_map_expr(default, vars)
         }
+        Expr::OptionalFieldAccess { object, field } => is_map_expr(
+            &Expr::FieldAccess {
+                object: object.clone(),
+                field: field.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalIndex { array, index } => is_map_expr(
+            &Expr::Index {
+                array: array.clone(),
+                index: index.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalCall { callee, args } => is_map_expr(
+            &Expr::Call {
+                name: callee.clone(),
+                args: args.clone(),
+            },
+            vars,
+        ),
         _ => false,
     }
 }
@@ -544,6 +607,27 @@ pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         Expr::NullCoalesce { value, default } => {
             is_float_expr(value, vars) || is_float_expr(default, vars)
         }
+        Expr::OptionalFieldAccess { object, field } => is_float_expr(
+            &Expr::FieldAccess {
+                object: object.clone(),
+                field: field.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalIndex { array, index } => is_float_expr(
+            &Expr::Index {
+                array: array.clone(),
+                index: index.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalCall { callee, args } => is_float_expr(
+            &Expr::Call {
+                name: callee.clone(),
+                args: args.clone(),
+            },
+            vars,
+        ),
         _ => false,
     }
 }

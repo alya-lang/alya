@@ -41,6 +41,14 @@ impl Parser {
         &self.tokens[self.position]
     }
 
+    pub(super) fn peek_token(&self) -> Option<&Token> {
+        if self.position + 1 < self.tokens.len() {
+            Some(&self.tokens[self.position + 1])
+        } else {
+            None
+        }
+    }
+
     pub(super) fn advance(&mut self) {
         if self.position < self.tokens.len() - 1 {
             self.position += 1;

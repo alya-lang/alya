@@ -42,6 +42,18 @@ pub enum Expr {
         value: Box<Expr>,
         default: Box<Expr>,
     },
+    OptionalFieldAccess {
+        object: Box<Expr>,
+        field: String,
+    },
+    OptionalIndex {
+        array: Box<Expr>,
+        index: Box<Expr>,
+    },
+    OptionalCall {
+        callee: String,
+        args: Vec<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
