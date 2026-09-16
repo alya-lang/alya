@@ -1,7 +1,7 @@
 [package]
 name = "http_bench"
 version = "1.0.0"
-alya-version = "0.0.16"
+alya-version = "0.0.17"
 entry = "main.alya"
 description = "High-throughput concurrent HTTP load testing benchmark tool"
 authors = ["Alya Language Contributors <https://github.com/alya-lang>"]

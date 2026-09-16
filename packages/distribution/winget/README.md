@@ -27,10 +27,10 @@ You can submit new releases to the official Windows Package Manager repository:
 
 ### Method A: Automated via `wingetcreate`
 ```powershell
-wingetcreate new https://github.com/alya-lang/alya/releases/download/v0.0.16/alyac-v0.0.16-x86_64-windows.zip
+wingetcreate new https://github.com/alya-lang/alya/releases/download/v0.0.17/alyac-v0.0.17-x86_64-windows.zip
 ```
 
 ### Method B: Manual PR
 Copy `alyac.yaml` to the community repository under:
-`manifests/a/Alya/alyac/0.0.16/Alya.alyac.yaml`
+`manifests/a/Alya/alyac/0.0.17/Alya.alyac.yaml`
 and submit a Pull Request to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs).

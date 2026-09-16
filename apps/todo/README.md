@@ -31,7 +31,7 @@ Demonstrates the **Alya Package Manager (`alyac pkg`)** in action by consuming t
 [package]
 name = "todo"
 version = "1.0.0"
-alya-version = "0.0.16"
+alya-version = "0.0.17"
 entry = "src/main.alya"
 description = "A sleek terminal task manager with priorities, tags, and persistence"
 authors = ["Alya Language Contributors <https://github.com/alya-lang>"]
