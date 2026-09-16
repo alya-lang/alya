@@ -6,7 +6,7 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::String(_) => true,
         Expr::InterpolatedString(_) => true,
-        Expr::Call { name, .. } => {
+        Expr::Call { name, args } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             if matches!(
@@ -124,7 +124,15 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "rand_int"
                     | "abs"
                     | "abs_val"
-                    | "json_parse_array"
+            ) {
+                return false;
+            }
+            if bare == "slice" {
+                return !args.is_empty() && is_string_expr(&args[0], vars);
+            }
+            if matches!(
+                bare,
+                "json_parse_array"
                     | "parse_array"
                     | "json_parse_object"
                     | "parse_object"
@@ -213,7 +221,7 @@ pub fn is_array_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         Expr::Identifier(name) => {
             matches!(vars.get(name), Some(VarType::Array(_)))
         }
-        Expr::Call { name, .. } => {
+        Expr::Call { name, args } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             matches!(
@@ -271,7 +279,8 @@ pub fn is_array_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "fs_list_dir_recursive"
                     | "json_parse_array"
                     | "parse_array"
-            ) || vars.contains_key(&format!("fn_ret_str_arr:{}", name))
+            ) || (bare == "slice" && !args.is_empty() && is_array_expr(&args[0], vars))
+                || vars.contains_key(&format!("fn_ret_str_arr:{}", name))
                 || vars.contains_key(&format!("fn_ret_str_arr:{}", bare))
         }
         Expr::FieldAccess { object, field } => {

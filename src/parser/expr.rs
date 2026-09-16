@@ -255,12 +255,46 @@ impl Parser {
         loop {
             if matches!(self.current_token().token_type, TokenType::LeftBracket) {
                 self.advance();
-                let index = self.parse_expression()?;
-                self.expect(TokenType::RightBracket)?;
-                expr = Expr::Index {
-                    array: Box::new(expr),
-                    index: Box::new(index),
-                };
+                if matches!(
+                    self.current_token().token_type,
+                    TokenType::DotDot | TokenType::Colon
+                ) {
+                    self.advance();
+                    let end = if matches!(self.current_token().token_type, TokenType::RightBracket) {
+                        Expr::Number(-1.0)
+                    } else {
+                        self.parse_expression()?
+                    };
+                    self.expect(TokenType::RightBracket)?;
+                    expr = Expr::Call {
+                        name: "slice".into(),
+                        args: vec![expr, Expr::Number(0.0), end],
+                    };
+                } else {
+                    let first = self.parse_expression()?;
+                    if matches!(
+                        self.current_token().token_type,
+                        TokenType::DotDot | TokenType::Colon
+                    ) {
+                        self.advance();
+                        let end = if matches!(self.current_token().token_type, TokenType::RightBracket) {
+                            Expr::Number(-1.0)
+                        } else {
+                            self.parse_expression()?
+                        };
+                        self.expect(TokenType::RightBracket)?;
+                        expr = Expr::Call {
+                            name: "slice".into(),
+                            args: vec![expr, first, end],
+                        };
+                    } else {
+                        self.expect(TokenType::RightBracket)?;
+                        expr = Expr::Index {
+                            array: Box::new(expr),
+                            index: Box::new(first),
+                        };
+                    }
+                }
             } else if matches!(self.current_token().token_type, TokenType::Dot) {
                 self.advance();
                 let field = match &self.current_token().token_type {

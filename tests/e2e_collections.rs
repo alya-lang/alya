@@ -312,3 +312,61 @@ end
         );
     }
 }
+
+#[test]
+fn test_e2e_array_and_string_slicing() {
+    let code = r#"
+let arr = [10, 20, 30, 40, 50]
+
+let s1 = arr[1..4]
+say len(s1)
+say s1[0]
+say s1[1]
+say s1[2]
+
+let s2 = arr[2..]
+say len(s2)
+say s2[0]
+say s2[1]
+say s2[2]
+
+let s3 = arr[..2]
+say len(s3)
+say s3[0]
+say s3[1]
+
+let s4 = arr[1:3]
+say len(s4)
+say s4[0]
+say s4[1]
+
+let text = "Hello, World!"
+let sub1 = text[0..5]
+say sub1
+
+let sub2 = text[7..12]
+say sub2
+
+let sub3 = text[7..]
+say sub3
+
+let sub4 = text[:5]
+say sub4
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(
+            output,
+            concat!(
+                "3\n20\n30\n40\n",
+                "3\n30\n40\n50\n",
+                "2\n10\n20\n",
+                "2\n20\n30\n",
+                "Hello\n",
+                "World\n",
+                "World!\n",
+                "Hello\n"
+            )
+        );
+    }
+}

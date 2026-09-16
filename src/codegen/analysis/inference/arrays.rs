@@ -17,7 +17,7 @@ fn expr_is_definitely_array(
                 known_arrays.contains(name)
             }
         }
-        Expr::Call { name, .. } => {
+        Expr::Call { name, args } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             matches!(
@@ -54,7 +54,8 @@ fn expr_is_definitely_array(
                     | "fs_list_dir_recursive"
                     | "glob"
                     | "glob_dir"
-            ) || known_arrays.contains(&format!("fn_ret_arr:{}", name))
+            ) || (bare == "slice" && !args.is_empty() && expr_is_definitely_array(&args[0], fn_scope, known_arrays))
+                || known_arrays.contains(&format!("fn_ret_arr:{}", name))
                 || known_arrays.contains(&format!("fn_ret_arr:{}", bare))
         }
         _ => false,

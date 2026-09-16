@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bool {
     match expr {
         Expr::String(_) | Expr::InterpolatedString(_) => true,
-        Expr::Call { name, .. } => {
+        Expr::Call { name, args } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             if matches!(
@@ -122,6 +122,9 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
                     | "_json_parse_val"
             ) {
                 return false;
+            }
+            if bare == "slice" {
+                return !args.is_empty() && expr_is_definitely_string(&args[0], known_strings);
             }
             known_strings.contains(&format!("fn_ret_str:{}", name))
                 || known_strings.contains(&format!("fn_ret_str:{}", bare))

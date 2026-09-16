@@ -282,4 +282,141 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
+    // alya_array_slice(arr, start, end)
+    out.push_str(".global alya_array_slice\n");
+    out.push_str("alya_array_slice:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    out.push_str("    push %r14\n");
+    out.push_str("    push %r15\n");
+    out.push_str("    push %rbx\n");
+    out.push_str("    push %rsi\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %rcx, %r12\n");
+        out.push_str("    mov %rdx, %r13\n");
+        out.push_str("    mov %r8, %r14\n");
+    } else {
+        out.push_str("    mov %rdi, %r12\n");
+        out.push_str("    mov %rsi, %r13\n");
+        out.push_str("    mov %rdx, %r14\n");
+    }
+    out.push_str("    test %r12, %r12\n");
+    out.push_str("    jz .L_x64_arr_slice_empty\n");
+    out.push_str("    movq (%r12), %rbx\n");
+    out.push_str("    cmp $0, %r13\n");
+    out.push_str("    jge .L_x64_arr_start_ok\n");
+    out.push_str("    xor %r13, %r13\n");
+    out.push_str(".L_x64_arr_start_ok:\n");
+    out.push_str("    cmp $0, %r14\n");
+    out.push_str("    jl .L_x64_arr_end_cap\n");
+    out.push_str("    cmp %rbx, %r14\n");
+    out.push_str("    jle .L_x64_arr_end_ok\n");
+    out.push_str(".L_x64_arr_end_cap:\n");
+    out.push_str("    mov %rbx, %r14\n");
+    out.push_str(".L_x64_arr_end_ok:\n");
+    out.push_str("    cmp %r14, %r13\n");
+    out.push_str("    jge .L_x64_arr_slice_empty\n");
+    out.push_str("    mov %r14, %r15\n");
+    out.push_str("    sub %r13, %r15\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r15, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_array_new\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %r15, %rdi\n");
+        out.push_str("    call alya_array_new\n");
+    }
+    out.push_str("    movq 16(%r12), %rsi\n");
+    out.push_str("    movq 16(%rax), %rdx\n");
+    out.push_str("    xor %rcx, %rcx\n");
+    out.push_str(".L_x64_arr_copy_loop:\n");
+    out.push_str("    cmp %r15, %rcx\n");
+    out.push_str("    jge .L_x64_arr_copy_done\n");
+    out.push_str("    lea (%r13, %rcx), %r8\n");
+    out.push_str("    movq (%rsi, %r8, 8), %r9\n");
+    out.push_str("    movq %r9, (%rdx, %rcx, 8)\n");
+    out.push_str("    inc %rcx\n");
+    out.push_str("    jmp .L_x64_arr_copy_loop\n");
+    out.push_str(".L_x64_arr_copy_done:\n");
+    out.push_str("    movq %r15, (%rax)\n");
+    out.push_str("    jmp .L_x64_arr_slice_done\n");
+    out.push_str(".L_x64_arr_slice_empty:\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    xor %rcx, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_array_new\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    xor %rdi, %rdi\n");
+        out.push_str("    call alya_array_new\n");
+    }
+    out.push_str(".L_x64_arr_slice_done:\n");
+    out.push_str("    pop %rsi\n");
+    out.push_str("    pop %rbx\n");
+    out.push_str("    pop %r15\n");
+    out.push_str("    pop %r14\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_slice(target, start, end)
+    out.push_str(".global fn_slice\n");
+    out.push_str("fn_slice:\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    test %rcx, %rcx\n");
+        out.push_str("    jz .L_x64_fn_slice_null\n");
+        out.push_str("    cmp $65536, %rcx\n");
+        out.push_str("    jb .L_x64_fn_slice_null\n");
+        out.push_str("    lea alya_rodata_start(%rip), %r11\n");
+        out.push_str("    cmp %r11, %rcx\n");
+        out.push_str("    jb .L_x64_fn_chk_tag\n");
+        out.push_str("    lea alya_rodata_end(%rip), %r10\n");
+        out.push_str("    cmp %r10, %rcx\n");
+        out.push_str("    jb .L_x64_fn_slice_str\n");
+        out.push_str(".L_x64_fn_chk_tag:\n");
+        out.push_str("    movq -16(%rcx), %rax\n");
+        out.push_str("    cmp $0x5A110001, %rax\n");
+        out.push_str("    je alya_array_slice\n");
+        out.push_str(".L_x64_fn_slice_str:\n");
+        out.push_str("    cmp $0, %r8\n");
+        out.push_str("    jl .L_x64_fn_slice_str_call\n");
+        out.push_str("    sub %rdx, %r8\n");
+        out.push_str("    cmp $0, %r8\n");
+        out.push_str("    jge .L_x64_fn_slice_str_call\n");
+        out.push_str("    xor %r8, %r8\n");
+        out.push_str(".L_x64_fn_slice_str_call:\n");
+        out.push_str("    jmp fn_substring\n");
+    } else {
+        out.push_str("    test %rdi, %rdi\n");
+        out.push_str("    jz .L_x64_fn_slice_null\n");
+        out.push_str("    cmp $65536, %rdi\n");
+        out.push_str("    jb .L_x64_fn_slice_null\n");
+        out.push_str("    lea alya_rodata_start(%rip), %r11\n");
+        out.push_str("    cmp %r11, %rdi\n");
+        out.push_str("    jb .L_x64_fn_chk_tag\n");
+        out.push_str("    lea alya_rodata_end(%rip), %r10\n");
+        out.push_str("    cmp %r10, %rdi\n");
+        out.push_str("    jb .L_x64_fn_slice_str\n");
+        out.push_str(".L_x64_fn_chk_tag:\n");
+        out.push_str("    movq -16(%rdi), %rax\n");
+        out.push_str("    cmp $0x5A110001, %rax\n");
+        out.push_str("    je alya_array_slice\n");
+        out.push_str(".L_x64_fn_slice_str:\n");
+        out.push_str("    cmp $0, %rdx\n");
+        out.push_str("    jl .L_x64_fn_slice_str_call\n");
+        out.push_str("    sub %rsi, %rdx\n");
+        out.push_str("    cmp $0, %rdx\n");
+        out.push_str("    jge .L_x64_fn_slice_str_call\n");
+        out.push_str("    xor %rdx, %rdx\n");
+        out.push_str(".L_x64_fn_slice_str_call:\n");
+        out.push_str("    jmp fn_substring\n");
+    }
+    out.push_str(".L_x64_fn_slice_null:\n");
+    out.push_str("    xor %rax, %rax\n");
+    out.push_str("    ret\n\n");
 }
