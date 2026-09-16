@@ -793,3 +793,55 @@ say sub2 == null ? 1 : 0
         );
     }
 }
+
+#[test]
+fn test_e2e_when_expression() {
+    let code = r#"
+# 1. Basic when expression with =>
+let val = 2
+let name = when val
+    is 1 => "one"
+    is 2 => "two"
+    else => "other"
+end
+say name
+
+# 2. When expression with ranges and relational
+let score = 85
+let grade = when score
+    is >= 90 => "A"
+    is 80..89 => "B"
+    is 70..79 => "C"
+    else => "F"
+end
+say grade
+
+# 3. Comma-separated multiple patterns & then keyword
+let num = 3
+let parity = when num
+    is 1, 3, 5 then "odd small"
+    is 2, 4, 6 then "even small"
+    else then "other"
+end
+say parity
+
+# 4. Directly inside say statement
+let status = 404
+say when status
+    is 200 => "OK"
+    is 404 => "Not Found"
+    else => "Error"
+end
+
+# 5. Inside arithmetic expression
+let bonus = 10 + (when grade
+    is "A" => 50
+    is "B" => 30
+    else => 0
+end)
+say bonus
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "two\nB\nodd small\nNot Found\n40\n");
+    }
+}

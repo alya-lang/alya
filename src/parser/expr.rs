@@ -1,6 +1,7 @@
 use super::Parser;
 use crate::ast::*;
 use crate::lexer::TokenType;
+use crate::parser::stmt::control::{build_when_condition, WhenPattern};
 
 impl Parser {
     pub(super) fn parse_expression(&mut self) -> Result<Expr, String> {
@@ -932,6 +933,7 @@ impl Parser {
                     })
                 }
             }
+            TokenType::When => self.parse_when_expression(),
             _ => Err(format!(
                 "Unexpected token {} at line {}, column {}",
                 self.current_token().token_type,
@@ -1089,6 +1091,131 @@ impl Parser {
                 args: call_args,
             })
         }
+    }
+
+    pub(super) fn parse_when_expression(&mut self) -> Result<Expr, String> {
+        let when_line = self.current_token().line;
+        let when_col = self.current_token().column;
+        self.advance(); // skip 'when'
+        self.skip_newlines();
+
+        let raw_subject = self.parse_expression()?;
+        self.skip_newlines();
+
+        let mut arms: Vec<(Vec<WhenPattern>, Expr)> = Vec::new();
+        let mut else_expr = None;
+
+        while !matches!(
+            self.current_token().token_type,
+            TokenType::End | TokenType::Eof
+        ) {
+            self.skip_newlines();
+            if matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+                break;
+            }
+
+            if matches!(self.current_token().token_type, TokenType::Is) {
+                self.advance(); // skip 'is'
+                self.skip_newlines();
+
+                let mut patterns = Vec::new();
+                loop {
+                    let rel_op = match self.current_token().token_type {
+                        TokenType::Greater => Some(BinaryOp::Greater),
+                        TokenType::Less => Some(BinaryOp::Less),
+                        TokenType::GreaterEqual => Some(BinaryOp::GreaterEqual),
+                        TokenType::LessEqual => Some(BinaryOp::LessEqual),
+                        TokenType::NotEqual => Some(BinaryOp::NotEqual),
+                        TokenType::Equal => Some(BinaryOp::Equal),
+                        _ => None,
+                    };
+
+                    if let Some(op) = rel_op {
+                        self.advance();
+                        let expr = self.parse_expression()?;
+                        patterns.push(WhenPattern::Relational(op, expr));
+                    } else {
+                        let pattern_start = self.parse_expression()?;
+                        if matches!(self.current_token().token_type, TokenType::DotDot) {
+                            self.advance(); // skip '..'
+                            let pattern_end = self.parse_expression()?;
+                            patterns.push(WhenPattern::Range(pattern_start, pattern_end));
+                        } else {
+                            patterns.push(WhenPattern::Exact(pattern_start));
+                        }
+                    }
+
+                    if matches!(self.current_token().token_type, TokenType::Comma) {
+                        self.advance(); // skip ','
+                        self.skip_newlines();
+                    } else {
+                        break;
+                    }
+                }
+
+                if matches!(
+                    self.current_token().token_type,
+                    TokenType::FatArrow | TokenType::Then
+                ) {
+                    self.advance();
+                }
+                self.skip_newlines();
+
+                let arm_expr = self.parse_expression()?;
+                arms.push((patterns, arm_expr));
+
+                if matches!(self.current_token().token_type, TokenType::Comma) {
+                    self.advance();
+                }
+                self.skip_newlines();
+            } else if matches!(self.current_token().token_type, TokenType::Else) {
+                self.advance(); // skip 'else'
+                if matches!(
+                    self.current_token().token_type,
+                    TokenType::FatArrow | TokenType::Then
+                ) {
+                    self.advance();
+                }
+                self.skip_newlines();
+                let e_expr = self.parse_expression()?;
+                else_expr = Some(e_expr);
+
+                if matches!(self.current_token().token_type, TokenType::Comma) {
+                    self.advance();
+                }
+                self.skip_newlines();
+                break;
+            } else {
+                return Err(format!(
+                    "Expected 'is' or 'else' in 'when' expression at line {}, column {}",
+                    self.current_token().line,
+                    self.current_token().column
+                ));
+            }
+        }
+
+        self.expect(TokenType::End)?;
+
+        if arms.is_empty() && else_expr.is_none() {
+            return Err(format!(
+                "Empty 'when' expression at line {}, column {}",
+                when_line, when_col
+            ));
+        }
+
+        let default_else = else_expr.unwrap_or(Expr::Null);
+        let mut current_else = default_else;
+
+        for (patterns, expr) in arms.into_iter().rev() {
+            let condition = build_when_condition(&raw_subject, patterns);
+            current_else = Expr::Ternary {
+                condition: Box::new(condition),
+                then_branch: Box::new(expr),
+                else_branch: Box::new(current_else),
+            };
+        }
+
+        Ok(current_else)
     }
 }
 

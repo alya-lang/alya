@@ -1,4 +1,4 @@
-mod control;
+pub(crate) mod control;
 mod decl;
 
 use crate::ast::*;

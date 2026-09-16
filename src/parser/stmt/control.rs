@@ -2,13 +2,13 @@ use crate::ast::*;
 use crate::lexer::TokenType;
 use crate::parser::Parser;
 
-enum WhenPattern {
+pub(crate) enum WhenPattern {
     Exact(Expr),
     Range(Expr, Expr),
     Relational(BinaryOp, Expr),
 }
 
-fn build_pattern_condition(subject: &Expr, pattern: WhenPattern) -> Expr {
+pub(crate) fn build_pattern_condition(subject: &Expr, pattern: WhenPattern) -> Expr {
     match pattern {
         WhenPattern::Exact(expr) => Expr::Binary {
             left: Box::new(subject.clone()),
@@ -40,7 +40,7 @@ fn build_pattern_condition(subject: &Expr, pattern: WhenPattern) -> Expr {
     }
 }
 
-fn build_when_condition(subject: &Expr, mut patterns: Vec<WhenPattern>) -> Expr {
+pub(crate) fn build_when_condition(subject: &Expr, mut patterns: Vec<WhenPattern>) -> Expr {
     let first = patterns.remove(0);
     let mut cond = build_pattern_condition(subject, first);
     for pat in patterns {
@@ -304,8 +304,11 @@ impl Parser {
                     }
                 }
 
-                // Optional 'then'
-                if matches!(self.current_token().token_type, TokenType::Then) {
+                // Optional 'then' or '=>'
+                if matches!(
+                    self.current_token().token_type,
+                    TokenType::Then | TokenType::FatArrow
+                ) {
                     self.advance();
                 }
                 self.skip_newlines();
@@ -321,7 +324,10 @@ impl Parser {
                 arms.push((patterns, arm_stmts));
             } else if matches!(self.current_token().token_type, TokenType::Else) {
                 self.advance(); // skip 'else'
-                if matches!(self.current_token().token_type, TokenType::Then) {
+                if matches!(
+                    self.current_token().token_type,
+                    TokenType::Then | TokenType::FatArrow
+                ) {
                     self.advance();
                 }
                 self.skip_newlines();
