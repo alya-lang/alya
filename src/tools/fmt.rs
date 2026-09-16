@@ -12,6 +12,7 @@ enum BlockKind {
     Repeat,
     Try,
     Struct,
+    Enum,
     When,
     WhenArm,
     Brace,
@@ -318,6 +319,9 @@ fn get_block_starter(code: &str, in_extern: bool) -> Option<BlockKind> {
     }
     if first_word == "struct" {
         return Some(BlockKind::Struct);
+    }
+    if first_word == "enum" {
+        return Some(BlockKind::Enum);
     }
     None
 }
@@ -1117,6 +1121,23 @@ end
     finally
         cleanup()
     end
+end
+"#;
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_enum() {
+        let input = r#"enum Color
+Red
+Green
+Blue = 10
+end
+"#;
+        let expected = r#"enum Color
+    Red
+    Green
+    Blue = 10
 end
 "#;
         assert_eq!(format_source(input).unwrap(), expected);

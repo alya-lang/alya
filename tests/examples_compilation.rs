@@ -453,7 +453,8 @@ fn test_all_examples_execute_with_gcc() {
                 actual_stdout
             );
             assert!(
-                actual_stdout.contains("=== All Alya v0.0.18 features demonstrated successfully! ==="),
+                actual_stdout
+                    .contains("=== All Alya v0.0.18 features demonstrated successfully! ==="),
                 "all.alya missing completion marker:\n{}",
                 actual_stdout
             );
