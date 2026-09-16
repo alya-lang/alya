@@ -115,6 +115,84 @@ say non_existent_fn()
 }
 
 #[test]
+fn test_e2e_pub_visibility_and_private_encapsulation() {
+    let pid = std::process::id();
+    let mod_filename = format!("temp_imported_encap_{}.alya", pid);
+    let mod_content = r#"
+function secret_helper()
+    return 40
+end
+
+pub function compute()
+    return secret_helper() + 2
+end
+
+pub const VERSION = 100
+
+pub struct User
+    name: string
+    score: int
+end
+"#;
+    fs::write(&mod_filename, mod_content).expect("Failed to write temporary module file");
+
+    // 1. Importing public function, const, and struct succeeds and executes properly
+    let main_code = format!(
+        r#"
+from "{}" import compute, VERSION, User
+let u = User("Alice", 50)
+say compute()
+say VERSION
+say u.score + 50
+"#,
+        mod_filename
+    );
+
+    let res = run_alya_code_full(&main_code);
+    if let Some((code, output)) = res {
+        assert_eq!(code, 0);
+        assert_eq!(output, "42\n100\n100\n");
+    }
+
+    // 2. Importing a private symbol fails with descriptive error
+    let invalid_import_code = format!(
+        r#"
+from "{}" import secret_helper
+say secret_helper()
+"#,
+        mod_filename
+    );
+
+    let mut lexer = alya::lexer::Lexer::new(&invalid_import_code);
+    let tokens = lexer.tokenize().expect("Lexer error");
+    let mut parser = alya::parser::Parser::new(tokens);
+    let mut ast = parser.parse().expect("Parser error");
+    let err_res = alya::parser::resolve_imports(&mut ast, std::path::Path::new("."));
+
+    assert!(err_res.is_err());
+    let err_msg = err_res.unwrap_err();
+    assert!(err_msg.contains("Cannot import private symbol 'secret_helper'"));
+    assert!(err_msg.contains("must be declared with 'pub'"));
+
+    // 3. Wildcard import '*' exports only pub symbols
+    let wildcard_code = format!(
+        r#"
+from "{}" import *
+say compute()
+say VERSION
+"#,
+        mod_filename
+    );
+    let res_wildcard = run_alya_code_full(&wildcard_code);
+    let _ = fs::remove_file(&mod_filename);
+
+    if let Some((code, output)) = res_wildcard {
+        assert_eq!(code, 0);
+        assert_eq!(output, "42\n100\n");
+    }
+}
+
+#[test]
 fn test_e2e_for_each_loop() {
     let code = r#"
 let nums = [10, 20, 30]

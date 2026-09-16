@@ -179,6 +179,7 @@ impl CodeGen {
                 }
             }
             Stmt::EnumDef { .. } => {}
+            Stmt::Pub(inner) => self.generate_statement(inner),
         }
     }
 

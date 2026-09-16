@@ -294,6 +294,14 @@ fn collect_float_vars_from_stmts(
                     known_floats.insert(format!("fn_ret_flt:{}", bare));
                 }
             }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                collect_float_vars_from_stmts(
+                    std::slice::from_ref(inner),
+                    scope,
+                    known_floats,
+                    is_top_level,
+                );
+            }
             _ => {}
         }
     }
@@ -302,6 +310,7 @@ fn collect_float_vars_from_stmts(
 pub fn collect_known_float_vars(program: &Program) -> HashSet<String> {
     let mut known_floats = HashSet::new();
     for stmt in &program.statements {
+        let stmt = stmt.inner_stmt();
         if let Stmt::ExternBlock { functions, .. } = stmt {
             for f in functions {
                 if let Some(ret) = &f.return_type {

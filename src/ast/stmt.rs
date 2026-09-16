@@ -109,4 +109,36 @@ pub enum Stmt {
         finally_block: Option<Vec<Stmt>>,
     },
     Defer(Box<Stmt>),
+    Pub(Box<Stmt>),
+}
+
+impl Stmt {
+    pub fn is_pub(&self) -> bool {
+        matches!(self, Stmt::Pub(_))
+    }
+
+    pub fn inner_stmt(&self) -> &Stmt {
+        match self {
+            Stmt::Pub(inner) => inner.inner_stmt(),
+            other => other,
+        }
+    }
+
+    pub fn inner_stmt_mut(&mut self) -> &mut Stmt {
+        match self {
+            Stmt::Pub(inner) => inner.inner_stmt_mut(),
+            other => other,
+        }
+    }
+
+    pub fn declared_symbol_name(&self) -> Option<&str> {
+        match self.inner_stmt() {
+            Stmt::Function { name, .. } => Some(name),
+            Stmt::StructDef { name, .. } => Some(name),
+            Stmt::EnumDef { name, .. } => Some(name),
+            Stmt::Const { name, .. } => Some(name),
+            Stmt::Let { name, .. } => Some(name),
+            _ => None,
+        }
+    }
 }

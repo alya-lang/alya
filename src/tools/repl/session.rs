@@ -144,7 +144,7 @@ impl ReplSession {
 
         // Check if single statement is a bare expression
         if parsed_program.statements.len() == 1 {
-            match &parsed_program.statements[0] {
+            match parsed_program.statements[0].inner_stmt() {
                 Stmt::Expr(expr) => {
                     if expr_contains_ask(expr, &self.functions) {
                         let pid = std::process::id();

@@ -23,7 +23,7 @@ impl StructInference {
                 fields,
                 field_types,
                 ..
-            } = s
+            } = s.inner_stmt()
             {
                 struct_names.insert(name.clone());
                 for (f, ft) in fields.iter().zip(field_types.iter()) {
@@ -272,6 +272,9 @@ impl StructInference {
                     self.scan_expr(index, current_fn, struct_names);
                     self.scan_expr(value, current_fn, struct_names);
                 }
+                Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                    self.scan_stmts(std::slice::from_ref(inner), current_fn, struct_names);
+                }
                 _ => {}
             }
         }
@@ -383,7 +386,7 @@ pub fn infer_expr_struct_type(expr: &Expr, program: &Program) -> Option<String> 
     let inf = StructInference::analyze(program);
     let mut struct_names = HashSet::new();
     for s in &program.statements {
-        if let Stmt::StructDef { name, .. } = s {
+        if let Stmt::StructDef { name, .. } = s.inner_stmt() {
             struct_names.insert(name.clone());
         }
     }

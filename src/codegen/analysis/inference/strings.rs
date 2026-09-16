@@ -401,6 +401,9 @@ fn collect_struct_defs(stmts: &[Stmt], map: &mut HashMap<String, Vec<String>>) {
                     collect_struct_defs(fb, map);
                 }
             }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                collect_struct_defs(std::slice::from_ref(inner), map);
+            }
             _ => {}
         }
     }
@@ -870,6 +873,13 @@ fn collect_string_vars_from_stmts(
                     }
                 }
             }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                collect_string_vars_from_stmts(
+                    std::slice::from_ref(inner),
+                    struct_defs,
+                    known_strings,
+                );
+            }
             _ => {}
         }
     }
@@ -878,6 +888,7 @@ fn collect_string_vars_from_stmts(
 pub fn collect_known_string_vars(program: &Program) -> HashSet<String> {
     let mut known_strings = HashSet::new();
     for stmt in &program.statements {
+        let stmt = stmt.inner_stmt();
         if let Stmt::ExternBlock { functions, .. } = stmt {
             for f in functions {
                 if let Some(ret) = &f.return_type {

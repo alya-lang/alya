@@ -245,6 +245,9 @@ fn prefix_stmt(stmt: &mut Stmt, alias: &str, local_fns: &std::collections::HashS
         Stmt::EnumDef { name, .. } => {
             *name = format!("{}::{}", alias, name);
         }
+        Stmt::Pub(inner) => {
+            prefix_stmt(inner, alias, local_fns);
+        }
         _ => {}
     }
 }
@@ -306,6 +309,17 @@ fn prefix_expr(expr: &mut Expr, alias: &str, local_fns: &std::collections::HashS
         Expr::NullCoalesce { value, default } => {
             prefix_expr(value, alias, local_fns);
             prefix_expr(default, alias, local_fns);
+        }
+        Expr::OptionalCall { callee, args } => {
+            if local_fns.contains(callee) {
+                *callee = format!("{}::{}", alias, callee);
+            }
+            for arg in args {
+                prefix_expr(arg, alias, local_fns);
+            }
+        }
+        Expr::TypeCheck { expr, .. } => {
+            prefix_expr(expr, alias, local_fns);
         }
         _ => {}
     }
@@ -447,14 +461,32 @@ fn resolve_stmt_imports(
             })?;
 
             let is_embedded_stdlib = canonical.to_string_lossy().starts_with("<embedded:");
+            let has_any_pub = sub_program.statements.iter().any(|s| s.is_pub());
+            let pub_symbol_names: std::collections::HashSet<String> = if has_any_pub {
+                sub_program
+                    .statements
+                    .iter()
+                    .filter(|s| s.is_pub())
+                    .filter_map(|s| s.declared_symbol_name().map(|n| n.to_string()))
+                    .collect()
+            } else {
+                std::collections::HashSet::new()
+            };
+
             let mut local_fns: std::collections::HashSet<String> =
                 if !is_embedded_stdlib || alias.is_some() {
                     sub_program
                         .statements
                         .iter()
-                        .filter_map(|s| match s {
-                            Stmt::Function { name, .. } => Some(name.clone()),
-                            _ => None,
+                        .filter_map(|s| {
+                            if has_any_pub && !s.is_pub() {
+                                None
+                            } else {
+                                match s.inner_stmt() {
+                                    Stmt::Function { name, .. } => Some(name.clone()),
+                                    _ => None,
+                                }
+                            }
                         })
                         .collect()
                 } else {
@@ -474,32 +506,72 @@ fn resolve_stmt_imports(
 
             if let Some(ref syms) = symbols {
                 // Selective import: from "..." import a, b [as c]
-                // 1. Verify requested symbols exist
+                // 1. Verify requested symbols exist and check visibility
                 for sym in syms {
                     if sym.name == "*" {
                         continue;
                     }
-                    let exists = sub_resolved.iter().any(|s| match s {
+                    let matching_stmt = sub_resolved.iter().find(|s| match s.inner_stmt() {
                         Stmt::Function { name, .. } => name == &sym.name,
                         Stmt::StructDef { name, .. } => name == &sym.name,
                         Stmt::EnumDef { name, .. } => name == &sym.name,
                         Stmt::Const { name, .. } => name == &sym.name,
+                        Stmt::Let { name, .. } => name == &sym.name,
                         _ => false,
                     });
-                    if !exists {
-                        return Err(format!(
-                            "Module '{}' does not export symbol '{}'",
-                            import_path_str, sym.name
-                        ));
+                    match matching_stmt {
+                        Some(stmt) => {
+                            if has_any_pub && !stmt.is_pub() {
+                                return Err(format!(
+                                    "Cannot import private symbol '{}' from module '{}' (must be declared with 'pub')",
+                                    sym.name, import_path_str
+                                ));
+                            }
+                        }
+                        None => {
+                            return Err(format!(
+                                "Module '{}' does not export symbol '{}'",
+                                import_path_str, sym.name
+                            ));
+                        }
                     }
                 }
+            }
 
+            if has_any_pub {
+                let private_fns: std::collections::HashSet<String> = sub_resolved
+                    .iter()
+                    .filter(|s| !s.is_pub())
+                    .filter_map(|s| match s.inner_stmt() {
+                        Stmt::Function { name, .. } => Some(name.clone()),
+                        _ => None,
+                    })
+                    .collect();
+
+                if !private_fns.is_empty() {
+                    let mod_stem = canonical
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("mod");
+                    let clean_stem: String = mod_stem
+                        .chars()
+                        .filter(|c| c.is_alphanumeric() || *c == '_')
+                        .collect();
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    canonical.hash(&mut hasher);
+                    let priv_alias = format!("__priv_{}_{:x}", clean_stem, hasher.finish());
+                    apply_module_alias(&mut sub_resolved, &priv_alias, &private_fns);
+                }
+            }
+
+            if let Some(ref syms) = symbols {
                 // 2. For aliased symbols, clone and rename definitions
                 let mut additional_stmts = Vec::new();
                 for sym in syms {
                     if let Some(ref alias_name) = sym.alias {
                         for s in &sub_resolved {
-                            match s {
+                            match s.inner_stmt() {
                                 Stmt::Function {
                                     name,
                                     params,
@@ -542,18 +614,37 @@ fn resolve_stmt_imports(
                                         value: value.clone(),
                                     });
                                 }
+                                Stmt::Let {
+                                    name,
+                                    type_ann,
+                                    value,
+                                } if name == &sym.name => {
+                                    additional_stmts.push(Stmt::Let {
+                                        name: alias_name.clone(),
+                                        type_ann: type_ann.clone(),
+                                        value: value.clone(),
+                                    });
+                                }
                                 _ => {}
                             }
                         }
                     }
                 }
                 sub_resolved.extend(additional_stmts);
-                out.extend(sub_resolved);
+                let unwrapped_resolved: Vec<Stmt> = sub_resolved
+                    .into_iter()
+                    .map(|s| s.inner_stmt().clone())
+                    .collect();
+                out.extend(unwrapped_resolved);
 
                 let mut exposed_fns = std::collections::HashSet::new();
                 for sym in syms {
                     if sym.name == "*" {
-                        exposed_fns.extend(local_fns.clone());
+                        if has_any_pub {
+                            exposed_fns.extend(pub_symbol_names.clone());
+                        } else {
+                            exposed_fns.extend(local_fns.clone());
+                        }
                     } else {
                         let final_name = sym.alias.as_ref().unwrap_or(&sym.name);
                         exposed_fns.insert(final_name.clone());
@@ -561,11 +652,19 @@ fn resolve_stmt_imports(
                 }
                 Ok(exposed_fns)
             } else if let Some(ref alias_str) = alias {
-                apply_module_alias(&mut sub_resolved, alias_str, &local_fns);
-                out.extend(sub_resolved);
+                let mut final_sub: Vec<Stmt> = sub_resolved
+                    .into_iter()
+                    .map(|s| s.inner_stmt().clone())
+                    .collect();
+                apply_module_alias(&mut final_sub, alias_str, &local_fns);
+                out.extend(final_sub);
                 Ok(std::collections::HashSet::new())
             } else {
-                out.extend(sub_resolved);
+                let unwrapped_resolved: Vec<Stmt> = sub_resolved
+                    .into_iter()
+                    .map(|s| s.inner_stmt().clone())
+                    .collect();
+                out.extend(unwrapped_resolved);
                 Ok(local_fns)
             }
         }
@@ -636,6 +735,9 @@ fn collect_fn_defaults(
                 if let Some(fb) = finally_block {
                     collect_fn_defaults(fb, fn_defs);
                 }
+            }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                collect_fn_defaults(std::slice::from_ref(inner), fn_defs);
             }
             _ => {}
         }
@@ -732,6 +834,9 @@ fn expand_defaults_in_stmt(
                     expand_defaults_in_stmt(s, fn_defs);
                 }
             }
+        }
+        Stmt::Pub(inner) | Stmt::Defer(inner) => {
+            expand_defaults_in_stmt(inner, fn_defs);
         }
         _ => {}
     }

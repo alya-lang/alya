@@ -1054,6 +1054,31 @@ impl Parser {
             functions,
         })
     }
+
+    pub(crate) fn parse_pub(&mut self) -> Result<Vec<Stmt>, String> {
+        self.advance(); // skip 'pub'
+        self.skip_newlines();
+
+        let token = self.current_token().clone();
+        match &token.token_type {
+            TokenType::Function => self.parse_function().map(|s| vec![Stmt::Pub(Box::new(s))]),
+            TokenType::Identifier(fn_kw) if fn_kw == "fn" => {
+                self.parse_function().map(|s| vec![Stmt::Pub(Box::new(s))])
+            }
+            TokenType::Struct => self.parse_struct().map(|s| vec![Stmt::Pub(Box::new(s))]),
+            TokenType::Enum => self.parse_enum().map(|s| vec![Stmt::Pub(Box::new(s))]),
+            TokenType::Const => self
+                .parse_const()
+                .map(|stmts| stmts.into_iter().map(|s| Stmt::Pub(Box::new(s))).collect()),
+            TokenType::Let => self
+                .parse_let()
+                .map(|stmts| stmts.into_iter().map(|s| Stmt::Pub(Box::new(s))).collect()),
+            other => Err(format!(
+                "Expected function, struct, enum, const, or let after 'pub' at line {}, column {}, got {:?}",
+                token.line, token.column, other
+            )),
+        }
+    }
 }
 
 fn expr_references_name(expr: &Expr, name: &str) -> bool {

@@ -239,6 +239,9 @@ fn resolve_and_validate_stmt(stmt: &mut Stmt, stack: &mut ScopeStack) -> Result<
                 fold_expr(def);
             }
         }
+        Stmt::Pub(inner) | Stmt::Defer(inner) => {
+            resolve_and_validate_stmt(inner, stack)?;
+        }
         _ => {}
     }
     Ok(())

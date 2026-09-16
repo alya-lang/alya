@@ -31,6 +31,7 @@ pub enum TokenType {
     Extern,   // extern
     From,     // from
     Defer,    // defer
+    Pub,      // pub
 
     // Literals
     Number(f64),
@@ -130,6 +131,7 @@ impl TokenType {
             "extern" => TokenType::Extern,
             "from" => TokenType::From,
             "defer" => TokenType::Defer,
+            "pub" => TokenType::Pub,
             "true" => TokenType::True,
             "false" => TokenType::False,
             "null" => TokenType::Null,
@@ -182,6 +184,7 @@ impl std::fmt::Display for TokenType {
             TokenType::Extern => write!(f, "'extern'"),
             TokenType::From => write!(f, "'from'"),
             TokenType::Defer => write!(f, "'defer'"),
+            TokenType::Pub => write!(f, "'pub'"),
             TokenType::Number(n) => write!(f, "number '{}'", n),
             TokenType::Float(n) => write!(f, "float '{}'", n),
             TokenType::String(s) => write!(f, "\"{}\"", s),

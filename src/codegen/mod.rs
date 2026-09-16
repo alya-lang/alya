@@ -54,7 +54,7 @@ impl CodeGen {
                 fields,
                 field_types,
                 defaults,
-            } = stmt
+            } = stmt.inner_stmt()
             {
                 self.ctx.structs.insert(
                     name.clone(),
@@ -291,8 +291,8 @@ impl CodeGen {
         let mut top_level = Vec::new();
 
         for stmt in &program.statements {
-            match stmt {
-                Stmt::Function { .. } => functions.push(stmt),
+            match stmt.inner_stmt() {
+                Stmt::Function { .. } => functions.push(stmt.inner_stmt()),
                 _ => top_level.push(stmt),
             }
         }

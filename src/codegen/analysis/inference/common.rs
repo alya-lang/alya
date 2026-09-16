@@ -49,6 +49,9 @@ pub fn collect_function_defs<'a>(
                     collect_function_defs(finally_block, defs);
                 }
             }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                collect_function_defs(std::slice::from_ref(inner), defs);
+            }
             _ => {}
         }
     }

@@ -455,6 +455,9 @@ fn collect_array_vars_from_stmts(
                     collect_array_vars_from_stmts(body, Some(bare), known_arrays);
                 }
             }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                collect_array_vars_from_stmts(std::slice::from_ref(inner), fn_scope, known_arrays);
+            }
             _ => {}
         }
     }
@@ -465,6 +468,7 @@ pub fn collect_known_array_vars(program: &Program) -> HashSet<String> {
     let mut funcs = Vec::new();
     collect_function_defs(&program.statements, &mut funcs);
     for stmt in &program.statements {
+        let stmt = stmt.inner_stmt();
         if let Stmt::StructDef {
             name,
             fields,
