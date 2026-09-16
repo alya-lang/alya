@@ -119,3 +119,58 @@ pub fn serialize_lockfile(lock: &PackageLock) -> String {
     }
     out
 }
+
+/// Formats a git dependency source URL for `alya.lock`.
+///
+/// Examples:
+/// - branch: `git:<url>?branch=<branch>#<commit_sha>` (or `#<branch>` if sha unavailable)
+/// - tag: `git:<url>?tag=<tag>#<commit_sha>` (or `#<tag>` if sha unavailable)
+/// - rev / default: `git:<url>#<commit_sha>` (or `#head` if unavailable)
+pub fn format_git_source(
+    url: &str,
+    branch: Option<&str>,
+    tag: Option<&str>,
+    rev: Option<&str>,
+    commit_sha: Option<&str>,
+) -> String {
+    if let Some(b) = branch {
+        if let Some(sha) = commit_sha {
+            format!("git:{}?branch={}#{}", url, b, sha)
+        } else {
+            format!("git:{}#{}", url, b)
+        }
+    } else if let Some(t) = tag {
+        if let Some(sha) = commit_sha {
+            format!("git:{}?tag={}#{}", url, t, sha)
+        } else {
+            format!("git:{}#{}", url, t)
+        }
+    } else if let Some(r) = rev {
+        if let Some(sha) = commit_sha {
+            format!("git:{}#{}", url, sha)
+        } else {
+            format!("git:{}#{}", url, r)
+        }
+    } else if let Some(sha) = commit_sha {
+        format!("git:{}#{}", url, sha)
+    } else {
+        format!("git:{}#head", url)
+    }
+}
+
+/// Parses the locked commit SHA from a git source string if present.
+///
+/// Returns `Some(sha)` if the fragment after '#' is a 40-character hex string.
+pub fn parse_git_source_rev(source: &str) -> Option<String> {
+    if !source.starts_with("git:") {
+        return None;
+    }
+    let after_prefix = &source[4..];
+    if let Some((_, fragment)) = after_prefix.split_once('#') {
+        let trimmed = fragment.trim();
+        if trimmed.len() == 40 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
+}

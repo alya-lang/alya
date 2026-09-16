@@ -3,7 +3,7 @@ version = 1
 
 [[package]]
 name = "term"
-version = "main"
-source = "git:https://github.com/alya-lang/term#main"
+version = "0.3.0"
+source = "git:https://github.com/alya-lang/term?branch=main#79e37bbecf7b943b5748f1cb132fe64319699934"
 entry = ".alya/packages/term/src/lib.alya"
 checksum = "sha256:e2c92ee0158effa8297190f1df49a064f0722c647f383f6ae20de77a5dfa9841"

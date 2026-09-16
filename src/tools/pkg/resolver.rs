@@ -430,6 +430,25 @@ pub fn fetch_git_or_archive_dependency(
     // 1. Try Git clone first if git CLI is installed
     let git_err = match try_git_clone(url, tag, branch, target_dir) {
         Ok(()) => {
+            if let Some(r) = rev {
+                let checkout = Command::new("git")
+                    .current_dir(target_dir)
+                    .args(["checkout", "-q", r])
+                    .output();
+                if let Ok(out) = checkout {
+                    if !out.status.success() {
+                        let _ = Command::new("git")
+                            .current_dir(target_dir)
+                            .args(["fetch", "-q", "--unshallow"])
+                            .output();
+                        let _ = Command::new("git")
+                            .current_dir(target_dir)
+                            .args(["checkout", "-q", r])
+                            .output();
+                    }
+                }
+            }
+
             // Record commit SHA before deleting .git so local package manager can track branch updates accurately
             let rev_sha = Command::new("git")
                 .current_dir(target_dir)
