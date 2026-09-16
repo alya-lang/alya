@@ -310,6 +310,7 @@ fn get_embedded_stdlib(module: &str) -> Option<&'static str> {
         "glob" => Some(include_str!("../../stdlib/glob.alya")),
         "console" => Some(include_str!("../../stdlib/console.alya")),
         "net" | "http" => Some(include_str!("../../stdlib/net.alya")),
+        "sync" | "synchronization" => Some(include_str!("../../stdlib/sync.alya")),
         "thread" | "threads" | "concurrency" => Some(include_str!("../../stdlib/thread.alya")),
         _ => None,
     }

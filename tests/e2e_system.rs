@@ -1705,3 +1705,70 @@ say "non-heap str rc: " + str(rc_count("hello"))
         assert!(output.contains("non-heap str rc: 0"), "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_sync_stdlib() {
+    let code = r#"
+import "std/sync"
+
+# 1. Mutex
+let m = mutex_new()
+mutex_lock(m)
+say "sync_mutex: locked"
+mutex_unlock(m)
+mutex_free(m)
+
+# 2. Channel
+let ch = channel_new()
+channel_send(ch, 42)
+channel_send(ch, 84)
+say "ch_size: " + str(channel_size(ch))
+let v1 = channel_try_recv(ch)
+let v2 = channel_recv(ch, 1000)
+say "ch_v1: " + str(v1)
+say "ch_v2: " + str(v2)
+channel_free(ch)
+
+# 3. WaitGroup
+let wg = wait_group_new()
+wait_group_add(wg, 2)
+wait_group_done(wg)
+wait_group_done(wg)
+let wg_res = wait_group_wait(wg, 1000)
+say "wg_ok: " + str(wg_res)
+wait_group_free(wg)
+
+# 4. Once
+let o = once_new()
+let first = once_check(o)
+let second = once_check(o)
+say "once_1: " + str(first)
+say "once_2: " + str(second)
+once_free(o)
+
+# 5. RwLock
+let rw = rwlock_new()
+let r1 = rwlock_read_lock(rw, 1000)
+let r2 = rwlock_read_lock(rw, 1000)
+say "rw_readers_ok: " + str(r1 + r2)
+rwlock_read_unlock(rw)
+rwlock_read_unlock(rw)
+
+let w1 = rwlock_write_lock(rw, 1000)
+say "rw_writer_ok: " + str(w1)
+rwlock_write_unlock(rw)
+rwlock_free(rw)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert!(output.contains("sync_mutex: locked"), "Got: {}", output);
+        assert!(output.contains("ch_size: 2"), "Got: {}", output);
+        assert!(output.contains("ch_v1: 42"), "Got: {}", output);
+        assert!(output.contains("ch_v2: 84"), "Got: {}", output);
+        assert!(output.contains("wg_ok: 1"), "Got: {}", output);
+        assert!(output.contains("once_1: 1"), "Got: {}", output);
+        assert!(output.contains("once_2: 0"), "Got: {}", output);
+        assert!(output.contains("rw_readers_ok: 2"), "Got: {}", output);
+        assert!(output.contains("rw_writer_ok: 1"), "Got: {}", output);
+    }
+}
