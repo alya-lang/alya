@@ -41,7 +41,7 @@ Alya is designed to balance the ergonomics of an expressive, readable language w
   - Sub-millisecond parser throughput (~2M lines/sec) and near-C execution performance.
 - [x] **Batteries-Included Standard Library** ✅
   - Networking (`std/net` with raw TCP/UDP socket I/O and non-blocking `tcp_poll`; HTTP unbundled to `alya-lang/http`).
-  - Concurrency (`std/thread` with native OS worker threads).
+  - Concurrency (`std/thread` with native OS worker threads; `std/sync` with `Mutex`, `Channel`, `WaitGroup`, `Once`, `RwLock`).
   - System I/O (`std/fs`, `std/path`, `std/os`, `std/time`, `std/console`, `std/color`).
   - Utilities (`std/rand` with core PRNG/LCG, `std/json` basic parser/stringifier, `std/glob`, `std/hash`, `std/collections`, `std/test`, `std/mem` Arena allocator).
   - Official Standalone Packages (`csv`, `url`, `http`, `crypto`, `rand`, `uuid`, `jwt`, `mime`, `cli`, `logger`, `json`, `toml`, `dotenv`, `semver`, `sqlite`).
@@ -56,7 +56,7 @@ Alya is designed to balance the ergonomics of an expressive, readable language w
 
 ---
 
-## Upcoming Milestones: The 4 Strategic Pillars
+## Upcoming Milestones: The 5 Strategic Pillars
 
 The next evolution of Alya transitions the project from a complete standalone language to an extensible, industry-grade ecosystem.
 
@@ -68,6 +68,8 @@ The next evolution of Alya transitions the project from a complete standalone la
 │    (alyac pkg)      │    (extern "C")    │    (Editor Intel & IDEs)      │
 ├─────────────────────┴────────────────────┴───────────────────────────────┤
 │ 4. Memory Resilience & Cycle Detection (Weak Refs & Graph Reclamation)   │
+├──────────────────────────────────────────────────────────────────────────┤
+│ 5. Concurrency Strategy: "Colorless Concurrency" & Reactor Event Loop    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -264,6 +266,48 @@ Enhance Alya's Automatic Reference Counting (ARC) with advanced cyclic graph rec
   - Triggered periodically or on-demand to identify and sweep isolated cyclic reference islands.
 - **Memory Diagnostics & Heap Trace**:
   - `alyac run <file> --mem-trace`: Detailed heap allocation counter, live reference inspector, and leak detector output on program exit.
+
+---
+
+### Pillar 5: Concurrency Strategy — "Colorless Concurrency" over `async/await` 📋
+
+A fundamental architectural decision of Alya is the deliberate rejection of the `async/await` paradigm ("What Color is Your Function?").
+
+#### Why Alya Rejects `async/await` (Architectural Non-Goals)
+1. **The Function Coloring Plague**: Marking a function `async` forces all callers to become `async`, spreading viral syntax annotations throughout the codebase.
+2. **Library Fragmentation**: Eliminates the split ecosystem seen in Rust and Python (`sync-sqlite` vs `async-sqlite`, `requests` vs `aiohttp`). In Alya, functions are universal, ergonomic, and colorless.
+3. **Compiler Simplicity & Zero-Cost Runtimes**: Avoids heavyweight compiler state-machine lowering, heap allocations for futures (`Box<dyn Future>`), and complex runtime executor bloat.
+
+#### The 3-Tier Concurrency Architecture
+
+```text
+┌──────────────────────────────────────────────────────────────────────────┐
+│                      ALYA 3-TIER CONCURRENCY MODEL                       │
+├───────────────────────┬──────────────────────────┬───────────────────────┤
+│ Tier 1: OS Threads    │ Tier 2: Reactor Pattern  │ Tier 3: Green Threads │
+│ (std/thread + sync)   │ (Lib/event - epoll/IOCP) │ (spawn / Goroutines)  │
+├───────────────────────┼──────────────────────────┼───────────────────────┤
+│ • CPU-bound compute   │ • I/O-bound networking   │ • Universal fibers    │
+│ • OS-level threads    │ • Single-thread loop     │ • M:N scheduler       │
+│ • Mutex/Channel/Lock  │ • C100K event demux      │ • Colorless syntax    │
+│ • Status: ✅ Stable   │ • Status: 📋 Roadmap     │ • Status: 💡 Research │
+└───────────────────────┴──────────────────────────┴───────────────────────┘
+```
+
+1. **Layer 1: Native OS Threads & Synchronization (`std/thread`, `std/sync`)** ✅
+   * Direct Win32 and POSIX `pthread` OS threads for CPU-heavy tasks.
+   * Zero-allocation synchronization primitives: `Mutex`, `Channel`, `WaitGroup`, `Once`, `RwLock`.
+2. **Layer 2: Reactor Event Loop (`Lib/event`)** 📋
+   * Single-threaded non-blocking I/O multiplexer powered by kernel events (`epoll` on Linux, `WSAPoll`/`IOCP` on Windows, `kqueue` on macOS).
+   * High-concurrency network servers (HTTP, WebSocket) scaling to 100,000+ active connections per core without OS thread overhead.
+   * Tracked in [`Lib/EVENT_UV_ROADMAP.md`](../../Lib/EVENT_UV_ROADMAP.md).
+3. **Layer 3: Colorless Green Threads / Fibers (`spawn` / Goroutines)** 💡
+   * Long-term runtime evolution: Lightweight user-space green threads with segmented/growable stacks and an M:N cooperative scheduler.
+   * Clean, natural, synchronous syntax:
+     ```alya
+     spawn handle_client(sock)
+     ```
+   * Sockets and channels automatically yield to the runtime scheduler upon waiting, preserving 100% synchronous, colorless code ergonomics with asynchronous speed.
 
 ---
 
