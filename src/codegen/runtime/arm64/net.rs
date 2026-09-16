@@ -17,6 +17,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x1, #1\n");
     out.push_str("    mov x2, #0\n");
     out.push_str(&format!("    bl {}socket\n", p));
+    out.push_str("    sxtw x0, w0\n");
     out.push_str("    cmp x0, #0\n");
     out.push_str("    bge .L_arm64_socket_ok\n");
     out.push_str("    mvn x0, xzr\n"); // -1
@@ -117,6 +118,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x1, #1\n");
     out.push_str("    mov x2, #0\n");
     out.push_str(&format!("    bl {}socket\n", p));
+    out.push_str("    sxtw x0, w0\n");
     out.push_str("    cmp x0, #0\n");
     out.push_str("    blt .L_arm64_listen_fail\n");
     out.push_str("    mov x21, x0\n"); // socket
@@ -171,6 +173,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x1, #0\n");
     out.push_str("    mov x2, #0\n");
     out.push_str(&format!("    bl {}accept\n", p));
+    out.push_str("    sxtw x0, w0\n");
     out.push_str("    cmp x0, #0\n");
     out.push_str("    bge .L_arm64_accept_ok\n");
     out.push_str("    mvn x0, xzr\n");
@@ -398,6 +401,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x1, #2\n");
     out.push_str("    mov x2, #0\n");
     out.push_str(&format!("    bl {}socket\n", p));
+    out.push_str("    sxtw x0, w0\n");
     out.push_str("    cmp x0, #0\n");
     out.push_str("    bge .L_arm64_udp_socket_ok\n");
     out.push_str("    mvn x0, xzr\n");

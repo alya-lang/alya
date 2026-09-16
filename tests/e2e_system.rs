@@ -1653,6 +1653,25 @@ end
 }
 
 #[test]
+fn test_e2e_stdlib_net_nonblocking_accept_negative() {
+    let code = r#"
+import "std/net"
+
+let srv = tcp_listen(19877, 5)
+if srv >= 0
+    tcp_set_nonblocking(srv, 1)
+    let client_fd = tcp_accept(srv)
+    say "client_fd: " + str(client_fd)
+    tcp_close(srv)
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert!(output.contains("client_fd: -1"), "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_arc_memory_management() {
     let code = r#"
 struct Point
