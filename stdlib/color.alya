@@ -6,43 +6,90 @@ function _esc(code, s)
     return "\e[" + code + "m" + str(s) + "\e[0m"
 end
 
+# --- Color & Style Enums ---
+
+pub enum Color
+    Black = 30
+    Red = 31
+    Green = 32
+    Yellow = 33
+    Blue = 34
+    Magenta = 35
+    Cyan = 36
+    White = 37
+    Gray = 90
+    BrightRed = 91
+    BrightGreen = 92
+    BrightYellow = 93
+    BrightBlue = 94
+    BrightMagenta = 95
+    BrightCyan = 96
+    BrightWhite = 97
+end
+
+pub enum BgColor
+    Black = 40
+    Red = 41
+    Green = 42
+    Yellow = 43
+    Blue = 44
+    Magenta = 45
+    Cyan = 46
+    White = 47
+end
+
+pub enum Style
+    Reset = 0
+    Bold = 1
+    Dim = 2
+    Italic = 3
+    Underline = 4
+    Inverse = 7
+    Strikethrough = 9
+end
+
+# Applies an ANSI code directly to a string.
+pub function color_fg(code, s) return _esc(str(code), s) end
+pub function color_bg(code, s) return _esc(str(code), s) end
+pub function color_style(code, s) return _esc(str(code), s) end
+
 # --- Foreground Colors ---
-pub function color_black(s) return _esc("30", s) end
-pub function color_red(s) return _esc("31", s) end
-pub function color_green(s) return _esc("32", s) end
-pub function color_yellow(s) return _esc("33", s) end
-pub function color_blue(s) return _esc("34", s) end
-pub function color_magenta(s) return _esc("35", s) end
-pub function color_cyan(s) return _esc("36", s) end
-pub function color_white(s) return _esc("37", s) end
-pub function color_gray(s) return _esc("90", s) end
+pub function color_black(s) return _esc(str(Color.Black), s) end
+pub function color_red(s) return _esc(str(Color.Red), s) end
+pub function color_green(s) return _esc(str(Color.Green), s) end
+pub function color_yellow(s) return _esc(str(Color.Yellow), s) end
+pub function color_blue(s) return _esc(str(Color.Blue), s) end
+pub function color_magenta(s) return _esc(str(Color.Magenta), s) end
+pub function color_cyan(s) return _esc(str(Color.Cyan), s) end
+pub function color_white(s) return _esc(str(Color.White), s) end
+pub function color_gray(s) return _esc(str(Color.Gray), s) end
 
 # --- Bright Foreground Colors ---
-pub function color_bright_red(s) return _esc("91", s) end
-pub function color_bright_green(s) return _esc("92", s) end
-pub function color_bright_yellow(s) return _esc("93", s) end
-pub function color_bright_blue(s) return _esc("94", s) end
-pub function color_bright_magenta(s) return _esc("95", s) end
-pub function color_bright_cyan(s) return _esc("96", s) end
-pub function color_bright_white(s) return _esc("97", s) end
+pub function color_bright_red(s) return _esc(str(Color.BrightRed), s) end
+pub function color_bright_green(s) return _esc(str(Color.BrightGreen), s) end
+pub function color_bright_yellow(s) return _esc(str(Color.BrightYellow), s) end
+pub function color_bright_blue(s) return _esc(str(Color.BrightBlue), s) end
+pub function color_bright_magenta(s) return _esc(str(Color.BrightMagenta), s) end
+pub function color_bright_cyan(s) return _esc(str(Color.BrightCyan), s) end
+pub function color_bright_white(s) return _esc(str(Color.BrightWhite), s) end
 
 # --- Background Colors ---
-pub function bg_black(s) return _esc("40", s) end
-pub function bg_red(s) return _esc("41", s) end
-pub function bg_green(s) return _esc("42", s) end
-pub function bg_yellow(s) return _esc("43", s) end
-pub function bg_blue(s) return _esc("44", s) end
-pub function bg_magenta(s) return _esc("45", s) end
-pub function bg_cyan(s) return _esc("46", s) end
-pub function bg_white(s) return _esc("47", s) end
+pub function bg_black(s) return _esc(str(BgColor.Black), s) end
+pub function bg_red(s) return _esc(str(BgColor.Red), s) end
+pub function bg_green(s) return _esc(str(BgColor.Green), s) end
+pub function bg_yellow(s) return _esc(str(BgColor.Yellow), s) end
+pub function bg_blue(s) return _esc(str(BgColor.Blue), s) end
+pub function bg_magenta(s) return _esc(str(BgColor.Magenta), s) end
+pub function bg_cyan(s) return _esc(str(BgColor.Cyan), s) end
+pub function bg_white(s) return _esc(str(BgColor.White), s) end
 
 # --- Text Styles ---
-pub function style_bold(s) return _esc("1", s) end
-pub function style_dim(s) return _esc("2", s) end
-pub function style_italic(s) return _esc("3", s) end
-pub function style_underline(s) return _esc("4", s) end
-pub function style_inverse(s) return _esc("7", s) end
-pub function style_strikethrough(s) return _esc("9", s) end
+pub function style_bold(s) return _esc(str(Style.Bold), s) end
+pub function style_dim(s) return _esc(str(Style.Dim), s) end
+pub function style_italic(s) return _esc(str(Style.Italic), s) end
+pub function style_underline(s) return _esc(str(Style.Underline), s) end
+pub function style_inverse(s) return _esc(str(Style.Inverse), s) end
+pub function style_strikethrough(s) return _esc(str(Style.Strikethrough), s) end
 
 pub function color_bold(s) return style_bold(s) end
 pub function color_underline(s) return style_underline(s) end

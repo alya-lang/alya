@@ -214,3 +214,16 @@ pub function bench_summary(b)
     say "Finished " + runs + " benchmark(s) in " + ms + " ms."
     say "========================================"
 end
+
+# --- BenchRunner Struct Methods ---
+pub function BenchRunner.start(self, iters)
+    bench_start(self, iters)
+end
+
+pub function BenchRunner.stop(self, name)
+    return bench_stop(self, name)
+end
+
+pub function BenchRunner.summary(self)
+    bench_summary(self)
+end

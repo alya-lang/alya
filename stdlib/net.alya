@@ -162,31 +162,56 @@ end
 
 # --- Basic Network & HTTP Protocol Helpers ---
 
+pub enum HttpStatus
+    Ok = 200
+    Created = 201
+    Accepted = 202
+    NoContent = 204
+    MovedPermanently = 301
+    Found = 302
+    NotModified = 304
+    TemporaryRedirect = 307
+    PermanentRedirect = 308
+    BadRequest = 400
+    Unauthorized = 401
+    Forbidden = 403
+    NotFound = 404
+    MethodNotAllowed = 405
+    RequestTimeout = 408
+    Conflict = 409
+    UnprocessableEntity = 422
+    TooManyRequests = 429
+    InternalServerError = 500
+    BadGateway = 502
+    ServiceUnavailable = 503
+    GatewayTimeout = 504
+end
+
 # Returns standard HTTP status code description.
 pub function http_status_text(code)
     when code
-        is 200 then return "OK"
-        is 201 then return "Created"
-        is 202 then return "Accepted"
-        is 204 then return "No Content"
-        is 301 then return "Moved Permanently"
-        is 302 then return "Found"
-        is 304 then return "Not Modified"
-        is 307 then return "Temporary Redirect"
-        is 308 then return "Permanent Redirect"
-        is 400 then return "Bad Request"
-        is 401 then return "Unauthorized"
-        is 403 then return "Forbidden"
-        is 404 then return "Not Found"
-        is 405 then return "Method Not Allowed"
-        is 408 then return "Request Timeout"
-        is 409 then return "Conflict"
-        is 422 then return "Unprocessable Entity"
-        is 429 then return "Too Many Requests"
-        is 500 then return "Internal Server Error"
-        is 502 then return "Bad Gateway"
-        is 503 then return "Service Unavailable"
-        is 504 then return "Gateway Timeout"
+        is HttpStatus.Ok then return "OK"
+        is HttpStatus.Created then return "Created"
+        is HttpStatus.Accepted then return "Accepted"
+        is HttpStatus.NoContent then return "No Content"
+        is HttpStatus.MovedPermanently then return "Moved Permanently"
+        is HttpStatus.Found then return "Found"
+        is HttpStatus.NotModified then return "Not Modified"
+        is HttpStatus.TemporaryRedirect then return "Temporary Redirect"
+        is HttpStatus.PermanentRedirect then return "Permanent Redirect"
+        is HttpStatus.BadRequest then return "Bad Request"
+        is HttpStatus.Unauthorized then return "Unauthorized"
+        is HttpStatus.Forbidden then return "Forbidden"
+        is HttpStatus.NotFound then return "Not Found"
+        is HttpStatus.MethodNotAllowed then return "Method Not Allowed"
+        is HttpStatus.RequestTimeout then return "Request Timeout"
+        is HttpStatus.Conflict then return "Conflict"
+        is HttpStatus.UnprocessableEntity then return "Unprocessable Entity"
+        is HttpStatus.TooManyRequests then return "Too Many Requests"
+        is HttpStatus.InternalServerError then return "Internal Server Error"
+        is HttpStatus.BadGateway then return "Bad Gateway"
+        is HttpStatus.ServiceUnavailable then return "Service Unavailable"
+        is HttpStatus.GatewayTimeout then return "Gateway Timeout"
         else return "Unknown Status"
     end
 end

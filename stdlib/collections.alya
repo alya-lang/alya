@@ -112,7 +112,7 @@ pub function set_add(s, item)
 end
 
 pub function set_has(s, item)
-    return s.has(item)
+    return item in s
 end
 
 pub function set_remove(s, item)
@@ -155,7 +155,7 @@ end
 pub function set_intersection(a, b)
     let res = {}
     for k in keys(a)
-        if b.has(k)
+        if k in b
             res[k] = 1
         end
     end
@@ -165,7 +165,7 @@ end
 pub function set_difference(a, b)
     let res = {}
     for k in keys(a)
-        if not b.has(k)
+        if k not in b
             res[k] = 1
         end
     end
@@ -174,7 +174,7 @@ end
 
 pub function set_is_subset(a, b)
     for k in keys(a)
-        if not b.has(k)
+        if k not in b
             return 0
         end
     end
@@ -183,22 +183,14 @@ end
 
 # 4. Array Utilities
 pub function array_contains(arr, val)
-    for item in arr
-        if item == val
-            return 1
-        end
-    end
-    return 0
+    return val in arr
 end
 
 pub function array_index_of(arr, val)
-    let count = len(arr)
-    let i = 0
-    while i < count
-        if arr[i] == val
+    for i, item in arr
+        if item == val
             return i
         end
-        i += 1
     end
     return -1
 end
@@ -215,7 +207,6 @@ pub function array_last_index_of(arr, val)
 end
 
 pub function array_slice(arr, start_idx, end_idx)
-    let res = []
     let total = len(arr)
     if start_idx < 0
         start_idx = 0
@@ -223,31 +214,18 @@ pub function array_slice(arr, start_idx, end_idx)
     if end_idx > total
         end_idx = total
     end
-    let i = start_idx
-    while i < end_idx
-        res.push(arr[i])
-        i += 1
+    if start_idx >= end_idx
+        return []
     end
-    return res
+    return arr[start_idx..end_idx]
 end
 
 pub function array_clone(arr)
-    let res = []
-    for x in arr
-        res.push(x)
-    end
-    return res
+    return [...arr]
 end
 
 pub function array_concat(a, b)
-    let res = []
-    for x in a
-        res.push(x)
-    end
-    for y in b
-        res.push(y)
-    end
-    return res
+    return [...a, ...b]
 end
 
 pub function array_reverse(arr)
@@ -278,7 +256,7 @@ pub function array_unique(arr)
     let seen = {}
     let res = []
     for x in arr
-        if not seen.has(x)
+        if x not in seen
             seen[x] = 1
             res.push(x)
         end
@@ -378,16 +356,16 @@ end
 # 5. Map Utilities
 pub function map_clone(m)
     let res = {}
-    for k in keys(m)
-        res[k] = m[k]
+    for k, v in m
+        res[k] = v
     end
     return res
 end
 
 pub function map_merge(dest, src)
     let res = map_clone(dest)
-    for k in keys(src)
-        res[k] = src[k]
+    for k, v in src
+        res[k] = v
     end
     return res
 end
@@ -398,8 +376,8 @@ end
 
 pub function map_entries(m)
     let res = []
-    for k in keys(m)
-        res.push([k, m[k]])
+    for k, v in m
+        res.push([k, v])
     end
     return res
 end
@@ -408,7 +386,8 @@ pub function map_from_entries(entries)
     let res = {}
     for pair in entries
         if len(pair) >= 2
-            res[pair[0]] = pair[1]
+            let k, v = pair
+            res[k] = v
         end
     end
     return res

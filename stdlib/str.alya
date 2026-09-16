@@ -2,7 +2,7 @@
 # Provides advanced string manipulation and inspection functions.
 
 pub function is_empty(s)
-    return len(s) == 0
+    return s is null or len(s) == 0
 end
 
 pub function is_blank(s)
@@ -296,7 +296,7 @@ pub function last_index_of(s, sub)
 end
 
 pub function contains_str(s, sub)
-    return index_of(s, sub) != -1
+    return sub in s
 end
 
 pub function reverse_str(s)

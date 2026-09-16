@@ -281,3 +281,73 @@ end
 pub function rwlock_free(rw)
     mutex_free(rw.lock)
 end
+
+# --- Struct Methods for Synchronization Primitives ---
+
+pub function Channel.send(self, val)
+    return channel_send(self, val)
+end
+
+pub function Channel.recv(self, timeout_ms = 5000)
+    return channel_recv(self, timeout_ms)
+end
+
+pub function Channel.try_recv(self)
+    return channel_try_recv(self)
+end
+
+pub function Channel.size(self)
+    return channel_size(self)
+end
+
+pub function Channel.close(self)
+    return channel_close(self)
+end
+
+pub function Channel.free(self)
+    channel_free(self)
+end
+
+pub function WaitGroup.add(self, delta = 1)
+    wait_group_add(self, delta)
+end
+
+pub function WaitGroup.done(self)
+    wait_group_done(self)
+end
+
+pub function WaitGroup.wait(self, timeout_ms = 0)
+    return wait_group_wait(self, timeout_ms)
+end
+
+pub function WaitGroup.free(self)
+    wait_group_free(self)
+end
+
+pub function Once.check(self)
+    return once_check(self)
+end
+
+pub function Once.free(self)
+    once_free(self)
+end
+
+pub function RwLock.read_lock(self, timeout_ms = 5000)
+    return rwlock_read_lock(self, timeout_ms)
+end
+
+pub function RwLock.read_unlock(self)
+    rwlock_read_unlock(self)
+end
+
+pub function RwLock.write_lock(self, timeout_ms = 5000)
+    return rwlock_write_lock(self, timeout_ms)
+end
+
+pub function RwLock.write_unlock(self)
+    rwlock_write_unlock(self)
+end
+
+pub function RwLock.free(self)
+    rwlock_free(self)
+end

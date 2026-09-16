@@ -90,20 +90,18 @@ pub function json_array(items)
 end
 
 pub function json_object(m)
-    let k = keys(m)
-    let v = values(m)
-    let count = len(k)
-    if count == 0
+    if len(m) == 0
         return "{}"
     end
     let res = "{"
-    let i = 0
-    while i < count
-        if i > 0
+    let first = 1
+    for k, v in m
+        if first == 0
             res = res + ", "
+        else
+            first = 0
         end
-        res = res + "\"" + json_escape(k[i]) + "\": " + str(v[i])
-        i += 1
+        res = res + "\"" + json_escape(k) + "\": " + str(v)
     end
     res = res + "}"
     return res

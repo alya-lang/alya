@@ -470,3 +470,28 @@ end
 pub function rc_dec(obj)
     return rc_release(obj)
 end
+
+# --- Struct Methods for Memory Types ---
+
+# Arena Methods
+pub function Arena.alloc(self, size) return arena_alloc_mem(self, size) end
+pub function Arena.alloc_string(self, s) return arena_alloc_string(self, s) end
+pub function Arena.clear(self) arena_clear(self) end
+pub function Arena.free(self) arena_free(self) end
+pub function Arena.total_allocated(self) return arena_total_allocated(self) end
+pub function Arena.is_valid(self) return arena_is_valid(self) end
+
+# ByteBuffer Methods
+pub function ByteBuffer.write_byte(self, val) buffer_write_byte(self, val) end
+pub function ByteBuffer.read_byte(self, offset) return buffer_read_byte(self, offset) end
+pub function ByteBuffer.write_string(self, s) return buffer_write_string(self, s) end
+pub function ByteBuffer.to_string(self) return buffer_to_string(self) end
+pub function ByteBuffer.clear(self) buffer_clear(self) end
+pub function ByteBuffer.free(self) buffer_free(self) end
+
+# Pool Methods
+pub function Pool.alloc(self) return pool_alloc(self) end
+pub function Pool.free(self, ptr) return pool_free(self, ptr) end
+pub function Pool.available(self) return pool_available(self) end
+pub function Pool.clear(self) return pool_clear(self) end
+pub function Pool.destroy(self) pool_destroy(self) end

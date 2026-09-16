@@ -96,11 +96,11 @@ pub function assert_lte(actual, expected, msg)
 end
 
 pub function assert_null(val, msg)
-    return assert(val == 0, msg)
+    return assert(val is null or val == 0, msg)
 end
 
 pub function assert_not_null(val, msg)
-    return assert(val != 0, msg)
+    return assert(val is not null and val != 0, msg)
 end
 
 pub function assert_true(cond, msg)
@@ -222,4 +222,38 @@ pub function test_summary()
     say "Status: ALL TESTS PASSED!"
     say "----------------------------------------"
     return 0
+end
+
+# --- TestRunner Struct Methods ---
+
+pub function TestRunner.assert(self, cond, msg)
+    return runner_assert(self, cond, msg)
+end
+
+pub function TestRunner.assert_eq(self, actual, expected, msg)
+    return runner_assert_eq(self, actual, expected, msg)
+end
+
+pub function TestRunner.assert_ne(self, actual, expected, msg)
+    return runner_assert_ne(self, actual, expected, msg)
+end
+
+pub function TestRunner.assert_str_eq(self, actual, expected, msg)
+    return runner_assert_str_eq(self, actual, expected, msg)
+end
+
+pub function TestRunner.assert_str_ne(self, actual, expected, msg)
+    return runner_assert_str_ne(self, actual, expected, msg)
+end
+
+pub function TestRunner.assert_true(self, cond, msg)
+    return runner_assert_true(self, cond, msg)
+end
+
+pub function TestRunner.assert_false(self, cond, msg)
+    return runner_assert_false(self, cond, msg)
+end
+
+pub function TestRunner.summary(self)
+    return runner_summary(self)
 end
