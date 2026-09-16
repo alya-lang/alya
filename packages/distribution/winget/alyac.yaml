@@ -27,7 +27,7 @@ Installers:
   - Architecture: x64
     InstallerType: zip
     InstallerUrl: https://github.com/alya-lang/alya/releases/download/v0.0.18/alyac-v0.0.18-x86_64-windows.zip
-    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    InstallerSha256: 4a18addf44a5792fab9587ea28c09578d9ac8592d5c8c123dd3c124b4391fe51
     NestedInstallerType: portable
     NestedInstallerFiles:
       - RelativeFilePath: alyac-v0.0.18-x86_64-windows/alyac.exe
