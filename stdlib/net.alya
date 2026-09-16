@@ -2,7 +2,7 @@
 # Provides low-level TCP/UDP socket networking (client & server).
 # For HTTP client, server, router, and middleware, use `alya-lang/http`.
 
-import "std/hash"
+import "std/str"
 
 # --- Low-Level TCP Socket Functions ---
 

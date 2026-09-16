@@ -537,33 +537,19 @@ fn test_deprecated_stdlib_modules_diagnostic() {
         .parse()
         .unwrap();
     let err = resolve_imports(&mut ast, std::path::Path::new(".")).unwrap_err();
-    assert!(err.contains("alyac add csv"));
-
-    let code_tsv = "import \"std/tsv\"\nsay 1";
-    let mut ast_tsv = Parser::new(Lexer::new(code_tsv).tokenize().unwrap())
-        .parse()
-        .unwrap();
-    let err_tsv = resolve_imports(&mut ast_tsv, std::path::Path::new(".")).unwrap_err();
-    assert!(err_tsv.contains("alyac add csv"));
+    assert!(err.contains("Cannot find standard library module 'std/csv'"));
 
     let code_url = "import \"std/url\"\nsay 1";
     let mut ast2 = Parser::new(Lexer::new(code_url).tokenize().unwrap())
         .parse()
         .unwrap();
     let err2 = resolve_imports(&mut ast2, std::path::Path::new(".")).unwrap_err();
-    assert!(err2.contains("alyac add url"));
+    assert!(err2.contains("Cannot find standard library module 'std/url'"));
 
     let code_crypto = "import \"std/crypto\"\nsay 1";
     let mut ast_crypto = Parser::new(Lexer::new(code_crypto).tokenize().unwrap())
         .parse()
         .unwrap();
     let err_crypto = resolve_imports(&mut ast_crypto, std::path::Path::new(".")).unwrap_err();
-    assert!(err_crypto.contains("alyac add crypto"));
-
-    let code_uuid = "import \"std/uuid\"\nsay 1";
-    let mut ast_uuid = Parser::new(Lexer::new(code_uuid).tokenize().unwrap())
-        .parse()
-        .unwrap();
-    let err_uuid = resolve_imports(&mut ast_uuid, std::path::Path::new(".")).unwrap_err();
-    assert!(err_uuid.contains("alyac add uuid"));
+    assert!(err_crypto.contains("Cannot find standard library module 'std/crypto'"));
 }

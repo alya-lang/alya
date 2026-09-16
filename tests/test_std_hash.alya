@@ -1,0 +1,45 @@
+import "std/test"
+import "std/hash"
+
+test_suite("Alya std/hash Extended Test Suite")
+
+# 1. MurmurHash3 (32-bit)
+assert_eq(murmur3(""), 0, "murmur3 empty")
+assert_eq(murmur3("a"), 1009084850, "murmur3 'a'")
+assert_eq(murmur3("ab"), 2613040991, "murmur3 'ab'")
+assert_eq(murmur3("abc"), 3017643002, "murmur3 'abc'")
+assert_eq(murmur3("abcd"), 1139631978, "murmur3 'abcd'")
+assert_eq(murmur3("abcde"), 3902511862, "murmur3 'abcde'")
+assert_eq(murmur3("The quick brown fox jumps over the lazy dog"), 776992547, "murmur3 fox")
+assert_str_eq(murmur3_hex("hello world"), "5e928f0f", "murmur3_hex 'hello world'")
+
+# 2. FNV-1 and FNV-1a
+assert_eq(fnv1a("hello"), fnv1a("hello"), "fnv1a deterministic")
+assert_eq(fnv1(""), 2166136261, "fnv1 empty")
+assert_eq(fnv1("hello world"), 1418570095, "fnv1 'hello world'")
+assert_str_eq(fnv1a64_hex("hello world"), "779a65e7023cd2e7", "fnv1a64_hex 'hello world'")
+
+# 3. CRC Family (CRC-16, CRC-32, CRC-64)
+assert_eq(crc16("hello world"), 61419, "crc16 'hello world'")
+assert_eq(crc16("123456789"), 10673, "crc16 '123456789'")
+assert_str_eq(crc16_hex("hello world"), "efeb", "crc16_hex 'hello world'")
+
+assert_eq(crc32("hello world"), 222957957, "crc32 'hello world'")
+assert_str_eq(crc32_hex("hello world"), "0d4a1185", "crc32_hex 'hello world'")
+
+assert_str_eq(crc64_hex("hello world"), "12511f272d9bc22a", "crc64_hex 'hello world'")
+
+# 4. Jenkins & ELF Hashes
+assert_eq(jenkins("hello world"), 1045060183, "jenkins 'hello world'")
+assert_eq(elf_hash("hello world"), 18131988, "elf_hash 'hello world'")
+
+# 5. Hex formatting helper
+assert_str_eq(int_to_hex(0, 4), "0000", "int_to_hex zero padded")
+assert_str_eq(int_to_hex(255, 2), "ff", "int_to_hex 255")
+assert_str_eq(int_to_hex(4096, 4), "1000", "int_to_hex 4096")
+
+# 6. Adler-32
+assert_eq(adler32("Wikipedia"), 300286872, "adler32 'Wikipedia'")
+assert_str_eq(adler32_hex("Wikipedia"), "11e60398", "adler32_hex 'Wikipedia'")
+
+say "All std/hash tests passed successfully!"

@@ -12,7 +12,7 @@ mod tests;
 pub use target::{Architecture, OperatingSystem};
 
 use crate::ast::*;
-use analysis::{infer_param_struct_type, ProgramInference};
+use analysis::ProgramInference;
 use context::{CodeGenContext, VarType};
 
 pub struct CodeGen {
@@ -90,7 +90,7 @@ impl CodeGen {
         for stmt in &program.statements {
             if let Stmt::Function { name, .. } = stmt {
                 self.ctx.functions.insert(name.clone());
-                if let Some(sname) = analysis::infer_function_return_struct_type(name, program) {
+                if let Some(sname) = inference.infer_function_return_struct_type(name) {
                     self.ctx.variables.insert(
                         format!("fn_ret_struct:{}", name),
                         VarType::Struct {
@@ -113,7 +113,7 @@ impl CodeGen {
             }
         }
 
-        let struct_inf = analysis::StructInference::analyze(program);
+        let struct_inf = &inference.struct_inf;
         for ((sname, fname), inner_st) in &struct_inf.field_types {
             self.ctx.variables.insert(
                 format!("struct_field_struct:{}.{}", sname, fname),
@@ -291,7 +291,7 @@ impl CodeGen {
             let is_str_arr = inference.infer_param_is_string_array(name, i, program);
             let is_flt_arr = inference.infer_param_is_float_array(name, i, program);
             let is_map = inference.infer_param_is_map(name, i, program);
-            let struct_type = infer_param_struct_type(name, i, program);
+            let struct_type = inference.infer_param_struct_type(name, i);
             if let Some(ref sname) = struct_type {
                 self.ctx.variables.insert(
                     param.clone(),

@@ -71,25 +71,14 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
                     | "from_hex"
                     | "json_object"
                     | "json_map"
-                    | "json_string_map"
                     | "json_string"
                     | "json_escape"
                     | "json_null"
                     | "json_int"
                     | "json_float"
                     | "json_kv"
-                    | "json_pretty"
-                    | "json_get_string"
                     | "read_file_or"
                     | "glob_escape"
-                    | "uuid_v4"
-                    | "uuid_v4_simple"
-                    | "uuid_v7"
-                    | "uuid_v7_at"
-                    | "uuid_v7_simple"
-                    | "uuid_v7_simple_at"
-                    | "ulid_generate"
-                    | "ulid_at"
                     | "str_clone"
                     | "string_clone"
                     | "tcp_recv"
@@ -116,8 +105,6 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
                     | "file_basename"
                     | "file_extension"
                     | "file_parent"
-                    | "console_progress_bar"
-                    | "console_spinner_char"
                     | "console_prompt"
                     | "http_status_text"
                     | "basic_auth"
@@ -689,7 +676,18 @@ fn collect_string_vars_from_stmts(
                 if stmts_return_string(body, &fn_locals)
                     && !matches!(
                         bare,
-                        "json_parse_array"
+                        "int"
+                            | "float"
+                            | "len"
+                            | "arr_len"
+                            | "ord"
+                            | "time"
+                            | "clock_ms"
+                            | "rand"
+                            | "rand_int"
+                            | "abs"
+                            | "abs_val"
+                            | "json_parse_array"
                             | "parse_array"
                             | "json_parse_object"
                             | "parse_object"
@@ -812,22 +810,13 @@ pub fn collect_known_string_vars(program: &Program) -> HashSet<String> {
 pub fn infer_param_is_string_with(
     func_name: &str,
     param_idx: usize,
-    program: &Program,
+    _program: &Program,
     known_strings: &HashSet<String>,
 ) -> bool {
     let bare = func_name.rsplit("::").next().unwrap_or(func_name);
     let bare = bare.rsplit("__").next().unwrap_or(bare);
     known_strings.contains(&format!("fn_param_str:{}:{}", func_name, param_idx))
         || known_strings.contains(&format!("fn_param_str:{}:{}", bare, param_idx))
-        || program.statements.iter().any(|s| {
-            if let Some(arg) = find_call_arg(s, func_name, param_idx) {
-                expr_is_definitely_string(arg, known_strings)
-            } else if let Some(arg) = find_call_arg(s, bare, param_idx) {
-                expr_is_definitely_string(arg, known_strings)
-            } else {
-                false
-            }
-        })
 }
 
 pub fn infer_param_is_string_array_with(

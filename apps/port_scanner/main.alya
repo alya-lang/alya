@@ -17,6 +17,7 @@
 #   alyac run apps/port_scanner/main.alya -- --test
 # ═══════════════════════════════════════════════════════════════
 
+import "term" as ui
 import "std/net"
 import "std/str"
 import "std/color"
@@ -169,7 +170,7 @@ function main()
         results.push(ScanResult(p, is_open, lat, sname))
 
         p_idx += 1
-        let pbar = console_progress_bar(p_idx, arr_len(ports), 25)
+        let pbar = ui::progress_bar(p_idx, arr_len(ports), 25)
         say "\r" + pbar + " (" + str(p_idx) + "/" + str(arr_len(ports)) + ") Port " + str(p)
     end
 

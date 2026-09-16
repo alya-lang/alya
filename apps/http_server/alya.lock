@@ -2,6 +2,13 @@
 version = 1
 
 [[package]]
+name = "mime"
+version = "main"
+source = "git:https://github.com/alya-lang/mime#main"
+entry = ".alya/packages/mime/src/lib.alya"
+checksum = "sha256:dca59a4bb413357ce5a8de32b539ce716f58f43fb73505ee389d92758cb10b1a"
+
+[[package]]
 name = "term"
 version = "main"
 source = "git:https://github.com/alya-lang/term#main"

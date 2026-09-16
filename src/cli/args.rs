@@ -34,6 +34,7 @@ pub struct CliArgs {
     pub bundle_id: Option<String>,
     pub icon_path: Option<String>,
     pub run_args: Vec<String>,
+    pub test_jobs: Option<usize>,
 }
 
 impl CliArgs {
@@ -81,6 +82,7 @@ impl CliArgs {
                 bundle_id: None,
                 icon_path: None,
                 run_args: Vec::new(),
+                test_jobs: None,
             }));
         }
 
@@ -113,6 +115,15 @@ impl CliArgs {
             let pkg_cmd = parse_pkg_clean_args(&args[2..])?;
             return Ok(Some(Self::create_pkg_args(pkg_cmd)));
         }
+        if first == "update" {
+            let pkg_cmd = parse_pkg_update_args(&args[2..])?;
+            return Ok(Some(Self::create_pkg_args(pkg_cmd)));
+        }
+        if first == "outdated" {
+            return Ok(Some(Self::create_pkg_args(PkgCommand::Update {
+                upgrade: false,
+            })));
+        }
         if first == "pkg" {
             if args.len() < 3 || args[2] == "-h" || args[2] == "--help" || args[2] == "help" {
                 return Ok(Some(Self::create_pkg_args(PkgCommand::Help)));
@@ -123,7 +134,8 @@ impl CliArgs {
                 "add" => parse_pkg_add_args(&args[3..])?,
                 "install" => PkgCommand::Install,
                 "list" => PkgCommand::List,
-                "update" => PkgCommand::Update,
+                "update" => parse_pkg_update_args(&args[3..])?,
+                "outdated" => PkgCommand::Update { upgrade: false },
                 "cache" => parse_pkg_cache_args(&args[3..])?,
                 "clean" => parse_pkg_clean_args(&args[3..])?,
                 "help" | "-h" | "--help" => PkgCommand::Help,
@@ -196,6 +208,7 @@ impl CliArgs {
         let mut os_explicit = false;
         let mut arch_explicit = false;
         let mut run_args = Vec::new();
+        let mut test_jobs = None;
         let mut arch = if cfg!(target_arch = "aarch64") {
             Architecture::ARM64
         } else if cfg!(target_arch = "x86") {
@@ -259,6 +272,20 @@ impl CliArgs {
                 }
                 "-q" | "--quiet" => {
                     quiet = true;
+                }
+                "--sequential" => {
+                    test_jobs = Some(1);
+                }
+                "-j" | "--jobs" | "--test-threads" => {
+                    if i + 1 < args.len() {
+                        let val = args[i + 1]
+                            .parse::<usize>()
+                            .map_err(|_| format!("Error: Invalid jobs count '{}'", args[i + 1]))?;
+                        test_jobs = Some(val.max(1));
+                        i += 1;
+                    } else {
+                        return Err("Error: Missing argument for '-j/--jobs'".to_string());
+                    }
                 }
                 "--time" => {
                     time = true;
@@ -404,6 +431,7 @@ impl CliArgs {
             bundle_id,
             icon_path,
             run_args,
+            test_jobs,
         }))
     }
 
@@ -437,6 +465,7 @@ impl CliArgs {
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
+            test_jobs: None,
         }
     }
 
@@ -470,6 +499,7 @@ impl CliArgs {
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
+            test_jobs: None,
         }
     }
 
@@ -636,6 +666,23 @@ fn parse_pkg_clean_args(args: &[String]) -> Result<PkgCommand, String> {
         }
     }
     Ok(PkgCommand::Clean { all })
+}
+
+fn parse_pkg_update_args(args: &[String]) -> Result<PkgCommand, String> {
+    let mut upgrade = false;
+    for arg in args {
+        match arg.as_str() {
+            "-u" | "--upgrade" => upgrade = true,
+            "-h" | "--help" | "help" => return Ok(PkgCommand::Help),
+            other => {
+                return Err(format!(
+                    "Error: Unknown option '{}' for 'update'. Supported flags: -u, --upgrade",
+                    other
+                ))
+            }
+        }
+    }
+    Ok(PkgCommand::Update { upgrade })
 }
 
 fn parse_toolchain_args(args: &[String]) -> Result<ToolchainCommand, String> {

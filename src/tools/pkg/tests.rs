@@ -27,6 +27,9 @@ entry = "src/main.alya"
 authors = ["Alice", "Bob"]
 description = "A great package"
 license = "MIT"
+homepage = "https://github.com/alya-lang/alya"
+repository = "https://github.com/alya-lang/demo"
+keywords = ["alya", "demo", "fast"]
 
 [dependencies]
 local_lib = { path = "../libs/local" }
@@ -44,6 +47,15 @@ simple_ver = "0.5.0"
         Some("A great package".to_string())
     );
     assert_eq!(manifest.package.license, Some("MIT".to_string()));
+    assert_eq!(
+        manifest.package.homepage,
+        Some("https://github.com/alya-lang/alya".to_string())
+    );
+    assert_eq!(
+        manifest.package.repository,
+        Some("https://github.com/alya-lang/demo".to_string())
+    );
+    assert_eq!(manifest.package.keywords, vec!["alya", "demo", "fast"]);
     assert_eq!(manifest.dependencies.len(), 3);
 
     let serialized = serialize_manifest(&manifest);

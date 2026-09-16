@@ -1,14 +1,15 @@
 [package]
-name = "todo"
+name = "snake"
 version = "1.0.0"
 alya-version = "0.0.17"
-entry = "src/main.alya"
-description = "A sleek terminal task manager with priorities, tags, and persistence"
+entry = "main.alya"
+description = "Classic Snake arcade game with AI Autopilot mode and ANSI terminal rendering"
 authors = ["Alya Language Contributors <https://github.com/alya-lang>"]
 license = "MIT"
 homepage = "https://github.com/alya-lang/alya"
 repository = "https://github.com/alya-lang/alya"
-keywords = ["alya", "alya-lang", "package", "todo", "cli", "app", "productivity"]
+keywords = ["alya", "alya-lang", "package", "snake", "game", "arcade", "autopilot", "cli"]
 
 [dependencies]
 term = { git = "https://github.com/alya-lang/term", branch = "main" }
+rand = { git = "https://github.com/alya-lang/rand", branch = "main" }

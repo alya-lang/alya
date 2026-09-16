@@ -21,6 +21,7 @@ pub struct ProgramInference {
     pub known_floats: HashSet<String>,
     pub known_arrays: HashSet<String>,
     pub known_maps: HashSet<String>,
+    pub struct_inf: StructInference,
 }
 
 impl ProgramInference {
@@ -29,11 +30,13 @@ impl ProgramInference {
         let known_floats = collect_known_float_vars(program);
         let known_arrays = collect_known_array_vars(program);
         let known_maps = collect_known_map_vars(program);
+        let struct_inf = StructInference::analyze(program);
         Self {
             known_strings,
             known_floats,
             known_arrays,
             known_maps,
+            struct_inf,
         }
     }
 
@@ -90,5 +93,31 @@ impl ProgramInference {
     #[inline]
     pub fn infer_param_is_map(&self, func_name: &str, param_idx: usize, program: &Program) -> bool {
         infer_param_is_map_with(func_name, param_idx, program, &self.known_maps)
+    }
+
+    #[inline]
+    pub fn infer_param_struct_type(&self, func_name: &str, param_idx: usize) -> Option<String> {
+        let bare = func_name.rsplit("::").next().unwrap_or(func_name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        self.struct_inf
+            .fn_params
+            .get(&(func_name.to_string(), param_idx))
+            .or_else(|| {
+                self.struct_inf
+                    .fn_params
+                    .get(&(bare.to_string(), param_idx))
+            })
+            .cloned()
+    }
+
+    #[inline]
+    pub fn infer_function_return_struct_type(&self, func_name: &str) -> Option<String> {
+        let bare = func_name.rsplit("::").next().unwrap_or(func_name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        self.struct_inf
+            .fn_returns
+            .get(func_name)
+            .or_else(|| self.struct_inf.fn_returns.get(bare))
+            .cloned()
     }
 }

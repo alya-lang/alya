@@ -384,35 +384,6 @@ fn resolve_stmt_imports(
                     }
                     (synthetic, src.to_string())
                 } else {
-                    let clean = normalized_path
-                        .strip_prefix("std/")
-                        .or_else(|| normalized_path.strip_prefix("std::"))
-                        .unwrap_or(&normalized_path);
-                    let clean = clean.strip_suffix(".alya").unwrap_or(clean);
-                    if clean == "csv" || clean == "tsv" {
-                        return Err(format!(
-                            "Standard library module '{}' has moved to a standalone package.\nInstall it using: alyac add csv\nThen import it with: import \"csv\"",
-                            import_path_str
-                        ));
-                    }
-                    if clean == "url" {
-                        return Err(format!(
-                            "Standard library module '{}' has moved to a standalone package.\nInstall it using: alyac add url\nThen import it with: import \"url\"",
-                            import_path_str
-                        ));
-                    }
-                    if clean == "crypto" {
-                        return Err(format!(
-                            "Standard library module '{}' has moved to a standalone package.\nInstall it using: alyac add crypto\nThen import it with: import \"crypto\"",
-                            import_path_str
-                        ));
-                    }
-                    if clean == "uuid" {
-                        return Err(format!(
-                            "Standard library module '{}' has moved to a standalone package.\nInstall it using: alyac add uuid\nThen import it with: import \"uuid\"",
-                            import_path_str
-                        ));
-                    }
                     return Err(format!(
                         "Cannot find standard library module '{}'",
                         import_path_str

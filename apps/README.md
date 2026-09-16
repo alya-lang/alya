@@ -2,33 +2,39 @@
 
 A curated collection of real-world, production-ready terminal applications, network services, games, and developer tools built entirely in **Alya**.
 
-Each application showcases the language's capabilities: near-C execution performance, zero-dependency standard library (`std/net`, `std/thread`, `std/console`, `std/time`, `std/color`, `std/rand`, `std/str`, `std/os`, `std/fs`), and cross-platform native compilation.
+Each application showcases the language's capabilities: near-C execution performance, modular package ecosystem (`term`, `url`, `mime`, `rand`, `crypto`), high-level abstractions, and cross-platform native compilation to standalone binaries.
+
+Every project in this directory is a first-class **Alya package** equipped with its own `alya.toml`, locked dependencies (`alya.lock`), and automated CI/CD smoke test support (`--test`).
 
 ---
 
 ## Application Showcase
 
-| Application | Path | Category | Highlights & Standard Library |
+| Application | Path | Category | Highlights & Ecosystem Packages / Stdlib |
 | :--- | :--- | :--- | :--- |
-| **[Game of Life](#1-conways-game-of-life-game_of_life)** | [`apps/game_of_life/`](game_of_life/main.alya) | Simulation / Graphics | Toroidal 2D grid, preset seeds, ANSI terminal animation, `std/console`, `std/time` |
-| **[HTTP Benchmark](#2-http-benchmark-tool-http_bench)** | [`apps/http_bench/`](http_bench/main.alya) | Networking / Performance | Concurrent load generator (`wrk`/`ab` style), Keep-Alive reuse, worker pool, `std/net`, `std/thread` |
-| **[HTTP Web Server](#3-native-http-web-server-http_server)** | [`apps/http_server/`](http_server/main.alya) | Backend / Networking | High-performance HTTP/1.1 server, REST JSON APIs, static file delivery, non-blocking I/O, `std/net` |
-| **[Port Scanner](#4-tcp-port-scanner-port_scanner)** | [`apps/port_scanner/`](port_scanner/main.alya) | Security / Networking | Asynchronous TCP port prober, service identification, ASCII progress bar, `std/net`, `std/time` |
-| **[Snake](#5-snake-arcade-game-snake)** | [`apps/snake/`](snake/main.alya) | Terminal Game / AI | Interactive manual mode (WASD), autonomous AI autopilot mode, high-score tracking, `std/color` |
-| **[Tic Tac Toe](#6-tic-tac-toe-tictactoe)** | [`apps/tictactoe/`](tictactoe/main.alya) | Terminal Game / AI | Player-vs-Player and Player-vs-AI with unbeatable Minimax algorithm, ANSI board, `std/console` |
-| **[Todo Manager](#7-terminal-todo-manager-todo)** | [`apps/todo/`](todo/src/main.alya) | Productivity / Tooling | Package manager integration (`term_table`), task DB, ANSI badges, progress bar, `std/fs` |
+| **[Game of Life](#1-conways-game-of-life-game_of_life)** | [`apps/game_of_life/`](game_of_life/main.alya) | Simulation / Graphics | Toroidal 2D grid, preset seeds, ANSI animation, `term`, `rand`, `std/time` |
+| **[HTTP Benchmark](#2-http-benchmark-tool-http_bench)** | [`apps/http_bench/`](http_bench/main.alya) | Networking / Performance | Concurrent load generator (`wrk`/`ab` style), Keep-Alive reuse, worker pool, `url`, `term`, `std/net`, `std/thread` |
+| **[HTTP Web Server](#3-native-http-web-server-http_server)** | [`apps/http_server/`](http_server/main.alya) | Backend / Networking | High-performance HTTP/1.1 server, REST JSON APIs, static file delivery with auto MIME detection, non-blocking I/O, `mime`, `term`, `std/net` |
+| **[Port Scanner](#4-tcp-port-scanner-port_scanner)** | [`apps/port_scanner/`](port_scanner/main.alya) | Security / Networking | Asynchronous TCP port prober, service identification, progress bar and table formatting with `term`, `std/net`, `std/time` |
+| **[Snake](#5-snake-arcade-game-snake)** | [`apps/snake/`](snake/main.alya) | Terminal Game / AI | Interactive manual mode (WASD), autonomous AI autopilot mode, high-score tracking, `term`, `rand`, `std/console` |
+| **[Tic Tac Toe](#6-tic-tac-toe-tictactoe)** | [`apps/tictactoe/`](tictactoe/main.alya) | Terminal Game / AI | Player-vs-Player and Player-vs-AI with unbeatable Minimax algorithm, Unicode scoreboard and box UI with `term`, `rand` |
+| **[Todo Manager](#7-terminal-todo-manager-todo)** | [`apps/todo/`](todo/main.alya) | Productivity / Tooling | Package manager integration, task DB, ANSI badges, progress bar, `term`, `crypto`, `rand`, `std/fs` |
 
 ---
 
 ## Application Details & Usage
 
 ### 1. Conway's Game of Life (`game_of_life`)
-A cellular automaton simulating Conway's 4 rules on a wrap-around toroidal 2D board with smooth ANSI animation.
+A cellular automaton simulating Conway's 4 rules on a wrap-around toroidal 2D board with smooth ANSI animation and styled terminal callout boxes.
 
+* **Ecosystem Packages**: `term` (banners & UI), `rand` (stochastic soup generation).
 * **Key Features**: Glider, R-pentomino, Blinker, and Random Soup seed presets; real-time generation and live population counters; smoke test mode.
 * **Run**:
   ```bash
-  # Run with default settings
+  # Run as a package from its directory
+  cd apps/game_of_life && alyac run
+
+  # Or run directly via file path
   alyac run apps/game_of_life/main.alya
 
   # Glider preset for 80 generations
@@ -46,9 +52,13 @@ A cellular automaton simulating Conway's 4 rules on a wrap-around toroidal 2D bo
 ### 2. HTTP Benchmark Tool (`http_bench`)
 A high-throughput HTTP benchmarking utility inspired by `wrk` and `autocannon`.
 
-* **Key Features**: Multi-threaded worker pool via OS threads (`std/thread`), persistent TCP socket reuse (HTTP/1.1 Keep-Alive), non-blocking socket polling (`tcp_poll`), latency percentiles, and formatted ANSI throughput metrics (req/sec).
+* **Ecosystem Packages**: `url` (URL parsing, hostname/port/scheme extraction), `term` (table formatting & metrics).
+* **Key Features**: Multi-threaded worker pool via OS threads (`std/thread`), persistent TCP socket reuse (HTTP/1.1 Keep-Alive), non-blocking socket polling (`tcp_poll`), latency percentiles, and formatted throughput metrics (req/sec).
 * **Run**:
   ```bash
+  # Run as a package
+  cd apps/http_bench && alyac run
+
   # Benchmark target with 1,000 requests over 4 concurrent connections
   alyac run apps/http_bench/main.alya -- -u http://127.0.0.1:8080/ -n 1000 -c 4
 
@@ -62,13 +72,14 @@ A high-throughput HTTP benchmarking utility inspired by `wrk` and `autocannon`.
 ---
 
 ### 3. Native HTTP Web Server (`http_server`)
-A full-featured native HTTP/1.1 web server built with raw POSIX/Winsock sockets.
+A full-featured native HTTP/1.1 web server built with raw POSIX/Winsock sockets and automated MIME content-type resolution.
 
-* **Key Features**: Static asset delivery (HTML, CSS, text), dynamic JSON REST endpoints (`/api/status`, `/api/echo`), ANSI colored access logging with HTTP status codes, and configurable worker threads.
+* **Ecosystem Packages**: `mime` (file extension & Content-Type mapping), `term` (banners & HTTP access logging).
+* **Key Features**: Static asset delivery (HTML, CSS, JS, images), dynamic JSON REST endpoints (`/api/status`, `/api/echo`), ANSI colored access logging with HTTP status codes, and configurable worker threads.
 * **Run**:
   ```bash
-  # Start on default port (8080)
-  alyac run apps/http_server/main.alya
+  # Run as a package on default port (8080)
+  cd apps/http_server && alyac run
 
   # Custom port and worker threads
   alyac run apps/http_server/main.alya -- --port 3000 --workers 4
@@ -82,9 +93,13 @@ A full-featured native HTTP/1.1 web server built with raw POSIX/Winsock sockets.
 ### 4. TCP Port Scanner (`port_scanner`)
 A rapid network reconnaissance tool that probes target hosts and services.
 
-* **Key Features**: Probes top standard service ports (HTTP, HTTPS, SSH, MySQL, Postgres, Redis, etc.), measures round-trip connect latency, renders an in-place ASCII progress bar, and outputs a formatted results table.
+* **Ecosystem Packages**: `term` (progress bar & tabular report rendering).
+* **Key Features**: Probes top standard service ports (HTTP, HTTPS, SSH, MySQL, Postgres, Redis, etc.), measures round-trip connect latency, renders a dynamic terminal progress bar, and outputs a formatted results table.
 * **Run**:
   ```bash
+  # Run as a package
+  cd apps/port_scanner && alyac run
+
   # Scan localhost
   alyac run apps/port_scanner/main.alya -- -t 127.0.0.1
 
@@ -95,8 +110,9 @@ A rapid network reconnaissance tool that probes target hosts and services.
 ---
 
 ### 5. Snake Arcade Game (`snake`)
-A classic Snake game rendered directly inside the terminal using ANSI escape codes.
+A classic Snake game rendered directly inside the terminal with clean box formatting and AI autoplay.
 
+* **Ecosystem Packages**: `term` (callout boxes & color styling), `rand` (stochastic food placement).
 * **Key Features**: Interactive turn-based controls (`W`/`A`/`S`/`D` + `Enter`), collision mechanics, dynamic food spawning, high-score tracking, and an autonomous AI Autopilot mode that plays itself.
 * **Controls**:
   * `W`: Move Up &nbsp;|&nbsp; `S`: Move Down &nbsp;|&nbsp; `A`: Move Left &nbsp;|&nbsp; `D`: Move Right
@@ -105,7 +121,7 @@ A classic Snake game rendered directly inside the terminal using ANSI escape cod
 * **Run**:
   ```bash
   # Interactive mode
-  alyac run apps/snake/main.alya
+  cd apps/snake && alyac run
 
   # Autonomous AI autopilot demonstration
   alyac run apps/snake/main.alya -- --demo
@@ -119,7 +135,8 @@ A classic Snake game rendered directly inside the terminal using ANSI escape cod
 ### 6. Tic Tac Toe (`tictactoe`)
 An interactive, ANSI-colored board game supporting two-player local matches and an unbeatable AI opponent.
 
-* **Key Features**: Minimax decision tree algorithm with terminal state evaluation, round history and score retention, and robust input validation.
+* **Ecosystem Packages**: `term` (table scoreboard, callout banners, color styling), `rand` (randomized first-player selection).
+* **Key Features**: Minimax decision tree algorithm with terminal state evaluation, round history and score retention in Unicode tables, robust input validation, and non-interactive smoke testing.
 * **Controls**: Enter numbers `1`–`9` corresponding to the 3×3 grid:
   ```text
    1 | 2 | 3
@@ -130,8 +147,11 @@ An interactive, ANSI-colored board game supporting two-player local matches and 
   ```
 * **Run**:
   ```bash
-  # Launch game
-  alyac run apps/tictactoe/main.alya
+  # Launch interactive game
+  cd apps/tictactoe && alyac run
+
+  # Automated smoke test
+  alyac run apps/tictactoe/main.alya -- --test
   ```
 
 ---
@@ -139,41 +159,56 @@ An interactive, ANSI-colored board game supporting two-player local matches and 
 ### 7. Terminal Todo Manager (`todo`)
 A persistent terminal task manager and productivity tracker built using the **Alya Package Manager (`alyac pkg`)**.
 
-* **Key Features**: Consumes the reusable [`packages/term_table`](../packages/term_table) package (`import "term_table" as ui`) locked in `alya.lock`, auto-increment IDs, priority classification (🔴 HIGH, 🟡 MED, 🟢 LOW), category tags (`#core`, `#docs`, `#apps`), disk persistence (`todo.db`), real-time completion progress bar, and dual CLI / interactive REPL modes.
+* **Ecosystem Packages**: `term` (tables, status badges, progress bars), `crypto` (task hashing), `rand` (task identifiers).
+* **Key Features**: Auto-increment IDs, priority classification (🔴 HIGH, 🟡 MED, 🟢 LOW), category tags (`#core`, `#docs`, `#apps`), disk persistence, real-time completion progress bar, and dual CLI / interactive REPL modes.
 * **Run**:
   ```bash
   # Run as a package (automatically resolves alya.toml and dependencies)
-  cd apps/todo
-  alyac run
+  cd apps/todo && alyac run
 
   # Inspect package dependencies and lockfile
-  cd apps/todo
-  alyac pkg list
+  cd apps/todo && alyac pkg list
 
   # Add new tasks
-  alyac run apps/todo/src/main.alya -- add "Build C FFI engine" --pri high --tag core
-  alyac run apps/todo/src/main.alya -- add "Write LSP docs" --pri med --tag docs
+  alyac run apps/todo/main.alya -- add "Build C FFI engine" --pri high --tag core
+  alyac run apps/todo/main.alya -- add "Write LSP docs" --pri med --tag docs
 
   # List tasks and view progress
-  alyac run apps/todo/src/main.alya -- list
+  alyac run apps/todo/main.alya -- list
 
   # Mark task completed
-  alyac run apps/todo/src/main.alya -- done 1
+  alyac run apps/todo/main.alya -- done 1
 
   # View productivity metrics
-  alyac run apps/todo/src/main.alya -- stats
+  alyac run apps/todo/main.alya -- stats
 
   # Automated test suite
-  alyac run apps/todo/src/main.alya -- --test
+  alyac run apps/todo/main.alya -- --test
   ```
 
 ---
 
-## Building & Packaging Applications
+## Package Management & Dependencies
 
-### 1. Compile to a Standalone Executable
+All applications can be managed using standard Alya package commands:
 
-To produce a single, self-contained native binary that runs without the compiler or any runtime dependencies:
+```bash
+# Install / restore all locked packages
+cd apps/http_bench
+alyac install
+
+# List dependencies and versions
+alyac pkg list
+
+# Run package entry point
+alyac run
+```
+
+---
+
+## Building Standalone Binaries
+
+To produce a single, self-contained native executable that runs without the compiler or any runtime dependencies:
 
 ```bash
 # On Linux / macOS
@@ -183,7 +218,7 @@ alyac build apps/http_bench/main.alya -o http_bench
 alyac build apps/http_bench/main.alya -o http_bench.exe
 ```
 
-### 2. Package as a macOS Application Bundle (`.app`)
+### Packaging as a macOS Application Bundle (`.app`)
 
 Alya features built-in macOS Application Bundling via the `--bundle` (or `--app`) flag:
 
@@ -216,7 +251,7 @@ GameOfLife.app/
 
 ## Automated Smoke Testing
 
-All applications include an automated `--test` flag suitable for CI/CD test runners and automated verification without hanging on interactive terminal inputs:
+All 7 applications include an automated `--test` flag suitable for CI/CD test runners and verification without hanging on interactive inputs:
 
 ```bash
 alyac run apps/game_of_life/main.alya -- --test
@@ -224,5 +259,6 @@ alyac run apps/http_bench/main.alya -- --test
 alyac run apps/http_server/main.alya -- --test
 alyac run apps/port_scanner/main.alya -- --test
 alyac run apps/snake/main.alya -- --test
+alyac run apps/tictactoe/main.alya -- --test
 alyac run apps/todo/main.alya -- --test
 ```

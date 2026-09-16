@@ -10,6 +10,10 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
     let mut description = None;
     let mut entry = "src/main.alya".to_string();
     let mut license = None;
+    let mut homepage = None;
+    let mut repository = None;
+    let mut keywords = Vec::new();
+    let mut extra = BTreeMap::new();
     let mut dependencies = BTreeMap::new();
     let mut c_sources = Vec::new();
     let mut c_flags = Vec::new();
@@ -43,7 +47,12 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                     "description" => description = Some(unquote(val)),
                     "entry" => entry = unquote(val),
                     "license" => license = Some(unquote(val)),
-                    _ => {}
+                    "homepage" => homepage = Some(unquote(val)),
+                    "repository" => repository = Some(unquote(val)),
+                    "keywords" => keywords = parse_string_array(val),
+                    other => {
+                        extra.insert(other.to_string(), val.to_string());
+                    }
                 },
                 "build" => match key {
                     "c-sources" | "c_sources" => c_sources = parse_string_array(val),
@@ -113,6 +122,10 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
             description,
             entry,
             license,
+            homepage,
+            repository,
+            keywords,
+            extra,
         },
         dependencies,
         build,
@@ -143,6 +156,25 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
     }
     if let Some(lic) = &manifest.package.license {
         out.push_str(&format!("license = \"{}\"\n", lic));
+    }
+    if let Some(home) = &manifest.package.homepage {
+        out.push_str(&format!("homepage = \"{}\"\n", home));
+    }
+    if let Some(repo) = &manifest.package.repository {
+        out.push_str(&format!("repository = \"{}\"\n", repo));
+    }
+    if !manifest.package.keywords.is_empty() {
+        let keywords_str = manifest
+            .package
+            .keywords
+            .iter()
+            .map(|k| format!("\"{}\"", k))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!("keywords = [{}]\n", keywords_str));
+    }
+    for (k, v) in &manifest.package.extra {
+        out.push_str(&format!("{} = {}\n", k, v));
     }
 
     out.push_str("\n[dependencies]\n");

@@ -12,18 +12,34 @@ pub use analyzer::*;
 pub use executor::*;
 pub use session::*;
 
+fn print_repl_banner() {
+    const INNER_WIDTH: usize = 56;
+    let border = "═".repeat(INNER_WIDTH);
+    println!("\x1b[1;36m╔{}╗\x1b[0m", border);
+    crate::driver::console::print_box_row(
+        "              \x1b[1;33m⚡ ALYA INTERACTIVE REPL ⚡\x1b[0m",
+        INNER_WIDTH,
+    );
+    crate::driver::console::print_box_row(
+        &format!(
+            "  \x1b[0mVersion {} ({}-{})",
+            env!("CARGO_PKG_VERSION"),
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ),
+        INNER_WIDTH,
+    );
+    crate::driver::console::print_box_row(
+        "  \x1b[0mType \x1b[1;32m:help\x1b[0m for commands, \x1b[1;31m:exit\x1b[0m to quit",
+        INNER_WIDTH,
+    );
+    println!("\x1b[1;36m╚{}╝\x1b[0m\n", border);
+}
+
 /// Starts the interactive REPL read-eval-print loop.
 pub fn start_repl(arch: Architecture, os: OperatingSystem) -> Result<(), String> {
-    println!("\x1b[1;36m╔════════════════════════════════════════════════════════╗\x1b[0m");
-    println!("\x1b[1;36m║             \x1b[1;33m⚡ ALYA INTERACTIVE REPL ⚡\x1b[0m                \x1b[1;36m║\x1b[0m");
-    println!(
-        "\x1b[1;36m║  \x1b[0mVersion {} ({}-{})              \x1b[1;36m║\x1b[0m",
-        env!("CARGO_PKG_VERSION"),
-        std::env::consts::OS,
-        std::env::consts::ARCH
-    );
-    println!("\x1b[1;36m║  \x1b[0mType \x1b[1;32m:help\x1b[0m for commands, \x1b[1;31m:exit\x1b[0m to quit               \x1b[1;36m║\x1b[0m");
-    println!("\x1b[1;36m╚════════════════════════════════════════════════════════╝\x1b[0m\n");
+    crate::driver::init_console();
+    print_repl_banner();
 
     let mut session = ReplSession::new(arch, os);
     let mut input_buffer = String::new();

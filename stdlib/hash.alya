@@ -1,5 +1,5 @@
 # Alya Standard Library - Hash Module
-# Provides hashing algorithms (FNV-1a, DJB2) and encoding/decoding utilities (Base64, Hex).
+# Provides non-cryptographic hashing algorithms (MurmurHash3, FNV-1/1a, CRC-16/32/64, Adler-32, DJB2, SDBM, Jenkins, ELF).
 
 function djb2(s)
     let slen = len(s)
@@ -23,129 +23,168 @@ function fnv1a(s)
     return h
 end
 
-function hex_encode(s)
-    let hex_chars = "0123456789abcdef"
+function fnv1(s)
     let slen = len(s)
-    let res = ""
-    let i, c, hi, lo = 0
+    let h = 2166136261
+    let i = 0
     while i < slen
-        c = ord(char_at(s, i))
-        hi = bit_and(bit_shr(c, 4), 15)
-        lo = bit_and(c, 15)
-        res = res + char_at(hex_chars, hi) + char_at(hex_chars, lo)
+        h = bit_and((h * 16777619) ^ ord(char_at(s, i)), 2147483647)
         i += 1
     end
-    return res
+    return h
 end
 
-function _hex_val(ch)
-    let c = ord(ch)
-    when c
-        is 48..57 then return c - 48
-        is 97..102 then return c - 87
-        is 65..70 then return c - 55
-        else return 0
-    end
-end
-
-function hex_decode(s)
+function fnv1a64(s)
     let slen = len(s)
-    let res = ""
-    let i, hi, lo, b = 0
-    while i + 1 < slen
-        hi = _hex_val(char_at(s, i))
-        lo = _hex_val(char_at(s, i + 1))
-        b = bit_or(bit_shl(hi, 4), lo)
-        res = res + chr(b)
-        i += 2
-    end
-    return res
-end
-
-function base64_encode(s)
-    let b64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-    let slen = len(s)
-    let res = ""
-    let i, b0, b1, b2, has_b1, has_b2, idx0, idx1, idx2, idx3 = 0
+    # 0xcbf29ce484222325 split into two 32-bit words
+    let h = bit_or(bit_shl(3421674724, 32), 2216829733)
+    let prime = 1099511628211
+    let i = 0
     while i < slen
-        b0 = ord(char_at(s, i))
-        b1 = 0
-        b2 = 0
-        has_b1 = 0
-        has_b2 = 0
-        if i + 1 < slen
-            b1 = ord(char_at(s, i + 1))
-            has_b1 = 1
-        end
-        if i + 2 < slen
-            b2 = ord(char_at(s, i + 2))
-            has_b2 = 1
-        end
-
-        idx0 = bit_and(bit_shr(b0, 2), 63)
-        idx1 = bit_and(bit_or(bit_shl(bit_and(b0, 3), 4), bit_shr(b1, 4)), 63)
-        idx2 = bit_and(bit_or(bit_shl(bit_and(b1, 15), 2), bit_shr(b2, 6)), 63)
-        idx3 = bit_and(b2, 63)
-
-        res = res + char_at(b64_chars, idx0)
-        res = res + char_at(b64_chars, idx1)
-        if has_b1
-            res = res + char_at(b64_chars, idx2)
-        else
-            res = res + "="
-        end
-        if has_b2
-            res = res + char_at(b64_chars, idx3)
-        else
-            res = res + "="
-        end
-        i += 3
+        h = bit_xor(h, ord(char_at(s, i))) * prime
+        i += 1
     end
-    return res
+    return h
 end
 
-function _b64_val(ch)
-    let c = ord(ch)
-    when c
-        is 65..90 then return c - 65
-        is 97..122 then return c - 71
-        is 48..57 then return c + 4
-        is 43 then return 62
-        is 47 then return 63
-        else return 0
-    end
+function _rotl32(x, r)
+    return bit_and(bit_or(bit_shl(x, r), bit_shr(x, 32 - r)), 4294967295)
 end
 
-function base64_decode(s)
+function murmur3_32(s, seed = 0)
     let slen = len(s)
-    let res = ""
-    let i, v0, v1, v2, v3, b0, b1, b2 = 0
-    let c0, c1, c2, c3 = ""
-    while i + 3 < slen
-        c0 = char_at(s, i)
-        c1 = char_at(s, i + 1)
-        c2 = char_at(s, i + 2)
-        c3 = char_at(s, i + 3)
+    let h = seed
+    let c1 = 3432918353
+    let c2 = 461845907
+    let rounded_end = slen - (slen % 4)
+    let i = 0
+    let k = 0
+    while i < rounded_end
+        k = bit_or(ord(char_at(s, i)), bit_shl(ord(char_at(s, i + 1)), 8))
+        k = bit_or(k, bit_shl(ord(char_at(s, i + 2)), 16))
+        k = bit_or(k, bit_shl(ord(char_at(s, i + 3)), 24))
 
-        v0 = _b64_val(c0)
-        v1 = _b64_val(c1)
-        v2 = _b64_val(c2)
-        v3 = _b64_val(c3)
+        k = bit_and(k * c1, 4294967295)
+        k = _rotl32(k, 15)
+        k = bit_and(k * c2, 4294967295)
 
-        b0 = bit_or(bit_shl(v0, 2), bit_and(bit_shr(v1, 4), 3))
-        res = res + chr(b0)
-
-        if c2 != "="
-            b1 = bit_and(bit_or(bit_shl(bit_and(v1, 15), 4), bit_shr(v2, 2)), 255)
-            res = res + chr(b1)
-        end
-        if c3 != "="
-            b2 = bit_and(bit_or(bit_shl(bit_and(v2, 3), 6), v3), 255)
-            res = res + chr(b2)
-        end
+        h = bit_xor(h, k)
+        h = _rotl32(h, 13)
+        h = bit_and(h * 5 + 3864292196, 4294967295)
         i += 4
     end
+
+    let rem = slen % 4
+    k = 0
+    if rem == 3
+        k = bit_or(k, bit_shl(ord(char_at(s, rounded_end + 2)), 16))
+    end
+    if rem >= 2
+        k = bit_or(k, bit_shl(ord(char_at(s, rounded_end + 1)), 8))
+    end
+    if rem >= 1
+        k = bit_or(k, ord(char_at(s, rounded_end)))
+        k = bit_and(k * c1, 4294967295)
+        k = _rotl32(k, 15)
+        k = bit_and(k * c2, 4294967295)
+        h = bit_xor(h, k)
+    end
+
+    h = bit_xor(h, slen)
+    # fmix32
+    h = bit_xor(h, bit_shr(h, 16))
+    h = bit_and(h * 2246822507, 4294967295)
+    h = bit_xor(h, bit_shr(h, 13))
+    h = bit_and(h * 3266489909, 4294967295)
+    h = bit_xor(h, bit_shr(h, 16))
+    return h
+end
+
+function murmur3(s, seed = 0)
+    return murmur3_32(s, seed)
+end
+
+function jenkins(s)
+    let slen = len(s)
+    let h = 0
+    let i = 0
+    while i < slen
+        h += ord(char_at(s, i))
+        h = bit_and(h + bit_shl(h, 10), 4294967295)
+        h = bit_xor(h, bit_shr(h, 6))
+        i += 1
+    end
+    h = bit_and(h + bit_shl(h, 3), 4294967295)
+    h = bit_xor(h, bit_shr(h, 11))
+    h = bit_and(h + bit_shl(h, 15), 4294967295)
+    return h
+end
+
+function elf_hash(s)
+    let slen = len(s)
+    let h = 0
+    let g = 0
+    let i = 0
+    while i < slen
+        h = bit_and(bit_shl(h, 4) + ord(char_at(s, i)), 4294967295)
+        g = bit_and(h, 4026531840)
+        if g != 0
+            h = bit_xor(h, bit_shr(g, 24))
+        end
+        h = bit_and(h, bit_xor(4294967295, g))
+        i += 1
+    end
+    return h
+end
+
+function int_to_hex(val, width = 0)
+    let hex_digits = "0123456789abcdef"
+    if val == 0
+        if width <= 0
+            return "0"
+        end
+        let s = ""
+        let w = 0
+        while w < width
+            s = s + "0"
+            w += 1
+        end
+        return s
+    end
+    let res = ""
+    let v = val
+    let digit = 0
+    let count = 0
+    while (v != 0 or count < width) and count < 16
+        digit = bit_and(v, 15)
+        res = char_at(hex_digits, digit) + res
+        v = bit_shr(v, 4)
+        count += 1
+    end
     return res
+end
+
+function crc16(s)
+    let slen = len(s)
+    let crc = 65535
+    let i = 0
+    let j = 0
+    let byte = 0
+    while i < slen
+        byte = ord(char_at(s, i))
+        crc = bit_xor(crc, bit_shl(byte, 8))
+        j = 0
+        while j < 8
+            if bit_and(crc, 32768) != 0
+                crc = bit_and(bit_xor(bit_shl(crc, 1), 4129), 65535)
+            else
+                crc = bit_and(bit_shl(crc, 1), 65535)
+            end
+            j += 1
+        end
+        i += 1
+    end
+    return crc
 end
 
 function crc32(s)
@@ -172,6 +211,68 @@ function crc32(s)
     return bit_xor(crc, 4294967295)
 end
 
+function crc64(s)
+    let slen = len(s)
+    # 0x42F0E1EBA9EA3693 (ECMA-182) constructed from two 32-bit words
+    let poly = bit_or(bit_shl(1123082731, 32), 2850698899)
+    let crc = 0
+    let i = 0
+    let j = 0
+    let byte = 0
+    while i < slen
+        byte = ord(char_at(s, i))
+        crc = bit_xor(crc, bit_shl(byte, 56))
+        j = 0
+        while j < 8
+            if bit_shr(crc, 63) == 1
+                crc = bit_xor(bit_shl(crc, 1), poly)
+            else
+                crc = bit_shl(crc, 1)
+            end
+            j += 1
+        end
+        i += 1
+    end
+    return crc
+end
+
+function crc16_hex(s)
+    return int_to_hex(crc16(s), 4)
+end
+
+function crc32_hex(s)
+    return int_to_hex(crc32(s), 8)
+end
+
+function crc64_hex(s)
+    return int_to_hex(crc64(s), 16)
+end
+
+function murmur3_hex(s, seed = 0)
+    return int_to_hex(murmur3_32(s, seed), 8)
+end
+
+function fnv1a64_hex(s)
+    return int_to_hex(fnv1a64(s), 16)
+end
+
+function adler32(s)
+    let slen = len(s)
+    let a = 1
+    let b = 0
+    let i = 0
+    while i < slen
+        a = (a + ord(char_at(s, i))) % 65521
+        b = (b + a) % 65521
+        i += 1
+    end
+    return bit_or(bit_shl(b, 16), a)
+end
+
+function adler32_hex(s)
+    return int_to_hex(adler32(s), 8)
+end
+
 function sdbm(s)
     let slen = len(s)
     let h = 0
@@ -189,70 +290,4 @@ end
 function hash_combine(h1, h2)
     let combined = bit_xor(h1, h2 + 2654435769 + bit_shl(h1, 6) + bit_shr(h1, 2))
     return bit_and(combined, 2147483647)
-end
-
-function is_hex(s)
-    let slen = len(s)
-    if slen == 0 or slen % 2 != 0
-        return 0
-    end
-    let i = 0
-    let c = 0
-    let is_d = 0
-    let is_l = 0
-    let is_u = 0
-    while i < slen
-        c = ord(char_at(s, i))
-        is_d = c >= 48 and c <= 57
-        is_l = c >= 97 and c <= 102
-        is_u = c >= 65 and c <= 70
-        if not is_d and not is_l and not is_u
-            return 0
-        end
-        i += 1
-    end
-    return 1
-end
-
-function is_base64(s)
-    let slen = len(s)
-    if slen == 0 or slen % 4 != 0
-        return 0
-    end
-    let i = 0
-    let c = 0
-    let is_u = 0
-    let is_l = 0
-    let is_d = 0
-    let is_plus_slash = 0
-    let is_pad = 0
-    while i < slen
-        c = ord(char_at(s, i))
-        is_u = c >= 65 and c <= 90
-        is_l = c >= 97 and c <= 122
-        is_d = c >= 48 and c <= 57
-        is_plus_slash = c == 43 or c == 47
-        is_pad = c == 61
-        if not is_u and not is_l and not is_d and not is_plus_slash and not is_pad
-            return 0
-        end
-        i += 1
-    end
-    return 1
-end
-
-function to_hex(s)
-    return hex_encode(s)
-end
-
-function from_hex(s)
-    return hex_decode(s)
-end
-
-function to_base64(s)
-    return base64_encode(s)
-end
-
-function from_base64(s)
-    return base64_decode(s)
 end

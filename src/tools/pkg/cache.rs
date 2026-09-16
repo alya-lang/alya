@@ -39,6 +39,9 @@ pub fn dir_size_and_count(path: &Path) -> (u64, usize) {
             for entry in entries.flatten() {
                 let p = entry.path();
                 if p.is_dir() {
+                    if p.file_name().is_some_and(|n| n == ".git") {
+                        continue;
+                    }
                     stack.push(p);
                 } else if p.is_file() {
                     file_count += 1;
@@ -87,14 +90,15 @@ pub fn inspect_packages_dir(dir: &Path, lock: Option<&PackageLock>) -> Vec<Cache
                     .next()
                     .unwrap_or(&folder_name)
                     .to_string();
-                let manifest_path = path.join("alya.toml");
-                let mut version = folder_name
+                let folder_tag = folder_name
                     .split('@')
                     .nth(1)
                     .and_then(|s| s.split('-').next())
                     .unwrap_or("unknown")
                     .to_string();
+                let mut version = folder_tag.clone();
                 let mut source = "-".to_string();
+                let manifest_path = path.join("alya.toml");
 
                 if manifest_path.exists() {
                     if let Ok(content) = fs::read_to_string(&manifest_path) {
@@ -102,11 +106,25 @@ pub fn inspect_packages_dir(dir: &Path, lock: Option<&PackageLock>) -> Vec<Cache
                             name = m.package.name.clone();
                             let ver = m.package.version.trim();
                             if !ver.is_empty() {
-                                version = if ver.starts_with('v') || ver.starts_with('V') {
+                                let v_str = if ver.starts_with('v') || ver.starts_with('V') {
                                     ver.to_string()
                                 } else {
                                     format!("v{}", ver)
                                 };
+                                let is_semver = folder_tag
+                                    .chars()
+                                    .next()
+                                    .is_some_and(|c| c.is_ascii_digit())
+                                    || (folder_tag.starts_with('v')
+                                        && folder_tag
+                                            .chars()
+                                            .nth(1)
+                                            .is_some_and(|c| c.is_ascii_digit()));
+                                if !is_semver && folder_tag != "unknown" {
+                                    version = format!("{} ({})", folder_tag, v_str);
+                                } else {
+                                    version = v_str;
+                                }
                             }
                         }
                     }
@@ -193,10 +211,10 @@ pub fn run_cache() -> Result<(), String> {
         if !local_pkgs.is_empty() {
             println!();
             println!(
-                "  {:<16} {:<12} {:<36} {:<10} {:<8}",
+                "  {:<16} {:<16} {:<36} {:<10} {:<8}",
                 "PACKAGE", "VERSION", "SOURCE", "SIZE", "FILES"
             );
-            println!("  {}", "-".repeat(86));
+            println!("  {}", "-".repeat(90));
             for p in &local_pkgs {
                 let src_short = if p.source.len() > 34 {
                     format!("{}...", &p.source[..31])
@@ -204,7 +222,7 @@ pub fn run_cache() -> Result<(), String> {
                     p.source.clone()
                 };
                 println!(
-                    "  {:<16} {:<12} {:<36} {:<10} {:<8}",
+                    "  {:<16} {:<16} {:<36} {:<10} {:<8}",
                     p.name,
                     p.version,
                     src_short,
@@ -237,10 +255,10 @@ pub fn run_cache() -> Result<(), String> {
         if !global_pkgs.is_empty() {
             println!();
             println!(
-                "  {:<16} {:<12} {:<36} {:<10} {:<8}",
+                "  {:<16} {:<16} {:<36} {:<10} {:<8}",
                 "PACKAGE", "VERSION", "SOURCE", "SIZE", "FILES"
             );
-            println!("  {}", "-".repeat(86));
+            println!("  {}", "-".repeat(90));
             for p in &global_pkgs {
                 let src_short = if p.source.len() > 34 {
                     format!("{}...", &p.source[..31])
@@ -248,7 +266,7 @@ pub fn run_cache() -> Result<(), String> {
                     p.source.clone()
                 };
                 println!(
-                    "  {:<16} {:<12} {:<36} {:<10} {:<8}",
+                    "  {:<16} {:<16} {:<36} {:<10} {:<8}",
                     p.name,
                     p.version,
                     src_short,

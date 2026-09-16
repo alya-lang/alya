@@ -8,7 +8,8 @@ use super::hash::{compute_cache_key, compute_package_checksum};
 use super::lock::{parse_lockfile, serialize_lockfile};
 use super::manifest::{check_compiler_compatibility, parse_manifest, serialize_manifest};
 use super::resolver::{
-    copy_dir_all, fetch_git_or_archive_dependency, resolve_package_spec, resolve_registry_url,
+    compare_semver, copy_dir_all, fetch_git_or_archive_dependency, find_latest_semver_tag,
+    query_remote_branch_head, query_remote_tags, resolve_package_spec, resolve_registry_url,
     update_git_dependency,
 };
 use super::types::{
@@ -37,7 +38,7 @@ pub fn run_pkg(cmd: &PkgCommand) -> Result<(), String> {
         ),
         PkgCommand::Install => run_install(),
         PkgCommand::List => run_list(),
-        PkgCommand::Update => run_update(),
+        PkgCommand::Update { upgrade } => run_update(*upgrade),
         PkgCommand::Cache { clean, .. } => {
             if *clean {
                 run_clean(true)
@@ -101,6 +102,10 @@ pub fn run_init(path: Option<&str>, name: Option<&str>, is_lib: bool) -> Result<
             description: Some(format!("Alya package {}", pkg_name)),
             entry: entry_file.to_string(),
             license: Some("MIT".to_string()),
+            homepage: None,
+            repository: None,
+            keywords: Vec::new(),
+            extra: BTreeMap::new(),
         },
         dependencies: BTreeMap::new(),
         build: None,
@@ -217,6 +222,12 @@ pub fn run_add(
                         branch,
                         None,
                         &cached_pkg_dir,
+                    );
+                }
+                if cached_pkg_dir.exists() && !cached_pkg_dir.join(".alya-source").exists() {
+                    let _ = fs::write(
+                        cached_pkg_dir.join(".alya-source"),
+                        format!("git:{}#head", url),
                     );
                 }
                 if let Ok(manifest_src) = fs::read_to_string(cached_pkg_dir.join("alya.toml")) {
@@ -431,6 +442,28 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
 
                     let cache_hit =
                         cached_pkg_dir.exists() && cached_pkg_dir.join("alya.toml").exists();
+
+                    let head_cache_key = compute_cache_key(&name, "head", &url);
+                    let head_cached_dir = global_cache_dir.join(&head_cache_key);
+                    let head_hit = if !cache_hit
+                        && head_cached_dir.exists()
+                        && head_cached_dir.join("alya.toml").exists()
+                    {
+                        if let Ok(manifest_src) =
+                            fs::read_to_string(head_cached_dir.join("alya.toml"))
+                        {
+                            if let Ok(parsed) = parse_manifest(&manifest_src) {
+                                parsed.package.version == *v || v == "*"
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
                     if cache_hit {
                         println!(
                             "  Using cached package '{}' ({}) from global cache",
@@ -442,12 +475,20 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
                             }
                             copy_dir_all(&cached_pkg_dir, &target_dir, true)?;
                         }
+                    } else if head_hit {
+                        let _ = copy_dir_all(&head_cached_dir, &cached_pkg_dir, true);
+                        let _ = fs::write(cached_pkg_dir.join(".alya-source"), &source);
+                        println!("  Using package '{}' (v{}) from global cache", name, v);
+                        if target_dir.exists() {
+                            let _ = fs::remove_dir_all(&target_dir);
+                        }
+                        copy_dir_all(&cached_pkg_dir, &target_dir, true)?;
                     } else {
                         let _ = fs::create_dir_all(&global_cache_dir);
                         if cached_pkg_dir.exists() {
                             let _ = fs::remove_dir_all(&cached_pkg_dir);
                         }
-                        let fetch_res = fetch_git_or_archive_dependency(
+                        let mut fetch_res = fetch_git_or_archive_dependency(
                             &name,
                             &url,
                             tag_cand.as_deref(),
@@ -455,6 +496,60 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
                             None,
                             &cached_pkg_dir,
                         );
+                        if fetch_res.is_err() {
+                            // Fallback 1: Check if 'head' in global cache matches the requested version
+                            let head_cache_key = compute_cache_key(&name, "head", &url);
+                            let head_cached_dir = global_cache_dir.join(&head_cache_key);
+                            if head_cached_dir.exists()
+                                && head_cached_dir.join("alya.toml").exists()
+                            {
+                                if let Ok(manifest_src) =
+                                    fs::read_to_string(head_cached_dir.join("alya.toml"))
+                                {
+                                    if let Ok(parsed) = parse_manifest(&manifest_src) {
+                                        if parsed.package.version == *v || v == "*" {
+                                            println!(
+                                                "  Notice: Tag '{}' not found on remote; using matching head version '{}'",
+                                                tag_or_branch, parsed.package.version
+                                            );
+                                            let _ = copy_dir_all(
+                                                &head_cached_dir,
+                                                &cached_pkg_dir,
+                                                true,
+                                            );
+                                            fetch_res = Ok(());
+                                        }
+                                    }
+                                }
+                            }
+                            // Fallback 2: Try fetching default branch (head) directly
+                            if fetch_res.is_err() {
+                                if let Ok(()) = fetch_git_or_archive_dependency(
+                                    &name,
+                                    &url,
+                                    None,
+                                    None,
+                                    None,
+                                    &cached_pkg_dir,
+                                ) {
+                                    if let Ok(manifest_src) =
+                                        fs::read_to_string(cached_pkg_dir.join("alya.toml"))
+                                    {
+                                        if let Ok(parsed) = parse_manifest(&manifest_src) {
+                                            if parsed.package.version == *v || v == "*" {
+                                                println!(
+                                                    "  Notice: Tag '{}' not found on remote; using matching head version '{}'",
+                                                    tag_or_branch, parsed.package.version
+                                                );
+                                                fetch_res = Ok(());
+                                            } else {
+                                                let _ = fs::remove_dir_all(&cached_pkg_dir);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         if let Err(e) = fetch_res {
                             if !target_dir.exists() || !target_dir.join("alya.toml").exists() {
                                 return Err(e);
@@ -468,14 +563,35 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
                         }
                     }
                 } else if !target_dir.exists() || !target_dir.join("alya.toml").exists() {
-                    fetch_git_or_archive_dependency(
+                    let mut fetch_res = fetch_git_or_archive_dependency(
                         &name,
                         &url,
                         tag_cand.as_deref(),
                         None,
                         None,
                         &target_dir,
-                    )?;
+                    );
+                    if fetch_res.is_err() {
+                        if let Ok(()) = fetch_git_or_archive_dependency(
+                            &name,
+                            &url,
+                            None,
+                            None,
+                            None,
+                            &target_dir,
+                        ) {
+                            if let Ok(manifest_src) =
+                                fs::read_to_string(target_dir.join("alya.toml"))
+                            {
+                                if let Ok(parsed) = parse_manifest(&manifest_src) {
+                                    if parsed.package.version == *v || v == "*" {
+                                        fetch_res = Ok(());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    fetch_res?;
                 } else {
                     update_git_dependency(tag_cand.as_deref(), None, &target_dir);
                 }
@@ -679,9 +795,263 @@ pub fn run_list() -> Result<(), String> {
     Ok(())
 }
 
-pub fn run_update() -> Result<(), String> {
-    println!("Updating package dependencies...");
-    run_install()
+struct UpdateRow {
+    name: String,
+    current: String,
+    latest: String,
+    status: String,
+    can_upgrade: bool,
+    new_source: Option<DependencySource>,
+    clear_cache_key: Option<String>,
+}
+
+pub fn run_update(upgrade: bool) -> Result<(), String> {
+    let manifest_dir = match find_manifest_dir() {
+        Some(d) => d,
+        None => {
+            return Err(
+                "No 'alya.toml' found. Please run this command inside an Alya project.".to_string(),
+            );
+        }
+    };
+    let manifest_path = manifest_dir.join("alya.toml");
+    let manifest_src = fs::read_to_string(&manifest_path)
+        .map_err(|e| format!("Failed to read alya.toml: {}", e))?;
+    let mut manifest = parse_manifest(&manifest_src)?;
+
+    if manifest.dependencies.is_empty() {
+        println!("No dependencies declared in alya.toml.");
+        return Ok(());
+    }
+
+    println!("Checking dependencies for updates in alya.toml...\n");
+
+    let mut rows: Vec<UpdateRow> = Vec::new();
+    let mut upgradable_count = 0usize;
+
+    for (name, dep) in &manifest.dependencies {
+        match dep {
+            DependencySource::Version(cur_ver) => {
+                let url = resolve_registry_url(name);
+                let tags = query_remote_tags(&url);
+                if let Some(latest_tag) = find_latest_semver_tag(&tags) {
+                    let latest_clean = latest_tag.trim_start_matches(['v', 'V']);
+                    let cur_clean = cur_ver.trim_start_matches(['v', 'V']);
+                    if compare_semver(latest_clean, cur_clean) == std::cmp::Ordering::Greater {
+                        upgradable_count += 1;
+                        rows.push(UpdateRow {
+                            name: name.clone(),
+                            current: cur_ver.clone(),
+                            latest: latest_clean.to_string(),
+                            status: format!("Update available ({} -> {})", cur_ver, latest_clean),
+                            can_upgrade: true,
+                            new_source: Some(DependencySource::Version(latest_clean.to_string())),
+                            clear_cache_key: None,
+                        });
+                    } else {
+                        rows.push(UpdateRow {
+                            name: name.clone(),
+                            current: cur_ver.clone(),
+                            latest: latest_clean.to_string(),
+                            status: "Up to date".to_string(),
+                            can_upgrade: false,
+                            new_source: None,
+                            clear_cache_key: None,
+                        });
+                    }
+                } else {
+                    rows.push(UpdateRow {
+                        name: name.clone(),
+                        current: cur_ver.clone(),
+                        latest: cur_ver.clone(),
+                        status: "Up to date (no remote tags)".to_string(),
+                        can_upgrade: false,
+                        new_source: None,
+                        clear_cache_key: None,
+                    });
+                }
+            }
+            DependencySource::Git {
+                url,
+                tag,
+                branch,
+                rev,
+            } => {
+                if let Some(cur_tag) = tag {
+                    let tags = query_remote_tags(url);
+                    if let Some(latest_tag) = find_latest_semver_tag(&tags) {
+                        let latest_clean = latest_tag.trim_start_matches(['v', 'V']);
+                        let cur_clean = cur_tag.trim_start_matches(['v', 'V']);
+                        if compare_semver(latest_clean, cur_clean) == std::cmp::Ordering::Greater {
+                            upgradable_count += 1;
+                            let new_tag_str = if cur_tag.starts_with('v') {
+                                format!("v{}", latest_clean)
+                            } else {
+                                latest_clean.to_string()
+                            };
+                            rows.push(UpdateRow {
+                                name: name.clone(),
+                                current: cur_tag.clone(),
+                                latest: new_tag_str.clone(),
+                                status: format!(
+                                    "Update available ({} -> {})",
+                                    cur_tag, new_tag_str
+                                ),
+                                can_upgrade: true,
+                                new_source: Some(DependencySource::Git {
+                                    url: url.clone(),
+                                    tag: Some(new_tag_str),
+                                    branch: None,
+                                    rev: None,
+                                }),
+                                clear_cache_key: None,
+                            });
+                        } else {
+                            rows.push(UpdateRow {
+                                name: name.clone(),
+                                current: cur_tag.clone(),
+                                latest: cur_tag.clone(),
+                                status: "Up to date".to_string(),
+                                can_upgrade: false,
+                                new_source: None,
+                                clear_cache_key: None,
+                            });
+                        }
+                    } else {
+                        rows.push(UpdateRow {
+                            name: name.clone(),
+                            current: cur_tag.clone(),
+                            latest: cur_tag.clone(),
+                            status: "Up to date (no remote tags)".to_string(),
+                            can_upgrade: false,
+                            new_source: None,
+                            clear_cache_key: None,
+                        });
+                    }
+                } else if let Some(b) = branch {
+                    let remote_head = query_remote_branch_head(url, b);
+                    let short_sha = remote_head.as_deref().map(|s| &s[..7.min(s.len())]);
+                    let latest_disp = if let Some(sha) = short_sha {
+                        format!("{} ({})", b, sha)
+                    } else {
+                        b.clone()
+                    };
+                    upgradable_count += 1;
+                    let cache_key = compute_cache_key(name, b, url);
+                    rows.push(UpdateRow {
+                        name: name.clone(),
+                        current: format!("branch '{}'", b),
+                        latest: latest_disp,
+                        status: if upgrade {
+                            "Branch refreshed to latest commit".to_string()
+                        } else {
+                            "Branch tracked (will fetch latest commit)".to_string()
+                        },
+                        can_upgrade: true,
+                        new_source: None,
+                        clear_cache_key: Some(cache_key),
+                    });
+                } else if let Some(r) = rev {
+                    let short_rev = &r[..7.min(r.len())];
+                    rows.push(UpdateRow {
+                        name: name.clone(),
+                        current: format!("rev {}", short_rev),
+                        latest: format!("rev {}", short_rev),
+                        status: "Pinned commit (immutable)".to_string(),
+                        can_upgrade: false,
+                        new_source: None,
+                        clear_cache_key: None,
+                    });
+                } else {
+                    rows.push(UpdateRow {
+                        name: name.clone(),
+                        current: "git".to_string(),
+                        latest: "git".to_string(),
+                        status: "Up to date".to_string(),
+                        can_upgrade: false,
+                        new_source: None,
+                        clear_cache_key: None,
+                    });
+                }
+            }
+            DependencySource::Path { path } => {
+                rows.push(UpdateRow {
+                    name: name.clone(),
+                    current: path.clone(),
+                    latest: path.clone(),
+                    status: "Local path (pinned)".to_string(),
+                    can_upgrade: false,
+                    new_source: None,
+                    clear_cache_key: None,
+                });
+            }
+        }
+    }
+
+    println!(
+        "  {:<16} {:<18} {:<18} {:<34}",
+        "PACKAGE", "CURRENT", "LATEST", "STATUS"
+    );
+    println!("  {}", "-".repeat(88));
+    for r in &rows {
+        let cur_disp = if r.can_upgrade && r.current != r.latest {
+            format!("{:<15} →", r.current)
+        } else {
+            format!("{:<17}", r.current)
+        };
+        println!(
+            "  {:<16} {:<18} {:<18} {:<34}",
+            r.name, cur_disp, r.latest, r.status
+        );
+    }
+
+    if !upgrade {
+        if upgradable_count > 0 {
+            println!(
+                "\n{} package(s) can be upgraded or refreshed.",
+                upgradable_count
+            );
+            println!("Run 'alyac update -u' (or 'alyac update --upgrade') to upgrade alya.toml and re-lock.");
+        } else {
+            println!("\nAll dependencies are up to date!");
+        }
+        return Ok(());
+    }
+
+    let mut toml_changed = false;
+    for r in &rows {
+        if let Some(ref new_src) = r.new_source {
+            manifest
+                .dependencies
+                .insert(r.name.clone(), new_src.clone());
+            toml_changed = true;
+        }
+        if let Some(ref cache_key) = r.clear_cache_key {
+            if let Some(global_cache) = get_global_cache_dir() {
+                let cached_dir = global_cache.join(cache_key);
+                if cached_dir.exists() {
+                    let _ = fs::remove_dir_all(&cached_dir);
+                }
+            }
+            let local_pkg = manifest_dir.join(".alya").join("packages").join(&r.name);
+            if local_pkg.exists() {
+                let _ = fs::remove_dir_all(&local_pkg);
+            }
+        }
+    }
+
+    if toml_changed {
+        fs::write(&manifest_path, serialize_manifest(&manifest))
+            .map_err(|e| format!("Failed to update alya.toml: {}", e))?;
+        println!("\n✓ Upgraded dependencies in alya.toml.");
+    } else {
+        println!("\nNo version changes needed in alya.toml.");
+    }
+
+    println!("Resolving and locking updated dependencies...\n");
+    run_install()?;
+    println!("\n✓ All dependencies updated successfully!");
+    Ok(())
 }
 
 pub fn print_pkg_help() {
@@ -692,6 +1062,8 @@ pub fn print_pkg_help() {
     println!("  alyac init [path] [OPTIONS]          # Shortcut for pkg init");
     println!("  alyac add <name> [OPTIONS]           # Shortcut for pkg add");
     println!("  alyac install                        # Shortcut for pkg install");
+    println!("  alyac update [-u | --upgrade]        # Shortcut for pkg update");
+    println!("  alyac outdated                       # Shortcut for pkg outdated");
     println!("  alyac cache                          # Shortcut for pkg cache");
     println!("  alyac clean                          # Shortcut for pkg clean\n");
     println!("COMMANDS:");
@@ -699,7 +1071,10 @@ pub fn print_pkg_help() {
     println!("  add <name>         Add a new dependency to alya.toml");
     println!("  install            Resolve and lock all dependencies specified in alya.toml");
     println!("  list               List project dependencies and lock integrity status");
-    println!("  update             Update and re-lock dependencies to latest versions");
+    println!(
+        "  update [-u]        Check or upgrade dependencies (-u rewrites alya.toml & re-locks)"
+    );
+    println!("  outdated           Check for newer versions of dependencies without upgrading");
     println!("  cache [clean]      Inspect package cache directory, size, and installed packages");
     println!("  clean [--all]      Remove cached dependencies and reclaim disk space");
     println!("  help               Show this help message\n");
@@ -711,25 +1086,18 @@ pub fn print_pkg_help() {
     println!("  --git <url>        Add dependency from remote Git repository");
     println!("  --tag <tag>        Specify Git tag for dependency");
     println!("  --branch <branch>  Specify Git branch for dependency");
-    println!("  --version <ver>    Specify semantic version constraint");
-    println!("  Package name supports:");
-    println!("    • Short-name:     http                 (resolves to alya-lang/http)");
-    println!("    • Versioned:      http@0.1.0           (resolves to alya-lang/http tag v0.1.0)");
-    println!("    • GitHub repo:    owner/repo           (resolves to https://github.com/owner/repo.git)\n");
-    println!("OPTIONS FOR 'cache':");
-    println!("  clean, --clean     Clean cached packages and reclaim disk space");
-    println!("  --all, -a          Inspect or clean both local and global cache\n");
-    println!("OPTIONS FOR 'clean':");
-    println!("  --all, -a          Clean both local project packages and global cache\n");
+    println!("  --version <ver>    Specify semantic version constraint\n");
+    println!("OPTIONS FOR 'update':");
+    println!(
+        "  -u, --upgrade      Rewrite alya.toml with latest versions and re-lock dependencies\n"
+    );
     println!("EXAMPLES:");
     println!("  alyac init my_app");
-    println!("  alyac init my_lib --lib");
     println!("  alyac add http                       # Add official package via short-name");
-    println!("  alyac add crypto@0.1.0               # Add official package with version");
-    println!("  alyac add raylib --path ../libs/raylib");
-    println!("  alyac add sqlite --git https://github.com/alya-lang/sqlite --tag v1.0.0");
-    println!("  alyac install");
-    println!("  alyac pkg list");
+    println!("  alyac install                        # Install & lock dependencies");
+    println!("  alyac update                         # Check for newer package versions");
+    println!("  alyac update -u                      # Upgrade alya.toml and re-lock");
+    println!("  alyac pkg outdated                   # Check outdated packages (read-only)");
     println!("  alyac pkg cache");
     println!("  alyac pkg clean");
 }

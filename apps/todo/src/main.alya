@@ -3,10 +3,10 @@
 # Part of the Alya Apps Collection
 #
 # Uses Package Manager Dependency:
-#   import "term_table" as ui  (from ../../packages/term_table)
+#   import "term" as ui  (from https://github.com/alya-lang/term)
 # ═══════════════════════════════════════════════════════════════
 
-import "term_table" as ui
+import "term" as ui
 import "std/fs"
 import "std/str"
 import "std/color"
@@ -117,7 +117,7 @@ function print_banner()
     say color_cyan("╔═══════════════════════════════════════════════════════════════╗")
     say color_cyan("║") + "                      " + style_bold(color_bright_white("ALYA TODO MANAGER")) + "                        " + color_cyan("║")
     say color_cyan("║") + "             " + color_gray("Terminal Task & Productivity Suite") + "                " + color_cyan("║")
-    say color_cyan("║") + "            " + color_gray("Powered by 'term_table' Alya Package") + "               " + color_cyan("║")
+    say color_cyan("║") + "            " + color_gray("Powered by 'term' Alya Package") + "                     " + color_cyan("║")
     say color_cyan("╚═══════════════════════════════════════════════════════════════╝")
     say ""
 end
@@ -214,7 +214,7 @@ function cmd_list(db_path, filter_status, filter_tag)
 
     say "  " + ui::box_bot(4, 3, 8, 31, 8)
 
-    let pbar = console_progress_bar(done_count, total_count, 16)
+    let pbar = ui::progress_bar(done_count, total_count, 16)
     say "  " + style_bold("Progress") + ": " + pbar + " (" + str(done_count) + "/" + str(total_count) + " completed, " + str(total_count - done_count) + " pending)"
     say ""
 end
@@ -350,7 +350,7 @@ function run_test_suite()
         fs_remove(test_db)
     end
 
-    say color_yellow("[TODO]") + " Running automated test suite (with 'term_table' package)..."
+    say color_yellow("[TODO]") + " Running automated test suite (with 'term' package)..."
     cmd_add(test_db, "Implement C FFI engine", "HIGH", "core")
     cmd_add(test_db, "Write comprehensive LSP docs", "MED", "docs")
     cmd_add(test_db, "Refactor snake collision neighbors", "LOW", "apps")
@@ -430,7 +430,7 @@ function run_test_suite()
         fs_remove(test_db)
     end
 
-    say color_green("[SUCCESS]") + " Todo application with 'term_table' package verified cleanly."
+    say color_green("[SUCCESS]") + " Todo application with 'term' package verified cleanly."
     return 0
 end
 

@@ -267,7 +267,21 @@ fn test_pkg_subcommands() {
     let parsed2 = CliArgs::parse_from(&args2).unwrap().unwrap();
     assert_eq!(
         parsed2.command,
-        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update)
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update { upgrade: false })
+    );
+
+    let args_u = to_args(&["alyac", "update", "-u"]);
+    let parsed_u = CliArgs::parse_from(&args_u).unwrap().unwrap();
+    assert_eq!(
+        parsed_u.command,
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update { upgrade: true })
+    );
+
+    let args_outdated = to_args(&["alyac", "pkg", "outdated"]);
+    let parsed_outdated = CliArgs::parse_from(&args_outdated).unwrap().unwrap();
+    assert_eq!(
+        parsed_outdated.command,
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update { upgrade: false })
     );
 
     let args3 = to_args(&["alyac", "pkg", "cache"]);
@@ -306,4 +320,22 @@ fn test_pkg_subcommands() {
             all: false
         })
     );
+}
+
+#[test]
+fn test_subcommand_test_with_jobs_and_sequential() {
+    let args1 = to_args(&["alyac", "test", "--sequential"]);
+    let parsed1 = CliArgs::parse_from(&args1).unwrap().unwrap();
+    assert_eq!(parsed1.command, CommandKind::Test);
+    assert_eq!(parsed1.test_jobs, Some(1));
+
+    let args2 = to_args(&["alyac", "test", "-j", "4"]);
+    let parsed2 = CliArgs::parse_from(&args2).unwrap().unwrap();
+    assert_eq!(parsed2.command, CommandKind::Test);
+    assert_eq!(parsed2.test_jobs, Some(4));
+
+    let args3 = to_args(&["alyac", "test", "--jobs", "8"]);
+    let parsed3 = CliArgs::parse_from(&args3).unwrap().unwrap();
+    assert_eq!(parsed3.command, CommandKind::Test);
+    assert_eq!(parsed3.test_jobs, Some(8));
 }

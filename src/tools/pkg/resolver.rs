@@ -1,7 +1,7 @@
 use std::env;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 pub fn resolve_registry_url(name: &str) -> String {
     if let Ok(reg) = env::var("ALYA_REGISTRY") {
@@ -213,10 +213,12 @@ pub fn try_download_and_extract_archive(
         let temp_archive =
             temp_dir.join(format!("alya_pkg_{}_{}_{}.{}", pkg_name, pid, millis, ext));
 
-        // 1. Download archive using curl, wget, or PowerShell
+        // 1. Download archive using curl, wget, or PowerShell (suppress noise on probe 404s)
         let mut download_ok = Command::new("curl")
             .args(["-sSL", "-f", url, "-o"])
             .arg(&temp_archive)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status()
             .map(|s| s.success())
             .unwrap_or(false);
@@ -225,6 +227,8 @@ pub fn try_download_and_extract_archive(
             download_ok = Command::new("wget")
                 .args(["-q", url, "-O"])
                 .arg(&temp_archive)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false);
@@ -232,12 +236,14 @@ pub fn try_download_and_extract_archive(
 
         if !download_ok && cfg!(windows) {
             let ps_script = format!(
-                "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri '{}' -OutFile '{}'",
+                "$ProgressPreference = 'SilentlyContinue'; try {{ Invoke-WebRequest -Uri '{}' -OutFile '{}' -ErrorAction Stop }} catch {{ exit 1 }}",
                 url,
                 temp_archive.display().to_string().replace('\\', "/")
             );
             download_ok = Command::new("powershell")
                 .args(["-NoProfile", "-Command", &ps_script])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false);
@@ -332,20 +338,26 @@ pub fn try_git_clone(
         for t in &tags_to_try {
             let mut cmd = Command::new("git");
             cmd.arg("clone")
+                .arg("-q")
                 .arg("--depth")
                 .arg("1")
                 .arg("--branch")
                 .arg(t)
                 .arg(url)
                 .arg(target_dir);
-            match cmd.status() {
-                Ok(status) if status.success() => return Ok(()),
-                Ok(status) => {
+            match cmd.output() {
+                Ok(out) if out.status.success() => return Ok(()),
+                Ok(out) => {
                     let _ = fs::remove_dir_all(target_dir);
-                    last_err = format!(
-                        "git clone exited with status {}",
-                        status.code().unwrap_or(-1)
-                    );
+                    let err_msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                    last_err = if !err_msg.is_empty() {
+                        err_msg
+                    } else {
+                        format!(
+                            "git clone exited with status {}",
+                            out.status.code().unwrap_or(-1)
+                        )
+                    };
                 }
                 Err(e) => {
                     let _ = fs::remove_dir_all(target_dir);
@@ -357,20 +369,25 @@ pub fn try_git_clone(
     }
 
     let mut cmd = Command::new("git");
-    cmd.arg("clone").arg("--depth").arg("1");
+    cmd.arg("clone").arg("-q").arg("--depth").arg("1");
     if let Some(b) = branch {
         cmd.arg("--branch").arg(b);
     }
     cmd.arg(url).arg(target_dir);
 
-    match cmd.status() {
-        Ok(status) if status.success() => Ok(()),
-        Ok(status) => {
+    match cmd.output() {
+        Ok(out) if out.status.success() => Ok(()),
+        Ok(out) => {
             let _ = fs::remove_dir_all(target_dir);
-            Err(format!(
-                "git clone exited with status {}",
-                status.code().unwrap_or(-1)
-            ))
+            let err_msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            Err(if !err_msg.is_empty() {
+                err_msg
+            } else {
+                format!(
+                    "git clone exited with status {}",
+                    out.status.code().unwrap_or(-1)
+                )
+            })
         }
         Err(e) => {
             let _ = fs::remove_dir_all(target_dir);
@@ -385,18 +402,18 @@ pub fn update_git_dependency(tag: Option<&str>, branch: Option<&str>, target_dir
     }
     let _ = Command::new("git")
         .current_dir(target_dir)
-        .args(["fetch", "--depth", "1"])
-        .status();
+        .args(["fetch", "-q", "--depth", "1"])
+        .output();
     if let Some(t) = tag {
         let _ = Command::new("git")
             .current_dir(target_dir)
-            .args(["checkout", t])
-            .status();
+            .args(["checkout", "-q", t])
+            .output();
     } else if let Some(b) = branch {
         let _ = Command::new("git")
             .current_dir(target_dir)
-            .args(["checkout", b])
-            .status();
+            .args(["checkout", "-q", b])
+            .output();
     }
 }
 
@@ -412,7 +429,14 @@ pub fn fetch_git_or_archive_dependency(
 
     // 1. Try Git clone first if git CLI is installed
     let git_err = match try_git_clone(url, tag, branch, target_dir) {
-        Ok(()) => return Ok(()),
+        Ok(()) => {
+            // Strip .git directory so cached packages remain clean and lightweight
+            let git_dir = target_dir.join(".git");
+            if git_dir.exists() {
+                let _ = fs::remove_dir_all(&git_dir);
+            }
+            return Ok(());
+        }
         Err(e) => e,
     };
 
@@ -477,4 +501,93 @@ pub fn copy_dir_all(src: &Path, dst: &Path, skip_git: bool) -> Result<(), String
         }
     }
     Ok(())
+}
+
+pub fn parse_semver(v: &str) -> Option<(u64, u64, u64, Option<String>)> {
+    let clean = v.trim().trim_start_matches(['v', 'V']);
+    let (num_part, pre_part) = match clean.split_once('-') {
+        Some((n, p)) => (n, Some(p.to_string())),
+        None => (clean, None),
+    };
+    let parts: Vec<&str> = num_part.split('.').collect();
+    if parts.is_empty() {
+        return None;
+    }
+    let major = parts[0].parse::<u64>().ok()?;
+    let minor = if parts.len() > 1 {
+        parts[1].parse::<u64>().ok()?
+    } else {
+        0
+    };
+    let patch = if parts.len() > 2 {
+        parts[2].parse::<u64>().ok()?
+    } else {
+        0
+    };
+    Some((major, minor, patch, pre_part))
+}
+
+pub fn compare_semver(v1: &str, v2: &str) -> std::cmp::Ordering {
+    match (parse_semver(v1), parse_semver(v2)) {
+        (Some((maj1, min1, pat1, pre1)), Some((maj2, min2, pat2, pre2))) => maj1
+            .cmp(&maj2)
+            .then(min1.cmp(&min2))
+            .then(pat1.cmp(&pat2))
+            .then_with(|| match (pre1, pre2) {
+                (None, None) => std::cmp::Ordering::Equal,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (Some(p1), Some(p2)) => p1.cmp(&p2),
+            }),
+        _ => v1.cmp(v2),
+    }
+}
+
+pub fn query_remote_tags(url: &str) -> Vec<String> {
+    let output = Command::new("git")
+        .args(["ls-remote", "--tags", "-q", url])
+        .output();
+    let mut tags = Vec::new();
+    if let Ok(out) = output {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                if let Some(ref_part) = line.split_whitespace().nth(1) {
+                    if let Some(tag) = ref_part.strip_prefix("refs/tags/") {
+                        if !tag.ends_with("^{}") {
+                            tags.push(tag.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    tags
+}
+
+pub fn query_remote_branch_head(url: &str, branch: &str) -> Option<String> {
+    let output = Command::new("git")
+        .args(["ls-remote", "--heads", "-q", url, branch])
+        .output();
+    if let Ok(out) = output {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                if let Some(sha) = line.split_whitespace().next() {
+                    return Some(sha.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn find_latest_semver_tag<'a>(tags: &'a [String]) -> Option<&'a str> {
+    let mut semver_tags: Vec<&'a str> = tags
+        .iter()
+        .map(|s| s.as_str())
+        .filter(|t| parse_semver(t).is_some())
+        .collect();
+    semver_tags.sort_by(|a, b| compare_semver(a, b));
+    semver_tags.last().copied()
 }
