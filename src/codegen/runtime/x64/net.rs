@@ -25,6 +25,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    xor %edx, %edx\n");
         out.push_str(&format!("    call {}socket\n", p));
     }
+    out.push_str("    cltq\n");
     out.push_str("    cmp $0, %rax\n");
     out.push_str("    jge .L_x64_socket_ok\n");
     out.push_str("    mov $-1, %rax\n");
@@ -190,6 +191,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    xor %edx, %edx\n");
         out.push_str(&format!("    call {}socket\n", p));
     }
+    out.push_str("    cltq\n");
     out.push_str("    cmp $0, %rax\n");
     out.push_str("    jl .L_x64_listen_fail\n");
     out.push_str("    mov %rax, %rbx\n"); // rbx = socket
@@ -298,6 +300,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    xor %rdx, %rdx\n");
         out.push_str(&format!("    call {}accept\n", p));
     }
+    out.push_str("    cltq\n");
     out.push_str("    cmp $0, %rax\n");
     out.push_str("    jge .L_x64_accept_ok\n");
     out.push_str("    mov $-1, %rax\n");
@@ -634,6 +637,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    xor %edx, %edx\n");
         out.push_str(&format!("    call {}socket\n", p));
     }
+    out.push_str("    cltq\n");
     out.push_str("    cmp $0, %rax\n");
     out.push_str("    jge .L_x64_udp_socket_ok\n");
     out.push_str("    mov $-1, %rax\n");

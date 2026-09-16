@@ -6,7 +6,7 @@ pub fn resolve_enums(program: &mut Program) {
     let mut enums: HashMap<String, HashMap<String, Expr>> = HashMap::new();
 
     for stmt in &program.statements {
-        if let Stmt::EnumDef { name, variants } = stmt {
+        if let Stmt::EnumDef { name, variants } = stmt.inner_stmt() {
             let mut variant_map = HashMap::new();
             let mut next_auto_int = 0.0;
             for (vname, val_opt) in variants {
@@ -137,6 +137,8 @@ pub fn resolve_enums_in_stmt(stmt: &mut Stmt, enums: &HashMap<String, HashMap<St
                 resolve_enums_in_expr(def, enums);
             }
         }
+        Stmt::Pub(inner) => resolve_enums_in_stmt(inner, enums),
+        Stmt::Defer(inner) => resolve_enums_in_stmt(inner, enums),
         _ => {}
     }
 }
