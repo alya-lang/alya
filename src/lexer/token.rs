@@ -31,6 +31,7 @@ pub enum TokenType {
     Extern,   // extern
     From,     // from
     Defer,    // defer
+    Fn,       // fn
 
     // Literals
     Number(f64),
@@ -48,6 +49,7 @@ pub enum TokenType {
     Divide,         // /
     Modulo,         // %
     Arrow,          // ->
+    FatArrow,       // =>
     Assign,         // =
     PlusAssign,     // +=
     MinusAssign,    // -=
@@ -128,6 +130,7 @@ impl TokenType {
             "extern" => TokenType::Extern,
             "from" => TokenType::From,
             "defer" => TokenType::Defer,
+            "fn" => TokenType::Fn,
             "true" => TokenType::True,
             "false" => TokenType::False,
             "null" => TokenType::Null,
@@ -180,6 +183,7 @@ impl std::fmt::Display for TokenType {
             TokenType::Extern => write!(f, "'extern'"),
             TokenType::From => write!(f, "'from'"),
             TokenType::Defer => write!(f, "'defer'"),
+            TokenType::Fn => write!(f, "'fn'"),
             TokenType::Number(n) => write!(f, "number '{}'", n),
             TokenType::Float(n) => write!(f, "float '{}'", n),
             TokenType::String(s) => write!(f, "\"{}\"", s),
@@ -193,6 +197,7 @@ impl std::fmt::Display for TokenType {
             TokenType::Divide => write!(f, "'/'"),
             TokenType::Modulo => write!(f, "'%'"),
             TokenType::Arrow => write!(f, "'->'"),
+            TokenType::FatArrow => write!(f, "'=>'"),
             TokenType::Assign => write!(f, "'='"),
             TokenType::PlusAssign => write!(f, "'+='"),
             TokenType::MinusAssign => write!(f, "'-='"),

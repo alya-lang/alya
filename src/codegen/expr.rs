@@ -871,7 +871,31 @@ impl CodeGen {
                         .extern_functions
                         .contains_key(call_name.rsplit("::").next().unwrap_or(call_name));
 
-                if is_extern {
+                let var_offset = if !self.ctx.functions.contains(call_name) && !is_extern {
+                    match self.ctx.variables.get(call_name) {
+                        Some(VarType::Number(off))
+                        | Some(VarType::Float(off))
+                        | Some(VarType::StringOffset(off))
+                        | Some(VarType::Array(off))
+                        | Some(VarType::Map(off))
+                        | Some(VarType::Null(off))
+                        | Some(VarType::Struct { offset: off, .. }) => Some(*off),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+
+                if let Some(offset) = var_offset {
+                    arch::emit_indirect_function_call(
+                        &mut self.output,
+                        self.arch,
+                        offset,
+                        actual_args.len(),
+                        initial_stack_offset,
+                        self.os,
+                    );
+                } else if is_extern {
                     let extern_name = call_name.rsplit("::").next().unwrap_or(call_name);
                     let extern_name = extern_name.rsplit("__").next().unwrap_or(extern_name);
                     arch::emit_c_function_call(

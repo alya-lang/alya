@@ -221,6 +221,23 @@ pub fn emit_c_function_call(
     }
 }
 
+pub fn emit_indirect_function_call(
+    out: &mut String,
+    arch: Architecture,
+    var_offset: i32,
+    args_count: usize,
+    stack_offset: i32,
+    os: OperatingSystem,
+) {
+    match arch {
+        Architecture::ARM64 => arm64::emit_indirect_function_call(out, var_offset, args_count),
+        Architecture::X64 => {
+            x64::emit_indirect_function_call(out, var_offset, args_count, stack_offset, os)
+        }
+        Architecture::X86 => x86::emit_indirect_function_call(out, var_offset, args_count),
+    }
+}
+
 pub fn emit_stack_restore(out: &mut String, arch: Architecture, delta: i32) {
     if delta <= 0 {
         return;

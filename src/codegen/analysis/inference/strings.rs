@@ -514,6 +514,15 @@ fn collect_string_vars_from_stmts(
                 if expr_is_string_array(value, known_strings) {
                     known_strings.insert(format!("arr_is_str:{}", name));
                 }
+                if let Expr::Identifier(id) = value {
+                    let bare_id = id.rsplit("::").next().unwrap_or(id.as_str());
+                    let bare_id = bare_id.rsplit("__").next().unwrap_or(bare_id);
+                    if known_strings.contains(&format!("fn_ret_str:{}", id))
+                        || known_strings.contains(&format!("fn_ret_str:{}", bare_id))
+                    {
+                        known_strings.insert(format!("fn_ret_str:{}", name));
+                    }
+                }
                 if let Expr::Call { name: cname, .. } = value {
                     let bare = cname.rsplit("::").next().unwrap_or(cname.as_str());
                     let bare = bare.rsplit("__").next().unwrap_or(bare);

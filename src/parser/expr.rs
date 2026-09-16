@@ -428,6 +428,24 @@ impl Parser {
                         };
                     }
                 }
+            } else if matches!(self.current_token().token_type, TokenType::LeftParen) {
+                if let Expr::Identifier(callee_name) = expr {
+                    self.advance();
+                    let mut args = Vec::new();
+                    while !matches!(self.current_token().token_type, TokenType::RightParen) {
+                        args.push(self.parse_expression()?);
+                        if matches!(self.current_token().token_type, TokenType::Comma) {
+                            self.advance();
+                        }
+                    }
+                    self.expect(TokenType::RightParen)?;
+                    expr = Expr::Call {
+                        name: callee_name,
+                        args,
+                    };
+                } else {
+                    break;
+                }
             } else {
                 break;
             }
@@ -438,6 +456,41 @@ impl Parser {
 
     fn parse_primary(&mut self) -> Result<Expr, String> {
         match &self.current_token().token_type {
+            TokenType::Fn => {
+                self.advance();
+                self.expect(TokenType::LeftParen)?;
+                let mut params = Vec::new();
+                while !matches!(self.current_token().token_type, TokenType::RightParen) {
+                    if let TokenType::Identifier(p) = &self.current_token().token_type {
+                        params.push(p.clone());
+                        self.advance();
+                    } else {
+                        return Err(format!(
+                            "Expected parameter name in lambda at line {}, column {}",
+                            self.current_token().line,
+                            self.current_token().column
+                        ));
+                    }
+                    if matches!(self.current_token().token_type, TokenType::Comma) {
+                        self.advance();
+                    }
+                }
+                self.expect(TokenType::RightParen)?;
+                self.expect(TokenType::FatArrow)?;
+                let body = self.parse_expression()?;
+                let lambda_name = format!("__alya_lambda_{}", self.lambda_counter);
+                self.lambda_counter += 1;
+                let num_params = params.len();
+                self.lambda_functions.push(Stmt::Function {
+                    name: lambda_name.clone(),
+                    params,
+                    param_types: vec![None; num_params],
+                    return_type: None,
+                    defaults: vec![None; num_params],
+                    body: vec![Stmt::Return(Some(body))],
+                });
+                Ok(Expr::Identifier(lambda_name))
+            }
             TokenType::Number(n) => {
                 let num = *n;
                 self.advance();

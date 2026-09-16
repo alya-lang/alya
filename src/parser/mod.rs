@@ -11,6 +11,8 @@ use crate::lexer::{Token, TokenType};
 pub struct Parser {
     tokens: Vec<Token>,
     position: usize,
+    pub(super) lambda_functions: Vec<Stmt>,
+    pub(super) lambda_counter: usize,
 }
 
 impl Parser {
@@ -18,6 +20,8 @@ impl Parser {
         Self {
             tokens,
             position: 0,
+            lambda_functions: Vec::new(),
+            lambda_counter: 0,
         }
     }
 
@@ -29,6 +33,8 @@ impl Parser {
             statements.extend(self.parse_statement()?);
             self.skip_newlines();
         }
+
+        statements.extend(self.lambda_functions.drain(..));
 
         let mut program = Program { statements };
         expand_default_args(&mut program);

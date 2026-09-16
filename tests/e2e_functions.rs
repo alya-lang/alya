@@ -318,3 +318,74 @@ say r2
         );
     }
 }
+
+#[test]
+fn test_e2e_lambda_basic() {
+    let code = r#"
+let double = fn(x) => x * 2
+say double(21)
+
+let add = fn(a, b) => a + b
+say add(15, 27)
+
+let greet = fn(name) => "hello " + name
+say greet("alya")
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, concat!("42\n", "42\n", "hello alya\n",));
+    }
+}
+
+#[test]
+fn test_e2e_lambda_higher_order() {
+    let code = r#"
+function apply(f, val)
+    return f(val)
+end
+
+function apply_twice(f, val)
+    return f(f(val))
+end
+
+say apply(fn(x) => x * 3, 7)
+say apply_twice(fn(n) => n + 10, 5)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, concat!("21\n", "25\n",));
+    }
+}
+
+#[test]
+fn test_e2e_named_function_as_value() {
+    let code = r#"
+function triple(x)
+    return x * 3
+end
+
+let f = triple
+say f(4)
+
+function run_func(f, val)
+    return f(val)
+end
+
+say run_func(triple, 10)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, concat!("12\n", "30\n",));
+    }
+}
+
+#[test]
+fn test_e2e_direct_lambda_call() {
+    let code = r#"
+say (fn(x) => x + 100)(50)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "150\n");
+    }
+}
