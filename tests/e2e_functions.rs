@@ -46,6 +46,75 @@ say total
 }
 
 #[test]
+fn test_e2e_from_selective_import() {
+    let pid = std::process::id();
+    let mod_filename = format!("temp_imported_calc_{}.alya", pid);
+    let mod_content = r#"
+function calc_add(a, b)
+    return a + b
+end
+
+function calc_mul(a, b)
+    return a * b
+end
+
+function calc_hidden(a)
+    return a * 10
+end
+"#;
+    fs::write(&mod_filename, mod_content).expect("Failed to write temporary module file");
+
+    let main_code = format!(
+        r#"
+from "{}" import calc_add, calc_mul as multiply
+say calc_add(15, 25)
+say multiply(6, 7)
+"#,
+        mod_filename
+    );
+
+    let res = run_alya_code_full(&main_code);
+    let _ = fs::remove_file(&mod_filename);
+
+    if let Some((code, output)) = res {
+        assert_eq!(code, 0);
+        assert_eq!(output, "40\n42\n");
+    }
+}
+
+#[test]
+fn test_e2e_from_selective_import_missing_symbol_error() {
+    let pid = std::process::id();
+    let mod_filename = format!("temp_imported_calc_err_{}.alya", pid);
+    let mod_content = r#"
+function calc_add(a, b)
+    return a + b
+end
+"#;
+    fs::write(&mod_filename, mod_content).expect("Failed to write temporary module file");
+
+    let main_code = format!(
+        r#"
+from "{}" import non_existent_fn
+say non_existent_fn()
+"#,
+        mod_filename
+    );
+
+    let mut lexer = alya::lexer::Lexer::new(&main_code);
+    let tokens = lexer.tokenize().expect("Lexer error");
+    let mut parser = alya::parser::Parser::new(tokens);
+    let mut ast = parser.parse().expect("Parser error");
+    let res = alya::parser::resolve_imports(&mut ast, std::path::Path::new("."));
+    let _ = fs::remove_file(&mod_filename);
+
+    assert!(res.is_err());
+    assert!(res
+        .unwrap_err()
+        .contains("does not export symbol 'non_existent_fn'"));
+}
+
+#[test]
 fn test_e2e_for_each_loop() {
     let code = r#"
 let nums = [10, 20, 30]

@@ -14,10 +14,17 @@ pub struct ExternFnDecl {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ImportSymbol {
+    pub name: String,
+    pub alias: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Import {
         path: String,
         alias: Option<String>,
+        symbols: Option<Vec<ImportSymbol>>,
     },
     ExternBlock {
         abi: String,

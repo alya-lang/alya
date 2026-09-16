@@ -353,6 +353,7 @@ fn resolve_stmt_imports(
         Stmt::Import {
             path: import_path_str,
             alias,
+            symbols,
         } => {
             // Normalize path separators to '/' so Windows-style '\' works across Linux, macOS, and Windows
             let normalized_path = import_path_str.replace('\\', "/");
@@ -471,7 +472,93 @@ fn resolve_stmt_imports(
                 }
             }
 
-            if let Some(ref alias_str) = alias {
+            if let Some(ref syms) = symbols {
+                // Selective import: from "..." import a, b [as c]
+                // 1. Verify requested symbols exist
+                for sym in syms {
+                    if sym.name == "*" {
+                        continue;
+                    }
+                    let exists = sub_resolved.iter().any(|s| match s {
+                        Stmt::Function { name, .. } => name == &sym.name,
+                        Stmt::StructDef { name, .. } => name == &sym.name,
+                        Stmt::EnumDef { name, .. } => name == &sym.name,
+                        Stmt::Const { name, .. } => name == &sym.name,
+                        _ => false,
+                    });
+                    if !exists {
+                        return Err(format!(
+                            "Module '{}' does not export symbol '{}'",
+                            import_path_str, sym.name
+                        ));
+                    }
+                }
+
+                // 2. For aliased symbols, clone and rename definitions
+                let mut additional_stmts = Vec::new();
+                for sym in syms {
+                    if let Some(ref alias_name) = sym.alias {
+                        for s in &sub_resolved {
+                            match s {
+                                Stmt::Function {
+                                    name,
+                                    params,
+                                    param_types,
+                                    return_type,
+                                    defaults,
+                                    body,
+                                } if name == &sym.name => {
+                                    additional_stmts.push(Stmt::Function {
+                                        name: alias_name.clone(),
+                                        params: params.clone(),
+                                        param_types: param_types.clone(),
+                                        return_type: return_type.clone(),
+                                        defaults: defaults.clone(),
+                                        body: body.clone(),
+                                    });
+                                }
+                                Stmt::StructDef {
+                                    name,
+                                    fields,
+                                    defaults,
+                                } if name == &sym.name => {
+                                    additional_stmts.push(Stmt::StructDef {
+                                        name: alias_name.clone(),
+                                        fields: fields.clone(),
+                                        defaults: defaults.clone(),
+                                    });
+                                }
+                                Stmt::EnumDef { name, variants } if name == &sym.name => {
+                                    additional_stmts.push(Stmt::EnumDef {
+                                        name: alias_name.clone(),
+                                        variants: variants.clone(),
+                                    });
+                                }
+                                Stmt::Const { name, value } if name == &sym.name => {
+                                    additional_stmts.push(Stmt::Const {
+                                        name: alias_name.clone(),
+                                        value: value.clone(),
+                                    });
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                sub_resolved.extend(additional_stmts);
+                out.extend(sub_resolved);
+
+                let mut exposed_fns = std::collections::HashSet::new();
+                for sym in syms {
+                    if sym.name == "*" {
+                        exposed_fns.extend(local_fns.clone());
+                    } else {
+                        let final_name = sym.alias.as_ref().unwrap_or(&sym.name);
+                        exposed_fns.insert(final_name.clone());
+                    }
+                }
+                Ok(exposed_fns)
+            } else if let Some(ref alias_str) = alias {
                 apply_module_alias(&mut sub_resolved, alias_str, &local_fns);
                 out.extend(sub_resolved);
                 Ok(std::collections::HashSet::new())

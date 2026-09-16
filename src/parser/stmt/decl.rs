@@ -36,7 +36,116 @@ impl Parser {
             None
         };
 
-        Ok(Stmt::Import { path, alias })
+        Ok(Stmt::Import {
+            path,
+            alias,
+            symbols: None,
+        })
+    }
+
+    pub(super) fn parse_from_import(&mut self) -> Result<Stmt, String> {
+        self.advance(); // skip 'from'
+
+        let path = match &self.current_token().token_type {
+            TokenType::String(s) => {
+                let p = s.clone();
+                self.advance();
+                p
+            }
+            TokenType::Identifier(s) => {
+                let mut p = s.clone();
+                self.advance();
+                while matches!(
+                    self.current_token().token_type,
+                    TokenType::ColonColon | TokenType::Divide
+                ) {
+                    let sep = if matches!(self.current_token().token_type, TokenType::ColonColon) {
+                        "::"
+                    } else {
+                        "/"
+                    };
+                    self.advance();
+                    match &self.current_token().token_type {
+                        TokenType::Identifier(sub) => {
+                            p.push_str(sep);
+                            p.push_str(sub);
+                            self.advance();
+                        }
+                        _ => {
+                            return Err(format!(
+                                "Expected identifier in import path at line {}, column {}",
+                                self.current_token().line,
+                                self.current_token().column
+                            ));
+                        }
+                    }
+                }
+                p
+            }
+            _ => {
+                return Err(format!(
+                    "Expected module path string or identifier after 'from' at line {}, column {}",
+                    self.current_token().line,
+                    self.current_token().column
+                ));
+            }
+        };
+
+        self.expect(TokenType::Import)?;
+
+        let mut symbols = Vec::new();
+        loop {
+            let name = match &self.current_token().token_type {
+                TokenType::Identifier(s) => {
+                    let n = s.clone();
+                    self.advance();
+                    n
+                }
+                TokenType::Multiply => {
+                    self.advance();
+                    "*".to_string()
+                }
+                _ => {
+                    return Err(format!(
+                        "Expected symbol name after 'import' at line {}, column {}",
+                        self.current_token().line,
+                        self.current_token().column
+                    ));
+                }
+            };
+
+            let alias = if matches!(self.current_token().token_type, TokenType::As) {
+                self.advance();
+                let alias_name = match &self.current_token().token_type {
+                    TokenType::Identifier(s) => s.clone(),
+                    _ => {
+                        return Err(format!(
+                            "Expected identifier after 'as' at line {}, column {}",
+                            self.current_token().line,
+                            self.current_token().column
+                        ));
+                    }
+                };
+                self.advance();
+                Some(alias_name)
+            } else {
+                None
+            };
+
+            symbols.push(ImportSymbol { name, alias });
+
+            if matches!(self.current_token().token_type, TokenType::Comma) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        Ok(Stmt::Import {
+            path,
+            alias: None,
+            symbols: Some(symbols),
+        })
     }
 
     pub(super) fn parse_say(&mut self) -> Result<Stmt, String> {
