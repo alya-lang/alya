@@ -9,6 +9,7 @@ fn test_parse_let_and_assign() {
         program.statements[0],
         Stmt::Let {
             name: "score".into(),
+            type_ann: None,
             value: Expr::Number(100.0)
         }
     );
@@ -34,6 +35,7 @@ fn test_parse_multi_let_single_value() {
         program.statements[0],
         Stmt::Let {
             name: "idx".into(),
+            type_ann: None,
             value: Expr::Number(0.0)
         }
     );
@@ -41,6 +43,7 @@ fn test_parse_multi_let_single_value() {
         program.statements[1],
         Stmt::Let {
             name: "val".into(),
+            type_ann: None,
             value: Expr::Number(0.0)
         }
     );
@@ -54,6 +57,7 @@ fn test_parse_multi_let_multiple_values() {
         program.statements[0],
         Stmt::Let {
             name: "idx".into(),
+            type_ann: None,
             value: Expr::Number(0.0)
         }
     );
@@ -61,6 +65,7 @@ fn test_parse_multi_let_multiple_values() {
         program.statements[1],
         Stmt::Let {
             name: "val".into(),
+            type_ann: None,
             value: Expr::Number(1.0)
         }
     );
@@ -255,6 +260,7 @@ let result = multiply(6, 7)
         program.statements[1],
         Stmt::Let {
             name: "result".into(),
+            type_ann: None,
             value: Expr::Call {
                 name: "multiply".into(),
                 args: vec![Expr::Number(6.0), Expr::Number(7.0)],
@@ -497,10 +503,10 @@ fn test_parse_let_tuple_destructuring() {
         }
     ));
     assert!(
-        matches!(&program.statements[1], Stmt::Let { name, value: Expr::Index { .. } } if name == "x")
+        matches!(&program.statements[1], Stmt::Let { name, value: Expr::Index { .. }, .. } if name == "x")
     );
     assert!(
-        matches!(&program.statements[2], Stmt::Let { name, value: Expr::Index { .. } } if name == "y")
+        matches!(&program.statements[2], Stmt::Let { name, value: Expr::Index { .. }, .. } if name == "y")
     );
 }
 

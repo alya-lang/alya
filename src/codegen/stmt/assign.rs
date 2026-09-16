@@ -9,7 +9,7 @@ use crate::codegen::context::VarType;
 use crate::codegen::target::Architecture;
 
 impl CodeGen {
-    pub(super) fn generate_let(&mut self, name: &str, value: &Expr) {
+    pub(super) fn generate_let(&mut self, name: &str, type_ann: Option<&str>, value: &Expr) {
         let name = name.to_string();
         match value {
             Expr::Null => {
@@ -32,24 +32,35 @@ impl CodeGen {
                     .insert(name.clone(), VarType::StringOffset(self.ctx.stack_offset));
             }
             Expr::Array(elements) => {
-                let is_str_arr = !elements.is_empty()
+                let is_str_arr = (!elements.is_empty()
                     && elements
                         .iter()
-                        .all(|e| is_string_expr(e, &self.ctx.variables));
+                        .all(|e| is_string_expr(e, &self.ctx.variables)))
+                    || matches!(type_ann, Some("string[]") | Some("str[]"));
                 let is_flt_arr = elements
                     .first()
-                    .is_some_and(|e| is_float_expr(e, &self.ctx.variables));
-                let struct_elem_type = elements.first().and_then(|e| match e {
-                    Expr::StructInit { name, .. } => Some(name.clone()),
-                    Expr::Call { name, .. } if self.ctx.structs.contains_key(name) => {
-                        Some(name.clone())
+                    .is_some_and(|e| is_float_expr(e, &self.ctx.variables))
+                    || matches!(type_ann, Some("float[]") | Some("f64[]"));
+                let struct_elem_type = if let Some(t) = type_ann.and_then(|t| t.strip_suffix("[]"))
+                {
+                    if self.ctx.structs.contains_key(t) {
+                        Some(t.to_string())
+                    } else {
+                        None
                     }
-                    Expr::Identifier(id) => match self.ctx.variables.get(id) {
-                        Some(VarType::Struct { struct_name, .. }) => Some(struct_name.clone()),
+                } else {
+                    elements.first().and_then(|e| match e {
+                        Expr::StructInit { name, .. } => Some(name.clone()),
+                        Expr::Call { name, .. } if self.ctx.structs.contains_key(name) => {
+                            Some(name.clone())
+                        }
+                        Expr::Identifier(id) => match self.ctx.variables.get(id) {
+                            Some(VarType::Struct { struct_name, .. }) => Some(struct_name.clone()),
+                            _ => None,
+                        },
                         _ => None,
-                    },
-                    _ => None,
-                });
+                    })
+                };
                 self.generate_expression(value);
 
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
@@ -129,6 +140,16 @@ impl CodeGen {
                         self.ctx
                             .variables
                             .insert(format!("struct_field_arr:{}", fname), VarType::Array(0));
+                        if is_string_array(fval, &self.ctx.variables) {
+                            self.ctx.variables.insert(
+                                format!("struct_field_arr_str:{}.{}", sname, fname),
+                                VarType::Number(0),
+                            );
+                            self.ctx.variables.insert(
+                                format!("struct_field_arr_str:{}", fname),
+                                VarType::Number(0),
+                            );
+                        }
                     } else if is_map {
                         self.ctx.variables.insert(field_key, VarType::Map(0));
                         self.ctx.variables.insert(
@@ -204,6 +225,16 @@ impl CodeGen {
                             self.ctx
                                 .variables
                                 .insert(format!("struct_field_arr:{}", fname), VarType::Array(0));
+                            if is_string_array(arg, &self.ctx.variables) {
+                                self.ctx.variables.insert(
+                                    format!("struct_field_arr_str:{}.{}", sname, fname),
+                                    VarType::Number(0),
+                                );
+                                self.ctx.variables.insert(
+                                    format!("struct_field_arr_str:{}", fname),
+                                    VarType::Number(0),
+                                );
+                            }
                         } else if is_map {
                             self.ctx.variables.insert(field_key, VarType::Map(0));
                             self.ctx.variables.insert(
@@ -220,9 +251,29 @@ impl CodeGen {
                 }
             }
             _ => {
-                let is_str = is_string_expr(value, &self.ctx.variables);
-                let is_arr = is_array_expr(value, &self.ctx.variables);
-                let is_struct = match value {
+                let is_explicit_str = matches!(type_ann, Some("string") | Some("str"));
+                let is_explicit_flt = matches!(type_ann, Some("float") | Some("f64"));
+                let is_explicit_arr = matches!(type_ann, Some("array"))
+                    || type_ann.is_some_and(|t| t.ends_with("[]"));
+                let is_explicit_map = matches!(type_ann, Some("map"));
+
+                let is_struct_from_ann = if let Some(t) = type_ann {
+                    let bare = t.rsplit("::").next().unwrap_or(t);
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    if self.ctx.structs.contains_key(t) {
+                        Some(t.to_string())
+                    } else if self.ctx.structs.contains_key(bare) {
+                        Some(bare.to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                let is_str = is_explicit_str || is_string_expr(value, &self.ctx.variables);
+                let is_arr = is_explicit_arr || is_array_expr(value, &self.ctx.variables);
+                let is_struct = is_struct_from_ann.or_else(|| match value {
                     Expr::Identifier(ident) => {
                         if let Some(VarType::Struct { struct_name, .. }) =
                             self.ctx.variables.get(ident)
@@ -300,9 +351,9 @@ impl CodeGen {
                         }
                     }
                     _ => None,
-                };
-                let is_flt = is_float_expr(value, &self.ctx.variables);
-                let is_map = is_map_expr(value, &self.ctx.variables);
+                });
+                let is_flt = is_explicit_flt || is_float_expr(value, &self.ctx.variables);
+                let is_map = is_explicit_map || is_map_expr(value, &self.ctx.variables);
                 let is_null = is_null_expr(value, &self.ctx.variables);
                 let is_alias_heap = match value {
                     Expr::Identifier(ident) => matches!(
@@ -373,12 +424,16 @@ impl CodeGen {
                     self.ctx
                         .variables
                         .insert(name.clone(), VarType::Array(self.ctx.stack_offset));
-                    if is_string_array(value, &self.ctx.variables) {
+                    if matches!(type_ann, Some("string[]") | Some("str[]"))
+                        || is_string_array(value, &self.ctx.variables)
+                    {
                         self.ctx
                             .variables
                             .insert(format!("arr_is_str:{}", name), VarType::Number(0));
                     }
-                    if is_float_array(value, &self.ctx.variables) {
+                    if matches!(type_ann, Some("float[]") | Some("f64[]"))
+                        || is_float_array(value, &self.ctx.variables)
+                    {
                         self.ctx
                             .variables
                             .insert(format!("arr_is_flt:{}", name), VarType::Number(0));

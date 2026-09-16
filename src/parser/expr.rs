@@ -898,6 +898,7 @@ impl Parser {
                     let tmp_res = "__arr_res".to_string();
                     let mut body = vec![Stmt::Let {
                         name: tmp_res.clone(),
+                        type_ann: None,
                         value: Expr::Array(vec![]),
                     }];
                     let mut params = Vec::new();
@@ -1051,6 +1052,7 @@ impl Parser {
             let tmp_res = "__map_res".to_string();
             let mut body = vec![Stmt::Let {
                 name: tmp_res.clone(),
+                type_ann: None,
                 value: Expr::Call {
                     name: "map".to_string(),
                     args: vec![],
@@ -1137,7 +1139,10 @@ impl Parser {
             TokenType::End | TokenType::Eof
         ) {
             self.skip_newlines();
-            if matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+            if matches!(
+                self.current_token().token_type,
+                TokenType::End | TokenType::Eof
+            ) {
                 break;
             }
 

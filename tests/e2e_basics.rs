@@ -898,3 +898,52 @@ end
         );
     }
 }
+
+#[test]
+fn test_e2e_explicit_type_annotations() {
+    let code = r#"
+# 1. Scalar types with explicit annotations
+let x: int = 42
+let s: string = "hello world"
+let f: float = 3.14
+
+say x
+say s
+say f
+
+# 2. Arrays with explicit annotations
+let nums: int[] = [1, 2, 3]
+let tags: string[] = ["alpha", "beta"]
+
+say nums[0]
+say tags[1]
+
+# 3. Struct definition with explicit field types and default values
+struct User
+    name: string
+    age: int = 30
+    tags: string[]
+end
+
+let u1 = User { name: "Alya", age: 1, tags: ["sys", "lang"] }
+say u1.name
+say u1.age
+say u1.tags[0]
+
+let u2: User = User("Bob", 25, ["dev"])
+say u2.name
+say u2.age
+say u2.tags[0]
+
+# 4. Multi-variable let with annotations
+let a: int, b: string = 100, "multi"
+say a
+say b
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "42\nhello world\n3.14\n1\nbeta\nAlya\n1\nsys\nBob\n25\ndev\n100\nmulti\n"
+        );
+    }
+}

@@ -458,6 +458,21 @@ pub fn is_string_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::Array(elems) => !elems.is_empty() && elems.iter().all(|e| is_string_expr(e, vars)),
         Expr::Identifier(name) => vars.contains_key(&format!("arr_is_str:{}", name)),
+        Expr::FieldAccess { object, field } => {
+            if let Expr::Identifier(obj_name) = &**object {
+                if let Some(VarType::Struct { struct_name, .. }) = vars.get(obj_name) {
+                    let bare = struct_name.rsplit("::").next().unwrap_or(struct_name);
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    let field_key = format!("struct_field_arr_str:{}.{}", struct_name, field);
+                    let bare_key = format!("struct_field_arr_str:{}.{}", bare, field);
+                    if vars.contains_key(&field_key) || vars.contains_key(&bare_key) {
+                        return true;
+                    }
+                }
+            }
+            let global_field_key = format!("struct_field_arr_str:{}", field);
+            vars.contains_key(&global_field_key)
+        }
         Expr::Call { name, .. } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -488,6 +503,21 @@ pub fn is_float_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::Array(elems) => elems.first().is_some_and(|e| is_float_expr(e, vars)),
         Expr::Identifier(name) => vars.contains_key(&format!("arr_is_flt:{}", name)),
+        Expr::FieldAccess { object, field } => {
+            if let Expr::Identifier(obj_name) = &**object {
+                if let Some(VarType::Struct { struct_name, .. }) = vars.get(obj_name) {
+                    let bare = struct_name.rsplit("::").next().unwrap_or(struct_name);
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    let field_key = format!("struct_field_arr_flt:{}.{}", struct_name, field);
+                    let bare_key = format!("struct_field_arr_flt:{}.{}", bare, field);
+                    if vars.contains_key(&field_key) || vars.contains_key(&bare_key) {
+                        return true;
+                    }
+                }
+            }
+            let global_field_key = format!("struct_field_arr_flt:{}", field);
+            vars.contains_key(&global_field_key)
+        }
         _ => false,
     }
 }

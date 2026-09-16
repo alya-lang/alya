@@ -34,6 +34,7 @@ pub enum Stmt {
     Say(Expr),
     Let {
         name: String,
+        type_ann: Option<String>,
         value: Expr,
     },
     Const {
@@ -57,6 +58,7 @@ pub enum Stmt {
     StructDef {
         name: String,
         fields: Vec<String>,
+        field_types: Vec<Option<String>>,
         defaults: Vec<Option<Expr>>,
     },
     EnumDef {

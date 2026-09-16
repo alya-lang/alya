@@ -50,6 +50,7 @@ fn test_codegen_arm64_large_stack_offset() {
     for i in 0..20 {
         stmts.push(Stmt::Let {
             name: format!("var_{}", i),
+            type_ann: None,
             value: Expr::Number(i as f64),
         });
     }
@@ -77,6 +78,7 @@ fn test_codegen_let_and_binary_op() {
         statements: vec![
             Stmt::Let {
                 name: "x".into(),
+                type_ann: None,
                 value: Expr::Binary {
                     left: Box::new(Expr::Number(10.0)),
                     op: BinaryOp::Add,
@@ -148,6 +150,7 @@ fn test_codegen_arm64_large_number_immediate() {
 fn test_codegen_arm64_large_number_expr() {
     let program = simple_program(Stmt::Let {
         name: "num".into(),
+        type_ann: None,
         value: Expr::Number(424242.0),
     });
     let asm = generate(&program, Architecture::ARM64, OperatingSystem::Linux);

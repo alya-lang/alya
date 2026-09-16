@@ -374,7 +374,21 @@ fn collect_array_vars_from_stmts(
 ) {
     for stmt in stmts {
         match stmt {
-            Stmt::Let { name, value, .. } | Stmt::Assign { name, value, .. }
+            Stmt::Let {
+                name,
+                type_ann,
+                value,
+            } if type_ann.as_deref() == Some("array")
+                || type_ann.as_ref().is_some_and(|t| t.ends_with("[]"))
+                || expr_is_definitely_array(value, fn_scope, known_arrays) =>
+            {
+                if let Some(scope) = fn_scope {
+                    known_arrays.insert(format!("{}:{}", scope, name));
+                } else {
+                    known_arrays.insert(name.clone());
+                }
+            }
+            Stmt::Assign { name, value, .. }
                 if expr_is_definitely_array(value, fn_scope, known_arrays) =>
             {
                 if let Some(scope) = fn_scope {
@@ -450,6 +464,27 @@ pub fn collect_known_array_vars(program: &Program) -> HashSet<String> {
     let mut known_arrays = HashSet::new();
     let mut funcs = Vec::new();
     collect_function_defs(&program.statements, &mut funcs);
+    for stmt in &program.statements {
+        if let Stmt::StructDef {
+            name,
+            fields,
+            field_types,
+            ..
+        } = stmt
+        {
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            for (f, ft) in fields.iter().zip(field_types.iter()) {
+                if let Some(t) = ft {
+                    if t == "array" || t.ends_with("[]") {
+                        known_arrays.insert(format!("struct_field_arr:{}.{}", name, f));
+                        known_arrays.insert(format!("struct_field_arr:{}.{}", bare, f));
+                        known_arrays.insert(format!("struct_field_arr:{}", f));
+                    }
+                }
+            }
+        }
+    }
     for _ in 0..7 {
         let prev_len = known_arrays.len();
         collect_array_vars_from_stmts(&program.statements, None, &mut known_arrays);

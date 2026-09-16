@@ -87,7 +87,7 @@ fn resolve_and_validate_stmt(stmt: &mut Stmt, stack: &mut ScopeStack) -> Result<
             fold_expr(value);
             stack.define_const(name, value.clone())?;
         }
-        Stmt::Let { name, value } => {
+        Stmt::Let { name, value, .. } => {
             resolve_expr(value, stack);
             stack.define_var(name)?;
         }

@@ -15,7 +15,11 @@ impl CodeGen {
             Stmt::Expr(expr) => {
                 self.generate_expression(expr);
             }
-            Stmt::Let { name, value } => self.generate_let(name, value),
+            Stmt::Let {
+                name,
+                type_ann,
+                value,
+            } => self.generate_let(name, type_ann.as_deref(), value),
             Stmt::Assign { name, value } => self.generate_assign(name, value),
             Stmt::FieldAssign {
                 object,
@@ -148,6 +152,7 @@ impl CodeGen {
             Stmt::StructDef {
                 name,
                 fields,
+                field_types,
                 defaults,
             } => {
                 self.ctx.structs.insert(
@@ -155,6 +160,7 @@ impl CodeGen {
                     crate::codegen::context::StructDefInfo {
                         name: name.clone(),
                         fields: fields.clone(),
+                        field_types: field_types.clone(),
                         defaults: defaults.clone(),
                     },
                 );
@@ -166,6 +172,7 @@ impl CodeGen {
                         crate::codegen::context::StructDefInfo {
                             name: bare.to_string(),
                             fields: fields.clone(),
+                            field_types: field_types.clone(),
                             defaults: defaults.clone(),
                         },
                     );

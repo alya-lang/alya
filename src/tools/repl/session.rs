@@ -305,7 +305,7 @@ impl ReplSession {
                     }
                     return;
                 }
-                Stmt::Let { name, value } => {
+                Stmt::Let { name, value, .. } => {
                     let var_name = name.clone();
                     if expr_contains_ask(value, &self.functions) {
                         let pid = std::process::id();

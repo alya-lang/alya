@@ -252,6 +252,7 @@ impl Parser {
                 let temp_name = format!("__when_subj_{}", self.position);
                 let let_stmt = Stmt::Let {
                     name: temp_name.clone(),
+                    type_ann: None,
                     value: raw_subject,
                 };
                 (Expr::Identifier(temp_name), Some(let_stmt))

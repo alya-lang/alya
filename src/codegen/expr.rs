@@ -1561,11 +1561,23 @@ impl CodeGen {
                     || is_map_expr(expr, &self.ctx.variables)
                     || is_null_expr(expr, &self.ctx.variables);
                 let result = if is_str {
-                    if negated { 0 } else { 1 }
+                    if negated {
+                        0
+                    } else {
+                        1
+                    }
                 } else if is_def_non {
-                    if negated { 1 } else { 0 }
+                    if negated {
+                        1
+                    } else {
+                        0
+                    }
                 } else {
-                    if negated { 1 } else { 0 }
+                    if negated {
+                        1
+                    } else {
+                        0
+                    }
                 };
                 arch::emit_load_num(&mut self.output, self.arch, result);
             }
@@ -1600,9 +1612,17 @@ impl CodeGen {
             "float" => {
                 let is_flt = is_float_expr(expr, &self.ctx.variables);
                 let result = if is_flt {
-                    if negated { 0 } else { 1 }
+                    if negated {
+                        0
+                    } else {
+                        1
+                    }
                 } else {
-                    if negated { 1 } else { 0 }
+                    if negated {
+                        1
+                    } else {
+                        0
+                    }
                 };
                 arch::emit_load_num(&mut self.output, self.arch, result);
             }
@@ -1613,9 +1633,17 @@ impl CodeGen {
                     || is_map_expr(expr, &self.ctx.variables)
                     || is_null_expr(expr, &self.ctx.variables);
                 let result = if !is_non {
-                    if negated { 0 } else { 1 }
+                    if negated {
+                        0
+                    } else {
+                        1
+                    }
                 } else {
-                    if negated { 1 } else { 0 }
+                    if negated {
+                        1
+                    } else {
+                        0
+                    }
                 };
                 arch::emit_load_num(&mut self.output, self.arch, result);
             }
@@ -1626,9 +1654,17 @@ impl CodeGen {
                     || is_map_expr(expr, &self.ctx.variables)
                     || is_null_expr(expr, &self.ctx.variables);
                 let result = if !is_non {
-                    if negated { 0 } else { 1 }
+                    if negated {
+                        0
+                    } else {
+                        1
+                    }
                 } else {
-                    if negated { 1 } else { 0 }
+                    if negated {
+                        1
+                    } else {
+                        0
+                    }
                 };
                 arch::emit_load_num(&mut self.output, self.arch, result);
             }
@@ -1664,12 +1700,19 @@ impl CodeGen {
                 self.output.push_str("    cmp $65536, %rax\n");
                 self.output.push_str(&format!("    jb {}\n", false_label));
                 self.output.push_str("    movq -16(%rax), %rdx\n");
-                self.output.push_str(&format!("    cmp $0x{:X}, %rdx\n", tag));
+                self.output
+                    .push_str(&format!("    cmp $0x{:X}, %rdx\n", tag));
                 self.output.push_str(&format!("    jne {}\n", false_label));
-                self.output.push_str(&format!("    movq ${}, %rax\n", if negated { 0 } else { 1 }));
+                self.output.push_str(&format!(
+                    "    movq ${}, %rax\n",
+                    if negated { 0 } else { 1 }
+                ));
                 self.output.push_str(&format!("    jmp {}\n", end_label));
                 self.output.push_str(&format!("{}:\n", false_label));
-                self.output.push_str(&format!("    movq ${}, %rax\n", if negated { 1 } else { 0 }));
+                self.output.push_str(&format!(
+                    "    movq ${}, %rax\n",
+                    if negated { 1 } else { 0 }
+                ));
                 self.output.push_str(&format!("{}:\n", end_label));
             }
             Architecture::X86 => {
@@ -1678,12 +1721,19 @@ impl CodeGen {
                 self.output.push_str("    cmp $65536, %eax\n");
                 self.output.push_str(&format!("    jb {}\n", false_label));
                 self.output.push_str("    movl -8(%eax), %edx\n");
-                self.output.push_str(&format!("    cmp $0x{:X}, %edx\n", tag as u32));
+                self.output
+                    .push_str(&format!("    cmp $0x{:X}, %edx\n", tag as u32));
                 self.output.push_str(&format!("    jne {}\n", false_label));
-                self.output.push_str(&format!("    movl ${}, %eax\n", if negated { 0 } else { 1 }));
+                self.output.push_str(&format!(
+                    "    movl ${}, %eax\n",
+                    if negated { 0 } else { 1 }
+                ));
                 self.output.push_str(&format!("    jmp {}\n", end_label));
                 self.output.push_str(&format!("{}:\n", false_label));
-                self.output.push_str(&format!("    movl ${}, %eax\n", if negated { 1 } else { 0 }));
+                self.output.push_str(&format!(
+                    "    movl ${}, %eax\n",
+                    if negated { 1 } else { 0 }
+                ));
                 self.output.push_str(&format!("{}:\n", end_label));
             }
             Architecture::ARM64 => {
@@ -1691,14 +1741,18 @@ impl CodeGen {
                 self.output.push_str(&format!("{}\n", false_label));
                 self.output.push_str("    ldur x1, [x0, #-16]\n");
                 let tag_lo = tag as u32;
-                self.output.push_str(&format!("    mov w2, #{}\n", tag_lo & 0xFFFF));
-                self.output.push_str(&format!("    movk w2, #{}, lsl #16\n", tag_lo >> 16));
+                self.output
+                    .push_str(&format!("    mov w2, #{}\n", tag_lo & 0xFFFF));
+                self.output
+                    .push_str(&format!("    movk w2, #{}, lsl #16\n", tag_lo >> 16));
                 self.output.push_str("    cmp w1, w2\n");
                 self.output.push_str(&format!("    b.ne {}\n", false_label));
-                self.output.push_str(&format!("    mov x0, #{}\n", if negated { 0 } else { 1 }));
+                self.output
+                    .push_str(&format!("    mov x0, #{}\n", if negated { 0 } else { 1 }));
                 self.output.push_str(&format!("    b {}\n", end_label));
                 self.output.push_str(&format!("{}:\n", false_label));
-                self.output.push_str(&format!("    mov x0, #{}\n", if negated { 1 } else { 0 }));
+                self.output
+                    .push_str(&format!("    mov x0, #{}\n", if negated { 1 } else { 0 }));
                 self.output.push_str(&format!("{}:\n", end_label));
             }
         }

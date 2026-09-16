@@ -18,8 +18,25 @@ impl StructInference {
         let mut inf = StructInference::default();
         let mut struct_names = HashSet::new();
         for s in &program.statements {
-            if let Stmt::StructDef { name, .. } = s {
+            if let Stmt::StructDef {
+                name,
+                fields,
+                field_types,
+                ..
+            } = s
+            {
                 struct_names.insert(name.clone());
+                for (f, ft) in fields.iter().zip(field_types.iter()) {
+                    if let Some(t) = ft {
+                        inf.field_types.insert((name.clone(), f.clone()), t.clone());
+                        let bare = name.rsplit("::").next().unwrap_or(name);
+                        let bare = bare.rsplit("__").next().unwrap_or(bare);
+                        if bare != name {
+                            inf.field_types
+                                .insert((bare.to_string(), f.clone()), t.clone());
+                        }
+                    }
+                }
             }
         }
 
@@ -137,7 +154,32 @@ impl StructInference {
                         }
                     }
                 }
-                Stmt::Let { name, value } | Stmt::Assign { name, value } => {
+                Stmt::Let {
+                    name,
+                    type_ann,
+                    value,
+                } => {
+                    self.scan_expr(value, current_fn, struct_names);
+                    let st = type_ann
+                        .as_ref()
+                        .filter(|t| struct_names.contains(*t))
+                        .cloned()
+                        .or_else(|| self.expr_struct_type(value, current_fn, struct_names));
+                    if let Some(st) = st {
+                        if let Some(fn_name) = current_fn {
+                            self.var_types
+                                .insert(format!("{}::{}", fn_name, name), st.clone());
+                            let bare = fn_name.rsplit("::").next().unwrap_or(fn_name);
+                            let bare = bare.rsplit("__").next().unwrap_or(bare);
+                            if bare != fn_name {
+                                self.var_types.insert(format!("{}::{}", bare, name), st);
+                            }
+                        } else {
+                            self.var_types.insert(name.clone(), st);
+                        }
+                    }
+                }
+                Stmt::Assign { name, value } => {
                     self.scan_expr(value, current_fn, struct_names);
                     if let Some(st) = self.expr_struct_type(value, current_fn, struct_names) {
                         if let Some(fn_name) = current_fn {

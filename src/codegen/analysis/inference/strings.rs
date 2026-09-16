@@ -506,7 +506,98 @@ fn collect_string_vars_from_stmts(
 ) {
     for stmt in stmts {
         match stmt {
-            Stmt::Let { name, value, .. } | Stmt::Assign { name, value, .. } => {
+            Stmt::Let {
+                name,
+                type_ann,
+                value,
+            } => {
+                if let Some(t) = type_ann {
+                    if t == "string" || t == "str" {
+                        known_strings.insert(name.clone());
+                    } else if t == "string[]" || t == "str[]" {
+                        known_strings.insert(format!("arr_is_str:{}", name));
+                    }
+                }
+                scan_expr_for_strings(value, struct_defs, known_strings);
+                if expr_is_definitely_string(value, known_strings) {
+                    known_strings.insert(name.clone());
+                }
+                if expr_is_string_array(value, known_strings) {
+                    known_strings.insert(format!("arr_is_str:{}", name));
+                }
+                if let Expr::Identifier(id) = value {
+                    let bare_id = id.rsplit("::").next().unwrap_or(id.as_str());
+                    let bare_id = bare_id.rsplit("__").next().unwrap_or(bare_id);
+                    if known_strings.contains(&format!("fn_ret_str:{}", id))
+                        || known_strings.contains(&format!("fn_ret_str:{}", bare_id))
+                    {
+                        known_strings.insert(format!("fn_ret_str:{}", name));
+                    }
+                }
+                if let Expr::Call { name: cname, .. } = value {
+                    let bare = cname.rsplit("::").next().unwrap_or(cname.as_str());
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    let prefix1 = format!("fn_ret_tuple_str:{}:", cname);
+                    let prefix2 = format!("fn_ret_tuple_str:{}:", bare);
+                    for item in known_strings.clone() {
+                        if item.starts_with(&prefix1) {
+                            if let Some(idx_str) = item.strip_prefix(&prefix1) {
+                                known_strings
+                                    .insert(format!("tuple_elem_str:{}:{}", name, idx_str));
+                            }
+                        } else if item.starts_with(&prefix2) {
+                            if let Some(idx_str) = item.strip_prefix(&prefix2) {
+                                known_strings
+                                    .insert(format!("tuple_elem_str:{}:{}", name, idx_str));
+                            }
+                        }
+                    }
+                } else if let Expr::Array(elems) = value {
+                    for (i, elem) in elems.iter().enumerate() {
+                        if expr_is_definitely_string(elem, known_strings) {
+                            known_strings.insert(format!("tuple_elem_str:{}:{}", name, i));
+                        }
+                    }
+                }
+                if let Expr::Map(entries) = value {
+                    for (k, v) in entries {
+                        if expr_is_definitely_string(v, known_strings) {
+                            if let Expr::String(field) = k {
+                                known_strings.insert(format!("map_field_str:{}", field));
+                                known_strings.insert(format!("map_str:{}.{}", name, field));
+                            }
+                        }
+                    }
+                }
+                if let Expr::StructInit {
+                    name: sname,
+                    fields,
+                } = value
+                {
+                    for (fname, fval) in fields {
+                        if expr_is_definitely_string(fval, known_strings) {
+                            known_strings.insert(format!("struct_field_str:{}.{}", sname, fname));
+                            known_strings.insert(format!("struct_field_str:{}", fname));
+                            known_strings.insert(format!("{}.{}", name, fname));
+                        }
+                    }
+                }
+                if let Expr::Call { name: cname, args } = value {
+                    if let Some(fnames) = struct_defs.get(cname) {
+                        for (i, arg) in args.iter().enumerate() {
+                            if expr_is_definitely_string(arg, known_strings) {
+                                if let Some(fname) = fnames.get(i) {
+                                    known_strings
+                                        .insert(format!("struct_field_str:{}.{}", cname, fname));
+                                    known_strings.insert(format!("struct_field_str:{}", fname));
+                                    known_strings.insert(format!("{}.{}", name, fname));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Stmt::Assign { name, value, .. } => {
                 scan_expr_for_strings(value, struct_defs, known_strings);
                 if expr_is_definitely_string(value, known_strings) {
                     known_strings.insert(name.clone());
@@ -821,6 +912,28 @@ pub fn collect_known_string_vars(program: &Program) -> HashSet<String> {
                     } else if pt == "str[]" || pt == "string[]" {
                         known_strings.insert(format!("fn_param_str_arr:{}:{}", name, idx));
                         known_strings.insert(format!("fn_param_str_arr:{}:{}", bare, idx));
+                    }
+                }
+            }
+        } else if let Stmt::StructDef {
+            name,
+            fields,
+            field_types,
+            ..
+        } = stmt
+        {
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            for (f, ft) in fields.iter().zip(field_types.iter()) {
+                if let Some(t) = ft {
+                    if t == "string" || t == "str" {
+                        known_strings.insert(format!("struct_field_str:{}.{}", name, f));
+                        known_strings.insert(format!("struct_field_str:{}.{}", bare, f));
+                        known_strings.insert(format!("struct_field_str:{}", f));
+                    } else if t == "string[]" || t == "str[]" {
+                        known_strings.insert(format!("struct_field_arr_str:{}.{}", name, f));
+                        known_strings.insert(format!("struct_field_arr_str:{}.{}", bare, f));
+                        known_strings.insert(format!("struct_field_arr_str:{}", f));
                     }
                 }
             }

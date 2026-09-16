@@ -590,4 +590,3 @@ say merged["d"]
         assert_eq!(output, "1\n20\n30\n40\n");
     }
 }
-

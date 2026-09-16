@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 pub struct StructDefInfo {
     pub name: String,
     pub fields: Vec<String>,
+    pub field_types: Vec<Option<String>>,
     pub defaults: Vec<Option<Expr>>,
 }
 

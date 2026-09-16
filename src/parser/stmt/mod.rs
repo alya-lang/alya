@@ -413,6 +413,7 @@ impl Parser {
             let tmp_name = format!("__tuple_assign_{}_{}", first_line, first_col);
             let mut stmts = vec![Stmt::Let {
                 name: tmp_name.clone(),
+                type_ann: None,
                 value: single_val,
             }];
             for (i, name) in names.into_iter().enumerate() {
@@ -432,6 +433,7 @@ impl Parser {
                 let tmp_name = format!("__assign_tmp_{}_{}_{}", first_line, first_col, i);
                 stmts.push(Stmt::Let {
                     name: tmp_name.clone(),
+                    type_ann: None,
                     value: val,
                 });
                 tmp_names.push(tmp_name);

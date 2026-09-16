@@ -242,12 +242,14 @@ impl Parser {
             let tmp_name = format!("__destruct_arr_{}_{}", first_line, first_col);
             let mut stmts = vec![Stmt::Let {
                 name: tmp_name.clone(),
+                type_ann: None,
                 value: rhs,
             }];
 
             for (i, name) in names.iter().enumerate() {
                 stmts.push(Stmt::Let {
                     name: name.clone(),
+                    type_ann: None,
                     value: Expr::Index {
                         array: Box::new(Expr::Identifier(tmp_name.clone())),
                         index: Box::new(Expr::Number(i as f64)),
@@ -258,6 +260,7 @@ impl Parser {
             if let Some(rname) = rest_name {
                 stmts.push(Stmt::Let {
                     name: rname,
+                    type_ann: None,
                     value: Expr::Call {
                         name: "slice".to_string(),
                         args: vec![
@@ -330,12 +333,14 @@ impl Parser {
             let tmp_name = format!("__destruct_map_{}_{}", first_line, first_col);
             let mut stmts = vec![Stmt::Let {
                 name: tmp_name.clone(),
+                type_ann: None,
                 value: rhs,
             }];
 
             for (field, var_name) in fields {
                 stmts.push(Stmt::Let {
                     name: var_name,
+                    type_ann: None,
                     value: Expr::Index {
                         array: Box::new(Expr::Identifier(tmp_name.clone())),
                         index: Box::new(Expr::String(field)),
@@ -354,6 +359,7 @@ impl Parser {
         };
 
         let mut names = Vec::new();
+        let mut types = Vec::new();
         loop {
             let name = match &self.current_token().token_type {
                 TokenType::Identifier(s) => s.clone(),
@@ -366,7 +372,32 @@ impl Parser {
                 }
             };
             self.advance();
+
+            let type_ann = if matches!(self.current_token().token_type, TokenType::Colon) {
+                self.advance();
+                let mut t_str = match &self.current_token().token_type {
+                    TokenType::Identifier(t) => t.clone(),
+                    _ => {
+                        return Err(format!(
+                            "Expected type after ':' at line {}, column {}",
+                            self.current_token().line,
+                            self.current_token().column
+                        ));
+                    }
+                };
+                self.advance();
+                if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+                    self.advance();
+                    self.expect(TokenType::RightBracket)?;
+                    t_str.push_str("[]");
+                }
+                Some(t_str)
+            } else {
+                None
+            };
+
             names.push(name);
+            types.push(type_ann);
 
             if matches!(self.current_token().token_type, TokenType::Comma) {
                 self.advance();
@@ -393,6 +424,7 @@ impl Parser {
         {
             let mut stmts = vec![Stmt::Let {
                 name: names.remove(0),
+                type_ann: types.remove(0),
                 value: first_val,
             }];
             while matches!(self.current_token().token_type, TokenType::Comma) {
@@ -402,10 +434,33 @@ impl Parser {
                     _ => break,
                 };
                 self.advance();
+                let next_type = if matches!(self.current_token().token_type, TokenType::Colon) {
+                    self.advance();
+                    let mut t_str = match &self.current_token().token_type {
+                        TokenType::Identifier(t) => t.clone(),
+                        _ => {
+                            return Err(format!(
+                                "Expected type after ':' at line {}, column {}",
+                                self.current_token().line,
+                                self.current_token().column
+                            ));
+                        }
+                    };
+                    self.advance();
+                    if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+                        self.advance();
+                        self.expect(TokenType::RightBracket)?;
+                        t_str.push_str("[]");
+                    }
+                    Some(t_str)
+                } else {
+                    None
+                };
                 self.expect(TokenType::Assign)?;
                 let next_val = self.parse_expression()?;
                 stmts.push(Stmt::Let {
                     name: next_name,
+                    type_ann: next_type,
                     value: next_val,
                 });
             }
@@ -432,6 +487,7 @@ impl Parser {
             if names.len() == 1 {
                 Ok(vec![Stmt::Let {
                     name: names.remove(0),
+                    type_ann: types.remove(0),
                     value: single_val,
                 }])
             } else {
@@ -439,8 +495,10 @@ impl Parser {
                     Expr::Number(_) | Expr::Float(_) | Expr::String(_) | Expr::Null => {
                         let stmts = names
                             .into_iter()
-                            .map(|name| Stmt::Let {
+                            .zip(types)
+                            .map(|(name, type_ann)| Stmt::Let {
                                 name,
+                                type_ann,
                                 value: single_val.clone(),
                             })
                             .collect();
@@ -450,11 +508,13 @@ impl Parser {
                         let tmp_name = format!("__tuple_{}_{}", first_line, first_col);
                         let mut stmts = vec![Stmt::Let {
                             name: tmp_name.clone(),
+                            type_ann: None,
                             value: single_val,
                         }];
-                        for (i, name) in names.into_iter().enumerate() {
+                        for (i, (name, type_ann)) in names.into_iter().zip(types).enumerate() {
                             stmts.push(Stmt::Let {
                                 name,
+                                type_ann,
                                 value: Expr::Index {
                                     array: Box::new(Expr::Identifier(tmp_name.clone())),
                                     index: Box::new(Expr::Number(i as f64)),
@@ -472,8 +532,13 @@ impl Parser {
             if !has_swap_dependency {
                 let stmts = names
                     .into_iter()
+                    .zip(types)
                     .zip(values)
-                    .map(|(name, value)| Stmt::Let { name, value })
+                    .map(|((name, type_ann), value)| Stmt::Let {
+                        name,
+                        type_ann,
+                        value,
+                    })
                     .collect();
                 Ok(stmts)
             } else {
@@ -483,13 +548,15 @@ impl Parser {
                     let tmp_name = format!("__let_tmp_{}_{}_{}", first_line, first_col, i);
                     stmts.push(Stmt::Let {
                         name: tmp_name.clone(),
+                        type_ann: None,
                         value: val,
                     });
                     tmp_names.push(tmp_name);
                 }
-                for (name, tmp_name) in names.into_iter().zip(tmp_names) {
+                for ((name, type_ann), tmp_name) in names.into_iter().zip(types).zip(tmp_names) {
                     stmts.push(Stmt::Let {
                         name,
+                        type_ann,
                         value: Expr::Identifier(tmp_name),
                     });
                 }
@@ -700,6 +767,7 @@ impl Parser {
         self.skip_newlines();
 
         let mut fields = Vec::new();
+        let mut field_types = Vec::new();
         let mut defaults = Vec::new();
         while !matches!(
             self.current_token().token_type,
@@ -716,6 +784,31 @@ impl Parser {
                 TokenType::Identifier(field) => {
                     fields.push(field.clone());
                     self.advance();
+
+                    let f_type = if matches!(self.current_token().token_type, TokenType::Colon) {
+                        self.advance();
+                        let mut t_str = match &self.current_token().token_type {
+                            TokenType::Identifier(t) => t.clone(),
+                            _ => {
+                                return Err(format!(
+                                    "Expected field type after ':' at line {}, column {}",
+                                    self.current_token().line,
+                                    self.current_token().column
+                                ));
+                            }
+                        };
+                        self.advance();
+                        if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+                            self.advance();
+                            self.expect(TokenType::RightBracket)?;
+                            t_str.push_str("[]");
+                        }
+                        Some(t_str)
+                    } else {
+                        None
+                    };
+                    field_types.push(f_type);
+
                     let default_val =
                         if matches!(self.current_token().token_type, TokenType::Assign) {
                             self.advance();
@@ -744,6 +837,7 @@ impl Parser {
         Ok(Stmt::StructDef {
             name,
             fields,
+            field_types,
             defaults,
         })
     }

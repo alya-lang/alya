@@ -180,6 +180,7 @@ fn test_parse_ask_expression() {
         program.statements[0],
         Stmt::Let {
             name: "name".into(),
+            type_ann: None,
             value: Expr::Call {
                 name: "ask".into(),
                 args: vec![Expr::String("Your name: ".into())],
@@ -200,7 +201,7 @@ fn test_parse_arrays() {
 
     // let arr = [1, 2, 3]
     match &program.statements[0] {
-        Stmt::Let { name, value } => {
+        Stmt::Let { name, value, .. } => {
             assert_eq!(name, "arr");
             match value {
                 Expr::Array(elements) => {
@@ -283,7 +284,7 @@ fn test_parse_struct_and_field_access() {
 
     // 2. StructInit
     match &program.statements[1] {
-        Stmt::Let { name, value } => {
+        Stmt::Let { name, value, .. } => {
             assert_eq!(name, "p");
             match value {
                 Expr::StructInit {
@@ -337,7 +338,7 @@ fn test_parse_map_literal() {
 
     // 1. empty = {}
     match &program.statements[0] {
-        Stmt::Let { name, value } => {
+        Stmt::Let { name, value, .. } => {
             assert_eq!(name, "empty");
             assert_eq!(*value, Expr::Map(vec![]));
         }
@@ -346,7 +347,7 @@ fn test_parse_map_literal() {
 
     // 2. user = { "name": "Alya", age: 1, }
     match &program.statements[1] {
-        Stmt::Let { name, value } => {
+        Stmt::Let { name, value, .. } => {
             assert_eq!(name, "user");
             match value {
                 Expr::Map(entries) => {
@@ -365,7 +366,7 @@ fn test_parse_map_literal() {
 
     // 3. explicit = map { "active": true }
     match &program.statements[2] {
-        Stmt::Let { name, value } => {
+        Stmt::Let { name, value, .. } => {
             assert_eq!(name, "explicit");
             match value {
                 Expr::Map(entries) => {
@@ -387,14 +388,14 @@ fn test_parse_null_and_nil_literals() {
     let program = parse_code("let x = null\nlet y = nil").expect("Parse failed");
     assert_eq!(program.statements.len(), 2);
     match &program.statements[0] {
-        Stmt::Let { name, value } => {
+        Stmt::Let { name, value, .. } => {
             assert_eq!(name, "x");
             assert_eq!(*value, Expr::Null);
         }
         other => panic!("Expected Stmt::Let, got {:?}", other),
     }
     match &program.statements[1] {
-        Stmt::Let { name, value } => {
+        Stmt::Let { name, value, .. } => {
             assert_eq!(name, "y");
             assert_eq!(*value, Expr::Null);
         }
@@ -542,7 +543,7 @@ fn test_parse_null_coalesce() {
 fn test_parse_tuple_literal() {
     let program = parse_code("let t = (1, 2, 3)").expect("Parse failed");
     match &program.statements[0] {
-        Stmt::Let { name, value } => {
+        Stmt::Let { name, value, .. } => {
             assert_eq!(name, "t");
             assert_eq!(
                 *value,
@@ -558,7 +559,7 @@ fn test_parse_tuple_literal() {
 
     let program_empty = parse_code("let empty = ()").expect("Parse failed");
     match &program_empty.statements[0] {
-        Stmt::Let { name, value } => {
+        Stmt::Let { name, value, .. } => {
             assert_eq!(name, "empty");
             assert_eq!(*value, Expr::Array(vec![]));
         }

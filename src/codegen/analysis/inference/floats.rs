@@ -153,7 +153,38 @@ fn collect_float_vars_from_stmts(
 ) {
     for stmt in stmts {
         match stmt {
-            Stmt::Let { name, value, .. } | Stmt::Assign { name, value, .. } => {
+            Stmt::Let {
+                name,
+                type_ann,
+                value,
+            } => {
+                if let Some(t) = type_ann {
+                    if t == "float" || t == "f64" || t == "f32" {
+                        scope.insert(name.clone());
+                        if is_top_level {
+                            known_floats.insert(name.clone());
+                        }
+                    } else if t == "float[]" || t == "f64[]" || t == "f32[]" {
+                        scope.insert(format!("arr_is_flt:{}", name));
+                        if is_top_level {
+                            known_floats.insert(format!("arr_is_flt:{}", name));
+                        }
+                    }
+                }
+                if expr_is_definitely_float(value, scope) {
+                    scope.insert(name.clone());
+                    if is_top_level {
+                        known_floats.insert(name.clone());
+                    }
+                }
+                if expr_is_float_array(value, scope) {
+                    scope.insert(format!("arr_is_flt:{}", name));
+                    if is_top_level {
+                        known_floats.insert(format!("arr_is_flt:{}", name));
+                    }
+                }
+            }
+            Stmt::Assign { name, value, .. } => {
                 if expr_is_definitely_float(value, scope) {
                     scope.insert(name.clone());
                     if is_top_level {
@@ -302,6 +333,28 @@ pub fn collect_known_float_vars(program: &Program) -> HashSet<String> {
                     } else if pt == "float[]" || pt == "f64[]" || pt == "f32[]" {
                         known_floats.insert(format!("fn_param_flt_arr:{}:{}", name, idx));
                         known_floats.insert(format!("fn_param_flt_arr:{}:{}", bare, idx));
+                    }
+                }
+            }
+        } else if let Stmt::StructDef {
+            name,
+            fields,
+            field_types,
+            ..
+        } = stmt
+        {
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            for (f, ft) in fields.iter().zip(field_types.iter()) {
+                if let Some(t) = ft {
+                    if t == "float" || t == "f64" || t == "f32" {
+                        known_floats.insert(format!("struct_field_flt:{}.{}", name, f));
+                        known_floats.insert(format!("struct_field_flt:{}.{}", bare, f));
+                        known_floats.insert(format!("struct_field_flt:{}", f));
+                    } else if t == "float[]" || t == "f64[]" || t == "f32[]" {
+                        known_floats.insert(format!("struct_field_arr_flt:{}.{}", name, f));
+                        known_floats.insert(format!("struct_field_arr_flt:{}.{}", bare, f));
+                        known_floats.insert(format!("struct_field_arr_flt:{}", f));
                     }
                 }
             }

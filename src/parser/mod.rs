@@ -520,11 +520,13 @@ fn resolve_stmt_imports(
                                 Stmt::StructDef {
                                     name,
                                     fields,
+                                    field_types,
                                     defaults,
                                 } if name == &sym.name => {
                                     additional_stmts.push(Stmt::StructDef {
                                         name: alias_name.clone(),
                                         fields: fields.clone(),
+                                        field_types: field_types.clone(),
                                         defaults: defaults.clone(),
                                     });
                                 }
