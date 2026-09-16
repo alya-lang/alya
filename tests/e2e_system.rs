@@ -421,6 +421,24 @@ say "Runner failed: " + str(r.failed)
 }
 
 #[test]
+fn test_e2e_monotonic_clock_ms() {
+    let code = r#"
+let t0 = clock_ms()
+sleep(60)
+let elapsed = clock_ms() - t0
+if elapsed >= 45
+    say "clock_ms_ok"
+else
+    say "clock_ms_failed: " + str(elapsed)
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "clock_ms_ok\n");
+    }
+}
+
+#[test]
 fn test_e2e_os_stdlib() {
     let code = r#"
 import "std/os"

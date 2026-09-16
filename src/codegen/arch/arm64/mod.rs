@@ -36,6 +36,7 @@ pub fn emit_header(out: &mut String, os: OperatingSystem) {
         out.push_str(".extern _memcpy\n");
         out.push_str(".extern _memset\n");
         out.push_str(".extern _time\n");
+        out.push_str(".extern _clock_gettime\n");
         out.push_str(".extern _getenv\n");
         out.push_str(".extern _system\n");
         out.push_str(".extern _usleep\n");
@@ -112,6 +113,7 @@ pub fn emit_header(out: &mut String, os: OperatingSystem) {
         out.push_str(".extern memcpy\n");
         out.push_str(".extern memset\n");
         out.push_str(".extern time\n");
+        out.push_str(".extern clock_gettime\n");
         out.push_str(".extern getenv\n");
         out.push_str(".extern system\n");
         out.push_str(".extern usleep\n");

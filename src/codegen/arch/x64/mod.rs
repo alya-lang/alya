@@ -26,6 +26,7 @@ pub fn emit_header(out: &mut String, os: OperatingSystem) {
         out.push_str(".extern _memcpy\n");
         out.push_str(".extern _memset\n");
         out.push_str(".extern _time\n");
+        out.push_str(".extern _clock_gettime\n");
         out.push_str(".extern _getenv\n");
         out.push_str(".extern _system\n");
         out.push_str(".extern _usleep\n");
@@ -112,6 +113,7 @@ pub fn emit_header(out: &mut String, os: OperatingSystem) {
             out.push_str(".extern SetConsoleTitleA\n");
             out.push_str(".extern Beep\n");
             out.push_str(".extern Sleep\n");
+            out.push_str(".extern GetTickCount64\n");
             out.push_str(".extern _mkdir\n");
             out.push_str(".extern WSAStartup\n");
             out.push_str(".extern WSACleanup\n");
@@ -167,6 +169,7 @@ pub fn emit_header(out: &mut String, os: OperatingSystem) {
             out.push_str(".extern _rmdir\n\n");
         } else {
             out.push_str(".extern usleep\n");
+            out.push_str(".extern clock_gettime\n");
             out.push_str(".extern mkdir\n");
             out.push_str(".extern socket\n");
             out.push_str(".extern connect\n");

@@ -274,16 +274,26 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("fn_clock_ms:\n");
     out.push_str("    push %rbp\n");
     out.push_str("    mov %rsp, %rbp\n");
-    out.push_str("    sub $32, %rsp\n");
-    out.push_str(&format!("    call {}clock\n", p));
-    out.push_str("    add $32, %rsp\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call GetTickCount64\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    sub $16, %rsp\n");
+        let clock_id = if matches!(os, OperatingSystem::MacOS) { 6 } else { 1 };
+        out.push_str(&format!("    mov ${}, %rdi\n", clock_id));
+        out.push_str("    lea -16(%rbp), %rsi\n");
+        out.push_str(&format!("    call {}clock_gettime\n", p));
+        out.push_str("    mov -8(%rbp), %rax\n");
+        out.push_str("    xor %rdx, %rdx\n");
+        out.push_str("    mov $1000000, %rcx\n");
+        out.push_str("    div %rcx\n");
+        out.push_str("    mov -16(%rbp), %rcx\n");
+        out.push_str("    imul $1000, %rcx, %rcx\n");
+        out.push_str("    add %rcx, %rax\n");
+    }
     out.push_str("    mov %rbp, %rsp\n");
     out.push_str("    pop %rbp\n");
-    if !matches!(os, OperatingSystem::Windows) {
-        out.push_str("    mov $1000, %rcx\n");
-        out.push_str("    xor %rdx, %rdx\n");
-        out.push_str("    div %rcx\n");
-    }
     out.push_str("    ret\n\n");
 
     // Native libc floating-point math functions (single argument)

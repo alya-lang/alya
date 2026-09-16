@@ -182,15 +182,29 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".align 2\n");
     out.push_str(".global fn_clock_ms\n");
     out.push_str("fn_clock_ms:\n");
-    out.push_str("    stp x29, x30, [sp, #-16]!\n");
-    out.push_str("    mov x29, sp\n");
-    out.push_str(&format!("    bl {}clock\n", p));
-    out.push_str("    ldp x29, x30, [sp], #16\n");
-    if !matches!(os, OperatingSystem::Windows) {
-        out.push_str("    mov x1, #1000\n");
-        out.push_str("    udiv x0, x0, x1\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    stp x29, x30, [sp, #-16]!\n");
+        out.push_str("    mov x29, sp\n");
+        out.push_str("    bl GetTickCount64\n");
+        out.push_str("    ldp x29, x30, [sp], #16\n");
+        out.push_str("    ret\n\n");
+    } else {
+        out.push_str("    stp x29, x30, [sp, #-32]!\n");
+        out.push_str("    mov x29, sp\n");
+        let clock_id = if matches!(os, OperatingSystem::MacOS) { 6 } else { 1 };
+        out.push_str(&format!("    mov x0, #{}\n", clock_id));
+        out.push_str("    add x1, sp, #16\n");
+        out.push_str(&format!("    bl {}clock_gettime\n", p));
+        out.push_str("    ldr x0, [sp, #16]\n");
+        out.push_str("    ldr x1, [sp, #24]\n");
+        out.push_str("    mov x2, #1000\n");
+        out.push_str("    mul x0, x0, x2\n");
+        out.push_str("    udiv x1, x1, x2\n");
+        out.push_str("    udiv x1, x1, x2\n");
+        out.push_str("    add x0, x0, x1\n");
+        out.push_str("    ldp x29, x30, [sp], #32\n");
+        out.push_str("    ret\n\n");
     }
-    out.push_str("    ret\n\n");
 
     // Native libc floating-point math functions (single argument)
     let single_arg_math = [

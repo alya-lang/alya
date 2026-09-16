@@ -26,7 +26,9 @@ pub fn emit_header(out: &mut String) {
     out.push_str(".extern getenv\n");
     out.push_str(".extern system\n");
     out.push_str(".extern Sleep\n");
+    out.push_str(".extern GetTickCount\n");
     out.push_str(".extern usleep\n");
+    out.push_str(".extern clock_gettime\n");
     out.push_str(".extern _mkdir\n");
     out.push_str(".extern mkdir\n");
     out.push_str(".extern socket\n");
