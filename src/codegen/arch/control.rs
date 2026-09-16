@@ -118,6 +118,14 @@ pub fn emit_jump_if_zero(out: &mut String, arch: Architecture, label: &str) {
     }
 }
 
+pub fn emit_jump_if_not_zero(out: &mut String, arch: Architecture, label: &str) {
+    match arch {
+        Architecture::ARM64 => arm64::emit_jump_if_not_zero(out, label),
+        Architecture::X64 => x64::emit_jump_if_not_zero(out, label),
+        Architecture::X86 => x86::emit_jump_if_not_zero(out, label),
+    }
+}
+
 pub fn emit_jump(out: &mut String, arch: Architecture, label: &str) {
     match arch {
         Architecture::ARM64 => arm64::emit_jump(out, label),

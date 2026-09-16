@@ -3,6 +3,11 @@ pub fn emit_jump_if_zero(out: &mut String, label: &str) {
     out.push_str(&format!("    jz {}\n", label));
 }
 
+pub fn emit_jump_if_not_zero(out: &mut String, label: &str) {
+    out.push_str("    test %eax, %eax\n");
+    out.push_str(&format!("    jnz {}\n", label));
+}
+
 pub fn emit_jump(out: &mut String, label: &str) {
     out.push_str(&format!("    jmp {}\n", label));
 }

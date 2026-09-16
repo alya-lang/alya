@@ -108,6 +108,38 @@ impl CodeGen {
                 }
             }
             Expr::Binary { left, op, right } => {
+                if *op == BinaryOp::And {
+                    let false_label = self.ctx.next_label();
+                    let end_label = self.ctx.next_label();
+
+                    self.generate_condition_jump_if_false(left, &false_label);
+                    self.generate_condition_jump_if_false(right, &false_label);
+                    arch::emit_load_num(&mut self.output, self.arch, 1);
+                    arch::emit_jump(&mut self.output, self.arch, &end_label);
+
+                    self.output.push_str(&format!("{}:\n", false_label));
+                    arch::emit_load_num(&mut self.output, self.arch, 0);
+
+                    self.output.push_str(&format!("{}:\n", end_label));
+                    return;
+                }
+
+                if *op == BinaryOp::Or {
+                    let true_label = self.ctx.next_label();
+                    let end_label = self.ctx.next_label();
+
+                    self.generate_condition_jump_if_true(left, &true_label);
+                    self.generate_condition_jump_if_true(right, &true_label);
+                    arch::emit_load_num(&mut self.output, self.arch, 0);
+                    arch::emit_jump(&mut self.output, self.arch, &end_label);
+
+                    self.output.push_str(&format!("{}:\n", true_label));
+                    arch::emit_load_num(&mut self.output, self.arch, 1);
+
+                    self.output.push_str(&format!("{}:\n", end_label));
+                    return;
+                }
+
                 if matches!(op, BinaryOp::Add)
                     && (is_string_expr(left, &self.ctx.variables)
                         || is_string_expr(right, &self.ctx.variables))
@@ -119,8 +151,15 @@ impl CodeGen {
                 let left_is_num = matches!(**left, Expr::Number(_) | Expr::Float(_));
                 let right_is_num = matches!(**right, Expr::Number(_) | Expr::Float(_));
 
-                if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
-                    && !left_is_num
+                if matches!(
+                    op,
+                    BinaryOp::Equal
+                        | BinaryOp::NotEqual
+                        | BinaryOp::Less
+                        | BinaryOp::LessEqual
+                        | BinaryOp::Greater
+                        | BinaryOp::GreaterEqual
+                ) && !left_is_num
                     && !right_is_num
                     && (is_string_expr(left, &self.ctx.variables)
                         || is_string_expr(right, &self.ctx.variables))

@@ -441,3 +441,48 @@ say direct
         assert_eq!(output, "8080\n3000\nGuest\nAlice\nFallback\n42\nDirect\n");
     }
 }
+
+#[test]
+fn test_e2e_short_circuiting() {
+    let code = r#"
+// 1. Guard check for null object should not crash (segfault)
+let obj = null
+if obj != null and obj[0] == 1
+    say "unreachable"
+else
+    say "null guard passed"
+end
+
+// 2. Guard check for empty array
+let arr = []
+if len(arr) > 0 and arr[0] == 10
+    say "unreachable"
+else
+    say "array guard passed"
+end
+
+// 3. Or short-circuiting: second operand should not evaluate if first is true
+let y = 1
+if y == 1 or y / 0 == 0
+    say "or short-circuit passed"
+else
+    say "unreachable"
+end
+
+// 4. Short-circuit in expressions
+let flag_and_false = 0 and 1
+let flag_and_true = 1 and 1
+let flag_or_true = 1 or 0
+let flag_or_false = 0 or 0
+say flag_and_false
+say flag_and_true
+say flag_or_true
+say flag_or_false
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "null guard passed\narray guard passed\nor short-circuit passed\n0\n1\n1\n0\n"
+        );
+    }
+}

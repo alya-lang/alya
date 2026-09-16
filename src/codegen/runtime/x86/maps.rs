@@ -72,6 +72,51 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
+    // fn_strcmp
+    out.push_str(".global fn_strcmp\n");
+    out.push_str("fn_strcmp:\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    mov 8(%ebp), %esi\n");
+    out.push_str("    mov 12(%ebp), %edi\n");
+    out.push_str("    cmp %esi, %edi\n");
+    out.push_str("    je .L_x86_strcmp_eq\n");
+    out.push_str("    cmp $65536, %esi\n");
+    out.push_str("    jb .L_x86_strcmp_s1_null\n");
+    out.push_str("    cmp $65536, %edi\n");
+    out.push_str("    jb .L_x86_strcmp_s2_null\n");
+    out.push_str(".L_x86_strcmp_loop:\n");
+    out.push_str("    movzbl (%esi), %eax\n");
+    out.push_str("    movzbl (%edi), %ecx\n");
+    out.push_str("    cmp %al, %cl\n");
+    out.push_str("    jne .L_x86_strcmp_diff\n");
+    out.push_str("    test %al, %al\n");
+    out.push_str("    jz .L_x86_strcmp_eq\n");
+    out.push_str("    inc %esi\n");
+    out.push_str("    inc %edi\n");
+    out.push_str("    jmp .L_x86_strcmp_loop\n");
+    out.push_str(".L_x86_strcmp_diff:\n");
+    out.push_str("    sub %ecx, %eax\n");
+    out.push_str("    jmp .L_x86_strcmp_end\n");
+    out.push_str(".L_x86_strcmp_s1_null:\n");
+    out.push_str("    cmp $65536, %edi\n");
+    out.push_str("    jb .L_x86_strcmp_eq\n");
+    out.push_str("    mov $-1, %eax\n");
+    out.push_str("    jmp .L_x86_strcmp_end\n");
+    out.push_str(".L_x86_strcmp_s2_null:\n");
+    out.push_str("    mov $1, %eax\n");
+    out.push_str("    jmp .L_x86_strcmp_end\n");
+    out.push_str(".L_x86_strcmp_eq:\n");
+    out.push_str("    xor %eax, %eax\n");
+    out.push_str(".L_x86_strcmp_end:\n");
+    out.push_str("    pop %edi\n");
+    out.push_str("    pop %esi\n");
+    out.push_str("    mov %ebp, %esp\n");
+    out.push_str("    pop %ebp\n");
+    out.push_str("    ret\n\n");
+
     // fn_map
     out.push_str("fn_map:\n");
     out.push_str("    push %ebp\n");

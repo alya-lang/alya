@@ -151,9 +151,27 @@ pub fn emit_for_each_load_element(
 pub fn emit_string_equality_call(out: &mut String, op: BinaryOp) {
     out.push_str("    mov x1, x0\n");
     out.push_str("    ldr x0, [sp], #16\n");
-    out.push_str("    bl fn_streq\n");
-    if matches!(op, BinaryOp::NotEqual) {
-        out.push_str("    eor x0, x0, #1\n");
+    out.push_str("    bl fn_strcmp\n");
+    match op {
+        BinaryOp::Equal => {
+            out.push_str("    cmp x0, #0\n    cset x0, eq\n");
+        }
+        BinaryOp::NotEqual => {
+            out.push_str("    cmp x0, #0\n    cset x0, ne\n");
+        }
+        BinaryOp::Less => {
+            out.push_str("    cmp x0, #0\n    cset x0, lt\n");
+        }
+        BinaryOp::LessEqual => {
+            out.push_str("    cmp x0, #0\n    cset x0, le\n");
+        }
+        BinaryOp::Greater => {
+            out.push_str("    cmp x0, #0\n    cset x0, gt\n");
+        }
+        BinaryOp::GreaterEqual => {
+            out.push_str("    cmp x0, #0\n    cset x0, ge\n");
+        }
+        _ => {}
     }
 }
 

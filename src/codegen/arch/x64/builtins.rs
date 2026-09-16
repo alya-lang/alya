@@ -261,7 +261,7 @@ pub fn emit_string_equality_call(
         out.push_str("    pop %rcx\n");
         let padding = if stack_offset % 16 == 0 { 32 } else { 40 };
         out.push_str(&format!("    sub ${}, %rsp\n", padding));
-        out.push_str("    call fn_streq\n");
+        out.push_str("    call fn_strcmp\n");
         out.push_str(&format!("    add ${}, %rsp\n", padding));
     } else {
         out.push_str("    mov %rax, %rsi\n");
@@ -270,13 +270,31 @@ pub fn emit_string_equality_call(
         if misaligned {
             out.push_str("    sub $8, %rsp\n");
         }
-        out.push_str("    call fn_streq\n");
+        out.push_str("    call fn_strcmp\n");
         if misaligned {
             out.push_str("    add $8, %rsp\n");
         }
     }
-    if matches!(op, BinaryOp::NotEqual) {
-        out.push_str("    xor $1, %rax\n");
+    match op {
+        BinaryOp::Equal => {
+            out.push_str("    test %rax, %rax\n    sete %al\n    movzbq %al, %rax\n");
+        }
+        BinaryOp::NotEqual => {
+            out.push_str("    test %rax, %rax\n    setne %al\n    movzbq %al, %rax\n");
+        }
+        BinaryOp::Less => {
+            out.push_str("    cmp $0, %rax\n    setl %al\n    movzbq %al, %rax\n");
+        }
+        BinaryOp::LessEqual => {
+            out.push_str("    cmp $0, %rax\n    setle %al\n    movzbq %al, %rax\n");
+        }
+        BinaryOp::Greater => {
+            out.push_str("    cmp $0, %rax\n    setg %al\n    movzbq %al, %rax\n");
+        }
+        BinaryOp::GreaterEqual => {
+            out.push_str("    cmp $0, %rax\n    setge %al\n    movzbq %al, %rax\n");
+        }
+        _ => {}
     }
 }
 

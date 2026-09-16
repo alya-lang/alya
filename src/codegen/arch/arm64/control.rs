@@ -5,6 +5,10 @@ pub fn emit_jump_if_zero(out: &mut String, label: &str) {
     out.push_str(&format!("    cbz x0, {}\n", label));
 }
 
+pub fn emit_jump_if_not_zero(out: &mut String, label: &str) {
+    out.push_str(&format!("    cbnz x0, {}\n", label));
+}
+
 pub fn emit_jump(out: &mut String, label: &str) {
     out.push_str(&format!("    b {}\n", label));
 }

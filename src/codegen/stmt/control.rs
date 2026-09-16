@@ -11,6 +11,20 @@ impl CodeGen {
         target_label: &str,
     ) {
         if let Expr::Binary { left, op, right } = condition {
+            if *op == BinaryOp::And {
+                self.generate_condition_jump_if_false(left, target_label);
+                self.generate_condition_jump_if_false(right, target_label);
+                return;
+            }
+
+            if *op == BinaryOp::Or {
+                let pass_label = self.ctx.next_label();
+                self.generate_condition_jump_if_true(left, &pass_label);
+                self.generate_condition_jump_if_false(right, target_label);
+                self.output.push_str(&format!("{}:\n", pass_label));
+                return;
+            }
+
             let is_cmp = matches!(
                 op,
                 BinaryOp::Equal
@@ -122,6 +136,135 @@ impl CodeGen {
 
         self.generate_expression(condition);
         arch::emit_jump_if_zero(&mut self.output, self.arch, target_label);
+    }
+
+    pub(crate) fn generate_condition_jump_if_true(&mut self, condition: &Expr, target_label: &str) {
+        if let Expr::Binary { left, op, right } = condition {
+            if *op == BinaryOp::Or {
+                self.generate_condition_jump_if_true(left, target_label);
+                self.generate_condition_jump_if_true(right, target_label);
+                return;
+            }
+
+            if *op == BinaryOp::And {
+                let fail_label = self.ctx.next_label();
+                self.generate_condition_jump_if_false(left, &fail_label);
+                self.generate_condition_jump_if_true(right, target_label);
+                self.output.push_str(&format!("{}:\n", fail_label));
+                return;
+            }
+
+            let is_cmp = matches!(
+                op,
+                BinaryOp::Equal
+                    | BinaryOp::NotEqual
+                    | BinaryOp::Less
+                    | BinaryOp::LessEqual
+                    | BinaryOp::Greater
+                    | BinaryOp::GreaterEqual
+            );
+            if is_cmp
+                && !is_string_expr(left, &self.ctx.variables)
+                && !is_string_expr(right, &self.ctx.variables)
+            {
+                let left_is_flt = is_float_expr(left, &self.ctx.variables);
+                let right_is_flt = is_float_expr(right, &self.ctx.variables);
+                if left_is_flt || right_is_flt {
+                    self.generate_expression(left);
+                    if !left_is_flt {
+                        arch::emit_int_to_float(&mut self.output, self.arch);
+                    }
+                    if let Expr::Float(n) = &**right {
+                        arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n);
+                    } else if let Expr::Number(n) = &**right {
+                        arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n);
+                    } else if let Some(&VarType::Float(offset)) = match &**right {
+                        Expr::Identifier(var_name) => self.ctx.variables.get(var_name),
+                        _ => None,
+                    } {
+                        arch::emit_load_var_to_scratch(&mut self.output, self.arch, offset, true);
+                        arch::emit_float_cmp_reg(&mut self.output, self.arch);
+                        arch::emit_float_cond_jump(
+                            &mut self.output,
+                            self.arch,
+                            *op,
+                            false,
+                            target_label,
+                        );
+                        return;
+                    } else {
+                        arch::emit_push_temp(&mut self.output, self.arch);
+                        self.generate_expression(right);
+                        if !right_is_flt {
+                            arch::emit_int_to_float(&mut self.output, self.arch);
+                        }
+                        arch::emit_float_binary_op(&mut self.output, self.arch, *op);
+                    }
+                    arch::emit_jump_if_not_zero(&mut self.output, self.arch, target_label);
+                    return;
+                }
+
+                if let Expr::Number(n) = &**right {
+                    self.generate_expression(left);
+                    arch::emit_cmp_imm(&mut self.output, self.arch, *n as i64);
+                    arch::emit_cond_jump(&mut self.output, self.arch, *op, false, target_label);
+                    return;
+                }
+                if let Expr::Identifier(var_name) = &**right {
+                    if let Some(&VarType::Number(offset)) = self.ctx.variables.get(var_name) {
+                        self.generate_expression(left);
+                        arch::emit_load_var_to_scratch(&mut self.output, self.arch, offset, false);
+                        arch::emit_cmp_reg(&mut self.output, self.arch);
+                        arch::emit_cond_jump(&mut self.output, self.arch, *op, false, target_label);
+                        return;
+                    }
+                }
+                if let Expr::Number(n) = &**left {
+                    self.generate_expression(right);
+                    arch::emit_cmp_imm(&mut self.output, self.arch, *n as i64);
+                    let swapped_op = match op {
+                        BinaryOp::Less => BinaryOp::Greater,
+                        BinaryOp::LessEqual => BinaryOp::GreaterEqual,
+                        BinaryOp::Greater => BinaryOp::Less,
+                        BinaryOp::GreaterEqual => BinaryOp::LessEqual,
+                        other => *other,
+                    };
+                    arch::emit_cond_jump(
+                        &mut self.output,
+                        self.arch,
+                        swapped_op,
+                        false,
+                        target_label,
+                    );
+                    return;
+                }
+                if let Expr::Identifier(var_name) = &**left {
+                    if let Some(&VarType::Number(offset)) = self.ctx.variables.get(var_name) {
+                        self.generate_expression(right);
+                        arch::emit_load_var_to_scratch(&mut self.output, self.arch, offset, false);
+                        arch::emit_cmp_reg(&mut self.output, self.arch);
+                        let swapped_op = match op {
+                            BinaryOp::Less => BinaryOp::Greater,
+                            BinaryOp::LessEqual => BinaryOp::GreaterEqual,
+                            BinaryOp::Greater => BinaryOp::Less,
+                            BinaryOp::GreaterEqual => BinaryOp::LessEqual,
+                            other => *other,
+                        };
+                        arch::emit_cond_jump(
+                            &mut self.output,
+                            self.arch,
+                            swapped_op,
+                            false,
+                            target_label,
+                        );
+                        return;
+                    }
+                }
+            }
+        }
+
+        self.generate_expression(condition);
+        arch::emit_jump_if_not_zero(&mut self.output, self.arch, target_label);
     }
 
     pub(super) fn generate_if(

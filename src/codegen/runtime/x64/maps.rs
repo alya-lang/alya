@@ -76,6 +76,52 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
+    // fn_strcmp
+    out.push_str(".global fn_strcmp\n");
+    out.push_str("fn_strcmp:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %rcx, %r8\n");
+        out.push_str("    mov %rdx, %r9\n");
+    } else {
+        out.push_str("    mov %rdi, %r8\n");
+        out.push_str("    mov %rsi, %r9\n");
+    }
+    out.push_str("    cmp %r8, %r9\n");
+    out.push_str("    je .L_x64_strcmp_eq\n");
+    out.push_str("    cmp $65536, %r8\n");
+    out.push_str("    jb .L_x64_strcmp_s1_null\n");
+    out.push_str("    cmp $65536, %r9\n");
+    out.push_str("    jb .L_x64_strcmp_s2_null\n");
+    out.push_str(".L_x64_strcmp_loop:\n");
+    out.push_str("    movzbq (%r8), %rax\n");
+    out.push_str("    movzbq (%r9), %rcx\n");
+    out.push_str("    cmp %al, %cl\n");
+    out.push_str("    jne .L_x64_strcmp_diff\n");
+    out.push_str("    test %al, %al\n");
+    out.push_str("    jz .L_x64_strcmp_eq\n");
+    out.push_str("    inc %r8\n");
+    out.push_str("    inc %r9\n");
+    out.push_str("    jmp .L_x64_strcmp_loop\n");
+    out.push_str(".L_x64_strcmp_diff:\n");
+    out.push_str("    sub %rcx, %rax\n");
+    out.push_str("    jmp .L_x64_strcmp_end\n");
+    out.push_str(".L_x64_strcmp_s1_null:\n");
+    out.push_str("    cmp $65536, %r9\n");
+    out.push_str("    jb .L_x64_strcmp_eq\n");
+    out.push_str("    mov $-1, %rax\n");
+    out.push_str("    jmp .L_x64_strcmp_end\n");
+    out.push_str(".L_x64_strcmp_s2_null:\n");
+    out.push_str("    mov $1, %rax\n");
+    out.push_str("    jmp .L_x64_strcmp_end\n");
+    out.push_str(".L_x64_strcmp_eq:\n");
+    out.push_str("    xor %rax, %rax\n");
+    out.push_str(".L_x64_strcmp_end:\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
     // fn_map
     out.push_str(".global fn_map\n");
     out.push_str("fn_map:\n");

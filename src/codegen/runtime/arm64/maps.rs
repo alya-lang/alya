@@ -52,6 +52,39 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x0, #0\n");
     out.push_str("    ret\n\n");
 
+    // fn_strcmp
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_strcmp\n");
+    out.push_str("fn_strcmp:\n");
+    out.push_str("    cmp x0, x1\n");
+    out.push_str("    b.eq .L_arm64_strcmp_eq\n");
+    out.push_str("    cmp x0, #65536\n");
+    out.push_str("    b.lo .L_arm64_strcmp_s1_null\n");
+    out.push_str("    cmp x1, #65536\n");
+    out.push_str("    b.lo .L_arm64_strcmp_s2_null\n");
+    out.push_str(".L_arm64_strcmp_loop:\n");
+    out.push_str("    ldrb w9, [x0], #1\n");
+    out.push_str("    ldrb w10, [x1], #1\n");
+    out.push_str("    cmp w9, w10\n");
+    out.push_str("    b.ne .L_arm64_strcmp_diff\n");
+    out.push_str("    cbz w9, .L_arm64_strcmp_eq\n");
+    out.push_str("    b .L_arm64_strcmp_loop\n");
+    out.push_str(".L_arm64_strcmp_diff:\n");
+    out.push_str("    sub w0, w9, w10\n");
+    out.push_str("    sxtw x0, w0\n");
+    out.push_str("    ret\n");
+    out.push_str(".L_arm64_strcmp_s1_null:\n");
+    out.push_str("    cmp x1, #65536\n");
+    out.push_str("    b.lo .L_arm64_strcmp_eq\n");
+    out.push_str("    mov x0, #-1\n");
+    out.push_str("    ret\n");
+    out.push_str(".L_arm64_strcmp_s2_null:\n");
+    out.push_str("    mov x0, #1\n");
+    out.push_str("    ret\n");
+    out.push_str(".L_arm64_strcmp_eq:\n");
+    out.push_str("    mov x0, #0\n");
+    out.push_str("    ret\n\n");
+
     // fn_map
     out.push_str(".align 2\n");
     out.push_str(".global fn_map\n");

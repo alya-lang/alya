@@ -146,10 +146,28 @@ pub fn emit_for_each_load_element(
 
 pub fn emit_string_equality_call(out: &mut String, op: BinaryOp) {
     out.push_str("    push %eax\n");
-    out.push_str("    call fn_streq\n");
+    out.push_str("    call fn_strcmp\n");
     out.push_str("    add $8, %esp\n");
-    if matches!(op, BinaryOp::NotEqual) {
-        out.push_str("    xor $1, %eax\n");
+    match op {
+        BinaryOp::Equal => {
+            out.push_str("    test %eax, %eax\n    sete %al\n    movzbl %al, %eax\n");
+        }
+        BinaryOp::NotEqual => {
+            out.push_str("    test %eax, %eax\n    setne %al\n    movzbl %al, %eax\n");
+        }
+        BinaryOp::Less => {
+            out.push_str("    cmp $0, %eax\n    setl %al\n    movzbl %al, %eax\n");
+        }
+        BinaryOp::LessEqual => {
+            out.push_str("    cmp $0, %eax\n    setle %al\n    movzbl %al, %eax\n");
+        }
+        BinaryOp::Greater => {
+            out.push_str("    cmp $0, %eax\n    setg %al\n    movzbl %al, %eax\n");
+        }
+        BinaryOp::GreaterEqual => {
+            out.push_str("    cmp $0, %eax\n    setge %al\n    movzbl %al, %eax\n");
+        }
+        _ => {}
     }
 }
 
