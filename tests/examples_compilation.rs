@@ -421,46 +421,6 @@ fn test_all_examples_execute_with_gcc() {
             continue;
         }
 
-        if example_name == "all.alya" {
-            assert!(
-                actual_stdout.contains("=== [1] ENUMS (Enumerations) ==="),
-                "all.alya missing enums section:\n{}",
-                actual_stdout
-            );
-            assert!(
-                actual_stdout.contains("=== [2] CONSTANTS (const) ==="),
-                "all.alya missing constants section:\n{}",
-                actual_stdout
-            );
-            assert!(
-                actual_stdout.contains("=== [3] STRUCT DEFAULT VALUES ==="),
-                "all.alya missing struct defaults section:\n{}",
-                actual_stdout
-            );
-            assert!(
-                actual_stdout.contains("=== [4] VARIABLE SWAP & MULTI-ASSIGNMENT ==="),
-                "all.alya missing swap section:\n{}",
-                actual_stdout
-            );
-            assert!(
-                actual_stdout.contains("=== [5] GRADUAL TYPING ==="),
-                "all.alya missing gradual typing section:\n{}",
-                actual_stdout
-            );
-            assert!(
-                actual_stdout.contains("=== [6] MONOTONIC CLOCK (clock_ms) ==="),
-                "all.alya missing clock section:\n{}",
-                actual_stdout
-            );
-            assert!(
-                actual_stdout
-                    .contains("=== All Alya v0.0.18 features demonstrated successfully! ==="),
-                "all.alya missing completion marker:\n{}",
-                actual_stdout
-            );
-            continue;
-        }
-
         let expected = get_expected_output(example_name).unwrap_or_else(|| {
             panic!(
                 "Missing expected output definition for example '{}'!",
