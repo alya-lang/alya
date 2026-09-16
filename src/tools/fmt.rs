@@ -411,6 +411,97 @@ fn scan_line_multiline_state(
     state
 }
 
+fn is_comment_group_preceded_by_blank(lines: &[&str], current_idx: usize) -> bool {
+    let mut i = current_idx;
+    while i > 0 {
+        i -= 1;
+        let t = lines[i].trim();
+        if t.is_empty() {
+            return true;
+        }
+        let c = strip_line_comment(t);
+        if !c.is_empty() {
+            return false;
+        }
+    }
+    true
+}
+
+fn determine_comment_indent(
+    lines: &[&str],
+    current_idx: usize,
+    raw_line: &str,
+    preceded_by_blank: bool,
+    block_stack: &[BlockKind],
+) -> usize {
+    let default_indent = block_stack.len();
+    if default_indent == 0 {
+        return 0;
+    }
+
+    // Look ahead for the next non-empty, non-comment code line
+    let mut next_code = None;
+    for &future_line in &lines[current_idx + 1..] {
+        let f_trimmed = future_line.trim();
+        if f_trimmed.is_empty() {
+            continue;
+        }
+        let f_code = strip_line_comment(f_trimmed);
+        if f_code.is_empty() {
+            continue;
+        }
+        next_code = Some(f_code);
+        break;
+    }
+
+    let Some(nc) = next_code else {
+        return default_indent;
+    };
+
+    let f_first_word = nc.split_whitespace().next().unwrap_or("");
+    let is_elif = f_first_word == "elif" || nc.starts_with("elif(");
+    let is_else = f_first_word == "else";
+    let is_catch = f_first_word == "catch" || nc.starts_with("catch(");
+    let is_finally = f_first_word == "finally" || nc.starts_with("finally(");
+    let is_is = f_first_word == "is" || nc.starts_with("is(");
+
+    // Find effective top block kind, ignoring Brace and Bracket
+    let effective_top = block_stack
+        .iter()
+        .rev()
+        .find(|&&b| b != BlockKind::Brace && b != BlockKind::Bracket);
+
+    let is_continuation = match effective_top {
+        Some(BlockKind::If) => is_elif || is_else,
+        Some(BlockKind::Try) => is_catch || is_finally,
+        Some(BlockKind::WhenArm) => is_is || is_else,
+        _ => false,
+    };
+
+    if !is_continuation {
+        return default_indent;
+    }
+
+    let continuation_indent = default_indent.saturating_sub(1);
+
+    // Measure original indentation of this comment line (tabs counted as 4 spaces)
+    let original_indent_spaces: usize = raw_line
+        .chars()
+        .take_while(|c| c.is_whitespace())
+        .map(|c| if c == '\t' { 4 } else { 1 })
+        .sum();
+
+    let group_preceded_by_blank =
+        preceded_by_blank || is_comment_group_preceded_by_blank(lines, current_idx);
+
+    // If author aligned with outer continuation block (or unindented), or if preceded by a blank line:
+    if original_indent_spaces <= continuation_indent * 4 || group_preceded_by_blank {
+        continuation_indent
+    } else {
+        default_indent
+    }
+}
+
 /// Formats the given Alya source code string.
 pub fn format_source(source: &str) -> Result<String, String> {
     let lines: Vec<&str> = source.lines().collect();
@@ -419,7 +510,7 @@ pub fn format_source(source: &str) -> Result<String, String> {
     let mut multiline_state: Option<MultilineLiteralState> = None;
     let mut prev_was_empty = false;
 
-    for line in lines {
+    for (line_idx, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
 
         // 1. Multiline literal handling (string or comment): preserve lines verbatim
@@ -438,13 +529,16 @@ pub fn format_source(source: &str) -> Result<String, String> {
             }
             continue;
         }
+        let preceded_by_blank = prev_was_empty;
         prev_was_empty = false;
 
         let code = strip_line_comment(trimmed);
 
-        // Pure comment line: preserve comment indentation with current block level
+        // Pure comment line: preserve comment indentation with current block level or continuation branch
         if code.is_empty() {
-            let indent = " ".repeat(block_stack.len() * 4);
+            let indent_level =
+                determine_comment_indent(&lines, line_idx, line, preceded_by_blank, &block_stack);
+            let indent = " ".repeat(indent_level * 4);
             formatted_lines.push(format!("{}{}", indent, trimmed));
             multiline_state = scan_line_multiline_state(trimmed, None);
             continue;
@@ -942,6 +1036,87 @@ end
     function sqlite3_sourceid() -> str
     function sqlite3_open(filename: str, pp_db: ptr) -> i32
     function sqlite3_close(db: ptr) -> i32
+end
+"#;
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_comment_before_elif_preserved() {
+        let input = r#"function check(cp)
+    # Wide CJK
+    if cp >= 4352
+        count += 2
+    # Common 3-byte Emojis
+    elif cp >= 9200
+        count += 2
+    else
+        count += 1
+    end
+end
+"#;
+        let expected = r#"function check(cp)
+    # Wide CJK
+    if cp >= 4352
+        count += 2
+    # Common 3-byte Emojis
+    elif cp >= 9200
+        count += 2
+    else
+        count += 1
+    end
+end
+"#;
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_comment_inside_if_preserved() {
+        let input = r#"function check(cp)
+    if cp >= 4352
+        count += 2
+        # note: strictly inside if
+    elif cp >= 9200
+        count += 2
+    end
+end
+"#;
+        let expected = r#"function check(cp)
+    if cp >= 4352
+        count += 2
+        # note: strictly inside if
+    elif cp >= 9200
+        count += 2
+    end
+end
+"#;
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_comment_before_else_and_catch() {
+        let input = r#"function run()
+    try
+        connect()
+    # Handle connection error
+    catch e
+        log(e)
+    # Cleanup always
+    finally
+        cleanup()
+    end
+end
+"#;
+        let expected = r#"function run()
+    try
+        connect()
+    # Handle connection error
+    catch e
+        log(e)
+    # Cleanup always
+    finally
+        cleanup()
+    end
 end
 "#;
         assert_eq!(format_source(input).unwrap(), expected);
