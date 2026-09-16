@@ -1556,28 +1556,14 @@ impl CodeGen {
             }
             "string" | "str" => {
                 let is_str = is_string_expr(expr, &self.ctx.variables);
-                let is_def_non = is_float_expr(expr, &self.ctx.variables)
-                    || is_array_expr(expr, &self.ctx.variables)
-                    || is_map_expr(expr, &self.ctx.variables)
-                    || is_null_expr(expr, &self.ctx.variables);
                 let result = if is_str {
                     if negated {
                         0
                     } else {
                         1
                     }
-                } else if is_def_non {
-                    if negated {
-                        1
-                    } else {
-                        0
-                    }
                 } else {
-                    if negated {
-                        1
-                    } else {
-                        0
-                    }
+                    if negated { 1 } else { 0 }
                 };
                 arch::emit_load_num(&mut self.output, self.arch, result);
             }

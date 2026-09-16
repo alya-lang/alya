@@ -151,23 +151,21 @@ pub fn resolve_enums_in_expr(expr: &mut Expr, enums: &HashMap<String, HashMap<St
                 if let Some(variants) = enums.get(name).or_else(|| enums.get(bare)) {
                     if let Some(val) = variants.get(field) {
                         *expr = val.clone();
-                        return;
                     }
                 }
             }
         }
-        Expr::Identifier(ident) => {
-            if ident.contains("::") {
-                let parts: Vec<&str> = ident.split("::").collect();
-                if parts.len() >= 2 {
-                    let variant_name = parts.last().unwrap();
-                    let enum_name = parts[..parts.len() - 1].join("::");
-                    let bare_enum = parts[parts.len() - 2];
-                    if let Some(variants) = enums.get(&enum_name).or_else(|| enums.get(bare_enum)) {
-                        if let Some(val) = variants.get(*variant_name) {
-                            *expr = val.clone();
-                            return;
-                        }
+        Expr::Identifier(ident)
+            if ident.contains("::") =>
+        {
+            let parts: Vec<&str> = ident.split("::").collect();
+            if parts.len() >= 2 {
+                let variant_name = parts.last().unwrap();
+                let enum_name = parts[..parts.len() - 1].join("::");
+                let bare_enum = parts[parts.len() - 2];
+                if let Some(variants) = enums.get(&enum_name).or_else(|| enums.get(bare_enum)) {
+                    if let Some(val) = variants.get(*variant_name) {
+                        *expr = val.clone();
                     }
                 }
             }

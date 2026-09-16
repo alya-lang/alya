@@ -231,6 +231,7 @@ pub fn emit_print_struct(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn emit_for_each_load_element(
     out: &mut String,
     arch: Architecture,

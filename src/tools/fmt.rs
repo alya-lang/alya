@@ -330,8 +330,8 @@ fn get_block_starter(code: &str, in_extern: bool) -> Option<BlockKind> {
     }
 
     let code_trimmed = code.trim();
-    let code_after_pub = if code_trimmed.starts_with("pub ") {
-        code_trimmed["pub ".len()..].trim_start()
+    let code_after_pub = if let Some(stripped) = code_trimmed.strip_prefix("pub ") {
+        stripped.trim_start()
     } else {
         code_trimmed
     };

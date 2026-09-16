@@ -252,13 +252,10 @@ fn resolve_expr(expr: &mut Expr, stack: &ScopeStack) {
         Expr::Identifier(ident) => {
             if let Some(val) = stack.get_const(ident) {
                 *expr = val.clone();
-                return;
-            }
-            if ident.contains("::") {
+            } else if ident.contains("::") {
                 let bare = ident.rsplit("::").next().unwrap_or(ident);
                 if let Some(val) = stack.get_const(bare) {
                     *expr = val.clone();
-                    return;
                 }
             }
         }
@@ -272,7 +269,6 @@ fn resolve_expr(expr: &mut Expr, stack: &ScopeStack) {
                     .or_else(|| stack.get_const(&scoped_dot))
                 {
                     *expr = val.clone();
-                    return;
                 }
             }
         }

@@ -125,6 +125,7 @@ pub fn emit_print_struct(out: &mut String) {
     out.push_str("    add $4, %esp\n");
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn emit_for_each_load_element(
     out: &mut String,
     arr_offset: i32,

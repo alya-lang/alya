@@ -152,7 +152,7 @@ impl Parser {
             if matches!(self.current_token().token_type, TokenType::Not)
                 && self
                     .peek_token()
-                    .map_or(false, |t| matches!(t.token_type, TokenType::In))
+                    .is_some_and(|t| matches!(t.token_type, TokenType::In))
             {
                 self.advance(); // not / !
                 self.advance(); // in
@@ -394,18 +394,13 @@ impl Parser {
                 || (matches!(self.current_token().token_type, TokenType::Question)
                     && self
                         .peek_token()
-                        .map_or(false, |t| matches!(t.token_type, TokenType::LeftBracket)))
+                        .is_some_and(|t| matches!(t.token_type, TokenType::LeftBracket)))
             {
                 let is_qdot = matches!(self.current_token().token_type, TokenType::QuestionDot);
                 self.advance();
-                if (is_qdot && matches!(self.current_token().token_type, TokenType::LeftBracket))
-                    || !is_qdot
+                if !is_qdot || matches!(self.current_token().token_type, TokenType::LeftBracket)
                 {
-                    if is_qdot {
-                        self.advance();
-                    } else {
-                        self.advance();
-                    }
+                    self.advance();
                     if matches!(
                         self.current_token().token_type,
                         TokenType::DotDot | TokenType::Colon

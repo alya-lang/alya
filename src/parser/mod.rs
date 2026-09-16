@@ -34,7 +34,7 @@ impl Parser {
             self.skip_newlines();
         }
 
-        statements.extend(self.lambda_functions.drain(..));
+        statements.append(&mut self.lambda_functions);
 
         let mut program = Program { statements };
         expand_default_args(&mut program);

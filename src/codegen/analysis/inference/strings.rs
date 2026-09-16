@@ -773,9 +773,7 @@ fn collect_string_vars_from_stmts(
                     } else if expr_is_string_array(iterable, known_strings) {
                         known_strings.insert(v.clone());
                     }
-                } else if is_map {
-                    known_strings.insert(var.clone());
-                } else if expr_is_string_array(iterable, known_strings) {
+                } else if is_map || expr_is_string_array(iterable, known_strings) {
                     known_strings.insert(var.clone());
                 }
                 collect_string_vars_from_stmts(body, struct_defs, known_strings);

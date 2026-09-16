@@ -130,6 +130,7 @@ pub fn emit_print_struct(out: &mut String) {
     out.push_str("    bl alya_print_struct\n");
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn emit_for_each_load_element(
     out: &mut String,
     arr_offset: i32,
