@@ -825,6 +825,9 @@ fn expand_defaults_in_expr(
                 expand_defaults_in_expr(part, fn_defs);
             }
         }
+        Expr::TypeCheck { expr, .. } => {
+            expand_defaults_in_expr(expr, fn_defs);
+        }
         _ => {}
     }
 }

@@ -845,3 +845,56 @@ say bonus
         assert_eq!(output, "two\nB\nodd small\nNot Found\n40\n");
     }
 }
+
+#[test]
+fn test_e2e_type_check() {
+    let code = r#"
+# 1. Null check
+let a = null
+let b = 10
+say a is null
+say a is not null
+say b is null
+say b is not null
+
+# 2. String check
+let s = "hello"
+let n = 42
+say s is string
+say s is not string
+say n is string
+
+# 3. Number / Int check
+say n is int
+say n is number
+say s is number
+
+# 4. Array check
+let arr = [1, 2, 3]
+say arr is array
+say arr is not array
+say n is array
+
+# 5. Map check
+let m = { "a": 1 }
+say m is map
+say m is not map
+say arr is map
+
+# 6. Inside conditionals
+if s is string
+    say "s is indeed string"
+end
+if a is not null
+    say "should not print"
+else
+    say "a is null indeed"
+end
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "1\n0\n0\n1\n1\n0\n0\n1\n1\n0\n1\n0\n0\n1\n0\n0\ns is indeed string\na is null indeed\n"
+        );
+    }
+}

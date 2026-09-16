@@ -164,6 +164,33 @@ impl Parser {
                 };
                 continue;
             }
+            if matches!(self.current_token().token_type, TokenType::Is) {
+                self.advance(); // skip 'is'
+                let negated = if matches!(self.current_token().token_type, TokenType::Not) {
+                    self.advance(); // skip 'not'
+                    true
+                } else {
+                    false
+                };
+                let target_type = match &self.current_token().token_type {
+                    TokenType::Identifier(id) => id.clone(),
+                    TokenType::Null => "null".to_string(),
+                    _ => {
+                        return Err(format!(
+                            "Expected type name after 'is' at line {}, column {}",
+                            self.current_token().line,
+                            self.current_token().column
+                        ));
+                    }
+                };
+                self.advance();
+                left = Expr::TypeCheck {
+                    expr: Box::new(left),
+                    target: target_type,
+                    negated,
+                };
+                continue;
+            }
 
             let op = match &self.current_token().token_type {
                 TokenType::Equal => Some(BinaryOp::Equal),

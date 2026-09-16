@@ -54,6 +54,11 @@ pub enum Expr {
         callee: String,
         args: Vec<Expr>,
     },
+    TypeCheck {
+        expr: Box<Expr>,
+        target: String,
+        negated: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

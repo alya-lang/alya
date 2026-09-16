@@ -1530,6 +1530,177 @@ impl CodeGen {
                 }
                 self.output.push_str(&format!("{}:\n", end_label));
             }
+            Expr::TypeCheck {
+                expr,
+                target,
+                negated,
+            } => {
+                self.generate_type_check(expr, target, *negated);
+            }
+        }
+    }
+
+    fn generate_type_check(&mut self, expr: &Expr, target: &str, negated: bool) {
+        let t = target.to_lowercase();
+        match t.as_str() {
+            "null" | "nil" => {
+                self.generate_expression(&Expr::Binary {
+                    left: Box::new(expr.clone()),
+                    op: if negated {
+                        BinaryOp::NotEqual
+                    } else {
+                        BinaryOp::Equal
+                    },
+                    right: Box::new(Expr::Null),
+                });
+            }
+            "string" | "str" => {
+                let is_str = is_string_expr(expr, &self.ctx.variables);
+                let is_def_non = is_float_expr(expr, &self.ctx.variables)
+                    || is_array_expr(expr, &self.ctx.variables)
+                    || is_map_expr(expr, &self.ctx.variables)
+                    || is_null_expr(expr, &self.ctx.variables);
+                let result = if is_str {
+                    if negated { 0 } else { 1 }
+                } else if is_def_non {
+                    if negated { 1 } else { 0 }
+                } else {
+                    if negated { 1 } else { 0 }
+                };
+                arch::emit_load_num(&mut self.output, self.arch, result);
+            }
+            "array" | "list" => {
+                let is_arr = is_array_expr(expr, &self.ctx.variables);
+                let is_def_non = is_string_expr(expr, &self.ctx.variables)
+                    || is_map_expr(expr, &self.ctx.variables)
+                    || is_float_expr(expr, &self.ctx.variables)
+                    || is_null_expr(expr, &self.ctx.variables);
+                if is_arr {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
+                } else if is_def_non {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 1 } else { 0 });
+                } else {
+                    self.emit_runtime_tag_check(expr, 0x5A110001, negated);
+                }
+            }
+            "map" | "dict" => {
+                let is_map = is_map_expr(expr, &self.ctx.variables);
+                let is_def_non = is_string_expr(expr, &self.ctx.variables)
+                    || is_array_expr(expr, &self.ctx.variables)
+                    || is_float_expr(expr, &self.ctx.variables)
+                    || is_null_expr(expr, &self.ctx.variables);
+                if is_map {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
+                } else if is_def_non {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 1 } else { 0 });
+                } else {
+                    self.emit_runtime_tag_check(expr, 0x5A110002, negated);
+                }
+            }
+            "float" => {
+                let is_flt = is_float_expr(expr, &self.ctx.variables);
+                let result = if is_flt {
+                    if negated { 0 } else { 1 }
+                } else {
+                    if negated { 1 } else { 0 }
+                };
+                arch::emit_load_num(&mut self.output, self.arch, result);
+            }
+            "int" | "integer" | "number" => {
+                let is_non = is_string_expr(expr, &self.ctx.variables)
+                    || is_float_expr(expr, &self.ctx.variables)
+                    || is_array_expr(expr, &self.ctx.variables)
+                    || is_map_expr(expr, &self.ctx.variables)
+                    || is_null_expr(expr, &self.ctx.variables);
+                let result = if !is_non {
+                    if negated { 0 } else { 1 }
+                } else {
+                    if negated { 1 } else { 0 }
+                };
+                arch::emit_load_num(&mut self.output, self.arch, result);
+            }
+            "bool" | "boolean" => {
+                let is_non = is_string_expr(expr, &self.ctx.variables)
+                    || is_float_expr(expr, &self.ctx.variables)
+                    || is_array_expr(expr, &self.ctx.variables)
+                    || is_map_expr(expr, &self.ctx.variables)
+                    || is_null_expr(expr, &self.ctx.variables);
+                let result = if !is_non {
+                    if negated { 0 } else { 1 }
+                } else {
+                    if negated { 1 } else { 0 }
+                };
+                arch::emit_load_num(&mut self.output, self.arch, result);
+            }
+            _ => {
+                let struct_matches = match expr {
+                    Expr::Identifier(id) => match self.ctx.variables.get(id) {
+                        Some(VarType::Struct { struct_name, .. }) => {
+                            struct_name == target || struct_name.ends_with(&format!("::{}", target))
+                        }
+                        _ => false,
+                    },
+                    _ => false,
+                };
+                if struct_matches {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
+                } else if self.ctx.structs.contains_key(target) {
+                    self.emit_runtime_tag_check(expr, 0x5A110003, negated);
+                } else {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 1 } else { 0 });
+                }
+            }
+        }
+    }
+
+    fn emit_runtime_tag_check(&mut self, expr: &Expr, tag: u64, negated: bool) {
+        self.generate_expression(expr);
+        let false_label = self.ctx.next_label();
+        let end_label = self.ctx.next_label();
+        match self.arch {
+            Architecture::X64 => {
+                self.output.push_str("    test %rax, %rax\n");
+                self.output.push_str(&format!("    jz {}\n", false_label));
+                self.output.push_str("    cmp $65536, %rax\n");
+                self.output.push_str(&format!("    jb {}\n", false_label));
+                self.output.push_str("    movq -16(%rax), %rdx\n");
+                self.output.push_str(&format!("    cmp $0x{:X}, %rdx\n", tag));
+                self.output.push_str(&format!("    jne {}\n", false_label));
+                self.output.push_str(&format!("    movq ${}, %rax\n", if negated { 0 } else { 1 }));
+                self.output.push_str(&format!("    jmp {}\n", end_label));
+                self.output.push_str(&format!("{}:\n", false_label));
+                self.output.push_str(&format!("    movq ${}, %rax\n", if negated { 1 } else { 0 }));
+                self.output.push_str(&format!("{}:\n", end_label));
+            }
+            Architecture::X86 => {
+                self.output.push_str("    test %eax, %eax\n");
+                self.output.push_str(&format!("    jz {}\n", false_label));
+                self.output.push_str("    cmp $65536, %eax\n");
+                self.output.push_str(&format!("    jb {}\n", false_label));
+                self.output.push_str("    movl -8(%eax), %edx\n");
+                self.output.push_str(&format!("    cmp $0x{:X}, %edx\n", tag as u32));
+                self.output.push_str(&format!("    jne {}\n", false_label));
+                self.output.push_str(&format!("    movl ${}, %eax\n", if negated { 0 } else { 1 }));
+                self.output.push_str(&format!("    jmp {}\n", end_label));
+                self.output.push_str(&format!("{}:\n", false_label));
+                self.output.push_str(&format!("    movl ${}, %eax\n", if negated { 1 } else { 0 }));
+                self.output.push_str(&format!("{}:\n", end_label));
+            }
+            Architecture::ARM64 => {
+                self.output.push_str("    cbz x0, ");
+                self.output.push_str(&format!("{}\n", false_label));
+                self.output.push_str("    ldur x1, [x0, #-16]\n");
+                let tag_lo = tag as u32;
+                self.output.push_str(&format!("    mov w2, #{}\n", tag_lo & 0xFFFF));
+                self.output.push_str(&format!("    movk w2, #{}, lsl #16\n", tag_lo >> 16));
+                self.output.push_str("    cmp w1, w2\n");
+                self.output.push_str(&format!("    b.ne {}\n", false_label));
+                self.output.push_str(&format!("    mov x0, #{}\n", if negated { 0 } else { 1 }));
+                self.output.push_str(&format!("    b {}\n", end_label));
+                self.output.push_str(&format!("{}:\n", false_label));
+                self.output.push_str(&format!("    mov x0, #{}\n", if negated { 1 } else { 0 }));
+                self.output.push_str(&format!("{}:\n", end_label));
+            }
         }
     }
 
