@@ -3,6 +3,11 @@ pub fn emit_jump_if_zero(out: &mut String, label: &str) {
     out.push_str(&format!("    jz {}\n", label));
 }
 
+pub fn emit_jump_if_not_zero(out: &mut String, label: &str) {
+    out.push_str("    test %eax, %eax\n");
+    out.push_str(&format!("    jnz {}\n", label));
+}
+
 pub fn emit_jump(out: &mut String, label: &str) {
     out.push_str(&format!("    jmp {}\n", label));
 }
@@ -47,6 +52,14 @@ pub fn emit_function_call(out: &mut String, name: &str, args_count: usize) {
 
 pub fn emit_c_function_call(out: &mut String, name: &str, args_count: usize) {
     out.push_str(&format!("    call {}\n", name));
+    if args_count > 0 {
+        out.push_str(&format!("    add ${}, %esp\n", args_count * 4));
+    }
+}
+
+pub fn emit_indirect_function_call(out: &mut String, var_offset: i32, args_count: usize) {
+    out.push_str(&format!("    mov -{}(%ebp), %ecx\n", var_offset));
+    out.push_str("    call *%ecx\n");
     if args_count > 0 {
         out.push_str(&format!("    add ${}, %esp\n", args_count * 4));
     }

@@ -6,16 +6,16 @@ let runner = bench_runner("String & Hashing Benchmark")
 
 let sample = "The quick brown fox jumps over the lazy dog! Alya is fast and modern."
 
-bench_start(runner, 10000)
+runner.start(10000)
 let i = 0
 let h = 0
 while i < 10000
     h = fnv1a(sample)
     i += 1
 end
-bench_stop(runner, "fnv1a string hashing")
+runner.stop("fnv1a string hashing")
 
-bench_start(runner, 2000)
+runner.start(2000)
 let j = 0
 let len_acc = 0
 while j < 2000
@@ -23,7 +23,7 @@ while j < 2000
     len_acc += len(s)
     j += 1
 end
-bench_stop(runner, "str_repeat 10x allocations")
+runner.stop("str_repeat 10x allocations")
 
 say "Final hash: " + str(h)
-bench_summary(runner)
+runner.summary()

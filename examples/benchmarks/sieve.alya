@@ -33,14 +33,14 @@ end
 
 let runner = bench_runner("Sieve of Eratosthenes Benchmark")
 
-bench_start(runner, 20)
+runner.start(20)
 let run = 0
 let primes = 0
 while run < 20
     primes = count_primes(2000)
     run += 1
 end
-bench_stop(runner, "sieve_of_eratosthenes up to 2000")
+runner.stop("sieve_of_eratosthenes up to 2000")
 
 say "Primes under 2000: " + str(primes)
-bench_summary(runner)
+runner.summary()

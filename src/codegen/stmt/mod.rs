@@ -10,12 +10,16 @@ use crate::codegen::target::Architecture;
 impl CodeGen {
     pub(crate) fn generate_statement(&mut self, stmt: &Stmt) {
         match stmt {
-            Stmt::Import { .. } | Stmt::ExternBlock { .. } => {}
+            Stmt::Import { .. } | Stmt::ExternBlock { .. } | Stmt::Const { .. } => {}
             Stmt::Say(expr) => self.generate_say(expr),
             Stmt::Expr(expr) => {
                 self.generate_expression(expr);
             }
-            Stmt::Let { name, value } => self.generate_let(name, value),
+            Stmt::Let {
+                name,
+                type_ann,
+                value,
+            } => self.generate_let(name, type_ann.as_deref(), value),
             Stmt::Assign { name, value } => self.generate_assign(name, value),
             Stmt::FieldAssign {
                 object,
@@ -46,9 +50,10 @@ impl CodeGen {
             } => self.generate_for(var, start, end, body),
             Stmt::ForEach {
                 var,
+                value_var,
                 iterable,
                 body,
-            } => self.generate_for_each(var, iterable, body),
+            } => self.generate_for_each(var, value_var.as_deref(), iterable, body),
             Stmt::Break => {
                 if let Some((_, break_label, base_offset)) = self.ctx.current_loop().cloned() {
                     let delta = self.ctx.stack_offset - base_offset;
@@ -82,35 +87,54 @@ impl CodeGen {
                         }
                     }
                     self.generate_expression(expr);
+                    let word_size: i32 = match self.arch {
+                        Architecture::ARM64 => 16,
+                        Architecture::X86 => 4,
+                        _ => 8,
+                    };
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                    self.ctx.stack_offset += word_size;
+
+                    self.emit_run_defers();
+
                     let heap_offsets = self.get_scope_heap_offsets(skip_offset);
                     if !heap_offsets.is_empty() {
-                        arch::emit_push_temp(&mut self.output, self.arch);
                         for offset in heap_offsets {
                             arch::emit_rc_release_stack(
                                 &mut self.output,
                                 self.arch,
                                 offset,
-                                self.ctx.stack_offset + 8,
+                                self.ctx.stack_offset,
                                 self.os,
                             );
                         }
-                        arch::emit_pop_temp(&mut self.output, self.arch);
-                        if is_flt {
-                            match self.arch {
-                                Architecture::X64 => {
-                                    self.output.push_str("    movq %rax, %xmm0\n");
-                                }
-                                Architecture::ARM64 => {
-                                    self.output.push_str("    fmov d0, x0\n");
-                                }
-                                Architecture::X86 => {}
+                    }
+                    self.ctx.stack_offset -= word_size;
+                    arch::emit_pop_temp(&mut self.output, self.arch);
+                    if is_flt {
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output.push_str("    movq %rax, %xmm0\n");
                             }
+                            Architecture::ARM64 => {
+                                self.output.push_str("    fmov d0, x0\n");
+                            }
+                            Architecture::X86 => {}
                         }
                     }
                 } else {
+                    self.emit_run_defers();
                     self.emit_cleanup_scope(None);
                 }
                 arch::emit_function_epilogue(&mut self.output, self.arch);
+            }
+            Stmt::Defer(_inner) => {
+                if let Some((_, _, offset)) = self.ctx.active_defers.get(self.ctx.next_defer_idx) {
+                    let off = *offset;
+                    self.ctx.next_defer_idx += 1;
+                    arch::emit_load_num(&mut self.output, self.arch, 1);
+                    arch::emit_store_var(&mut self.output, self.arch, off, self.ctx.stack_offset);
+                }
             }
             Stmt::Throw(opt_expr) => self.generate_throw(opt_expr.as_ref()),
             Stmt::TryCatch {
@@ -125,12 +149,19 @@ impl CodeGen {
                 finally_block.as_deref(),
             ),
             Stmt::Function { .. } => {}
-            Stmt::StructDef { name, fields } => {
+            Stmt::StructDef {
+                name,
+                fields,
+                field_types,
+                defaults,
+            } => {
                 self.ctx.structs.insert(
                     name.clone(),
                     crate::codegen::context::StructDefInfo {
                         name: name.clone(),
                         fields: fields.clone(),
+                        field_types: field_types.clone(),
+                        defaults: defaults.clone(),
                     },
                 );
                 let bare = name.rsplit("::").next().unwrap_or(name);
@@ -141,10 +172,35 @@ impl CodeGen {
                         crate::codegen::context::StructDefInfo {
                             name: bare.to_string(),
                             fields: fields.clone(),
+                            field_types: field_types.clone(),
+                            defaults: defaults.clone(),
                         },
                     );
                 }
             }
+            Stmt::EnumDef { .. } => {}
+            Stmt::Pub(inner) => self.generate_statement(inner),
+        }
+    }
+
+    pub(crate) fn emit_run_defers(&mut self) {
+        if self.ctx.active_defers.is_empty() {
+            return;
+        }
+        let defers = self.ctx.active_defers.clone();
+        for (_, inner_stmt, offset) in defers.into_iter().rev() {
+            let skip_label = self.ctx.next_label();
+            arch::emit_load_var(&mut self.output, self.arch, offset, self.ctx.stack_offset);
+            arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+            arch::emit_cond_jump(
+                &mut self.output,
+                self.arch,
+                crate::ast::BinaryOp::Equal,
+                false,
+                &skip_label,
+            );
+            self.generate_statement(&inner_stmt);
+            self.output.push_str(&format!("{}:\n", skip_label));
         }
     }
 }

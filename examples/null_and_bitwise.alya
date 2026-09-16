@@ -4,14 +4,14 @@
 let value = null
 say "Initial value: {value}"
 
-if value == null
+if value is null
     say "Value is null"
 end
 
 value = 42
 say "Updated value: {value}"
 
-if value != null
+if value is not null
     say "Value is not null"
 end
 

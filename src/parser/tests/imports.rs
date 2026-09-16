@@ -10,7 +10,7 @@ fn test_parse_import() {
 
     assert_eq!(program.statements.len(), 2);
     match &program.statements[0] {
-        Stmt::Import { path, alias } => {
+        Stmt::Import { path, alias, .. } => {
             assert_eq!(path, "math_utils.alya");
             assert_eq!(alias, &None);
         }
@@ -23,7 +23,7 @@ fn test_parse_import() {
     let mut parser = Parser::new(tokens);
     let program_alias = parser.parse().expect("Failed to parse");
     match &program_alias.statements[0] {
-        Stmt::Import { path, alias } => {
+        Stmt::Import { path, alias, .. } => {
             assert_eq!(path, "math_utils.alya");
             assert_eq!(alias, &Some("math".to_string()));
         }
@@ -54,6 +54,72 @@ fn test_resolve_imports_temporary_files() {
         Stmt::Function { name, .. } => assert_eq!(name, "get_val"),
         other => panic!("Expected Stmt::Function, got {:?}", other),
     }
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_parse_from_import() {
+    let source = "from \"math_utils.alya\" import add, sub as subtract, *";
+    let mut lexer = crate::lexer::Lexer::new(source);
+    let tokens = lexer.tokenize().expect("Failed to tokenize");
+    let mut parser = Parser::new(tokens);
+    let program = parser.parse().expect("Failed to parse");
+
+    assert_eq!(program.statements.len(), 1);
+    match &program.statements[0] {
+        Stmt::Import {
+            path,
+            alias,
+            symbols,
+        } => {
+            assert_eq!(path, "math_utils.alya");
+            assert_eq!(alias, &None);
+            let syms = symbols.as_ref().expect("Expected symbols");
+            assert_eq!(syms.len(), 3);
+            assert_eq!(syms[0].name, "add");
+            assert_eq!(syms[0].alias, None);
+            assert_eq!(syms[1].name, "sub");
+            assert_eq!(syms[1].alias, Some("subtract".to_string()));
+            assert_eq!(syms[2].name, "*");
+        }
+        other => panic!("Expected Stmt::Import, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_resolve_from_import() {
+    use std::fs;
+    let temp_dir =
+        std::env::temp_dir().join(format!("alya_from_import_test_{}", std::process::id()));
+    let _ = fs::create_dir_all(&temp_dir);
+
+    let calc_path = temp_dir.join("calc.alya");
+    fs::write(
+        &calc_path,
+        "function add(a, b)\n    return a + b\nend\nfunction sub(a, b)\n    return a - b\nend\n",
+    )
+    .unwrap();
+
+    let main_source = "from \"calc.alya\" import add, sub as subtract\nlet x = add(10, 20)\nlet y = subtract(50, 15)";
+    let mut lexer = crate::lexer::Lexer::new(main_source);
+    let tokens = lexer.tokenize().expect("Failed to tokenize");
+    let mut parser = Parser::new(tokens);
+    let mut program = parser.parse().expect("Failed to parse");
+
+    resolve_imports(&mut program, &temp_dir).expect("Failed to resolve imports");
+
+    // Both add and subtract exist in statements
+    let fns: Vec<String> = program
+        .statements
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Function { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(fns.contains(&"add".to_string()));
+    assert!(fns.contains(&"subtract".to_string()));
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
@@ -552,4 +618,40 @@ fn test_deprecated_stdlib_modules_diagnostic() {
         .unwrap();
     let err_crypto = resolve_imports(&mut ast_crypto, std::path::Path::new(".")).unwrap_err();
     assert!(err_crypto.contains("Cannot find standard library module 'std/crypto'"));
+}
+
+#[test]
+fn test_transitive_and_direct_stdlib_import_private_deduplication() {
+    let code = r#"
+import "std/color" as c
+import "std/color"
+say c::color_red("hello")
+say color_blue("world")
+"#;
+    let mut ast = Parser::new(Lexer::new(code).tokenize().unwrap())
+        .parse()
+        .unwrap();
+    let res = resolve_imports(&mut ast, std::path::Path::new("."));
+    assert!(res.is_ok(), "Import resolution failed: {:?}", res);
+
+    let fn_names: Vec<String> = ast
+        .statements
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Function { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+
+    // Verify both aliased and unaliased public functions exist
+    assert!(fn_names.iter().any(|n| n == "c::color_red"));
+    assert!(fn_names.iter().any(|n| n == "color_red"));
+
+    // Verify private helper _esc was deduplicated and only defined once
+    let esc_count = fn_names.iter().filter(|n| n.contains("::_esc")).count();
+    assert_eq!(
+        esc_count, 1,
+        "Expected exactly 1 _esc definition, found {}",
+        esc_count
+    );
 }

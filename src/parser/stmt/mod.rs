@@ -1,4 +1,4 @@
-mod control;
+pub(crate) mod control;
 mod decl;
 
 use crate::ast::*;
@@ -14,9 +14,13 @@ impl Parser {
         }
 
         match &self.current_token().token_type {
+            TokenType::Pub => self.parse_pub(),
             TokenType::Import => self.parse_import().map(|s| vec![s]),
+            TokenType::From => self.parse_from_import().map(|s| vec![s]),
             TokenType::Extern => self.parse_extern().map(|s| vec![s]),
             TokenType::Struct => self.parse_struct().map(|s| vec![s]),
+            TokenType::Enum => self.parse_enum().map(|s| vec![s]),
+            TokenType::Const => self.parse_const(),
             TokenType::Say => self.parse_say().map(|s| vec![s]),
             TokenType::Let => self.parse_let(),
             TokenType::If => self.parse_if().map(|s| vec![s]),
@@ -36,6 +40,7 @@ impl Parser {
             TokenType::When => self.parse_when(),
             TokenType::Try => self.parse_try_catch().map(|s| vec![s]),
             TokenType::Throw => self.parse_throw().map(|s| vec![s]),
+            TokenType::Defer => self.parse_defer().map(|s| vec![s]),
             TokenType::Identifier(_) => {
                 // Could be assignment or function call
                 let start_pos = self.position;
@@ -409,6 +414,7 @@ impl Parser {
             let tmp_name = format!("__tuple_assign_{}_{}", first_line, first_col);
             let mut stmts = vec![Stmt::Let {
                 name: tmp_name.clone(),
+                type_ann: None,
                 value: single_val,
             }];
             for (i, name) in names.into_iter().enumerate() {
@@ -428,6 +434,7 @@ impl Parser {
                 let tmp_name = format!("__assign_tmp_{}_{}_{}", first_line, first_col, i);
                 stmts.push(Stmt::Let {
                     name: tmp_name.clone(),
+                    type_ann: None,
                     value: val,
                 });
                 tmp_names.push(tmp_name);
@@ -447,6 +454,16 @@ impl Parser {
                 first_line,
                 first_col
             ))
+        }
+    }
+
+    fn parse_defer(&mut self) -> Result<Stmt, String> {
+        self.advance(); // consume 'defer'
+        let stmts = self.parse_statement()?;
+        if let Some(inner) = stmts.into_iter().next() {
+            Ok(Stmt::Defer(Box::new(inner)))
+        } else {
+            Err("Expected statement after 'defer'".into())
         }
     }
 }

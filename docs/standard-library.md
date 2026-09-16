@@ -412,14 +412,14 @@ emit_audit_log("STORAGE", "SNAPSHOT_STORED", "target=s3://alya-backups/daily.tar
 
 ---
 
-## 8. Threading & Concurrency (`std/thread`)
+## 8. Threading (`std/thread`) & Synchronization (`std/sync`)
 
-Cross-platform OS thread creation and synchronization primitives (Win32 threads and POSIX `pthread`).
+### 🧵 `std/thread` — OS Thread Management
+Cross-platform OS thread creation and execution lifecycle (Win32 threads and POSIX `pthread`).
 
 ```alya
 import "std/thread"
 
-# Worker function executed in a background OS thread
 function worker(param)
     let id = thread_id()
     say "Worker running on OS thread {id} with param: {param}"
@@ -429,18 +429,27 @@ end
 # 1. Spawn worker thread
 let handle = thread_spawn(worker, 21)
 
-# 2. Mutex synchronization
+# 2. Join thread and retrieve 64-bit return value
+let result = thread_join(handle)
+say "Result from thread: {result}"    # 42
+```
+
+---
+
+### 🔒 `std/sync` — Synchronization Primitives
+Primitives for thread safety, mutual exclusion, queues, and concurrency control:
+
+```alya
+import "std/sync"
+
+# 1. Mutex (Mutual Exclusion Lock)
 let lock = mutex_new()
 mutex_lock(lock)
 # ... critical section ...
 mutex_unlock(lock)
 mutex_free(lock)
 
-# 3. Join thread and retrieve 64-bit return value
-let result = thread_join(handle)
-say "Result from thread: {result}"    # 42
-
-# 4. Thread-Safe Channel (Producer-Consumer Queue)
+# 2. Thread-Safe Channel (Producer-Consumer Queue)
 let ch = channel_new()
 channel_send(ch, 100)
 channel_send(ch, 200)
@@ -449,15 +458,30 @@ let v2 = channel_try_recv(ch)         # 200
 channel_close(ch)
 channel_free(ch)
 
-# 5. WaitGroup Synchronization
+# 3. WaitGroup Synchronization
 let wg = wait_group_new()
 wait_group_add(wg, 2)
-# Background workers call wait_group_done(wg) upon completion
+# Background workers call wait_group_done(wg)
 wait_group_done(wg)
 wait_group_done(wg)
 let completed = wait_group_wait(wg, 5000) # 1 if counter reached 0
 wait_group_free(wg)
+
+# 4. Once (Single Initialization Guard)
+let o = once_new()
+if once_check(o) == 1
+    say "Initialized exactly once across threads"
+end
+once_free(o)
+
+# 5. RwLock (Reader-Writer Lock)
+let rw = rwlock_new()
+rwlock_read_lock(rw)
+# ... concurrent reads ...
+rwlock_read_unlock(rw)
+
+rwlock_write_lock(rw)
+# ... exclusive write ...
+rwlock_write_unlock(rw)
+rwlock_free(rw)
 ```
-
-
-

@@ -363,3 +363,63 @@ say acc
         );
     }
 }
+
+#[test]
+fn test_e2e_string_relational_comparisons() {
+    let code = r#"
+// Lexicographical ordering
+if "apple" < "banana"
+    say "apple < banana ok"
+end
+if "banana" > "apple"
+    say "banana > apple ok"
+end
+if "apple" <= "apple"
+    say "apple <= apple ok"
+end
+if "apple" >= "apple"
+    say "apple >= apple ok"
+end
+if "banana" < "apple"
+    say "unreachable"
+else
+    say "banana < apple is false"
+end
+
+// Range comparison (like character class range check in regex)
+let esc = "5"
+if esc >= "1" and esc <= "9"
+    say "5 in 1..9 ok"
+end
+
+let esc_low = "\x01"
+if esc_low >= "1" and esc_low <= "9"
+    say "unreachable"
+else
+    say "ctrl char out of 1..9 ok"
+end
+
+let esc_high = "z"
+if esc_high >= "1" and esc_high <= "9"
+    say "unreachable"
+else
+    say "z out of 1..9 ok"
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(
+            output,
+            concat!(
+                "apple < banana ok\n",
+                "banana > apple ok\n",
+                "apple <= apple ok\n",
+                "apple >= apple ok\n",
+                "banana < apple is false\n",
+                "5 in 1..9 ok\n",
+                "ctrl char out of 1..9 ok\n",
+                "z out of 1..9 ok\n",
+            )
+        );
+    }
+}

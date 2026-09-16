@@ -9,6 +9,7 @@ fn test_parse_let_and_assign() {
         program.statements[0],
         Stmt::Let {
             name: "score".into(),
+            type_ann: None,
             value: Expr::Number(100.0)
         }
     );
@@ -34,6 +35,7 @@ fn test_parse_multi_let_single_value() {
         program.statements[0],
         Stmt::Let {
             name: "idx".into(),
+            type_ann: None,
             value: Expr::Number(0.0)
         }
     );
@@ -41,6 +43,7 @@ fn test_parse_multi_let_single_value() {
         program.statements[1],
         Stmt::Let {
             name: "val".into(),
+            type_ann: None,
             value: Expr::Number(0.0)
         }
     );
@@ -54,6 +57,7 @@ fn test_parse_multi_let_multiple_values() {
         program.statements[0],
         Stmt::Let {
             name: "idx".into(),
+            type_ann: None,
             value: Expr::Number(0.0)
         }
     );
@@ -61,6 +65,7 @@ fn test_parse_multi_let_multiple_values() {
         program.statements[1],
         Stmt::Let {
             name: "val".into(),
+            type_ann: None,
             value: Expr::Number(1.0)
         }
     );
@@ -203,10 +208,12 @@ end
     match &program.statements[0] {
         Stmt::ForEach {
             var,
+            value_var,
             iterable,
             body,
         } => {
             assert_eq!(var, "item");
+            assert_eq!(*value_var, None);
             assert_eq!(
                 *iterable,
                 Expr::Array(vec![
@@ -238,6 +245,8 @@ let result = multiply(6, 7)
         Stmt::Function {
             name: "multiply".into(),
             params: vec!["a".into(), "b".into()],
+            param_types: vec![None, None],
+            return_type: None,
             defaults: vec![None, None],
             body: vec![Stmt::Return(Some(Expr::Binary {
                 left: Box::new(Expr::Identifier("a".into())),
@@ -251,6 +260,7 @@ let result = multiply(6, 7)
         program.statements[1],
         Stmt::Let {
             name: "result".into(),
+            type_ann: None,
             value: Expr::Call {
                 name: "multiply".into(),
                 args: vec![Expr::Number(6.0), Expr::Number(7.0)],
@@ -276,6 +286,8 @@ greet("Alya")
         Stmt::Function {
             name: "greet".into(),
             params: vec!["name".into(), "greeting".into(), "punctuation".into()],
+            param_types: vec![None, None, None],
+            return_type: None,
             defaults: vec![
                 None,
                 Some(Expr::String("Hello".into())),
@@ -491,10 +503,10 @@ fn test_parse_let_tuple_destructuring() {
         }
     ));
     assert!(
-        matches!(&program.statements[1], Stmt::Let { name, value: Expr::Index { .. } } if name == "x")
+        matches!(&program.statements[1], Stmt::Let { name, value: Expr::Index { .. }, .. } if name == "x")
     );
     assert!(
-        matches!(&program.statements[2], Stmt::Let { name, value: Expr::Index { .. } } if name == "y")
+        matches!(&program.statements[2], Stmt::Let { name, value: Expr::Index { .. }, .. } if name == "y")
     );
 }
 

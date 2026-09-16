@@ -1,11 +1,11 @@
 # Alya Standard Library - Test Module
 # Provides micro-testing and assertion utilities.
 
-function test_suite(name)
+pub function test_suite(name)
     say "=== Test Suite: {name} ==="
 end
 
-function assert(cond, msg)
+pub function assert(cond, msg)
     if cond
         say "  [PASS] {msg}"
         return 1
@@ -15,7 +15,7 @@ function assert(cond, msg)
     end
 end
 
-function assert_eq(actual, expected, msg)
+pub function assert_eq(actual, expected, msg)
     if actual == expected
         say "  [PASS] {msg}"
         return 1
@@ -25,7 +25,7 @@ function assert_eq(actual, expected, msg)
     end
 end
 
-function assert_ne(actual, expected, msg)
+pub function assert_ne(actual, expected, msg)
     if actual != expected
         say "  [PASS] {msg}"
         return 1
@@ -35,7 +35,7 @@ function assert_ne(actual, expected, msg)
     end
 end
 
-function assert_str_eq(actual, expected, msg)
+pub function assert_str_eq(actual, expected, msg)
     if streq(actual, expected)
         say "  [PASS] {msg}"
         return 1
@@ -45,7 +45,7 @@ function assert_str_eq(actual, expected, msg)
     end
 end
 
-function assert_str_ne(actual, expected, msg)
+pub function assert_str_ne(actual, expected, msg)
     if streq(actual, expected) == 0
         say "  [PASS] {msg}"
         return 1
@@ -55,7 +55,7 @@ function assert_str_ne(actual, expected, msg)
     end
 end
 
-function assert_gt(actual, expected, msg)
+pub function assert_gt(actual, expected, msg)
     if actual > expected
         say "  [PASS] {msg}"
         return 1
@@ -65,7 +65,7 @@ function assert_gt(actual, expected, msg)
     end
 end
 
-function assert_gte(actual, expected, msg)
+pub function assert_gte(actual, expected, msg)
     if actual >= expected
         say "  [PASS] {msg}"
         return 1
@@ -75,7 +75,7 @@ function assert_gte(actual, expected, msg)
     end
 end
 
-function assert_lt(actual, expected, msg)
+pub function assert_lt(actual, expected, msg)
     if actual < expected
         say "  [PASS] {msg}"
         return 1
@@ -85,7 +85,7 @@ function assert_lt(actual, expected, msg)
     end
 end
 
-function assert_lte(actual, expected, msg)
+pub function assert_lte(actual, expected, msg)
     if actual <= expected
         say "  [PASS] {msg}"
         return 1
@@ -95,33 +95,33 @@ function assert_lte(actual, expected, msg)
     end
 end
 
-function assert_null(val, msg)
-    return assert(val == 0, msg)
+pub function assert_null(val, msg)
+    return assert(val is null or val == 0, msg)
 end
 
-function assert_not_null(val, msg)
-    return assert(val != 0, msg)
+pub function assert_not_null(val, msg)
+    return assert(val is not null and val != 0, msg)
 end
 
-function assert_true(cond, msg)
+pub function assert_true(cond, msg)
     return assert(cond, msg)
 end
 
-function assert_false(cond, msg)
+pub function assert_false(cond, msg)
     return assert(cond == 0, msg)
 end
 
-struct TestRunner
+pub struct TestRunner
     total
     passed
     failed
 end
 
-function runner_new()
+pub function runner_new()
     return TestRunner(0, 0, 0)
 end
 
-function runner_assert(r, cond, msg)
+pub function runner_assert(r, cond, msg)
     r.total += 1
     if cond
         r.passed += 1
@@ -134,7 +134,7 @@ function runner_assert(r, cond, msg)
     end
 end
 
-function runner_assert_eq(r, actual, expected, msg)
+pub function runner_assert_eq(r, actual, expected, msg)
     r.total += 1
     if actual == expected
         r.passed += 1
@@ -147,7 +147,7 @@ function runner_assert_eq(r, actual, expected, msg)
     end
 end
 
-function runner_assert_ne(r, actual, expected, msg)
+pub function runner_assert_ne(r, actual, expected, msg)
     r.total += 1
     if actual != expected
         r.passed += 1
@@ -160,7 +160,7 @@ function runner_assert_ne(r, actual, expected, msg)
     end
 end
 
-function runner_assert_str_eq(r, actual, expected, msg)
+pub function runner_assert_str_eq(r, actual, expected, msg)
     r.total += 1
     if streq(actual, expected)
         r.passed += 1
@@ -173,7 +173,7 @@ function runner_assert_str_eq(r, actual, expected, msg)
     end
 end
 
-function runner_assert_str_ne(r, actual, expected, msg)
+pub function runner_assert_str_ne(r, actual, expected, msg)
     r.total += 1
     if streq(actual, expected) == 0
         r.passed += 1
@@ -186,15 +186,15 @@ function runner_assert_str_ne(r, actual, expected, msg)
     end
 end
 
-function runner_assert_true(r, cond, msg)
+pub function runner_assert_true(r, cond, msg)
     return runner_assert(r, cond, msg)
 end
 
-function runner_assert_false(r, cond, msg)
+pub function runner_assert_false(r, cond, msg)
     return runner_assert(r, cond == 0, msg)
 end
 
-function runner_summary(r)
+pub function runner_summary(r)
     say "----------------------------------------"
     say "Results: " + str(r.passed) + "/" + str(r.total) + " passed, " + str(r.failed) + " failed."
     when r.failed
@@ -205,7 +205,7 @@ function runner_summary(r)
     return r.failed
 end
 
-function test_report(passed, total)
+pub function test_report(passed, total)
     let failed = total - passed
     say "----------------------------------------"
     say "Results: {passed}/{total} passed, {failed} failed."
@@ -217,9 +217,43 @@ function test_report(passed, total)
     return failed
 end
 
-function test_summary()
+pub function test_summary()
     say "----------------------------------------"
     say "Status: ALL TESTS PASSED!"
     say "----------------------------------------"
     return 0
+end
+
+# --- TestRunner Struct Methods ---
+
+pub function TestRunner.assert(self, cond, msg)
+    return runner_assert(self, cond, msg)
+end
+
+pub function TestRunner.assert_eq(self, actual, expected, msg)
+    return runner_assert_eq(self, actual, expected, msg)
+end
+
+pub function TestRunner.assert_ne(self, actual, expected, msg)
+    return runner_assert_ne(self, actual, expected, msg)
+end
+
+pub function TestRunner.assert_str_eq(self, actual, expected, msg)
+    return runner_assert_str_eq(self, actual, expected, msg)
+end
+
+pub function TestRunner.assert_str_ne(self, actual, expected, msg)
+    return runner_assert_str_ne(self, actual, expected, msg)
+end
+
+pub function TestRunner.assert_true(self, cond, msg)
+    return runner_assert_true(self, cond, msg)
+end
+
+pub function TestRunner.assert_false(self, cond, msg)
+    return runner_assert_false(self, cond, msg)
+end
+
+pub function TestRunner.summary(self)
+    return runner_summary(self)
 end

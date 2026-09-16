@@ -1,7 +1,8 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
-    escape_string, is_array_expr, is_float_expr, is_map_expr, is_null_expr, is_string_expr,
+    escape_string, is_array_expr, is_float_expr, is_map_expr, is_null_expr, is_number_expr,
+    is_string_expr,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -108,6 +109,56 @@ impl CodeGen {
                 }
             }
             Expr::Binary { left, op, right } => {
+                if *op == BinaryOp::And {
+                    let false_label = self.ctx.next_label();
+                    let end_label = self.ctx.next_label();
+
+                    self.generate_condition_jump_if_false(left, &false_label);
+                    self.generate_condition_jump_if_false(right, &false_label);
+                    arch::emit_load_num(&mut self.output, self.arch, 1);
+                    arch::emit_jump(&mut self.output, self.arch, &end_label);
+
+                    self.output.push_str(&format!("{}:\n", false_label));
+                    arch::emit_load_num(&mut self.output, self.arch, 0);
+
+                    self.output.push_str(&format!("{}:\n", end_label));
+                    return;
+                }
+
+                if *op == BinaryOp::Or {
+                    let true_label = self.ctx.next_label();
+                    let end_label = self.ctx.next_label();
+
+                    self.generate_condition_jump_if_true(left, &true_label);
+                    self.generate_condition_jump_if_true(right, &true_label);
+                    arch::emit_load_num(&mut self.output, self.arch, 0);
+                    arch::emit_jump(&mut self.output, self.arch, &end_label);
+
+                    self.output.push_str(&format!("{}:\n", true_label));
+                    arch::emit_load_num(&mut self.output, self.arch, 1);
+
+                    self.output.push_str(&format!("{}:\n", end_label));
+                    return;
+                }
+
+                if matches!(op, BinaryOp::In | BinaryOp::NotIn) {
+                    self.generate_expression(left);
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                    self.ctx.stack_offset += 8;
+
+                    self.generate_expression(right);
+                    self.ctx.stack_offset -= 8;
+
+                    arch::emit_in_call(
+                        &mut self.output,
+                        self.arch,
+                        *op,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                    return;
+                }
+
                 if matches!(op, BinaryOp::Add)
                     && (is_string_expr(left, &self.ctx.variables)
                         || is_string_expr(right, &self.ctx.variables))
@@ -119,8 +170,15 @@ impl CodeGen {
                 let left_is_num = matches!(**left, Expr::Number(_) | Expr::Float(_));
                 let right_is_num = matches!(**right, Expr::Number(_) | Expr::Float(_));
 
-                if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
-                    && !left_is_num
+                if matches!(
+                    op,
+                    BinaryOp::Equal
+                        | BinaryOp::NotEqual
+                        | BinaryOp::Less
+                        | BinaryOp::LessEqual
+                        | BinaryOp::Greater
+                        | BinaryOp::GreaterEqual
+                ) && !left_is_num
                     && !right_is_num
                     && (is_string_expr(left, &self.ctx.variables)
                         || is_string_expr(right, &self.ctx.variables))
@@ -354,48 +412,51 @@ impl CodeGen {
                     };
                     self.ctx.stack_offset += temp_offset;
 
-                    for (i, arg) in args.iter().enumerate() {
+                    for (i, fname) in sdef.fields.iter().enumerate() {
+                        let arg = if i < args.len() {
+                            &args[i]
+                        } else if let Some(Some(def_val)) = sdef.defaults.get(i) {
+                            def_val
+                        } else {
+                            &Expr::Number(0.0)
+                        };
                         let is_flt = is_float_expr(arg, &self.ctx.variables);
                         let is_str = is_string_expr(arg, &self.ctx.variables);
                         let is_arr = is_array_expr(arg, &self.ctx.variables);
                         let is_map = is_map_expr(arg, &self.ctx.variables);
-                        if let Some(fname) = sdef.fields.get(i) {
-                            if is_str {
-                                self.ctx.variables.insert(
-                                    format!("struct_field_str:{}.{}", name, fname),
-                                    VarType::StringOffset(0),
-                                );
-                                self.ctx.variables.insert(
-                                    format!("struct_field_str:{}", fname),
-                                    VarType::StringOffset(0),
-                                );
-                            } else if is_flt {
-                                self.ctx.variables.insert(
-                                    format!("struct_field_flt:{}.{}", name, fname),
-                                    VarType::Float(0),
-                                );
-                                self.ctx.variables.insert(
-                                    format!("struct_field_flt:{}", fname),
-                                    VarType::Float(0),
-                                );
-                            } else if is_arr {
-                                self.ctx.variables.insert(
-                                    format!("struct_field_arr:{}.{}", name, fname),
-                                    VarType::Array(0),
-                                );
-                                self.ctx.variables.insert(
-                                    format!("struct_field_arr:{}", fname),
-                                    VarType::Array(0),
-                                );
-                            } else if is_map {
-                                self.ctx.variables.insert(
-                                    format!("struct_field_map:{}.{}", name, fname),
-                                    VarType::Map(0),
-                                );
-                                self.ctx
-                                    .variables
-                                    .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
-                            }
+                        if is_str {
+                            self.ctx.variables.insert(
+                                format!("struct_field_str:{}.{}", name, fname),
+                                VarType::StringOffset(0),
+                            );
+                            self.ctx.variables.insert(
+                                format!("struct_field_str:{}", fname),
+                                VarType::StringOffset(0),
+                            );
+                        } else if is_flt {
+                            self.ctx.variables.insert(
+                                format!("struct_field_flt:{}.{}", name, fname),
+                                VarType::Float(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_flt:{}", fname), VarType::Float(0));
+                        } else if is_arr {
+                            self.ctx.variables.insert(
+                                format!("struct_field_arr:{}.{}", name, fname),
+                                VarType::Array(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_arr:{}", fname), VarType::Array(0));
+                        } else if is_map {
+                            self.ctx.variables.insert(
+                                format!("struct_field_map:{}.{}", name, fname),
+                                VarType::Map(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
                         }
                         self.generate_expression(arg);
                         if self.is_heap_expression(arg) {
@@ -725,24 +786,91 @@ impl CodeGen {
                     }
                 }
 
-                let (call_name, actual_args): (&str, Vec<Expr>) =
-                    if (name == "substring" || name == "substr") && args.len() == 2 {
-                        (
-                            "substring",
-                            vec![args[0].clone(), args[1].clone(), Expr::Number(-1.0)],
-                        )
-                    } else if name == "substr" {
-                        ("substring", args.clone())
-                    } else if name == "length" {
-                        ("len", args.clone())
-                    } else if (name == "contains" || name == "has")
-                        && args.len() == 2
-                        && is_map_expr(&args[0], &self.ctx.variables)
+                let mut resolved_name = name.clone();
+                let mut actual_args = args.clone();
+
+                // 1. Static struct method call: Point.new(args) -> Point__new(args)
+                if let Some(Expr::Identifier(type_name)) = actual_args.first() {
+                    let mangled = format!("{}__{}", type_name, name);
+                    if self.ctx.structs.contains_key(type_name)
+                        && !self.ctx.variables.contains_key(type_name)
                     {
-                        ("has", args.clone())
-                    } else {
-                        (name.as_str(), args.clone())
+                        resolved_name = mangled;
+                        actual_args.remove(0);
+                    }
+                }
+
+                // 2. Struct instance method call via UFCS: p.distance(...) -> Point__distance(p, ...)
+                if let Some(first_arg) = actual_args.first() {
+                    let struct_name_opt = match first_arg {
+                        Expr::Identifier(var_name) => match self.ctx.variables.get(var_name) {
+                            Some(VarType::Struct { struct_name, .. }) => Some(struct_name.clone()),
+                            _ => None,
+                        },
+                        Expr::FieldAccess { field, .. }
+                        | Expr::OptionalFieldAccess { field, .. } => self
+                            .ctx
+                            .variables
+                            .get(&format!("struct_field_struct:{}", field))
+                            .and_then(|vt| {
+                                if let VarType::Struct { struct_name, .. } = vt {
+                                    Some(struct_name.clone())
+                                } else {
+                                    None
+                                }
+                            }),
+                        _ => None,
                     };
+                    if let Some(sname) = struct_name_opt {
+                        let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+                        let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                        let candidate1 = format!("{}__{}", sname, name);
+                        let candidate2 = format!("{}__{}", bare_sname, name);
+                        let suffix1 = format!("__{}", candidate1);
+                        let suffix2 = format!("__{}", candidate2);
+                        let suffix3 = format!("::{}", candidate1);
+                        let suffix4 = format!("::{}", candidate2);
+                        if self.ctx.functions.contains(&candidate1) {
+                            resolved_name = candidate1;
+                        } else if self.ctx.functions.contains(&candidate2) {
+                            resolved_name = candidate2;
+                        } else if let Some(matched) = self.ctx.functions.iter().find(|f| {
+                            f.ends_with(&suffix1)
+                                || f.ends_with(&suffix2)
+                                || f.ends_with(&suffix3)
+                                || f.ends_with(&suffix4)
+                        }) {
+                            resolved_name = matched.clone();
+                        }
+                    }
+                }
+
+                // 3. Direct namespace / mangled name: Point::create -> Point__create
+                if resolved_name.contains("::") {
+                    let mangled = resolved_name.replace("::", "__");
+                    if self.ctx.functions.contains(&mangled) {
+                        resolved_name = mangled;
+                    }
+                }
+
+                let call_name_str = if (resolved_name == "substring" || resolved_name == "substr")
+                    && actual_args.len() == 2
+                {
+                    actual_args.push(Expr::Number(-1.0));
+                    "substring".to_string()
+                } else if resolved_name == "substr" {
+                    "substring".to_string()
+                } else if resolved_name == "length" {
+                    "len".to_string()
+                } else if (resolved_name == "contains" || resolved_name == "has")
+                    && actual_args.len() == 2
+                    && is_map_expr(&actual_args[0], &self.ctx.variables)
+                {
+                    "has".to_string()
+                } else {
+                    resolved_name
+                };
+                let call_name = call_name_str.as_str();
 
                 let initial_stack_offset = self.ctx.stack_offset;
                 let word_size: i32 = match self.arch {
@@ -773,7 +901,31 @@ impl CodeGen {
                         .extern_functions
                         .contains_key(call_name.rsplit("::").next().unwrap_or(call_name));
 
-                if is_extern {
+                let var_offset = if !self.ctx.functions.contains(call_name) && !is_extern {
+                    match self.ctx.variables.get(call_name) {
+                        Some(VarType::Number(off))
+                        | Some(VarType::Float(off))
+                        | Some(VarType::StringOffset(off))
+                        | Some(VarType::Array(off))
+                        | Some(VarType::Map(off))
+                        | Some(VarType::Null(off))
+                        | Some(VarType::Struct { offset: off, .. }) => Some(*off),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+
+                if let Some(offset) = var_offset {
+                    arch::emit_indirect_function_call(
+                        &mut self.output,
+                        self.arch,
+                        offset,
+                        actual_args.len(),
+                        initial_stack_offset,
+                        self.os,
+                    );
+                } else if is_extern {
                     let extern_name = call_name.rsplit("::").next().unwrap_or(call_name);
                     let extern_name = extern_name.rsplit("__").next().unwrap_or(extern_name);
                     arch::emit_c_function_call(
@@ -811,44 +963,102 @@ impl CodeGen {
                     self.ctx.stack_offset,
                     self.os,
                 );
-                for (fname, fval) in fields {
-                    let is_str = is_string_expr(fval, &self.ctx.variables);
-                    let is_flt = is_float_expr(fval, &self.ctx.variables);
-                    let is_arr = is_array_expr(fval, &self.ctx.variables);
-                    let is_map = is_map_expr(fval, &self.ctx.variables);
-                    if is_str {
-                        self.ctx.variables.insert(
-                            format!("struct_field_str:{}.{}", name, fname),
-                            VarType::StringOffset(0),
-                        );
-                        self.ctx.variables.insert(
-                            format!("struct_field_str:{}", fname),
-                            VarType::StringOffset(0),
-                        );
-                    } else if is_flt {
-                        self.ctx.variables.insert(
-                            format!("struct_field_flt:{}.{}", name, fname),
-                            VarType::Float(0),
-                        );
-                        self.ctx
-                            .variables
-                            .insert(format!("struct_field_flt:{}", fname), VarType::Float(0));
-                    } else if is_arr {
-                        self.ctx.variables.insert(
-                            format!("struct_field_arr:{}.{}", name, fname),
-                            VarType::Array(0),
-                        );
-                        self.ctx
-                            .variables
-                            .insert(format!("struct_field_arr:{}", fname), VarType::Array(0));
-                    } else if is_map {
-                        self.ctx.variables.insert(
-                            format!("struct_field_map:{}.{}", name, fname),
-                            VarType::Map(0),
-                        );
-                        self.ctx
-                            .variables
-                            .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if let Some(sdef) = self
+                    .ctx
+                    .structs
+                    .get(name)
+                    .or_else(|| self.ctx.structs.get(bare))
+                    .cloned()
+                {
+                    for (i, fname) in sdef.fields.iter().enumerate() {
+                        let fval = if let Some((_, val)) = fields.iter().find(|(k, _)| k == fname) {
+                            val
+                        } else if let Some(Some(def_val)) = sdef.defaults.get(i) {
+                            def_val
+                        } else {
+                            continue;
+                        };
+                        let is_str = is_string_expr(fval, &self.ctx.variables);
+                        let is_flt = is_float_expr(fval, &self.ctx.variables);
+                        let is_arr = is_array_expr(fval, &self.ctx.variables);
+                        let is_map = is_map_expr(fval, &self.ctx.variables);
+                        if is_str {
+                            self.ctx.variables.insert(
+                                format!("struct_field_str:{}.{}", name, fname),
+                                VarType::StringOffset(0),
+                            );
+                            self.ctx.variables.insert(
+                                format!("struct_field_str:{}", fname),
+                                VarType::StringOffset(0),
+                            );
+                        } else if is_flt {
+                            self.ctx.variables.insert(
+                                format!("struct_field_flt:{}.{}", name, fname),
+                                VarType::Float(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_flt:{}", fname), VarType::Float(0));
+                        } else if is_arr {
+                            self.ctx.variables.insert(
+                                format!("struct_field_arr:{}.{}", name, fname),
+                                VarType::Array(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_arr:{}", fname), VarType::Array(0));
+                        } else if is_map {
+                            self.ctx.variables.insert(
+                                format!("struct_field_map:{}.{}", name, fname),
+                                VarType::Map(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
+                        }
+                    }
+                } else {
+                    for (fname, fval) in fields {
+                        let is_str = is_string_expr(fval, &self.ctx.variables);
+                        let is_flt = is_float_expr(fval, &self.ctx.variables);
+                        let is_arr = is_array_expr(fval, &self.ctx.variables);
+                        let is_map = is_map_expr(fval, &self.ctx.variables);
+                        if is_str {
+                            self.ctx.variables.insert(
+                                format!("struct_field_str:{}.{}", name, fname),
+                                VarType::StringOffset(0),
+                            );
+                            self.ctx.variables.insert(
+                                format!("struct_field_str:{}", fname),
+                                VarType::StringOffset(0),
+                            );
+                        } else if is_flt {
+                            self.ctx.variables.insert(
+                                format!("struct_field_flt:{}.{}", name, fname),
+                                VarType::Float(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_flt:{}", fname), VarType::Float(0));
+                        } else if is_arr {
+                            self.ctx.variables.insert(
+                                format!("struct_field_arr:{}.{}", name, fname),
+                                VarType::Array(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_arr:{}", fname), VarType::Array(0));
+                        } else if is_map {
+                            self.ctx.variables.insert(
+                                format!("struct_field_map:{}.{}", name, fname),
+                                VarType::Map(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
+                        }
                     }
                 }
                 arch::emit_push_temp(&mut self.output, self.arch);
@@ -859,8 +1069,6 @@ impl CodeGen {
                 };
                 self.ctx.stack_offset += temp_offset;
 
-                let bare = name.rsplit("::").next().unwrap_or(name);
-                let bare = bare.rsplit("__").next().unwrap_or(bare);
                 if let Some(sdef) = self
                     .ctx
                     .structs
@@ -872,6 +1080,8 @@ impl CodeGen {
                         let arg_expr =
                             if let Some((_, fval)) = fields.iter().find(|(k, _)| k == fname) {
                                 fval
+                            } else if let Some(Some(def_val)) = sdef.defaults.get(i) {
+                                def_val
                             } else {
                                 &Expr::Number(0.0)
                             };
@@ -905,61 +1115,7 @@ impl CodeGen {
                 arch::emit_pop_temp(&mut self.output, self.arch);
             }
             Expr::FieldAccess { object, field } => {
-                let mut field_idx = 0;
-                let mut struct_found = false;
-
-                if let Expr::Identifier(obj_name) = &**object {
-                    if let Some(VarType::Struct { struct_name, .. }) =
-                        self.ctx.variables.get(obj_name)
-                    {
-                        let bare = struct_name.rsplit("::").next().unwrap_or(struct_name);
-                        let bare = bare.rsplit("__").next().unwrap_or(bare);
-                        if let Some(sdef) = self
-                            .ctx
-                            .structs
-                            .get(struct_name)
-                            .or_else(|| self.ctx.structs.get(bare))
-                        {
-                            if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
-                                field_idx = idx;
-                                struct_found = true;
-                            }
-                        }
-                    }
-                } else if let Expr::FieldAccess {
-                    field: inner_field, ..
-                } = &**object
-                {
-                    if let Some(VarType::Struct { struct_name, .. }) = self
-                        .ctx
-                        .variables
-                        .get(&format!("struct_field_struct:{}", inner_field))
-                    {
-                        let bare = struct_name.rsplit("::").next().unwrap_or(struct_name);
-                        let bare = bare.rsplit("__").next().unwrap_or(bare);
-                        if let Some(sdef) = self
-                            .ctx
-                            .structs
-                            .get(struct_name)
-                            .or_else(|| self.ctx.structs.get(bare))
-                        {
-                            if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
-                                field_idx = idx;
-                                struct_found = true;
-                            }
-                        }
-                    }
-                }
-
-                if !struct_found {
-                    for sdef in self.ctx.structs.values() {
-                        if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
-                            field_idx = idx;
-                            break;
-                        }
-                    }
-                }
-
+                let field_idx = self.resolve_struct_field_index(object, field);
                 self.generate_expression(object);
                 arch::emit_struct_field_get(&mut self.output, self.arch, field_idx);
                 match self.arch {
@@ -1255,6 +1411,380 @@ impl CodeGen {
                     self.generate_expression(&acc);
                 }
             }
+            Expr::OptionalFieldAccess { object, field } => {
+                let null_label = self.ctx.next_label();
+                let end_label = self.ctx.next_label();
+
+                let field_idx = self.resolve_struct_field_index(object, field);
+
+                self.generate_expression(object);
+                arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+                arch::emit_cond_jump(
+                    &mut self.output,
+                    self.arch,
+                    BinaryOp::Equal,
+                    false,
+                    &null_label,
+                );
+
+                arch::emit_struct_field_get(&mut self.output, self.arch, field_idx);
+                match self.arch {
+                    Architecture::X64 => {
+                        self.output.push_str("    movq %rax, %xmm0\n");
+                    }
+                    Architecture::ARM64 => {
+                        self.output.push_str("    fmov d0, x0\n");
+                    }
+                    Architecture::X86 => {}
+                }
+                arch::emit_jump(&mut self.output, self.arch, &end_label);
+
+                self.output.push_str(&format!("{}:\n", null_label));
+                match self.arch {
+                    Architecture::X64 => {
+                        self.output.push_str("    movq $0, %rax\n");
+                        self.output.push_str("    xorpd %xmm0, %xmm0\n");
+                    }
+                    Architecture::ARM64 => {
+                        self.output.push_str("    mov x0, #0\n");
+                        self.output.push_str("    fmov d0, xzr\n");
+                    }
+                    Architecture::X86 => {
+                        self.output.push_str("    movl $0, %eax\n");
+                    }
+                }
+                self.output.push_str(&format!("{}:\n", end_label));
+            }
+            Expr::OptionalIndex { array, index } => {
+                let null_label = self.ctx.next_label();
+                let end_label = self.ctx.next_label();
+
+                self.generate_expression(array);
+                arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+                arch::emit_cond_jump(
+                    &mut self.output,
+                    self.arch,
+                    BinaryOp::Equal,
+                    false,
+                    &null_label,
+                );
+
+                self.generate_expression(&Expr::Index {
+                    array: array.clone(),
+                    index: index.clone(),
+                });
+                arch::emit_jump(&mut self.output, self.arch, &end_label);
+
+                self.output.push_str(&format!("{}:\n", null_label));
+                match self.arch {
+                    Architecture::X64 => {
+                        self.output.push_str("    movq $0, %rax\n");
+                        self.output.push_str("    xorpd %xmm0, %xmm0\n");
+                    }
+                    Architecture::ARM64 => {
+                        self.output.push_str("    mov x0, #0\n");
+                        self.output.push_str("    fmov d0, xzr\n");
+                    }
+                    Architecture::X86 => {
+                        self.output.push_str("    movl $0, %eax\n");
+                    }
+                }
+                self.output.push_str(&format!("{}:\n", end_label));
+            }
+            Expr::OptionalCall { callee, args } => {
+                let null_label = self.ctx.next_label();
+                let end_label = self.ctx.next_label();
+
+                let is_callee_var =
+                    self.ctx.variables.contains_key(callee) && !self.ctx.functions.contains(callee);
+
+                if is_callee_var {
+                    self.generate_expression(&Expr::Identifier(callee.clone()));
+                    arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+                    arch::emit_cond_jump(
+                        &mut self.output,
+                        self.arch,
+                        BinaryOp::Equal,
+                        false,
+                        &null_label,
+                    );
+                } else if let Some(target) = args.first() {
+                    self.generate_expression(target);
+                    arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+                    arch::emit_cond_jump(
+                        &mut self.output,
+                        self.arch,
+                        BinaryOp::Equal,
+                        false,
+                        &null_label,
+                    );
+                }
+
+                self.generate_expression(&Expr::Call {
+                    name: callee.clone(),
+                    args: args.clone(),
+                });
+                arch::emit_jump(&mut self.output, self.arch, &end_label);
+
+                self.output.push_str(&format!("{}:\n", null_label));
+                match self.arch {
+                    Architecture::X64 => {
+                        self.output.push_str("    movq $0, %rax\n");
+                        self.output.push_str("    xorpd %xmm0, %xmm0\n");
+                    }
+                    Architecture::ARM64 => {
+                        self.output.push_str("    mov x0, #0\n");
+                        self.output.push_str("    fmov d0, xzr\n");
+                    }
+                    Architecture::X86 => {
+                        self.output.push_str("    movl $0, %eax\n");
+                    }
+                }
+                self.output.push_str(&format!("{}:\n", end_label));
+            }
+            Expr::TypeCheck {
+                expr,
+                target,
+                negated,
+            } => {
+                self.generate_type_check(expr, target, *negated);
+            }
+        }
+    }
+
+    fn generate_type_check(&mut self, expr: &Expr, target: &str, negated: bool) {
+        let t = target.to_lowercase();
+        match t.as_str() {
+            "null" | "nil" => {
+                self.generate_expression(&Expr::Binary {
+                    left: Box::new(expr.clone()),
+                    op: if negated {
+                        BinaryOp::NotEqual
+                    } else {
+                        BinaryOp::Equal
+                    },
+                    right: Box::new(Expr::Null),
+                });
+            }
+            "string" | "str" => {
+                let is_str = is_string_expr(expr, &self.ctx.variables);
+                let result = if is_str {
+                    if negated {
+                        0
+                    } else {
+                        1
+                    }
+                } else {
+                    if negated {
+                        1
+                    } else {
+                        0
+                    }
+                };
+                arch::emit_load_num(&mut self.output, self.arch, result);
+            }
+            "array" | "list" => {
+                let is_arr = is_array_expr(expr, &self.ctx.variables);
+                let is_def_non = is_string_expr(expr, &self.ctx.variables)
+                    || is_map_expr(expr, &self.ctx.variables)
+                    || is_float_expr(expr, &self.ctx.variables)
+                    || is_null_expr(expr, &self.ctx.variables)
+                    || is_number_expr(expr, &self.ctx.variables);
+                if is_arr {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
+                } else if is_def_non {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 1 } else { 0 });
+                } else {
+                    self.emit_runtime_tag_check(expr, 0x5A110001, negated);
+                }
+            }
+            "map" | "dict" => {
+                let is_map = is_map_expr(expr, &self.ctx.variables);
+                let is_def_non = is_string_expr(expr, &self.ctx.variables)
+                    || is_array_expr(expr, &self.ctx.variables)
+                    || is_float_expr(expr, &self.ctx.variables)
+                    || is_null_expr(expr, &self.ctx.variables)
+                    || is_number_expr(expr, &self.ctx.variables);
+                if is_map {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
+                } else if is_def_non {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 1 } else { 0 });
+                } else {
+                    self.emit_runtime_tag_check(expr, 0x5A110002, negated);
+                }
+            }
+            "float" => {
+                let is_flt = is_float_expr(expr, &self.ctx.variables);
+                let result = if is_flt {
+                    if negated {
+                        0
+                    } else {
+                        1
+                    }
+                } else {
+                    if negated {
+                        1
+                    } else {
+                        0
+                    }
+                };
+                arch::emit_load_num(&mut self.output, self.arch, result);
+            }
+            "int" | "integer" | "number" => {
+                let is_num = is_number_expr(expr, &self.ctx.variables);
+                let is_non = is_string_expr(expr, &self.ctx.variables)
+                    || is_float_expr(expr, &self.ctx.variables)
+                    || is_array_expr(expr, &self.ctx.variables)
+                    || is_map_expr(expr, &self.ctx.variables)
+                    || is_null_expr(expr, &self.ctx.variables);
+                let result = if is_num || !is_non {
+                    if negated {
+                        0
+                    } else {
+                        1
+                    }
+                } else {
+                    if negated {
+                        1
+                    } else {
+                        0
+                    }
+                };
+                arch::emit_load_num(&mut self.output, self.arch, result);
+            }
+            "bool" | "boolean" => {
+                let is_non = is_string_expr(expr, &self.ctx.variables)
+                    || is_float_expr(expr, &self.ctx.variables)
+                    || is_array_expr(expr, &self.ctx.variables)
+                    || is_map_expr(expr, &self.ctx.variables)
+                    || is_null_expr(expr, &self.ctx.variables);
+                let result = if !is_non {
+                    if negated {
+                        0
+                    } else {
+                        1
+                    }
+                } else {
+                    if negated {
+                        1
+                    } else {
+                        0
+                    }
+                };
+                arch::emit_load_num(&mut self.output, self.arch, result);
+            }
+            _ => {
+                let struct_matches = match expr {
+                    Expr::Identifier(id) => match self.ctx.variables.get(id) {
+                        Some(VarType::Struct { struct_name, .. }) => {
+                            struct_name == target || struct_name.ends_with(&format!("::{}", target))
+                        }
+                        _ => false,
+                    },
+                    _ => false,
+                };
+                if struct_matches {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
+                } else if self.ctx.structs.contains_key(target) {
+                    let is_def_non = is_string_expr(expr, &self.ctx.variables)
+                        || is_array_expr(expr, &self.ctx.variables)
+                        || is_map_expr(expr, &self.ctx.variables)
+                        || is_float_expr(expr, &self.ctx.variables)
+                        || is_null_expr(expr, &self.ctx.variables)
+                        || is_number_expr(expr, &self.ctx.variables);
+                    if is_def_non {
+                        arch::emit_load_num(
+                            &mut self.output,
+                            self.arch,
+                            if negated { 1 } else { 0 },
+                        );
+                    } else {
+                        self.emit_runtime_tag_check(expr, 0x5A110003, negated);
+                    }
+                } else {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 1 } else { 0 });
+                }
+            }
+        }
+    }
+
+    fn emit_runtime_tag_check(&mut self, expr: &Expr, tag: u64, negated: bool) {
+        self.generate_expression(expr);
+        let false_label = self.ctx.next_label();
+        let end_label = self.ctx.next_label();
+        match self.arch {
+            Architecture::X64 => {
+                self.output.push_str("    test %rax, %rax\n");
+                self.output.push_str(&format!("    jz {}\n", false_label));
+                self.output.push_str("    test $7, %rax\n");
+                self.output.push_str(&format!("    jnz {}\n", false_label));
+                self.output.push_str("    cmp $65536, %rax\n");
+                self.output.push_str(&format!("    jb {}\n", false_label));
+                self.output.push_str("    movq -16(%rax), %rdx\n");
+                self.output
+                    .push_str(&format!("    cmp $0x{:X}, %rdx\n", tag));
+                self.output.push_str(&format!("    jne {}\n", false_label));
+                self.output.push_str(&format!(
+                    "    movq ${}, %rax\n",
+                    if negated { 0 } else { 1 }
+                ));
+                self.output.push_str(&format!("    jmp {}\n", end_label));
+                self.output.push_str(&format!("{}:\n", false_label));
+                self.output.push_str(&format!(
+                    "    movq ${}, %rax\n",
+                    if negated { 1 } else { 0 }
+                ));
+                self.output.push_str(&format!("{}:\n", end_label));
+            }
+            Architecture::X86 => {
+                self.output.push_str("    test %eax, %eax\n");
+                self.output.push_str(&format!("    jz {}\n", false_label));
+                self.output.push_str("    test $3, %eax\n");
+                self.output.push_str(&format!("    jnz {}\n", false_label));
+                self.output.push_str("    cmp $65536, %eax\n");
+                self.output.push_str(&format!("    jb {}\n", false_label));
+                self.output.push_str("    movl -8(%eax), %edx\n");
+                self.output
+                    .push_str(&format!("    cmp $0x{:X}, %edx\n", tag as u32));
+                self.output.push_str(&format!("    jne {}\n", false_label));
+                self.output.push_str(&format!(
+                    "    movl ${}, %eax\n",
+                    if negated { 0 } else { 1 }
+                ));
+                self.output.push_str(&format!("    jmp {}\n", end_label));
+                self.output.push_str(&format!("{}:\n", false_label));
+                self.output.push_str(&format!(
+                    "    movl ${}, %eax\n",
+                    if negated { 1 } else { 0 }
+                ));
+                self.output.push_str(&format!("{}:\n", end_label));
+            }
+            Architecture::ARM64 => {
+                self.output.push_str("    cbz x0, ");
+                self.output.push_str(&format!("{}\n", false_label));
+                self.output.push_str("    tst x0, #7\n");
+                self.output.push_str(&format!("    b.ne {}\n", false_label));
+                self.output.push_str("    cmp x0, #65536\n");
+                self.output.push_str(&format!("    b.lo {}\n", false_label));
+                self.output.push_str("    lsr x1, x0, #47\n");
+                self.output
+                    .push_str(&format!("    cbnz x1, {}\n", false_label));
+                self.output.push_str("    ldur x1, [x0, #-16]\n");
+                let tag_lo = tag as u32;
+                self.output
+                    .push_str(&format!("    movz x2, #{}\n", tag_lo & 0xFFFF));
+                self.output
+                    .push_str(&format!("    movk x2, #{}, lsl #16\n", tag_lo >> 16));
+                self.output.push_str("    cmp x1, x2\n");
+                self.output.push_str(&format!("    b.ne {}\n", false_label));
+                self.output
+                    .push_str(&format!("    mov x0, #{}\n", if negated { 0 } else { 1 }));
+                self.output.push_str(&format!("    b {}\n", end_label));
+                self.output.push_str(&format!("{}:\n", false_label));
+                self.output
+                    .push_str(&format!("    mov x0, #{}\n", if negated { 1 } else { 0 }));
+                self.output.push_str(&format!("{}:\n", end_label));
+            }
         }
     }
 
@@ -1296,5 +1826,70 @@ impl CodeGen {
             self.ctx.stack_offset,
             self.os,
         );
+    }
+
+    fn resolve_struct_field_index(&self, object: &Expr, field: &str) -> usize {
+        let mut field_idx = 0;
+        let mut struct_found = false;
+
+        let base_obj = match object {
+            Expr::OptionalFieldAccess { object: inner, .. } => inner.as_ref(),
+            _ => object,
+        };
+
+        if let Expr::Identifier(obj_name) = base_obj {
+            if let Some(VarType::Struct { struct_name, .. }) = self.ctx.variables.get(obj_name) {
+                let bare = struct_name.rsplit("::").next().unwrap_or(struct_name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if let Some(sdef) = self
+                    .ctx
+                    .structs
+                    .get(struct_name)
+                    .or_else(|| self.ctx.structs.get(bare))
+                {
+                    if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
+                        field_idx = idx;
+                        struct_found = true;
+                    }
+                }
+            }
+        } else if let Expr::FieldAccess {
+            field: inner_field, ..
+        }
+        | Expr::OptionalFieldAccess {
+            field: inner_field, ..
+        } = base_obj
+        {
+            if let Some(VarType::Struct { struct_name, .. }) = self
+                .ctx
+                .variables
+                .get(&format!("struct_field_struct:{}", inner_field))
+            {
+                let bare = struct_name.rsplit("::").next().unwrap_or(struct_name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if let Some(sdef) = self
+                    .ctx
+                    .structs
+                    .get(struct_name)
+                    .or_else(|| self.ctx.structs.get(bare))
+                {
+                    if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
+                        field_idx = idx;
+                        struct_found = true;
+                    }
+                }
+            }
+        }
+
+        if !struct_found {
+            for sdef in self.ctx.structs.values() {
+                if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
+                    field_idx = idx;
+                    break;
+                }
+            }
+        }
+
+        field_idx
     }
 }

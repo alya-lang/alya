@@ -118,6 +118,14 @@ pub fn emit_jump_if_zero(out: &mut String, arch: Architecture, label: &str) {
     }
 }
 
+pub fn emit_jump_if_not_zero(out: &mut String, arch: Architecture, label: &str) {
+    match arch {
+        Architecture::ARM64 => arm64::emit_jump_if_not_zero(out, label),
+        Architecture::X64 => x64::emit_jump_if_not_zero(out, label),
+        Architecture::X86 => x86::emit_jump_if_not_zero(out, label),
+    }
+}
+
 pub fn emit_jump(out: &mut String, arch: Architecture, label: &str) {
     match arch {
         Architecture::ARM64 => arm64::emit_jump(out, label),
@@ -210,6 +218,23 @@ pub fn emit_c_function_call(
         Architecture::ARM64 => arm64::emit_c_function_call(out, &mangled, args_count, os),
         Architecture::X64 => x64::emit_c_function_call(out, &mangled, args_count, stack_offset, os),
         Architecture::X86 => x86::emit_c_function_call(out, &mangled, args_count),
+    }
+}
+
+pub fn emit_indirect_function_call(
+    out: &mut String,
+    arch: Architecture,
+    var_offset: i32,
+    args_count: usize,
+    stack_offset: i32,
+    os: OperatingSystem,
+) {
+    match arch {
+        Architecture::ARM64 => arm64::emit_indirect_function_call(out, var_offset, args_count),
+        Architecture::X64 => {
+            x64::emit_indirect_function_call(out, var_offset, args_count, stack_offset, os)
+        }
+        Architecture::X86 => x86::emit_indirect_function_call(out, var_offset, args_count),
     }
 }
 

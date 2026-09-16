@@ -5,6 +5,10 @@ pub fn emit_jump_if_zero(out: &mut String, label: &str) {
     out.push_str(&format!("    cbz x0, {}\n", label));
 }
 
+pub fn emit_jump_if_not_zero(out: &mut String, label: &str) {
+    out.push_str(&format!("    cbnz x0, {}\n", label));
+}
+
 pub fn emit_jump(out: &mut String, label: &str) {
     out.push_str(&format!("    b {}\n", label));
 }
@@ -78,7 +82,8 @@ fn emit_call_target(out: &mut String, target: &str, args_count: usize) {
             };
             out.push_str(&format!("    ldr {}, [sp], #16\n", reg));
         }
-        out.push_str(&format!("    bl {}\n", target));
+        let call_insn = if target.starts_with('x') { "blr" } else { "bl" };
+        out.push_str(&format!("    {} {}\n", call_insn, target));
     } else {
         let extra_args = args_count - 8;
         let needed = extra_args as i32 * 8;
@@ -98,7 +103,8 @@ fn emit_call_target(out: &mut String, target: &str, args_count: usize) {
             out.push_str(&format!("    str x9, [sp, #{}]\n", dst_off));
         }
 
-        out.push_str(&format!("    bl {}\n", target));
+        let call_insn = if target.starts_with('x') { "blr" } else { "bl" };
+        out.push_str(&format!("    {} {}\n", call_insn, target));
 
         let total_restore = total_alloc + args_count as i32 * 16;
         out.push_str(&format!("    add sp, sp, #{}\n", total_restore));
@@ -107,6 +113,11 @@ fn emit_call_target(out: &mut String, target: &str, args_count: usize) {
 
 pub fn emit_function_call(out: &mut String, name: &str, args_count: usize) {
     emit_call_target(out, &format!("fn_{}", name), args_count);
+}
+
+pub fn emit_indirect_function_call(out: &mut String, var_offset: i32, args_count: usize) {
+    emit_arm64_load_x29_offset(out, "x16", var_offset, "x9");
+    emit_call_target(out, "x16", args_count);
 }
 
 pub fn emit_c_function_call(out: &mut String, name: &str, args_count: usize, os: OperatingSystem) {

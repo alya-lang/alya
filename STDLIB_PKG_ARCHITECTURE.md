@@ -30,7 +30,7 @@ Alya adheres strictly to the 3-Tier Classification Model defined in [`ROADMAP.md
  ─────────────────────────  ─────────────────────────  ─────────────────────────
  • os, fs, path, time       • rand (core LCG PRNG)     • crypto (SHA, HMAC, AES)
  • math, str, mem           • cli  (raw args/flags)    • compress (Brotli, Zstd)
- • collections, thread      • net  (raw TCP/UDP)       • uuid   (v4, v7, ULID)
+ • collections, thread, sync • net  (raw TCP/UDP)       • uuid   (v4, v7, ULID)
  • test, bench, console     • log  (console ANSI)      • csv, url, http, jwt...
  • hash (non-crypto lookup) • json (basic parse/str)   • toml, sqlite, yaml...
 ```

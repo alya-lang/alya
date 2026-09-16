@@ -3,29 +3,29 @@ import "std/math"
 
 let runner = bench_runner("Alya Builtin Micro-Benchmarks")
 
-bench_start(runner, 100000)
+runner.start(100000)
 let i = 0
 while i < 100000
     sin(0.5)
     i += 1
 end
-bench_stop(runner, "sin(0.5) calculation")
+runner.stop("sin(0.5) calculation")
 
-bench_start(runner, 100000)
+runner.start(100000)
 i = 0
 while i < 100000
     gcd(123456, 7890)
     i += 1
 end
-bench_stop(runner, "gcd(123456, 7890) integer ops")
+runner.stop("gcd(123456, 7890) integer ops")
 
-bench_start(runner, 100000)
+runner.start(100000)
 i = 0
 while i < 100000
     let ptr = alloc(64)
     free(ptr)
     i += 1
 end
-bench_stop(runner, "alloc(64) heap allocation")
+runner.stop("alloc(64) heap allocation")
 
-bench_summary(runner)
+runner.summary()

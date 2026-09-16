@@ -30,9 +30,9 @@ else
 end
 
 # 2. HTTP Status & Auth Helpers
-say "HTTP Status Code: 200"
-say "HTTP Status Text: " + http_status_text(200)
-say "HTTP Status 404: " + http_status_text(404)
+say "HTTP Status Code: " + str(HttpStatus.Ok)
+say "HTTP Status Text: " + http_status_text(HttpStatus.Ok)
+say "HTTP Status 404: " + http_status_text(HttpStatus.NotFound)
 say "Basic Auth: " + basic_auth("admin", "secret123")
 
 # 3. Permanent Heap Strings
@@ -44,21 +44,21 @@ str_free(cloned)
 # 4. Fixed-Size Block Pool Allocator
 say "--- Pool Allocator ---"
 let pool = pool_new(32, 4)
-say "Pool initial available: " + str(pool_available(pool))
+say "Pool initial available: " + str(pool.available())
 
-let b1 = pool_alloc(pool)
-let b2 = pool_alloc(pool)
-say "Allocated 2 blocks, remaining: " + str(pool_available(pool))
+let b1 = pool.alloc()
+let b2 = pool.alloc()
+say "Allocated 2 blocks, remaining: " + str(pool.available())
 
 poke_int(b1, 0, 42)
 poke_int(b2, 0, 99)
 say "Block 1 val: " + str(peek_int(b1, 0))
 say "Block 2 val: " + str(peek_int(b2, 0))
 
-pool_free(pool, b1)
-say "Freed block 1, remaining: " + str(pool_available(pool))
+pool.free(b1)
+say "Freed block 1, remaining: " + str(pool.available())
 
-pool_destroy(pool)
+pool.destroy()
 say "Pool destroyed successfully."
 
 # 5. Memory Statistics

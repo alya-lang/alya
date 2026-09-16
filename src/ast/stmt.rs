@@ -14,10 +14,17 @@ pub struct ExternFnDecl {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ImportSymbol {
+    pub name: String,
+    pub alias: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Import {
         path: String,
         alias: Option<String>,
+        symbols: Option<Vec<ImportSymbol>>,
     },
     ExternBlock {
         abi: String,
@@ -26,6 +33,11 @@ pub enum Stmt {
     },
     Say(Expr),
     Let {
+        name: String,
+        type_ann: Option<String>,
+        value: Expr,
+    },
+    Const {
         name: String,
         value: Expr,
     },
@@ -46,6 +58,12 @@ pub enum Stmt {
     StructDef {
         name: String,
         fields: Vec<String>,
+        field_types: Vec<Option<String>>,
+        defaults: Vec<Option<Expr>>,
+    },
+    EnumDef {
+        name: String,
+        variants: Vec<(String, Option<Expr>)>,
     },
     If {
         condition: Expr,
@@ -67,12 +85,15 @@ pub enum Stmt {
     },
     ForEach {
         var: String,
+        value_var: Option<String>,
         iterable: Expr,
         body: Vec<Stmt>,
     },
     Function {
         name: String,
         params: Vec<String>,
+        param_types: Vec<Option<String>>,
+        return_type: Option<String>,
         defaults: Vec<Option<Expr>>,
         body: Vec<Stmt>,
     },
@@ -87,4 +108,37 @@ pub enum Stmt {
         catch_block: Vec<Stmt>,
         finally_block: Option<Vec<Stmt>>,
     },
+    Defer(Box<Stmt>),
+    Pub(Box<Stmt>),
+}
+
+impl Stmt {
+    pub fn is_pub(&self) -> bool {
+        matches!(self, Stmt::Pub(_))
+    }
+
+    pub fn inner_stmt(&self) -> &Stmt {
+        match self {
+            Stmt::Pub(inner) => inner.inner_stmt(),
+            other => other,
+        }
+    }
+
+    pub fn inner_stmt_mut(&mut self) -> &mut Stmt {
+        match self {
+            Stmt::Pub(inner) => inner.inner_stmt_mut(),
+            other => other,
+        }
+    }
+
+    pub fn declared_symbol_name(&self) -> Option<&str> {
+        match self.inner_stmt() {
+            Stmt::Function { name, .. } => Some(name),
+            Stmt::StructDef { name, .. } => Some(name),
+            Stmt::EnumDef { name, .. } => Some(name),
+            Stmt::Const { name, .. } => Some(name),
+            Stmt::Let { name, .. } => Some(name),
+            _ => None,
+        }
+    }
 }

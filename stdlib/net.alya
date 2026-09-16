@@ -8,23 +8,23 @@ import "std/str"
 
 # Creates a new TCP streaming socket (AF_INET, SOCK_STREAM).
 # Returns a socket descriptor (>= 0) or -1 on error.
-function tcp_socket()
+pub function tcp_socket()
     return net_socket()
 end
 
 # Connects to a remote TCP server. Returns a socket descriptor (>= 0) or -1 on error.
-function tcp_connect(host, port)
+pub function tcp_connect(host, port)
     return net_connect(host, port)
 end
 
 # Sends a string over a connected TCP socket. Returns number of bytes sent or -1 on error.
-function tcp_send(sock, data)
+pub function tcp_send(sock, data)
     return net_send(sock, data)
 end
 
 # Receives up to max_bytes from a connected TCP socket.
 # Returns received string, or "" on connection close/EOF.
-function tcp_recv(sock, max_bytes)
+pub function tcp_recv(sock, max_bytes)
     if max_bytes == null or max_bytes <= 0
         max_bytes = 4096
     end
@@ -32,13 +32,13 @@ function tcp_recv(sock, max_bytes)
 end
 
 # Closes a TCP or UDP socket connection.
-function tcp_close(sock)
+pub function tcp_close(sock)
     return net_close(sock)
 end
 
 # Creates a TCP server socket listening on the specified port.
 # Returns listening socket handle or -1 on error.
-function tcp_listen(port, backlog)
+pub function tcp_listen(port, backlog)
     if backlog == null or backlog <= 0
         backlog = 10
     end
@@ -47,13 +47,13 @@ end
 
 # Accepts an incoming client connection on a listening server socket.
 # Returns client socket handle or -1 on error.
-function tcp_accept(server_sock)
+pub function tcp_accept(server_sock)
     return net_accept(server_sock)
 end
 
 # Sets read and write timeouts on a socket in milliseconds.
 # Returns 0 on success or -1 on error.
-function tcp_set_timeout(sock, ms)
+pub function tcp_set_timeout(sock, ms)
     if ms == null or ms <= 0
         ms = 10000
     end
@@ -62,7 +62,7 @@ end
 
 # Sets non-blocking mode on a socket (mode = 1: non-blocking, mode = 0: blocking).
 # Returns 0 on success or -1 on error.
-function tcp_set_nonblocking(sock, mode = 1)
+pub function tcp_set_nonblocking(sock, mode = 1)
     if mode == null
         mode = 1
     end
@@ -75,7 +75,7 @@ end
 #   1: socket has data ready to read (or connection ready to accept)
 #   0: timed out (no data ready)
 #  -1: error or connection reset
-function tcp_poll(sock, timeout_ms = 0)
+pub function tcp_poll(sock, timeout_ms = 0)
     if timeout_ms == null or timeout_ms < 0
         timeout_ms = 0
     end
@@ -83,17 +83,17 @@ function tcp_poll(sock, timeout_ms = 0)
 end
 
 # Returns the remote peer's IP address as a string (e.g. "127.0.0.1"), or "" on failure.
-function tcp_peer_ip(sock)
+pub function tcp_peer_ip(sock)
     return net_peer_ip(sock)
 end
 
 # Returns the remote peer's port number as an integer, or -1 on failure.
-function tcp_peer_port(sock)
+pub function tcp_peer_port(sock)
     return net_peer_port(sock)
 end
 
 # Returns remote peer address in "ip:port" format, or "" on failure.
-function tcp_peer_addr(sock)
+pub function tcp_peer_addr(sock)
     let ip = net_peer_ip(sock)
     let port = net_peer_port(sock)
     if port < 0 or ip == ""
@@ -106,25 +106,25 @@ end
 
 # Creates a new UDP datagram socket (AF_INET, SOCK_DGRAM).
 # Returns a socket descriptor (>= 0) or -1 on error.
-function udp_socket()
+pub function udp_socket()
     return net_udp_socket()
 end
 
 # Binds a UDP socket to the specified port on INADDR_ANY.
 # Returns 0 on success or -1 on error.
-function udp_bind(sock, port)
+pub function udp_bind(sock, port)
     return net_udp_bind(sock, port)
 end
 
 # Sends a datagram to host:port over a UDP socket.
 # Returns number of bytes sent or -1 on error.
-function udp_send(sock, host, port, data)
+pub function udp_send(sock, host, port, data)
     return net_udp_send(sock, host, port, data)
 end
 
 # Receives up to max_bytes from a UDP socket.
 # Returns received string, or "" on error / empty datagram.
-function udp_recv(sock, max_bytes)
+pub function udp_recv(sock, max_bytes)
     if max_bytes == null or max_bytes <= 0
         max_bytes = 4096
     end
@@ -132,12 +132,12 @@ function udp_recv(sock, max_bytes)
 end
 
 # Closes a UDP socket.
-function udp_close(sock)
+pub function udp_close(sock)
     return net_close(sock)
 end
 
 # Sets read and write timeouts on a UDP socket in milliseconds.
-function udp_set_timeout(sock, ms)
+pub function udp_set_timeout(sock, ms)
     if ms == null or ms <= 0
         ms = 10000
     end
@@ -145,7 +145,7 @@ function udp_set_timeout(sock, ms)
 end
 
 # Sets non-blocking mode on a UDP socket (mode = 1: non-blocking, mode = 0: blocking).
-function udp_set_nonblocking(sock, mode = 1)
+pub function udp_set_nonblocking(sock, mode = 1)
     if mode == null
         mode = 1
     end
@@ -153,7 +153,7 @@ function udp_set_nonblocking(sock, mode = 1)
 end
 
 # Polls a UDP socket for incoming datagrams within timeout_ms milliseconds.
-function udp_poll(sock, timeout_ms = 0)
+pub function udp_poll(sock, timeout_ms = 0)
     if timeout_ms == null or timeout_ms < 0
         timeout_ms = 0
     end
@@ -162,36 +162,61 @@ end
 
 # --- Basic Network & HTTP Protocol Helpers ---
 
+pub enum HttpStatus
+    Ok = 200
+    Created = 201
+    Accepted = 202
+    NoContent = 204
+    MovedPermanently = 301
+    Found = 302
+    NotModified = 304
+    TemporaryRedirect = 307
+    PermanentRedirect = 308
+    BadRequest = 400
+    Unauthorized = 401
+    Forbidden = 403
+    NotFound = 404
+    MethodNotAllowed = 405
+    RequestTimeout = 408
+    Conflict = 409
+    UnprocessableEntity = 422
+    TooManyRequests = 429
+    InternalServerError = 500
+    BadGateway = 502
+    ServiceUnavailable = 503
+    GatewayTimeout = 504
+end
+
 # Returns standard HTTP status code description.
-function http_status_text(code)
+pub function http_status_text(code)
     when code
-        is 200 then return "OK"
-        is 201 then return "Created"
-        is 202 then return "Accepted"
-        is 204 then return "No Content"
-        is 301 then return "Moved Permanently"
-        is 302 then return "Found"
-        is 304 then return "Not Modified"
-        is 307 then return "Temporary Redirect"
-        is 308 then return "Permanent Redirect"
-        is 400 then return "Bad Request"
-        is 401 then return "Unauthorized"
-        is 403 then return "Forbidden"
-        is 404 then return "Not Found"
-        is 405 then return "Method Not Allowed"
-        is 408 then return "Request Timeout"
-        is 409 then return "Conflict"
-        is 422 then return "Unprocessable Entity"
-        is 429 then return "Too Many Requests"
-        is 500 then return "Internal Server Error"
-        is 502 then return "Bad Gateway"
-        is 503 then return "Service Unavailable"
-        is 504 then return "Gateway Timeout"
+        is HttpStatus.Ok then return "OK"
+        is HttpStatus.Created then return "Created"
+        is HttpStatus.Accepted then return "Accepted"
+        is HttpStatus.NoContent then return "No Content"
+        is HttpStatus.MovedPermanently then return "Moved Permanently"
+        is HttpStatus.Found then return "Found"
+        is HttpStatus.NotModified then return "Not Modified"
+        is HttpStatus.TemporaryRedirect then return "Temporary Redirect"
+        is HttpStatus.PermanentRedirect then return "Permanent Redirect"
+        is HttpStatus.BadRequest then return "Bad Request"
+        is HttpStatus.Unauthorized then return "Unauthorized"
+        is HttpStatus.Forbidden then return "Forbidden"
+        is HttpStatus.NotFound then return "Not Found"
+        is HttpStatus.MethodNotAllowed then return "Method Not Allowed"
+        is HttpStatus.RequestTimeout then return "Request Timeout"
+        is HttpStatus.Conflict then return "Conflict"
+        is HttpStatus.UnprocessableEntity then return "Unprocessable Entity"
+        is HttpStatus.TooManyRequests then return "Too Many Requests"
+        is HttpStatus.InternalServerError then return "Internal Server Error"
+        is HttpStatus.BadGateway then return "Bad Gateway"
+        is HttpStatus.ServiceUnavailable then return "Service Unavailable"
+        is HttpStatus.GatewayTimeout then return "Gateway Timeout"
         else return "Unknown Status"
     end
 end
 
 # Generates standard HTTP Basic Authentication header string.
-function basic_auth(username, password)
+pub function basic_auth(username, password)
     return "Basic " + base64_encode(username + ":" + password)
 end

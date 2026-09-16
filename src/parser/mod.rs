@@ -1,3 +1,5 @@
+pub mod constants;
+pub mod enums;
 pub mod expr;
 pub mod stmt;
 #[cfg(test)]
@@ -9,6 +11,8 @@ use crate::lexer::{Token, TokenType};
 pub struct Parser {
     tokens: Vec<Token>,
     position: usize,
+    pub(super) lambda_functions: Vec<Stmt>,
+    pub(super) lambda_counter: usize,
 }
 
 impl Parser {
@@ -16,6 +20,8 @@ impl Parser {
         Self {
             tokens,
             position: 0,
+            lambda_functions: Vec::new(),
+            lambda_counter: 0,
         }
     }
 
@@ -28,13 +34,25 @@ impl Parser {
             self.skip_newlines();
         }
 
+        statements.append(&mut self.lambda_functions);
+
         let mut program = Program { statements };
         expand_default_args(&mut program);
+        enums::resolve_enums(&mut program);
+        constants::resolve_and_validate_constants(&mut program)?;
         Ok(program)
     }
 
     pub(super) fn current_token(&self) -> &Token {
         &self.tokens[self.position]
+    }
+
+    pub(super) fn peek_token(&self) -> Option<&Token> {
+        if self.position + 1 < self.tokens.len() {
+            Some(&self.tokens[self.position + 1])
+        } else {
+            None
+        }
     }
 
     pub(super) fn advance(&mut self) {
@@ -77,10 +95,23 @@ pub fn resolve_imports_with_sources(
         resolve_stmt_imports(stmt, base_dir, &mut visited, &mut resolved_stmts)?;
     }
 
+    // Deduplicate private module functions (__priv_*) that were imported via multiple paths
+    let mut seen_privates = std::collections::HashSet::new();
+    resolved_stmts.retain(|stmt| {
+        if let Stmt::Function { name, .. } = stmt.inner_stmt() {
+            if name.starts_with("__priv_") {
+                return seen_privates.insert(name.clone());
+            }
+        }
+        true
+    });
+
     validate_unique_functions(&resolved_stmts)?;
 
     program.statements = resolved_stmts;
     expand_default_args(program);
+    enums::resolve_enums(program);
+    constants::resolve_and_validate_constants(program)?;
 
     let imported_files = visited.into_iter().map(|(path, _)| path).collect();
     Ok(imported_files)
@@ -218,6 +249,16 @@ fn prefix_stmt(stmt: &mut Stmt, alias: &str, local_fns: &std::collections::HashS
         Stmt::Throw(Some(e)) => {
             prefix_expr(e, alias, local_fns);
         }
+        Stmt::Const { name, value } => {
+            prefix_expr(value, alias, local_fns);
+            *name = format!("{}::{}", alias, name);
+        }
+        Stmt::EnumDef { name, .. } => {
+            *name = format!("{}::{}", alias, name);
+        }
+        Stmt::Pub(inner) => {
+            prefix_stmt(inner, alias, local_fns);
+        }
         _ => {}
     }
 }
@@ -280,6 +321,17 @@ fn prefix_expr(expr: &mut Expr, alias: &str, local_fns: &std::collections::HashS
             prefix_expr(value, alias, local_fns);
             prefix_expr(default, alias, local_fns);
         }
+        Expr::OptionalCall { callee, args } => {
+            if local_fns.contains(callee) {
+                *callee = format!("{}::{}", alias, callee);
+            }
+            for arg in args {
+                prefix_expr(arg, alias, local_fns);
+            }
+        }
+        Expr::TypeCheck { expr, .. } => {
+            prefix_expr(expr, alias, local_fns);
+        }
         _ => {}
     }
 }
@@ -310,6 +362,7 @@ fn get_embedded_stdlib(module: &str) -> Option<&'static str> {
         "glob" => Some(include_str!("../../stdlib/glob.alya")),
         "console" => Some(include_str!("../../stdlib/console.alya")),
         "net" | "http" => Some(include_str!("../../stdlib/net.alya")),
+        "sync" | "synchronization" => Some(include_str!("../../stdlib/sync.alya")),
         "thread" | "threads" | "concurrency" => Some(include_str!("../../stdlib/thread.alya")),
         _ => None,
     }
@@ -325,6 +378,7 @@ fn resolve_stmt_imports(
         Stmt::Import {
             path: import_path_str,
             alias,
+            symbols,
         } => {
             // Normalize path separators to '/' so Windows-style '\' works across Linux, macOS, and Windows
             let normalized_path = import_path_str.replace('\\', "/");
@@ -418,14 +472,46 @@ fn resolve_stmt_imports(
             })?;
 
             let is_embedded_stdlib = canonical.to_string_lossy().starts_with("<embedded:");
+            let has_any_pub = sub_program.statements.iter().any(|s| s.is_pub());
+            let pub_symbol_names: std::collections::HashSet<String> = if has_any_pub {
+                sub_program
+                    .statements
+                    .iter()
+                    .filter(|s| s.is_pub())
+                    .filter_map(|s| s.declared_symbol_name().map(|n| n.to_string()))
+                    .collect()
+            } else {
+                std::collections::HashSet::new()
+            };
+
+            let private_fns: std::collections::HashSet<String> = if has_any_pub {
+                sub_program
+                    .statements
+                    .iter()
+                    .filter(|s| !s.is_pub())
+                    .filter_map(|s| match s.inner_stmt() {
+                        Stmt::Function { name, .. } => Some(name.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            } else {
+                std::collections::HashSet::new()
+            };
+
             let mut local_fns: std::collections::HashSet<String> =
                 if !is_embedded_stdlib || alias.is_some() {
                     sub_program
                         .statements
                         .iter()
-                        .filter_map(|s| match s {
-                            Stmt::Function { name, .. } => Some(name.clone()),
-                            _ => None,
+                        .filter_map(|s| {
+                            if has_any_pub && !s.is_pub() {
+                                None
+                            } else {
+                                match s.inner_stmt() {
+                                    Stmt::Function { name, .. } => Some(name.clone()),
+                                    _ => None,
+                                }
+                            }
                         })
                         .collect()
                 } else {
@@ -443,12 +529,156 @@ fn resolve_stmt_imports(
                 }
             }
 
-            if let Some(ref alias_str) = alias {
-                apply_module_alias(&mut sub_resolved, alias_str, &local_fns);
-                out.extend(sub_resolved);
+            if let Some(ref syms) = symbols {
+                // Selective import: from "..." import a, b [as c]
+                // 1. Verify requested symbols exist and check visibility
+                for sym in syms {
+                    if sym.name == "*" {
+                        continue;
+                    }
+                    let matching_stmt = sub_resolved.iter().find(|s| match s.inner_stmt() {
+                        Stmt::Function { name, .. } => name == &sym.name,
+                        Stmt::StructDef { name, .. } => name == &sym.name,
+                        Stmt::EnumDef { name, .. } => name == &sym.name,
+                        Stmt::Const { name, .. } => name == &sym.name,
+                        Stmt::Let { name, .. } => name == &sym.name,
+                        _ => false,
+                    });
+                    match matching_stmt {
+                        Some(stmt) => {
+                            if has_any_pub && !stmt.is_pub() {
+                                return Err(format!(
+                                    "Cannot import private symbol '{}' from module '{}' (must be declared with 'pub')",
+                                    sym.name, import_path_str
+                                ));
+                            }
+                        }
+                        None => {
+                            return Err(format!(
+                                "Module '{}' does not export symbol '{}'",
+                                import_path_str, sym.name
+                            ));
+                        }
+                    }
+                }
+            }
+
+            if !private_fns.is_empty() {
+                let mod_stem = canonical
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("mod");
+                let clean_stem: String = mod_stem
+                    .chars()
+                    .filter(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                canonical.hash(&mut hasher);
+                let priv_alias = format!("__priv_{}_{:x}", clean_stem, hasher.finish());
+                apply_module_alias(&mut sub_resolved, &priv_alias, &private_fns);
+            }
+
+            if let Some(ref syms) = symbols {
+                // 2. For aliased symbols, clone and rename definitions
+                let mut additional_stmts = Vec::new();
+                for sym in syms {
+                    if let Some(ref alias_name) = sym.alias {
+                        for s in &sub_resolved {
+                            match s.inner_stmt() {
+                                Stmt::Function {
+                                    name,
+                                    params,
+                                    param_types,
+                                    return_type,
+                                    defaults,
+                                    body,
+                                } if name == &sym.name => {
+                                    additional_stmts.push(Stmt::Function {
+                                        name: alias_name.clone(),
+                                        params: params.clone(),
+                                        param_types: param_types.clone(),
+                                        return_type: return_type.clone(),
+                                        defaults: defaults.clone(),
+                                        body: body.clone(),
+                                    });
+                                }
+                                Stmt::StructDef {
+                                    name,
+                                    fields,
+                                    field_types,
+                                    defaults,
+                                } if name == &sym.name => {
+                                    additional_stmts.push(Stmt::StructDef {
+                                        name: alias_name.clone(),
+                                        fields: fields.clone(),
+                                        field_types: field_types.clone(),
+                                        defaults: defaults.clone(),
+                                    });
+                                }
+                                Stmt::EnumDef { name, variants } if name == &sym.name => {
+                                    additional_stmts.push(Stmt::EnumDef {
+                                        name: alias_name.clone(),
+                                        variants: variants.clone(),
+                                    });
+                                }
+                                Stmt::Const { name, value } if name == &sym.name => {
+                                    additional_stmts.push(Stmt::Const {
+                                        name: alias_name.clone(),
+                                        value: value.clone(),
+                                    });
+                                }
+                                Stmt::Let {
+                                    name,
+                                    type_ann,
+                                    value,
+                                } if name == &sym.name => {
+                                    additional_stmts.push(Stmt::Let {
+                                        name: alias_name.clone(),
+                                        type_ann: type_ann.clone(),
+                                        value: value.clone(),
+                                    });
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                sub_resolved.extend(additional_stmts);
+                let unwrapped_resolved: Vec<Stmt> = sub_resolved
+                    .into_iter()
+                    .map(|s| s.inner_stmt().clone())
+                    .collect();
+                out.extend(unwrapped_resolved);
+
+                let mut exposed_fns = std::collections::HashSet::new();
+                for sym in syms {
+                    if sym.name == "*" {
+                        if has_any_pub {
+                            exposed_fns.extend(pub_symbol_names.clone());
+                        } else {
+                            exposed_fns.extend(local_fns.clone());
+                        }
+                    } else {
+                        let final_name = sym.alias.as_ref().unwrap_or(&sym.name);
+                        exposed_fns.insert(final_name.clone());
+                    }
+                }
+                Ok(exposed_fns)
+            } else if let Some(ref alias_str) = alias {
+                let mut final_sub: Vec<Stmt> = sub_resolved
+                    .into_iter()
+                    .map(|s| s.inner_stmt().clone())
+                    .collect();
+                apply_module_alias(&mut final_sub, alias_str, &local_fns);
+                out.extend(final_sub);
                 Ok(std::collections::HashSet::new())
             } else {
-                out.extend(sub_resolved);
+                let unwrapped_resolved: Vec<Stmt> = sub_resolved
+                    .into_iter()
+                    .map(|s| s.inner_stmt().clone())
+                    .collect();
+                out.extend(unwrapped_resolved);
                 Ok(local_fns)
             }
         }
@@ -460,7 +690,7 @@ fn resolve_stmt_imports(
 }
 
 pub fn expand_default_args(program: &mut Program) {
-    let mut fn_defs: std::collections::HashMap<String, (usize, Vec<Option<Expr>>)> =
+    let mut fn_defs: std::collections::HashMap<String, (usize, Vec<Option<Expr>>, bool)> =
         std::collections::HashMap::new();
 
     collect_fn_defaults(&program.statements, &mut fn_defs);
@@ -472,20 +702,23 @@ pub fn expand_default_args(program: &mut Program) {
 
 fn collect_fn_defaults(
     stmts: &[Stmt],
-    fn_defs: &mut std::collections::HashMap<String, (usize, Vec<Option<Expr>>)>,
+    fn_defs: &mut std::collections::HashMap<String, (usize, Vec<Option<Expr>>, bool)>,
 ) {
     for stmt in stmts {
         match stmt {
             Stmt::Function {
                 name,
                 params,
+                param_types,
                 defaults,
                 body,
+                ..
             } => {
-                fn_defs.insert(name.clone(), (params.len(), defaults.clone()));
+                let has_rest = param_types.last().and_then(|t| t.as_deref()) == Some("...");
+                fn_defs.insert(name.clone(), (params.len(), defaults.clone(), has_rest));
                 let bare = name.rsplit("::").next().unwrap_or(name.as_str());
                 if bare != name {
-                    fn_defs.insert(bare.to_string(), (params.len(), defaults.clone()));
+                    fn_defs.insert(bare.to_string(), (params.len(), defaults.clone(), has_rest));
                 }
                 collect_fn_defaults(body, fn_defs);
             }
@@ -517,6 +750,9 @@ fn collect_fn_defaults(
                     collect_fn_defaults(fb, fn_defs);
                 }
             }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                collect_fn_defaults(std::slice::from_ref(inner), fn_defs);
+            }
             _ => {}
         }
     }
@@ -524,7 +760,7 @@ fn collect_fn_defaults(
 
 fn expand_defaults_in_stmt(
     stmt: &mut Stmt,
-    fn_defs: &std::collections::HashMap<String, (usize, Vec<Option<Expr>>)>,
+    fn_defs: &std::collections::HashMap<String, (usize, Vec<Option<Expr>>, bool)>,
 ) {
     match stmt {
         Stmt::Function { body, .. } => {
@@ -613,13 +849,16 @@ fn expand_defaults_in_stmt(
                 }
             }
         }
+        Stmt::Pub(inner) | Stmt::Defer(inner) => {
+            expand_defaults_in_stmt(inner, fn_defs);
+        }
         _ => {}
     }
 }
 
 fn expand_defaults_in_expr(
     expr: &mut Expr,
-    fn_defs: &std::collections::HashMap<String, (usize, Vec<Option<Expr>>)>,
+    fn_defs: &std::collections::HashMap<String, (usize, Vec<Option<Expr>>, bool)>,
 ) {
     match expr {
         Expr::Call { name, args } => {
@@ -627,8 +866,30 @@ fn expand_defaults_in_expr(
                 expand_defaults_in_expr(arg, fn_defs);
             }
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
-            if let Some((param_count, defaults)) = fn_defs.get(name).or_else(|| fn_defs.get(bare)) {
-                if args.len() < *param_count {
+            if let Some((param_count, defaults, has_rest)) =
+                fn_defs.get(name).or_else(|| fn_defs.get(bare))
+            {
+                if *has_rest {
+                    let fixed_count = param_count.saturating_sub(1);
+                    if args.len() < fixed_count {
+                        for i in args.len()..fixed_count {
+                            if let Some(Some(def_expr)) = defaults.get(i) {
+                                args.push(def_expr.clone());
+                            }
+                        }
+                        args.push(Expr::Array(vec![]));
+                    } else if args.len() == fixed_count {
+                        args.push(Expr::Array(vec![]));
+                    } else if args.len() == *param_count {
+                        if !matches!(args.last(), Some(Expr::Array(_))) {
+                            let last = args.pop().unwrap();
+                            args.push(Expr::Array(vec![last]));
+                        }
+                    } else {
+                        let rest_items: Vec<Expr> = args.drain(fixed_count..).collect();
+                        args.push(Expr::Array(rest_items));
+                    }
+                } else if args.len() < *param_count {
                     for i in args.len()..*param_count {
                         if let Some(Some(def_expr)) = defaults.get(i) {
                             args.push(def_expr.clone());
@@ -684,6 +945,9 @@ fn expand_defaults_in_expr(
             for part in parts {
                 expand_defaults_in_expr(part, fn_defs);
             }
+        }
+        Expr::TypeCheck { expr, .. } => {
+            expand_defaults_in_expr(expr, fn_defs);
         }
         _ => {}
     }

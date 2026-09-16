@@ -2,13 +2,13 @@ use crate::ast::*;
 use crate::lexer::TokenType;
 use crate::parser::Parser;
 
-enum WhenPattern {
+pub(crate) enum WhenPattern {
     Exact(Expr),
     Range(Expr, Expr),
     Relational(BinaryOp, Expr),
 }
 
-fn build_pattern_condition(subject: &Expr, pattern: WhenPattern) -> Expr {
+pub(crate) fn build_pattern_condition(subject: &Expr, pattern: WhenPattern) -> Expr {
     match pattern {
         WhenPattern::Exact(expr) => Expr::Binary {
             left: Box::new(subject.clone()),
@@ -40,7 +40,7 @@ fn build_pattern_condition(subject: &Expr, pattern: WhenPattern) -> Expr {
     }
 }
 
-fn build_when_condition(subject: &Expr, mut patterns: Vec<WhenPattern>) -> Expr {
+pub(crate) fn build_when_condition(subject: &Expr, mut patterns: Vec<WhenPattern>) -> Expr {
     let first = patterns.remove(0);
     let mut cond = build_pattern_condition(subject, first);
     for pat in patterns {
@@ -166,10 +166,35 @@ impl Parser {
         };
         self.advance();
 
+        let value_var = if matches!(self.current_token().token_type, TokenType::Comma) {
+            self.advance();
+            let v2 = match &self.current_token().token_type {
+                TokenType::Identifier(s) => s.clone(),
+                _ => {
+                    return Err(format!(
+                        "Expected second identifier after ',' in 'for' at line {}, column {}",
+                        self.current_token().line,
+                        self.current_token().column
+                    ))
+                }
+            };
+            self.advance();
+            Some(v2)
+        } else {
+            None
+        };
+
         self.expect(TokenType::In)?;
 
         let expr = self.parse_expression()?;
         if matches!(self.current_token().token_type, TokenType::DotDot) {
+            if value_var.is_some() {
+                return Err(format!(
+                    "Multiple loop variables are not supported for range loops at line {}, column {}",
+                    self.current_token().line,
+                    self.current_token().column
+                ));
+            }
             self.advance();
             let end = self.parse_expression()?;
             self.skip_newlines();
@@ -207,6 +232,7 @@ impl Parser {
 
             Ok(Stmt::ForEach {
                 var,
+                value_var,
                 iterable: expr,
                 body,
             })
@@ -226,6 +252,7 @@ impl Parser {
                 let temp_name = format!("__when_subj_{}", self.position);
                 let let_stmt = Stmt::Let {
                     name: temp_name.clone(),
+                    type_ann: None,
                     value: raw_subject,
                 };
                 (Expr::Identifier(temp_name), Some(let_stmt))
@@ -278,8 +305,11 @@ impl Parser {
                     }
                 }
 
-                // Optional 'then'
-                if matches!(self.current_token().token_type, TokenType::Then) {
+                // Optional 'then' or '=>'
+                if matches!(
+                    self.current_token().token_type,
+                    TokenType::Then | TokenType::FatArrow
+                ) {
                     self.advance();
                 }
                 self.skip_newlines();
@@ -295,7 +325,10 @@ impl Parser {
                 arms.push((patterns, arm_stmts));
             } else if matches!(self.current_token().token_type, TokenType::Else) {
                 self.advance(); // skip 'else'
-                if matches!(self.current_token().token_type, TokenType::Then) {
+                if matches!(
+                    self.current_token().token_type,
+                    TokenType::Then | TokenType::FatArrow
+                ) {
                     self.advance();
                 }
                 self.skip_newlines();

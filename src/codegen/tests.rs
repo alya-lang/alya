@@ -50,6 +50,7 @@ fn test_codegen_arm64_large_stack_offset() {
     for i in 0..20 {
         stmts.push(Stmt::Let {
             name: format!("var_{}", i),
+            type_ann: None,
             value: Expr::Number(i as f64),
         });
     }
@@ -77,6 +78,7 @@ fn test_codegen_let_and_binary_op() {
         statements: vec![
             Stmt::Let {
                 name: "x".into(),
+                type_ann: None,
                 value: Expr::Binary {
                     left: Box::new(Expr::Number(10.0)),
                     op: BinaryOp::Add,
@@ -98,6 +100,8 @@ fn test_codegen_function_definition() {
         statements: vec![Stmt::Function {
             name: "my_func".into(),
             params: vec!["a".into()],
+            param_types: vec![None],
+            return_type: None,
             defaults: vec![None],
             body: vec![Stmt::Return(Some(Expr::Identifier("a".into())))],
         }],
@@ -146,6 +150,7 @@ fn test_codegen_arm64_large_number_immediate() {
 fn test_codegen_arm64_large_number_expr() {
     let program = simple_program(Stmt::Let {
         name: "num".into(),
+        type_ann: None,
         value: Expr::Number(424242.0),
     });
     let asm = generate(&program, Architecture::ARM64, OperatingSystem::Linux);
@@ -337,4 +342,66 @@ foo(201, "Created", {"X-Custom": "Test"}, "New Resource")
     assert!(asm_arm64.contains("ldr x0, [x29, #-48]"));
     assert!(asm_arm64.contains("bl fn_set"));
     assert!(asm_arm64.contains("bl fn_foo"));
+}
+
+#[test]
+fn test_codegen_clock_ms_monotonic_targets() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = r#"
+say clock_ms()
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_win = generate(&ast, Architecture::X64, OperatingSystem::Windows);
+    assert!(asm_win.contains(".extern GetTickCount64"));
+    assert!(asm_win.contains("call GetTickCount64"));
+
+    let asm_linux = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    assert!(asm_linux.contains(".extern clock_gettime"));
+    assert!(asm_linux.contains("call clock_gettime"));
+    assert!(asm_linux.contains("mov $1, %rdi"));
+
+    let asm_macos = generate(&ast, Architecture::X64, OperatingSystem::MacOS);
+    assert!(asm_macos.contains(".extern _clock_gettime"));
+    assert!(asm_macos.contains("call _clock_gettime"));
+    assert!(asm_macos.contains("mov $6, %rdi"));
+
+    let asm_arm64_linux = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(asm_arm64_linux.contains(".extern clock_gettime"));
+    assert!(asm_arm64_linux.contains("bl clock_gettime"));
+    assert!(asm_arm64_linux.contains("mov x0, #1"));
+
+    let asm_arm64_macos = generate(&ast, Architecture::ARM64, OperatingSystem::MacOS);
+    assert!(asm_arm64_macos.contains(".extern _clock_gettime"));
+    assert!(asm_arm64_macos.contains("bl _clock_gettime"));
+    assert!(asm_arm64_macos.contains("mov x0, #6"));
+}
+
+#[test]
+fn test_codegen_arm64_runtime_type_check_pointer_guard() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = r#"
+function check(x)
+    return x is array
+end
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::MacOS);
+    assert!(asm_arm64.contains("cbz x0"));
+    assert!(asm_arm64.contains("tst x0, #7"));
+    assert!(asm_arm64.contains("cmp x0, #65536"));
+    assert!(asm_arm64.contains("b.lo"));
+    assert!(asm_arm64.contains("lsr x1, x0, #47"));
+    assert!(asm_arm64.contains("ldur x1, [x0, #-16]"));
 }

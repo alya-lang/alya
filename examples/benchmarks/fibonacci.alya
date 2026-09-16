@@ -10,23 +10,23 @@ end
 let runner = bench_runner("Recursive Fibonacci Benchmark")
 
 # fib(20) x 500
-bench_start(runner, 500)
+runner.start(500)
 let i = 0
 let res = 0
 while i < 500
     res = fib(20)
     i += 1
 end
-bench_stop(runner, "fib(20)")
+runner.stop("fib(20)")
 
 # fib(24) x 50
-bench_start(runner, 50)
+runner.start(50)
 i = 0
 while i < 50
     res = fib(24)
     i += 1
 end
-bench_stop(runner, "fib(24)")
+runner.stop("fib(24)")
 
 say "Fibonacci result verified: " + str(res)
-bench_summary(runner)
+runner.summary()

@@ -3,45 +3,45 @@
 
 # --- Platform & Architecture ---
 
-function os_name()
+pub function os_name()
     return target_os()
 end
 
-function arch_name()
+pub function arch_name()
     return target_arch()
 end
 
-function arch()
+pub function arch()
     return target_arch()
 end
 
-function platform()
+pub function platform()
     return target_os()
 end
 
-function is_windows()
+pub function is_windows()
     return target_os() == "windows"
 end
 
-function is_linux()
+pub function is_linux()
     return target_os() == "linux"
 end
 
-function is_macos()
+pub function is_macos()
     return target_os() == "macos"
 end
 
-function is_posix()
+pub function is_posix()
     return target_os() != "windows"
 end
 
 # --- Environment Variables ---
 
-function env(key)
+pub function env(key)
     return get_env(key)
 end
 
-function env_or(key, default_val)
+pub function env_or(key, default_val)
     let val = get_env(key)
     if len(val) == 0
         return default_val
@@ -49,7 +49,7 @@ function env_or(key, default_val)
     return val
 end
 
-function has_env(key)
+pub function has_env(key)
     if len(get_env(key)) > 0
         return 1
     end
@@ -58,50 +58,50 @@ end
 
 # --- Command Execution & Process ---
 
-function exec(cmd)
+pub function exec(cmd)
     return system_exec(cmd)
 end
 
-function exit_process(code)
+pub function exit_process(code)
     exit(code)
 end
 
-function get_pid()
+pub function get_pid()
     return __native_get_pid()
 end
 
-function pid()
+pub function pid()
     return __native_get_pid()
 end
 
-function get_cwd()
+pub function get_cwd()
     return __native_get_cwd()
 end
 
-function cwd()
+pub function cwd()
     return __native_get_cwd()
 end
 
-function set_cwd(path)
+pub function set_cwd(path)
     return __native_set_cwd(path)
 end
 
-function chdir(path)
+pub function chdir(path)
     return __native_set_cwd(path)
 end
 
 # --- Command Line Arguments ---
 
-function cli_args()
+pub function cli_args()
     return args()
 end
 
-function arg_count()
+pub function arg_count()
     let a = args()
     return len(a)
 end
 
-function arg_at(index, default_val)
+pub function arg_at(index, default_val)
     let a = args()
     if index >= 0 and index < len(a)
         return a[index]
@@ -109,7 +109,7 @@ function arg_at(index, default_val)
     return default_val
 end
 
-function has_arg(flag)
+pub function has_arg(flag)
     let a = args()
     for arg in a
         if arg == flag
@@ -121,7 +121,7 @@ end
 
 # --- Filesystem & Platform Helpers ---
 
-function temp_dir()
+pub function temp_dir()
     let t = ""
     if is_windows()
         t = get_env("TEMP")
@@ -141,7 +141,7 @@ function temp_dir()
     return "/tmp"
 end
 
-function home_dir()
+pub function home_dir()
     let h = ""
     if is_windows()
         h = get_env("USERPROFILE")
@@ -158,7 +158,7 @@ function home_dir()
     return get_env("HOME")
 end
 
-function user_name()
+pub function user_name()
     let u = ""
     if is_windows()
         u = get_env("USERNAME")
@@ -174,7 +174,7 @@ function user_name()
     return get_env("LOGNAME")
 end
 
-function hostname()
+pub function hostname()
     let h = ""
     if is_windows()
         h = get_env("COMPUTERNAME")
@@ -190,14 +190,14 @@ function hostname()
     return ""
 end
 
-function null_device()
+pub function null_device()
     if is_windows()
         return "NUL"
     end
     return "/dev/null"
 end
 
-function path_list_separator()
+pub function path_list_separator()
     if is_windows()
         return ";"
     end

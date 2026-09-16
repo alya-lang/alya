@@ -1,7 +1,7 @@
 # Alya Standard Library - JSON Helper Module
 # Provides serialization and helper utilities for JSON formatting.
 
-function json_escape(s)
+pub function json_escape(s)
     let slen = len(s)
     let res = ""
     let i = 0
@@ -25,19 +25,19 @@ function json_escape(s)
     return res
 end
 
-function json_string(s)
+pub function json_string(s)
     return "\"" + json_escape(s) + "\""
 end
 
-function json_number(n)
+pub function json_number(n)
     return str(n)
 end
 
-function json_int(n)
+pub function json_int(n)
     return str(n)
 end
 
-function json_float(n)
+pub function json_float(n)
     let iv = int(n)
     let fv = n - float(iv)
     if fv < 0.0
@@ -56,22 +56,22 @@ function json_float(n)
     return str(iv) + "." + str(frac)
 end
 
-function json_null()
+pub function json_null()
     return "null"
 end
 
-function json_bool(b)
+pub function json_bool(b)
     when b
         is 1 then return "true"
         else return "false"
     end
 end
 
-function json_kv(key, val)
+pub function json_kv(key, val)
     return "\"" + json_escape(key) + "\": " + str(val)
 end
 
-function json_array(items)
+pub function json_array(items)
     let count = len(items)
     if count == 0
         return "[]"
@@ -89,27 +89,25 @@ function json_array(items)
     return res
 end
 
-function json_object(m)
-    let k = keys(m)
-    let v = values(m)
-    let count = len(k)
-    if count == 0
+pub function json_object(m)
+    if len(m) == 0
         return "{}"
     end
     let res = "{"
-    let i = 0
-    while i < count
-        if i > 0
+    let first = 1
+    for k, v in m
+        if first == 0
             res = res + ", "
+        else
+            first = 0
         end
-        res = res + "\"" + json_escape(k[i]) + "\": " + str(v[i])
-        i += 1
+        res = res + "\"" + json_escape(k) + "\": " + str(v)
     end
     res = res + "}"
     return res
 end
 
-function json_map(m)
+pub function json_map(m)
     return json_object(m)
 end
 
@@ -295,7 +293,7 @@ function _json_parse_val(s, pos, slen)
     end
 end
 
-function json_parse(text)
+pub function json_parse(text)
     let s = str_from_ptr(text)
     let slen = len(s)
     if slen == 0
@@ -305,15 +303,15 @@ function json_parse(text)
     return _json_parse_val(s, pos, slen)
 end
 
-function json_parse_object(text)
+pub function json_parse_object(text)
     return json_parse(text)
 end
 
-function json_parse_array(text)
+pub function json_parse_array(text)
     return json_parse(text)
 end
 
-function json_is_valid(text)
+pub function json_is_valid(text)
     let s = str_from_ptr(text)
     let slen = len(s)
     if slen == 0

@@ -12,6 +12,7 @@ enum BlockKind {
     Repeat,
     Try,
     Struct,
+    Enum,
     When,
     WhenArm,
     Brace,
@@ -177,6 +178,45 @@ fn find_word_outside_quotes(s: &str, word: &str) -> Option<usize> {
     None
 }
 
+fn find_str_outside_quotes(s: &str, needle: &str) -> Option<usize> {
+    let mut in_str = false;
+    let mut quote = '"';
+    let mut escaped = false;
+    let bytes = s.as_bytes();
+    let needle_bytes = needle.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_str {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == quote as u8 {
+                in_str = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if b == b'"' || b == b'`' {
+            in_str = true;
+            quote = b as char;
+            i += 1;
+            continue;
+        }
+
+        if i + needle_bytes.len() <= bytes.len()
+            && &bytes[i..i + needle_bytes.len()] == needle_bytes
+        {
+            return Some(i);
+        }
+
+        i += 1;
+    }
+    None
+}
+
 fn has_word_outside_quotes(s: &str, word: &str) -> bool {
     find_word_outside_quotes(s, word).is_some()
 }
@@ -188,6 +228,9 @@ fn has_inline_if(code: &str) -> bool {
 fn is_when_arm_inline(code: &str) -> bool {
     if let Some(pos) = find_word_outside_quotes(code, "then") {
         let after = code[pos + "then".len()..].trim();
+        !after.is_empty()
+    } else if let Some(pos) = find_str_outside_quotes(code, "=>") {
+        let after = code[pos + "=>".len()..].trim();
         !after.is_empty()
     } else {
         false
@@ -210,6 +253,9 @@ fn is_when_else_inline(code: &str) -> bool {
         if let Some(then_pos) = find_word_outside_quotes(rest, "then") {
             let after_then = rest[then_pos + "then".len()..].trim();
             !after_then.is_empty()
+        } else if let Some(arrow_pos) = find_str_outside_quotes(rest, "=>") {
+            let after_arrow = rest[arrow_pos + "=>".len()..].trim();
+            !after_arrow.is_empty()
         } else {
             !rest.is_empty()
         }
@@ -283,25 +329,43 @@ fn get_block_starter(code: &str, in_extern: bool) -> Option<BlockKind> {
         return None;
     }
 
-    let first_word = code.split_whitespace().next().unwrap_or("");
+    let code_trimmed = code.trim();
+    let code_after_pub = if let Some(stripped) = code_trimmed.strip_prefix("pub ") {
+        stripped.trim_start()
+    } else {
+        code_trimmed
+    };
+
+    let first_word = code_after_pub.split_whitespace().next().unwrap_or("");
     if first_word == "extern" {
         return Some(BlockKind::Extern);
     }
-    if !in_extern
-        && (first_word == "function"
+    if !in_extern {
+        if first_word == "function"
             || first_word == "fn"
-            || code.starts_with("function(")
-            || code.starts_with("fn("))
-    {
-        return Some(BlockKind::Function);
+            || code_after_pub.starts_with("function(")
+            || code_after_pub.starts_with("fn(")
+        {
+            return Some(BlockKind::Function);
+        }
+        if (has_word_outside_quotes(code_after_pub, "fn")
+            || has_word_outside_quotes(code_after_pub, "function"))
+            && !code_after_pub.contains("=>")
+            && (code_after_pub.contains("fn(")
+                || code_after_pub.contains("fn (")
+                || code_after_pub.contains("function(")
+                || code_after_pub.contains("function ("))
+        {
+            return Some(BlockKind::Function);
+        }
     }
-    if first_word == "if" || code.starts_with("if(") {
-        if has_inline_if(code) {
+    if first_word == "if" || code_after_pub.starts_with("if(") {
+        if has_inline_if(code_after_pub) {
             return None;
         }
         return Some(BlockKind::If);
     }
-    if first_word == "while" || code.starts_with("while(") {
+    if first_word == "while" || code_after_pub.starts_with("while(") {
         return Some(BlockKind::While);
     }
     if first_word == "for" {
@@ -313,11 +377,18 @@ fn get_block_starter(code: &str, in_extern: bool) -> Option<BlockKind> {
     if first_word == "try" {
         return Some(BlockKind::Try);
     }
-    if first_word == "when" || code.starts_with("when(") {
+    if first_word == "when"
+        || code_after_pub.starts_with("when(")
+        || (has_word_outside_quotes(code_after_pub, "when")
+            && !ends_with_word_outside_quotes(code_after_pub, "end"))
+    {
         return Some(BlockKind::When);
     }
     if first_word == "struct" {
         return Some(BlockKind::Struct);
+    }
+    if first_word == "enum" {
+        return Some(BlockKind::Enum);
     }
     None
 }
@@ -550,7 +621,10 @@ pub fn format_source(source: &str) -> Result<String, String> {
         let is_end = first_word == "end" || code.starts_with("end(");
         let is_elif = first_word == "elif" || code.starts_with("elif(");
         let is_else = first_word == "else";
-        let is_is = first_word == "is" || code.starts_with("is(");
+        let is_is = (first_word == "is" || code.starts_with("is("))
+            && block_stack
+                .iter()
+                .any(|b| matches!(b, BlockKind::When | BlockKind::WhenArm));
         let is_catch = first_word == "catch" || code.starts_with("catch(");
         let is_finally = first_word == "finally" || code.starts_with("finally(");
 
@@ -1117,6 +1191,122 @@ end
     finally
         cleanup()
     end
+end
+"#;
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_enum() {
+        let input = r#"enum Color
+Red
+Green
+Blue = 10
+end
+"#;
+        let expected = r#"enum Color
+    Red
+    Green
+    Blue = 10
+end
+"#;
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_pub_declarations() {
+        let input = r#"pub function add(a: int, b: int) -> int
+return a + b
+end
+
+pub struct Point
+x: int
+y: int = 0
+end
+
+pub enum Direction
+North
+South
+end
+"#;
+        let expected = r#"pub function add(a: int, b: int) -> int
+    return a + b
+end
+
+pub struct Point
+    x: int
+    y: int = 0
+end
+
+pub enum Direction
+    North
+    South
+end
+"#;
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_when_expression_with_arrow() {
+        let input = r#"let res = when val
+is 1 => "one"
+is 2 => "two"
+else => "other"
+end
+"#;
+        let expected = r#"let res = when val
+    is 1 => "one"
+    is 2 => "two"
+    else => "other"
+end
+"#;
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_new_syntax_features() {
+        let input = r#"# 1. in / not in
+let has_x = 5 in [1, 2, 5]
+let no_y = "z" not in "hello"
+
+# 2. multiple loop variables
+for k, v in my_map
+say k
+say v
+end
+
+# 3. destructuring & spread
+let [a, b, ...rest] = items
+let { x, y } = point
+let merged = [...a, ...b]
+
+# 4. type check
+if val is int
+say "integer"
+elif val is not string
+say "not string"
+end
+"#;
+        let expected = r#"# 1. in / not in
+let has_x = 5 in [1, 2, 5]
+let no_y = "z" not in "hello"
+
+# 2. multiple loop variables
+for k, v in my_map
+    say k
+    say v
+end
+
+# 3. destructuring & spread
+let [a, b, ...rest] = items
+let { x, y } = point
+let merged = [...a, ...b]
+
+# 4. type check
+if val is int
+    say "integer"
+elif val is not string
+    say "not string"
 end
 "#;
         assert_eq!(format_source(input).unwrap(), expected);

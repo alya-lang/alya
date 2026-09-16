@@ -3,34 +3,34 @@
 
 # --- Encoding & Code Pages ---
 
-function console_set_output_cp(cp)
+pub function console_set_output_cp(cp)
     return set_console_output_cp(cp)
 end
 
-function console_set_input_cp(cp)
+pub function console_set_input_cp(cp)
     return set_console_input_cp(cp)
 end
 
-function console_output_cp()
+pub function console_output_cp()
     return get_console_output_cp()
 end
 
-function console_input_cp()
+pub function console_input_cp()
     return get_console_input_cp()
 end
 
-function console_utf8()
+pub function console_utf8()
     set_console_output_cp(65001)
     set_console_input_cp(65001)
     enable_virtual_terminal()
     return 1
 end
 
-function set_output_encoding(encoding_name)
+pub function set_output_encoding(encoding_name)
     return console_utf8()
 end
 
-function get_output_encoding()
+pub function get_output_encoding()
     let cp = console_output_cp()
     if cp == 65001
         return "UTF-8"
@@ -44,43 +44,43 @@ end
 
 # --- Terminal Display & Cursor Control ---
 
-function console_enable_ansi()
+pub function console_enable_ansi()
     return enable_virtual_terminal()
 end
 
-function console_clear()
+pub function console_clear()
     return clear_console()
 end
 
-function console_title(title)
+pub function console_title(title)
     return set_console_title(title)
 end
 
-function console_beep()
+pub function console_beep()
     return beep_console()
 end
 
-function console_cursor_to(row, col)
+pub function console_cursor_to(row, col)
     say "\e[" + str(row) + ";" + str(col) + "H"
 end
 
-function console_cursor_hide()
+pub function console_cursor_hide()
     say "\e[?25l"
 end
 
-function console_cursor_show()
+pub function console_cursor_show()
     say "\e[?25h"
 end
 
 # --- Console Input Helpers ---
 
 # Prompts the user with message and reads a full line of text from stdin.
-function console_prompt(prompt_text)
+pub function console_prompt(prompt_text)
     return ask(prompt_text)
 end
 
 # Asks user a yes/no question. Returns 1 for yes, 0 for no.
-function console_confirm(prompt_text, default_yes = 1)
+pub function console_confirm(prompt_text, default_yes = 1)
     let suffix = " (Y/n): "
     if default_yes == 0
         suffix = " (y/N): "

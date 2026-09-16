@@ -78,9 +78,10 @@ impl ReplSession {
     pub fn update_or_add_statement(&mut self, var_name: &str, new_stmt: &str) {
         let prefix = format!("let {}", var_name);
         if let Some(pos) = self.statements.iter().position(|s| {
-            if let Some(rest) = s.strip_prefix(&prefix) {
+            let inner = s.strip_prefix("pub ").unwrap_or(s);
+            if let Some(rest) = inner.strip_prefix(&prefix) {
                 let rest_trim = rest.trim_start();
-                rest_trim.starts_with('=')
+                rest_trim.starts_with('=') || rest_trim.starts_with(':')
             } else {
                 false
             }
@@ -144,7 +145,7 @@ impl ReplSession {
 
         // Check if single statement is a bare expression
         if parsed_program.statements.len() == 1 {
-            match &parsed_program.statements[0] {
+            match parsed_program.statements[0].inner_stmt() {
                 Stmt::Expr(expr) => {
                     if expr_contains_ask(expr, &self.functions) {
                         let pid = std::process::id();
@@ -305,7 +306,7 @@ impl ReplSession {
                     }
                     return;
                 }
-                Stmt::Let { name, value } => {
+                Stmt::Let { name, value, .. } => {
                     let var_name = name.clone();
                     if expr_contains_ask(value, &self.functions) {
                         let pid = std::process::id();
@@ -517,7 +518,7 @@ impl ReplSession {
         // For other statements or multi-statement blocks (loops, ifs, says)
         let has_mutations = parsed_program.statements.iter().any(|s| {
             matches!(
-                s,
+                s.inner_stmt(),
                 Stmt::Let { .. }
                     | Stmt::Assign { .. }
                     | Stmt::IndexAssign { .. }
@@ -537,7 +538,7 @@ impl ReplSession {
                     if has_mutations {
                         self.statements.push(trimmed.to_string());
                         for s in &parsed_program.statements {
-                            if let Stmt::Let { name, .. } = s {
+                            if let Stmt::Let { name, .. } = s.inner_stmt() {
                                 if !self.var_names.contains(name) {
                                     self.var_names.push(name.clone());
                                 }
@@ -560,7 +561,7 @@ impl ReplSession {
                 if has_mutations {
                     self.statements.push(trimmed.to_string());
                     for s in &parsed_program.statements {
-                        if let Stmt::Let { name, .. } = s {
+                        if let Stmt::Let { name, .. } = s.inner_stmt() {
                             if !self.var_names.contains(name) {
                                 self.var_names.push(name.clone());
                             }

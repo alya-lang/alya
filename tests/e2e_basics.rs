@@ -441,3 +441,509 @@ say direct
         assert_eq!(output, "8080\n3000\nGuest\nAlice\nFallback\n42\nDirect\n");
     }
 }
+
+#[test]
+fn test_e2e_short_circuiting() {
+    let code = r#"
+// 1. Guard check for null object should not crash (segfault)
+let obj = null
+if obj != null and obj[0] == 1
+    say "unreachable"
+else
+    say "null guard passed"
+end
+
+// 2. Guard check for empty array
+let arr = []
+if len(arr) > 0 and arr[0] == 10
+    say "unreachable"
+else
+    say "array guard passed"
+end
+
+// 3. Or short-circuiting: second operand should not evaluate if first is true
+let y = 1
+if y == 1 or y / 0 == 0
+    say "or short-circuit passed"
+else
+    say "unreachable"
+end
+
+// 4. Short-circuit in expressions
+let flag_and_false = 0 and 1
+let flag_and_true = 1 and 1
+let flag_or_true = 1 or 0
+let flag_or_false = 0 or 0
+say flag_and_false
+say flag_and_true
+say flag_or_true
+say flag_or_false
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "null guard passed\narray guard passed\nor short-circuit passed\n0\n1\n1\n0\n"
+        );
+    }
+}
+
+#[test]
+fn test_e2e_enums() {
+    let code = r#"
+enum Status
+    Pending
+    Active
+    Completed
+    Failed
+end
+
+enum HttpStatus
+    Ok = 200
+    Created = 201
+    NotFound = 404
+end
+
+enum LogLevel
+    Debug = "DEBUG"
+    Info = "INFO"
+    Warn = "WARN"
+end
+
+# 1. Dot syntax & ColonColon syntax access
+let s1 = Status.Pending
+let s2 = Status.Active
+let s3 = Status::Completed
+say s1
+say s2
+say s3
+
+# 2. Custom values
+say HttpStatus.Ok
+say HttpStatus::NotFound
+say LogLevel.Info
+say LogLevel::Warn
+
+# 3. Pattern matching with when
+let state = Status.Active
+when state
+    is Status.Pending then say "is_pending"
+    is Status.Active then say "is_active"
+    is Status.Completed then say "is_completed"
+    else say "unknown"
+end
+
+# 4. Comparison
+if HttpStatus.Created == 201
+    say "created_ok"
+end
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "0\n1\n2\n200\n404\nINFO\nWARN\nis_active\ncreated_ok\n"
+        );
+    }
+}
+
+#[test]
+fn test_e2e_constants() {
+    let code = r#"
+const PI = 3.14159
+const MAX_BUFFER = 1024
+const APP_TITLE = "Alya App"
+const A = 10, B = 20
+const DERIVED = A * 5 + B
+
+# 1. Top-level usage
+say MAX_BUFFER
+say APP_TITLE
+say DERIVED
+
+# 2. Inside functions (compile-time constant inlining)
+function get_buffer_limit(factor)
+    const LOCAL_PADDING = 16
+    return MAX_BUFFER * factor + LOCAL_PADDING
+end
+
+say get_buffer_limit(2)
+
+# 3. In conditionals and expressions
+if MAX_BUFFER > 500
+    say "buffer is large"
+end
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "1024\nAlya App\n70\n2064\nbuffer is large\n");
+    }
+}
+
+#[test]
+fn test_const_validation_errors() {
+    // 1. Reassigning constant should fail
+    let bad_assign = "const X = 10\nX = 20";
+    let mut lexer = alya::lexer::Lexer::new(bad_assign);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = alya::parser::Parser::new(tokens);
+    let res = parser.parse();
+    assert!(res.is_err());
+    assert!(res.unwrap_err().contains("Cannot assign to constant 'X'"));
+
+    // 2. Redeclaring constant should fail
+    let bad_redecl = "const Y = 10\nconst Y = 20";
+    let mut lexer = alya::lexer::Lexer::new(bad_redecl);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = alya::parser::Parser::new(tokens);
+    let res = parser.parse();
+    assert!(res.is_err());
+    assert!(res.unwrap_err().contains("Cannot redeclare constant 'Y'"));
+}
+
+#[test]
+fn test_e2e_struct_defaults() {
+    let code = r#"
+struct Config
+    port = 8080
+    host = "localhost"
+end
+
+# 1. Default initialization
+let c1 = Config {}
+say c1.port
+say c1.host
+
+# 2. Partial initialization (override port)
+let c2 = Config { port: 3000 }
+say c2.port
+say c2.host
+
+# 3. Partial initialization (override host)
+let c3 = Config { host: "127.0.0.1" }
+say c3.port
+say c3.host
+
+# 4. Positional constructor with default arguments
+let c4 = Config()
+say c4.port
+say c4.host
+
+let c5 = Config(9090)
+say c5.port
+say c5.host
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "8080\nlocalhost\n3000\nlocalhost\n8080\n127.0.0.1\n8080\nlocalhost\n9090\nlocalhost\n"
+        );
+    }
+}
+
+#[test]
+fn test_e2e_multi_assign_swap() {
+    let code = r#"
+# 1. Simple swap
+let a = 10
+let b = 20
+a, b = b, a
+say a
+say b
+
+# 2. Multi-assignment of distinct values
+let x = 0
+let y = 0
+x, y = 100, 200
+say x
+say y
+
+# 3. 3-way rotation swap
+let u = "first"
+let v = "second"
+let w = "third"
+u, v, w = w, u, v
+say u
+say v
+say w
+
+# 4. Expressions with multi-assignment
+x, y = x + 5, y * 2
+say x
+say y
+
+# 5. Let swap
+let p = 1, q = 2
+let p, q = q, p
+say p
+say q
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "20\n10\n100\n200\nthird\nfirst\nsecond\n105\n400\n2\n1\n"
+        );
+    }
+}
+
+#[test]
+fn test_e2e_gradual_typing() {
+    let code = r#"
+# 1. Full type annotations
+function add(a: int, b: int) -> int
+    return a + b
+end
+
+# 2. String annotations
+function greet(name: str) -> str
+    return "Hello, " + name
+end
+
+# 3. Float annotations
+function half(x: float) -> float
+    return x / 2.0
+end
+
+# 4. Gradual / Partial annotations (mixed typed & untyped)
+function format_pair(prefix: str, value)
+    return prefix + ": " + str(value)
+end
+
+# 5. Type annotations with default values
+function multiply(x: int, factor: int = 10) -> int
+    return x * factor
+end
+
+# 6. Array type annotation
+function count_items(items: int[]) -> int
+    return len(items)
+end
+
+say add(40, 2)
+say greet("Alya")
+say half(15.0)
+say format_pair("Result", 99)
+say multiply(5)
+say multiply(5, 3)
+say count_items([1, 2, 3, 4])
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "42\nHello, Alya\n7.5\nResult: 99\n50\n15\n4\n");
+    }
+}
+
+#[test]
+fn test_e2e_optional_chaining() {
+    let code = r#"
+struct Address
+    city
+    zip
+end
+
+struct User
+    name
+    age
+    address
+end
+
+function format_user(u)
+    return "User: " + u.name
+end
+
+let u1 = User {
+    name: "Alice",
+    age: 30,
+    address: Address {
+        city: "Istanbul",
+        zip: 34000
+    }
+}
+let u2 = null
+
+# 1. Combined with null coalescing ??
+say u1?.name ?? "Anonymous"
+say u2?.name ?? "Anonymous"
+
+# 2. Numeric field access
+say u1?.age ?? 0
+say u2?.age ?? 0
+
+# 3. Nested optional chaining
+say u1?.address?.city ?? "Unknown City"
+say u2?.address?.city ?? "Unknown City"
+
+# 4. Optional method call
+say u1?.format_user() ?? "No user"
+say u2?.format_user() ?? "No user"
+
+# 5. Optional array indexing
+let arr1 = [100, 200, 300]
+let arr2 = null
+say arr1?.[1] ?? -1
+say arr2?.[1] ?? -1
+
+# 6. Optional array slicing
+let sub1 = arr1?.[0..2]
+say sub1?.[0] ?? -1
+say sub1?.[1] ?? -1
+let sub2 = arr2?.[0..2]
+say sub2 == null ? 1 : 0
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "Alice\nAnonymous\n30\n0\nIstanbul\nUnknown City\nUser: Alice\nNo user\n200\n-1\n100\n200\n1\n"
+        );
+    }
+}
+
+#[test]
+fn test_e2e_when_expression() {
+    let code = r#"
+# 1. Basic when expression with =>
+let val = 2
+let name = when val
+    is 1 => "one"
+    is 2 => "two"
+    else => "other"
+end
+say name
+
+# 2. When expression with ranges and relational
+let score = 85
+let grade = when score
+    is >= 90 => "A"
+    is 80..89 => "B"
+    is 70..79 => "C"
+    else => "F"
+end
+say grade
+
+# 3. Comma-separated multiple patterns & then keyword
+let num = 3
+let parity = when num
+    is 1, 3, 5 then "odd small"
+    is 2, 4, 6 then "even small"
+    else then "other"
+end
+say parity
+
+# 4. Directly inside say statement
+let status = 404
+say when status
+    is 200 => "OK"
+    is 404 => "Not Found"
+    else => "Error"
+end
+
+# 5. Inside arithmetic expression
+let bonus = 10 + (when grade
+    is "A" => 50
+    is "B" => 30
+    else => 0
+end)
+say bonus
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "two\nB\nodd small\nNot Found\n40\n");
+    }
+}
+
+#[test]
+fn test_e2e_type_check() {
+    let code = r#"
+# 1. Null check
+let a = null
+let b = 10
+say a is null
+say a is not null
+say b is null
+say b is not null
+
+# 2. String check
+let s = "hello"
+let n = 42
+say s is string
+say s is not string
+say n is string
+
+# 3. Number / Int check
+say n is int
+say n is number
+say s is number
+
+# 4. Array check
+let arr = [1, 2, 3]
+say arr is array
+say arr is not array
+say n is array
+
+# 5. Map check
+let m = { "a": 1 }
+say m is map
+say m is not map
+say arr is map
+
+# 6. Inside conditionals
+if s is string
+    say "s is indeed string"
+end
+if a is not null
+    say "should not print"
+else
+    say "a is null indeed"
+end
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "1\n0\n0\n1\n1\n0\n0\n1\n1\n0\n1\n0\n0\n1\n0\n0\ns is indeed string\na is null indeed\n"
+        );
+    }
+}
+
+#[test]
+fn test_e2e_explicit_type_annotations() {
+    let code = r#"
+# 1. Scalar types with explicit annotations
+let x: int = 42
+let s: string = "hello world"
+let f: float = 3.14
+
+say x
+say s
+say f
+
+# 2. Arrays with explicit annotations
+let nums: int[] = [1, 2, 3]
+let tags: string[] = ["alpha", "beta"]
+
+say nums[0]
+say tags[1]
+
+# 3. Struct definition with explicit field types and default values
+struct User
+    name: string
+    age: int = 30
+    tags: string[]
+end
+
+let u1 = User { name: "Alya", age: 1, tags: ["sys", "lang"] }
+say u1.name
+say u1.age
+say u1.tags[0]
+
+let u2: User = User("Bob", 25, ["dev"])
+say u2.name
+say u2.age
+say u2.tags[0]
+
+# 4. Multi-variable let with annotations
+let a: int, b: string = 100, "multi"
+say a
+say b
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "42\nhello world\n3.14\n1\nbeta\nAlya\n1\nsys\nBob\n25\ndev\n100\nmulti\n"
+        );
+    }
+}

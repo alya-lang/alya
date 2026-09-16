@@ -237,6 +237,13 @@ impl Lexer {
                             line,
                             column,
                         });
+                    } else if self.current_char() == Some('.') {
+                        self.advance();
+                        tokens.push(Token {
+                            token_type: TokenType::QuestionDot,
+                            line,
+                            column,
+                        });
                     } else {
                         tokens.push(Token {
                             token_type: TokenType::Question,
@@ -246,7 +253,16 @@ impl Lexer {
                     }
                 }
                 '.' => {
-                    if self.peek_char() == Some('.') {
+                    if self.peek_char_at(1) == Some('.') && self.peek_char_at(2) == Some('.') {
+                        self.advance();
+                        self.advance();
+                        self.advance();
+                        tokens.push(Token {
+                            token_type: TokenType::DotDotDot,
+                            line,
+                            column,
+                        });
+                    } else if self.peek_char_at(1) == Some('.') {
                         self.advance();
                         self.advance();
                         tokens.push(Token {
@@ -276,6 +292,13 @@ impl Lexer {
                         self.advance();
                         tokens.push(Token {
                             token_type: TokenType::Equal,
+                            line,
+                            column,
+                        });
+                    } else if self.current_char() == Some('>') {
+                        self.advance();
+                        tokens.push(Token {
+                            token_type: TokenType::FatArrow,
                             line,
                             column,
                         });

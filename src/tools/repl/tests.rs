@@ -139,3 +139,76 @@ fn test_update_or_add_statement() {
     assert_eq!(session.statements[0], "let x = 20");
     assert_eq!(session.statements[1], "let x_coord = 50");
 }
+
+#[test]
+fn test_completeness_checker_new_features() {
+    // Incomplete when
+    assert!(is_input_incomplete("when x"));
+    assert!(!is_input_incomplete(
+        "when x is 1 => \"one\" else => \"other\" end"
+    ));
+
+    // Incomplete multiline lambda fn
+    assert!(is_input_incomplete("let f = fn(x)"));
+    assert!(!is_input_incomplete("let f = fn(x) return x * 2 end"));
+
+    // Incomplete continuation tokens
+    assert!(is_input_incomplete("let ok = x in"));
+    assert!(is_input_incomplete("let ok = x is"));
+    assert!(is_input_incomplete("when x is 1 =>"));
+    assert!(is_input_incomplete("1.."));
+}
+
+#[test]
+fn test_update_or_add_statement_typed_and_pub() {
+    let mut session = ReplSession::new(Architecture::X64, OperatingSystem::Windows);
+    session.update_or_add_statement("x", "let x: int = 10");
+    assert_eq!(session.statements.len(), 1);
+    assert_eq!(session.statements[0], "let x: int = 10");
+
+    // Updating typed x should replace, not append
+    session.update_or_add_statement("x", "let x: int = 20");
+    assert_eq!(session.statements.len(), 1);
+    assert_eq!(session.statements[0], "let x: int = 20");
+
+    // Pub let statement
+    session.update_or_add_statement("y", "pub let y = 100");
+    assert_eq!(session.statements.len(), 2);
+    session.update_or_add_statement("y", "pub let y: int = 200");
+    assert_eq!(session.statements.len(), 2);
+    assert_eq!(session.statements[1], "pub let y: int = 200");
+}
+
+#[test]
+fn test_repl_execute_new_language_features() {
+    let arch = if cfg!(target_arch = "aarch64") {
+        Architecture::ARM64
+    } else if cfg!(target_arch = "x86") {
+        Architecture::X86
+    } else {
+        Architecture::X64
+    };
+    let os = if cfg!(target_os = "windows") {
+        OperatingSystem::Windows
+    } else if cfg!(target_os = "macos") {
+        OperatingSystem::MacOS
+    } else {
+        OperatingSystem::Linux
+    };
+
+    let code = r#"
+let [a, b] = [10, 20]
+let in_test = 20 in [10, 20, 30]
+let is_test = "alya" is string
+let when_test = when a
+    is 10 => "ten"
+    else => "other"
+end
+say str(a + b) + " " + str(in_test) + " " + str(is_test) + " " + when_test
+"#;
+    let res = execute_code_snippet(code, arch, os);
+    if let Ok((success, stdout, _)) = res {
+        assert!(success);
+        assert_eq!(stdout.trim(), "30 1 1 ten");
+    }
+}

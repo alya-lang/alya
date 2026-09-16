@@ -33,14 +33,36 @@ impl CodeGen {
     }
 
     pub fn generate_program(&mut self, program: &Program) {
+        let mut resolved_prog;
+        let program = if program
+            .statements
+            .iter()
+            .any(|s| matches!(s, Stmt::EnumDef { .. } | Stmt::Const { .. }))
+        {
+            resolved_prog = program.clone();
+            crate::parser::enums::resolve_enums(&mut resolved_prog);
+            let _ = crate::parser::constants::resolve_and_validate_constants(&mut resolved_prog);
+            &resolved_prog
+        } else {
+            program
+        };
+
         // Collect all struct definitions first
         for stmt in &program.statements {
-            if let Stmt::StructDef { name, fields } = stmt {
+            if let Stmt::StructDef {
+                name,
+                fields,
+                field_types,
+                defaults,
+            } = stmt.inner_stmt()
+            {
                 self.ctx.structs.insert(
                     name.clone(),
                     context::StructDefInfo {
                         name: name.clone(),
                         fields: fields.clone(),
+                        field_types: field_types.clone(),
+                        defaults: defaults.clone(),
                     },
                 );
                 let bare = name.rsplit("::").next().unwrap_or(name);
@@ -51,8 +73,78 @@ impl CodeGen {
                         context::StructDefInfo {
                             name: bare.to_string(),
                             fields: fields.clone(),
+                            field_types: field_types.clone(),
+                            defaults: defaults.clone(),
                         },
                     );
+                }
+                for (f, ft) in fields.iter().zip(field_types.iter()) {
+                    if let Some(t) = ft {
+                        if t == "string" || t == "str" {
+                            self.ctx.variables.insert(
+                                format!("struct_field_str:{}.{}", name, f),
+                                VarType::StringOffset(0),
+                            );
+                            self.ctx.variables.insert(
+                                format!("struct_field_str:{}.{}", bare, f),
+                                VarType::StringOffset(0),
+                            );
+                            self.ctx.variables.insert(
+                                format!("struct_field_str:{}", f),
+                                VarType::StringOffset(0),
+                            );
+                        } else if t == "float" || t == "f64" || t == "f32" {
+                            self.ctx.variables.insert(
+                                format!("struct_field_flt:{}.{}", name, f),
+                                VarType::Float(0),
+                            );
+                            self.ctx.variables.insert(
+                                format!("struct_field_flt:{}.{}", bare, f),
+                                VarType::Float(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_flt:{}", f), VarType::Float(0));
+                        } else if t == "string[]" || t == "str[]" {
+                            self.ctx.variables.insert(
+                                format!("struct_field_arr:{}.{}", name, f),
+                                VarType::Array(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_arr:{}", f), VarType::Array(0));
+                            self.ctx.variables.insert(
+                                format!("struct_field_arr_str:{}.{}", name, f),
+                                VarType::Number(0),
+                            );
+                            self.ctx.variables.insert(
+                                format!("struct_field_arr_str:{}.{}", bare, f),
+                                VarType::Number(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_arr_str:{}", f), VarType::Number(0));
+                        } else if t == "float[]" || t == "f64[]" || t == "f32[]" {
+                            self.ctx.variables.insert(
+                                format!("struct_field_arr:{}.{}", name, f),
+                                VarType::Array(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_arr:{}", f), VarType::Array(0));
+                            self.ctx.variables.insert(
+                                format!("struct_field_arr_flt:{}.{}", name, f),
+                                VarType::Number(0),
+                            );
+                            self.ctx.variables.insert(
+                                format!("struct_field_arr_flt:{}.{}", bare, f),
+                                VarType::Number(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_arr_flt:{}", f), VarType::Number(0));
+                        }
+                    }
                 }
             }
         }
@@ -88,7 +180,7 @@ impl CodeGen {
         }
 
         for stmt in &program.statements {
-            if let Stmt::Function { name, .. } = stmt {
+            if let Stmt::Function { name, .. } = stmt.inner_stmt() {
                 self.ctx.functions.insert(name.clone());
                 if let Some(sname) = inference.infer_function_return_struct_type(name) {
                     self.ctx.variables.insert(
@@ -148,7 +240,7 @@ impl CodeGen {
                 abi,
                 lib,
                 functions,
-            } = stmt
+            } = stmt.inner_stmt()
             {
                 if let Some(ref l) = lib {
                     self.ctx.extern_libs.insert(l.clone());
@@ -199,8 +291,8 @@ impl CodeGen {
         let mut top_level = Vec::new();
 
         for stmt in &program.statements {
-            match stmt {
-                Stmt::Function { .. } => functions.push(stmt),
+            match stmt.inner_stmt() {
+                Stmt::Function { .. } => functions.push(stmt.inner_stmt()),
                 _ => top_level.push(stmt),
             }
         }
@@ -237,10 +329,14 @@ impl CodeGen {
 
         for func in functions {
             if let Stmt::Function {
-                name, params, body, ..
+                name,
+                params,
+                param_types,
+                body,
+                ..
             } = func
             {
-                self.generate_function(name, params, body, program, &inference);
+                self.generate_function(name, params, param_types, body, program, &inference);
             }
         }
 
@@ -251,6 +347,7 @@ impl CodeGen {
         &mut self,
         name: &str,
         params: &[String],
+        param_types: &[Option<String>],
         body: &[Stmt],
         program: &Program,
         inference: &ProgramInference,
@@ -287,7 +384,8 @@ impl CodeGen {
 
             let is_str = inference.infer_param_is_string(name, i, program);
             let is_flt = inference.infer_param_is_float(name, i, program);
-            let is_arr = inference.infer_param_is_array(name, i, program);
+            let is_arr = inference.infer_param_is_array(name, i, program)
+                || param_types.get(i).and_then(|t| t.as_deref()) == Some("...");
             let is_str_arr = inference.infer_param_is_string_array(name, i, program);
             let is_flt_arr = inference.infer_param_is_float_array(name, i, program);
             let is_map = inference.infer_param_is_map(name, i, program);
@@ -344,10 +442,23 @@ impl CodeGen {
             arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
         }
 
+        let defers = collect_all_defers(body);
+        if !defers.is_empty() {
+            let mut defer_entries = Vec::new();
+            for (idx, def_stmt) in defers.into_iter().enumerate() {
+                arch::emit_load_num(&mut self.output, self.arch, 0);
+                arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+                let offset = self.ctx.stack_offset;
+                defer_entries.push((idx, def_stmt, offset));
+            }
+            self.ctx.active_defers = defer_entries;
+        }
+
         for stmt in body {
             self.generate_statement(stmt);
         }
 
+        self.emit_run_defers();
         self.emit_cleanup_scope(None);
 
         arch::emit_function_epilogue(&mut self.output, self.arch);
@@ -444,7 +555,7 @@ pub fn collect_extern_libraries(program: &Program) -> Vec<String> {
     for stmt in &program.statements {
         if let Stmt::ExternBlock {
             lib: Some(ref lib), ..
-        } = stmt
+        } = stmt.inner_stmt()
         {
             if !libs.contains(lib) {
                 libs.push(lib.clone());
@@ -452,4 +563,45 @@ pub fn collect_extern_libraries(program: &Program) -> Vec<String> {
         }
     }
     libs
+}
+
+fn collect_all_defers(stmts: &[Stmt]) -> Vec<Stmt> {
+    let mut defers = Vec::new();
+    for stmt in stmts {
+        match stmt {
+            Stmt::Defer(inner) => {
+                defers.push((**inner).clone());
+            }
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                defers.extend(collect_all_defers(then_block));
+                if let Some(eb) = else_block {
+                    defers.extend(collect_all_defers(eb));
+                }
+            }
+            Stmt::While { body, .. }
+            | Stmt::Repeat { body, .. }
+            | Stmt::For { body, .. }
+            | Stmt::ForEach { body, .. } => {
+                defers.extend(collect_all_defers(body));
+            }
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                defers.extend(collect_all_defers(try_block));
+                defers.extend(collect_all_defers(catch_block));
+                if let Some(fb) = finally_block {
+                    defers.extend(collect_all_defers(fb));
+                }
+            }
+            _ => {}
+        }
+    }
+    defers
 }

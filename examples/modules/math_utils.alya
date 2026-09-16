@@ -1,12 +1,12 @@
 # Math utility module designed to be imported by other Alya programs
-function add(a, b)
+pub function add(a, b)
     return a + b
 end
 
-function multiply(a, b)
+pub function multiply(a, b)
     return a * b
 end
 
-function square(n)
+pub function square(n)
     return n * n
 end

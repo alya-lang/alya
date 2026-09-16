@@ -3,7 +3,7 @@ use crate::ast::*;
 pub fn find_call_arg<'a>(stmt: &'a Stmt, func_name: &str, param_idx: usize) -> Option<&'a Expr> {
     match stmt {
         Stmt::Expr(expr) | Stmt::Say(expr) => find_call_arg_in_expr(expr, func_name, param_idx),
-        Stmt::Let { value, .. } | Stmt::Assign { value, .. } => {
+        Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Const { value, .. } => {
             find_call_arg_in_expr(value, func_name, param_idx)
         }
         Stmt::If {
@@ -101,6 +101,7 @@ pub fn find_call_arg<'a>(stmt: &'a Stmt, func_name: &str, param_idx: usize) -> O
             }
             None
         }
+        Stmt::Defer(inner) => find_call_arg(inner, func_name, param_idx),
         _ => None,
     }
 }
@@ -111,11 +112,16 @@ pub fn find_call_arg_in_expr<'a>(
     param_idx: usize,
 ) -> Option<&'a Expr> {
     match expr {
-        Expr::Call { name, args } => {
-            if name == func_name {
-                if let Some(arg) = args.get(param_idx) {
-                    return Some(arg);
-                }
+        Expr::Call { name, args } | Expr::OptionalCall { callee: name, args } => {
+            if name == func_name && param_idx < args.len() {
+                return Some(&args[param_idx]);
+            }
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            let target_bare = func_name.rsplit("::").next().unwrap_or(func_name);
+            let target_bare = target_bare.rsplit("__").next().unwrap_or(target_bare);
+            if bare == target_bare && param_idx < args.len() {
+                return Some(&args[param_idx]);
             }
             for arg in args {
                 if let Some(res) = find_call_arg_in_expr(arg, func_name, param_idx) {
@@ -127,6 +133,14 @@ pub fn find_call_arg_in_expr<'a>(
         Expr::Binary { left, right, .. } => find_call_arg_in_expr(left, func_name, param_idx)
             .or_else(|| find_call_arg_in_expr(right, func_name, param_idx)),
         Expr::Unary { expr, .. } => find_call_arg_in_expr(expr, func_name, param_idx),
+        Expr::InterpolatedString(parts) => {
+            for part in parts {
+                if let Some(arg) = find_call_arg_in_expr(part, func_name, param_idx) {
+                    return Some(arg);
+                }
+            }
+            None
+        }
         Expr::Array(elements) => {
             for elem in elements {
                 if let Some(arg) = find_call_arg_in_expr(elem, func_name, param_idx) {
@@ -135,9 +149,13 @@ pub fn find_call_arg_in_expr<'a>(
             }
             None
         }
-        Expr::Index { array, index } => find_call_arg_in_expr(array, func_name, param_idx)
-            .or_else(|| find_call_arg_in_expr(index, func_name, param_idx)),
-        Expr::FieldAccess { object, .. } => find_call_arg_in_expr(object, func_name, param_idx),
+        Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+            find_call_arg_in_expr(array, func_name, param_idx)
+                .or_else(|| find_call_arg_in_expr(index, func_name, param_idx))
+        }
+        Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+            find_call_arg_in_expr(object, func_name, param_idx)
+        }
         Expr::StructInit { fields, .. } => {
             for (_, val) in fields {
                 if let Some(arg) = find_call_arg_in_expr(val, func_name, param_idx) {
@@ -152,14 +170,6 @@ pub fn find_call_arg_in_expr<'a>(
                     return Some(arg);
                 }
                 if let Some(arg) = find_call_arg_in_expr(v, func_name, param_idx) {
-                    return Some(arg);
-                }
-            }
-            None
-        }
-        Expr::InterpolatedString(parts) => {
-            for part in parts {
-                if let Some(arg) = find_call_arg_in_expr(part, func_name, param_idx) {
                     return Some(arg);
                 }
             }
@@ -201,7 +211,7 @@ pub fn collect_call_args_in_stmt<'a>(
         Stmt::Expr(expr) | Stmt::Say(expr) => {
             collect_call_args_in_expr(expr, func_name, bare_name, param_idx, args);
         }
-        Stmt::Let { value, .. } | Stmt::Assign { value, .. } => {
+        Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Const { value, .. } => {
             collect_call_args_in_expr(value, func_name, bare_name, param_idx, args);
         }
         Stmt::If {
@@ -271,6 +281,9 @@ pub fn collect_call_args_in_stmt<'a>(
                 collect_call_args_in_stmt(s, func_name, bare_name, param_idx, args);
             }
         }
+        Stmt::Defer(inner) => {
+            collect_call_args_in_stmt(inner, func_name, bare_name, param_idx, args);
+        }
         _ => {}
     }
 }
@@ -285,6 +298,10 @@ pub fn collect_call_args_in_expr<'a>(
     match expr {
         Expr::Call {
             name,
+            args: call_args,
+        }
+        | Expr::OptionalCall {
+            callee: name,
             args: call_args,
         } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
@@ -310,11 +327,11 @@ pub fn collect_call_args_in_expr<'a>(
                 collect_call_args_in_expr(elem, func_name, bare_name, param_idx, args);
             }
         }
-        Expr::Index { array, index } => {
+        Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
             collect_call_args_in_expr(array, func_name, bare_name, param_idx, args);
             collect_call_args_in_expr(index, func_name, bare_name, param_idx, args);
         }
-        Expr::FieldAccess { object, .. } => {
+        Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
             collect_call_args_in_expr(object, func_name, bare_name, param_idx, args);
         }
         Expr::StructInit { fields, .. } => {
@@ -381,7 +398,7 @@ pub fn collect_call_args_in_stmt_scoped<'a>(
                 args,
             );
         }
-        Stmt::Let { value, .. } | Stmt::Assign { value, .. } => {
+        Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Const { value, .. } => {
             collect_call_args_in_expr_scoped(
                 value,
                 func_name,
@@ -570,6 +587,16 @@ pub fn collect_call_args_in_stmt_scoped<'a>(
                 );
             }
         }
+        Stmt::Defer(inner) => {
+            collect_call_args_in_stmt_scoped(
+                inner,
+                func_name,
+                bare_name,
+                param_idx,
+                current_scope,
+                args,
+            );
+        }
         _ => {}
     }
 }
@@ -585,6 +612,10 @@ pub fn collect_call_args_in_expr_scoped<'a>(
     match expr {
         Expr::Call {
             name,
+            args: call_args,
+        }
+        | Expr::OptionalCall {
+            callee: name,
             args: call_args,
         } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
@@ -645,7 +676,7 @@ pub fn collect_call_args_in_expr_scoped<'a>(
                 );
             }
         }
-        Expr::Index { array, index } => {
+        Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
             collect_call_args_in_expr_scoped(
                 array,
                 func_name,
@@ -663,7 +694,7 @@ pub fn collect_call_args_in_expr_scoped<'a>(
                 args,
             );
         }
-        Expr::FieldAccess { object, .. } => {
+        Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
             collect_call_args_in_expr_scoped(
                 object,
                 func_name,

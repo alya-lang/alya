@@ -1,7 +1,7 @@
 # Alya Standard Library - Benchmark Module (std/bench)
 # Provides BenchmarkDotNet-style micro-benchmarking, memory tracking, and performance reporting.
 
-struct BenchRecord
+pub struct BenchRecord
     op_name
     op_iters
     op_elapsed
@@ -10,7 +10,7 @@ struct BenchRecord
     op_throughput
 end
 
-struct BenchRunner
+pub struct BenchRunner
     suite_name
     records
     total_runs
@@ -20,18 +20,18 @@ struct BenchRunner
     run_iters
 end
 
-function bench_runner(name)
+pub function bench_runner(name)
     say "=== Benchmark Suite: " + name + " ==="
     return BenchRunner(name, [], 0, 0, 0, 0, 0)
 end
 
-function bench_start(b, iters)
+pub function bench_start(b, iters)
     b.run_iters = iters
     b.start_alloc = mem_allocated()
     b.start_ms = clock_ms()
 end
 
-function bench_stop(b, name)
+pub function bench_stop(b, name)
     let elapsed = clock_ms() - b.start_ms
     let end_alloc = mem_allocated()
     let alloc_diff = end_alloc - b.start_alloc
@@ -59,7 +59,7 @@ function bench_stop(b, name)
     return elapsed
 end
 
-function bench_measure(name, iters, elapsed_ms)
+pub function bench_measure(name, iters, elapsed_ms)
     let safe_elapsed = elapsed_ms
     if safe_elapsed < 1
         safe_elapsed = 1
@@ -140,7 +140,7 @@ function _bench_format_throughput(ops)
     return str(m) + "M ops/s"
 end
 
-function bench_summary(b)
+pub function bench_summary(b)
     let num_records = b.total_runs
     if num_records > 0
         say "\n// * Summary *\n"
@@ -213,4 +213,17 @@ function bench_summary(b)
     say "----------------------------------------"
     say "Finished " + runs + " benchmark(s) in " + ms + " ms."
     say "========================================"
+end
+
+# --- BenchRunner Struct Methods ---
+pub function BenchRunner.start(self, iters)
+    bench_start(self, iters)
+end
+
+pub function BenchRunner.stop(self, name)
+    return bench_stop(self, name)
+end
+
+pub function BenchRunner.summary(self)
+    bench_summary(self)
 end

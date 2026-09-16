@@ -1,31 +1,31 @@
 # Alya Standard Library - Math Module
 # Provides common mathematical constants, trigonometry, statistics, and utility functions.
 
-let PI = 3.141592653589793
-let E = 2.718281828459045
-let TAU = 6.283185307179586
-let SQRT2 = 1.4142135623730951
-let LN2 = 0.6931471805599453
-let LN10 = 2.302585092994046
-let PHI = 1.618033988749895
+pub let PI = 3.141592653589793
+pub let E = 2.718281828459045
+pub let TAU = 6.283185307179586
+pub let SQRT2 = 1.4142135623730951
+pub let LN2 = 0.6931471805599453
+pub let LN10 = 2.302585092994046
+pub let PHI = 1.618033988749895
 
-function deg_to_rad(deg)
+pub function deg_to_rad(deg)
     return deg * (3.141592653589793 / 180.0)
 end
 
-function radians(deg)
+pub function radians(deg)
     return deg * (3.141592653589793 / 180.0)
 end
 
-function rad_to_deg(rad)
+pub function rad_to_deg(rad)
     return rad * (180.0 / 3.141592653589793)
 end
 
-function degrees(rad)
+pub function degrees(rad)
     return rad * (180.0 / 3.141592653589793)
 end
 
-function clamp(val, min_val, max_val)
+pub function clamp(val, min_val, max_val)
     when val
         is < min_val then return min_val
         is > max_val then return max_val
@@ -33,7 +33,7 @@ function clamp(val, min_val, max_val)
     end
 end
 
-function sign(val)
+pub function sign(val)
     when val
         is > 0 then return 1
         is < 0 then return -1
@@ -41,32 +41,32 @@ function sign(val)
     end
 end
 
-function is_even(n)
+pub function is_even(n)
     return n % 2 == 0
 end
 
-function is_odd(n)
+pub function is_odd(n)
     return n % 2 != 0
 end
 
-function sqrt_f(x)
+pub function sqrt_f(x)
     return native_sqrt(float(x))
 end
 
-function hypot(a, b)
+pub function hypot(a, b)
     let fa = float(a)
     let fb = float(b)
     return native_sqrt(fa * fa + fb * fb)
 end
 
-function round(val)
+pub function round(val)
     when val
         is >= 0.0 then return int(val + 0.5)
         else return int(val - 0.5)
     end
 end
 
-function floor(val)
+pub function floor(val)
     let iv = int(val)
     if val >= 0.0 or float(iv) == val
         return iv
@@ -75,7 +75,7 @@ function floor(val)
     end
 end
 
-function ceil(val)
+pub function ceil(val)
     let iv = int(val)
     if val <= 0.0 or float(iv) == val
         return iv
@@ -84,7 +84,7 @@ function ceil(val)
     end
 end
 
-function trunc(val)
+pub function trunc(val)
     return int(val)
 end
 
@@ -102,67 +102,67 @@ function _normalize_angle(rad)
     return rem
 end
 
-function sin(x)
+pub function sin(x)
     return native_sin(float(x))
 end
 
-function cos(x)
+pub function cos(x)
     return native_cos(float(x))
 end
 
-function tan(x)
+pub function tan(x)
     return native_tan(float(x))
 end
 
-function asin(x)
+pub function asin(x)
     return native_asin(float(x))
 end
 
-function acos(x)
+pub function acos(x)
     return native_acos(float(x))
 end
 
-function atan(x)
+pub function atan(x)
     return native_atan(float(x))
 end
 
-function atan2(y, x)
+pub function atan2(y, x)
     return native_atan2(float(y), float(x))
 end
 
-function sinh(x)
+pub function sinh(x)
     return native_sinh(float(x))
 end
 
-function cosh(x)
+pub function cosh(x)
     return native_cosh(float(x))
 end
 
-function tanh(x)
+pub function tanh(x)
     return native_tanh(float(x))
 end
 
-function log_n(x)
+pub function log_n(x)
     return native_log(float(x))
 end
 
-function log2(x)
+pub function log2(x)
     return native_log2(float(x))
 end
 
-function log10(x)
+pub function log10(x)
     return native_log10(float(x))
 end
 
-function exp_f(x)
+pub function exp_f(x)
     return native_exp(float(x))
 end
 
-function fmod(a, b)
+pub function fmod(a, b)
     return native_fmod(float(a), float(b))
 end
 
-function rand_range(min_val, max_val)
+pub function rand_range(min_val, max_val)
     if min_val >= max_val
         return min_val
     end
@@ -171,7 +171,7 @@ function rand_range(min_val, max_val)
     return min_val + (r % span)
 end
 
-function sum(arr)
+pub function sum(arr)
     let total = 0
     for x in arr
         total += x
@@ -179,7 +179,7 @@ function sum(arr)
     return total
 end
 
-function mean(arr)
+pub function mean(arr)
     let count = len(arr)
     if count == 0
         return 0.0
@@ -187,7 +187,7 @@ function mean(arr)
     return float(sum(arr)) / float(count)
 end
 
-function median(arr)
+pub function median(arr)
     let count = len(arr)
     if count == 0
         return 0
@@ -216,7 +216,7 @@ function median(arr)
     end
 end
 
-function variance(arr)
+pub function variance(arr)
     let count = len(arr)
     if count == 0
         return 0.0
@@ -231,15 +231,15 @@ function variance(arr)
     return sum_sq / float(count)
 end
 
-function std_dev(arr)
+pub function std_dev(arr)
     return native_sqrt(variance(arr))
 end
 
-function lerp(a, b, t)
+pub function lerp(a, b, t)
     return a + (b - a) * t
 end
 
-function norm(val, min_val, max_val)
+pub function norm(val, min_val, max_val)
     let span = max_val - min_val
     if span == 0.0 or span == 0
         return 0.0
@@ -247,7 +247,7 @@ function norm(val, min_val, max_val)
     return (val - min_val) / span
 end
 
-function smoothstep(edge0, edge1, x)
+pub function smoothstep(edge0, edge1, x)
     let span = edge1 - edge0
     if span == 0.0 or span == 0
         return 0.0
@@ -262,7 +262,7 @@ function smoothstep(edge0, edge1, x)
     return t * t * (3.0 - 2.0 * t)
 end
 
-function gcd(a, b)
+pub function gcd(a, b)
     let x = abs(a)
     let y = abs(b)
     let temp = 0
@@ -274,7 +274,7 @@ function gcd(a, b)
     return x
 end
 
-function lcm(a, b)
+pub function lcm(a, b)
     if a == 0 or b == 0
         return 0
     end
@@ -284,7 +284,7 @@ function lcm(a, b)
     return (x / g) * y
 end
 
-function factorial(n)
+pub function factorial(n)
     if n <= 1
         return 1
     end
@@ -297,7 +297,7 @@ function factorial(n)
     return res
 end
 
-function is_prime(n)
+pub function is_prime(n)
     if n <= 1
         return 0
     end

@@ -125,31 +125,103 @@ pub fn emit_print_struct(out: &mut String) {
     out.push_str("    add $4, %esp\n");
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn emit_for_each_load_element(
     out: &mut String,
     arr_offset: i32,
     idx_offset: i32,
     var_offset: i32,
+    val_offset: Option<i32>,
     end_label: &str,
+    map_label: &str,
+    done_label: &str,
 ) {
     out.push_str(&format!("    movl -{}(%ebp), %eax\n", arr_offset));
     out.push_str("    test %eax, %eax\n");
     out.push_str(&format!("    jz {}\n", end_label));
+    out.push_str("    cmpl $0x5A110002, -8(%eax)\n");
+    out.push_str(&format!("    je {}\n", map_label));
+
+    // ARRAY
     out.push_str("    movl (%eax), %edx\n");
     out.push_str(&format!("    movl -{}(%ebp), %ecx\n", idx_offset));
     out.push_str("    cmpl %edx, %ecx\n");
     out.push_str(&format!("    jge {}\n", end_label));
     out.push_str("    movl 8(%eax), %edx\n");
     out.push_str("    movl (%edx, %ecx, 4), %eax\n");
-    out.push_str(&format!("    movl %eax, -{}(%ebp)\n", var_offset));
+    if let Some(v_off) = val_offset {
+        out.push_str(&format!("    movl %ecx, -{}(%ebp)\n", var_offset));
+        out.push_str(&format!("    movl %eax, -{}(%ebp)\n", v_off));
+    } else {
+        out.push_str(&format!("    movl %eax, -{}(%ebp)\n", var_offset));
+    }
+    out.push_str(&format!("    jmp {}\n", done_label));
+
+    // MAP
+    out.push_str(&format!("{}:\n", map_label));
+    let scan_label = format!("{}_scan", map_label);
+    let found_label = format!("{}_found", map_label);
+    out.push_str("    movl 4(%eax), %edx\n");
+    out.push_str(&format!("    movl -{}(%ebp), %ecx\n", idx_offset));
+    out.push_str(&format!("{}:\n", scan_label));
+    out.push_str("    cmpl %edx, %ecx\n");
+    out.push_str(&format!("    jge {}\n", end_label));
+    out.push_str("    lea (%ecx, %ecx, 2), %edi\n");
+    out.push_str("    shl $2, %edi\n");
+    out.push_str("    add 8(%eax), %edi\n");
+    out.push_str("    cmpl $1, 8(%edi)\n");
+    out.push_str(&format!("    je {}\n", found_label));
+    out.push_str("    inc %ecx\n");
+    out.push_str(&format!("    jmp {}\n", scan_label));
+    out.push_str(&format!("{}:\n", found_label));
+    out.push_str(&format!("    movl %ecx, -{}(%ebp)\n", idx_offset));
+    out.push_str("    movl (%edi), %edx\n");
+    out.push_str("    movl 4(%edi), %eax\n");
+    if let Some(v_off) = val_offset {
+        out.push_str(&format!("    movl %edx, -{}(%ebp)\n", var_offset));
+        out.push_str(&format!("    movl %eax, -{}(%ebp)\n", v_off));
+    } else {
+        out.push_str(&format!("    movl %edx, -{}(%ebp)\n", var_offset));
+    }
+
+    out.push_str(&format!("{}:\n", done_label));
 }
 
 pub fn emit_string_equality_call(out: &mut String, op: BinaryOp) {
     out.push_str("    push %eax\n");
-    out.push_str("    call fn_streq\n");
+    out.push_str("    call fn_strcmp\n");
     out.push_str("    add $8, %esp\n");
-    if matches!(op, BinaryOp::NotEqual) {
-        out.push_str("    xor $1, %eax\n");
+    match op {
+        BinaryOp::Equal => {
+            out.push_str("    test %eax, %eax\n    sete %al\n    movzbl %al, %eax\n");
+        }
+        BinaryOp::NotEqual => {
+            out.push_str("    test %eax, %eax\n    setne %al\n    movzbl %al, %eax\n");
+        }
+        BinaryOp::Less => {
+            out.push_str("    cmp $0, %eax\n    setl %al\n    movzbl %al, %eax\n");
+        }
+        BinaryOp::LessEqual => {
+            out.push_str("    cmp $0, %eax\n    setle %al\n    movzbl %al, %eax\n");
+        }
+        BinaryOp::Greater => {
+            out.push_str("    cmp $0, %eax\n    setg %al\n    movzbl %al, %eax\n");
+        }
+        BinaryOp::GreaterEqual => {
+            out.push_str("    cmp $0, %eax\n    setge %al\n    movzbl %al, %eax\n");
+        }
+        _ => {}
+    }
+}
+
+pub fn emit_in_call(out: &mut String, op: BinaryOp) {
+    out.push_str("    pop %edx\n"); // edx = item
+    out.push_str("    push %edx\n"); // push item
+    out.push_str("    push %eax\n"); // push collection
+    out.push_str("    call fn_in\n");
+    out.push_str("    add $8, %esp\n");
+    if op == BinaryOp::NotIn {
+        out.push_str("    test %eax, %eax\n    sete %al\n    movzbl %al, %eax\n");
     }
 }
 

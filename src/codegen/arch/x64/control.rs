@@ -5,6 +5,11 @@ pub fn emit_jump_if_zero(out: &mut String, label: &str) {
     out.push_str(&format!("    jz {}\n", label));
 }
 
+pub fn emit_jump_if_not_zero(out: &mut String, label: &str) {
+    out.push_str("    test %rax, %rax\n");
+    out.push_str(&format!("    jnz {}\n", label));
+}
+
 pub fn emit_jump(out: &mut String, label: &str) {
     out.push_str(&format!("    jmp {}\n", label));
 }
@@ -189,6 +194,17 @@ pub fn emit_c_function_call(
         name.to_string()
     };
     emit_call_target(out, &target, args_count, stack_offset, os);
+}
+
+pub fn emit_indirect_function_call(
+    out: &mut String,
+    var_offset: i32,
+    args_count: usize,
+    stack_offset: i32,
+    os: OperatingSystem,
+) {
+    out.push_str(&format!("    mov -{}(%rbp), %r11\n", var_offset));
+    emit_call_target(out, "*%r11", args_count, stack_offset, os);
 }
 
 pub fn emit_stack_restore(out: &mut String, delta: i32) {

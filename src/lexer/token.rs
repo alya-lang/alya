@@ -26,8 +26,12 @@ pub enum TokenType {
     Import,   // import
     As,       // as
     Struct,   // struct
+    Enum,     // enum
+    Const,    // const
     Extern,   // extern
     From,     // from
+    Defer,    // defer
+    Pub,      // pub
 
     // Literals
     Number(f64),
@@ -45,6 +49,7 @@ pub enum TokenType {
     Divide,         // /
     Modulo,         // %
     Arrow,          // ->
+    FatArrow,       // =>
     Assign,         // =
     PlusAssign,     // +=
     MinusAssign,    // -=
@@ -82,9 +87,11 @@ pub enum TokenType {
     Colon,        // :
     ColonColon,   // ::
     Question,     // ?
+    QuestionDot,  // ?.
     NullCoalesce, // ??
     Dot,          // .
     DotDot,       // ..
+    DotDotDot,    // ...
     Newline,      // \n
 
     // Special
@@ -119,8 +126,12 @@ impl TokenType {
             "import" => TokenType::Import,
             "as" => TokenType::As,
             "struct" => TokenType::Struct,
+            "enum" => TokenType::Enum,
+            "const" => TokenType::Const,
             "extern" => TokenType::Extern,
             "from" => TokenType::From,
+            "defer" => TokenType::Defer,
+            "pub" => TokenType::Pub,
             "true" => TokenType::True,
             "false" => TokenType::False,
             "null" => TokenType::Null,
@@ -168,8 +179,12 @@ impl std::fmt::Display for TokenType {
             TokenType::Import => write!(f, "'import'"),
             TokenType::As => write!(f, "'as'"),
             TokenType::Struct => write!(f, "'struct'"),
+            TokenType::Enum => write!(f, "'enum'"),
+            TokenType::Const => write!(f, "'const'"),
             TokenType::Extern => write!(f, "'extern'"),
             TokenType::From => write!(f, "'from'"),
+            TokenType::Defer => write!(f, "'defer'"),
+            TokenType::Pub => write!(f, "'pub'"),
             TokenType::Number(n) => write!(f, "number '{}'", n),
             TokenType::Float(n) => write!(f, "float '{}'", n),
             TokenType::String(s) => write!(f, "\"{}\"", s),
@@ -183,6 +198,7 @@ impl std::fmt::Display for TokenType {
             TokenType::Divide => write!(f, "'/'"),
             TokenType::Modulo => write!(f, "'%'"),
             TokenType::Arrow => write!(f, "'->'"),
+            TokenType::FatArrow => write!(f, "'=>'"),
             TokenType::Assign => write!(f, "'='"),
             TokenType::PlusAssign => write!(f, "'+='"),
             TokenType::MinusAssign => write!(f, "'-='"),
@@ -218,9 +234,11 @@ impl std::fmt::Display for TokenType {
             TokenType::Colon => write!(f, "':'"),
             TokenType::ColonColon => write!(f, "'::'"),
             TokenType::Question => write!(f, "'?'"),
+            TokenType::QuestionDot => write!(f, "'?.'"),
             TokenType::NullCoalesce => write!(f, "'??'"),
             TokenType::Dot => write!(f, "'.'"),
             TokenType::DotDot => write!(f, "'..'"),
+            TokenType::DotDotDot => write!(f, "'...'"),
             TokenType::Newline => write!(f, "newline"),
             TokenType::Eof => write!(f, "end of file"),
         }

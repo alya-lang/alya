@@ -1,11 +1,11 @@
 # Alya Standard Library - String Module
 # Provides advanced string manipulation and inspection functions.
 
-function is_empty(s)
-    return len(s) == 0
+pub function is_empty(s)
+    return s is null or len(s) == 0
 end
 
-function is_blank(s)
+pub function is_blank(s)
     let slen = len(s)
     if slen == 0
         return 1
@@ -22,7 +22,7 @@ function is_blank(s)
     return 1
 end
 
-function starts_with(s, prefix)
+pub function starts_with(s, prefix)
     let plen, slen = len(prefix), len(s)
     if plen > slen
         return 0
@@ -33,7 +33,7 @@ function starts_with(s, prefix)
     return substring(s, 0, plen) == prefix
 end
 
-function ends_with(s, suffix)
+pub function ends_with(s, suffix)
     let slen, suflen = len(s), len(suffix)
     if suflen > slen
         return 0
@@ -44,7 +44,7 @@ function ends_with(s, suffix)
     return substring(s, slen - suflen, suflen) == suffix
 end
 
-function replace(s, old, new_s)
+pub function replace(s, old, new_s)
     let slen, olen = len(s), len(old)
     if olen == 0
         return s
@@ -63,7 +63,7 @@ function replace(s, old, new_s)
     return res
 end
 
-function str_repeat(s, count)
+pub function str_repeat(s, count)
     let res = ""
     let i = 0
     while i < count
@@ -73,7 +73,7 @@ function str_repeat(s, count)
     return res
 end
 
-function pad_left(s, total_len, pad_char)
+pub function pad_left(s, total_len, pad_char)
     let slen = len(s)
     if slen >= total_len
         return s
@@ -83,7 +83,7 @@ function pad_left(s, total_len, pad_char)
     return padding + s
 end
 
-function pad_right(s, total_len, pad_char)
+pub function pad_right(s, total_len, pad_char)
     let slen = len(s)
     if slen >= total_len
         return s
@@ -93,7 +93,7 @@ function pad_right(s, total_len, pad_char)
     return s + padding
 end
 
-function center(s, total_len, pad_char)
+pub function center(s, total_len, pad_char)
     let slen = len(s)
     if slen >= total_len
         return s
@@ -104,7 +104,7 @@ function center(s, total_len, pad_char)
     return str_repeat(pad_char, left_pad) + s + str_repeat(pad_char, right_pad)
 end
 
-function trim_start(s)
+pub function trim_start(s)
     let slen = len(s)
     let i = 0
     let c = ""
@@ -121,11 +121,11 @@ function trim_start(s)
     return substring(s, i, slen - i)
 end
 
-function ltrim(s)
+pub function ltrim(s)
     return trim_start(s)
 end
 
-function trim_end(s)
+pub function trim_end(s)
     let slen = len(s)
     let i = slen - 1
     let c = ""
@@ -142,11 +142,11 @@ function trim_end(s)
     return substring(s, 0, i + 1)
 end
 
-function rtrim(s)
+pub function rtrim(s)
     return trim_end(s)
 end
 
-function trim_char(s, ch)
+pub function trim_char(s, ch)
     let slen = len(s)
     if slen == 0
         return ""
@@ -165,7 +165,7 @@ function trim_char(s, ch)
     return substring(s, start_idx, end_idx - start_idx + 1)
 end
 
-function capitalize(s)
+pub function capitalize(s)
     let slen = len(s)
     if slen == 0
         return ""
@@ -178,7 +178,7 @@ function capitalize(s)
     return first + rest
 end
 
-function title_case(s)
+pub function title_case(s)
     let slen = len(s)
     if slen == 0
         return ""
@@ -209,7 +209,7 @@ function title_case(s)
     return res
 end
 
-function lines(s)
+pub function lines(s)
     let res = []
     let slen = len(s)
     if slen == 0
@@ -238,7 +238,7 @@ function lines(s)
     return res
 end
 
-function count_matches(s, sub)
+pub function count_matches(s, sub)
     let slen, sublen = len(s), len(sub)
     if sublen == 0 or slen == 0 or sublen > slen
         return 0
@@ -256,7 +256,7 @@ function count_matches(s, sub)
     return count
 end
 
-function index_of(s, sub)
+pub function index_of(s, sub)
     let slen = len(s)
     let sublen = len(sub)
     if sublen == 0
@@ -276,7 +276,7 @@ function index_of(s, sub)
     return -1
 end
 
-function last_index_of(s, sub)
+pub function last_index_of(s, sub)
     let slen = len(s)
     let sublen = len(sub)
     if sublen == 0
@@ -295,11 +295,11 @@ function last_index_of(s, sub)
     return -1
 end
 
-function contains_str(s, sub)
-    return index_of(s, sub) != -1
+pub function contains_str(s, sub)
+    return sub in s
 end
 
-function reverse_str(s)
+pub function reverse_str(s)
     let slen = len(s)
     let res = ""
     let i = slen - 1
@@ -310,7 +310,7 @@ function reverse_str(s)
     return res
 end
 
-function truncate(s, max_len, suffix)
+pub function truncate(s, max_len, suffix)
     let slen = len(s)
     if slen <= max_len
         return s
@@ -322,7 +322,7 @@ function truncate(s, max_len, suffix)
     return substring(s, 0, max_len - suflen) + suffix
 end
 
-function is_numeric(s)
+pub function is_numeric(s)
     let slen = len(s)
     if slen == 0
         return 0
@@ -339,7 +339,7 @@ function is_numeric(s)
     return 1
 end
 
-function is_alphabetic(s)
+pub function is_alphabetic(s)
     let slen = len(s)
     if slen == 0
         return 0
@@ -360,7 +360,7 @@ function is_alphabetic(s)
     return 1
 end
 
-function is_alphanumeric(s)
+pub function is_alphanumeric(s)
     let slen = len(s)
     if slen == 0
         return 0
@@ -383,7 +383,7 @@ function is_alphanumeric(s)
     return 1
 end
 
-function is_upper(s)
+pub function is_upper(s)
     let slen = len(s)
     if slen == 0
         return 0
@@ -400,7 +400,7 @@ function is_upper(s)
     return 1
 end
 
-function is_lower(s)
+pub function is_lower(s)
     let slen = len(s)
     if slen == 0
         return 0
@@ -417,7 +417,7 @@ function is_lower(s)
     return 1
 end
 
-function slugify(s)
+pub function slugify(s)
     let slen = len(s)
     let res = ""
     let i = 0
@@ -471,7 +471,7 @@ function _hex_val(ch)
     end
 end
 
-function hex_encode(s)
+pub function hex_encode(s)
     let hex_chars = "0123456789abcdef"
     let slen = len(s)
     let res = ""
@@ -486,7 +486,7 @@ function hex_encode(s)
     return res
 end
 
-function hex_decode(s)
+pub function hex_decode(s)
     let slen = len(s)
     let res = ""
     let i, hi, lo, b = 0
@@ -500,7 +500,7 @@ function hex_decode(s)
     return res
 end
 
-function is_hex(s)
+pub function is_hex(s)
     let slen = len(s)
     if slen == 0 or slen % 2 != 0
         return 0
@@ -535,7 +535,7 @@ function _b64_val(ch)
     end
 end
 
-function base64_encode(s)
+pub function base64_encode(s)
     let b64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
     let slen = len(s)
     let res = ""
@@ -577,7 +577,7 @@ function base64_encode(s)
     return res
 end
 
-function base64_decode(s)
+pub function base64_decode(s)
     let slen = len(s)
     let res = ""
     let i, v0, v1, v2, v3, b0, b1, b2 = 0
@@ -609,7 +609,7 @@ function base64_decode(s)
     return res
 end
 
-function is_base64(s)
+pub function is_base64(s)
     let slen = len(s)
     if slen == 0 or slen % 4 != 0
         return 0
@@ -636,18 +636,18 @@ function is_base64(s)
     return 1
 end
 
-function to_hex(s)
+pub function to_hex(s)
     return hex_encode(s)
 end
 
-function from_hex(s)
+pub function from_hex(s)
     return hex_decode(s)
 end
 
-function to_base64(s)
+pub function to_base64(s)
     return base64_encode(s)
 end
 
-function from_base64(s)
+pub function from_base64(s)
     return base64_decode(s)
 end

@@ -17,7 +17,7 @@ fn expr_is_definitely_array(
                 known_arrays.contains(name)
             }
         }
-        Expr::Call { name, .. } => {
+        Expr::Call { name, args } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             matches!(
@@ -54,7 +54,10 @@ fn expr_is_definitely_array(
                     | "fs_list_dir_recursive"
                     | "glob"
                     | "glob_dir"
-            ) || known_arrays.contains(&format!("fn_ret_arr:{}", name))
+            ) || (bare == "slice"
+                && !args.is_empty()
+                && expr_is_definitely_array(&args[0], fn_scope, known_arrays))
+                || known_arrays.contains(&format!("fn_ret_arr:{}", name))
                 || known_arrays.contains(&format!("fn_ret_arr:{}", bare))
         }
         _ => false,
@@ -252,8 +255,13 @@ fn stmt_uses_param_as_array(param: &str, stmt: &Stmt) -> bool {
             expr_uses_param_as_array(param, condition)
                 || body.iter().any(|s| stmt_uses_param_as_array(param, s))
         }
-        Stmt::Repeat { body } | Stmt::For { body, .. } | Stmt::ForEach { body, .. } => {
+        Stmt::Repeat { body } | Stmt::For { body, .. } => {
             body.iter().any(|s| stmt_uses_param_as_array(param, s))
+        }
+        Stmt::ForEach { iterable, body, .. } => {
+            expr_uses_param_as_array(param, iterable)
+                || matches!(iterable, Expr::Identifier(id) if id == param)
+                || body.iter().any(|s| stmt_uses_param_as_array(param, s))
         }
         Stmt::Return(Some(expr)) | Stmt::Throw(Some(expr)) => expr_uses_param_as_array(param, expr),
         Stmt::TryCatch {
@@ -336,9 +344,16 @@ fn stmt_forwards_param_to_array(stmt: &Stmt, param: &str, known_arrays: &HashSet
                     .iter()
                     .any(|s| stmt_forwards_param_to_array(s, param, known_arrays))
         }
-        Stmt::Repeat { body } | Stmt::For { body, .. } | Stmt::ForEach { body, .. } => body
+        Stmt::Repeat { body } | Stmt::For { body, .. } => body
             .iter()
             .any(|s| stmt_forwards_param_to_array(s, param, known_arrays)),
+        Stmt::ForEach { iterable, body, .. } => {
+            expr_forwards_param_to_array(iterable, param, known_arrays)
+                || matches!(iterable, Expr::Identifier(id) if id == param)
+                || body
+                    .iter()
+                    .any(|s| stmt_forwards_param_to_array(s, param, known_arrays))
+        }
         Stmt::Return(Some(expr)) | Stmt::Throw(Some(expr)) => {
             expr_forwards_param_to_array(expr, param, known_arrays)
         }
@@ -359,7 +374,21 @@ fn collect_array_vars_from_stmts(
 ) {
     for stmt in stmts {
         match stmt {
-            Stmt::Let { name, value, .. } | Stmt::Assign { name, value, .. }
+            Stmt::Let {
+                name,
+                type_ann,
+                value,
+            } if type_ann.as_deref() == Some("array")
+                || type_ann.as_ref().is_some_and(|t| t.ends_with("[]"))
+                || expr_is_definitely_array(value, fn_scope, known_arrays) =>
+            {
+                if let Some(scope) = fn_scope {
+                    known_arrays.insert(format!("{}:{}", scope, name));
+                } else {
+                    known_arrays.insert(name.clone());
+                }
+            }
+            Stmt::Assign { name, value, .. }
                 if expr_is_definitely_array(value, fn_scope, known_arrays) =>
             {
                 if let Some(scope) = fn_scope {
@@ -397,14 +426,24 @@ fn collect_array_vars_from_stmts(
                 collect_array_vars_from_stmts(body, fn_scope, known_arrays);
             }
             Stmt::Function {
-                name, params, body, ..
+                name,
+                params,
+                param_types,
+                body,
+                ..
             } => {
                 let bare = name.rsplit("::").next().unwrap_or(name);
                 let bare = bare.rsplit("__").next().unwrap_or(bare);
                 for (idx, param) in params.iter().enumerate() {
-                    if known_arrays.contains(&format!("fn_param_arr:{}:{}", name, idx))
+                    let is_rest = param_types.get(idx).and_then(|t| t.as_deref()) == Some("...");
+                    if is_rest
+                        || known_arrays.contains(&format!("fn_param_arr:{}:{}", name, idx))
                         || known_arrays.contains(&format!("fn_param_arr:{}:{}", bare, idx))
                     {
+                        if is_rest {
+                            known_arrays.insert(format!("fn_param_arr:{}:{}", name, idx));
+                            known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                        }
                         known_arrays.insert(format!("{}:{}", name, param));
                         if bare != name {
                             known_arrays.insert(format!("{}:{}", bare, param));
@@ -416,6 +455,9 @@ fn collect_array_vars_from_stmts(
                     collect_array_vars_from_stmts(body, Some(bare), known_arrays);
                 }
             }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                collect_array_vars_from_stmts(std::slice::from_ref(inner), fn_scope, known_arrays);
+            }
             _ => {}
         }
     }
@@ -425,10 +467,32 @@ pub fn collect_known_array_vars(program: &Program) -> HashSet<String> {
     let mut known_arrays = HashSet::new();
     let mut funcs = Vec::new();
     collect_function_defs(&program.statements, &mut funcs);
+    for stmt in &program.statements {
+        let stmt = stmt.inner_stmt();
+        if let Stmt::StructDef {
+            name,
+            fields,
+            field_types,
+            ..
+        } = stmt
+        {
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            for (f, ft) in fields.iter().zip(field_types.iter()) {
+                if let Some(t) = ft {
+                    if t == "array" || t.ends_with("[]") {
+                        known_arrays.insert(format!("struct_field_arr:{}.{}", name, f));
+                        known_arrays.insert(format!("struct_field_arr:{}.{}", bare, f));
+                        known_arrays.insert(format!("struct_field_arr:{}", f));
+                    }
+                }
+            }
+        }
+    }
     for _ in 0..7 {
         let prev_len = known_arrays.len();
         collect_array_vars_from_stmts(&program.statements, None, &mut known_arrays);
-        for (name, params, body) in &funcs {
+        for (name, params, param_types, body) in &funcs {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
 
@@ -440,6 +504,12 @@ pub fn collect_known_array_vars(program: &Program) -> HashSet<String> {
             }
 
             for (idx, param) in params.iter().enumerate() {
+                if param_types.get(idx).and_then(|t| t.as_deref()) == Some("...") {
+                    known_arrays.insert(format!("fn_param_arr:{}:{}", name, idx));
+                    known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                    continue;
+                }
+
                 if known_arrays.contains(&format!("fn_param_arr:{}:{}", name, idx))
                     || known_arrays.contains(&format!("fn_param_arr:{}:{}", bare, idx))
                 {

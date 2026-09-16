@@ -312,3 +312,281 @@ end
         );
     }
 }
+
+#[test]
+fn test_e2e_array_and_string_slicing() {
+    let code = r#"
+let arr = [10, 20, 30, 40, 50]
+
+let s1 = arr[1..4]
+say len(s1)
+say s1[0]
+say s1[1]
+say s1[2]
+
+let s2 = arr[2..]
+say len(s2)
+say s2[0]
+say s2[1]
+say s2[2]
+
+let s3 = arr[..2]
+say len(s3)
+say s3[0]
+say s3[1]
+
+let s4 = arr[1:3]
+say len(s4)
+say s4[0]
+say s4[1]
+
+let text = "Hello, World!"
+let sub1 = text[0..5]
+say sub1
+
+let sub2 = text[7..12]
+say sub2
+
+let sub3 = text[7..]
+say sub3
+
+let sub4 = text[:5]
+say sub4
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(
+            output,
+            concat!(
+                "3\n20\n30\n40\n",
+                "3\n30\n40\n50\n",
+                "2\n10\n20\n",
+                "2\n20\n30\n",
+                "Hello\n",
+                "World\n",
+                "World!\n",
+                "Hello\n"
+            )
+        );
+    }
+}
+
+#[test]
+fn test_e2e_struct_methods() {
+    let code = r#"
+struct Point
+    x
+    y
+end
+
+# 1. Instance method definition on Point
+function Point.sum(self)
+    return self.x + self.y
+end
+
+# 2. Instance method with extra arguments
+function Point.scale(self, factor)
+    return Point { x: self.x * factor, y: self.y * factor }
+end
+
+# 3. Static / Factory method on Point
+function Point.create(x, y)
+    return Point { x: x, y: y }
+end
+
+let p = Point.create(10, 20)
+say p.sum()
+
+let p2 = p.scale(3)
+say p2.x
+say p2.y
+say p2.sum()
+
+# 4. Multiple structs with identical method names (name collision check)
+struct Circle
+    radius
+end
+
+function Circle.area(self)
+    return self.radius * self.radius * 3
+end
+
+function Circle.kind(self)
+    return "Circle"
+end
+
+function Point.kind(self)
+    return "Point"
+end
+
+let c = Circle { radius: 5 }
+say c.area()
+say c.kind()
+say p.kind()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "30\n30\n60\n90\n75\nCircle\nPoint\n");
+    }
+}
+
+#[test]
+fn test_e2e_in_and_not_in_operator() {
+    let code = r#"
+# 1. Map in / not in
+let cfg = { "host": "127.0.0.1", "port": 8080 }
+say "host" in cfg
+say "missing" in cfg
+say "missing" not in cfg
+
+if "host" in cfg
+    say "has host"
+end
+if "port" in cfg
+    say "has port"
+end
+if "ssl" not in cfg
+    say "no ssl"
+end
+
+# 2. Array in / not in
+let nums = [10, 20, 30, 40]
+say 20 in nums
+say 99 in nums
+say 99 not in nums
+
+if 30 in nums
+    say "has 30"
+end
+if 55 not in nums
+    say "no 55"
+end
+
+# 3. String in / not in
+let text = "hello alya world"
+say "alya" in text
+say "xyz" in text
+say "xyz" not in text
+
+if "world" in text
+    say "has world"
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(
+            output,
+            "1\n0\n1\nhas host\nhas port\nno ssl\n1\n0\n1\nhas 30\nno 55\n1\n0\n1\nhas world\n"
+        );
+    }
+}
+
+#[test]
+fn test_e2e_multiple_loop_variables() {
+    let code = r#"
+# 1. Array with index and value
+let fruits = ["apple", "banana", "cherry"]
+for i, fruit in fruits
+    say i
+    say fruit
+end
+
+# 2. Map with key and value
+let user = { "name": "Alya", "role": "admin" }
+for k, v in user
+    say k
+    say v
+end
+
+# 3. Map with single variable (key only)
+for k in user
+    say k
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        // Map iteration order is insertion / bucket order, let's verify array part and map presence
+        assert!(output.contains("0\napple\n1\nbanana\n2\ncherry\n"));
+        assert!(output.contains("name\nAlya"));
+        assert!(output.contains("role\nadmin"));
+    }
+}
+
+#[test]
+fn test_e2e_destructuring_and_spread() {
+    // 1. Array destructuring
+    let code1 = r#"
+let [a, b, ...rest] = [10, 20, 30, 40, 50]
+say a
+say b
+say len(rest)
+say rest[0]
+say rest[1]
+say rest[2]
+"#;
+    if let Some((code, output)) = run_alya_code_full(code1) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "10\n20\n3\n30\n40\n50\n");
+    }
+
+    // 2. Map destructuring
+    let code2 = r#"
+let person = { "name": "Alya", "age": 5, "city": "Istanbul" }
+let { name: my_name, age, city } = person
+say my_name
+say age
+say city
+"#;
+    if let Some((code, output)) = run_alya_code_full(code2) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "Alya\n5\nIstanbul\n");
+    }
+
+    // 3. Variadic function arguments
+    let code3 = r#"
+function calc_total(base, ...numbers)
+    let sum = base
+    for n in numbers
+        sum += n
+    end
+    return sum
+end
+
+say calc_total(100, 1, 2, 3, 4)
+say calc_total(50)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code3) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "110\n50\n");
+    }
+
+    // 4. Array spread
+    let code4 = r#"
+let a = [1, 2]
+let b = [4, 5]
+let combined = [...a, 3, ...b]
+say len(combined)
+for x in combined
+    say x
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code4) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "5\n1\n2\n3\n4\n5\n");
+    }
+
+    // 5. Map spread
+    let code5 = r#"
+let m1 = { "a": 1, "b": 2 }
+let m2 = { "b": 20, "c": 30 }
+let merged = { ...m1, ...m2, "d": 40 }
+say merged["a"]
+say merged["b"]
+say merged["c"]
+say merged["d"]
+"#;
+    if let Some((code, output)) = run_alya_code_full(code5) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "1\n20\n30\n40\n");
+    }
+}

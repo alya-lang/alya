@@ -9,24 +9,25 @@ A comprehensive single-page reference for the syntax, features, and standard lib
 ## Table of Contents
 
 1. [Hello World & Comments](#1-hello-world--comments)
-2. [Variables & Arithmetic](#2-variables--arithmetic)
+2. [Variables, Constants & Operators](#2-variables-constants--operators)
 3. [String Interpolation & Built-ins](#3-string-interpolation--built-ins)
 4. [Interactive User Input](#4-interactive-user-input)
-5. [Control Flow](#5-control-flow)
-6. [Functions](#6-functions)
-7. [Pattern Matching (`when`)](#7-pattern-matching-when)
-8. [Exception Handling (`try ... catch`)](#8-exception-handling-try--catch)
-9. [Arrays & Dynamic Methods](#9-arrays--dynamic-methods)
-10. [Modules & Standard Library](#10-modules--standard-library)
-11. [Floating-Point Numbers](#11-floating-point-numbers)
-12. [Structs & Custom Types](#12-structs--custom-types)
-13. [Command-Line Arguments (`args()`)](#13-command-line-arguments-args)
-14. [Hash Maps & Dictionaries (`map()`)](#14-hash-maps--dictionaries-map)
-15. [File I/O](#15-file-io)
-16. [Character & String Utilities](#16-character--string-utilities)
-17. [Self-Hosting Prototype](#17-self-hosting-prototype-compiler-in-alya)
-18. [Benchmarking & Profiling](#18-benchmarking--performance-profiling)
-19. [Developer CLI & Tooling (`fmt`, `test`)](#19-developer-cli--tooling-fmt-test)
+5. [Control Flow & Defer](#5-control-flow)
+6. [Functions, Gradual Typing & Lambdas](#6-functions--gradual-typing)
+7. [Enumerations (`enum`)](#7-enumerations-enum)
+8. [Pattern Matching (`when`)](#8-pattern-matching-when)
+9. [Exception Handling (`try ... catch`)](#9-exception-handling-try--catch)
+10. [Arrays, Dynamic Methods & Slicing](#10-arrays--dynamic-methods)
+11. [Modules & Standard Library](#11-modules--standard-library)
+12. [Floating-Point Numbers](#12-floating-point-numbers)
+13. [Structs, Default Values & Methods](#13-structs--default-values)
+14. [Command-Line Arguments (`args()`)](#14-command-line-arguments-args)
+15. [Hash Maps & Dictionaries (`map()`, `{}`)](#15-hash-maps--dictionaries-map)
+16. [File I/O](#16-file-io)
+17. [Character & String Utilities](#17-character--string-utilities)
+18. [Self-Hosting Prototype](#18-self-hosting-prototype-compiler-in-alya)
+19. [Benchmarking & Profiling](#19-benchmarking--performance-profiling)
+20. [Developer CLI & Tooling (`fmt`, `test`)](#20-developer-cli--tooling-fmt-test)
 
 ---
 
@@ -45,17 +46,63 @@ say "Hello, World!"
 
 ---
 
-### 2. Variables, Types & Operators
+### 2. Variables, Constants & Operators
 
-Variables are declared with `let`. Variable types (integers, floats, strings, arrays, maps, structs, null) are inferred automatically.
+#### Variables (`let`)
+Variables are declared with `let`. Variable types (integers, floats, strings, arrays, maps, structs, null) are inferred automatically:
 
 ```alya
 let name = "Alya"
 let age = 1
 let pi = 3.14159
 let empty = null      # Null literal
+```
 
-# Arithmetic
+#### Compile-Time Constants (`const`)
+Constants are declared with `const` and are evaluated at compile time with constant folding. Constants can be defined at global or local scope, support comma-separated declarations, and cannot be reassigned or shadowed by `let`:
+
+```alya
+const APP_NAME = "Alya Server"
+const VERSION = "0.0.18"
+const PI = 3.14159
+const MAX_CONNECTIONS = 500, TIMEOUT_SEC = 30
+const BUFFER_SIZE = 1024 * 64   # Folded to 65536 at compile time
+
+function get_limit()
+    const LOCAL_LIMIT = 100
+    return LOCAL_LIMIT * 2
+end
+```
+
+#### Variable Swap & Multi-Assignment
+Alya natively supports atomic variable swap and multiple assignment expressions without needing explicit temporary variables:
+
+```alya
+# Atomic variable swap
+let a = 10
+let b = 20
+a, b = b, a           # a = 20, b = 10
+
+# String swap
+let first = "World"
+let second = "Hello"
+first, second = second, first   # first = "Hello", second = "World"
+
+# Multi-variable assignment
+let x = 0
+let y = 0
+let z = 0
+x, y, z = 100, 200, 300
+
+# 3-way circular rotation
+x, y, z = z, x, y     # x = 300, y = 100, z = 200
+
+# Multi-variable let declaration
+let p = 1, q = 2
+```
+
+#### Arithmetic & Compound Operators
+```alya
 let a = 20
 let b = 10
 say a + b    # 30
@@ -66,8 +113,10 @@ say a / b    # 2
 # Compound assignments
 a += 5
 say a        # 25
+```
 
-# Bitwise Operators & Compound Assignments
+#### Bitwise Operators & Compound Assignments
+```alya
 let flags = 0b00001100
 let mask  = 0b00001010
 say flags & mask      # 8 (AND)
@@ -77,11 +126,28 @@ say 1 << 4            # 16 (Shift left)
 say 32 >> 2           # 8 (Shift right)
 
 flags &= mask         # In-place bitwise compound assignment
+```
 
-# Null Coalescing Operator (??)
+#### Null Coalescing Operator (`??`)
+```alya
 let custom_port = null
 let port = custom_port ?? 8080
 say port              # 8080
+```
+
+#### Optional Chaining (`?.`, `?.[]`, `?.()`)
+Safely access nested fields, array/map indices, or function calls without throwing null-dereference errors. If the operand evaluates to `null`, the expression immediately short-circuits to `null`:
+
+```alya
+let user = null
+say user?.name              # null (safe field access)
+say user?.profile?.email    # null (chained safe access)
+
+let items = null
+say items?.[0]              # null (safe indexing)
+
+let handler = null
+say handler?.()             # null (safe optional call)
 ```
 
 ---
@@ -208,9 +274,35 @@ for i in 1..5
 end
 ```
 
+#### Resource Cleanup (`defer`)
+The `defer` statement schedules an expression or statement to execute right before the enclosing function returns, regardless of which branch or early exit is taken. Multiple `defer` statements execute in **LIFO** (Last-In, First-Out) order:
+
+```alya
+function process_data(filename, early_exit = false)
+    say "1. Opening file: {filename}"
+    defer say "4. File closed: {filename}"
+    defer say "3. Flushed buffers"
+
+    if early_exit
+        say "Taking early return"
+        return "early"
+    end
+
+    say "2. Processing records..."
+    return "success"
+end
+
+process_data("input.csv")
+# Output:
+# 1. Opening file: input.csv
+# 2. Processing records...
+# 3. Flushed buffers
+# 4. File closed: input.csv
+```
+
 ---
 
-### 6. Functions
+### 6. Functions & Gradual Typing
 
 Functions are first-class, support default parameters, and return values using `return`:
 
@@ -227,30 +319,140 @@ end
 greet("World")                     # "Hello, World!"
 greet("Alice", "Welcome")          # "Welcome, Alice!"
 greet("Bob", "Good morning", ".")  # "Good morning, Bob."
+```
 
-let result = add(15, 30)
-say result    # 45
+#### Gradual Typing (Optional Type Annotations)
+Alya supports gradual typing: you can optionally annotate parameter and return types for clearer contracts and compiler type propagation. Supported types include `int`, `float`, `str`, and array types like `int[]`, `str[]`, or `float[]`:
+
+```alya
+# Fully typed function
+function multiply(a: int, b: int) -> int
+    return a * b
+end
+
+function calculate_area(radius: float) -> float
+    const PI = 3.14159
+    return PI * radius * radius
+end
+
+# Default parameters with type annotations
+function format_greeting(name: str, prefix: str = "Welcome") -> str
+    return prefix + ", " + name + "!"
+end
+
+# Mixed typed and untyped parameters (gradual)
+function summarize(label: str, count, is_valid: int) -> str
+    return label + ": " + str(count)
+end
+
+# Array type annotations
+function array_len(items: int[]) -> int
+    return len(items)
+end
+```
+
+#### Lambdas & Anonymous Functions (`fn(args) => expr`)
+Alya supports concise arrow lambdas and first-class functions. Lambdas can be assigned to variables, passed as callbacks to higher-order functions, or invoked directly:
+
+```alya
+# Single & multi-parameter lambdas
+let double = fn(x) => x * 2
+let add = fn(a, b) => a + b
+say double(21)           # 42
+say add(15, 27)          # 42
+
+# Higher-order functions
+function apply(f, val)
+    return f(val)
+end
+
+function apply_twice(f, val)
+    return f(f(val))
+end
+
+say apply(fn(x) => x * 3, 7)         # 21
+say apply_twice(fn(n) => n + 10, 5)  # 25
+
+# Named functions as first-class values
+function square(x)
+    return x * x
+end
+let operation = square
+say operation(5)                     # 25
+
+# Direct lambda call
+say (fn(x) => x + 100)(50)           # 150
 ```
 
 ---
 
-### 7. Pattern Matching (`when`)
+### 7. Enumerations (`enum`)
 
-A concise switch/match construct:
+Alya provides first-class `enum` definitions. Enums can have auto-incrementing integer values (starting at `0`), explicit integer values, or string variant values. Variants can be accessed using either dot syntax (`Status.Active`) or scope resolution syntax (`Status::Active`):
 
 ```alya
-let status_code = 2
+# Auto-incrementing integer enum (0, 1, 2, 3)
+enum TaskStatus
+    Pending
+    InProgress
+    Completed
+    Failed
+end
 
-when status_code
-    is 1 then say "Status: Pending"
-    is 2 then say "Status: Active"
+# Explicit numeric values
+enum HttpStatus
+    Ok = 200
+    Created = 201
+    BadRequest = 400
+    NotFound = 404
+end
+
+# String variant enum
+enum LogLevel
+    Debug = "DEBUG"
+    Info = "INFO"
+    Warn = "WARN"
+    Error = "ERROR"
+end
+
+# Access via dot notation or scope resolution
+let current = TaskStatus.InProgress
+let code = HttpStatus::Ok
+let level = LogLevel.Info
+
+say TaskStatus.Pending       # 0
+say HttpStatus::NotFound     # 404
+say LogLevel.Info            # "INFO"
+```
+
+---
+
+### 8. Pattern Matching (`when`)
+
+A concise switch/match construct that works with numbers, strings, and enums:
+
+```alya
+let current_status = TaskStatus.InProgress
+
+when current_status
+    is TaskStatus.Pending then say "Status: Pending"
+    is TaskStatus.InProgress then say "Status: In Progress"
+    is TaskStatus.Completed then say "Status: Completed"
     else say "Status: Unknown"
+end
+
+# Pattern matching with values
+let status_code = 200
+when status_code
+    is 200 then say "OK"
+    is 404 then say "Not Found"
+    else say "Other Code"
 end
 ```
 
 ---
 
-### 8. Exception Handling (`try ... catch`)
+### 9. Exception Handling (`try ... catch`)
 
 Structured error catching with built-in runtime protection for division by zero and index out of bounds:
 
@@ -267,7 +469,7 @@ say "Program resumes normally!"
 
 ---
 
-### 9. Arrays & Dynamic Methods
+### 10. Arrays & Dynamic Methods
 
 Dynamic arrays support literals, 0-based indexing, fast bounds safety, and methods:
 
@@ -305,11 +507,25 @@ try
 catch err
     say "Caught error: " + err    # Caught error: index out of bounds
 end
+
+# Array & String Slicing
+let items = [10, 20, 30, 40, 50]
+say items[1..3]       # [20, 30] (from index 1 up to index 3)
+say items[:2]         # [10, 20] (from beginning to index 2)
+say items[3:]         # [40, 50] (from index 3 to end)
+say items[:]          # [10, 20, 30, 40, 50] (shallow copy)
+say items[1:4]        # [20, 30, 40] (colon syntax also supported)
+
+let text = "Hello, World!"
+say text[0..5]        # "Hello"
+say text[7:]          # "World!"
+say text[:5]          # "Hello"
+say text[:]           # "Hello, World!"
 ```
 
 ---
 
-### 10. Modules & Standard Library
+### 11. Modules & Standard Library
 
 Split codebases across files and import functions with `import`:
 
@@ -351,7 +567,7 @@ say product    # 60
 | `std/collections` | High-level data structures | `Stack` (`stack_new`, `stack_push`, `stack_pop`), `Queue` (`queue_new`, `queue_push`), `Set` (`set_new`, `set_add`, `set_has`, `set_remove`) |
 | `std/test` | Micro-testing framework | `test_suite`, `assert`, `assert_eq`, `assert_str_eq`, `test_summary` |
 | `std/json` | JSON serialization | `json_number`, `json_string`, `json_bool`, `json_array`, `json_object`, `json_map`, `json_parse` |
-| `std/time` | System clock & timers | `time`, `clock_ms`, `sleep_ms` |
+| `std/time` | System clock & timers | `time`, `clock_ms` (monotonic millisecond timer), `sleep_ms` |
 | `std/os` | Operating system interop | `os_name`, `arch_name`, `env`, `env_or`, `os_exit`, `exec` |
 | `std/mem` | Low-level & arena allocator | `arena_new`, `arena_alloc_mem`, `arena_clear`, `alloc_mem`, `free_mem`, `peek_byte`, `poke_byte` |
 
@@ -359,7 +575,7 @@ say product    # 60
 
 ---
 
-### 11. Floating-Point Numbers
+### 12. Floating-Point Numbers
 
 First-class 64-bit IEEE 754 float support with hardware register acceleration (`xmm`/`d`):
 
@@ -380,38 +596,84 @@ say int("50")                # String to integer: 50
 
 ---
 
-### 12. Structs & Custom Types
+### 13. Structs, Default Values & Methods
 
-Custom composite data types with named and positional constructors:
+Custom composite data types with field defaults, partial initialization, and both named and positional constructors:
+
+```alya
+# Struct with default field values
+struct ServerConfig
+    host = "127.0.0.1"
+    port = 8080
+    ssl = false
+    max_clients = 1000
+end
+
+# Mixed required and default fields
+struct User
+    id
+    name = "Anonymous"
+    role = "member"
+end
+
+# 1. Full default initialization
+let default_srv = ServerConfig {}
+say default_srv.host        # "127.0.0.1"
+say default_srv.port        # 8080
+
+# 2. Partial override with named fields
+let custom_srv = ServerConfig { port: 9000, ssl: true }
+say custom_srv.host         # "127.0.0.1" (default preserved)
+say custom_srv.port         # 9000 (overridden)
+say custom_srv.ssl          # 1
+
+# 3. Positional constructor with omitted trailing defaults
+let pos_srv = ServerConfig("0.0.0.0", 3000)
+say pos_srv.host            # "0.0.0.0"
+say pos_srv.port            # 3000
+say pos_srv.ssl             # 0 (default used)
+
+# 4. Instantiation with mixed fields
+let guest = User { id: 101 }
+let admin = User { id: 102, name: "Alice", role: "admin" }
+say "{guest.name} ({guest.role})"   # "Anonymous (member)"
+say "{admin.name} ({admin.role})"   # "Alice (admin)"
+
+# Field mutation & compound assignment
+guest.name = "Bob"
+guest.id += 1
+```
+
+#### Struct Methods & UFCS
+Functions can be associated with structs as instance methods or static functions using dot notation (`function Struct.method(self, ...)`):
 
 ```alya
 struct Point
-    x
-    y
+    x = 0
+    y = 0
 end
 
-# Named instantiation & field access
-let p1 = Point { x: 10, y: 20 }
-say p1                      # Point { x: 10, y: 20 }
-say "Coords: ({p1.x}, {p1.y})"
-
-# Field mutation & compound assignment
-p1.x = 100
-p1.y += 5
-say p1                      # Point { x: 100, y: 25 }
-
-# Positional constructor & function support
-function distance_squared(pt)
-    return pt.x * pt.x + pt.y * pt.y
+# Instance method taking self
+function Point.translate(self, dx, dy)
+    self.x += dx
+    self.y += dy
+    return self
 end
 
-let p2 = Point(3, 4)
-say distance_squared(p2)    # 25
+# Static constructor method
+function Point.create(x, y)
+    return Point { x: x, y: y }
+end
+
+# Usage:
+let p = Point.create(10, 20)
+p.translate(5, -5)
+say "Point: ({p.x}, {p.y})"   # "Point: (15, 15)"
 ```
 
 ---
 
-### 13. Command-Line Arguments (`args()`)
+### 14. Command-Line Arguments (`args()`)
 
 ```alya
 let arguments = args()
@@ -429,11 +691,22 @@ alyac run script.alya -- hello world 42
 
 ---
 
-### 14. Hash Maps & Dictionaries (`map()`)
+### 15. Hash Maps & Dictionaries (`map()`, `{}`)
 
-Associative key-value mappings:
+Associative key-value mappings with inline literal and constructor syntax:
 
 ```alya
+# Map literal syntax
+let config = {
+    "host": "127.0.0.1",
+    "port": 8080,
+    "debug": true
+}
+say config["host"]           # 127.0.0.1
+say config["port"]           # 8080
+
+# Empty map literal or constructor
+let empty_map = {}
 let user = map()
 user["name"] = "Alice"
 user["role"] = "Admin"
@@ -443,6 +716,13 @@ say user["name"]            # Alice
 say user.get("role")        # Admin
 say user.contains("level")  # 1
 say user.len()              # 3
+
+# Nested map literals
+let server = {
+    "network": { "ip": "0.0.0.0", "port": 3000 },
+    "active": 1
+}
+say server["network"]["port"] # 3000
 
 # Keys and iteration
 for key in user.keys()
@@ -456,7 +736,7 @@ say user                    # { "name": Alice, "level": 10 }
 
 ---
 
-### 15. File I/O
+### 16. File I/O
 
 Built-in native file system routines:
 
@@ -478,7 +758,7 @@ say file_exists(filename)   # 0
 
 ---
 
-### 16. Character & String Utilities
+### 17. Character & String Utilities
 
 ```alya
 let text = "Alya 2026"
@@ -501,7 +781,7 @@ say is_space(" ")           # 1
 
 ---
 
-### 17. Self-Hosting Prototype (Compiler in Alya)
+### 18. Self-Hosting Prototype (Compiler in Alya)
 
 Check out `examples/mini_compiler.alya` for a working compiler prototype written in Alya that compiles a subset of the language to native assembly:
 
@@ -516,7 +796,7 @@ gcc mini_output.s -o mini_program.exe
 
 ---
 
-### 18. Benchmarking & Performance Profiling
+### 19. Benchmarking & Performance Profiling
 
 Alya features built-in micro-benchmarking (`std/bench`) and stage profiling (`--time`):
 
@@ -539,7 +819,7 @@ bench_summary(runner)
 
 ---
 
-### 19. Developer CLI & Tooling (`fmt`, `test`)
+### 20. Developer CLI & Tooling (`fmt`, `test`)
 
 The `alyac` compiler includes developer utilities directly out of the box:
 
@@ -556,4 +836,3 @@ alyac fmt . --check
 # Test suite discovery and execution
 alyac test
 ```
-

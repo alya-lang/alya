@@ -1,15 +1,23 @@
 use crate::ast::*;
 
-pub fn collect_function_defs<'a>(
-    stmts: &'a [Stmt],
-    defs: &mut Vec<(&'a str, &'a [String], &'a [Stmt])>,
-) {
+type FunctionDef<'a> = (&'a str, &'a [String], &'a [Option<String>], &'a [Stmt]);
+
+pub fn collect_function_defs<'a>(stmts: &'a [Stmt], defs: &mut Vec<FunctionDef<'a>>) {
     for stmt in stmts {
         match stmt {
             Stmt::Function {
-                name, params, body, ..
+                name,
+                params,
+                param_types,
+                body,
+                ..
             } => {
-                defs.push((name.as_str(), params.as_slice(), body.as_slice()));
+                defs.push((
+                    name.as_str(),
+                    params.as_slice(),
+                    param_types.as_slice(),
+                    body.as_slice(),
+                ));
                 collect_function_defs(body, defs);
             }
             Stmt::If {
@@ -39,6 +47,9 @@ pub fn collect_function_defs<'a>(
                 if let Some(finally_block) = finally_block {
                     collect_function_defs(finally_block, defs);
                 }
+            }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                collect_function_defs(std::slice::from_ref(inner), defs);
             }
             _ => {}
         }

@@ -421,6 +421,24 @@ say "Runner failed: " + str(r.failed)
 }
 
 #[test]
+fn test_e2e_monotonic_clock_ms() {
+    let code = r#"
+let t0 = clock_ms()
+sleep(60)
+let elapsed = clock_ms() - t0
+if elapsed >= 45
+    say "clock_ms_ok"
+else
+    say "clock_ms_failed: " + str(elapsed)
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "clock_ms_ok\n");
+    }
+}
+
+#[test]
 fn test_e2e_os_stdlib() {
     let code = r#"
 import "std/os"
@@ -1703,5 +1721,174 @@ say "non-heap str rc: " + str(rc_count("hello"))
         );
         assert!(output.contains("non-heap int rc: 0"), "Got: {}", output);
         assert!(output.contains("non-heap str rc: 0"), "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_sync_stdlib() {
+    let code = r#"
+import "std/sync"
+
+# 1. Mutex
+let m = mutex_new()
+mutex_lock(m)
+say "sync_mutex: locked"
+mutex_unlock(m)
+mutex_free(m)
+
+# 2. Channel
+let ch = channel_new()
+channel_send(ch, 42)
+channel_send(ch, 84)
+say "ch_size: " + str(channel_size(ch))
+let v1 = channel_try_recv(ch)
+let v2 = channel_recv(ch, 1000)
+say "ch_v1: " + str(v1)
+say "ch_v2: " + str(v2)
+channel_free(ch)
+
+# 3. WaitGroup
+let wg = wait_group_new()
+wait_group_add(wg, 2)
+wait_group_done(wg)
+wait_group_done(wg)
+let wg_res = wait_group_wait(wg, 1000)
+say "wg_ok: " + str(wg_res)
+wait_group_free(wg)
+
+# 4. Once
+let o = once_new()
+let first = once_check(o)
+let second = once_check(o)
+say "once_1: " + str(first)
+say "once_2: " + str(second)
+once_free(o)
+
+# 5. RwLock
+let rw = rwlock_new()
+let r1 = rwlock_read_lock(rw, 1000)
+let r2 = rwlock_read_lock(rw, 1000)
+say "rw_readers_ok: " + str(r1 + r2)
+rwlock_read_unlock(rw)
+rwlock_read_unlock(rw)
+
+let w1 = rwlock_write_lock(rw, 1000)
+say "rw_writer_ok: " + str(w1)
+rwlock_write_unlock(rw)
+rwlock_free(rw)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert!(output.contains("sync_mutex: locked"), "Got: {}", output);
+        assert!(output.contains("ch_size: 2"), "Got: {}", output);
+        assert!(output.contains("ch_v1: 42"), "Got: {}", output);
+        assert!(output.contains("ch_v2: 84"), "Got: {}", output);
+        assert!(output.contains("wg_ok: 1"), "Got: {}", output);
+        assert!(output.contains("once_1: 1"), "Got: {}", output);
+        assert!(output.contains("once_2: 0"), "Got: {}", output);
+        assert!(output.contains("rw_readers_ok: 2"), "Got: {}", output);
+        assert!(output.contains("rw_writer_ok: 1"), "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_stdlib_modern_syntax_features() {
+    let code = r#"
+import "std/color"
+import "std/log"
+import "std/net"
+import "std/sync"
+import "std/collections"
+import "std/str"
+import "std/json"
+import "std/test"
+
+# 1. Color Enums
+say "color_enum: " + str(Color.Red)
+say "bg_enum: " + str(BgColor.Blue)
+say "style_enum: " + str(Style.Bold)
+let styled = color_fg(Color.Green, "ok_green")
+if len(styled) > 0
+    say "styled_ok"
+end
+
+# 2. LogLevel Enum and Logger Struct Methods
+let logger = logger_new("test_logger", LogLevel.Info)
+logger.set_colored(0)
+logger.info("logger struct method works")
+say "log_level_name: " + log_level_name(LogLevel.Warn)
+
+# 3. HttpStatus Enum
+say "http_200: " + http_status_text(HttpStatus.Ok)
+say "http_404: " + http_status_text(HttpStatus.NotFound)
+
+# 4. Sync Primitives Struct Methods (Channel & WaitGroup)
+let ch = channel_new()
+ch.send(777)
+say "ch_method_size: " + str(ch.size())
+say "ch_method_recv: " + str(ch.recv(100))
+ch.free()
+
+let wg = wait_group_new()
+wg.add(1)
+wg.done()
+say "wg_method_wait: " + str(wg.wait(50))
+wg.free()
+
+# 5. Collections (in operator, spread, multi-var loops)
+let arr = [10, 20, 30]
+say "arr_contains: " + str(array_contains(arr, 20))
+say "arr_not_contains: " + str(array_contains(arr, 99))
+let cat = array_concat([1, 2], [3, 4])
+say "cat_len: " + str(len(cat))
+
+let s = set_new()
+set_add(s, "apple")
+say "set_has: " + str(set_has(s, "apple"))
+say "set_not_has: " + str(set_has(s, "banana"))
+
+let m = { "x": 100, "y": 200 }
+let entries = map_entries(m)
+say "entries_count: " + str(len(entries))
+
+# 6. String & Type Checks (is null, in)
+say "str_is_empty_null: " + str(is_empty(null))
+say "str_is_empty_empty: " + str(is_empty(""))
+say "str_contains: " + str(contains_str("alya language", "lang"))
+
+# 7. JSON (multi-var key-value formatting)
+let jobj = json_object({ "k": "v" })
+say "json_has_k: " + str(contains_str(jobj, "k"))
+
+# 8. Test Runner Struct Methods
+let runner = runner_new()
+runner.assert_eq(5, 5, "equality check")
+say "runner_total: " + str(runner.total)
+say "runner_passed: " + str(runner.passed)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert!(output.contains("color_enum: 31"), "Got: {}", output);
+        assert!(output.contains("bg_enum: 44"), "Got: {}", output);
+        assert!(output.contains("style_enum: 1"), "Got: {}", output);
+        assert!(output.contains("styled_ok"), "Got: {}", output);
+        assert!(output.contains("log_level_name: WARN"), "Got: {}", output);
+        assert!(output.contains("http_200: OK"), "Got: {}", output);
+        assert!(output.contains("http_404: Not Found"), "Got: {}", output);
+        assert!(output.contains("ch_method_size: 1"), "Got: {}", output);
+        assert!(output.contains("ch_method_recv: 777"), "Got: {}", output);
+        assert!(output.contains("wg_method_wait: 1"), "Got: {}", output);
+        assert!(output.contains("arr_contains: 1"), "Got: {}", output);
+        assert!(output.contains("arr_not_contains: 0"), "Got: {}", output);
+        assert!(output.contains("cat_len: 4"), "Got: {}", output);
+        assert!(output.contains("set_has: 1"), "Got: {}", output);
+        assert!(output.contains("set_not_has: 0"), "Got: {}", output);
+        assert!(output.contains("entries_count: 2"), "Got: {}", output);
+        assert!(output.contains("str_is_empty_null: 1"), "Got: {}", output);
+        assert!(output.contains("str_is_empty_empty: 1"), "Got: {}", output);
+        assert!(output.contains("str_contains: 1"), "Got: {}", output);
+        assert!(output.contains("json_has_k: 1"), "Got: {}", output);
+        assert!(output.contains("runner_total: 1"), "Got: {}", output);
+        assert!(output.contains("runner_passed: 1"), "Got: {}", output);
     }
 }

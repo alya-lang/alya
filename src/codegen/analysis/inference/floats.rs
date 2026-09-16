@@ -153,7 +153,38 @@ fn collect_float_vars_from_stmts(
 ) {
     for stmt in stmts {
         match stmt {
-            Stmt::Let { name, value, .. } | Stmt::Assign { name, value, .. } => {
+            Stmt::Let {
+                name,
+                type_ann,
+                value,
+            } => {
+                if let Some(t) = type_ann {
+                    if t == "float" || t == "f64" || t == "f32" {
+                        scope.insert(name.clone());
+                        if is_top_level {
+                            known_floats.insert(name.clone());
+                        }
+                    } else if t == "float[]" || t == "f64[]" || t == "f32[]" {
+                        scope.insert(format!("arr_is_flt:{}", name));
+                        if is_top_level {
+                            known_floats.insert(format!("arr_is_flt:{}", name));
+                        }
+                    }
+                }
+                if expr_is_definitely_float(value, scope) {
+                    scope.insert(name.clone());
+                    if is_top_level {
+                        known_floats.insert(name.clone());
+                    }
+                }
+                if expr_is_float_array(value, scope) {
+                    scope.insert(format!("arr_is_flt:{}", name));
+                    if is_top_level {
+                        known_floats.insert(format!("arr_is_flt:{}", name));
+                    }
+                }
+            }
+            Stmt::Assign { name, value, .. } => {
                 if expr_is_definitely_float(value, scope) {
                     scope.insert(name.clone());
                     if is_top_level {
@@ -195,14 +226,16 @@ fn collect_float_vars_from_stmts(
             }
             Stmt::ForEach {
                 var,
+                value_var,
                 iterable,
                 body,
             } => {
                 let mut loop_scope = scope.clone();
+                let target_var = value_var.as_ref().unwrap_or(var);
                 if expr_is_float_array(iterable, scope) {
-                    loop_scope.insert(var.clone());
+                    loop_scope.insert(target_var.clone());
                     if is_top_level {
-                        known_floats.insert(var.clone());
+                        known_floats.insert(target_var.clone());
                     }
                 }
                 collect_float_vars_from_stmts(body, &mut loop_scope, known_floats, is_top_level);
@@ -261,6 +294,14 @@ fn collect_float_vars_from_stmts(
                     known_floats.insert(format!("fn_ret_flt:{}", bare));
                 }
             }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                collect_float_vars_from_stmts(
+                    std::slice::from_ref(inner),
+                    scope,
+                    known_floats,
+                    is_top_level,
+                );
+            }
             _ => {}
         }
     }
@@ -268,13 +309,73 @@ fn collect_float_vars_from_stmts(
 
 pub fn collect_known_float_vars(program: &Program) -> HashSet<String> {
     let mut known_floats = HashSet::new();
+    for stmt in &program.statements {
+        let stmt = stmt.inner_stmt();
+        if let Stmt::ExternBlock { functions, .. } = stmt {
+            for f in functions {
+                if let Some(ret) = &f.return_type {
+                    if ret == "float" || ret == "f64" || ret == "f32" {
+                        known_floats.insert(format!("fn_ret_flt:{}", f.name));
+                    }
+                }
+            }
+        } else if let Stmt::Function {
+            name,
+            param_types,
+            return_type,
+            ..
+        } = stmt
+        {
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            if let Some(ret) = return_type {
+                if ret == "float" || ret == "f64" || ret == "f32" {
+                    known_floats.insert(format!("fn_ret_flt:{}", name));
+                    known_floats.insert(format!("fn_ret_flt:{}", bare));
+                }
+            }
+            for (idx, p_type) in param_types.iter().enumerate() {
+                if let Some(pt) = p_type {
+                    if pt == "float" || pt == "f64" || pt == "f32" {
+                        known_floats.insert(format!("fn_param_flt:{}:{}", name, idx));
+                        known_floats.insert(format!("fn_param_flt:{}:{}", bare, idx));
+                    } else if pt == "float[]" || pt == "f64[]" || pt == "f32[]" {
+                        known_floats.insert(format!("fn_param_flt_arr:{}:{}", name, idx));
+                        known_floats.insert(format!("fn_param_flt_arr:{}:{}", bare, idx));
+                    }
+                }
+            }
+        } else if let Stmt::StructDef {
+            name,
+            fields,
+            field_types,
+            ..
+        } = stmt
+        {
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            for (f, ft) in fields.iter().zip(field_types.iter()) {
+                if let Some(t) = ft {
+                    if t == "float" || t == "f64" || t == "f32" {
+                        known_floats.insert(format!("struct_field_flt:{}.{}", name, f));
+                        known_floats.insert(format!("struct_field_flt:{}.{}", bare, f));
+                        known_floats.insert(format!("struct_field_flt:{}", f));
+                    } else if t == "float[]" || t == "f64[]" || t == "f32[]" {
+                        known_floats.insert(format!("struct_field_arr_flt:{}.{}", name, f));
+                        known_floats.insert(format!("struct_field_arr_flt:{}.{}", bare, f));
+                        known_floats.insert(format!("struct_field_arr_flt:{}", f));
+                    }
+                }
+            }
+        }
+    }
     let mut funcs = Vec::new();
     collect_function_defs(&program.statements, &mut funcs);
     for _ in 0..5 {
         let prev_len = known_floats.len();
         let mut scope = known_floats.clone();
         collect_float_vars_from_stmts(&program.statements, &mut scope, &mut known_floats, true);
-        for (name, params, _) in &funcs {
+        for (name, params, _, _) in &funcs {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             for (idx, _param) in params.iter().enumerate() {

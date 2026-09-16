@@ -7,15 +7,26 @@
 
 import "std/color"
 
-# Log Levels
-let LOG_DEBUG = 1
-let LOG_INFO = 2
-let LOG_WARN = 3
-let LOG_ERROR = 4
-let LOG_FATAL = 5
-let LOG_OFF = 6
+# --- Log Level Enum ---
 
-struct Logger
+pub enum LogLevel
+    Debug = 1
+    Info = 2
+    Warn = 3
+    Error = 4
+    Fatal = 5
+    Off = 6
+end
+
+# Log Levels (backward compatibility constants)
+pub let LOG_DEBUG = LogLevel.Debug
+pub let LOG_INFO = LogLevel.Info
+pub let LOG_WARN = LogLevel.Warn
+pub let LOG_ERROR = LogLevel.Error
+pub let LOG_FATAL = LogLevel.Fatal
+pub let LOG_OFF = LogLevel.Off
+
+pub struct Logger
     log_name
     log_level
     log_colored
@@ -23,24 +34,30 @@ struct Logger
     log_file
 end
 
-function log_level_name(lvl)
-    if lvl == 1 return "DEBUG" end
-    if lvl == 2 return "INFO" end
-    if lvl == 3 return "WARN" end
-    if lvl == 4 return "ERROR" end
-    if lvl == 5 return "FATAL" end
-    return "LOG"
+pub function log_level_name(lvl)
+    when lvl
+        is LogLevel.Debug then return "DEBUG"
+        is LogLevel.Info then return "INFO"
+        is LogLevel.Warn then return "WARN"
+        is LogLevel.Error then return "ERROR"
+        is LogLevel.Fatal then return "FATAL"
+        is LogLevel.Off then return "OFF"
+        else return "LOG"
+    end
 end
 
-function log_level_from_str(s)
+pub function log_level_from_str(s)
     let up = upper(s)
-    if up == "DEBUG" return 1 end
-    if up == "INFO" return 2 end
-    if up == "WARN" or up == "WARNING" return 3 end
-    if up == "ERROR" return 4 end
-    if up == "FATAL" return 5 end
-    if up == "OFF" return 6 end
-    return 2
+    when up
+        is "DEBUG" then return LogLevel.Debug
+        is "INFO" then return LogLevel.Info
+        is "WARN" then return LogLevel.Warn
+        is "WARNING" then return LogLevel.Warn
+        is "ERROR" then return LogLevel.Error
+        is "FATAL" then return LogLevel.Fatal
+        is "OFF" then return LogLevel.Off
+        else return LogLevel.Info
+    end
 end
 
 function _log_pad2(n)
@@ -58,27 +75,27 @@ function _log_timestamp()
     return _log_pad2(hh) + ":" + _log_pad2(mm) + ":" + _log_pad2(ss)
 end
 
-function logger_new(name, level)
+pub function logger_new(name, level)
     return Logger(name, level, 1, 0, "")
 end
 
-function logger_set_level(l, level)
+pub function logger_set_level(l, level)
     l.log_level = level
 end
 
-function logger_set_colored(l, colored)
+pub function logger_set_colored(l, colored)
     l.log_colored = colored
 end
 
-function logger_set_timestamps(l, timestamps)
+pub function logger_set_timestamps(l, timestamps)
     l.log_timestamps = timestamps
 end
 
-function logger_set_file(l, file_path)
+pub function logger_set_file(l, file_path)
     l.log_file = file_path
 end
 
-function logger_log(l, level, message)
+pub function logger_log(l, level, message)
     if level < l.log_level
         return 0
     end
@@ -127,15 +144,42 @@ function logger_log(l, level, message)
     return 1
 end
 
-function logger_debug(l, msg) return logger_log(l, 1, msg) end
-function logger_info(l, msg)  return logger_log(l, 2, msg) end
-function logger_warn(l, msg)  return logger_log(l, 3, msg) end
-function logger_error(l, msg) return logger_log(l, 4, msg) end
-function logger_fatal(l, msg) return logger_log(l, 5, msg) end
+pub function logger_debug(l, msg) return logger_log(l, 1, msg) end
+pub function logger_info(l, msg)  return logger_log(l, 2, msg) end
+pub function logger_warn(l, msg)  return logger_log(l, 3, msg) end
+pub function logger_error(l, msg) return logger_log(l, 4, msg) end
+pub function logger_fatal(l, msg) return logger_log(l, 5, msg) end
 
 # Direct top-level functions
-function log_debug(msg) say color_cyan("[DEBUG] ") + str_from_ptr(msg) end
-function log_info(msg)  say color_green("[INFO]  ") + str_from_ptr(msg) end
-function log_warn(msg)  say color_yellow("[WARN]  ") + str_from_ptr(msg) end
-function log_error(msg) say color_red("[ERROR] ") + str_from_ptr(msg) end
-function log_fatal(msg) say style_bold(color_bright_red("[FATAL] ")) + str_from_ptr(msg) end
+pub function log_debug(msg) say color_cyan("[DEBUG] ") + str_from_ptr(msg) end
+pub function log_info(msg)  say color_green("[INFO]  ") + str_from_ptr(msg) end
+pub function log_warn(msg)  say color_yellow("[WARN]  ") + str_from_ptr(msg) end
+pub function log_error(msg) say color_red("[ERROR] ") + str_from_ptr(msg) end
+pub function log_fatal(msg) say style_bold(color_bright_red("[FATAL] ")) + str_from_ptr(msg) end
+
+# --- Logger Struct Methods ---
+pub function Logger.set_level(self, level)
+    logger_set_level(self, level)
+end
+
+pub function Logger.set_colored(self, colored)
+    logger_set_colored(self, colored)
+end
+
+pub function Logger.set_timestamps(self, timestamps)
+    logger_set_timestamps(self, timestamps)
+end
+
+pub function Logger.set_file(self, file_path)
+    logger_set_file(self, file_path)
+end
+
+pub function Logger.log(self, level, message)
+    return logger_log(self, level, message)
+end
+
+pub function Logger.debug(self, msg) return logger_debug(self, msg) end
+pub function Logger.info(self, msg)  return logger_info(self, msg) end
+pub function Logger.warn(self, msg)  return logger_warn(self, msg) end
+pub function Logger.error(self, msg) return logger_error(self, msg) end
+pub function Logger.fatal(self, msg) return logger_fatal(self, msg) end

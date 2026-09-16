@@ -224,7 +224,7 @@ pub fn collect_known_map_vars(program: &Program) -> HashSet<String> {
     for _ in 0..5 {
         let prev_len = known_maps.len();
         collect_map_vars_from_stmts(&program.statements, None, &mut known_maps);
-        for (name, params, body) in &funcs {
+        for (name, params, _, body) in &funcs {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             if stmts_return_map(body, Some(name), &known_maps)

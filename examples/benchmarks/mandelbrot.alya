@@ -38,14 +38,14 @@ end
 
 let runner = bench_runner("Mandelbrot Fractal Benchmark")
 
-bench_start(runner, 10)
+runner.start(10)
 let k = 0
 let total = 0
 while k < 10
     total = compute_grid(80, 40, 100)
     k += 1
 end
-bench_stop(runner, "mandelbrot 80x40 grid (100 iters)")
+runner.stop("mandelbrot 80x40 grid (100 iters)")
 
 say "Mandelbrot core points counted: " + str(total)
-bench_summary(runner)
+runner.summary()

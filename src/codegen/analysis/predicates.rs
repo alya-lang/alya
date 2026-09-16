@@ -6,7 +6,7 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::String(_) => true,
         Expr::InterpolatedString(_) => true,
-        Expr::Call { name, .. } => {
+        Expr::Call { name, args } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             if matches!(
@@ -124,7 +124,15 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "rand_int"
                     | "abs"
                     | "abs_val"
-                    | "json_parse_array"
+            ) {
+                return false;
+            }
+            if bare == "slice" {
+                return !args.is_empty() && is_string_expr(&args[0], vars);
+            }
+            if matches!(
+                bare,
+                "json_parse_array"
                     | "parse_array"
                     | "json_parse_object"
                     | "parse_object"
@@ -203,6 +211,27 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         Expr::NullCoalesce { value, default } => {
             is_string_expr(value, vars) || is_string_expr(default, vars)
         }
+        Expr::OptionalFieldAccess { object, field } => is_string_expr(
+            &Expr::FieldAccess {
+                object: object.clone(),
+                field: field.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalIndex { array, index } => is_string_expr(
+            &Expr::Index {
+                array: array.clone(),
+                index: index.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalCall { callee, args } => is_string_expr(
+            &Expr::Call {
+                name: callee.clone(),
+                args: args.clone(),
+            },
+            vars,
+        ),
         _ => false,
     }
 }
@@ -213,7 +242,7 @@ pub fn is_array_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         Expr::Identifier(name) => {
             matches!(vars.get(name), Some(VarType::Array(_)))
         }
-        Expr::Call { name, .. } => {
+        Expr::Call { name, args } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             matches!(
@@ -271,7 +300,8 @@ pub fn is_array_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "fs_list_dir_recursive"
                     | "json_parse_array"
                     | "parse_array"
-            ) || vars.contains_key(&format!("fn_ret_str_arr:{}", name))
+            ) || (bare == "slice" && !args.is_empty() && is_array_expr(&args[0], vars))
+                || vars.contains_key(&format!("fn_ret_str_arr:{}", name))
                 || vars.contains_key(&format!("fn_ret_str_arr:{}", bare))
         }
         Expr::FieldAccess { object, field } => {
@@ -303,6 +333,27 @@ pub fn is_array_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         Expr::NullCoalesce { value, default } => {
             is_array_expr(value, vars) || is_array_expr(default, vars)
         }
+        Expr::OptionalFieldAccess { object, field } => is_array_expr(
+            &Expr::FieldAccess {
+                object: object.clone(),
+                field: field.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalIndex { array, index } => is_array_expr(
+            &Expr::Index {
+                array: array.clone(),
+                index: index.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalCall { callee, args } => is_array_expr(
+            &Expr::Call {
+                name: callee.clone(),
+                args: args.clone(),
+            },
+            vars,
+        ),
         _ => false,
     }
 }
@@ -378,6 +429,27 @@ pub fn is_map_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         Expr::NullCoalesce { value, default } => {
             is_map_expr(value, vars) || is_map_expr(default, vars)
         }
+        Expr::OptionalFieldAccess { object, field } => is_map_expr(
+            &Expr::FieldAccess {
+                object: object.clone(),
+                field: field.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalIndex { array, index } => is_map_expr(
+            &Expr::Index {
+                array: array.clone(),
+                index: index.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalCall { callee, args } => is_map_expr(
+            &Expr::Call {
+                name: callee.clone(),
+                args: args.clone(),
+            },
+            vars,
+        ),
         _ => false,
     }
 }
@@ -386,6 +458,21 @@ pub fn is_string_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::Array(elems) => !elems.is_empty() && elems.iter().all(|e| is_string_expr(e, vars)),
         Expr::Identifier(name) => vars.contains_key(&format!("arr_is_str:{}", name)),
+        Expr::FieldAccess { object, field } => {
+            if let Expr::Identifier(obj_name) = &**object {
+                if let Some(VarType::Struct { struct_name, .. }) = vars.get(obj_name) {
+                    let bare = struct_name.rsplit("::").next().unwrap_or(struct_name);
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    let field_key = format!("struct_field_arr_str:{}.{}", struct_name, field);
+                    let bare_key = format!("struct_field_arr_str:{}.{}", bare, field);
+                    if vars.contains_key(&field_key) || vars.contains_key(&bare_key) {
+                        return true;
+                    }
+                }
+            }
+            let global_field_key = format!("struct_field_arr_str:{}", field);
+            vars.contains_key(&global_field_key)
+        }
         Expr::Call { name, .. } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -416,6 +503,21 @@ pub fn is_float_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::Array(elems) => elems.first().is_some_and(|e| is_float_expr(e, vars)),
         Expr::Identifier(name) => vars.contains_key(&format!("arr_is_flt:{}", name)),
+        Expr::FieldAccess { object, field } => {
+            if let Expr::Identifier(obj_name) = &**object {
+                if let Some(VarType::Struct { struct_name, .. }) = vars.get(obj_name) {
+                    let bare = struct_name.rsplit("::").next().unwrap_or(struct_name);
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    let field_key = format!("struct_field_arr_flt:{}.{}", struct_name, field);
+                    let bare_key = format!("struct_field_arr_flt:{}.{}", bare, field);
+                    if vars.contains_key(&field_key) || vars.contains_key(&bare_key) {
+                        return true;
+                    }
+                }
+            }
+            let global_field_key = format!("struct_field_arr_flt:{}", field);
+            vars.contains_key(&global_field_key)
+        }
         _ => false,
     }
 }
@@ -535,6 +637,27 @@ pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         Expr::NullCoalesce { value, default } => {
             is_float_expr(value, vars) || is_float_expr(default, vars)
         }
+        Expr::OptionalFieldAccess { object, field } => is_float_expr(
+            &Expr::FieldAccess {
+                object: object.clone(),
+                field: field.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalIndex { array, index } => is_float_expr(
+            &Expr::Index {
+                array: array.clone(),
+                index: index.clone(),
+            },
+            vars,
+        ),
+        Expr::OptionalCall { callee, args } => is_float_expr(
+            &Expr::Call {
+                name: callee.clone(),
+                args: args.clone(),
+            },
+            vars,
+        ),
         _ => false,
     }
 }
@@ -550,6 +673,53 @@ pub fn is_null_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         } => is_null_expr(then_branch, vars) && is_null_expr(else_branch, vars),
         Expr::NullCoalesce { value, default } => {
             is_null_expr(value, vars) && is_null_expr(default, vars)
+        }
+        _ => false,
+    }
+}
+
+pub fn is_number_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    match expr {
+        Expr::Number(_) => true,
+        Expr::Identifier(name) => matches!(vars.get(name), Some(VarType::Number(_))),
+        Expr::Binary { left, op, right } => match op {
+            BinaryOp::Add
+            | BinaryOp::Subtract
+            | BinaryOp::Multiply
+            | BinaryOp::Divide
+            | BinaryOp::Modulo
+            | BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
+            | BinaryOp::Shl
+            | BinaryOp::Shr => {
+                !is_string_expr(left, vars)
+                    && !is_string_expr(right, vars)
+                    && !is_float_expr(left, vars)
+                    && !is_float_expr(right, vars)
+            }
+            BinaryOp::Equal
+            | BinaryOp::NotEqual
+            | BinaryOp::Less
+            | BinaryOp::LessEqual
+            | BinaryOp::Greater
+            | BinaryOp::GreaterEqual
+            | BinaryOp::And
+            | BinaryOp::Or
+            | BinaryOp::In
+            | BinaryOp::NotIn => true,
+        },
+        Expr::Unary { op, expr } => match op {
+            UnaryOp::Negate | UnaryOp::BitNot => !is_float_expr(expr, vars),
+            UnaryOp::Not => true,
+        },
+        Expr::Call { name, .. } => {
+            let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            matches!(
+                bare,
+                "len" | "arr_len" | "ord" | "time" | "clock_ms" | "rand" | "rand_int" | "int"
+            )
         }
         _ => false,
     }

@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
 PackageIdentifier: Alya.alyac
-PackageVersion: 0.0.17
+PackageVersion: 0.0.18
 PackageLocale: en-US
 PackageName: Alya Programming Language Compiler
 Publisher: Alya Language
@@ -26,11 +26,11 @@ PackageUrl: https://github.com/alya-lang/alya
 Installers:
   - Architecture: x64
     InstallerType: zip
-    InstallerUrl: https://github.com/alya-lang/alya/releases/download/v0.0.17/alyac-v0.0.17-x86_64-windows.zip
-    InstallerSha256: 9ba17700f40b4db8f28ce3f0c00f18cc3000d99700fa2ab94a273a3ab83754a2
+    InstallerUrl: https://github.com/alya-lang/alya/releases/download/v0.0.18/alyac-v0.0.18-x86_64-windows.zip
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
     NestedInstallerType: portable
     NestedInstallerFiles:
-      - RelativeFilePath: alyac-v0.0.17-x86_64-windows/alyac.exe
+      - RelativeFilePath: alyac-v0.0.18-x86_64-windows/alyac.exe
         PortableCommandAlias: alyac
 ManifestType: singleton
 ManifestVersion: 1.6.0

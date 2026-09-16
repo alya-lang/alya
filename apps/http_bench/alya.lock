@@ -3,14 +3,14 @@ version = 1
 
 [[package]]
 name = "term"
-version = "main"
-source = "git:https://github.com/alya-lang/term#main"
+version = "0.3.0"
+source = "git:https://github.com/alya-lang/term?branch=main#79e37bbecf7b943b5748f1cb132fe64319699934"
 entry = ".alya/packages/term/src/lib.alya"
 checksum = "sha256:e2c92ee0158effa8297190f1df49a064f0722c647f383f6ae20de77a5dfa9841"
 
 [[package]]
 name = "url"
-version = "main"
-source = "git:https://github.com/alya-lang/url#main"
+version = "0.4.0"
+source = "git:https://github.com/alya-lang/url?branch=main#117a101a4e386a1f848f00edc206cb40c5c31547"
 entry = ".alya/packages/url/src/lib.alya"
 checksum = "sha256:b79e4d8d54439d31092e15c543434608378a023799a745a249210017ba935d8b"

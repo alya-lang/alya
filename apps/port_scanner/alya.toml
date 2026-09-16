@@ -1,7 +1,7 @@
 [package]
 name = "port_scanner"
 version = "1.0.0"
-alya-version = "0.0.17"
+alya-version = "0.0.18"
 entry = "main.alya"
 description = "Fast TCP port scanner with progress bar and formatted results table"
 authors = ["Alya Language Contributors <https://github.com/alya-lang>"]

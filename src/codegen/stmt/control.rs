@@ -1,6 +1,8 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr, Stmt};
-use crate::codegen::analysis::{is_float_array, is_float_expr, is_string_array, is_string_expr};
+use crate::codegen::analysis::{
+    is_float_array, is_float_expr, is_map_expr, is_string_array, is_string_expr,
+};
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
 
@@ -11,6 +13,20 @@ impl CodeGen {
         target_label: &str,
     ) {
         if let Expr::Binary { left, op, right } = condition {
+            if *op == BinaryOp::And {
+                self.generate_condition_jump_if_false(left, target_label);
+                self.generate_condition_jump_if_false(right, target_label);
+                return;
+            }
+
+            if *op == BinaryOp::Or {
+                let pass_label = self.ctx.next_label();
+                self.generate_condition_jump_if_true(left, &pass_label);
+                self.generate_condition_jump_if_false(right, target_label);
+                self.output.push_str(&format!("{}:\n", pass_label));
+                return;
+            }
+
             let is_cmp = matches!(
                 op,
                 BinaryOp::Equal
@@ -122,6 +138,135 @@ impl CodeGen {
 
         self.generate_expression(condition);
         arch::emit_jump_if_zero(&mut self.output, self.arch, target_label);
+    }
+
+    pub(crate) fn generate_condition_jump_if_true(&mut self, condition: &Expr, target_label: &str) {
+        if let Expr::Binary { left, op, right } = condition {
+            if *op == BinaryOp::Or {
+                self.generate_condition_jump_if_true(left, target_label);
+                self.generate_condition_jump_if_true(right, target_label);
+                return;
+            }
+
+            if *op == BinaryOp::And {
+                let fail_label = self.ctx.next_label();
+                self.generate_condition_jump_if_false(left, &fail_label);
+                self.generate_condition_jump_if_true(right, target_label);
+                self.output.push_str(&format!("{}:\n", fail_label));
+                return;
+            }
+
+            let is_cmp = matches!(
+                op,
+                BinaryOp::Equal
+                    | BinaryOp::NotEqual
+                    | BinaryOp::Less
+                    | BinaryOp::LessEqual
+                    | BinaryOp::Greater
+                    | BinaryOp::GreaterEqual
+            );
+            if is_cmp
+                && !is_string_expr(left, &self.ctx.variables)
+                && !is_string_expr(right, &self.ctx.variables)
+            {
+                let left_is_flt = is_float_expr(left, &self.ctx.variables);
+                let right_is_flt = is_float_expr(right, &self.ctx.variables);
+                if left_is_flt || right_is_flt {
+                    self.generate_expression(left);
+                    if !left_is_flt {
+                        arch::emit_int_to_float(&mut self.output, self.arch);
+                    }
+                    if let Expr::Float(n) = &**right {
+                        arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n);
+                    } else if let Expr::Number(n) = &**right {
+                        arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n);
+                    } else if let Some(&VarType::Float(offset)) = match &**right {
+                        Expr::Identifier(var_name) => self.ctx.variables.get(var_name),
+                        _ => None,
+                    } {
+                        arch::emit_load_var_to_scratch(&mut self.output, self.arch, offset, true);
+                        arch::emit_float_cmp_reg(&mut self.output, self.arch);
+                        arch::emit_float_cond_jump(
+                            &mut self.output,
+                            self.arch,
+                            *op,
+                            false,
+                            target_label,
+                        );
+                        return;
+                    } else {
+                        arch::emit_push_temp(&mut self.output, self.arch);
+                        self.generate_expression(right);
+                        if !right_is_flt {
+                            arch::emit_int_to_float(&mut self.output, self.arch);
+                        }
+                        arch::emit_float_binary_op(&mut self.output, self.arch, *op);
+                    }
+                    arch::emit_jump_if_not_zero(&mut self.output, self.arch, target_label);
+                    return;
+                }
+
+                if let Expr::Number(n) = &**right {
+                    self.generate_expression(left);
+                    arch::emit_cmp_imm(&mut self.output, self.arch, *n as i64);
+                    arch::emit_cond_jump(&mut self.output, self.arch, *op, false, target_label);
+                    return;
+                }
+                if let Expr::Identifier(var_name) = &**right {
+                    if let Some(&VarType::Number(offset)) = self.ctx.variables.get(var_name) {
+                        self.generate_expression(left);
+                        arch::emit_load_var_to_scratch(&mut self.output, self.arch, offset, false);
+                        arch::emit_cmp_reg(&mut self.output, self.arch);
+                        arch::emit_cond_jump(&mut self.output, self.arch, *op, false, target_label);
+                        return;
+                    }
+                }
+                if let Expr::Number(n) = &**left {
+                    self.generate_expression(right);
+                    arch::emit_cmp_imm(&mut self.output, self.arch, *n as i64);
+                    let swapped_op = match op {
+                        BinaryOp::Less => BinaryOp::Greater,
+                        BinaryOp::LessEqual => BinaryOp::GreaterEqual,
+                        BinaryOp::Greater => BinaryOp::Less,
+                        BinaryOp::GreaterEqual => BinaryOp::LessEqual,
+                        other => *other,
+                    };
+                    arch::emit_cond_jump(
+                        &mut self.output,
+                        self.arch,
+                        swapped_op,
+                        false,
+                        target_label,
+                    );
+                    return;
+                }
+                if let Expr::Identifier(var_name) = &**left {
+                    if let Some(&VarType::Number(offset)) = self.ctx.variables.get(var_name) {
+                        self.generate_expression(right);
+                        arch::emit_load_var_to_scratch(&mut self.output, self.arch, offset, false);
+                        arch::emit_cmp_reg(&mut self.output, self.arch);
+                        let swapped_op = match op {
+                            BinaryOp::Less => BinaryOp::Greater,
+                            BinaryOp::LessEqual => BinaryOp::GreaterEqual,
+                            BinaryOp::Greater => BinaryOp::Less,
+                            BinaryOp::GreaterEqual => BinaryOp::LessEqual,
+                            other => *other,
+                        };
+                        arch::emit_cond_jump(
+                            &mut self.output,
+                            self.arch,
+                            swapped_op,
+                            false,
+                            target_label,
+                        );
+                        return;
+                    }
+                }
+            }
+        }
+
+        self.generate_expression(condition);
+        arch::emit_jump_if_not_zero(&mut self.output, self.arch, target_label);
     }
 
     pub(super) fn generate_if(
@@ -304,7 +449,13 @@ impl CodeGen {
         self.ctx.pop_loop();
     }
 
-    pub(super) fn generate_for_each(&mut self, var: &str, iterable: &Expr, body: &[Stmt]) {
+    pub(super) fn generate_for_each(
+        &mut self,
+        var: &str,
+        value_var: Option<&str>,
+        iterable: &Expr,
+        body: &[Stmt],
+    ) {
         let var = var.to_string();
         self.generate_expression(iterable);
         arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
@@ -342,6 +493,57 @@ impl CodeGen {
             _ => None,
         };
 
+        let is_map = is_map_expr(iterable, &self.ctx.variables);
+        let is_map_str_val = is_map
+            && match iterable {
+                Expr::Map(entries) => entries
+                    .iter()
+                    .any(|(_, v)| is_string_expr(v, &self.ctx.variables)),
+                Expr::Identifier(name) => self
+                    .ctx
+                    .variables
+                    .keys()
+                    .any(|k| k.starts_with(&format!("map_str:{}.", name))),
+                _ => false,
+            };
+
+        let var_type_for_primary = if value_var.is_some() {
+            if is_map {
+                VarType::StringOffset(0)
+            } else {
+                VarType::Number(0)
+            }
+        } else if is_map {
+            VarType::StringOffset(0)
+        } else if let Some(sname) = &inferred_struct_type {
+            VarType::Struct {
+                struct_name: sname.clone(),
+                offset: 0,
+            }
+        } else if is_str {
+            VarType::StringOffset(0)
+        } else if is_flt {
+            VarType::Float(0)
+        } else {
+            VarType::Number(0)
+        };
+
+        let set_var_offset = |vt: &VarType, off: i32| -> VarType {
+            match vt {
+                VarType::Number(_) => VarType::Number(off),
+                VarType::Float(_) => VarType::Float(off),
+                VarType::StringOffset(_) => VarType::StringOffset(off),
+                VarType::Array(_) => VarType::Array(off),
+                VarType::Map(_) => VarType::Map(off),
+                VarType::Null(_) => VarType::Null(off),
+                VarType::Struct { struct_name, .. } => VarType::Struct {
+                    struct_name: struct_name.clone(),
+                    offset: off,
+                },
+                VarType::StringLabel(s) => VarType::StringLabel(s.clone()),
+            }
+        };
+
         let var_offset = match self.ctx.variables.get(&var) {
             Some(
                 VarType::Number(offset)
@@ -350,41 +552,64 @@ impl CodeGen {
                 | VarType::Struct { offset, .. },
             ) => {
                 let off = *offset;
-                let var_type = if let Some(sname) = &inferred_struct_type {
-                    VarType::Struct {
-                        struct_name: sname.clone(),
-                        offset: off,
-                    }
-                } else if is_str {
-                    VarType::StringOffset(off)
-                } else if is_flt {
-                    VarType::Float(off)
-                } else {
-                    VarType::Number(off)
-                };
-                self.ctx.variables.insert(var.clone(), var_type);
+                let vt = set_var_offset(&var_type_for_primary, off);
+                self.ctx.variables.insert(var.clone(), vt);
                 off
             }
             _ => {
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
                 let off = self.ctx.stack_offset;
-                let var_type = if let Some(sname) = &inferred_struct_type {
-                    VarType::Struct {
-                        struct_name: sname.clone(),
-                        offset: off,
-                    }
-                } else if is_str {
-                    VarType::StringOffset(off)
-                } else if is_flt {
-                    VarType::Float(off)
-                } else {
-                    VarType::Number(off)
-                };
-                self.ctx.variables.insert(var.clone(), var_type);
+                let vt = set_var_offset(&var_type_for_primary, off);
+                self.ctx.variables.insert(var.clone(), vt);
                 off
             }
         };
 
+        let val_offset = if let Some(v2_name) = value_var {
+            let v2_str = v2_name.to_string();
+            let v2_type_raw = if let Some(sname) = &inferred_struct_type {
+                VarType::Struct {
+                    struct_name: sname.clone(),
+                    offset: 0,
+                }
+            } else if is_str || is_map_str_val {
+                VarType::StringOffset(0)
+            } else if is_flt {
+                VarType::Float(0)
+            } else {
+                VarType::Number(0)
+            };
+
+            let off2 = match self.ctx.variables.get(&v2_str) {
+                Some(
+                    VarType::Number(offset)
+                    | VarType::Float(offset)
+                    | VarType::StringOffset(offset)
+                    | VarType::Struct { offset, .. },
+                ) => {
+                    let off = *offset;
+                    let vt = set_var_offset(&v2_type_raw, off);
+                    self.ctx.variables.insert(v2_str.clone(), vt);
+                    off
+                }
+                _ => {
+                    arch::emit_allocate_var(
+                        &mut self.output,
+                        self.arch,
+                        &mut self.ctx.stack_offset,
+                    );
+                    let off = self.ctx.stack_offset;
+                    let vt = set_var_offset(&v2_type_raw, off);
+                    self.ctx.variables.insert(v2_str.clone(), vt);
+                    off
+                }
+            };
+            Some(off2)
+        } else {
+            None
+        };
+
+        let target_struct_var = value_var.unwrap_or(&var);
         if let Some(sname) = &inferred_struct_type {
             let bare = sname.rsplit("::").next().unwrap_or(sname);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -396,7 +621,7 @@ impl CodeGen {
                 .cloned()
             {
                 for fname in &sdef.fields {
-                    let field_key = format!("{}.{}", var, fname);
+                    let field_key = format!("{}.{}", target_struct_var, fname);
                     if self
                         .ctx
                         .variables
@@ -429,6 +654,8 @@ impl CodeGen {
         let start_label = self.ctx.next_label();
         let step_label = self.ctx.next_label();
         let end_label = self.ctx.next_label();
+        let map_label = self.ctx.next_label();
+        let done_label = self.ctx.next_label();
         let loop_body_stack_offset = self.ctx.stack_offset;
         let loop_body_variables = self.ctx.variables.clone();
 
@@ -445,7 +672,10 @@ impl CodeGen {
             arr_offset,
             idx_offset,
             var_offset,
+            val_offset,
             &end_label,
+            &map_label,
+            &done_label,
         );
 
         for s in body {

@@ -162,6 +162,50 @@ checksum = "sha256:abcdef1234567890"
 }
 
 #[test]
+fn test_git_source_formatting_and_rev_parsing() {
+    let url = "https://github.com/alya-lang/rand";
+    let sha = "aa1446c94360e0059c0024f3600e553b5df19332";
+
+    // Branch with SHA
+    let src_branch = format_git_source(url, Some("main"), None, None, Some(sha));
+    assert_eq!(
+        src_branch,
+        "git:https://github.com/alya-lang/rand?branch=main#aa1446c94360e0059c0024f3600e553b5df19332"
+    );
+    assert_eq!(parse_git_source_rev(&src_branch), Some(sha.to_string()));
+
+    // Tag with SHA
+    let src_tag = format_git_source(url, None, Some("v0.2.0"), None, Some(sha));
+    assert_eq!(
+        src_tag,
+        "git:https://github.com/alya-lang/rand?tag=v0.2.0#aa1446c94360e0059c0024f3600e553b5df19332"
+    );
+    assert_eq!(parse_git_source_rev(&src_tag), Some(sha.to_string()));
+
+    // Rev directly
+    let src_rev = format_git_source(url, None, None, Some(sha), Some(sha));
+    assert_eq!(
+        src_rev,
+        "git:https://github.com/alya-lang/rand#aa1446c94360e0059c0024f3600e553b5df19332"
+    );
+    assert_eq!(parse_git_source_rev(&src_rev), Some(sha.to_string()));
+
+    // Fallbacks without SHA
+    let src_branch_nosha = format_git_source(url, Some("main"), None, None, None);
+    assert_eq!(
+        src_branch_nosha,
+        "git:https://github.com/alya-lang/rand#main"
+    );
+    assert_eq!(parse_git_source_rev(&src_branch_nosha), None);
+
+    // Non-git source
+    assert_eq!(
+        parse_git_source_rev("registry+https://github.com/alya-lang/http.git#v0.1.0"),
+        None
+    );
+}
+
+#[test]
 fn test_lockfile_dependencies_variations() {
     let lock_toml = r#"version = 1
 

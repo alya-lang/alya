@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use super::cache::{get_global_cache_dir, run_cache, run_clean};
 use super::discovery::{find_manifest_dir, find_package_entry};
 use super::hash::{compute_cache_key, compute_package_checksum};
-use super::lock::{parse_lockfile, serialize_lockfile};
+use super::lock::{format_git_source, parse_git_source_rev, parse_lockfile, serialize_lockfile};
 use super::manifest::{check_compiler_compatibility, parse_manifest, serialize_manifest};
 use super::resolver::{
     compare_semver, copy_dir_all, fetch_git_or_archive_dependency, find_latest_semver_tag,
@@ -275,6 +275,19 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
     check_compiler_compatibility(&manifest)?;
 
     let packages_dir = manifest_dir.join(".alya").join("packages");
+    let lock_path = if manifest_dir.join("alya.lock").exists() {
+        manifest_dir.join("alya.lock")
+    } else {
+        manifest_dir.join("Alya.lock")
+    };
+    let existing_lock = if lock_path.exists() {
+        fs::read_to_string(&lock_path)
+            .ok()
+            .and_then(|c| parse_lockfile(&c).ok())
+    } else {
+        None
+    };
+
     let mut locked_packages = Vec::new();
     let mut visited: HashSet<String> = HashSet::new();
     let mut to_process: VecDeque<(String, DependencySource, PathBuf)> = VecDeque::new();
@@ -335,19 +348,30 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
                     .map_err(|e| format!("Failed to create .alya/packages directory: {}", e))?;
                 let target_dir = packages_dir.join(&name);
 
+                let locked_rev = existing_lock
+                    .as_ref()
+                    .and_then(|l| l.packages.iter().find(|p| p.name == name))
+                    .and_then(|p| parse_git_source_rev(&p.source));
+                let effective_rev = rev.clone().or(locked_rev);
+
                 let tag_or_branch = tag
                     .as_deref()
                     .or(branch.as_deref())
-                    .or(rev.as_deref())
+                    .or(effective_rev.as_deref())
                     .unwrap_or("head");
-                let source = format!("git:{}#{}", url, tag_or_branch);
 
                 if let Some(global_cache_dir) = get_global_cache_dir() {
                     let cache_key = compute_cache_key(&name, tag_or_branch, &url);
                     let cached_pkg_dir = global_cache_dir.join(&cache_key);
 
-                    let cache_hit =
-                        cached_pkg_dir.exists() && cached_pkg_dir.join("alya.toml").exists();
+                    let cache_hit = cached_pkg_dir.exists()
+                        && cached_pkg_dir.join("alya.toml").exists()
+                        && (effective_rev.is_none()
+                            || fs::read_to_string(cached_pkg_dir.join(".alya-rev"))
+                                .ok()
+                                .map(|s| s.trim().to_string())
+                                == effective_rev);
+
                     if cache_hit {
                         println!(
                             "  Using cached package '{}' ({}) from global cache",
@@ -369,10 +393,21 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
                             &url,
                             tag.as_deref(),
                             branch.as_deref(),
-                            rev.as_deref(),
+                            effective_rev.as_deref(),
                             &cached_pkg_dir,
                         )?;
-                        let _ = fs::write(cached_pkg_dir.join(".alya-source"), &source);
+                        let commit_sha = fs::read_to_string(cached_pkg_dir.join(".alya-rev"))
+                            .ok()
+                            .map(|s| s.trim().to_string())
+                            .or_else(|| effective_rev.clone());
+                        let locked_source = format_git_source(
+                            &url,
+                            branch.as_deref(),
+                            tag.as_deref(),
+                            rev.as_deref(),
+                            commit_sha.as_deref(),
+                        );
+                        let _ = fs::write(cached_pkg_dir.join(".alya-source"), &locked_source);
 
                         if target_dir.exists() {
                             let _ = fs::remove_dir_all(&target_dir);
@@ -385,7 +420,7 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
                         &url,
                         tag.as_deref(),
                         branch.as_deref(),
-                        rev.as_deref(),
+                        effective_rev.as_deref(),
                         &target_dir,
                     )?;
                 } else {
@@ -406,9 +441,52 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
                     .replace('\\', "/");
                 let checksum = compute_package_checksum(&target_dir)?;
 
+                let commit_sha = fs::read_to_string(target_dir.join(".alya-rev"))
+                    .ok()
+                    .or_else(|| {
+                        get_global_cache_dir().and_then(|c| {
+                            fs::read_to_string(
+                                c.join(compute_cache_key(&name, tag_or_branch, &url))
+                                    .join(".alya-rev"),
+                            )
+                            .ok()
+                        })
+                    })
+                    .map(|s| s.trim().to_string())
+                    .or_else(|| effective_rev.clone());
+
+                if let Some(ref sha) = commit_sha {
+                    if !target_dir.join(".alya-rev").exists() {
+                        let _ = fs::write(target_dir.join(".alya-rev"), sha);
+                    }
+                }
+
+                let source = format_git_source(
+                    &url,
+                    branch.as_deref(),
+                    tag.as_deref(),
+                    rev.as_deref(),
+                    commit_sha.as_deref(),
+                );
+
+                let actual_version =
+                    if let Ok(content) = fs::read_to_string(target_dir.join("alya.toml")) {
+                        if let Ok(pkg_m) = parse_manifest(&content) {
+                            if !pkg_m.package.version.is_empty() {
+                                pkg_m.package.version
+                            } else {
+                                tag_or_branch.to_string()
+                            }
+                        } else {
+                            tag_or_branch.to_string()
+                        }
+                    } else {
+                        tag_or_branch.to_string()
+                    };
+
                 locked_packages.push(LockedPackage {
                     name: name.clone(),
-                    version: tag_or_branch.to_string(),
+                    version: actual_version,
                     source,
                     entry: rel_entry,
                     checksum,
@@ -826,6 +904,19 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
 
     println!("Checking dependencies for updates in alya.toml...\n");
 
+    let lock_path = if manifest_dir.join("alya.lock").exists() {
+        manifest_dir.join("alya.lock")
+    } else {
+        manifest_dir.join("Alya.lock")
+    };
+    let mut lock = if lock_path.exists() {
+        fs::read_to_string(&lock_path)
+            .ok()
+            .and_then(|c| parse_lockfile(&c).ok())
+    } else {
+        None
+    };
+
     let mut rows: Vec<UpdateRow> = Vec::new();
     let mut upgradable_count = 0usize;
 
@@ -930,27 +1021,70 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
                     }
                 } else if let Some(b) = branch {
                     let remote_head = query_remote_branch_head(url, b);
-                    let short_sha = remote_head.as_deref().map(|s| &s[..7.min(s.len())]);
-                    let latest_disp = if let Some(sha) = short_sha {
+                    let short_remote_sha = remote_head.as_deref().map(|s| &s[..7.min(s.len())]);
+                    let latest_disp = if let Some(sha) = short_remote_sha {
                         format!("{} ({})", b, sha)
                     } else {
                         b.clone()
                     };
-                    upgradable_count += 1;
+
+                    let local_pkg = manifest_dir.join(".alya").join("packages").join(name);
                     let cache_key = compute_cache_key(name, b, url);
-                    rows.push(UpdateRow {
-                        name: name.clone(),
-                        current: format!("branch '{}'", b),
-                        latest: latest_disp,
-                        status: if upgrade {
-                            "Branch refreshed to latest commit".to_string()
-                        } else {
-                            "Branch tracked (will fetch latest commit)".to_string()
-                        },
-                        can_upgrade: true,
-                        new_source: None,
-                        clear_cache_key: Some(cache_key),
-                    });
+                    let cached_dir = get_global_cache_dir().map(|c| c.join(&cache_key));
+
+                    let locked_rev = lock
+                        .as_ref()
+                        .and_then(|l| l.packages.iter().find(|p| &p.name == name))
+                        .and_then(|p| parse_git_source_rev(&p.source));
+
+                    let local_rev = fs::read_to_string(local_pkg.join(".alya-rev"))
+                        .ok()
+                        .or_else(|| {
+                            cached_dir
+                                .as_ref()
+                                .and_then(|c| fs::read_to_string(c.join(".alya-rev")).ok())
+                        })
+                        .map(|s| s.trim().to_string())
+                        .or(locked_rev);
+
+                    let short_local_sha = local_rev.as_deref().map(|s| &s[..7.min(s.len())]);
+                    let current_disp = if let Some(sha) = short_local_sha {
+                        format!("{} ({})", b, sha)
+                    } else {
+                        format!("branch '{}'", b)
+                    };
+
+                    let is_already_at_head = match (&local_rev, &remote_head) {
+                        (Some(l), Some(r)) => l == r,
+                        _ => false,
+                    };
+
+                    if is_already_at_head {
+                        rows.push(UpdateRow {
+                            name: name.clone(),
+                            current: current_disp,
+                            latest: latest_disp,
+                            status: "Up to date".to_string(),
+                            can_upgrade: false,
+                            new_source: None,
+                            clear_cache_key: None,
+                        });
+                    } else {
+                        upgradable_count += 1;
+                        rows.push(UpdateRow {
+                            name: name.clone(),
+                            current: current_disp,
+                            latest: latest_disp,
+                            status: if upgrade {
+                                "Branch refreshed to latest commit".to_string()
+                            } else {
+                                "New commit available on branch".to_string()
+                            },
+                            can_upgrade: true,
+                            new_source: None,
+                            clear_cache_key: Some(cache_key),
+                        });
+                    }
                 } else if let Some(r) = rev {
                     let short_rev = &r[..7.min(r.len())];
                     rows.push(UpdateRow {
@@ -1018,6 +1152,11 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
         return Ok(());
     }
 
+    if upgradable_count == 0 {
+        println!("\nAll dependencies are already up to date!");
+        return Ok(());
+    }
+
     let mut toml_changed = false;
     for r in &rows {
         if let Some(ref new_src) = r.new_source {
@@ -1036,6 +1175,10 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
             let local_pkg = manifest_dir.join(".alya").join("packages").join(&r.name);
             if local_pkg.exists() {
                 let _ = fs::remove_dir_all(&local_pkg);
+            }
+            if let Some(ref mut l) = lock {
+                l.packages.retain(|p| p.name != r.name);
+                let _ = fs::write(&lock_path, serialize_lockfile(l));
             }
         }
     }

@@ -16,6 +16,20 @@ pub fn emit_string_equality_call(
     }
 }
 
+pub fn emit_in_call(
+    out: &mut String,
+    arch: Architecture,
+    op: BinaryOp,
+    stack_offset: i32,
+    os: OperatingSystem,
+) {
+    match arch {
+        Architecture::X86 => x86::emit_in_call(out, op),
+        Architecture::X64 => x64::emit_in_call(out, op, stack_offset, os),
+        Architecture::ARM64 => arm64::emit_in_call(out, op),
+    }
+}
+
 pub fn emit_try_begin(
     out: &mut String,
     arch: Architecture,
@@ -217,24 +231,28 @@ pub fn emit_print_struct(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn emit_for_each_load_element(
     out: &mut String,
     arch: Architecture,
     arr_offset: i32,
     idx_offset: i32,
     var_offset: i32,
+    val_offset: Option<i32>,
     end_label: &str,
+    map_label: &str,
+    done_label: &str,
 ) {
     match arch {
-        Architecture::X86 => {
-            x86::emit_for_each_load_element(out, arr_offset, idx_offset, var_offset, end_label)
-        }
-        Architecture::X64 => {
-            x64::emit_for_each_load_element(out, arr_offset, idx_offset, var_offset, end_label)
-        }
-        Architecture::ARM64 => {
-            arm64::emit_for_each_load_element(out, arr_offset, idx_offset, var_offset, end_label)
-        }
+        Architecture::X86 => x86::emit_for_each_load_element(
+            out, arr_offset, idx_offset, var_offset, val_offset, end_label, map_label, done_label,
+        ),
+        Architecture::X64 => x64::emit_for_each_load_element(
+            out, arr_offset, idx_offset, var_offset, val_offset, end_label, map_label, done_label,
+        ),
+        Architecture::ARM64 => arm64::emit_for_each_load_element(
+            out, arr_offset, idx_offset, var_offset, val_offset, end_label, map_label, done_label,
+        ),
     }
 }
 

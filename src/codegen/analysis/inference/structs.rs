@@ -18,8 +18,25 @@ impl StructInference {
         let mut inf = StructInference::default();
         let mut struct_names = HashSet::new();
         for s in &program.statements {
-            if let Stmt::StructDef { name, .. } = s {
+            if let Stmt::StructDef {
+                name,
+                fields,
+                field_types,
+                ..
+            } = s.inner_stmt()
+            {
                 struct_names.insert(name.clone());
+                for (f, ft) in fields.iter().zip(field_types.iter()) {
+                    if let Some(t) = ft {
+                        inf.field_types.insert((name.clone(), f.clone()), t.clone());
+                        let bare = name.rsplit("::").next().unwrap_or(name);
+                        let bare = bare.rsplit("__").next().unwrap_or(bare);
+                        if bare != name {
+                            inf.field_types
+                                .insert((bare.to_string(), f.clone()), t.clone());
+                        }
+                    }
+                }
             }
         }
 
@@ -137,7 +154,32 @@ impl StructInference {
                         }
                     }
                 }
-                Stmt::Let { name, value } | Stmt::Assign { name, value } => {
+                Stmt::Let {
+                    name,
+                    type_ann,
+                    value,
+                } => {
+                    self.scan_expr(value, current_fn, struct_names);
+                    let st = type_ann
+                        .as_ref()
+                        .filter(|t| struct_names.contains(*t))
+                        .cloned()
+                        .or_else(|| self.expr_struct_type(value, current_fn, struct_names));
+                    if let Some(st) = st {
+                        if let Some(fn_name) = current_fn {
+                            self.var_types
+                                .insert(format!("{}::{}", fn_name, name), st.clone());
+                            let bare = fn_name.rsplit("::").next().unwrap_or(fn_name);
+                            let bare = bare.rsplit("__").next().unwrap_or(bare);
+                            if bare != fn_name {
+                                self.var_types.insert(format!("{}::{}", bare, name), st);
+                            }
+                        } else {
+                            self.var_types.insert(name.clone(), st);
+                        }
+                    }
+                }
+                Stmt::Assign { name, value } => {
                     self.scan_expr(value, current_fn, struct_names);
                     if let Some(st) = self.expr_struct_type(value, current_fn, struct_names) {
                         if let Some(fn_name) = current_fn {
@@ -155,21 +197,24 @@ impl StructInference {
                 }
                 Stmt::ForEach {
                     var,
+                    value_var,
                     iterable,
                     body,
                 } => {
                     self.scan_expr(iterable, current_fn, struct_names);
+                    let target_var = value_var.as_ref().unwrap_or(var);
                     if let Some(st) = self.expr_struct_type(iterable, current_fn, struct_names) {
                         if let Some(fn_name) = current_fn {
                             self.var_types
-                                .insert(format!("{}::{}", fn_name, var), st.clone());
+                                .insert(format!("{}::{}", fn_name, target_var), st.clone());
                             let bare = fn_name.rsplit("::").next().unwrap_or(fn_name);
                             let bare = bare.rsplit("__").next().unwrap_or(bare);
                             if bare != fn_name {
-                                self.var_types.insert(format!("{}::{}", bare, var), st);
+                                self.var_types
+                                    .insert(format!("{}::{}", bare, target_var), st);
                             }
                         } else {
-                            self.var_types.insert(var.clone(), st);
+                            self.var_types.insert(target_var.clone(), st);
                         }
                     }
                     self.scan_stmts(body, current_fn, struct_names);
@@ -226,6 +271,9 @@ impl StructInference {
                     self.scan_expr(array, current_fn, struct_names);
                     self.scan_expr(index, current_fn, struct_names);
                     self.scan_expr(value, current_fn, struct_names);
+                }
+                Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                    self.scan_stmts(std::slice::from_ref(inner), current_fn, struct_names);
                 }
                 _ => {}
             }
@@ -338,7 +386,7 @@ pub fn infer_expr_struct_type(expr: &Expr, program: &Program) -> Option<String> 
     let inf = StructInference::analyze(program);
     let mut struct_names = HashSet::new();
     for s in &program.statements {
-        if let Stmt::StructDef { name, .. } = s {
+        if let Stmt::StructDef { name, .. } = s.inner_stmt() {
             struct_names.insert(name.clone());
         }
     }

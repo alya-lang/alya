@@ -1,51 +1,51 @@
 # Alya Standard Library - Filesystem Module
 # Provides high-level file and directory I/O operations.
 
-function fs_exists(path)
+pub function fs_exists(path)
     return file_exists(path)
 end
 
-function fs_read(path)
+pub function fs_read(path)
     return read_file(path)
 end
 
-function fs_write(path, content)
+pub function fs_write(path, content)
     return write_file(path, content)
 end
 
-function fs_append(path, content)
+pub function fs_append(path, content)
     return append_file(path, content)
 end
 
-function fs_remove(path)
+pub function fs_remove(path)
     return remove_file(path)
 end
 
-function fs_size(path)
+pub function fs_size(path)
     return file_size(path)
 end
 
-function fs_mkdir(path)
+pub function fs_mkdir(path)
     return make_dir(path)
 end
 
-function fs_rmdir(path)
+pub function fs_rmdir(path)
     return rmdir(path)
 end
 
-function fs_is_dir(path)
+pub function fs_is_dir(path)
     return is_dir(path)
 end
 
-function fs_list_dir(path)
+pub function fs_list_dir(path)
     return list_dir(path)
 end
 
-function fs_read_dir(path)
+pub function fs_read_dir(path)
     return list_dir(path)
 end
 
-function copy_file(src, dst)
+pub function copy_file(src, dst)
     if file_exists(src) == 0
         return 0
     end
@@ -53,14 +53,14 @@ function copy_file(src, dst)
     return write_file(dst, content)
 end
 
-function move_file(src, dst)
+pub function move_file(src, dst)
     if copy_file(src, dst)
         return remove_file(src)
     end
     return 0
 end
 
-function ensure_dir(path)
+pub function ensure_dir(path)
     if len(path) == 0 or is_dir(path) == 1
         return 1
     end
@@ -71,7 +71,7 @@ function ensure_dir(path)
     return make_dir(path)
 end
 
-function list_dir_recursive(path)
+pub function list_dir_recursive(path)
     let res = []
     let entries = list_dir(path)
     let i = 0
@@ -92,11 +92,11 @@ function list_dir_recursive(path)
     return res
 end
 
-function fs_list_dir_recursive(path)
+pub function fs_list_dir_recursive(path)
     return list_dir_recursive(path)
 end
 
-function copy_dir_recursive(src, dst)
+pub function copy_dir_recursive(src, dst)
     if is_dir(src) == 0
         return 0
     end
@@ -117,7 +117,7 @@ function copy_dir_recursive(src, dst)
     return 1
 end
 
-function remove_dir_recursive(path)
+pub function remove_dir_recursive(path)
     if is_dir(path) == 0
         return 0
     end
@@ -137,7 +137,7 @@ function remove_dir_recursive(path)
 end
 
 # Line-by-line file I/O
-function read_lines(path)
+pub function read_lines(path)
     let res = []
     if file_exists(path) == 0
         return res
@@ -173,7 +173,7 @@ function read_lines(path)
     return res
 end
 
-function write_lines(path, lines)
+pub function write_lines(path, lines)
     let content = ""
     let count = len(lines)
     let i = 0
@@ -184,11 +184,11 @@ function write_lines(path, lines)
     return write_file(path, content)
 end
 
-function append_line(path, line)
+pub function append_line(path, line)
     return append_file(path, line + "\n")
 end
 
-function append_lines(path, lines)
+pub function append_lines(path, lines)
     let content = ""
     let count = len(lines)
     let i = 0
@@ -200,37 +200,37 @@ function append_lines(path, lines)
 end
 
 # File helpers
-function touch(path)
+pub function touch(path)
     if file_exists(path)
         return 1
     end
     return write_file(path, "")
 end
 
-function clear_file(path)
+pub function clear_file(path)
     return write_file(path, "")
 end
 
-function is_empty_file(path)
+pub function is_empty_file(path)
     if file_exists(path) == 0
         return 0
     end
     return file_size(path) == 0
 end
 
-function read_file_or(path, default_val)
+pub function read_file_or(path, default_val)
     if file_exists(path) == 0
         return default_val
     end
     return read_file(path)
 end
 
-function file_lines_count(path)
+pub function file_lines_count(path)
     let lines = read_lines(path)
     return len(lines)
 end
 
-function file_basename(path)
+pub function file_basename(path)
     let slen = len(path)
     if slen == 0
         return ""
@@ -246,7 +246,7 @@ function file_basename(path)
     return path
 end
 
-function file_extension(path)
+pub function file_extension(path)
     let base = file_basename(path)
     let blen = len(base)
     let i = blen - 1
@@ -262,7 +262,7 @@ function file_extension(path)
     return ""
 end
 
-function file_parent(path)
+pub function file_parent(path)
     let slen = len(path)
     if slen == 0
         return "."
@@ -277,6 +277,9 @@ function file_parent(path)
         if ch == "/" or ch == "\\"
             if i == 0
                 return "/"
+            end
+            if i == 2 and char_at(path, 1) == ":"
+                return substring(path, 0, 3)
             end
             return substring(path, 0, i)
         end

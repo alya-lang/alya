@@ -42,6 +42,23 @@ pub enum Expr {
         value: Box<Expr>,
         default: Box<Expr>,
     },
+    OptionalFieldAccess {
+        object: Box<Expr>,
+        field: String,
+    },
+    OptionalIndex {
+        array: Box<Expr>,
+        index: Box<Expr>,
+    },
+    OptionalCall {
+        callee: String,
+        args: Vec<Expr>,
+    },
+    TypeCheck {
+        expr: Box<Expr>,
+        target: String,
+        negated: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +81,8 @@ pub enum BinaryOp {
     BitXor,
     Shl,
     Shr,
+    In,
+    NotIn,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
