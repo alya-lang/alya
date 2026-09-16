@@ -1,7 +1,8 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
-    escape_string, is_array_expr, is_float_expr, is_map_expr, is_null_expr, is_string_expr,
+    escape_string, is_array_expr, is_float_expr, is_map_expr, is_null_expr, is_number_expr,
+    is_string_expr,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -1576,7 +1577,8 @@ impl CodeGen {
                 let is_def_non = is_string_expr(expr, &self.ctx.variables)
                     || is_map_expr(expr, &self.ctx.variables)
                     || is_float_expr(expr, &self.ctx.variables)
-                    || is_null_expr(expr, &self.ctx.variables);
+                    || is_null_expr(expr, &self.ctx.variables)
+                    || is_number_expr(expr, &self.ctx.variables);
                 if is_arr {
                     arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
                 } else if is_def_non {
@@ -1590,7 +1592,8 @@ impl CodeGen {
                 let is_def_non = is_string_expr(expr, &self.ctx.variables)
                     || is_array_expr(expr, &self.ctx.variables)
                     || is_float_expr(expr, &self.ctx.variables)
-                    || is_null_expr(expr, &self.ctx.variables);
+                    || is_null_expr(expr, &self.ctx.variables)
+                    || is_number_expr(expr, &self.ctx.variables);
                 if is_map {
                     arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
                 } else if is_def_non {
@@ -1617,12 +1620,13 @@ impl CodeGen {
                 arch::emit_load_num(&mut self.output, self.arch, result);
             }
             "int" | "integer" | "number" => {
+                let is_num = is_number_expr(expr, &self.ctx.variables);
                 let is_non = is_string_expr(expr, &self.ctx.variables)
                     || is_float_expr(expr, &self.ctx.variables)
                     || is_array_expr(expr, &self.ctx.variables)
                     || is_map_expr(expr, &self.ctx.variables)
                     || is_null_expr(expr, &self.ctx.variables);
-                let result = if !is_non {
+                let result = if is_num || !is_non {
                     if negated {
                         0
                     } else {
@@ -1671,7 +1675,21 @@ impl CodeGen {
                 if struct_matches {
                     arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
                 } else if self.ctx.structs.contains_key(target) {
-                    self.emit_runtime_tag_check(expr, 0x5A110003, negated);
+                    let is_def_non = is_string_expr(expr, &self.ctx.variables)
+                        || is_array_expr(expr, &self.ctx.variables)
+                        || is_map_expr(expr, &self.ctx.variables)
+                        || is_float_expr(expr, &self.ctx.variables)
+                        || is_null_expr(expr, &self.ctx.variables)
+                        || is_number_expr(expr, &self.ctx.variables);
+                    if is_def_non {
+                        arch::emit_load_num(
+                            &mut self.output,
+                            self.arch,
+                            if negated { 1 } else { 0 },
+                        );
+                    } else {
+                        self.emit_runtime_tag_check(expr, 0x5A110003, negated);
+                    }
                 } else {
                     arch::emit_load_num(&mut self.output, self.arch, if negated { 1 } else { 0 });
                 }
@@ -1687,6 +1705,8 @@ impl CodeGen {
             Architecture::X64 => {
                 self.output.push_str("    test %rax, %rax\n");
                 self.output.push_str(&format!("    jz {}\n", false_label));
+                self.output.push_str("    test $7, %rax\n");
+                self.output.push_str(&format!("    jnz {}\n", false_label));
                 self.output.push_str("    cmp $65536, %rax\n");
                 self.output.push_str(&format!("    jb {}\n", false_label));
                 self.output.push_str("    movq -16(%rax), %rdx\n");
@@ -1708,6 +1728,8 @@ impl CodeGen {
             Architecture::X86 => {
                 self.output.push_str("    test %eax, %eax\n");
                 self.output.push_str(&format!("    jz {}\n", false_label));
+                self.output.push_str("    test $3, %eax\n");
+                self.output.push_str(&format!("    jnz {}\n", false_label));
                 self.output.push_str("    cmp $65536, %eax\n");
                 self.output.push_str(&format!("    jb {}\n", false_label));
                 self.output.push_str("    movl -8(%eax), %edx\n");
@@ -1729,13 +1751,20 @@ impl CodeGen {
             Architecture::ARM64 => {
                 self.output.push_str("    cbz x0, ");
                 self.output.push_str(&format!("{}\n", false_label));
+                self.output.push_str("    tst x0, #7\n");
+                self.output.push_str(&format!("    b.ne {}\n", false_label));
+                self.output.push_str("    cmp x0, #65536\n");
+                self.output.push_str(&format!("    b.lo {}\n", false_label));
+                self.output.push_str("    lsr x1, x0, #47\n");
+                self.output
+                    .push_str(&format!("    cbnz x1, {}\n", false_label));
                 self.output.push_str("    ldur x1, [x0, #-16]\n");
                 let tag_lo = tag as u32;
                 self.output
-                    .push_str(&format!("    mov w2, #{}\n", tag_lo & 0xFFFF));
+                    .push_str(&format!("    movz x2, #{}\n", tag_lo & 0xFFFF));
                 self.output
-                    .push_str(&format!("    movk w2, #{}, lsl #16\n", tag_lo >> 16));
-                self.output.push_str("    cmp w1, w2\n");
+                    .push_str(&format!("    movk x2, #{}, lsl #16\n", tag_lo >> 16));
+                self.output.push_str("    cmp x1, x2\n");
                 self.output.push_str(&format!("    b.ne {}\n", false_label));
                 self.output
                     .push_str(&format!("    mov x0, #{}\n", if negated { 0 } else { 1 }));

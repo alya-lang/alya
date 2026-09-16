@@ -677,3 +677,50 @@ pub fn is_null_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         _ => false,
     }
 }
+
+pub fn is_number_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    match expr {
+        Expr::Number(_) => true,
+        Expr::Identifier(name) => matches!(vars.get(name), Some(VarType::Number(_))),
+        Expr::Binary { left, op, right } => match op {
+            BinaryOp::Add
+            | BinaryOp::Subtract
+            | BinaryOp::Multiply
+            | BinaryOp::Divide
+            | BinaryOp::Modulo
+            | BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
+            | BinaryOp::Shl
+            | BinaryOp::Shr => {
+                !is_string_expr(left, vars)
+                    && !is_string_expr(right, vars)
+                    && !is_float_expr(left, vars)
+                    && !is_float_expr(right, vars)
+            }
+            BinaryOp::Equal
+            | BinaryOp::NotEqual
+            | BinaryOp::Less
+            | BinaryOp::LessEqual
+            | BinaryOp::Greater
+            | BinaryOp::GreaterEqual
+            | BinaryOp::And
+            | BinaryOp::Or
+            | BinaryOp::In
+            | BinaryOp::NotIn => true,
+        },
+        Expr::Unary { op, expr } => match op {
+            UnaryOp::Negate | UnaryOp::BitNot => !is_float_expr(expr, vars),
+            UnaryOp::Not => true,
+        },
+        Expr::Call { name, .. } => {
+            let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            matches!(
+                bare,
+                "len" | "arr_len" | "ord" | "time" | "clock_ms" | "rand" | "rand_int" | "int"
+            )
+        }
+        _ => false,
+    }
+}

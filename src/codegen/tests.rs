@@ -381,3 +381,27 @@ say clock_ms()
     assert!(asm_arm64_macos.contains("bl _clock_gettime"));
     assert!(asm_arm64_macos.contains("mov x0, #6"));
 }
+
+#[test]
+fn test_codegen_arm64_runtime_type_check_pointer_guard() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = r#"
+function check(x)
+    return x is array
+end
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::MacOS);
+    assert!(asm_arm64.contains("cbz x0"));
+    assert!(asm_arm64.contains("tst x0, #7"));
+    assert!(asm_arm64.contains("cmp x0, #65536"));
+    assert!(asm_arm64.contains("b.lo"));
+    assert!(asm_arm64.contains("lsr x1, x0, #47"));
+    assert!(asm_arm64.contains("ldur x1, [x0, #-16]"));
+}
