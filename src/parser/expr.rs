@@ -501,31 +501,119 @@ impl Parser {
         Ok(expr)
     }
 
-    fn is_lambda_ahead(&self) -> bool {
-        let mut depth = 0;
-        let mut i = self.position;
-        while i < self.tokens.len() {
-            match self.tokens[i].token_type {
-                TokenType::LeftParen => depth += 1,
-                TokenType::RightParen => {
-                    depth -= 1;
-                    if depth == 0 {
-                        let mut j = i + 1;
-                        while j < self.tokens.len()
-                            && matches!(self.tokens[j].token_type, TokenType::Newline)
-                        {
-                            j += 1;
+    fn parse_anonymous_function(&mut self) -> Result<Expr, String> {
+        self.expect(TokenType::LeftParen)?;
+
+        let mut params = Vec::new();
+        let mut param_types = Vec::new();
+        let mut defaults = Vec::new();
+
+        while !matches!(self.current_token().token_type, TokenType::RightParen) {
+            if let TokenType::Identifier(p) = &self.current_token().token_type {
+                let param_name = p.clone();
+                self.advance();
+
+                let param_type = if matches!(self.current_token().token_type, TokenType::Colon) {
+                    self.advance();
+                    let mut t_str = match &self.current_token().token_type {
+                        TokenType::Identifier(t) => t.clone(),
+                        _ => {
+                            return Err(format!(
+                                "Expected parameter type after ':' at line {}, column {}",
+                                self.current_token().line,
+                                self.current_token().column
+                            ));
                         }
-                        return j < self.tokens.len()
-                            && matches!(self.tokens[j].token_type, TokenType::FatArrow);
+                    };
+                    self.advance();
+                    if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+                        self.advance();
+                        self.expect(TokenType::RightBracket)?;
+                        t_str.push_str("[]");
                     }
+                    Some(t_str)
+                } else {
+                    None
+                };
+
+                let default_val = if matches!(self.current_token().token_type, TokenType::Assign) {
+                    self.advance();
+                    Some(self.parse_expression()?)
+                } else {
+                    None
+                };
+
+                params.push(param_name);
+                param_types.push(param_type);
+                defaults.push(default_val);
+
+                if matches!(self.current_token().token_type, TokenType::Comma) {
+                    self.advance();
                 }
-                TokenType::Eof => return false,
-                _ => {}
+            } else {
+                return Err(format!(
+                    "Expected parameter name in anonymous function at line {}, column {}",
+                    self.current_token().line,
+                    self.current_token().column
+                ));
             }
-            i += 1;
         }
-        false
+
+        self.expect(TokenType::RightParen)?;
+
+        let return_type = if matches!(self.current_token().token_type, TokenType::Arrow) {
+            self.advance();
+            let mut t_str = match &self.current_token().token_type {
+                TokenType::Identifier(t) => t.clone(),
+                _ => {
+                    return Err(format!(
+                        "Expected return type after '->' at line {}, column {}",
+                        self.current_token().line,
+                        self.current_token().column
+                    ));
+                }
+            };
+            self.advance();
+            if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+                self.advance();
+                self.expect(TokenType::RightBracket)?;
+                t_str.push_str("[]");
+            }
+            Some(t_str)
+        } else {
+            None
+        };
+
+        let body = if matches!(self.current_token().token_type, TokenType::FatArrow) {
+            self.advance();
+            let expr = self.parse_expression()?;
+            vec![Stmt::Return(Some(expr))]
+        } else {
+            self.skip_newlines();
+            let mut stmts = Vec::new();
+            while !matches!(
+                self.current_token().token_type,
+                TokenType::End | TokenType::Eof
+            ) {
+                stmts.extend(self.parse_statement()?);
+                self.skip_newlines();
+            }
+            self.expect(TokenType::End)?;
+            stmts
+        };
+
+        let lambda_name = format!("__alya_lambda_{}", self.lambda_counter);
+        self.lambda_counter += 1;
+        self.lambda_functions.push(Stmt::Function {
+            name: lambda_name.clone(),
+            params,
+            param_types,
+            return_type,
+            defaults,
+            body,
+        });
+
+        Ok(Expr::Identifier(lambda_name))
     }
 
     fn parse_primary(&mut self) -> Result<Expr, String> {
@@ -561,6 +649,10 @@ impl Parser {
             TokenType::Null => {
                 self.advance();
                 Ok(Expr::Null)
+            }
+            TokenType::Function => {
+                self.advance();
+                self.parse_anonymous_function()
             }
             TokenType::Ask => {
                 self.advance();
@@ -608,43 +700,10 @@ impl Parser {
                     }
                 }
 
-                // Check for lambda: fn(...) => expr
-                if ident == "fn"
-                    && matches!(self.current_token().token_type, TokenType::LeftParen)
-                    && self.is_lambda_ahead()
+                // Check for lambda / anonymous function: fn(...) => expr or fn(...) ... end
+                if ident == "fn" && matches!(self.current_token().token_type, TokenType::LeftParen)
                 {
-                    self.advance();
-                    let mut params = Vec::new();
-                    while !matches!(self.current_token().token_type, TokenType::RightParen) {
-                        if let TokenType::Identifier(p) = &self.current_token().token_type {
-                            params.push(p.clone());
-                            self.advance();
-                        } else {
-                            return Err(format!(
-                                "Expected parameter name in lambda at line {}, column {}",
-                                self.current_token().line,
-                                self.current_token().column
-                            ));
-                        }
-                        if matches!(self.current_token().token_type, TokenType::Comma) {
-                            self.advance();
-                        }
-                    }
-                    self.expect(TokenType::RightParen)?;
-                    self.expect(TokenType::FatArrow)?;
-                    let body = self.parse_expression()?;
-                    let lambda_name = format!("__alya_lambda_{}", self.lambda_counter);
-                    self.lambda_counter += 1;
-                    let num_params = params.len();
-                    self.lambda_functions.push(Stmt::Function {
-                        name: lambda_name.clone(),
-                        params,
-                        param_types: vec![None; num_params],
-                        return_type: None,
-                        defaults: vec![None; num_params],
-                        body: vec![Stmt::Return(Some(body))],
-                    });
-                    return Ok(Expr::Identifier(lambda_name));
+                    return self.parse_anonymous_function();
                 }
 
                 // Check for function call

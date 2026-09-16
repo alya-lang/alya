@@ -288,13 +288,23 @@ fn get_block_starter(code: &str, in_extern: bool) -> Option<BlockKind> {
     if first_word == "extern" {
         return Some(BlockKind::Extern);
     }
-    if !in_extern
-        && (first_word == "function"
+    if !in_extern {
+        if first_word == "function"
             || first_word == "fn"
             || code.starts_with("function(")
-            || code.starts_with("fn("))
-    {
-        return Some(BlockKind::Function);
+            || code.starts_with("fn(")
+        {
+            return Some(BlockKind::Function);
+        }
+        if (has_word_outside_quotes(code, "fn") || has_word_outside_quotes(code, "function"))
+            && !code.contains("=>")
+            && (code.contains("fn(")
+                || code.contains("fn (")
+                || code.contains("function(")
+                || code.contains("function ("))
+        {
+            return Some(BlockKind::Function);
+        }
     }
     if first_word == "if" || code.starts_with("if(") {
         if has_inline_if(code) {

@@ -389,3 +389,45 @@ say (fn(x) => x + 100)(50)
         assert_eq!(output, "150\n");
     }
 }
+
+#[test]
+fn test_e2e_block_lambda_multiline() {
+    let code = r#"
+# 1. Assigned multi-line block lambda
+let compute = fn(a, b)
+    let temp = a * 2
+    let res = temp + b
+    return res
+end
+say compute(10, 5)
+
+# 2. Passed as argument to higher-order function
+function exec_fn(f, arg)
+    return f(arg)
+end
+
+let out = exec_fn(fn(x)
+    let y = x * 3
+    return y + 10
+end, 100)
+say out
+
+# 3. Anonymous function with function(...) keyword
+let adder = function(x, y)
+    let sum = x + y
+    return sum
+end
+say adder(20, 30)
+
+# 4. Multi-line lambda with string return
+let greet = fn(name)
+    let msg = "Hello " + name + "!"
+    return msg
+end
+say greet("World")
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, concat!("25\n", "310\n", "50\n", "Hello World!\n",));
+    }
+}
