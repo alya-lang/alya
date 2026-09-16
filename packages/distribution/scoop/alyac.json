@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/alya-lang/alya/releases/download/v0.0.17/alyac-v0.0.17-x86_64-windows.zip",
-      "hash": "auto",
+      "hash": "9ba17700f40b4db8f28ce3f0c00f18cc3000d99700fa2ab94a273a3ab83754a2",
       "extract_dir": "alyac-v0.0.17-x86_64-windows"
     }
   },
