@@ -10,7 +10,7 @@ use crate::codegen::target::Architecture;
 impl CodeGen {
     pub(crate) fn generate_statement(&mut self, stmt: &Stmt) {
         match stmt {
-            Stmt::Import { .. } | Stmt::ExternBlock { .. } => {}
+            Stmt::Import { .. } | Stmt::ExternBlock { .. } | Stmt::Const { .. } => {}
             Stmt::Say(expr) => self.generate_say(expr),
             Stmt::Expr(expr) => {
                 self.generate_expression(expr);
@@ -125,12 +125,17 @@ impl CodeGen {
                 finally_block.as_deref(),
             ),
             Stmt::Function { .. } => {}
-            Stmt::StructDef { name, fields } => {
+            Stmt::StructDef {
+                name,
+                fields,
+                defaults,
+            } => {
                 self.ctx.structs.insert(
                     name.clone(),
                     crate::codegen::context::StructDefInfo {
                         name: name.clone(),
                         fields: fields.clone(),
+                        defaults: defaults.clone(),
                     },
                 );
                 let bare = name.rsplit("::").next().unwrap_or(name);
@@ -141,10 +146,12 @@ impl CodeGen {
                         crate::codegen::context::StructDefInfo {
                             name: bare.to_string(),
                             fields: fields.clone(),
+                            defaults: defaults.clone(),
                         },
                     );
                 }
             }
+            Stmt::EnumDef { .. } => {}
         }
     }
 }

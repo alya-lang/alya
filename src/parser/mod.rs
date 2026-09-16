@@ -1,3 +1,5 @@
+pub mod constants;
+pub mod enums;
 pub mod expr;
 pub mod stmt;
 #[cfg(test)]
@@ -30,6 +32,8 @@ impl Parser {
 
         let mut program = Program { statements };
         expand_default_args(&mut program);
+        enums::resolve_enums(&mut program);
+        constants::resolve_and_validate_constants(&mut program)?;
         Ok(program)
     }
 
@@ -81,6 +85,8 @@ pub fn resolve_imports_with_sources(
 
     program.statements = resolved_stmts;
     expand_default_args(program);
+    enums::resolve_enums(program);
+    constants::resolve_and_validate_constants(program)?;
 
     let imported_files = visited.into_iter().map(|(path, _)| path).collect();
     Ok(imported_files)
@@ -217,6 +223,13 @@ fn prefix_stmt(stmt: &mut Stmt, alias: &str, local_fns: &std::collections::HashS
         }
         Stmt::Throw(Some(e)) => {
             prefix_expr(e, alias, local_fns);
+        }
+        Stmt::Const { name, value } => {
+            prefix_expr(value, alias, local_fns);
+            *name = format!("{}::{}", alias, name);
+        }
+        Stmt::EnumDef { name, .. } => {
+            *name = format!("{}::{}", alias, name);
         }
         _ => {}
     }
@@ -482,6 +495,7 @@ fn collect_fn_defaults(
                 params,
                 defaults,
                 body,
+                ..
             } => {
                 fn_defs.insert(name.clone(), (params.len(), defaults.clone()));
                 let bare = name.rsplit("::").next().unwrap_or(name.as_str());

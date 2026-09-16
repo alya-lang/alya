@@ -29,6 +29,10 @@ pub enum Stmt {
         name: String,
         value: Expr,
     },
+    Const {
+        name: String,
+        value: Expr,
+    },
     Assign {
         name: String,
         value: Expr,
@@ -46,6 +50,11 @@ pub enum Stmt {
     StructDef {
         name: String,
         fields: Vec<String>,
+        defaults: Vec<Option<Expr>>,
+    },
+    EnumDef {
+        name: String,
+        variants: Vec<(String, Option<Expr>)>,
     },
     If {
         condition: Expr,
@@ -73,6 +82,8 @@ pub enum Stmt {
     Function {
         name: String,
         params: Vec<String>,
+        param_types: Vec<Option<String>>,
+        return_type: Option<String>,
         defaults: Vec<Option<Expr>>,
         body: Vec<Stmt>,
     },

@@ -393,48 +393,51 @@ impl CodeGen {
                     };
                     self.ctx.stack_offset += temp_offset;
 
-                    for (i, arg) in args.iter().enumerate() {
+                    for (i, fname) in sdef.fields.iter().enumerate() {
+                        let arg = if i < args.len() {
+                            &args[i]
+                        } else if let Some(Some(def_val)) = sdef.defaults.get(i) {
+                            def_val
+                        } else {
+                            &Expr::Number(0.0)
+                        };
                         let is_flt = is_float_expr(arg, &self.ctx.variables);
                         let is_str = is_string_expr(arg, &self.ctx.variables);
                         let is_arr = is_array_expr(arg, &self.ctx.variables);
                         let is_map = is_map_expr(arg, &self.ctx.variables);
-                        if let Some(fname) = sdef.fields.get(i) {
-                            if is_str {
-                                self.ctx.variables.insert(
-                                    format!("struct_field_str:{}.{}", name, fname),
-                                    VarType::StringOffset(0),
-                                );
-                                self.ctx.variables.insert(
-                                    format!("struct_field_str:{}", fname),
-                                    VarType::StringOffset(0),
-                                );
-                            } else if is_flt {
-                                self.ctx.variables.insert(
-                                    format!("struct_field_flt:{}.{}", name, fname),
-                                    VarType::Float(0),
-                                );
-                                self.ctx.variables.insert(
-                                    format!("struct_field_flt:{}", fname),
-                                    VarType::Float(0),
-                                );
-                            } else if is_arr {
-                                self.ctx.variables.insert(
-                                    format!("struct_field_arr:{}.{}", name, fname),
-                                    VarType::Array(0),
-                                );
-                                self.ctx.variables.insert(
-                                    format!("struct_field_arr:{}", fname),
-                                    VarType::Array(0),
-                                );
-                            } else if is_map {
-                                self.ctx.variables.insert(
-                                    format!("struct_field_map:{}.{}", name, fname),
-                                    VarType::Map(0),
-                                );
-                                self.ctx
-                                    .variables
-                                    .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
-                            }
+                        if is_str {
+                            self.ctx.variables.insert(
+                                format!("struct_field_str:{}.{}", name, fname),
+                                VarType::StringOffset(0),
+                            );
+                            self.ctx.variables.insert(
+                                format!("struct_field_str:{}", fname),
+                                VarType::StringOffset(0),
+                            );
+                        } else if is_flt {
+                            self.ctx.variables.insert(
+                                format!("struct_field_flt:{}.{}", name, fname),
+                                VarType::Float(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_flt:{}", fname), VarType::Float(0));
+                        } else if is_arr {
+                            self.ctx.variables.insert(
+                                format!("struct_field_arr:{}.{}", name, fname),
+                                VarType::Array(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_arr:{}", fname), VarType::Array(0));
+                        } else if is_map {
+                            self.ctx.variables.insert(
+                                format!("struct_field_map:{}.{}", name, fname),
+                                VarType::Map(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
                         }
                         self.generate_expression(arg);
                         if self.is_heap_expression(arg) {
@@ -850,44 +853,102 @@ impl CodeGen {
                     self.ctx.stack_offset,
                     self.os,
                 );
-                for (fname, fval) in fields {
-                    let is_str = is_string_expr(fval, &self.ctx.variables);
-                    let is_flt = is_float_expr(fval, &self.ctx.variables);
-                    let is_arr = is_array_expr(fval, &self.ctx.variables);
-                    let is_map = is_map_expr(fval, &self.ctx.variables);
-                    if is_str {
-                        self.ctx.variables.insert(
-                            format!("struct_field_str:{}.{}", name, fname),
-                            VarType::StringOffset(0),
-                        );
-                        self.ctx.variables.insert(
-                            format!("struct_field_str:{}", fname),
-                            VarType::StringOffset(0),
-                        );
-                    } else if is_flt {
-                        self.ctx.variables.insert(
-                            format!("struct_field_flt:{}.{}", name, fname),
-                            VarType::Float(0),
-                        );
-                        self.ctx
-                            .variables
-                            .insert(format!("struct_field_flt:{}", fname), VarType::Float(0));
-                    } else if is_arr {
-                        self.ctx.variables.insert(
-                            format!("struct_field_arr:{}.{}", name, fname),
-                            VarType::Array(0),
-                        );
-                        self.ctx
-                            .variables
-                            .insert(format!("struct_field_arr:{}", fname), VarType::Array(0));
-                    } else if is_map {
-                        self.ctx.variables.insert(
-                            format!("struct_field_map:{}.{}", name, fname),
-                            VarType::Map(0),
-                        );
-                        self.ctx
-                            .variables
-                            .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if let Some(sdef) = self
+                    .ctx
+                    .structs
+                    .get(name)
+                    .or_else(|| self.ctx.structs.get(bare))
+                    .cloned()
+                {
+                    for (i, fname) in sdef.fields.iter().enumerate() {
+                        let fval = if let Some((_, val)) = fields.iter().find(|(k, _)| k == fname) {
+                            val
+                        } else if let Some(Some(def_val)) = sdef.defaults.get(i) {
+                            def_val
+                        } else {
+                            continue;
+                        };
+                        let is_str = is_string_expr(fval, &self.ctx.variables);
+                        let is_flt = is_float_expr(fval, &self.ctx.variables);
+                        let is_arr = is_array_expr(fval, &self.ctx.variables);
+                        let is_map = is_map_expr(fval, &self.ctx.variables);
+                        if is_str {
+                            self.ctx.variables.insert(
+                                format!("struct_field_str:{}.{}", name, fname),
+                                VarType::StringOffset(0),
+                            );
+                            self.ctx.variables.insert(
+                                format!("struct_field_str:{}", fname),
+                                VarType::StringOffset(0),
+                            );
+                        } else if is_flt {
+                            self.ctx.variables.insert(
+                                format!("struct_field_flt:{}.{}", name, fname),
+                                VarType::Float(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_flt:{}", fname), VarType::Float(0));
+                        } else if is_arr {
+                            self.ctx.variables.insert(
+                                format!("struct_field_arr:{}.{}", name, fname),
+                                VarType::Array(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_arr:{}", fname), VarType::Array(0));
+                        } else if is_map {
+                            self.ctx.variables.insert(
+                                format!("struct_field_map:{}.{}", name, fname),
+                                VarType::Map(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
+                        }
+                    }
+                } else {
+                    for (fname, fval) in fields {
+                        let is_str = is_string_expr(fval, &self.ctx.variables);
+                        let is_flt = is_float_expr(fval, &self.ctx.variables);
+                        let is_arr = is_array_expr(fval, &self.ctx.variables);
+                        let is_map = is_map_expr(fval, &self.ctx.variables);
+                        if is_str {
+                            self.ctx.variables.insert(
+                                format!("struct_field_str:{}.{}", name, fname),
+                                VarType::StringOffset(0),
+                            );
+                            self.ctx.variables.insert(
+                                format!("struct_field_str:{}", fname),
+                                VarType::StringOffset(0),
+                            );
+                        } else if is_flt {
+                            self.ctx.variables.insert(
+                                format!("struct_field_flt:{}.{}", name, fname),
+                                VarType::Float(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_flt:{}", fname), VarType::Float(0));
+                        } else if is_arr {
+                            self.ctx.variables.insert(
+                                format!("struct_field_arr:{}.{}", name, fname),
+                                VarType::Array(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_arr:{}", fname), VarType::Array(0));
+                        } else if is_map {
+                            self.ctx.variables.insert(
+                                format!("struct_field_map:{}.{}", name, fname),
+                                VarType::Map(0),
+                            );
+                            self.ctx
+                                .variables
+                                .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
+                        }
                     }
                 }
                 arch::emit_push_temp(&mut self.output, self.arch);
@@ -898,8 +959,6 @@ impl CodeGen {
                 };
                 self.ctx.stack_offset += temp_offset;
 
-                let bare = name.rsplit("::").next().unwrap_or(name);
-                let bare = bare.rsplit("__").next().unwrap_or(bare);
                 if let Some(sdef) = self
                     .ctx
                     .structs
@@ -911,6 +970,8 @@ impl CodeGen {
                         let arg_expr =
                             if let Some((_, fval)) = fields.iter().find(|(k, _)| k == fname) {
                                 fval
+                            } else if let Some(Some(def_val)) = sdef.defaults.get(i) {
+                                def_val
                             } else {
                                 &Expr::Number(0.0)
                             };

@@ -3,7 +3,7 @@ use crate::ast::*;
 pub fn find_call_arg<'a>(stmt: &'a Stmt, func_name: &str, param_idx: usize) -> Option<&'a Expr> {
     match stmt {
         Stmt::Expr(expr) | Stmt::Say(expr) => find_call_arg_in_expr(expr, func_name, param_idx),
-        Stmt::Let { value, .. } | Stmt::Assign { value, .. } => {
+        Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Const { value, .. } => {
             find_call_arg_in_expr(value, func_name, param_idx)
         }
         Stmt::If {
@@ -201,7 +201,7 @@ pub fn collect_call_args_in_stmt<'a>(
         Stmt::Expr(expr) | Stmt::Say(expr) => {
             collect_call_args_in_expr(expr, func_name, bare_name, param_idx, args);
         }
-        Stmt::Let { value, .. } | Stmt::Assign { value, .. } => {
+        Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Const { value, .. } => {
             collect_call_args_in_expr(value, func_name, bare_name, param_idx, args);
         }
         Stmt::If {
@@ -381,7 +381,7 @@ pub fn collect_call_args_in_stmt_scoped<'a>(
                 args,
             );
         }
-        Stmt::Let { value, .. } | Stmt::Assign { value, .. } => {
+        Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Const { value, .. } => {
             collect_call_args_in_expr_scoped(
                 value,
                 func_name,

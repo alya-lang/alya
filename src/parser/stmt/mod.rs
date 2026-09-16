@@ -17,6 +17,8 @@ impl Parser {
             TokenType::Import => self.parse_import().map(|s| vec![s]),
             TokenType::Extern => self.parse_extern().map(|s| vec![s]),
             TokenType::Struct => self.parse_struct().map(|s| vec![s]),
+            TokenType::Enum => self.parse_enum().map(|s| vec![s]),
+            TokenType::Const => self.parse_const(),
             TokenType::Say => self.parse_say().map(|s| vec![s]),
             TokenType::Let => self.parse_let(),
             TokenType::If => self.parse_if().map(|s| vec![s]),

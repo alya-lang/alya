@@ -238,6 +238,8 @@ let result = multiply(6, 7)
         Stmt::Function {
             name: "multiply".into(),
             params: vec!["a".into(), "b".into()],
+            param_types: vec![None, None],
+            return_type: None,
             defaults: vec![None, None],
             body: vec![Stmt::Return(Some(Expr::Binary {
                 left: Box::new(Expr::Identifier("a".into())),
@@ -276,6 +278,8 @@ greet("Alya")
         Stmt::Function {
             name: "greet".into(),
             params: vec!["name".into(), "greeting".into(), "punctuation".into()],
+            param_types: vec![None, None, None],
+            return_type: None,
             defaults: vec![
                 None,
                 Some(Expr::String("Hello".into())),

@@ -268,6 +268,43 @@ fn collect_float_vars_from_stmts(
 
 pub fn collect_known_float_vars(program: &Program) -> HashSet<String> {
     let mut known_floats = HashSet::new();
+    for stmt in &program.statements {
+        if let Stmt::ExternBlock { functions, .. } = stmt {
+            for f in functions {
+                if let Some(ret) = &f.return_type {
+                    if ret == "float" || ret == "f64" || ret == "f32" {
+                        known_floats.insert(format!("fn_ret_flt:{}", f.name));
+                    }
+                }
+            }
+        } else if let Stmt::Function {
+            name,
+            param_types,
+            return_type,
+            ..
+        } = stmt
+        {
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            if let Some(ret) = return_type {
+                if ret == "float" || ret == "f64" || ret == "f32" {
+                    known_floats.insert(format!("fn_ret_flt:{}", name));
+                    known_floats.insert(format!("fn_ret_flt:{}", bare));
+                }
+            }
+            for (idx, p_type) in param_types.iter().enumerate() {
+                if let Some(pt) = p_type {
+                    if pt == "float" || pt == "f64" || pt == "f32" {
+                        known_floats.insert(format!("fn_param_flt:{}:{}", name, idx));
+                        known_floats.insert(format!("fn_param_flt:{}:{}", bare, idx));
+                    } else if pt == "float[]" || pt == "f64[]" || pt == "f32[]" {
+                        known_floats.insert(format!("fn_param_flt_arr:{}:{}", name, idx));
+                        known_floats.insert(format!("fn_param_flt_arr:{}:{}", bare, idx));
+                    }
+                }
+            }
+        }
+    }
     let mut funcs = Vec::new();
     collect_function_defs(&program.statements, &mut funcs);
     for _ in 0..5 {

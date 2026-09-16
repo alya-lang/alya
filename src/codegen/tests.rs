@@ -98,6 +98,8 @@ fn test_codegen_function_definition() {
         statements: vec![Stmt::Function {
             name: "my_func".into(),
             params: vec!["a".into()],
+            param_types: vec![None],
+            return_type: None,
             defaults: vec![None],
             body: vec![Stmt::Return(Some(Expr::Identifier("a".into())))],
         }],

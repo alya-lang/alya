@@ -1,9 +1,11 @@
+use crate::ast::Expr;
 use std::collections::{HashMap, HashSet};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StructDefInfo {
     pub name: String,
     pub fields: Vec<String>,
+    pub defaults: Vec<Option<Expr>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

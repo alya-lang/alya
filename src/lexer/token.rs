@@ -26,6 +26,8 @@ pub enum TokenType {
     Import,   // import
     As,       // as
     Struct,   // struct
+    Enum,     // enum
+    Const,    // const
     Extern,   // extern
     From,     // from
 
@@ -119,6 +121,8 @@ impl TokenType {
             "import" => TokenType::Import,
             "as" => TokenType::As,
             "struct" => TokenType::Struct,
+            "enum" => TokenType::Enum,
+            "const" => TokenType::Const,
             "extern" => TokenType::Extern,
             "from" => TokenType::From,
             "true" => TokenType::True,
@@ -168,6 +172,8 @@ impl std::fmt::Display for TokenType {
             TokenType::Import => write!(f, "'import'"),
             TokenType::As => write!(f, "'as'"),
             TokenType::Struct => write!(f, "'struct'"),
+            TokenType::Enum => write!(f, "'enum'"),
+            TokenType::Const => write!(f, "'const'"),
             TokenType::Extern => write!(f, "'extern'"),
             TokenType::From => write!(f, "'from'"),
             TokenType::Number(n) => write!(f, "number '{}'", n),

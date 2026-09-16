@@ -486,3 +486,245 @@ say flag_or_false
         );
     }
 }
+
+#[test]
+fn test_e2e_enums() {
+    let code = r#"
+enum Status
+    Pending
+    Active
+    Completed
+    Failed
+end
+
+enum HttpStatus
+    Ok = 200
+    Created = 201
+    NotFound = 404
+end
+
+enum LogLevel
+    Debug = "DEBUG"
+    Info = "INFO"
+    Warn = "WARN"
+end
+
+# 1. Dot syntax & ColonColon syntax access
+let s1 = Status.Pending
+let s2 = Status.Active
+let s3 = Status::Completed
+say s1
+say s2
+say s3
+
+# 2. Custom values
+say HttpStatus.Ok
+say HttpStatus::NotFound
+say LogLevel.Info
+say LogLevel::Warn
+
+# 3. Pattern matching with when
+let state = Status.Active
+when state
+    is Status.Pending then say "is_pending"
+    is Status.Active then say "is_active"
+    is Status.Completed then say "is_completed"
+    else say "unknown"
+end
+
+# 4. Comparison
+if HttpStatus.Created == 201
+    say "created_ok"
+end
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "0\n1\n2\n200\n404\nINFO\nWARN\nis_active\ncreated_ok\n"
+        );
+    }
+}
+
+#[test]
+fn test_e2e_constants() {
+    let code = r#"
+const PI = 3.14159
+const MAX_BUFFER = 1024
+const APP_TITLE = "Alya App"
+const A = 10, B = 20
+const DERIVED = A * 5 + B
+
+# 1. Top-level usage
+say MAX_BUFFER
+say APP_TITLE
+say DERIVED
+
+# 2. Inside functions (compile-time constant inlining)
+function get_buffer_limit(factor)
+    const LOCAL_PADDING = 16
+    return MAX_BUFFER * factor + LOCAL_PADDING
+end
+
+say get_buffer_limit(2)
+
+# 3. In conditionals and expressions
+if MAX_BUFFER > 500
+    say "buffer is large"
+end
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "1024\nAlya App\n70\n2064\nbuffer is large\n");
+    }
+}
+
+#[test]
+fn test_const_validation_errors() {
+    // 1. Reassigning constant should fail
+    let bad_assign = "const X = 10\nX = 20";
+    let mut lexer = alya::lexer::Lexer::new(bad_assign);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = alya::parser::Parser::new(tokens);
+    let res = parser.parse();
+    assert!(res.is_err());
+    assert!(res.unwrap_err().contains("Cannot assign to constant 'X'"));
+
+    // 2. Redeclaring constant should fail
+    let bad_redecl = "const Y = 10\nconst Y = 20";
+    let mut lexer = alya::lexer::Lexer::new(bad_redecl);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = alya::parser::Parser::new(tokens);
+    let res = parser.parse();
+    assert!(res.is_err());
+    assert!(res.unwrap_err().contains("Cannot redeclare constant 'Y'"));
+}
+
+#[test]
+fn test_e2e_struct_defaults() {
+    let code = r#"
+struct Config
+    port = 8080
+    host = "localhost"
+end
+
+# 1. Default initialization
+let c1 = Config {}
+say c1.port
+say c1.host
+
+# 2. Partial initialization (override port)
+let c2 = Config { port: 3000 }
+say c2.port
+say c2.host
+
+# 3. Partial initialization (override host)
+let c3 = Config { host: "127.0.0.1" }
+say c3.port
+say c3.host
+
+# 4. Positional constructor with default arguments
+let c4 = Config()
+say c4.port
+say c4.host
+
+let c5 = Config(9090)
+say c5.port
+say c5.host
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "8080\nlocalhost\n3000\nlocalhost\n8080\n127.0.0.1\n8080\nlocalhost\n9090\nlocalhost\n"
+        );
+    }
+}
+
+#[test]
+fn test_e2e_multi_assign_swap() {
+    let code = r#"
+# 1. Simple swap
+let a = 10
+let b = 20
+a, b = b, a
+say a
+say b
+
+# 2. Multi-assignment of distinct values
+let x = 0
+let y = 0
+x, y = 100, 200
+say x
+say y
+
+# 3. 3-way rotation swap
+let u = "first"
+let v = "second"
+let w = "third"
+u, v, w = w, u, v
+say u
+say v
+say w
+
+# 4. Expressions with multi-assignment
+x, y = x + 5, y * 2
+say x
+say y
+
+# 5. Let swap
+let p = 1, q = 2
+let p, q = q, p
+say p
+say q
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "20\n10\n100\n200\nthird\nfirst\nsecond\n105\n400\n2\n1\n"
+        );
+    }
+}
+
+#[test]
+fn test_e2e_gradual_typing() {
+    let code = r#"
+# 1. Full type annotations
+function add(a: int, b: int) -> int
+    return a + b
+end
+
+# 2. String annotations
+function greet(name: str) -> str
+    return "Hello, " + name
+end
+
+# 3. Float annotations
+function half(x: float) -> float
+    return x / 2.0
+end
+
+# 4. Gradual / Partial annotations (mixed typed & untyped)
+function format_pair(prefix: str, value)
+    return prefix + ": " + str(value)
+end
+
+# 5. Type annotations with default values
+function multiply(x: int, factor: int = 10) -> int
+    return x * factor
+end
+
+# 6. Array type annotation
+function count_items(items: int[]) -> int
+    return len(items)
+end
+
+say add(40, 2)
+say greet("Alya")
+say half(15.0)
+say format_pair("Result", 99)
+say multiply(5)
+say multiply(5, 3)
+say count_items([1, 2, 3, 4])
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "42\nHello, Alya\n7.5\nResult: 99\n50\n15\n4\n");
+    }
+}

@@ -274,7 +274,7 @@ fn test_parse_struct_and_field_access() {
 
     // 1. StructDef
     match &program.statements[0] {
-        Stmt::StructDef { name, fields } => {
+        Stmt::StructDef { name, fields, .. } => {
             assert_eq!(name, "Point");
             assert_eq!(fields, &["x", "y"]);
         }

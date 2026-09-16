@@ -45,6 +45,34 @@ impl Parser {
         Ok(Stmt::Say(expr))
     }
 
+    pub(super) fn parse_const(&mut self) -> Result<Vec<Stmt>, String> {
+        self.advance(); // skip 'const'
+        let mut stmts = Vec::new();
+        loop {
+            let name = match &self.current_token().token_type {
+                TokenType::Identifier(s) => s.clone(),
+                _ => {
+                    return Err(format!(
+                        "Expected identifier after 'const' at line {}, column {}",
+                        self.current_token().line,
+                        self.current_token().column
+                    ))
+                }
+            };
+            self.advance();
+            self.expect(TokenType::Assign)?;
+            let value = self.parse_expression()?;
+            stmts.push(Stmt::Const { name, value });
+
+            if matches!(self.current_token().token_type, TokenType::Comma) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        Ok(stmts)
+    }
+
     pub(super) fn parse_let(&mut self) -> Result<Vec<Stmt>, String> {
         self.advance(); // skip 'let'
 
@@ -86,15 +114,49 @@ impl Parser {
 
         self.expect(TokenType::Assign)?;
 
-        let mut values = Vec::new();
-        loop {
-            let value = self.parse_expression()?;
-            values.push(value);
-
-            if matches!(self.current_token().token_type, TokenType::Comma) {
+        let first_val = self.parse_expression()?;
+        if names.len() == 1
+            && matches!(self.current_token().token_type, TokenType::Comma)
+            && self.position + 2 < self.tokens.len()
+            && matches!(
+                self.tokens[self.position + 1].token_type,
+                TokenType::Identifier(_)
+            )
+            && matches!(self.tokens[self.position + 2].token_type, TokenType::Assign)
+        {
+            let mut stmts = vec![Stmt::Let {
+                name: names.remove(0),
+                value: first_val,
+            }];
+            while matches!(self.current_token().token_type, TokenType::Comma) {
                 self.advance();
-            } else {
-                break;
+                let next_name = match &self.current_token().token_type {
+                    TokenType::Identifier(s) => s.clone(),
+                    _ => break,
+                };
+                self.advance();
+                self.expect(TokenType::Assign)?;
+                let next_val = self.parse_expression()?;
+                stmts.push(Stmt::Let {
+                    name: next_name,
+                    value: next_val,
+                });
+            }
+            return Ok(stmts);
+        }
+
+        let mut values = vec![first_val];
+        if matches!(self.current_token().token_type, TokenType::Comma) {
+            self.advance();
+            loop {
+                let value = self.parse_expression()?;
+                values.push(value);
+
+                if matches!(self.current_token().token_type, TokenType::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
             }
         }
 
@@ -137,12 +199,35 @@ impl Parser {
                 }
             }
         } else if values.len() == names.len() {
-            let stmts = names
-                .into_iter()
-                .zip(values)
-                .map(|(name, value)| Stmt::Let { name, value })
-                .collect();
-            Ok(stmts)
+            let has_swap_dependency = names
+                .iter()
+                .any(|n| values.iter().any(|v| expr_references_name(v, n)));
+            if !has_swap_dependency {
+                let stmts = names
+                    .into_iter()
+                    .zip(values)
+                    .map(|(name, value)| Stmt::Let { name, value })
+                    .collect();
+                Ok(stmts)
+            } else {
+                let mut stmts = Vec::new();
+                let mut tmp_names = Vec::new();
+                for (i, val) in values.into_iter().enumerate() {
+                    let tmp_name = format!("__let_tmp_{}_{}_{}", first_line, first_col, i);
+                    stmts.push(Stmt::Let {
+                        name: tmp_name.clone(),
+                        value: val,
+                    });
+                    tmp_names.push(tmp_name);
+                }
+                for (name, tmp_name) in names.into_iter().zip(tmp_names) {
+                    stmts.push(Stmt::Let {
+                        name,
+                        value: Expr::Identifier(tmp_name),
+                    });
+                }
+                Ok(stmts)
+            }
         } else {
             Err(format!(
                 "Mismatch in 'let' statement: {} variables defined but {} values provided at line {}, column {}",
@@ -189,11 +274,35 @@ impl Parser {
         self.expect(TokenType::LeftParen)?;
 
         let mut params = Vec::new();
+        let mut param_types = Vec::new();
         let mut defaults = Vec::new();
         while !matches!(self.current_token().token_type, TokenType::RightParen) {
             if let TokenType::Identifier(s) = &self.current_token().token_type {
                 let param_name = s.clone();
                 self.advance();
+
+                let param_type = if matches!(self.current_token().token_type, TokenType::Colon) {
+                    self.advance();
+                    let mut t_str = match &self.current_token().token_type {
+                        TokenType::Identifier(t) => t.clone(),
+                        _ => {
+                            return Err(format!(
+                                "Expected parameter type after ':' at line {}, column {}",
+                                self.current_token().line,
+                                self.current_token().column
+                            ));
+                        }
+                    };
+                    self.advance();
+                    if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+                        self.advance();
+                        self.expect(TokenType::RightBracket)?;
+                        t_str.push_str("[]");
+                    }
+                    Some(t_str)
+                } else {
+                    None
+                };
 
                 let default_val = if matches!(self.current_token().token_type, TokenType::Assign) {
                     self.advance();
@@ -203,6 +312,7 @@ impl Parser {
                 };
 
                 params.push(param_name);
+                param_types.push(param_type);
                 defaults.push(default_val);
 
                 if matches!(self.current_token().token_type, TokenType::Comma) {
@@ -218,6 +328,30 @@ impl Parser {
         }
 
         self.expect(TokenType::RightParen)?;
+
+        let return_type = if matches!(self.current_token().token_type, TokenType::Arrow) {
+            self.advance();
+            let mut t_str = match &self.current_token().token_type {
+                TokenType::Identifier(t) => t.clone(),
+                _ => {
+                    return Err(format!(
+                        "Expected return type after '->' at line {}, column {}",
+                        self.current_token().line,
+                        self.current_token().column
+                    ));
+                }
+            };
+            self.advance();
+            if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+                self.advance();
+                self.expect(TokenType::RightBracket)?;
+                t_str.push_str("[]");
+            }
+            Some(t_str)
+        } else {
+            None
+        };
+
         self.skip_newlines();
 
         let mut body = Vec::new();
@@ -234,6 +368,8 @@ impl Parser {
         Ok(Stmt::Function {
             name,
             params,
+            param_types,
+            return_type,
             defaults,
             body,
         })
@@ -280,6 +416,7 @@ impl Parser {
         self.skip_newlines();
 
         let mut fields = Vec::new();
+        let mut defaults = Vec::new();
         while !matches!(
             self.current_token().token_type,
             TokenType::End | TokenType::Eof
@@ -295,6 +432,14 @@ impl Parser {
                 TokenType::Identifier(field) => {
                     fields.push(field.clone());
                     self.advance();
+                    let default_val =
+                        if matches!(self.current_token().token_type, TokenType::Assign) {
+                            self.advance();
+                            Some(self.parse_expression()?)
+                        } else {
+                            None
+                        };
+                    defaults.push(default_val);
                     if matches!(self.current_token().token_type, TokenType::Comma) {
                         self.advance();
                     }
@@ -312,7 +457,71 @@ impl Parser {
 
         self.expect(TokenType::End)?;
 
-        Ok(Stmt::StructDef { name, fields })
+        Ok(Stmt::StructDef {
+            name,
+            fields,
+            defaults,
+        })
+    }
+
+    pub(super) fn parse_enum(&mut self) -> Result<Stmt, String> {
+        self.advance(); // skip 'enum'
+        self.skip_newlines();
+
+        let name = match &self.current_token().token_type {
+            TokenType::Identifier(s) => s.clone(),
+            _ => {
+                return Err(format!(
+                    "Expected enum name at line {}, column {}",
+                    self.current_token().line,
+                    self.current_token().column
+                ))
+            }
+        };
+        self.advance();
+        self.skip_newlines();
+
+        let mut variants = Vec::new();
+        while !matches!(
+            self.current_token().token_type,
+            TokenType::End | TokenType::Eof
+        ) {
+            self.skip_newlines();
+            if matches!(
+                self.current_token().token_type,
+                TokenType::End | TokenType::Eof
+            ) {
+                break;
+            }
+            match &self.current_token().token_type {
+                TokenType::Identifier(vname) => {
+                    let vname = vname.clone();
+                    self.advance();
+                    let value = if matches!(self.current_token().token_type, TokenType::Assign) {
+                        self.advance();
+                        Some(self.parse_expression()?)
+                    } else {
+                        None
+                    };
+                    variants.push((vname, value));
+                    if matches!(self.current_token().token_type, TokenType::Comma) {
+                        self.advance();
+                    }
+                }
+                _ => {
+                    return Err(format!(
+                        "Expected enum variant or 'end' at line {}, column {}",
+                        self.current_token().line,
+                        self.current_token().column
+                    ))
+                }
+            }
+            self.skip_newlines();
+        }
+
+        self.expect(TokenType::End)?;
+
+        Ok(Stmt::EnumDef { name, variants })
     }
 
     pub(super) fn parse_extern(&mut self) -> Result<Stmt, String> {
@@ -466,5 +675,34 @@ impl Parser {
             lib,
             functions,
         })
+    }
+}
+
+fn expr_references_name(expr: &Expr, name: &str) -> bool {
+    match expr {
+        Expr::Identifier(s) => s == name,
+        Expr::Binary { left, right, .. } => {
+            expr_references_name(left, name) || expr_references_name(right, name)
+        }
+        Expr::Unary { expr, .. } => expr_references_name(expr, name),
+        Expr::Call { args, .. } => args.iter().any(|a| expr_references_name(a, name)),
+        Expr::Array(items) => items.iter().any(|item| expr_references_name(item, name)),
+        Expr::Index { array, index } => {
+            expr_references_name(array, name) || expr_references_name(index, name)
+        }
+        Expr::FieldAccess { object, .. } => expr_references_name(object, name),
+        Expr::StructInit { fields, .. } => {
+            fields.iter().any(|(_, v)| expr_references_name(v, name))
+        }
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            expr_references_name(condition, name)
+                || expr_references_name(then_branch, name)
+                || expr_references_name(else_branch, name)
+        }
+        _ => false,
     }
 }

@@ -366,7 +366,7 @@ fn collect_function_returns_string_array(
 fn collect_struct_defs(stmts: &[Stmt], map: &mut HashMap<String, Vec<String>>) {
     for s in stmts {
         match s {
-            Stmt::StructDef { name, fields } => {
+            Stmt::StructDef { name, fields, .. } => {
                 map.insert(name.clone(), fields.clone());
             }
             Stmt::If {
@@ -751,6 +751,35 @@ pub fn collect_known_string_vars(program: &Program) -> HashSet<String> {
                 if let Some(ret) = &f.return_type {
                     if ret == "str" || ret == "string" {
                         known_strings.insert(format!("fn_ret_str:{}", f.name));
+                    }
+                }
+            }
+        } else if let Stmt::Function {
+            name,
+            param_types,
+            return_type,
+            ..
+        } = stmt
+        {
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            if let Some(ret) = return_type {
+                if ret == "str" || ret == "string" {
+                    known_strings.insert(format!("fn_ret_str:{}", name));
+                    known_strings.insert(format!("fn_ret_str:{}", bare));
+                } else if ret == "str[]" || ret == "string[]" {
+                    known_strings.insert(format!("fn_ret_str_arr:{}", name));
+                    known_strings.insert(format!("fn_ret_str_arr:{}", bare));
+                }
+            }
+            for (idx, p_type) in param_types.iter().enumerate() {
+                if let Some(pt) = p_type {
+                    if pt == "str" || pt == "string" {
+                        known_strings.insert(format!("fn_param_str:{}:{}", name, idx));
+                        known_strings.insert(format!("fn_param_str:{}:{}", bare, idx));
+                    } else if pt == "str[]" || pt == "string[]" {
+                        known_strings.insert(format!("fn_param_str_arr:{}:{}", name, idx));
+                        known_strings.insert(format!("fn_param_str_arr:{}:{}", bare, idx));
                     }
                 }
             }

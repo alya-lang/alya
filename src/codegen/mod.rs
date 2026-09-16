@@ -33,14 +33,34 @@ impl CodeGen {
     }
 
     pub fn generate_program(&mut self, program: &Program) {
+        let mut resolved_prog;
+        let program = if program
+            .statements
+            .iter()
+            .any(|s| matches!(s, Stmt::EnumDef { .. } | Stmt::Const { .. }))
+        {
+            resolved_prog = program.clone();
+            crate::parser::enums::resolve_enums(&mut resolved_prog);
+            let _ = crate::parser::constants::resolve_and_validate_constants(&mut resolved_prog);
+            &resolved_prog
+        } else {
+            program
+        };
+
         // Collect all struct definitions first
         for stmt in &program.statements {
-            if let Stmt::StructDef { name, fields } = stmt {
+            if let Stmt::StructDef {
+                name,
+                fields,
+                defaults,
+            } = stmt
+            {
                 self.ctx.structs.insert(
                     name.clone(),
                     context::StructDefInfo {
                         name: name.clone(),
                         fields: fields.clone(),
+                        defaults: defaults.clone(),
                     },
                 );
                 let bare = name.rsplit("::").next().unwrap_or(name);
@@ -51,6 +71,7 @@ impl CodeGen {
                         context::StructDefInfo {
                             name: bare.to_string(),
                             fields: fields.clone(),
+                            defaults: defaults.clone(),
                         },
                     );
                 }
