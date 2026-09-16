@@ -9,6 +9,7 @@
 #   - Modern Terminal UI styled with 'term' ecosystem package
 #   - Persistent score tracking across multiple rounds
 #   - Robust input validation with error handling
+#   - Modern enums, struct methods, and pattern matching
 #   - Non-hanging automated smoke test mode (--test)
 #
 # Controls:
@@ -28,6 +29,12 @@ import "std/console"
 import "std/mem"
 import "std/os"
 
+enum Mark
+    Empty = 0,
+    X = 1,
+    O = 2
+end
+
 # ─── Score Tracking Struct ───────────────────────────────────
 
 struct Scores
@@ -35,6 +42,22 @@ struct Scores
     p2
     draws
     rounds
+end
+
+function Scores.add_win_p1(self)
+    self.p1 += 1
+end
+
+function Scores.add_win_p2(self)
+    self.p2 += 1
+end
+
+function Scores.add_draw(self)
+    self.draws += 1
+end
+
+function Scores.next_round(self)
+    self.rounds += 1
 end
 
 # ─── String Persistence ─────────────────────────────────────
@@ -62,12 +85,11 @@ function show_banner()
 end
 
 function cell_display(val, pos)
-    if val == 1
-        return ui::style_bold(ui::color_bright_red(" X "))
-    elif val == 2
-        return ui::style_bold(ui::color_bright_blue(" O "))
+    when val
+        is Mark.X then return ui::style_bold(ui::color_bright_red(" X "))
+        is Mark.O then return ui::style_bold(ui::color_bright_blue(" O "))
+        else return ui::color_gray(" " + str(pos) + " ")
     end
-    return ui::color_gray(" " + str(pos) + " ")
 end
 
 function draw_board(board)
@@ -93,41 +115,41 @@ end
 
 function check_winner(board)
     # Rows
-    if board[0] != 0 and board[0] == board[1] and board[1] == board[2]
+    if board[0] != Mark.Empty and board[0] == board[1] and board[1] == board[2]
         return board[0]
     end
-    if board[3] != 0 and board[3] == board[4] and board[4] == board[5]
+    if board[3] != Mark.Empty and board[3] == board[4] and board[4] == board[5]
         return board[3]
     end
-    if board[6] != 0 and board[6] == board[7] and board[7] == board[8]
+    if board[6] != Mark.Empty and board[6] == board[7] and board[7] == board[8]
         return board[6]
     end
 
     # Columns
-    if board[0] != 0 and board[0] == board[3] and board[3] == board[6]
+    if board[0] != Mark.Empty and board[0] == board[3] and board[3] == board[6]
         return board[0]
     end
-    if board[1] != 0 and board[1] == board[4] and board[4] == board[7]
+    if board[1] != Mark.Empty and board[1] == board[4] and board[4] == board[7]
         return board[1]
     end
-    if board[2] != 0 and board[2] == board[5] and board[5] == board[8]
+    if board[2] != Mark.Empty and board[2] == board[5] and board[5] == board[8]
         return board[2]
     end
 
     # Diagonals
-    if board[0] != 0 and board[0] == board[4] and board[4] == board[8]
+    if board[0] != Mark.Empty and board[0] == board[4] and board[4] == board[8]
         return board[0]
     end
-    if board[2] != 0 and board[2] == board[4] and board[4] == board[6]
+    if board[2] != Mark.Empty and board[2] == board[4] and board[4] == board[6]
         return board[2]
     end
 
-    return 0
+    return Mark.Empty
 end
 
 function is_board_full(board)
     for i in 0..8
-        if board[i] == 0
+        if board[i] == Mark.Empty
             return 0
         end
     end
@@ -138,10 +160,10 @@ end
 
 function minimax(board, is_maximizing)
     let winner = check_winner(board)
-    if winner == 1
+    if winner == Mark.X
         return -10
     end
-    if winner == 2
+    if winner == Mark.O
         return 10
     end
     if is_board_full(board) == 1
@@ -152,10 +174,10 @@ function minimax(board, is_maximizing)
         let best = -100
         let i = 0
         while i < 9
-            if board[i] == 0
-                board[i] = 2
+            if board[i] == Mark.Empty
+                board[i] = Mark.O
                 let s = minimax(board, 0)
-                board[i] = 0
+                board[i] = Mark.Empty
                 if s > best
                     best = s
                 end
@@ -168,10 +190,10 @@ function minimax(board, is_maximizing)
     let best = 100
     let i = 0
     while i < 9
-        if board[i] == 0
-            board[i] = 1
+        if board[i] == Mark.Empty
+            board[i] = Mark.X
             let s = minimax(board, 1)
-            board[i] = 0
+            board[i] = Mark.Empty
             if s < best
                 best = s
             end
@@ -186,10 +208,10 @@ function ai_best_move(board)
     let best_pos = 0
     let i = 0
     while i < 9
-        if board[i] == 0
-            board[i] = 2
+        if board[i] == Mark.Empty
+            board[i] = Mark.O
             let s = minimax(board, 0)
-            board[i] = 0
+            board[i] = Mark.Empty
             if s > best_score
                 best_score = s
                 best_pos = i
@@ -204,7 +226,7 @@ end
 
 function get_move(board, name, mark)
     let mark_str = "X"
-    if mark == 2
+    if mark == Mark.O
         mark_str = "O"
     end
 
@@ -216,7 +238,7 @@ function get_move(board, name, mark)
         try
             let pos = int(choice)
             if pos >= 1 and pos <= 9
-                if board[pos - 1] == 0
+                if board[pos - 1] == Mark.Empty
                     return pos - 1
                 end
                 console_beep()
@@ -236,158 +258,145 @@ end
 #                        MAIN GAME
 # ═══════════════════════════════════════════════════════════════
 
-# Check for automated smoke test mode
-let cli_args = args()
-if len(cli_args) > 0 and cli_args[0] == "--test"
-    say ui::color_cyan("[TEST]") + " Running TicTacToe Minimax AI smoke test..."
-    let test_board = [1, 2, 1, 2, 2, 1, 0, 1, 0]
-    let m = ai_best_move(test_board)
-    say ui::color_green("[TEST]") + " AI move calculated: position " + str(m)
-    let t_scores = Scores(1, 1, 0, 2)
-    show_scores("Player 1", "Alya AI", t_scores)
-    say ui::color_green("[TEST]") + " Smoke test completed successfully."
-    return
-end
-
-# Initialize console with UTF-8 encoding and title
-console_utf8()
-console_title("TicTacToe - Alya")
-
-clear_screen()
-show_banner()
-
-# --- Persistent string arena for player names ---
-let str_arena = arena_new(4096)
-
-# --- Player Setup ---
-
-say ui::color_bright_cyan("  Welcome to TicTacToe!")
-say ""
-
-let p1_raw = ask "  Enter Player 1 name: "
-let name1 = trim(p1_raw)
-if len(name1) > 0
-    name1 = persist_str(str_arena, name1)
-else
-    name1 = "Player 1"
-end
-
-say ""
-say "  " + ui::color_bright_green("[1]") + " Player vs Player (PvP)"
-say "  " + ui::color_bright_green("[2]") + " Player vs AI"
-say ""
-
-let mode_raw = ask "  Choose mode (1/2): "
-let mode = trim(mode_raw)
-
-let is_ai = 0
-let name2 = "Player 2"
-
-if mode == "2"
-    is_ai = 1
-    name2 = "Alya AI"
-    say ""
-    say ui::color_bright_magenta("  You will face the unbeatable Alya AI! Good luck!")
-    sleep(1500)
-else
-    say ""
-    let p2_raw = ask "  Enter Player 2 name: "
-    name2 = trim(p2_raw)
-    if len(name2) > 0
-        name2 = persist_str(str_arena, name2)
-    else
-        name2 = "Player 2"
-    end
-end
-
-# --- Score Tracking ---
-
-let scores = Scores(0, 0, 0, 0)
-
-# --- Main Game Loop ---
-
-let playing = 1
-
-while playing == 1
-    scores.rounds += 1
-    let board = [0, 0, 0, 0, 0, 0, 0, 0, 0]
-    let current = 1
-    let game_over = 0
-
-    # --- Round Loop ---
-    while game_over == 0
-        clear_screen()
-        show_banner()
-        show_scores(name1, name2, scores)
-        draw_board(board)
-
-        if current == 2 and is_ai == 1
-            # AI turn
-            say ui::color_bright_magenta("    Alya AI is thinking...")
-            sleep(700)
-            let ai_pos = ai_best_move(board)
-            board[ai_pos] = 2
-        else
-            # Human turn
-            let current_name = name1
-            if current == 2
-                current_name = name2
-            end
-            let move = get_move(board, current_name, current)
-            board[move] = current
-        end
-
-        # Check game result
-        let winner = check_winner(board)
-        if winner != 0
-            game_over = 1
-        elif is_board_full(board) == 1
-            game_over = 1
-        else
-            if current == 1
-                current = 2
-            else
-                current = 1
-            end
-        end
+function main()
+    let cli_args = args()
+    if len(cli_args) > 0 and cli_args[0] in ["--test", "test"]
+        say ui::color_cyan("[TEST]") + " Running TicTacToe Minimax AI smoke test..."
+        let test_board = [Mark.X, Mark.O, Mark.X, Mark.O, Mark.O, Mark.X, Mark.Empty, Mark.X, Mark.Empty]
+        let m = ai_best_move(test_board)
+        say ui::color_green("[TEST]") + " AI move calculated: position " + str(m)
+        let t_scores = Scores(1, 1, 0, 2)
+        show_scores("Player 1", "Alya AI", t_scores)
+        say ui::color_green("[TEST]") + " Smoke test completed successfully."
+        return
     end
 
-    # --- Show Round Result ---
+    console_utf8()
+    console_title("TicTacToe - Alya")
+
     clear_screen()
     show_banner()
-    draw_board(board)
 
-    let result = check_winner(board)
-    if result == 1
-        console_beep()
-        scores.p1 += 1
-        say ui::style_bold(ui::color_bright_green("    " + name1 + " (X) wins! Congratulations!"))
-    elif result == 2
-        console_beep()
-        scores.p2 += 1
-        say ui::style_bold(ui::color_bright_green("    " + name2 + " (O) wins! Congratulations!"))
+    let str_arena = arena_new(4096)
+
+    say ui::color_bright_cyan("  Welcome to TicTacToe!")
+    say ""
+
+    let p1_raw = ask "  Enter Player 1 name: "
+    let name1 = trim(p1_raw)
+    if len(name1) > 0
+        name1 = persist_str(str_arena, name1)
     else
-        scores.draws += 1
-        say ui::style_bold(ui::color_bright_yellow("    It's a draw! Well played!"))
+        name1 = "Player 1"
+    end
+
+    say ""
+    say "  " + ui::color_bright_green("[1]") + " Player vs Player (PvP)"
+    say "  " + ui::color_bright_green("[2]") + " Player vs AI"
+    say ""
+
+    let mode_raw = ask "  Choose mode (1/2): "
+    let mode = trim(mode_raw)
+
+    let is_ai = 0
+    let name2 = "Player 2"
+
+    if mode == "2"
+        is_ai = 1
+        name2 = "Alya AI"
+        say ""
+        say ui::color_bright_magenta("  You will face the unbeatable Alya AI! Good luck!")
+        sleep(1500)
+    else
+        say ""
+        let p2_raw = ask "  Enter Player 2 name: "
+        name2 = trim(p2_raw)
+        if len(name2) > 0
+            name2 = persist_str(str_arena, name2)
+        else
+            name2 = "Player 2"
+        end
+    end
+
+    let scores = Scores(0, 0, 0, 0)
+    let playing = 1
+
+    while playing == 1
+        scores.next_round()
+        let board = [Mark.Empty, Mark.Empty, Mark.Empty, Mark.Empty, Mark.Empty, Mark.Empty, Mark.Empty, Mark.Empty, Mark.Empty]
+        let current = Mark.X
+        let game_over = 0
+
+        while game_over == 0
+            clear_screen()
+            show_banner()
+            show_scores(name1, name2, scores)
+            draw_board(board)
+
+            if current == Mark.O and is_ai == 1
+                say ui::color_bright_magenta("    Alya AI is thinking...")
+                sleep(700)
+                let ai_pos = ai_best_move(board)
+                board[ai_pos] = Mark.O
+            else
+                let current_name = name1
+                if current == Mark.O
+                    current_name = name2
+                end
+                let move = get_move(board, current_name, current)
+                board[move] = current
+            end
+
+            let winner = check_winner(board)
+            if winner != Mark.Empty
+                game_over = 1
+            elif is_board_full(board) == 1
+                game_over = 1
+            else
+                if current == Mark.X
+                    current = Mark.O
+                else
+                    current = Mark.X
+                end
+            end
+        end
+
+        clear_screen()
+        show_banner()
+        draw_board(board)
+
+        let result = check_winner(board)
+        when result
+            is Mark.X then
+                console_beep()
+                scores.add_win_p1()
+                say ui::style_bold(ui::color_bright_green("    " + name1 + " (X) wins! Congratulations!"))
+            is Mark.O then
+                console_beep()
+                scores.add_win_p2()
+                say ui::style_bold(ui::color_bright_green("    " + name2 + " (O) wins! Congratulations!"))
+            else
+                scores.add_draw()
+                say ui::style_bold(ui::color_bright_yellow("    It's a draw! Well played!"))
+        end
+
+        say ""
+        show_scores(name1, name2, scores)
+
+        let again_raw = ask "  Play again? (y/n): "
+        let again = lower(trim(again_raw))
+        if again not in ["y", "yes"]
+            playing = 0
+        end
     end
 
     say ""
     show_scores(name1, name2, scores)
+    say ui::color_bright_cyan("  Thanks for playing TicTacToe!")
+    say ui::color_gray("  See you next time!")
+    say ""
 
-    let again_raw = ask "  Play again? (y/n): "
-    let again = lower(trim(again_raw))
-    if again != "y" and again != "yes"
-        playing = 0
-    end
+    arena_free(str_arena)
 end
 
-# --- Goodbye ---
-
-say ""
-show_scores(name1, name2, scores)
-say ui::color_bright_cyan("  Thanks for playing TicTacToe!")
-say ui::color_gray("  See you next time!")
-say ""
-
-# Free persistent string arena
-arena_free(str_arena)
+main()

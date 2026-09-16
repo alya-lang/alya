@@ -8,7 +8,7 @@
 #   - Preset seed patterns (Glider, R-pentomino, Blinker, Random Soup)
 #   - Real-time generation counter and live population tracking
 #   - ANSI terminal animation with smooth frame delays
-#   - Clean struct-based Board architecture (ABI-safe)
+#   - Modern struct methods and enums (Board.step, Board.render)
 #   - Non-hanging automated smoke test mode (--test)
 #
 # Usage:
@@ -26,6 +26,11 @@ import "std/time"
 import "std/str"
 import "std/os"
 
+enum CellState
+    Dead = 0,
+    Alive = 1
+end
+
 struct Board
     cells
     w
@@ -37,48 +42,48 @@ function make_board(w, h)
     let total = w * h
     let i = 0
     while i < total
-        g.push(0)
+        g.push(CellState.Dead)
         i += 1
     end
     return Board(g, w, h)
 end
 
-function place_cell(b, x, y)
-    if x >= 0 and x < b.w and y >= 0 and y < b.h
-        let idx = y * b.w + x
-        b.cells[idx] = 1
+function Board.place(self, x, y)
+    if x >= 0 and x < self.w and y >= 0 and y < self.h
+        let idx = y * self.w + x
+        self.cells[idx] = CellState.Alive
     end
 end
 
-function init_glider(b, sx, sy)
-    place_cell(b, sx + 1, sy)
-    place_cell(b, sx + 2, sy + 1)
-    place_cell(b, sx, sy + 2)
-    place_cell(b, sx + 1, sy + 2)
-    place_cell(b, sx + 2, sy + 2)
+function Board.init_glider(self, sx, sy)
+    self.place(sx + 1, sy)
+    self.place(sx + 2, sy + 1)
+    self.place(sx, sy + 2)
+    self.place(sx + 1, sy + 2)
+    self.place(sx + 2, sy + 2)
 end
 
-function init_r_pentomino(b, sx, sy)
-    place_cell(b, sx + 1, sy)
-    place_cell(b, sx + 2, sy)
-    place_cell(b, sx, sy + 1)
-    place_cell(b, sx + 1, sy + 1)
-    place_cell(b, sx + 1, sy + 2)
+function Board.init_r_pentomino(self, sx, sy)
+    self.place(sx + 1, sy)
+    self.place(sx + 2, sy)
+    self.place(sx, sy + 1)
+    self.place(sx + 1, sy + 1)
+    self.place(sx + 1, sy + 2)
 end
 
-function init_blinker(b, sx, sy)
-    place_cell(b, sx, sy)
-    place_cell(b, sx + 1, sy)
-    place_cell(b, sx + 2, sy)
+function Board.init_blinker(self, sx, sy)
+    self.place(sx, sy)
+    self.place(sx + 1, sy)
+    self.place(sx + 2, sy)
 end
 
-function init_random(b, pct)
+function Board.init_random(self, pct)
     let y = 0
-    while y < b.h
+    while y < self.h
         let x = 0
-        while x < b.w
+        while x < self.w
             if r::chance(pct) == 1
-                place_cell(b, x, y)
+                self.place(x, y)
             end
             x += 1
         end
@@ -86,7 +91,7 @@ function init_random(b, pct)
     end
 end
 
-function count_neighbors(b, x, y)
+function Board.count_neighbors(self, x, y)
     let count = 0
     let dy = -1
     while dy <= 1
@@ -95,20 +100,20 @@ function count_neighbors(b, x, y)
             if dx != 0 or dy != 0
                 let nx = x + dx
                 if nx < 0
-                    nx += b.w
-                elif nx >= b.w
-                    nx -= b.w
+                    nx += self.w
+                elif nx >= self.w
+                    nx -= self.w
                 end
 
                 let ny = y + dy
                 if ny < 0
-                    ny += b.h
-                elif ny >= b.h
-                    ny -= b.h
+                    ny += self.h
+                elif ny >= self.h
+                    ny -= self.h
                 end
 
-                let idx = ny * b.w + nx
-                count += b.cells[idx]
+                let idx = ny * self.w + nx
+                count += self.cells[idx]
             end
             dx += 1
         end
@@ -117,33 +122,32 @@ function count_neighbors(b, x, y)
     return count
 end
 
-function count_alive(b)
+function Board.count_alive(self)
     let count = 0
-    let i = 0
-    let total = arr_len(b.cells)
-    while i < total
-        count += b.cells[i]
-        i += 1
+    for cell in self.cells
+        if cell == CellState.Alive
+            count += 1
+        end
     end
     return count
 end
 
-function step_life(b)
+function Board.step(self)
     let next_cells = []
     let y = 0
-    while y < b.h
+    while y < self.h
         let x = 0
-        while x < b.w
-            let n = count_neighbors(b, x, y)
-            let cell = b.cells[y * b.w + x]
-            let new_cell = 0
-            if cell == 1
-                if n == 2 or n == 3
-                    new_cell = 1
+        while x < self.w
+            let n = self.count_neighbors(x, y)
+            let cell = self.cells[y * self.w + x]
+            let new_cell = CellState.Dead
+            if cell == CellState.Alive
+                if n in [2, 3]
+                    new_cell = CellState.Alive
                 end
             else
                 if n == 3
-                    new_cell = 1
+                    new_cell = CellState.Alive
                 end
             end
             next_cells.push(new_cell)
@@ -151,7 +155,7 @@ function step_life(b)
         end
         y += 1
     end
-    return Board(next_cells, b.w, b.h)
+    return Board(next_cells, self.w, self.h)
 end
 
 function show_banner(pattern_name)
@@ -159,10 +163,10 @@ function show_banner(pattern_name)
     say ui::box_render(ui::box_new(info, "🧬 CONWAY'S GAME OF LIFE (ALYA) 🧬", "rounded"))
 end
 
-function render_life(b, gen, alive)
+function Board.render(self, gen, alive)
     let top = "  ╔"
     let i = 0
-    while i < b.w * 2
+    while i < self.w * 2
         top = top + "═"
         i += 1
     end
@@ -170,12 +174,12 @@ function render_life(b, gen, alive)
     say ui::color_cyan(top)
 
     let y = 0
-    while y < b.h
+    while y < self.h
         let row = "  " + ui::color_cyan("║")
         let x = 0
-        while x < b.w
-            let c = b.cells[y * b.w + x]
-            if c == 1
+        while x < self.w
+            let c = self.cells[y * self.w + x]
+            if c == CellState.Alive
                 row = row + ui::color_bright_cyan("■ ")
             else
                 row = row + "  "
@@ -189,14 +193,14 @@ function render_life(b, gen, alive)
 
     let bottom = "  ╚"
     i = 0
-    while i < b.w * 2
+    while i < self.w * 2
         bottom = bottom + "═"
         i += 1
     end
     bottom = bottom + "╝"
     say ui::color_cyan(bottom)
 
-    say "  " + ui::style_bold("Generation") + ": " + ui::color_yellow(str(gen)) + "    " + ui::style_bold("Live Population") + ": " + ui::color_green(str(alive)) + "    " + ui::style_bold("Dimensions") + ": " + str(b.w) + "x" + str(b.h)
+    say "  " + ui::style_bold("Generation") + ": " + ui::color_yellow(str(gen)) + "    " + ui::style_bold("Live Population") + ": " + ui::color_green(str(alive)) + "    " + ui::style_bold("Dimensions") + ": " + str(self.w) + "x" + str(self.h)
     say ""
 end
 
@@ -211,18 +215,18 @@ function main()
     let i = 0
     while i < arr_len(cli_args)
         let a = cli_args[i]
-        if (a == "-p" or a == "--pattern") and i + 1 < arr_len(cli_args)
+        if a in ["-p", "--pattern"] and i + 1 < arr_len(cli_args)
             pattern_name = cli_args[i + 1]
             i += 1
-        elif (a == "-g" or a == "--gens") and i + 1 < arr_len(cli_args)
+        elif a in ["-g", "--gens"] and i + 1 < arr_len(cli_args)
             let g = int(cli_args[i + 1])
             if g > 0 max_gens = g end
             i += 1
-        elif (a == "-d" or a == "--delay") and i + 1 < arr_len(cli_args)
+        elif a in ["-d", "--delay"] and i + 1 < arr_len(cli_args)
             let d = int(cli_args[i + 1])
             if d >= 0 delay_ms = d end
             i += 1
-        elif a == "--test" or a == "--simulate"
+        elif a in ["--test", "--simulate"]
             is_test = 1
         end
         i += 1
@@ -230,40 +234,37 @@ function main()
 
     let b = make_board(24, 13)
 
-    if pattern_name == "glider"
-        init_glider(b, 2, 2)
-    elif pattern_name == "r-pentomino" or pattern_name == "rle"
-        init_r_pentomino(b, b.w / 2 - 1, b.h / 2 - 1)
-    elif pattern_name == "blinker"
-        init_blinker(b, b.w / 2 - 1, b.h / 2)
-    elif pattern_name == "random"
-        init_random(b, 28)
-    else
-        init_glider(b, 2, 2)
+    when pattern_name
+        is "glider" then b.init_glider(2, 2)
+        is "r-pentomino" then b.init_r_pentomino(b.w / 2 - 1, b.h / 2 - 1)
+        is "rle" then b.init_r_pentomino(b.w / 2 - 1, b.h / 2 - 1)
+        is "blinker" then b.init_blinker(b.w / 2 - 1, b.h / 2)
+        is "random" then b.init_random(28)
+        else b.init_glider(2, 2)
     end
 
     if is_test == 1
         say color_yellow("[LIFE]") + " Running automated simulation test..."
         let gen = 0
         while gen < 15
-            b = step_life(b)
+            b = b.step()
             gen += 1
         end
-        let cur_alive = count_alive(b)
+        let cur_alive = b.count_alive()
         show_banner(pattern_name)
-        render_life(b, gen, cur_alive)
+        b.render(gen, cur_alive)
         say color_green("[SUCCESS]") + " Game of Life simulation passed cleanly (" + str(gen) + " generations computed)."
         return
     end
 
     console_clear()
     let gen = 0
-    let cur_alive = count_alive(b)
+    let cur_alive = b.count_alive()
 
     while gen <= max_gens
         console_clear()
         show_banner(pattern_name)
-        render_life(b, gen, cur_alive)
+        b.render(gen, cur_alive)
 
         if gen >= max_gens
             say ui::color_green("Simulation complete!") + " (" + str(gen) + " generations)"
@@ -271,8 +272,8 @@ function main()
         end
 
         sleep(delay_ms)
-        b = step_life(b)
-        cur_alive = count_alive(b)
+        b = b.step()
+        cur_alive = b.count_alive()
         gen += 1
     end
 end

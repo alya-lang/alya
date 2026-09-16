@@ -11,6 +11,7 @@
 #   - Static file serving with automated MIME detection via 'mime' package
 #   - Modern terminal logging and UI via 'term' package
 #   - Dynamic REST JSON API endpoints (/api/status, /api/echo)
+#   - Modern struct methods, when routing, and pattern matching
 #   - Configurable port and worker threads via CLI arguments
 #
 # Usage:
@@ -48,17 +49,17 @@ function parse_server_config()
     let i = 0
     while i < len(cli_args)
         let a = cli_args[i]
-        if (a == "--port" or a == "-p") and i + 1 < len(cli_args)
+        if a in ["--port", "-p"] and i + 1 < len(cli_args)
             let parsed = int(cli_args[i + 1])
             if parsed > 0 and parsed <= 65535
                 p = parsed
             end
-        elif (a == "--workers" or a == "-w") and i + 1 < len(cli_args)
+        elif a in ["--workers", "-w"] and i + 1 < len(cli_args)
             let parsed = int(cli_args[i + 1])
             if parsed >= 1 and parsed <= 64
                 w = parsed
             end
-        elif a == "--quiet" or a == "-q"
+        elif a in ["--quiet", "-q"]
             q = 1
         elif a == "--test"
             test_mode = 1
@@ -145,37 +146,46 @@ function handle_client(client_sock, start_time, quiet, html_content)
         let now = clock_ms()
         let uptime = now - start_time
 
-        let status = 200
+        let status = HttpStatus.Ok
         let ctype = "text/html; charset=utf-8"
         let body = ""
 
-        if req_path == "/" or req_path == "/index.html" or req_path == "/html"
-            ctype = m::content_type("index.html", "text/html; charset=utf-8")
-            body = html_content
-        elif req_path == "/json"
-            ctype = m::content_type("data.json", "application/json")
-            body = "{\"message\":\"Hello, World!\"}"
-        elif req_path == "/api/status"
-            ctype = m::content_type("status.json", "application/json")
-            body = "{\"status\": \"ok\", \"server\": \"Alya-Native-Server\", \"version\": \"0.1.0\", \"uptime_ms\": " + str(uptime) + ", \"timestamp\": " + str(now) + "}"
-        elif starts_with(req_path, "/api/echo")
-            ctype = m::content_type("echo.json", "application/json")
-            body = "{\"method\": \"" + req_method + "\", \"path\": \"" + req_path + "\", \"server_time_ms\": " + str(now) + ", \"engine\": \"Alya Native Compiler\"}"
-        else
-            # Check for static file in public directory
-            let pub_path = "public" + req_path
-            let app_pub_path = "apps/http_server/public" + req_path
-            if file_exists(pub_path) == 1
-                ctype = m::content_type(req_path, "application/octet-stream")
-                body = read_file(pub_path)
-            elif file_exists(app_pub_path) == 1
-                ctype = m::content_type(req_path, "application/octet-stream")
-                body = read_file(app_pub_path)
+        when req_path
+            is "/" then
+                ctype = m::content_type("index.html", "text/html; charset=utf-8")
+                body = html_content
+            is "/index.html" then
+                ctype = m::content_type("index.html", "text/html; charset=utf-8")
+                body = html_content
+            is "/html" then
+                ctype = m::content_type("index.html", "text/html; charset=utf-8")
+                body = html_content
+            is "/json" then
+                ctype = m::content_type("data.json", "application/json")
+                body = "{\"message\":\"Hello, World!\"}"
+            is "/api/status" then
+                ctype = m::content_type("status.json", "application/json")
+                body = "{\"status\": \"ok\", \"server\": \"Alya-Native-Server\", \"version\": \"0.1.0\", \"uptime_ms\": " + str(uptime) + ", \"timestamp\": " + str(now) + "}"
             else
-                status = 404
-                ctype = "text/html; charset=utf-8"
-                body = "<!DOCTYPE html><html><body><h1>404 Not Found</h1><p>The requested path '" + req_path + "' was not found on this server.</p></body></html>"
-            end
+                if starts_with(req_path, "/api/echo")
+                    ctype = m::content_type("echo.json", "application/json")
+                    body = "{\"method\": \"" + req_method + "\", \"path\": \"" + req_path + "\", \"server_time_ms\": " + str(now) + ", \"engine\": \"Alya Native Compiler\"}"
+                else
+                    # Check for static file in public directory
+                    let pub_path = "public" + req_path
+                    let app_pub_path = "apps/http_server/public" + req_path
+                    if file_exists(pub_path) == 1
+                        ctype = m::content_type(req_path, "application/octet-stream")
+                        body = read_file(pub_path)
+                    elif file_exists(app_pub_path) == 1
+                        ctype = m::content_type(req_path, "application/octet-stream")
+                        body = read_file(app_pub_path)
+                    else
+                        status = HttpStatus.NotFound
+                        ctype = "text/html; charset=utf-8"
+                        body = "<!DOCTYPE html><html><body><h1>404 Not Found</h1><p>The requested path '" + req_path + "' was not found on this server.</p></body></html>"
+                    end
+                end
         end
 
         let resp = build_response(status, ctype, body, keep_alive)
@@ -201,7 +211,7 @@ function worker_proc(ctx)
     let ch, start_time, quiet, html_content = ctx
     while 1
         let client_sock = channel_recv(ch, 1000)
-        if client_sock != null
+        if client_sock is not null
             if client_sock == -999
                 break
             end
@@ -275,16 +285,14 @@ function main()
         end
     end
 
-    if cfg.workers > 1 and ch != null
+    if cfg.workers > 1 and ch is not null
         let w = 0
         while w < cfg.workers
             channel_send(ch, -999)
             w += 1
         end
-        let ti = 0
-        while ti < len(threads)
-            thread_join(threads[ti])
-            ti += 1
+        for th in threads
+            thread_join(th)
         end
         channel_free(ch)
     end

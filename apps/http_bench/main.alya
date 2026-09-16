@@ -10,6 +10,7 @@
 #   - Non-blocking I/O multiplexing & Event Polling (tcp_poll)
 #   - High-resolution latency profiling (Min, Max, Avg)
 #   - Formatted ANSI summary table and throughput metrics (RPS)
+#   - Modern struct methods, destructuring, and pattern matching
 #
 # Usage:
 #   alyac run apps/http_bench/main.alya
@@ -35,9 +36,59 @@ struct BenchConfig
     keep_alive
 end
 
+struct BenchStats
+    ok_cnt
+    fail_cnt
+    total_ms
+    min_lat
+    max_lat
+    avg_lat
+    rps
+end
+
+function BenchConfig.show_banner(self)
+    say color_cyan("╔═════════════════════════════════════════════════╗")
+    say color_cyan("║") + "           " + style_bold(color_yellow("🚀 ALYA HTTP BENCHMARK 🚀")) + "            " + color_cyan("║")
+    say color_cyan("╠═════════════════════════════════════════════════╣")
+    say color_cyan("║") + "  Target URL   : " + color_white(self.url)
+    say color_cyan("║") + "  Total Reqs   : " + color_green(str(self.total_reqs)) + " requests"
+    say color_cyan("║") + "  Concurrency  : " + color_magenta(str(self.concurrency)) + " worker threads"
+    if self.keep_alive == 1
+        say color_cyan("║") + "  Keep-Alive   : " + color_green("enabled (persistent TCP)")
+    else
+        say color_cyan("║") + "  Keep-Alive   : " + color_yellow("disabled (close per req)")
+    end
+    say color_cyan("║") + "  Timeout      : " + str(self.timeout_ms) + " ms"
+    say color_cyan("╚═════════════════════════════════════════════════╝")
+    say ""
+end
+
+function BenchStats.show_results(self, cfg)
+    say ""
+    say color_cyan("════════════════ BENCHMARK REPORT ════════════════")
+    say "  " + style_bold("Target URL") + "       : " + cfg.url
+    say "  " + style_bold("Concurrency") + "      : " + str(cfg.concurrency) + " workers"
+    say "  " + style_bold("Total Requests") + "   : " + str(cfg.total_reqs)
+    say "  " + style_bold("Successful (2xx)") + " : " + color_green(str(self.ok_cnt))
+    if self.fail_cnt > 0
+        say "  " + style_bold("Failed / Errors") + "  : " + color_red(str(self.fail_cnt))
+    else
+        say "  " + style_bold("Failed / Errors") + "  : " + color_green("0")
+    end
+    say "  " + style_bold("Total Wall Time") + "  : " + str(self.total_ms) + " ms"
+    say "  " + style_bold("Throughput") + "        : " + style_bold(color_yellow(str(self.rps) + " req/sec"))
+    say ""
+    say color_cyan("─── Latency Distribution ─────────────────────────")
+    say "  " + style_bold("Fastest (Min)") + "    : " + color_green(str(self.min_lat) + " ms")
+    say "  " + style_bold("Slowest (Max)") + "    : " + color_yellow(str(self.max_lat) + " ms")
+    say "  " + style_bold("Average (Mean)") + "   : " + color_white(str(self.avg_lat) + " ms")
+    say color_cyan("══════════════════════════════════════════════════")
+    say ""
+end
+
 function parse_args()
     let cli_args = args()
-    let u = "http://127.0.0.1:8080/json"
+    let target_u = "http://127.0.0.1:8080/json"
     let n = 50
     let c = 2
     let t = 2000
@@ -46,24 +97,24 @@ function parse_args()
     let i = 0
     while i < len(cli_args)
         let a = cli_args[i]
-        if (a == "-u" or a == "--url") and i + 1 < len(cli_args)
-            u = cli_args[i + 1]
-        elif (a == "-n" or a == "--requests") and i + 1 < len(cli_args)
+        if a in ["-u", "--url"] and i + 1 < len(cli_args)
+            target_u = cli_args[i + 1]
+        elif a in ["-n", "--requests"] and i + 1 < len(cli_args)
             let parsed_n = int(cli_args[i + 1])
             if parsed_n > 0
                 n = parsed_n
             end
-        elif (a == "-c" or a == "--concurrency") and i + 1 < len(cli_args)
+        elif a in ["-c", "--concurrency"] and i + 1 < len(cli_args)
             let parsed_c = int(cli_args[i + 1])
             if parsed_c > 0 and parsed_c <= 32
                 c = parsed_c
             end
-        elif (a == "-t" or a == "--timeout") and i + 1 < len(cli_args)
+        elif a in ["-t", "--timeout"] and i + 1 < len(cli_args)
             let parsed_t = int(cli_args[i + 1])
             if parsed_t > 0
                 t = parsed_t
             end
-        elif a == "-k" or a == "--keep-alive"
+        elif a in ["-k", "--keep-alive"]
             k = 1
         elif a == "--no-keep-alive"
             k = 0
@@ -71,7 +122,7 @@ function parse_args()
         i += 1
     end
 
-    return BenchConfig(u, n, c, t, k)
+    return BenchConfig(target_u, n, c, t, k)
 end
 
 struct BenchUrl
@@ -226,75 +277,23 @@ function run_worker_task(args_tuple)
     return 0
 end
 
-struct BenchStats
-    ok_cnt
-    fail_cnt
-    total_ms
-    min_lat
-    max_lat
-    avg_lat
-    rps
-end
-
-function show_banner(cfg)
-    say color_cyan("╔═════════════════════════════════════════════════╗")
-    say color_cyan("║") + "           " + style_bold(color_yellow("🚀 ALYA HTTP BENCHMARK 🚀")) + "            " + color_cyan("║")
-    say color_cyan("╠═════════════════════════════════════════════════╣")
-    say color_cyan("║") + "  Target URL   : " + color_white(cfg.url)
-    say color_cyan("║") + "  Total Reqs   : " + color_green(str(cfg.total_reqs)) + " requests"
-    say color_cyan("║") + "  Concurrency  : " + color_magenta(str(cfg.concurrency)) + " worker threads"
-    if cfg.keep_alive == 1
-        say color_cyan("║") + "  Keep-Alive   : " + color_green("enabled (persistent TCP)")
-    else
-        say color_cyan("║") + "  Keep-Alive   : " + color_yellow("disabled (close per req)")
-    end
-    say color_cyan("║") + "  Timeout      : " + str(cfg.timeout_ms) + " ms"
-    say color_cyan("╚═════════════════════════════════════════════════╝")
-    say ""
-end
-
-function show_results(cfg, stats)
-    say ""
-    say color_cyan("════════════════ BENCHMARK REPORT ════════════════")
-    say "  " + style_bold("Target URL") + "       : " + cfg.url
-    say "  " + style_bold("Concurrency") + "      : " + str(cfg.concurrency) + " workers"
-    say "  " + style_bold("Total Requests") + "   : " + str(cfg.total_reqs)
-    say "  " + style_bold("Successful (2xx)") + " : " + color_green(str(stats.ok_cnt))
-    if stats.fail_cnt > 0
-        say "  " + style_bold("Failed / Errors") + "  : " + color_red(str(stats.fail_cnt))
-    else
-        say "  " + style_bold("Failed / Errors") + "  : " + color_green("0")
-    end
-    say "  " + style_bold("Total Wall Time") + "  : " + str(stats.total_ms) + " ms"
-    say "  " + style_bold("Throughput") + "        : " + style_bold(color_yellow(str(stats.rps) + " req/sec"))
-    say ""
-    say color_cyan("─── Latency Distribution ─────────────────────────")
-    say "  " + style_bold("Fastest (Min)") + "    : " + color_green(str(stats.min_lat) + " ms")
-    say "  " + style_bold("Slowest (Max)") + "    : " + color_yellow(str(stats.max_lat) + " ms")
-    say "  " + style_bold("Average (Mean)") + "   : " + color_white(str(stats.avg_lat) + " ms")
-    say color_cyan("══════════════════════════════════════════════════")
-    say ""
-end
-
 function main()
     let cfg = parse_args()
-    show_banner(cfg)
+    cfg.show_banner()
 
     # Check for smoke test mode
     let cli_args = args()
     let is_test = 0
-    let i = 0
-    while i < len(cli_args)
-        if cli_args[i] == "--test" or cli_args[i] == "--once"
+    for a in cli_args
+        if a in ["--test", "--once"]
             is_test = 1
         end
-        i += 1
     end
 
     if is_test == 1
         say color_yellow("[BENCH]") + " Running simulated smoke benchmark..."
         let stats = BenchStats(10, 0, 25, 2, 4, 2, 2000)
-        show_results(cfg, stats)
+        stats.show_results(cfg)
         say color_green("[SUCCESS]") + " Benchmark completed cleanly."
         return
     end
@@ -344,16 +343,14 @@ function main()
     let overall_max_lat = 0
     let sum_latencies = 0
 
-    let ti = 0
-    while ti < len(threads)
-        thread_join(threads[ti])
-        ti += 1
+    for th in threads
+        thread_join(th)
     end
 
     let recvd = 0
     while recvd < cfg.concurrency
         let res_tuple = channel_recv(ch_res, 1000)
-        if res_tuple != null
+        if res_tuple is not null
             let ok_c, fail_c, min_l, max_l, tot_l = res_tuple
             total_ok += ok_c
             total_fail += fail_c
@@ -383,7 +380,7 @@ function main()
     end
 
     let stats = BenchStats(total_ok, total_fail, total_wall_time, overall_min_lat, overall_max_lat, avg_latency, rps)
-    show_results(cfg, stats)
+    stats.show_results(cfg)
 end
 
 main()

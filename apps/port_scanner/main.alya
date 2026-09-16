@@ -9,6 +9,7 @@
 #   - Real-time ASCII progress bar and status indicator
 #   - Service identification and roundtrip latency measurement
 #   - Formatted ANSI results table with status summary
+#   - Modern enums, struct methods, and multi-variable loops
 #   - Non-hanging --test / --simulate mode for automated test suites
 #
 # Usage:
@@ -25,11 +26,20 @@ import "std/console"
 import "std/time"
 import "std/os"
 
+enum PortState
+    Closed = 0,
+    Open = 1
+end
+
 struct ScanResult
     port
     status
     latency_ms
     service
+end
+
+function ScanResult.is_open(self)
+    return self.status == PortState.Open
 end
 
 function get_service_name(port)
@@ -77,9 +87,9 @@ function probe_port(host, port)
     let elapsed = clock_ms() - t0
     if sock >= 0
         tcp_close(sock)
-        return 1, elapsed
+        return PortState.Open, elapsed
     end
-    return 0, elapsed
+    return PortState.Closed, elapsed
 end
 
 function get_common_ports()
@@ -97,15 +107,13 @@ function print_report(target, results, scan_duration)
     say "  ─────────────────────────────────────────────────────────────"
 
     let open_count = 0
-    let i = 0
-    while i < arr_len(results)
-        let r = results[i]
+    for r in results
         let port_str = str(r.port) + "/tcp"
         while len(port_str) < 10
             port_str = port_str + " "
         end
 
-        if r.status == 1
+        if r.status == PortState.Open
             open_count += 1
             let state_str = color_green("OPEN ")
             let lat_str = str(r.latency_ms) + " ms"
@@ -114,7 +122,6 @@ function print_report(target, results, scan_duration)
             end
             say "  " + color_white(port_str) + " " + state_str + "  " + color_yellow(lat_str) + r.service
         end
-        i += 1
     end
 
     if open_count == 0
@@ -135,9 +142,10 @@ function main()
     let i = 0
     while i < arr_len(cli_args)
         let a = cli_args[i]
-        if (a == "-t" or a == "--target") and i + 1 < arr_len(cli_args)
+        if a in ["-t", "--target"] and i + 1 < arr_len(cli_args)
             target = cli_args[i + 1]
-        elif a == "--test" or a == "--simulate"
+            i += 1
+        elif a in ["--test", "--simulate"]
             is_test = 1
         end
         i += 1
@@ -149,10 +157,10 @@ function main()
     if is_test == 1
         say color_yellow("[SCANNER]") + " Running simulated scan (smoke test mode)..."
         let mock_results = []
-        mock_results.push(ScanResult(80, 1, 1, get_service_name(80)))
-        mock_results.push(ScanResult(443, 1, 2, get_service_name(443)))
-        mock_results.push(ScanResult(3306, 0, 0, get_service_name(3306)))
-        mock_results.push(ScanResult(8080, 1, 1, get_service_name(8080)))
+        mock_results.push(ScanResult(80, PortState.Open, 1, get_service_name(80)))
+        mock_results.push(ScanResult(443, PortState.Open, 2, get_service_name(443)))
+        mock_results.push(ScanResult(3306, PortState.Closed, 0, get_service_name(3306)))
+        mock_results.push(ScanResult(8080, PortState.Open, 1, get_service_name(8080)))
         print_report(target, mock_results, 42)
         say color_green("[SUCCESS]") + " Port scanner verified cleanly."
         return

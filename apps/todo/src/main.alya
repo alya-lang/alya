@@ -53,9 +53,8 @@ function load_tasks(db_path)
     end
 
     let raw_lines = lines(raw)
-    let i = 0
-    while i < arr_len(raw_lines)
-        let line = trim(raw_lines[i])
+    for raw_line in raw_lines
+        let line = trim(raw_line)
         if len(line) > 0 and char_at(line, 0) != "#"
             let parts = split_by_char(line, "|")
             if arr_len(parts) >= 5
@@ -67,41 +66,34 @@ function load_tasks(db_path)
                 tasks.push(Task(t_id, t_done, t_pri, t_tag, t_title))
             end
         end
-        i += 1
     end
     return tasks
 end
 
 function save_tasks(db_path, tasks)
     let content = "# Alya Todo Database\n"
-    let i = 0
-    while i < arr_len(tasks)
-        let t = tasks[i]
+    for t in tasks
         content += str(t.id) + "|" + str(t.done) + "|" + t.priority + "|" + t.tag + "|" + t.title + "\n"
-        i += 1
     end
     fs_write(db_path, content)
 end
 
 function get_next_id(tasks)
     let max_id = 0
-    let i = 0
-    while i < arr_len(tasks)
-        let t = tasks[i]
+    for t in tasks
         if t.id > max_id
             max_id = t.id
         end
-        i += 1
     end
     return max_id + 1
 end
 
 function format_priority(pri)
     when pri
-        is "HIGH" then return ui::badge("HIGH", "red") + "    "
-        is "MED" then return ui::badge("MED", "yellow") + "     "
-        is "LOW" then return ui::badge("LOW", "cyan") + "     "
-        else return ui::badge(pad_right(pri, 8, " "), "gray")
+        is "HIGH" then return ui::badge("HIGH", "red")
+        is "MED" then return ui::badge("MED", "yellow")
+        is "LOW" then return ui::badge("LOW", "cyan")
+        else return ui::badge(pri, "gray")
     end
 end
 
@@ -129,7 +121,7 @@ function cmd_add(db_path, title, priority, tag)
     end
 
     let pri_upper = upper(priority)
-    if pri_upper != "HIGH" and pri_upper != "MED" and pri_upper != "LOW"
+    if pri_upper not in ["HIGH", "MED", "LOW"]
         pri_upper = "MED"
     end
 
@@ -159,9 +151,7 @@ function cmd_list(db_path, filter_status, filter_tag)
     let done_count = 0
     let total_count = arr_len(tasks)
 
-    let i = 0
-    while i < total_count
-        let t = tasks[i]
+    for t in tasks
         if t.done == 1
             done_count += 1
         end
@@ -181,38 +171,29 @@ function cmd_list(db_path, filter_status, filter_tag)
         if pass_status == 1 and pass_tag == 1
             matching.push(t)
         end
-        i += 1
     end
 
-    say "  " + ui::box_top(4, 3, 8, 31, 8)
-    say "  " + ui::row(style_bold("ID  "), style_bold("ST "), style_bold("PRIORITY"), style_bold("TASK TITLE                     "), style_bold("TAG     "))
-    say "  " + ui::box_mid(4, 3, 8, 31, 8)
-
     if arr_len(matching) == 0
-        say "  │ " + pad_right(color_gray("No matching tasks found."), 61, " ") + " │"
+        say "  " + color_gray("No matching tasks found.")
     else
-        let m_idx = 0
-        while m_idx < arr_len(matching)
-            let t = matching[m_idx]
-            let id_str = pad_right("#" + str(t.id), 4, " ")
+        let rows = []
+        for t in matching
+            let id_str = "#" + str(t.id)
             let st_str = format_status(t.done)
             let pri_str = format_priority(t.priority)
             let title_disp = t.title
             if len(title_disp) > 31
                 title_disp = substring(title_disp, 0, 28) + "..."
             end
-            let title_pad = pad_right(title_disp, 31, " ")
             if t.done == 1
-                title_pad = style_dim(title_pad)
+                title_disp = style_dim(title_disp)
             end
-            let tag_pad = pad_right("#" + t.tag, 8, " ")
-
-            say "  " + ui::row(id_str, st_str, pri_str, title_pad, ui::badge(tag_pad, "magenta"))
-            m_idx += 1
+            let tag_badge = ui::badge("#" + t.tag, "magenta")
+            rows.push([id_str, st_str, pri_str, title_disp, tag_badge])
         end
+        let tbl = ui::table_create(["ID", "ST", "PRIORITY", "TASK TITLE", "TAG"], rows, "unicode")
+        say ui::table_render(tbl)
     end
-
-    say "  " + ui::box_bot(4, 3, 8, 31, 8)
 
     let pbar = ui::progress_bar(done_count, total_count, 16)
     say "  " + style_bold("Progress") + ": " + pbar + " (" + str(done_count) + "/" + str(total_count) + " completed, " + str(total_count - done_count) + " pending)"
@@ -222,9 +203,7 @@ end
 function cmd_set_done(db_path, task_id, is_done)
     let tasks = load_tasks(db_path)
     let found = 0
-    let i = 0
-    while i < arr_len(tasks)
-        let t = tasks[i]
+    for t in tasks
         if t.id == task_id
             t.done = is_done
             found = 1
@@ -235,7 +214,6 @@ function cmd_set_done(db_path, task_id, is_done)
             end
             break
         end
-        i += 1
     end
 
     if found == 0
@@ -249,16 +227,13 @@ function cmd_delete(db_path, task_id)
     let tasks = load_tasks(db_path)
     let new_tasks = []
     let found = 0
-    let i = 0
-    while i < arr_len(tasks)
-        let t = tasks[i]
+    for t in tasks
         if t.id == task_id
             found = 1
             say color_green("✓ Removed task #") + str(task_id) + ": " + t.title
         else
             new_tasks.push(t)
         end
-        i += 1
     end
 
     if found == 0
@@ -272,15 +247,12 @@ function cmd_clear(db_path)
     let tasks = load_tasks(db_path)
     let active_tasks = []
     let cleared = 0
-    let i = 0
-    while i < arr_len(tasks)
-        let t = tasks[i]
+    for t in tasks
         if t.done == 1
             cleared += 1
         else
             active_tasks.push(t)
         end
-        i += 1
     end
 
     save_tasks(db_path, active_tasks)
@@ -295,20 +267,15 @@ function cmd_stats(db_path)
     let med = 0
     let low = 0
 
-    let i = 0
-    while i < total
-        let t = tasks[i]
+    for t in tasks
         if t.done == 1
             done += 1
         end
-        if t.priority == "HIGH"
-            high += 1
-        elif t.priority == "MED"
-            med += 1
-        elif t.priority == "LOW"
-            low += 1
+        when t.priority
+            is "HIGH" then high += 1
+            is "MED" then med += 1
+            is "LOW" then low += 1
         end
-        i += 1
     end
 
     let pct = 0
@@ -453,10 +420,10 @@ function tokenize_command(line)
                 cur += ch
             end
         else
-            if ch == "\"" or ch == "'"
+            if ch in ["\"", "'"]
                 in_quote = 1
                 quote_char = ch
-            elif ch == " " or ch == "\t"
+            elif ch in [" ", "\t"]
                 if len(cur) > 0
                     tokens.push(cur)
                     cur = ""
@@ -483,7 +450,7 @@ function execute_action(tokens, db_path)
     let raw_cmd = tokens[0]
     let cmd = lower(raw_cmd)
 
-    if cmd == "help" or cmd == "--help" or cmd == "-h" or cmd == "?"
+    if cmd in ["help", "--help", "-h", "?"]
         print_banner()
         print_help()
         return
@@ -493,20 +460,20 @@ function execute_action(tokens, db_path)
     elif cmd == "stats"
         cmd_stats(db_path)
         return
-    elif cmd == "list" or cmd == "ls"
+    elif cmd in ["list", "ls"]
         let filter_status = -1
         let filter_tag = ""
         let j = 1
         while j < arr_len(tokens)
             let tok = tokens[j]
             let tok_l = lower(tok)
-            if tok_l == "--all" or tok_l == "-all" or tok_l == "all" or tok_l == "-a"
+            if tok_l in ["--all", "-all", "all", "-a"]
                 filter_status = -1
-            elif tok_l == "--pending" or tok_l == "-pending" or tok_l == "pending" or tok_l == "-p" or tok_l == "todo" or tok_l == "active"
+            elif tok_l in ["--pending", "-pending", "pending", "-p", "todo", "active"]
                 filter_status = 0
-            elif tok_l == "--done" or tok_l == "-done" or tok_l == "done" or tok_l == "-d" or tok_l == "completed"
+            elif tok_l in ["--done", "-done", "done", "-d", "completed"]
                 filter_status = 1
-            elif (tok_l == "--tag" or tok_l == "-t") and j + 1 < arr_len(tokens)
+            elif tok_l in ["--tag", "-t"] and j + 1 < arr_len(tokens)
                 filter_tag = lower(tokens[j + 1])
                 j += 1
             elif starts_with(tok_l, "--tag=")
@@ -531,12 +498,12 @@ function execute_action(tokens, db_path)
         while j < arr_len(tokens)
             let tok = tokens[j]
             let tok_l = lower(tok)
-            if (tok_l == "--pri" or tok_l == "-p" or tok_l == "--priority") and j + 1 < arr_len(tokens)
+            if tok_l in ["--pri", "-p", "--priority"] and j + 1 < arr_len(tokens)
                 pri = tokens[j + 1]
                 j += 1
             elif starts_with(tok_l, "--pri=")
                 pri = substring(tok, 6, len(tok) - 6)
-            elif (tok_l == "--tag" or tok_l == "-t") and j + 1 < arr_len(tokens)
+            elif tok_l in ["--tag", "-t"] and j + 1 < arr_len(tokens)
                 tag = tokens[j + 1]
                 j += 1
             elif starts_with(tok_l, "--tag=")
@@ -568,7 +535,7 @@ function execute_action(tokens, db_path)
 
         cmd_add(db_path, title, pri, tag)
         return
-    elif cmd == "done" or cmd == "undone"
+    elif cmd in ["done", "undone"]
         if arr_len(tokens) < 2
             say color_red("Error: Missing task ID. Usage: ") + cmd + " <id>"
             return
@@ -588,7 +555,7 @@ function execute_action(tokens, db_path)
             cmd_set_done(db_path, tid, 0)
         end
         return
-    elif cmd == "rm" or cmd == "delete" or cmd == "remove"
+    elif cmd in ["rm", "delete", "remove"]
         if arr_len(tokens) < 2
             say color_red("Error: Missing task ID. Usage: ") + cmd + " <id>"
             return
@@ -626,7 +593,7 @@ function interactive_mode(db_path)
         end
 
         let first = lower(tokens[0])
-        if first == "exit" or first == "quit" or first == "q"
+        if first in ["exit", "quit", "q"]
             say "Goodbye!"
             break
         end
@@ -644,7 +611,7 @@ function main()
         return
     end
 
-    if cli_args[0] == "--test" or cli_args[0] == "test"
+    if cli_args[0] in ["--test", "test"]
         run_test_suite()
         return
     end

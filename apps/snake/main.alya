@@ -8,6 +8,7 @@
 #   - Turn-based interactive player mode (WASD + Enter)
 #   - Autonomous AI Autopilot mode (--demo or --ai)
 #   - High-score tracking, food spawning, collision mechanics
+#   - Modern struct methods, when pattern matching, and for loops
 #   - Non-hanging automated smoke test mode (--test)
 #
 # Controls:
@@ -34,6 +35,10 @@ struct Point
     y
 end
 
+function Point.equals(self, other)
+    return self.x == other.x and self.y == other.y
+end
+
 function abs_val(n)
     if n < 0
         return 0 - n
@@ -41,39 +46,26 @@ function abs_val(n)
     return n
 end
 
+function is_body_collision(x, y, body)
+    for b in body
+        if b.x == x and b.y == y
+            return 1
+        end
+    end
+    return 0
+end
+
 function spawn_food(width, height, body)
     let tries = 0
     while tries < 100
         let fx = r::int(1, width - 2)
         let fy = r::int(1, height - 2)
-        let collision = 0
-        let i = 0
-        while i < arr_len(body)
-            let b = body[i]
-            if b.x == fx and b.y == fy
-                collision = 1
-                break
-            end
-            i += 1
-        end
-        if collision == 0
+        if is_body_collision(fx, fy, body) == 0
             return Point(fx, fy)
         end
         tries += 1
     end
     return Point(5, 5)
-end
-
-function is_body_collision(x, y, body)
-    let i = 0
-    while i < arr_len(body)
-        let b = body[i]
-        if b.x == x and b.y == y
-            return 1
-        end
-        i += 1
-    end
-    return 0
 end
 
 function show_header(score, moves, is_ai)
@@ -135,17 +127,19 @@ end
 function get_player_move(cur_dx, cur_dy)
     let prompt = "  Move [W/A/S/D, Enter=step, Q=quit]: "
     let raw = lower(trim(ask(prompt)))
-    if raw == "q" or raw == "quit"
+    if raw in ["q", "quit"]
         return 999, 999
     end
-    if raw == "w" or raw == "up"
-        if cur_dy != 1 return 0, -1 end
-    elif raw == "s" or raw == "down"
-        if cur_dy != -1 return 0, 1 end
-    elif raw == "a" or raw == "left"
-        if cur_dx != 1 return -1, 0 end
-    elif raw == "d" or raw == "right"
-        if cur_dx != -1 return 1, 0 end
+    when raw
+        is "w" then if cur_dy != 1 return 0, -1 end
+        is "up" then if cur_dy != 1 return 0, -1 end
+        is "s" then if cur_dy != -1 return 0, 1 end
+        is "down" then if cur_dy != -1 return 0, 1 end
+        is "a" then if cur_dx != 1 return -1, 0 end
+        is "left" then if cur_dx != 1 return -1, 0 end
+        is "d" then if cur_dx != -1 return 1, 0 end
+        is "right" then if cur_dx != -1 return 1, 0 end
+        else return cur_dx, cur_dy
     end
     return cur_dx, cur_dy
 end
@@ -153,9 +147,7 @@ end
 function count_free_neighbors(body, x, y)
     let count = 0
     let test_dirs = [Point(0, -1), Point(0, 1), Point(-1, 0), Point(1, 0)]
-    let j = 0
-    while j < 4
-        let td = test_dirs[j]
+    for td in test_dirs
         let tx = x + int(td.x)
         let ty = y + int(td.y)
         if tx >= 1 and ty >= 1
@@ -163,7 +155,6 @@ function count_free_neighbors(body, x, y)
                 count += 1
             end
         end
-        j += 1
     end
     return count
 end
@@ -182,9 +173,7 @@ function choose_ai_move(width, height, body, food, cur_dx, cur_dy)
     let best_dy = cur_dy
     let found = 0
 
-    let i = 0
-    while i < arr_len(dirs)
-        let d = dirs[i]
+    for d in dirs
         # Avoid reversing immediately
         if not (d.x == 0 - cur_dx and d.y == 0 - cur_dy)
             let nx = int(head.x) + int(d.x)
@@ -208,7 +197,6 @@ function choose_ai_move(width, height, body, food, cur_dx, cur_dy)
                 end
             end
         end
-        i += 1
     end
 
     if found == 1
@@ -238,16 +226,13 @@ function main()
     let is_ai = 0
     let is_test = 0
 
-    let i = 0
-    while i < arr_len(cli_args)
-        let a = cli_args[i]
-        if a == "--demo" or a == "--ai"
+    for a in cli_args
+        if a in ["--demo", "--ai"]
             is_ai = 1
-        elif a == "--test" or a == "--simulate"
+        elif a in ["--test", "--simulate"]
             is_test = 1
             is_ai = 1
         end
-        i += 1
     end
 
     let width = 22
