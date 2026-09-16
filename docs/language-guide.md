@@ -12,17 +12,17 @@ A comprehensive single-page reference for the syntax, features, and standard lib
 2. [Variables, Constants & Operators](#2-variables-constants--operators)
 3. [String Interpolation & Built-ins](#3-string-interpolation--built-ins)
 4. [Interactive User Input](#4-interactive-user-input)
-5. [Control Flow](#5-control-flow)
-6. [Functions & Gradual Typing](#6-functions--gradual-typing)
+5. [Control Flow & Defer](#5-control-flow)
+6. [Functions, Gradual Typing & Lambdas](#6-functions--gradual-typing)
 7. [Enumerations (`enum`)](#7-enumerations-enum)
 8. [Pattern Matching (`when`)](#8-pattern-matching-when)
 9. [Exception Handling (`try ... catch`)](#9-exception-handling-try--catch)
-10. [Arrays & Dynamic Methods](#10-arrays--dynamic-methods)
+10. [Arrays, Dynamic Methods & Slicing](#10-arrays--dynamic-methods)
 11. [Modules & Standard Library](#11-modules--standard-library)
 12. [Floating-Point Numbers](#12-floating-point-numbers)
-13. [Structs & Default Values](#13-structs--default-values)
+13. [Structs, Default Values & Methods](#13-structs--default-values)
 14. [Command-Line Arguments (`args()`)](#14-command-line-arguments-args)
-15. [Hash Maps & Dictionaries (`map()`)](#15-hash-maps--dictionaries-map)
+15. [Hash Maps & Dictionaries (`map()`, `{}`)](#15-hash-maps--dictionaries-map)
 16. [File I/O](#16-file-io)
 17. [Character & String Utilities](#17-character--string-utilities)
 18. [Self-Hosting Prototype](#18-self-hosting-prototype-compiler-in-alya)
@@ -133,6 +133,21 @@ flags &= mask         # In-place bitwise compound assignment
 let custom_port = null
 let port = custom_port ?? 8080
 say port              # 8080
+```
+
+#### Optional Chaining (`?.`, `?.[]`, `?.()`)
+Safely access nested fields, array/map indices, or function calls without throwing null-dereference errors. If the operand evaluates to `null`, the expression immediately short-circuits to `null`:
+
+```alya
+let user = null
+say user?.name              # null (safe field access)
+say user?.profile?.email    # null (chained safe access)
+
+let items = null
+say items?.[0]              # null (safe indexing)
+
+let handler = null
+say handler?.()             # null (safe optional call)
 ```
 
 ---
@@ -259,6 +274,32 @@ for i in 1..5
 end
 ```
 
+#### Resource Cleanup (`defer`)
+The `defer` statement schedules an expression or statement to execute right before the enclosing function returns, regardless of which branch or early exit is taken. Multiple `defer` statements execute in **LIFO** (Last-In, First-Out) order:
+
+```alya
+function process_data(filename, early_exit = false)
+    say "1. Opening file: {filename}"
+    defer say "4. File closed: {filename}"
+    defer say "3. Flushed buffers"
+
+    if early_exit
+        say "Taking early return"
+        return "early"
+    end
+
+    say "2. Processing records..."
+    return "success"
+end
+
+process_data("input.csv")
+# Output:
+# 1. Opening file: input.csv
+# 2. Processing records...
+# 3. Flushed buffers
+# 4. File closed: input.csv
+```
+
 ---
 
 ### 6. Functions & Gradual Typing
@@ -308,6 +349,39 @@ end
 function array_len(items: int[]) -> int
     return len(items)
 end
+```
+
+#### Lambdas & Anonymous Functions (`fn(args) => expr`)
+Alya supports concise arrow lambdas and first-class functions. Lambdas can be assigned to variables, passed as callbacks to higher-order functions, or invoked directly:
+
+```alya
+# Single & multi-parameter lambdas
+let double = fn(x) => x * 2
+let add = fn(a, b) => a + b
+say double(21)           # 42
+say add(15, 27)          # 42
+
+# Higher-order functions
+function apply(f, val)
+    return f(val)
+end
+
+function apply_twice(f, val)
+    return f(f(val))
+end
+
+say apply(fn(x) => x * 3, 7)         # 21
+say apply_twice(fn(n) => n + 10, 5)  # 25
+
+# Named functions as first-class values
+function square(x)
+    return x * x
+end
+let operation = square
+say operation(5)                     # 25
+
+# Direct lambda call
+say (fn(x) => x + 100)(50)           # 150
 ```
 
 ---
@@ -433,6 +507,20 @@ try
 catch err
     say "Caught error: " + err    # Caught error: index out of bounds
 end
+
+# Array & String Slicing
+let items = [10, 20, 30, 40, 50]
+say items[1..3]       # [20, 30] (from index 1 up to index 3)
+say items[:2]         # [10, 20] (from beginning to index 2)
+say items[3:]         # [40, 50] (from index 3 to end)
+say items[:]          # [10, 20, 30, 40, 50] (shallow copy)
+say items[1:4]        # [20, 30, 40] (colon syntax also supported)
+
+let text = "Hello, World!"
+say text[0..5]        # "Hello"
+say text[7:]          # "World!"
+say text[:5]          # "Hello"
+say text[:]           # "Hello, World!"
 ```
 
 ---
@@ -508,7 +596,7 @@ say int("50")                # String to integer: 50
 
 ---
 
-### 13. Structs & Default Values
+### 13. Structs, Default Values & Methods
 
 Custom composite data types with field defaults, partial initialization, and both named and positional constructors:
 
@@ -554,6 +642,33 @@ say "{admin.name} ({admin.role})"   # "Alice (admin)"
 # Field mutation & compound assignment
 guest.name = "Bob"
 guest.id += 1
+```
+
+#### Struct Methods & UFCS
+Functions can be associated with structs as instance methods or static functions using dot notation (`function Struct.method(self, ...)`):
+
+```alya
+struct Point
+    x = 0
+    y = 0
+end
+
+# Instance method taking self
+function Point.translate(self, dx, dy)
+    self.x += dx
+    self.y += dy
+    return self
+end
+
+# Static constructor method
+function Point.create(x, y)
+    return Point { x: x, y: y }
+end
+
+# Usage:
+let p = Point.create(10, 20)
+p.translate(5, -5)
+say "Point: ({p.x}, {p.y})"   # "Point: (15, 15)"
 ```
 
 ---
