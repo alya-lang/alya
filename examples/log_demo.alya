@@ -35,16 +35,16 @@ log_fatal("Fatal: System halted!")
 
 # 5. Structured Logger
 say "\n--- 5. Structured Logger ---"
-let app_logger = logger_new("ApiGateway", 2) # Level INFO
-logger_debug(app_logger, "This debug trace will not appear")
-logger_info(app_logger, "Handled GET /v1/users (200 OK)")
-logger_warn(app_logger, "Rate limit reached for IP 192.168.1.50")
-logger_error(app_logger, "Database query failed: deadlock detected")
+let app_logger = logger_new("ApiGateway", LogLevel.Info)
+app_logger.debug("This debug trace will not appear")
+app_logger.info("Handled GET /v1/users (200 OK)")
+app_logger.warn("Rate limit reached for IP 192.168.1.50")
+app_logger.error("Database query failed: deadlock detected")
 
 # 6. Logger with Timestamps
 say "\n--- 6. Logger with Timestamps ---"
-logger_set_timestamps(app_logger, 1)
-logger_info(app_logger, "Cluster rebalancing started.")
+app_logger.set_timestamps(1)
+app_logger.info("Cluster rebalancing started.")
 
 # 7. Advanced Production Logging
 say "\n--- 7. Advanced / Production Logging ---"
