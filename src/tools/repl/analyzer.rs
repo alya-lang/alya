@@ -33,6 +33,9 @@ pub fn is_input_incomplete(input: &str) -> bool {
             | TokenType::Struct => {
                 block_depth += 1;
             }
+            TokenType::Identifier(s) if s == "fn" => {
+                block_depth += 1;
+            }
             TokenType::End => {
                 block_depth = (block_depth - 1).max(0);
             }
@@ -77,7 +80,14 @@ pub fn is_input_incomplete(input: &str) -> bool {
             | TokenType::BitOr
             | TokenType::BitXor
             | TokenType::Colon
-            | TokenType::Question => return true,
+            | TokenType::Question
+            | TokenType::FatArrow
+            | TokenType::Arrow
+            | TokenType::In
+            | TokenType::Is
+            | TokenType::DotDot
+            | TokenType::DotDotDot
+            | TokenType::Not => return true,
             _ => {}
         }
     }
