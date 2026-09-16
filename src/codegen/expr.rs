@@ -826,10 +826,21 @@ impl CodeGen {
                         let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
                         let candidate1 = format!("{}__{}", sname, name);
                         let candidate2 = format!("{}__{}", bare_sname, name);
+                        let suffix1 = format!("__{}", candidate1);
+                        let suffix2 = format!("__{}", candidate2);
+                        let suffix3 = format!("::{}", candidate1);
+                        let suffix4 = format!("::{}", candidate2);
                         if self.ctx.functions.contains(&candidate1) {
                             resolved_name = candidate1;
                         } else if self.ctx.functions.contains(&candidate2) {
                             resolved_name = candidate2;
+                        } else if let Some(matched) = self.ctx.functions.iter().find(|f| {
+                            f.ends_with(&suffix1)
+                                || f.ends_with(&suffix2)
+                                || f.ends_with(&suffix3)
+                                || f.ends_with(&suffix4)
+                        }) {
+                            resolved_name = matched.clone();
                         }
                     }
                 }

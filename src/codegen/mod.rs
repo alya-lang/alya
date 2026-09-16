@@ -180,7 +180,7 @@ impl CodeGen {
         }
 
         for stmt in &program.statements {
-            if let Stmt::Function { name, .. } = stmt {
+            if let Stmt::Function { name, .. } = stmt.inner_stmt() {
                 self.ctx.functions.insert(name.clone());
                 if let Some(sname) = inference.infer_function_return_struct_type(name) {
                     self.ctx.variables.insert(
@@ -240,7 +240,7 @@ impl CodeGen {
                 abi,
                 lib,
                 functions,
-            } = stmt
+            } = stmt.inner_stmt()
             {
                 if let Some(ref l) = lib {
                     self.ctx.extern_libs.insert(l.clone());
@@ -555,7 +555,7 @@ pub fn collect_extern_libraries(program: &Program) -> Vec<String> {
     for stmt in &program.statements {
         if let Stmt::ExternBlock {
             lib: Some(ref lib), ..
-        } = stmt
+        } = stmt.inner_stmt()
         {
             if !libs.contains(lib) {
                 libs.push(lib.clone());
