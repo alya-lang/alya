@@ -1465,7 +1465,20 @@ impl CodeGen {
                 let null_label = self.ctx.next_label();
                 let end_label = self.ctx.next_label();
 
-                if let Some(target) = args.first() {
+                let is_callee_var =
+                    self.ctx.variables.contains_key(callee) && !self.ctx.functions.contains(callee);
+
+                if is_callee_var {
+                    self.generate_expression(&Expr::Identifier(callee.clone()));
+                    arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+                    arch::emit_cond_jump(
+                        &mut self.output,
+                        self.arch,
+                        BinaryOp::Equal,
+                        false,
+                        &null_label,
+                    );
+                } else if let Some(target) = args.first() {
                     self.generate_expression(target);
                     arch::emit_cmp_imm(&mut self.output, self.arch, 0);
                     arch::emit_cond_jump(

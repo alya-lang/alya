@@ -391,6 +391,22 @@ impl Parser {
                             };
                         }
                     }
+                } else if is_qdot && matches!(self.current_token().token_type, TokenType::LeftParen)
+                {
+                    self.advance();
+                    let mut args = Vec::new();
+                    while !matches!(self.current_token().token_type, TokenType::RightParen) {
+                        args.push(self.parse_expression()?);
+                        if matches!(self.current_token().token_type, TokenType::Comma) {
+                            self.advance();
+                        }
+                    }
+                    self.expect(TokenType::RightParen)?;
+                    let callee = match expr {
+                        Expr::Identifier(name) => name,
+                        _ => "".to_string(),
+                    };
+                    expr = Expr::OptionalCall { callee, args };
                 } else {
                     let field = match &self.current_token().token_type {
                         TokenType::Identifier(f) => f.clone(),
