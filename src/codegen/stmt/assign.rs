@@ -404,11 +404,25 @@ impl CodeGen {
                 if let Expr::Identifier(target_fn) = value {
                     let bare_tgt = target_fn.rsplit("::").next().unwrap_or(target_fn);
                     let bare_tgt = bare_tgt.rsplit("__").next().unwrap_or(bare_tgt);
-                    for ret_prefix in &["fn_ret_str:", "fn_ret_flt:", "fn_ret_map:", "fn_ret_arr:", "fn_ret_struct:"] {
+                    for ret_prefix in &[
+                        "fn_ret_str:",
+                        "fn_ret_flt:",
+                        "fn_ret_map:",
+                        "fn_ret_arr:",
+                        "fn_ret_struct:",
+                    ] {
                         let k1 = format!("{}{}", ret_prefix, target_fn);
                         let k2 = format!("{}{}", ret_prefix, bare_tgt);
-                        if let Some(vt) = self.ctx.variables.get(&k1).or_else(|| self.ctx.variables.get(&k2)).cloned() {
-                            self.ctx.variables.insert(format!("{}{}", ret_prefix, name), vt);
+                        if let Some(vt) = self
+                            .ctx
+                            .variables
+                            .get(&k1)
+                            .or_else(|| self.ctx.variables.get(&k2))
+                            .cloned()
+                        {
+                            self.ctx
+                                .variables
+                                .insert(format!("{}{}", ret_prefix, name), vt);
                         }
                     }
                 }
