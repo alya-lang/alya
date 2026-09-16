@@ -155,9 +155,7 @@ pub fn resolve_enums_in_expr(expr: &mut Expr, enums: &HashMap<String, HashMap<St
                 }
             }
         }
-        Expr::Identifier(ident)
-            if ident.contains("::") =>
-        {
+        Expr::Identifier(ident) if ident.contains("::") => {
             let parts: Vec<&str> = ident.split("::").collect();
             if parts.len() >= 2 {
                 let variant_name = parts.last().unwrap();

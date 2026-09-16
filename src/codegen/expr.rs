@@ -1563,7 +1563,11 @@ impl CodeGen {
                         1
                     }
                 } else {
-                    if negated { 1 } else { 0 }
+                    if negated {
+                        1
+                    } else {
+                        0
+                    }
                 };
                 arch::emit_load_num(&mut self.output, self.arch, result);
             }

@@ -398,8 +398,7 @@ impl Parser {
             {
                 let is_qdot = matches!(self.current_token().token_type, TokenType::QuestionDot);
                 self.advance();
-                if !is_qdot || matches!(self.current_token().token_type, TokenType::LeftBracket)
-                {
+                if !is_qdot || matches!(self.current_token().token_type, TokenType::LeftBracket) {
                     self.advance();
                     if matches!(
                         self.current_token().token_type,

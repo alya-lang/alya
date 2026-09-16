@@ -2,10 +2,7 @@ use crate::ast::*;
 
 type FunctionDef<'a> = (&'a str, &'a [String], &'a [Option<String>], &'a [Stmt]);
 
-pub fn collect_function_defs<'a>(
-    stmts: &'a [Stmt],
-    defs: &mut Vec<FunctionDef<'a>>,
-) {
+pub fn collect_function_defs<'a>(stmts: &'a [Stmt], defs: &mut Vec<FunctionDef<'a>>) {
     for stmt in stmts {
         match stmt {
             Stmt::Function {
