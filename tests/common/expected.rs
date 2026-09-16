@@ -102,6 +102,32 @@ Result: Grade B - Good job!\n\
 Status: Eligible for honors\n\
 Award:  Scholarship considered\n",
         ),
+        "destructuring.alya" => Some(concat!(
+            "=== Array Destructuring ===\n",
+            "x: 10, y: 20, z: 30\n\n",
+            "=== Rest Pattern ===\n",
+            "First: 1\n",
+            "Second: 2\n",
+            "Tail length: 3\n\n",
+            "=== Multiple Returns ===\n",
+            "Resolution: 1920x1080\n\n",
+            "=== In and Not In Operators ===\n",
+            "Has apple: 1\n",
+            "Grape not in fruits: 1\n",
+        )),
+        "enums.alya" => Some(concat!(
+            "=== Enums in Alya ===\n",
+            "Status.Pending: 1\n",
+            "Status.Active: 2\n",
+            "Status.Completed: 3\n",
+            "Status.Failed: 4\n\n",
+            "=== Pattern Matching with Enums ===\n",
+            "Active / In Progress\n",
+            "Successfully Completed\n\n",
+            "=== Direction Enums ===\n",
+            "Heading East: 90 degrees\n",
+            "Heading South: 180 degrees\n",
+        )),
         "fibonacci.alya" => Some(
             "=== Fibonacci Sequence in Alya ===\n\
 Computing first 10 Fibonacci numbers with a loop:\n\
@@ -338,6 +364,18 @@ Status 201: OK / Created\n\
 Priority 2: Medium\n",
         ),
         "quickstart_arithmetic.alya" => Some("15\n5\n50\n2\n"),
+        "struct_methods.alya" => Some(concat!(
+            "=== Vector2D Methods ===\n",
+            "Vector2D(3, 4)\n",
+            "Length squared: 25\n",
+            "After adding (10, 20):\n",
+            "Vector2D(13, 24)\n\n",
+            "=== BankAccount Methods ===\n",
+            "Initial balance: 100\n",
+            "After deposit 50: 150\n",
+            "Withdraw 30 ok: 1\n",
+            "Final balance: 120\n",
+        )),
         "structs.alya" => Some(concat!(
             "=== Structs and Custom Types ===\n",
             "Point 1:\n",

@@ -1,0 +1,57 @@
+# Struct Methods in Alya
+# Demonstrates defining methods directly on structs with 'self'
+
+struct Vector2D
+    x
+    y
+end
+
+function Vector2D.length_squared(self)
+    return self.x * self.x + self.y * self.y
+end
+
+function Vector2D.add(self, dx, dy)
+    self.x += dx
+    self.y += dy
+end
+
+function Vector2D.display(self)
+    say "Vector2D({self.x}, {self.y})"
+end
+
+struct BankAccount
+    owner
+    balance
+end
+
+function BankAccount.deposit(self, amount)
+    self.balance += amount
+    return self.balance
+end
+
+function BankAccount.withdraw(self, amount)
+    if amount <= self.balance
+        self.balance -= amount
+        return 1
+    end
+    return 0
+end
+
+say "=== Vector2D Methods ==="
+let v = Vector2D(3, 4)
+v.display()
+let len_sq = v.length_squared()
+say "Length squared: {len_sq}"
+
+v.add(10, 20)
+say "After adding (10, 20):"
+v.display()
+
+say "\n=== BankAccount Methods ==="
+let acc = BankAccount("Alice", 100)
+say "Initial balance: {acc.balance}"
+let new_bal = acc.deposit(50)
+say "After deposit 50: {new_bal}"
+let ok = acc.withdraw(30)
+say "Withdraw 30 ok: {ok}"
+say "Final balance: {acc.balance}"
