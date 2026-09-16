@@ -10,17 +10,17 @@
 
 # --- Global PRNG Seeding & State ---
 
-function rand_seed_state(s)
+pub function rand_seed_state(s)
     rand_seed(s)
 end
 
-function rand_auto_seed()
+pub function rand_auto_seed()
     let s = (time() * 1000) + (clock_ms() % 1000) + rand()
     rand_seed(s)
 end
 
 # Generates a pseudo-random integer in the range [0, 2147483647] using the global PRNG.
-function rand_next()
+pub function rand_next()
     let r = rand()
     if r < 0
         r = 0 - r
@@ -29,7 +29,7 @@ function rand_next()
 end
 
 # Generates a pseudo-random integer in the inclusive range [min_val, max_val].
-function rand_int(min_val, max_val)
+pub function rand_int(min_val, max_val)
     if min_val >= max_val
         return min_val
     end
@@ -39,13 +39,13 @@ function rand_int(min_val, max_val)
 end
 
 # Generates a pseudo-random float in the range [0.0, 1.0).
-function rand_float()
+pub function rand_float()
     let r = rand_next() % 1000000000
     return r / 1000000000.0
 end
 
 # Generates a pseudo-random float in the range [min_val, max_val).
-function rand_float_range(min_val, max_val)
+pub function rand_float_range(min_val, max_val)
     if min_val >= max_val
         return min_val
     end
@@ -54,12 +54,12 @@ function rand_float_range(min_val, max_val)
 end
 
 # Returns 1 or 0 with 50% probability.
-function rand_bool()
+pub function rand_bool()
     return rand_next() % 2
 end
 
 # Returns 1 if an event with probability 'pct' (0..100) occurs, else 0.
-function rand_chance(pct)
+pub function rand_chance(pct)
     if pct <= 0
         return 0
     end
@@ -72,7 +72,7 @@ end
 # --- Basic Collection Helpers ---
 
 # Returns a randomly selected element from 'arr'.
-function rand_choice(arr)
+pub function rand_choice(arr)
     let n = len(arr)
     if n == 0
         return 0

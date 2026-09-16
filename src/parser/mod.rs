@@ -473,6 +473,20 @@ fn resolve_stmt_imports(
                 std::collections::HashSet::new()
             };
 
+            let private_fns: std::collections::HashSet<String> = if has_any_pub {
+                sub_program
+                    .statements
+                    .iter()
+                    .filter(|s| !s.is_pub())
+                    .filter_map(|s| match s.inner_stmt() {
+                        Stmt::Function { name, .. } => Some(name.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            } else {
+                std::collections::HashSet::new()
+            };
+
             let mut local_fns: std::collections::HashSet<String> =
                 if !is_embedded_stdlib || alias.is_some() {
                     sub_program
@@ -538,31 +552,20 @@ fn resolve_stmt_imports(
                 }
             }
 
-            if has_any_pub {
-                let private_fns: std::collections::HashSet<String> = sub_resolved
-                    .iter()
-                    .filter(|s| !s.is_pub())
-                    .filter_map(|s| match s.inner_stmt() {
-                        Stmt::Function { name, .. } => Some(name.clone()),
-                        _ => None,
-                    })
+            if !private_fns.is_empty() {
+                let mod_stem = canonical
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("mod");
+                let clean_stem: String = mod_stem
+                    .chars()
+                    .filter(|c| c.is_alphanumeric() || *c == '_')
                     .collect();
-
-                if !private_fns.is_empty() {
-                    let mod_stem = canonical
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("mod");
-                    let clean_stem: String = mod_stem
-                        .chars()
-                        .filter(|c| c.is_alphanumeric() || *c == '_')
-                        .collect();
-                    use std::hash::{Hash, Hasher};
-                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                    canonical.hash(&mut hasher);
-                    let priv_alias = format!("__priv_{}_{:x}", clean_stem, hasher.finish());
-                    apply_module_alias(&mut sub_resolved, &priv_alias, &private_fns);
-                }
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                canonical.hash(&mut hasher);
+                let priv_alias = format!("__priv_{}_{:x}", clean_stem, hasher.finish());
+                apply_module_alias(&mut sub_resolved, &priv_alias, &private_fns);
             }
 
             if let Some(ref syms) = symbols {

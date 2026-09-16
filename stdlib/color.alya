@@ -7,56 +7,56 @@ function _esc(code, s)
 end
 
 # --- Foreground Colors ---
-function color_black(s) return _esc("30", s) end
-function color_red(s) return _esc("31", s) end
-function color_green(s) return _esc("32", s) end
-function color_yellow(s) return _esc("33", s) end
-function color_blue(s) return _esc("34", s) end
-function color_magenta(s) return _esc("35", s) end
-function color_cyan(s) return _esc("36", s) end
-function color_white(s) return _esc("37", s) end
-function color_gray(s) return _esc("90", s) end
+pub function color_black(s) return _esc("30", s) end
+pub function color_red(s) return _esc("31", s) end
+pub function color_green(s) return _esc("32", s) end
+pub function color_yellow(s) return _esc("33", s) end
+pub function color_blue(s) return _esc("34", s) end
+pub function color_magenta(s) return _esc("35", s) end
+pub function color_cyan(s) return _esc("36", s) end
+pub function color_white(s) return _esc("37", s) end
+pub function color_gray(s) return _esc("90", s) end
 
 # --- Bright Foreground Colors ---
-function color_bright_red(s) return _esc("91", s) end
-function color_bright_green(s) return _esc("92", s) end
-function color_bright_yellow(s) return _esc("93", s) end
-function color_bright_blue(s) return _esc("94", s) end
-function color_bright_magenta(s) return _esc("95", s) end
-function color_bright_cyan(s) return _esc("96", s) end
-function color_bright_white(s) return _esc("97", s) end
+pub function color_bright_red(s) return _esc("91", s) end
+pub function color_bright_green(s) return _esc("92", s) end
+pub function color_bright_yellow(s) return _esc("93", s) end
+pub function color_bright_blue(s) return _esc("94", s) end
+pub function color_bright_magenta(s) return _esc("95", s) end
+pub function color_bright_cyan(s) return _esc("96", s) end
+pub function color_bright_white(s) return _esc("97", s) end
 
 # --- Background Colors ---
-function bg_black(s) return _esc("40", s) end
-function bg_red(s) return _esc("41", s) end
-function bg_green(s) return _esc("42", s) end
-function bg_yellow(s) return _esc("43", s) end
-function bg_blue(s) return _esc("44", s) end
-function bg_magenta(s) return _esc("45", s) end
-function bg_cyan(s) return _esc("46", s) end
-function bg_white(s) return _esc("47", s) end
+pub function bg_black(s) return _esc("40", s) end
+pub function bg_red(s) return _esc("41", s) end
+pub function bg_green(s) return _esc("42", s) end
+pub function bg_yellow(s) return _esc("43", s) end
+pub function bg_blue(s) return _esc("44", s) end
+pub function bg_magenta(s) return _esc("45", s) end
+pub function bg_cyan(s) return _esc("46", s) end
+pub function bg_white(s) return _esc("47", s) end
 
 # --- Text Styles ---
-function style_bold(s) return _esc("1", s) end
-function style_dim(s) return _esc("2", s) end
-function style_italic(s) return _esc("3", s) end
-function style_underline(s) return _esc("4", s) end
-function style_inverse(s) return _esc("7", s) end
-function style_strikethrough(s) return _esc("9", s) end
+pub function style_bold(s) return _esc("1", s) end
+pub function style_dim(s) return _esc("2", s) end
+pub function style_italic(s) return _esc("3", s) end
+pub function style_underline(s) return _esc("4", s) end
+pub function style_inverse(s) return _esc("7", s) end
+pub function style_strikethrough(s) return _esc("9", s) end
 
-function color_bold(s) return style_bold(s) end
-function color_underline(s) return style_underline(s) end
-function color_italic(s) return style_italic(s) end
+pub function color_bold(s) return style_bold(s) end
+pub function color_underline(s) return style_underline(s) end
+pub function color_italic(s) return style_italic(s) end
 
 # --- 24-bit TrueColor RGB (r, g, b in range 0-255) ---
-function color_rgb(s, r, g, b)
+pub function color_rgb(s, r, g, b)
     let rc = str(r)
     let gc = str(g)
     let bc = str(b)
     return "\e[38;2;" + rc + ";" + gc + ";" + bc + "m" + str(s) + "\e[0m"
 end
 
-function bg_rgb(s, r, g, b)
+pub function bg_rgb(s, r, g, b)
     let rc = str(r)
     let gc = str(g)
     let bc = str(b)
@@ -64,25 +64,25 @@ function bg_rgb(s, r, g, b)
 end
 
 # --- 256-Color Palette ---
-function color_256(s, code)
+pub function color_256(s, code)
     let c = str(code)
     return "\e[38;5;" + c + "m" + str(s) + "\e[0m"
 end
 
-function bg_256(s, code)
+pub function bg_256(s, code)
     let c = str(code)
     return "\e[48;5;" + c + "m" + str(s) + "\e[0m"
 end
 
 # --- Raw ANSI Code Snippets ---
-function ansi_reset() return "\e[0m" end
-function ansi_bold() return "\e[1m" end
-function ansi_dim() return "\e[2m" end
-function ansi_italic() return "\e[3m" end
-function ansi_underline() return "\e[4m" end
+pub function ansi_reset() return "\e[0m" end
+pub function ansi_bold() return "\e[1m" end
+pub function ansi_dim() return "\e[2m" end
+pub function ansi_italic() return "\e[3m" end
+pub function ansi_underline() return "\e[4m" end
 
 # Strips all ANSI CSI escape sequences from text
-function ansi_strip(text)
+pub function ansi_strip(text)
     let s = str(text)
     let slen = len(s)
     let res = ""

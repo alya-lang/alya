@@ -1,7 +1,7 @@
 # Alya Standard Library - Hash Module
 # Provides non-cryptographic hashing algorithms (MurmurHash3, FNV-1/1a, CRC-16/32/64, Adler-32, DJB2, SDBM, Jenkins, ELF).
 
-function djb2(s)
+pub function djb2(s)
     let slen = len(s)
     let h = 5381
     let i = 0
@@ -12,7 +12,7 @@ function djb2(s)
     return h
 end
 
-function fnv1a(s)
+pub function fnv1a(s)
     let slen = len(s)
     let h = 2166136261
     let i = 0
@@ -23,7 +23,7 @@ function fnv1a(s)
     return h
 end
 
-function fnv1(s)
+pub function fnv1(s)
     let slen = len(s)
     let h = 2166136261
     let i = 0
@@ -34,7 +34,7 @@ function fnv1(s)
     return h
 end
 
-function fnv1a64(s)
+pub function fnv1a64(s)
     let slen = len(s)
     # 0xcbf29ce484222325 split into two 32-bit words
     let h = bit_or(bit_shl(3421674724, 32), 2216829733)
@@ -51,7 +51,7 @@ function _rotl32(x, r)
     return bit_and(bit_or(bit_shl(x, r), bit_shr(x, 32 - r)), 4294967295)
 end
 
-function murmur3_32(s, seed = 0)
+pub function murmur3_32(s, seed = 0)
     let slen = len(s)
     let h = seed
     let c1 = 3432918353
@@ -100,11 +100,11 @@ function murmur3_32(s, seed = 0)
     return h
 end
 
-function murmur3(s, seed = 0)
+pub function murmur3(s, seed = 0)
     return murmur3_32(s, seed)
 end
 
-function jenkins(s)
+pub function jenkins(s)
     let slen = len(s)
     let h = 0
     let i = 0
@@ -120,7 +120,7 @@ function jenkins(s)
     return h
 end
 
-function elf_hash(s)
+pub function elf_hash(s)
     let slen = len(s)
     let h = 0
     let g = 0
@@ -137,7 +137,7 @@ function elf_hash(s)
     return h
 end
 
-function int_to_hex(val, width = 0)
+pub function int_to_hex(val, width = 0)
     let hex_digits = "0123456789abcdef"
     if val == 0
         if width <= 0
@@ -164,7 +164,7 @@ function int_to_hex(val, width = 0)
     return res
 end
 
-function crc16(s)
+pub function crc16(s)
     let slen = len(s)
     let crc = 65535
     let i = 0
@@ -187,7 +187,7 @@ function crc16(s)
     return crc
 end
 
-function crc32(s)
+pub function crc32(s)
     let slen = len(s)
     let crc = 4294967295
     let i = 0
@@ -211,7 +211,7 @@ function crc32(s)
     return bit_xor(crc, 4294967295)
 end
 
-function crc64(s)
+pub function crc64(s)
     let slen = len(s)
     # 0x42F0E1EBA9EA3693 (ECMA-182) constructed from two 32-bit words
     let poly = bit_or(bit_shl(1123082731, 32), 2850698899)
@@ -236,27 +236,27 @@ function crc64(s)
     return crc
 end
 
-function crc16_hex(s)
+pub function crc16_hex(s)
     return int_to_hex(crc16(s), 4)
 end
 
-function crc32_hex(s)
+pub function crc32_hex(s)
     return int_to_hex(crc32(s), 8)
 end
 
-function crc64_hex(s)
+pub function crc64_hex(s)
     return int_to_hex(crc64(s), 16)
 end
 
-function murmur3_hex(s, seed = 0)
+pub function murmur3_hex(s, seed = 0)
     return int_to_hex(murmur3_32(s, seed), 8)
 end
 
-function fnv1a64_hex(s)
+pub function fnv1a64_hex(s)
     return int_to_hex(fnv1a64(s), 16)
 end
 
-function adler32(s)
+pub function adler32(s)
     let slen = len(s)
     let a = 1
     let b = 0
@@ -269,11 +269,11 @@ function adler32(s)
     return bit_or(bit_shl(b, 16), a)
 end
 
-function adler32_hex(s)
+pub function adler32_hex(s)
     return int_to_hex(adler32(s), 8)
 end
 
-function sdbm(s)
+pub function sdbm(s)
     let slen = len(s)
     let h = 0
     let i = 0
@@ -287,7 +287,7 @@ function sdbm(s)
     return h
 end
 
-function hash_combine(h1, h2)
+pub function hash_combine(h1, h2)
     let combined = bit_xor(h1, h2 + 2654435769 + bit_shl(h1, 6) + bit_shr(h1, 2))
     return bit_and(combined, 2147483647)
 end

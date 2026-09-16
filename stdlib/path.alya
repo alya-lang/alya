@@ -3,11 +3,11 @@
 
 # --- Separators ---
 
-function path_separator()
+pub function path_separator()
     return "/"
 end
 
-function native_separator()
+pub function native_separator()
     if target_os() == "windows"
         return "\\"
     end
@@ -16,7 +16,7 @@ end
 
 # --- Path Classification ---
 
-function is_absolute(path)
+pub function is_absolute(path)
     let plen = len(path)
     if plen == 0
         return 0
@@ -34,14 +34,14 @@ function is_absolute(path)
     return 0
 end
 
-function is_relative(path)
+pub function is_relative(path)
     if is_absolute(path)
         return 0
     end
     return 1
 end
 
-function is_root(path)
+pub function is_root(path)
     let plen = len(path)
     if plen == 1
         let c0 = char_at(path, 0)
@@ -63,7 +63,7 @@ end
 
 # --- Component Extraction ---
 
-function file_name(path)
+pub function file_name(path)
     let plen = len(path)
     if plen == 0
         return ""
@@ -84,11 +84,11 @@ function file_name(path)
     return substring(path, 0, end_idx)
 end
 
-function basename(path)
+pub function basename(path)
     return file_name(path)
 end
 
-function file_ext(path)
+pub function file_ext(path)
     let name = file_name(path)
     let nlen = len(name)
     if nlen <= 1
@@ -104,18 +104,18 @@ function file_ext(path)
     return ""
 end
 
-function extname(path)
+pub function extname(path)
     return file_ext(path)
 end
 
-function has_extension(path)
+pub function has_extension(path)
     if len(file_ext(path)) > 0
         return 1
     end
     return 0
 end
 
-function file_stem(path)
+pub function file_stem(path)
     let name = file_name(path)
     let ext = file_ext(name)
     let elen = len(ext)
@@ -125,11 +125,11 @@ function file_stem(path)
     return substring(name, 0, len(name) - elen)
 end
 
-function stem(path)
+pub function stem(path)
     return file_stem(path)
 end
 
-function parent_dir(path)
+pub function parent_dir(path)
     let plen = len(path)
     if plen == 0
         return "."
@@ -156,13 +156,13 @@ function parent_dir(path)
     return "."
 end
 
-function dirname(path)
+pub function dirname(path)
     return parent_dir(path)
 end
 
 # --- Path Transformations ---
 
-function with_file_name(path, new_name)
+pub function with_file_name(path, new_name)
     let pdir = parent_dir(path)
     if pdir == "."
         let has_slash = 0
@@ -183,7 +183,7 @@ function with_file_name(path, new_name)
     return path_join(pdir, new_name)
 end
 
-function with_extension(path, new_ext)
+pub function with_extension(path, new_ext)
     let pdir = parent_dir(path)
     let st = file_stem(path)
     let ext = new_ext
@@ -212,7 +212,7 @@ end
 
 # --- Joining & Normalization ---
 
-function path_join(a, b)
+pub function path_join(a, b)
     let alen = len(a)
     let blen = len(b)
     if alen == 0
@@ -237,11 +237,11 @@ function path_join(a, b)
     end
 end
 
-function path_join3(a, b, c)
+pub function path_join3(a, b, c)
     return path_join(path_join(a, b), c)
 end
 
-function path_join_all(parts)
+pub function path_join_all(parts)
     let total = len(parts)
     if total == 0
         return ""
@@ -255,7 +255,7 @@ function path_join_all(parts)
     return res
 end
 
-function to_slash(path)
+pub function to_slash(path)
     let plen = len(path)
     let res = ""
     let i = 0
@@ -272,11 +272,11 @@ function to_slash(path)
     return res
 end
 
-function normalize_slashes(path)
+pub function normalize_slashes(path)
     return to_slash(path)
 end
 
-function to_native_separators(path)
+pub function to_native_separators(path)
     if target_os() == "windows"
         let plen = len(path)
         let res = ""

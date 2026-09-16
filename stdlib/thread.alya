@@ -8,23 +8,23 @@ import "std/sync"
 # `func` is a function reference.
 # `arg` is an optional argument passed to `func` (default: null).
 # Returns a thread handle.
-function thread_spawn(func, arg = null)
+pub function thread_spawn(func, arg = null)
     return __native_thread_spawn(func, arg)
 end
 
 # Waits for the thread with handle `h` to complete.
 # Returns the return value of the thread's function.
 # Cleans up the thread handle and resources.
-function thread_join(h)
+pub function thread_join(h)
     return __native_thread_join(h)
 end
 
 # Returns the current OS thread ID as an integer.
-function thread_id()
+pub function thread_id()
     return __native_thread_id()
 end
 
 # Suspends the calling thread for `ms` milliseconds.
-function thread_sleep(ms)
+pub function thread_sleep(ms)
     sleep(ms)
 end

@@ -206,19 +206,19 @@ function _glob_match_simple_rec(p, p_idx, s, s_idx)
     return s_idx == slen
 end
 
-function glob_match(pattern, text)
+pub function glob_match(pattern, text)
     return _glob_match_path_rec(str_from_ptr(pattern), 0, str_from_ptr(text), 0)
 end
 
-function glob_match_simple(pattern, text)
+pub function glob_match_simple(pattern, text)
     return _glob_match_simple_rec(str_from_ptr(pattern), 0, str_from_ptr(text), 0)
 end
 
-function fnmatch(pattern, text)
+pub function fnmatch(pattern, text)
     return glob_match_simple(pattern, text)
 end
 
-function glob_filter(pattern, list)
+pub function glob_filter(pattern, list)
     let res = []
     let total = array_len(list)
     let i = 0
@@ -232,7 +232,7 @@ function glob_filter(pattern, list)
     return res
 end
 
-function glob_is_pattern(pattern)
+pub function glob_is_pattern(pattern)
     let s = str_from_ptr(pattern)
     let slen = len(s)
     let i = 0
@@ -246,7 +246,7 @@ function glob_is_pattern(pattern)
     return 0
 end
 
-function glob_escape(s)
+pub function glob_escape(s)
     let text = str_from_ptr(s)
     let tlen = len(text)
     let res = ""
@@ -286,12 +286,12 @@ function _glob_read_lines(file_path)
     return res
 end
 
-function glob_dir(pattern, dir_path)
+pub function glob_dir(pattern, dir_path)
     let d = str_from_ptr(dir_path)
     let raw_lines = list_dir(d)
     return glob_filter(pattern, raw_lines)
 end
 
-function glob(pattern)
+pub function glob(pattern)
     return glob_dir(pattern, ".")
 end

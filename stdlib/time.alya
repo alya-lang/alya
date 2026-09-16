@@ -1,47 +1,47 @@
 # Alya Standard Library - Time Module
 # Provides time querying and delay routines.
 
-function now()
+pub function now()
     return time()
 end
 
-function now_ms()
+pub function now_ms()
     return clock_ms()
 end
 
-function delay(ms)
+pub function delay(ms)
     return sleep(ms)
 end
 
-function sleep_sec(seconds)
+pub function sleep_sec(seconds)
     return sleep(seconds * 1000)
 end
 
-function elapsed(start_time)
+pub function elapsed(start_time)
     return time() - start_time
 end
 
-function elapsed_ms(start_time_ms)
+pub function elapsed_ms(start_time_ms)
     return clock_ms() - start_time_ms
 end
 
-function seconds(s)
+pub function seconds(s)
     return s
 end
 
-function minutes(m)
+pub function minutes(m)
     return m * 60
 end
 
-function hours(h)
+pub function hours(h)
     return h * 3600
 end
 
-function days(d)
+pub function days(d)
     return d * 86400
 end
 
-function is_leap_year(year)
+pub function is_leap_year(year)
     if year % 400 == 0
         return 1
     elif year % 100 == 0
@@ -50,7 +50,7 @@ function is_leap_year(year)
     return year % 4 == 0
 end
 
-function days_in_month(month, year)
+pub function days_in_month(month, year)
     when month
         is 1, 3, 5, 7, 8, 10, 12 then return 31
         is 4, 6, 9, 11 then return 30
@@ -64,7 +64,7 @@ function days_in_month(month, year)
     end
 end
 
-function format_duration(sec)
+pub function format_duration(sec)
     let h = sec / 3600
     let rem = sec % 3600
     let m = rem / 60
@@ -80,7 +80,7 @@ function format_duration(sec)
     return res
 end
 
-function timestamp()
+pub function timestamp()
     return time()
 end
 
@@ -93,7 +93,7 @@ end
 
 # Converts epoch seconds (UTC) to a calendar date/time map
 # Returns: {"year", "month", "day", "hour", "minute", "second", "weekday"}
-function epoch_to_date(epoch_sec)
+pub function epoch_to_date(epoch_sec)
     let days = epoch_sec / 86400
     let rem = epoch_sec % 86400
     if rem < 0
@@ -141,7 +141,7 @@ function epoch_to_date(epoch_sec)
 end
 
 # Converts year, month (1-12), day (1-31) to epoch seconds at 00:00:00 UTC
-function date_ymd_to_epoch(year, month, day)
+pub function date_ymd_to_epoch(year, month, day)
     let y = year
     if month <= 2
         y = y - 1
@@ -164,7 +164,7 @@ function date_ymd_to_epoch(year, month, day)
 end
 
 # Converts a date map {"year", "month", "day", "hour", "minute", "second"} to epoch seconds
-function date_to_epoch(d)
+pub function date_to_epoch(d)
     let ymd_sec = date_ymd_to_epoch(d["year"], d["month"], d["day"])
     let h = 0
     let m = 0
@@ -176,29 +176,29 @@ function date_to_epoch(d)
 end
 
 # Formats epoch seconds into an ISO 8601 string: "YYYY-MM-DDTHH:MM:SSZ"
-function format_iso(epoch_sec)
+pub function format_iso(epoch_sec)
     let d = epoch_to_date(epoch_sec)
     return str(d["year"]) + "-" + _time_pad2(d["month"]) + "-" + _time_pad2(d["day"]) + "T" + _time_pad2(d["hour"]) + ":" + _time_pad2(d["minute"]) + ":" + _time_pad2(d["second"]) + "Z"
 end
 
 # Formats a calendar date/time map into an ISO 8601 string: "YYYY-MM-DDTHH:MM:SSZ"
-function format_date_map(d)
+pub function format_date_map(d)
     return str(d["year"]) + "-" + _time_pad2(d["month"]) + "-" + _time_pad2(d["day"]) + "T" + _time_pad2(d["hour"]) + ":" + _time_pad2(d["minute"]) + ":" + _time_pad2(d["second"]) + "Z"
 end
 
 # Formats epoch seconds into "YYYY-MM-DD"
-function format_date(epoch_sec)
+pub function format_date(epoch_sec)
     let d = epoch_to_date(epoch_sec)
     return str(d["year"]) + "-" + _time_pad2(d["month"]) + "-" + _time_pad2(d["day"])
 end
 
 # Formats epoch seconds into "HH:MM:SS"
-function format_time_hhmmss(epoch_sec)
+pub function format_time_hhmmss(epoch_sec)
     let d = epoch_to_date(epoch_sec)
     return _time_pad2(d["hour"]) + ":" + _time_pad2(d["minute"]) + ":" + _time_pad2(d["second"])
 end
 
-function month_name(month)
+pub function month_name(month)
     when month
         is 1 then return "January"
         is 2 then return "February"
@@ -216,7 +216,7 @@ function month_name(month)
     end
 end
 
-function month_short_name(month)
+pub function month_short_name(month)
     when month
         is 1 then return "Jan"
         is 2 then return "Feb"
@@ -234,7 +234,7 @@ function month_short_name(month)
     end
 end
 
-function weekday_name(weekday)
+pub function weekday_name(weekday)
     when weekday
         is 0 then return "Sunday"
         is 1 then return "Monday"
@@ -247,7 +247,7 @@ function weekday_name(weekday)
     end
 end
 
-function weekday_short_name(weekday)
+pub function weekday_short_name(weekday)
     when weekday
         is 0 then return "Sun"
         is 1 then return "Mon"
@@ -261,16 +261,16 @@ function weekday_short_name(weekday)
 end
 
 # Returns current UTC time as ISO 8601 string
-function iso_now()
+pub function iso_now()
     return format_iso(time())
 end
 
 # Returns current UTC date as "YYYY-MM-DD"
-function date_now()
+pub function date_now()
     return format_date(time())
 end
 
 # Returns current UTC time as "HH:MM:SS"
-function time_now()
+pub function time_now()
     return format_time_hhmmss(time())
 end

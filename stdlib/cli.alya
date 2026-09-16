@@ -22,15 +22,15 @@ end
 
 # --- Raw Argument Accessors ---
 
-function cli_raw_args()
+pub function cli_raw_args()
     return args()
 end
 
-function cli_arg_count()
+pub function cli_arg_count()
     return len(args())
 end
 
-function cli_arg_at(idx, default_val = "")
+pub function cli_arg_at(idx, default_val = "")
     let raw = args()
     if idx >= 0
         if idx < len(raw)
@@ -42,7 +42,7 @@ end
 
 # --- Lightweight Flag & Option Getters ---
 
-function cli_has_flag(flag_name)
+pub function cli_has_flag(flag_name)
     let raw = args()
     let clean = _cli_strip_dashes(flag_name)
     let target_long = "--" + clean
@@ -59,7 +59,7 @@ function cli_has_flag(flag_name)
     return 0
 end
 
-function cli_get_opt(opt_name, default_val = "")
+pub function cli_get_opt(opt_name, default_val = "")
     let raw = args()
     let clean = _cli_strip_dashes(opt_name)
     let target_long = "--" + clean
@@ -86,7 +86,7 @@ function cli_get_opt(opt_name, default_val = "")
     return default_val
 end
 
-function cli_get_positional(idx, default_val = "")
+pub function cli_get_positional(idx, default_val = "")
     let raw = args()
     let count = len(raw)
     let pos_idx = 0
