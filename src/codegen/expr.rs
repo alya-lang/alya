@@ -789,18 +789,17 @@ impl CodeGen {
                             _ => None,
                         },
                         Expr::FieldAccess { field, .. }
-                        | Expr::OptionalFieldAccess { field, .. } => {
-                            self.ctx
-                                .variables
-                                .get(&format!("struct_field_struct:{}", field))
-                                .and_then(|vt| {
-                                    if let VarType::Struct { struct_name, .. } = vt {
-                                        Some(struct_name.clone())
-                                    } else {
-                                        None
-                                    }
-                                })
-                        }
+                        | Expr::OptionalFieldAccess { field, .. } => self
+                            .ctx
+                            .variables
+                            .get(&format!("struct_field_struct:{}", field))
+                            .and_then(|vt| {
+                                if let VarType::Struct { struct_name, .. } = vt {
+                                    Some(struct_name.clone())
+                                } else {
+                                    None
+                                }
+                            }),
                         _ => None,
                     };
                     if let Some(sname) = struct_name_opt {
