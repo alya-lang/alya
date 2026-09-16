@@ -619,3 +619,39 @@ fn test_deprecated_stdlib_modules_diagnostic() {
     let err_crypto = resolve_imports(&mut ast_crypto, std::path::Path::new(".")).unwrap_err();
     assert!(err_crypto.contains("Cannot find standard library module 'std/crypto'"));
 }
+
+#[test]
+fn test_transitive_and_direct_stdlib_import_private_deduplication() {
+    let code = r#"
+import "std/color" as c
+import "std/color"
+say c::color_red("hello")
+say color_blue("world")
+"#;
+    let mut ast = Parser::new(Lexer::new(code).tokenize().unwrap())
+        .parse()
+        .unwrap();
+    let res = resolve_imports(&mut ast, std::path::Path::new("."));
+    assert!(res.is_ok(), "Import resolution failed: {:?}", res);
+
+    let fn_names: Vec<String> = ast
+        .statements
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Function { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+
+    // Verify both aliased and unaliased public functions exist
+    assert!(fn_names.iter().any(|n| n == "c::color_red"));
+    assert!(fn_names.iter().any(|n| n == "color_red"));
+
+    // Verify private helper _esc was deduplicated and only defined once
+    let esc_count = fn_names.iter().filter(|n| n.contains("::_esc")).count();
+    assert_eq!(
+        esc_count, 1,
+        "Expected exactly 1 _esc definition, found {}",
+        esc_count
+    );
+}

@@ -95,6 +95,17 @@ pub fn resolve_imports_with_sources(
         resolve_stmt_imports(stmt, base_dir, &mut visited, &mut resolved_stmts)?;
     }
 
+    // Deduplicate private module functions (__priv_*) that were imported via multiple paths
+    let mut seen_privates = std::collections::HashSet::new();
+    resolved_stmts.retain(|stmt| {
+        if let Stmt::Function { name, .. } = stmt.inner_stmt() {
+            if name.starts_with("__priv_") {
+                return seen_privates.insert(name.clone());
+            }
+        }
+        true
+    });
+
     validate_unique_functions(&resolved_stmts)?;
 
     program.statements = resolved_stmts;
