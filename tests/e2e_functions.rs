@@ -245,3 +245,76 @@ handle()
         assert_eq!(output, "[GET] /api/status\n");
     }
 }
+
+#[test]
+fn test_e2e_defer_statement() {
+    let code = r#"
+# 1. Basic LIFO execution on function exit
+function basic_defer()
+    defer say "defer 1 (declared first, runs last)"
+    defer say "defer 2 (declared middle, runs middle)"
+    defer say "defer 3 (declared last, runs first)"
+    say "function body"
+end
+
+say "--- basic ---"
+basic_defer()
+
+# 2. Defer preserving return value
+function defer_with_return()
+    defer say "defer executed before return"
+    say "inside compute"
+    return 100 + 23
+end
+
+say "--- with return ---"
+let result = defer_with_return()
+say result
+
+# 3. Conditional defer with early exit
+function conditional_defer(flag)
+    defer say "defer always active"
+    if flag
+        say "taking early exit branch"
+        return "early"
+    end
+    defer say "defer only in normal branch"
+    say "taking normal branch"
+    return "normal"
+end
+
+say "--- conditional early ---"
+let r1 = conditional_defer(true)
+say r1
+
+say "--- conditional normal ---"
+let r2 = conditional_defer(false)
+say r2
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(
+            output,
+            concat!(
+                "--- basic ---\n",
+                "function body\n",
+                "defer 3 (declared last, runs first)\n",
+                "defer 2 (declared middle, runs middle)\n",
+                "defer 1 (declared first, runs last)\n",
+                "--- with return ---\n",
+                "inside compute\n",
+                "defer executed before return\n",
+                "123\n",
+                "--- conditional early ---\n",
+                "taking early exit branch\n",
+                "defer always active\n",
+                "early\n",
+                "--- conditional normal ---\n",
+                "taking normal branch\n",
+                "defer only in normal branch\n",
+                "defer always active\n",
+                "normal\n",
+            )
+        );
+    }
+}

@@ -38,6 +38,7 @@ impl Parser {
             TokenType::When => self.parse_when(),
             TokenType::Try => self.parse_try_catch().map(|s| vec![s]),
             TokenType::Throw => self.parse_throw().map(|s| vec![s]),
+            TokenType::Defer => self.parse_defer().map(|s| vec![s]),
             TokenType::Identifier(_) => {
                 // Could be assignment or function call
                 let start_pos = self.position;
@@ -449,6 +450,16 @@ impl Parser {
                 first_line,
                 first_col
             ))
+        }
+    }
+
+    fn parse_defer(&mut self) -> Result<Stmt, String> {
+        self.advance(); // consume 'defer'
+        let stmts = self.parse_statement()?;
+        if let Some(inner) = stmts.into_iter().next() {
+            Ok(Stmt::Defer(Box::new(inner)))
+        } else {
+            Err("Expected statement after 'defer'".into())
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::ast::Expr;
+use crate::ast::{Expr, Stmt};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -34,6 +34,8 @@ pub struct ScopeState {
     pub variables: HashMap<String, VarType>,
     pub stack_offset: i32,
     pub loop_stack: Vec<(String, String, i32)>,
+    pub active_defers: Vec<(usize, Stmt, i32)>,
+    pub next_defer_idx: usize,
 }
 
 #[derive(Debug, Default)]
@@ -47,6 +49,8 @@ pub struct CodeGenContext {
     pub functions: HashSet<String>,
     pub extern_functions: HashMap<String, ExternFnInfo>,
     pub extern_libs: HashSet<String>,
+    pub active_defers: Vec<(usize, Stmt, i32)>,
+    pub next_defer_idx: usize,
 }
 
 impl CodeGenContext {
@@ -61,6 +65,8 @@ impl CodeGenContext {
             functions: HashSet::new(),
             extern_functions: HashMap::new(),
             extern_libs: HashSet::new(),
+            active_defers: Vec::new(),
+            next_defer_idx: 0,
         }
     }
 
@@ -117,8 +123,11 @@ impl CodeGenContext {
             variables: std::mem::replace(&mut self.variables, fn_vars),
             stack_offset: self.stack_offset,
             loop_stack: std::mem::take(&mut self.loop_stack),
+            active_defers: std::mem::take(&mut self.active_defers),
+            next_defer_idx: self.next_defer_idx,
         };
         self.stack_offset = 0;
+        self.next_defer_idx = 0;
         saved
     }
 
@@ -126,5 +135,7 @@ impl CodeGenContext {
         self.variables = saved.variables;
         self.stack_offset = saved.stack_offset;
         self.loop_stack = saved.loop_stack;
+        self.active_defers = saved.active_defers;
+        self.next_defer_idx = saved.next_defer_idx;
     }
 }

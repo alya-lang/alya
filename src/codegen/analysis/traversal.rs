@@ -101,6 +101,7 @@ pub fn find_call_arg<'a>(stmt: &'a Stmt, func_name: &str, param_idx: usize) -> O
             }
             None
         }
+        Stmt::Defer(inner) => find_call_arg(inner, func_name, param_idx),
         _ => None,
     }
 }
@@ -279,6 +280,9 @@ pub fn collect_call_args_in_stmt<'a>(
             for s in body {
                 collect_call_args_in_stmt(s, func_name, bare_name, param_idx, args);
             }
+        }
+        Stmt::Defer(inner) => {
+            collect_call_args_in_stmt(inner, func_name, bare_name, param_idx, args);
         }
         _ => {}
     }
@@ -582,6 +586,16 @@ pub fn collect_call_args_in_stmt_scoped<'a>(
                     args,
                 );
             }
+        }
+        Stmt::Defer(inner) => {
+            collect_call_args_in_stmt_scoped(
+                inner,
+                func_name,
+                bare_name,
+                param_idx,
+                current_scope,
+                args,
+            );
         }
         _ => {}
     }

@@ -98,4 +98,5 @@ pub enum Stmt {
         catch_block: Vec<Stmt>,
         finally_block: Option<Vec<Stmt>>,
     },
+    Defer(Box<Stmt>),
 }

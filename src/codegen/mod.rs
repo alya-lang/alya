@@ -365,10 +365,23 @@ impl CodeGen {
             arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
         }
 
+        let defers = collect_all_defers(body);
+        if !defers.is_empty() {
+            let mut defer_entries = Vec::new();
+            for (idx, def_stmt) in defers.into_iter().enumerate() {
+                arch::emit_load_num(&mut self.output, self.arch, 0);
+                arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+                let offset = self.ctx.stack_offset;
+                defer_entries.push((idx, def_stmt, offset));
+            }
+            self.ctx.active_defers = defer_entries;
+        }
+
         for stmt in body {
             self.generate_statement(stmt);
         }
 
+        self.emit_run_defers();
         self.emit_cleanup_scope(None);
 
         arch::emit_function_epilogue(&mut self.output, self.arch);
@@ -473,4 +486,45 @@ pub fn collect_extern_libraries(program: &Program) -> Vec<String> {
         }
     }
     libs
+}
+
+fn collect_all_defers(stmts: &[Stmt]) -> Vec<Stmt> {
+    let mut defers = Vec::new();
+    for stmt in stmts {
+        match stmt {
+            Stmt::Defer(inner) => {
+                defers.push((**inner).clone());
+            }
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                defers.extend(collect_all_defers(then_block));
+                if let Some(eb) = else_block {
+                    defers.extend(collect_all_defers(eb));
+                }
+            }
+            Stmt::While { body, .. }
+            | Stmt::Repeat { body, .. }
+            | Stmt::For { body, .. }
+            | Stmt::ForEach { body, .. } => {
+                defers.extend(collect_all_defers(body));
+            }
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                defers.extend(collect_all_defers(try_block));
+                defers.extend(collect_all_defers(catch_block));
+                if let Some(fb) = finally_block {
+                    defers.extend(collect_all_defers(fb));
+                }
+            }
+            _ => {}
+        }
+    }
+    defers
 }

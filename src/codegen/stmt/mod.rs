@@ -82,35 +82,54 @@ impl CodeGen {
                         }
                     }
                     self.generate_expression(expr);
+                    let word_size: i32 = match self.arch {
+                        Architecture::ARM64 => 16,
+                        Architecture::X86 => 4,
+                        _ => 8,
+                    };
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                    self.ctx.stack_offset += word_size;
+
+                    self.emit_run_defers();
+
                     let heap_offsets = self.get_scope_heap_offsets(skip_offset);
                     if !heap_offsets.is_empty() {
-                        arch::emit_push_temp(&mut self.output, self.arch);
                         for offset in heap_offsets {
                             arch::emit_rc_release_stack(
                                 &mut self.output,
                                 self.arch,
                                 offset,
-                                self.ctx.stack_offset + 8,
+                                self.ctx.stack_offset,
                                 self.os,
                             );
                         }
-                        arch::emit_pop_temp(&mut self.output, self.arch);
-                        if is_flt {
-                            match self.arch {
-                                Architecture::X64 => {
-                                    self.output.push_str("    movq %rax, %xmm0\n");
-                                }
-                                Architecture::ARM64 => {
-                                    self.output.push_str("    fmov d0, x0\n");
-                                }
-                                Architecture::X86 => {}
+                    }
+                    self.ctx.stack_offset -= word_size;
+                    arch::emit_pop_temp(&mut self.output, self.arch);
+                    if is_flt {
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output.push_str("    movq %rax, %xmm0\n");
                             }
+                            Architecture::ARM64 => {
+                                self.output.push_str("    fmov d0, x0\n");
+                            }
+                            Architecture::X86 => {}
                         }
                     }
                 } else {
+                    self.emit_run_defers();
                     self.emit_cleanup_scope(None);
                 }
                 arch::emit_function_epilogue(&mut self.output, self.arch);
+            }
+            Stmt::Defer(_inner) => {
+                if let Some((_, _, offset)) = self.ctx.active_defers.get(self.ctx.next_defer_idx) {
+                    let off = *offset;
+                    self.ctx.next_defer_idx += 1;
+                    arch::emit_load_num(&mut self.output, self.arch, 1);
+                    arch::emit_store_var(&mut self.output, self.arch, off, self.ctx.stack_offset);
+                }
             }
             Stmt::Throw(opt_expr) => self.generate_throw(opt_expr.as_ref()),
             Stmt::TryCatch {
@@ -152,6 +171,27 @@ impl CodeGen {
                 }
             }
             Stmt::EnumDef { .. } => {}
+        }
+    }
+
+    pub(crate) fn emit_run_defers(&mut self) {
+        if self.ctx.active_defers.is_empty() {
+            return;
+        }
+        let defers = self.ctx.active_defers.clone();
+        for (_, inner_stmt, offset) in defers.into_iter().rev() {
+            let skip_label = self.ctx.next_label();
+            arch::emit_load_var(&mut self.output, self.arch, offset, self.ctx.stack_offset);
+            arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+            arch::emit_cond_jump(
+                &mut self.output,
+                self.arch,
+                crate::ast::BinaryOp::Equal,
+                false,
+                &skip_label,
+            );
+            self.generate_statement(&inner_stmt);
+            self.output.push_str(&format!("{}:\n", skip_label));
         }
     }
 }
