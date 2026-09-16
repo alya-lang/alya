@@ -195,14 +195,16 @@ fn collect_float_vars_from_stmts(
             }
             Stmt::ForEach {
                 var,
+                value_var,
                 iterable,
                 body,
             } => {
                 let mut loop_scope = scope.clone();
+                let target_var = value_var.as_ref().unwrap_or(var);
                 if expr_is_float_array(iterable, scope) {
-                    loop_scope.insert(var.clone());
+                    loop_scope.insert(target_var.clone());
                     if is_top_level {
-                        known_floats.insert(var.clone());
+                        known_floats.insert(target_var.clone());
                     }
                 }
                 collect_float_vars_from_stmts(body, &mut loop_scope, known_floats, is_top_level);

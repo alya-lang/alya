@@ -166,10 +166,35 @@ impl Parser {
         };
         self.advance();
 
+        let value_var = if matches!(self.current_token().token_type, TokenType::Comma) {
+            self.advance();
+            let v2 = match &self.current_token().token_type {
+                TokenType::Identifier(s) => s.clone(),
+                _ => {
+                    return Err(format!(
+                        "Expected second identifier after ',' in 'for' at line {}, column {}",
+                        self.current_token().line,
+                        self.current_token().column
+                    ))
+                }
+            };
+            self.advance();
+            Some(v2)
+        } else {
+            None
+        };
+
         self.expect(TokenType::In)?;
 
         let expr = self.parse_expression()?;
         if matches!(self.current_token().token_type, TokenType::DotDot) {
+            if value_var.is_some() {
+                return Err(format!(
+                    "Multiple loop variables are not supported for range loops at line {}, column {}",
+                    self.current_token().line,
+                    self.current_token().column
+                ));
+            }
             self.advance();
             let end = self.parse_expression()?;
             self.skip_newlines();
@@ -207,6 +232,7 @@ impl Parser {
 
             Ok(Stmt::ForEach {
                 var,
+                value_var,
                 iterable: expr,
                 body,
             })

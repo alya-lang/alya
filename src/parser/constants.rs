@@ -151,13 +151,20 @@ fn resolve_and_validate_stmt(stmt: &mut Stmt, stack: &mut ScopeStack) -> Result<
         }
         Stmt::ForEach {
             var,
+            value_var,
             iterable,
             body,
         } => {
             stack.check_assign(var)?;
+            if let Some(v) = value_var {
+                stack.check_assign(v)?;
+            }
             resolve_expr(iterable, stack);
             stack.push();
             stack.define_var(var)?;
+            if let Some(v) = value_var {
+                stack.define_var(v)?;
+            }
             for s in body {
                 resolve_and_validate_stmt(s, stack)?;
             }

@@ -203,10 +203,12 @@ end
     match &program.statements[0] {
         Stmt::ForEach {
             var,
+            value_var,
             iterable,
             body,
         } => {
             assert_eq!(var, "item");
+            assert_eq!(*value_var, None);
             assert_eq!(
                 *iterable,
                 Expr::Array(vec![

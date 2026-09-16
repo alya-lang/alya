@@ -481,3 +481,33 @@ end
     }
 }
 
+#[test]
+fn test_e2e_multiple_loop_variables() {
+    let code = r#"
+# 1. Array with index and value
+let fruits = ["apple", "banana", "cherry"]
+for i, fruit in fruits
+    say i
+    say fruit
+end
+
+# 2. Map with key and value
+let user = { "name": "Alya", "role": "admin" }
+for k, v in user
+    say k
+    say v
+end
+
+# 3. Map with single variable (key only)
+for k in user
+    say k
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        // Map iteration order is insertion / bucket order, let's verify array part and map presence
+        assert!(output.contains("0\napple\n1\nbanana\n2\ncherry\n"));
+        assert!(output.contains("name\nAlya"));
+        assert!(output.contains("role\nadmin"));
+    }
+}

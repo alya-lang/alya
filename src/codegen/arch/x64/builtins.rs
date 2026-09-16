@@ -236,18 +236,61 @@ pub fn emit_for_each_load_element(
     arr_offset: i32,
     idx_offset: i32,
     var_offset: i32,
+    val_offset: Option<i32>,
     end_label: &str,
+    map_label: &str,
+    done_label: &str,
 ) {
     out.push_str(&format!("    movq -{}(%rbp), %rax\n", arr_offset));
     out.push_str("    test %rax, %rax\n");
     out.push_str(&format!("    jz {}\n", end_label));
+    out.push_str("    movq -16(%rax), %r11\n");
+    out.push_str("    cmpq $0x5A110002, %r11\n");
+    out.push_str(&format!("    je {}\n", map_label));
+
+    // ARRAY
     out.push_str("    movq (%rax), %rdx\n");
     out.push_str(&format!("    movq -{}(%rbp), %rcx\n", idx_offset));
     out.push_str("    cmpq %rdx, %rcx\n");
     out.push_str(&format!("    jge {}\n", end_label));
     out.push_str("    movq 16(%rax), %rdx\n");
-    out.push_str("    movq (%rdx, %rcx, 8), %rax\n");
-    out.push_str(&format!("    movq %rax, -{}(%rbp)\n", var_offset));
+    out.push_str("    movq (%rdx, %rcx, 8), %r8\n");
+    if let Some(v_off) = val_offset {
+        out.push_str(&format!("    movq %rcx, -{}(%rbp)\n", var_offset));
+        out.push_str(&format!("    movq %r8, -{}(%rbp)\n", v_off));
+    } else {
+        out.push_str(&format!("    movq %r8, -{}(%rbp)\n", var_offset));
+    }
+    out.push_str(&format!("    jmp {}\n", done_label));
+
+    // MAP
+    out.push_str(&format!("{}:\n", map_label));
+    let scan_label = format!("{}_scan", map_label);
+    let found_label = format!("{}_found", map_label);
+    out.push_str("    movq 8(%rax), %rdx\n");
+    out.push_str(&format!("    movq -{}(%rbp), %rcx\n", idx_offset));
+    out.push_str(&format!("{}:\n", scan_label));
+    out.push_str("    cmpq %rdx, %rcx\n");
+    out.push_str(&format!("    jge {}\n", end_label));
+    out.push_str("    lea (%rcx, %rcx, 2), %r8\n");
+    out.push_str("    shl $3, %r8\n");
+    out.push_str("    add 16(%rax), %r8\n");
+    out.push_str("    cmpq $1, 16(%r8)\n");
+    out.push_str(&format!("    je {}\n", found_label));
+    out.push_str("    inc %rcx\n");
+    out.push_str(&format!("    jmp {}\n", scan_label));
+    out.push_str(&format!("{}:\n", found_label));
+    out.push_str(&format!("    movq %rcx, -{}(%rbp)\n", idx_offset));
+    out.push_str("    movq (%r8), %r9\n");
+    out.push_str("    movq 8(%r8), %r10\n");
+    if let Some(v_off) = val_offset {
+        out.push_str(&format!("    movq %r9, -{}(%rbp)\n", var_offset));
+        out.push_str(&format!("    movq %r10, -{}(%rbp)\n", v_off));
+    } else {
+        out.push_str(&format!("    movq %r9, -{}(%rbp)\n", var_offset));
+    }
+
+    out.push_str(&format!("{}:\n", done_label));
 }
 
 pub fn emit_string_equality_call(
@@ -298,12 +341,7 @@ pub fn emit_string_equality_call(
     }
 }
 
-pub fn emit_in_call(
-    out: &mut String,
-    op: BinaryOp,
-    stack_offset: i32,
-    os: OperatingSystem,
-) {
+pub fn emit_in_call(out: &mut String, op: BinaryOp, stack_offset: i32, os: OperatingSystem) {
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov %rax, %rcx\n");
         out.push_str("    pop %rdx\n");

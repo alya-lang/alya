@@ -648,11 +648,40 @@ fn collect_string_vars_from_stmts(
             }
             Stmt::ForEach {
                 var,
+                value_var,
                 iterable,
                 body,
             } => {
                 scan_expr_for_strings(iterable, struct_defs, known_strings);
-                if expr_is_string_array(iterable, known_strings) {
+                let is_map = match iterable {
+                    Expr::Map(_) => true,
+                    Expr::Identifier(name) => known_strings.iter().any(|k| {
+                        k.starts_with(&format!("map_str:{}.", name))
+                            || k.starts_with(&format!("map_map:{}.", name))
+                    }),
+                    _ => false,
+                };
+                if let Some(v) = value_var {
+                    if is_map {
+                        known_strings.insert(var.clone());
+                        let val_is_str = match iterable {
+                            Expr::Map(entries) => entries
+                                .iter()
+                                .any(|(_, val)| expr_is_definitely_string(val, known_strings)),
+                            Expr::Identifier(name) => known_strings
+                                .iter()
+                                .any(|k| k.starts_with(&format!("map_str:{}.", name))),
+                            _ => false,
+                        };
+                        if val_is_str {
+                            known_strings.insert(v.clone());
+                        }
+                    } else if expr_is_string_array(iterable, known_strings) {
+                        known_strings.insert(v.clone());
+                    }
+                } else if is_map {
+                    known_strings.insert(var.clone());
+                } else if expr_is_string_array(iterable, known_strings) {
                     known_strings.insert(var.clone());
                 }
                 collect_string_vars_from_stmts(body, struct_defs, known_strings);

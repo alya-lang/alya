@@ -76,6 +76,7 @@ pub enum Stmt {
     },
     ForEach {
         var: String,
+        value_var: Option<String>,
         iterable: Expr,
         body: Vec<Stmt>,
     },

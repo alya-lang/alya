@@ -149,7 +149,9 @@ impl Parser {
                 continue;
             }
             if matches!(self.current_token().token_type, TokenType::Not)
-                && self.peek_token().map_or(false, |t| matches!(t.token_type, TokenType::In))
+                && self
+                    .peek_token()
+                    .map_or(false, |t| matches!(t.token_type, TokenType::In))
             {
                 self.advance(); // not / !
                 self.advance(); // in

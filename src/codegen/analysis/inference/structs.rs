@@ -155,21 +155,24 @@ impl StructInference {
                 }
                 Stmt::ForEach {
                     var,
+                    value_var,
                     iterable,
                     body,
                 } => {
                     self.scan_expr(iterable, current_fn, struct_names);
+                    let target_var = value_var.as_ref().unwrap_or(var);
                     if let Some(st) = self.expr_struct_type(iterable, current_fn, struct_names) {
                         if let Some(fn_name) = current_fn {
                             self.var_types
-                                .insert(format!("{}::{}", fn_name, var), st.clone());
+                                .insert(format!("{}::{}", fn_name, target_var), st.clone());
                             let bare = fn_name.rsplit("::").next().unwrap_or(fn_name);
                             let bare = bare.rsplit("__").next().unwrap_or(bare);
                             if bare != fn_name {
-                                self.var_types.insert(format!("{}::{}", bare, var), st);
+                                self.var_types
+                                    .insert(format!("{}::{}", bare, target_var), st);
                             }
                         } else {
-                            self.var_types.insert(var.clone(), st);
+                            self.var_types.insert(target_var.clone(), st);
                         }
                     }
                     self.scan_stmts(body, current_fn, struct_names);

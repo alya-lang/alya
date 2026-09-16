@@ -46,9 +46,10 @@ impl CodeGen {
             } => self.generate_for(var, start, end, body),
             Stmt::ForEach {
                 var,
+                value_var,
                 iterable,
                 body,
-            } => self.generate_for_each(var, iterable, body),
+            } => self.generate_for_each(var, value_var.as_deref(), iterable, body),
             Stmt::Break => {
                 if let Some((_, break_label, base_offset)) = self.ctx.current_loop().cloned() {
                     let delta = self.ctx.stack_offset - base_offset;

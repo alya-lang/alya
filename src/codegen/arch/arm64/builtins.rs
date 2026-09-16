@@ -135,17 +135,63 @@ pub fn emit_for_each_load_element(
     arr_offset: i32,
     idx_offset: i32,
     var_offset: i32,
+    val_offset: Option<i32>,
     end_label: &str,
+    map_label: &str,
+    done_label: &str,
 ) {
     emit_arm64_load_x29_offset(out, "x0", arr_offset, "x9");
     out.push_str(&format!("    cbz x0, {}\n", end_label));
+    out.push_str("    ldr x2, [x0, #-16]\n");
+    out.push_str("    mov x3, #0x0002\n");
+    out.push_str("    movk x3, #0x5A11, lsl #16\n");
+    out.push_str("    cmp x2, x3\n");
+    out.push_str(&format!("    b.eq {}\n", map_label));
+
+    // ARRAY
     out.push_str("    ldr x1, [x0]\n");
     emit_arm64_load_x29_offset(out, "x2", idx_offset, "x9");
     out.push_str("    cmp x2, x1\n");
     out.push_str(&format!("    b.ge {}\n", end_label));
     out.push_str("    ldr x3, [x0, #16]\n");
-    out.push_str("    ldr x0, [x3, x2, lsl #3]\n");
-    emit_arm64_store_x29_offset(out, "x0", var_offset, "x9");
+    out.push_str("    ldr x4, [x3, x2, lsl #3]\n");
+    if let Some(v_off) = val_offset {
+        emit_arm64_store_x29_offset(out, "x2", var_offset, "x9");
+        emit_arm64_store_x29_offset(out, "x4", v_off, "x9");
+    } else {
+        emit_arm64_store_x29_offset(out, "x4", var_offset, "x9");
+    }
+    out.push_str(&format!("    b {}\n", done_label));
+
+    // MAP
+    out.push_str(&format!("{}:\n", map_label));
+    let scan_label = format!("{}_scan", map_label);
+    let found_label = format!("{}_found", map_label);
+    out.push_str("    ldr x1, [x0, #8]\n");
+    emit_arm64_load_x29_offset(out, "x2", idx_offset, "x9");
+    out.push_str(&format!("{}:\n", scan_label));
+    out.push_str("    cmp x2, x1\n");
+    out.push_str(&format!("    b.ge {}\n", end_label));
+    out.push_str("    ldr x3, [x0, #16]\n");
+    out.push_str("    add x4, x2, x2, lsl #1\n");
+    out.push_str("    add x4, x3, x4, lsl #3\n");
+    out.push_str("    ldr x5, [x4, #16]\n");
+    out.push_str("    cmp x5, #1\n");
+    out.push_str(&format!("    b.eq {}\n", found_label));
+    out.push_str("    add x2, x2, #1\n");
+    out.push_str(&format!("    b {}\n", scan_label));
+    out.push_str(&format!("{}:\n", found_label));
+    emit_arm64_store_x29_offset(out, "x2", idx_offset, "x9");
+    out.push_str("    ldr x6, [x4]\n");
+    out.push_str("    ldr x7, [x4, #8]\n");
+    if let Some(v_off) = val_offset {
+        emit_arm64_store_x29_offset(out, "x6", var_offset, "x9");
+        emit_arm64_store_x29_offset(out, "x7", v_off, "x9");
+    } else {
+        emit_arm64_store_x29_offset(out, "x6", var_offset, "x9");
+    }
+
+    out.push_str(&format!("{}:\n", done_label));
 }
 
 pub fn emit_string_equality_call(out: &mut String, op: BinaryOp) {
