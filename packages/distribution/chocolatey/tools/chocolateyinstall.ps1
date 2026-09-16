@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $packageName = 'alyac'
-$version     = '0.0.17'
+$version     = '0.0.18'
 $toolsDir    = "$(Split-Path -parent $MyInvocation.MyCommand.Definition)"
 
 $url64        = "https://github.com/alya-lang/alya/releases/download/v$version/alyac-v$version-x86_64-windows.zip"

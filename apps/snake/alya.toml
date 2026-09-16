@@ -1,7 +1,7 @@
 [package]
 name = "snake"
 version = "1.0.0"
-alya-version = "0.0.17"
+alya-version = "0.0.18"
 entry = "main.alya"
 description = "Classic Snake arcade game with AI Autopilot mode and ANSI terminal rendering"
 authors = ["Alya Language Contributors <https://github.com/alya-lang>"]

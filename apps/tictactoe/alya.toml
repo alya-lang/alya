@@ -1,7 +1,7 @@
 [package]
 name = "tictactoe"
 version = "1.0.0"
-alya-version = "0.0.17"
+alya-version = "0.0.18"
 entry = "main.alya"
 description = "Classic TicTacToe game with PvP and unbeatable Minimax AI modes"
 authors = ["Alya Language Contributors <https://github.com/alya-lang>"]
