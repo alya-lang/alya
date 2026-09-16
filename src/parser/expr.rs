@@ -137,22 +137,51 @@ impl Parser {
     fn parse_comparison(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_shift()?;
 
-        while let Some(op) = match &self.current_token().token_type {
-            TokenType::Equal => Some(BinaryOp::Equal),
-            TokenType::NotEqual => Some(BinaryOp::NotEqual),
-            TokenType::Less => Some(BinaryOp::Less),
-            TokenType::Greater => Some(BinaryOp::Greater),
-            TokenType::LessEqual => Some(BinaryOp::LessEqual),
-            TokenType::GreaterEqual => Some(BinaryOp::GreaterEqual),
-            _ => None,
-        } {
-            self.advance();
-            let right = self.parse_shift()?;
-            left = Expr::Binary {
-                left: Box::new(left),
-                op,
-                right: Box::new(right),
+        loop {
+            if matches!(self.current_token().token_type, TokenType::In) {
+                self.advance();
+                let right = self.parse_shift()?;
+                left = Expr::Binary {
+                    left: Box::new(left),
+                    op: BinaryOp::In,
+                    right: Box::new(right),
+                };
+                continue;
+            }
+            if matches!(self.current_token().token_type, TokenType::Not)
+                && self.peek_token().map_or(false, |t| matches!(t.token_type, TokenType::In))
+            {
+                self.advance(); // not / !
+                self.advance(); // in
+                let right = self.parse_shift()?;
+                left = Expr::Binary {
+                    left: Box::new(left),
+                    op: BinaryOp::NotIn,
+                    right: Box::new(right),
+                };
+                continue;
+            }
+
+            let op = match &self.current_token().token_type {
+                TokenType::Equal => Some(BinaryOp::Equal),
+                TokenType::NotEqual => Some(BinaryOp::NotEqual),
+                TokenType::Less => Some(BinaryOp::Less),
+                TokenType::Greater => Some(BinaryOp::Greater),
+                TokenType::LessEqual => Some(BinaryOp::LessEqual),
+                TokenType::GreaterEqual => Some(BinaryOp::GreaterEqual),
+                _ => None,
             };
+            if let Some(op) = op {
+                self.advance();
+                let right = self.parse_shift()?;
+                left = Expr::Binary {
+                    left: Box::new(left),
+                    op,
+                    right: Box::new(right),
+                };
+            } else {
+                break;
+            }
         }
 
         Ok(left)

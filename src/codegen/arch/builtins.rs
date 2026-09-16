@@ -16,6 +16,20 @@ pub fn emit_string_equality_call(
     }
 }
 
+pub fn emit_in_call(
+    out: &mut String,
+    arch: Architecture,
+    op: BinaryOp,
+    stack_offset: i32,
+    os: OperatingSystem,
+) {
+    match arch {
+        Architecture::X86 => x86::emit_in_call(out, op),
+        Architecture::X64 => x64::emit_in_call(out, op, stack_offset, os),
+        Architecture::ARM64 => arm64::emit_in_call(out, op),
+    }
+}
+
 pub fn emit_try_begin(
     out: &mut String,
     arch: Architecture,

@@ -867,4 +867,95 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
+    // fn_in(collection, item) -> 1 or 0
+    out.push_str(".global fn_in\n");
+    out.push_str("fn_in:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %rbx\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    out.push_str("    push %r14\n");
+    out.push_str("    push %r15\n");
+    out.push_str("    sub $24, %rsp\n");
+    if is_win {
+        out.push_str("    mov %rcx, %r12\n");
+        out.push_str("    mov %rdx, %r13\n");
+    } else {
+        out.push_str("    mov %rdi, %r12\n");
+        out.push_str("    mov %rsi, %r13\n");
+    }
+    out.push_str("    xor %rax, %rax\n");
+    out.push_str("    test %r12, %r12\n");
+    out.push_str("    jz .L_x64_in_ret\n");
+    out.push_str("    test $7, %r12\n");
+    out.push_str("    jnz .L_x64_in_str\n");
+    out.push_str("    cmp $65536, %r12\n");
+    out.push_str("    jb .L_x64_in_str\n");
+    out.push_str("    mov $0x00007fffffffffff, %rax\n");
+    out.push_str("    cmp %rax, %r12\n");
+    out.push_str("    ja .L_x64_in_str\n");
+    out.push_str("    movq -16(%r12), %rax\n");
+    out.push_str("    cmp $0x5A110002, %rax\n");
+    out.push_str("    je .L_x64_in_map\n");
+    out.push_str("    cmp $0x5A110001, %rax\n");
+    out.push_str("    je .L_x64_in_arr\n");
+    out.push_str(".L_x64_in_str:\n");
+    if is_win {
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    mov %r13, %rdx\n");
+        out.push_str("    call fn_contains\n");
+    } else {
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str("    mov %r13, %rsi\n");
+        out.push_str("    call fn_contains\n");
+    }
+    out.push_str("    jmp .L_x64_in_ret\n");
+    out.push_str(".L_x64_in_map:\n");
+    if is_win {
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    mov %r13, %rdx\n");
+        out.push_str("    call fn_has\n");
+    } else {
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str("    mov %r13, %rsi\n");
+        out.push_str("    call fn_has\n");
+    }
+    out.push_str("    jmp .L_x64_in_ret\n");
+    out.push_str(".L_x64_in_arr:\n");
+    out.push_str("    mov (%r12), %r14\n");
+    out.push_str("    xor %r15, %r15\n");
+    out.push_str(".L_x64_in_arr_loop:\n");
+    out.push_str("    cmp %r14, %r15\n");
+    out.push_str("    jge .L_x64_in_arr_fail\n");
+    out.push_str("    mov 16(%r12), %rax\n");
+    out.push_str("    mov (%rax, %r15, 8), %rax\n");
+    if is_win {
+        out.push_str("    mov %rax, %rcx\n");
+        out.push_str("    mov %r13, %rdx\n");
+        out.push_str("    call alya_map_key_eq\n");
+    } else {
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str("    mov %r13, %rsi\n");
+        out.push_str("    call alya_map_key_eq\n");
+    }
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jnz .L_x64_in_arr_found\n");
+    out.push_str("    inc %r15\n");
+    out.push_str("    jmp .L_x64_in_arr_loop\n");
+    out.push_str(".L_x64_in_arr_found:\n");
+    out.push_str("    mov $1, %rax\n");
+    out.push_str("    jmp .L_x64_in_ret\n");
+    out.push_str(".L_x64_in_arr_fail:\n");
+    out.push_str("    xor %rax, %rax\n");
+    out.push_str(".L_x64_in_ret:\n");
+    out.push_str("    add $24, %rsp\n");
+    out.push_str("    pop %r15\n");
+    out.push_str("    pop %r14\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    pop %rbx\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
 }

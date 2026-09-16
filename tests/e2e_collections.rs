@@ -429,3 +429,55 @@ say p.kind()
         assert_eq!(output, "30\n30\n60\n90\n75\nCircle\nPoint\n");
     }
 }
+
+#[test]
+fn test_e2e_in_and_not_in_operator() {
+    let code = r#"
+# 1. Map in / not in
+let cfg = { "host": "127.0.0.1", "port": 8080 }
+say "host" in cfg
+say "missing" in cfg
+say "missing" not in cfg
+
+if "host" in cfg
+    say "has host"
+end
+if "port" in cfg
+    say "has port"
+end
+if "ssl" not in cfg
+    say "no ssl"
+end
+
+# 2. Array in / not in
+let nums = [10, 20, 30, 40]
+say 20 in nums
+say 99 in nums
+say 99 not in nums
+
+if 30 in nums
+    say "has 30"
+end
+if 55 not in nums
+    say "no 55"
+end
+
+# 3. String in / not in
+let text = "hello alya world"
+say "alya" in text
+say "xyz" in text
+say "xyz" not in text
+
+if "world" in text
+    say "has world"
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(
+            output,
+            "1\n0\n1\nhas host\nhas port\nno ssl\n1\n0\n1\nhas 30\nno 55\n1\n0\n1\nhas world\n"
+        );
+    }
+}
+

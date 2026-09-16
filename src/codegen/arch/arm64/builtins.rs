@@ -175,6 +175,15 @@ pub fn emit_string_equality_call(out: &mut String, op: BinaryOp) {
     }
 }
 
+pub fn emit_in_call(out: &mut String, op: BinaryOp) {
+    // x0 is collection, item was pushed to stack
+    out.push_str("    ldr x1, [sp], #16\n"); // x1 = item, x0 = collection
+    out.push_str("    bl fn_in\n");
+    if op == BinaryOp::NotIn {
+        out.push_str("    cmp x0, #0\n    cset x0, eq\n");
+    }
+}
+
 pub fn emit_char_code_at(out: &mut String, done_label: &str) {
     out.push_str("    mov x1, x0\n");
     out.push_str("    ldr x2, [sp], #16\n");

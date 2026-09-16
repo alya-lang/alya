@@ -298,6 +298,36 @@ pub fn emit_string_equality_call(
     }
 }
 
+pub fn emit_in_call(
+    out: &mut String,
+    op: BinaryOp,
+    stack_offset: i32,
+    os: OperatingSystem,
+) {
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %rax, %rcx\n");
+        out.push_str("    pop %rdx\n");
+        let padding = if stack_offset % 16 == 0 { 32 } else { 40 };
+        out.push_str(&format!("    sub ${}, %rsp\n", padding));
+        out.push_str("    call fn_in\n");
+        out.push_str(&format!("    add ${}, %rsp\n", padding));
+    } else {
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str("    pop %rsi\n");
+        let misaligned = stack_offset % 16 != 0;
+        if misaligned {
+            out.push_str("    sub $8, %rsp\n");
+        }
+        out.push_str("    call fn_in\n");
+        if misaligned {
+            out.push_str("    add $8, %rsp\n");
+        }
+    }
+    if op == BinaryOp::NotIn {
+        out.push_str("    test %rax, %rax\n    sete %al\n    movzbq %al, %rax\n");
+    }
+}
+
 pub fn emit_char_code_at(out: &mut String, done_label: &str) {
     out.push_str("    mov %rax, %rcx\n");
     out.push_str("    pop %rdx\n");

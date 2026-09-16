@@ -140,6 +140,24 @@ impl CodeGen {
                     return;
                 }
 
+                if matches!(op, BinaryOp::In | BinaryOp::NotIn) {
+                    self.generate_expression(left);
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                    self.ctx.stack_offset += 8;
+
+                    self.generate_expression(right);
+                    self.ctx.stack_offset -= 8;
+
+                    arch::emit_in_call(
+                        &mut self.output,
+                        self.arch,
+                        *op,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                    return;
+                }
+
                 if matches!(op, BinaryOp::Add)
                     && (is_string_expr(left, &self.ctx.variables)
                         || is_string_expr(right, &self.ctx.variables))

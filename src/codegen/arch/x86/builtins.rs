@@ -171,6 +171,17 @@ pub fn emit_string_equality_call(out: &mut String, op: BinaryOp) {
     }
 }
 
+pub fn emit_in_call(out: &mut String, op: BinaryOp) {
+    out.push_str("    pop %edx\n"); // edx = item
+    out.push_str("    push %edx\n"); // push item
+    out.push_str("    push %eax\n"); // push collection
+    out.push_str("    call fn_in\n");
+    out.push_str("    add $8, %esp\n");
+    if op == BinaryOp::NotIn {
+        out.push_str("    test %eax, %eax\n    sete %al\n    movzbl %al, %eax\n");
+    }
+}
+
 pub fn emit_char_code_at(out: &mut String, done_label: &str) {
     out.push_str("    mov %eax, %ecx\n");
     out.push_str("    pop %edx\n");
