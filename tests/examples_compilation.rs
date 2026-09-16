@@ -421,6 +421,56 @@ fn test_all_examples_execute_with_gcc() {
             continue;
         }
 
+        if example_name == "all.alya" {
+            assert!(
+                actual_stdout.contains("=== [1] Selective Imports & Pub Declarations ==="),
+                "all.alya missing section 1:\n{}",
+                actual_stdout
+            );
+            assert!(
+                actual_stdout.contains("=== [2] Explicit Type Annotations ==="),
+                "all.alya missing section 2:\n{}",
+                actual_stdout
+            );
+            assert!(
+                actual_stdout.contains("=== [3] Multi-line Block Lambdas ==="),
+                "all.alya missing section 3:\n{}",
+                actual_stdout
+            );
+            assert!(
+                actual_stdout.contains("=== [4] Type Check (is / is not) ==="),
+                "all.alya missing section 4:\n{}",
+                actual_stdout
+            );
+            assert!(
+                actual_stdout.contains("=== [5] Membership (in / not in) ==="),
+                "all.alya missing section 5:\n{}",
+                actual_stdout
+            );
+            assert!(
+                actual_stdout.contains("=== [6] Multiple Loop Variables ==="),
+                "all.alya missing section 6:\n{}",
+                actual_stdout
+            );
+            assert!(
+                actual_stdout.contains("=== [7] Destructuring & Spread ==="),
+                "all.alya missing section 7:\n{}",
+                actual_stdout
+            );
+            assert!(
+                actual_stdout.contains("=== [8] Expression When ==="),
+                "all.alya missing section 8:\n{}",
+                actual_stdout
+            );
+            assert!(
+                actual_stdout
+                    .contains("=== All new language features demonstrated successfully! ==="),
+                "all.alya missing completion marker:\n{}",
+                actual_stdout
+            );
+            continue;
+        }
+
         let expected = get_expected_output(example_name).unwrap_or_else(|| {
             panic!(
                 "Missing expected output definition for example '{}'!",

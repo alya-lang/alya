@@ -1,0 +1,121 @@
+# ==============================================================================
+# Alya New Language Features Showcase (all.alya)
+# Demonstrating:
+#   1. Selective module imports (from ... import ... as ...)
+#   2. Public declarations and encapsulation (pub)
+#   3. Explicit type annotations (struct fields & local variables)
+#   4. Multi-line block lambdas & anonymous functions
+#   5. Independent type check operator (is / is not)
+#   6. Membership operators (in / not in)
+#   7. Multiple loop variables (maps and lists)
+#   8. Destructuring, spread & variadic rest parameters
+#   9. Expression when pattern matching
+# ==============================================================================
+
+# [1] Selective Module Imports
+from "modules/math_utils.alya" import add, multiply as mul
+
+# [2] Public Declarations (pub keyword)
+pub const MAX_CAPACITY = 1000
+
+pub struct Point
+    x: int
+    y: int = 0
+end
+
+pub function calculate_offset(pt: Point, delta: int) -> int
+    return pt.x + pt.y + delta
+end
+
+say "=== [1] Selective Imports & Pub Declarations ==="
+say "Imported add(10, 20): " + str(add(10, 20))
+say "Aliased mul(6, 7): " + str(mul(6, 7))
+let pt = Point(15, 25)
+say "Offset calculation: " + str(calculate_offset(pt, 5))
+say "Max Capacity: " + str(MAX_CAPACITY)
+
+say ""
+say "=== [2] Explicit Type Annotations ==="
+let score: int = 95
+let user_name: string = "Alya"
+let is_active: int = 1
+say "User: " + user_name + ", Score: " + str(score)
+
+say ""
+say "=== [3] Multi-line Block Lambdas ==="
+let transform = fn(x, y)
+    let temp = x * 2
+    let res = temp + y
+    return res
+end
+say "Block lambda result: " + str(transform(10, 5))
+
+let greeting = function(name)
+    let msg = "Hello, " + name + "!"
+    return msg
+end
+say greeting("Developer")
+
+say ""
+say "=== [4] Type Check (is / is not) ==="
+let val = 42
+if val is int
+    say "val is int"
+end
+if val is not string
+    say "val is not string"
+end
+
+say ""
+say "=== [5] Membership (in / not in) ==="
+let numbers = [10, 20, 30]
+if 20 in numbers
+    say "20 in numbers: true"
+end
+if 99 not in numbers
+    say "99 not in numbers: true"
+end
+
+let user_map = { "alice": 1, "bob": 2 }
+if "alice" in user_map
+    say "alice in user_map: true"
+end
+if "A" in "Alya"
+    say "'A' in 'Alya': true"
+end
+
+say ""
+say "=== [6] Multiple Loop Variables ==="
+let pairs = { "first": 100, "second": 200 }
+for key, val in pairs
+    say "Map entry: " + key + " => " + str(val)
+end
+
+let fruits = ["apple", "banana"]
+for idx, fruit in fruits
+    say "List item: " + str(idx) + ": " + fruit
+end
+
+say ""
+say "=== [7] Destructuring & Spread ==="
+let coords = [100, 200, 300]
+let [cx, cy, cz] = coords
+say "Destructured list: " + str(cx) + ", " + str(cy) + ", " + str(cz)
+
+let m1 = { "a": 1 }
+let m2 = { "b": 2 }
+let merged = { ...m1, ...m2 }
+say "Merged map: " + str(merged["a"]) + ", " + str(merged["b"])
+
+say ""
+say "=== [8] Expression When ==="
+let status = 2
+let label = when status
+    is 1 => "Low"
+    is 2 => "Medium"
+    else => "High"
+end
+say "When expression result: " + label
+
+say ""
+say "=== All new language features demonstrated successfully! ==="
