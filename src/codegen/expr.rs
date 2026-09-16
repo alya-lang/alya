@@ -767,24 +767,81 @@ impl CodeGen {
                     }
                 }
 
-                let (call_name, actual_args): (&str, Vec<Expr>) =
-                    if (name == "substring" || name == "substr") && args.len() == 2 {
-                        (
-                            "substring",
-                            vec![args[0].clone(), args[1].clone(), Expr::Number(-1.0)],
-                        )
-                    } else if name == "substr" {
-                        ("substring", args.clone())
-                    } else if name == "length" {
-                        ("len", args.clone())
-                    } else if (name == "contains" || name == "has")
-                        && args.len() == 2
-                        && is_map_expr(&args[0], &self.ctx.variables)
+                let mut resolved_name = name.clone();
+                let mut actual_args = args.clone();
+
+                // 1. Static struct method call: Point.new(args) -> Point__new(args)
+                if let Some(Expr::Identifier(type_name)) = actual_args.first() {
+                    let mangled = format!("{}__{}", type_name, name);
+                    if self.ctx.structs.contains_key(type_name)
+                        && !self.ctx.variables.contains_key(type_name)
                     {
-                        ("has", args.clone())
-                    } else {
-                        (name.as_str(), args.clone())
+                        resolved_name = mangled;
+                        actual_args.remove(0);
+                    }
+                }
+
+                // 2. Struct instance method call via UFCS: p.distance(...) -> Point__distance(p, ...)
+                if let Some(first_arg) = actual_args.first() {
+                    let struct_name_opt = match first_arg {
+                        Expr::Identifier(var_name) => match self.ctx.variables.get(var_name) {
+                            Some(VarType::Struct { struct_name, .. }) => Some(struct_name.clone()),
+                            _ => None,
+                        },
+                        Expr::FieldAccess { field, .. }
+                        | Expr::OptionalFieldAccess { field, .. } => {
+                            self.ctx
+                                .variables
+                                .get(&format!("struct_field_struct:{}", field))
+                                .and_then(|vt| {
+                                    if let VarType::Struct { struct_name, .. } = vt {
+                                        Some(struct_name.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                        }
+                        _ => None,
                     };
+                    if let Some(sname) = struct_name_opt {
+                        let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+                        let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                        let candidate1 = format!("{}__{}", sname, name);
+                        let candidate2 = format!("{}__{}", bare_sname, name);
+                        if self.ctx.functions.contains(&candidate1) {
+                            resolved_name = candidate1;
+                        } else if self.ctx.functions.contains(&candidate2) {
+                            resolved_name = candidate2;
+                        }
+                    }
+                }
+
+                // 3. Direct namespace / mangled name: Point::create -> Point__create
+                if resolved_name.contains("::") {
+                    let mangled = resolved_name.replace("::", "__");
+                    if self.ctx.functions.contains(&mangled) {
+                        resolved_name = mangled;
+                    }
+                }
+
+                let call_name_str = if (resolved_name == "substring" || resolved_name == "substr")
+                    && actual_args.len() == 2
+                {
+                    actual_args.push(Expr::Number(-1.0));
+                    "substring".to_string()
+                } else if resolved_name == "substr" {
+                    "substring".to_string()
+                } else if resolved_name == "length" {
+                    "len".to_string()
+                } else if (resolved_name == "contains" || resolved_name == "has")
+                    && actual_args.len() == 2
+                    && is_map_expr(&actual_args[0], &self.ctx.variables)
+                {
+                    "has".to_string()
+                } else {
+                    resolved_name
+                };
+                let call_name = call_name_str.as_str();
 
                 let initial_stack_offset = self.ctx.stack_offset;
                 let word_size: i32 = match self.arch {

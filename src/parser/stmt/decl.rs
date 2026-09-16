@@ -254,16 +254,19 @@ impl Parser {
         };
         self.advance();
 
-        while matches!(self.current_token().token_type, TokenType::ColonColon) {
+        while matches!(
+            self.current_token().token_type,
+            TokenType::ColonColon | TokenType::Dot
+        ) {
             self.advance();
             match &self.current_token().token_type {
                 TokenType::Identifier(member) => {
-                    name = format!("{}::{}", name, member);
+                    name = format!("{}__{}", name, member);
                     self.advance();
                 }
                 _ => {
                     return Err(format!(
-                        "Expected identifier after '::' in function name at line {}, column {}",
+                        "Expected identifier after '.' or '::' in function name at line {}, column {}",
                         self.current_token().line,
                         self.current_token().column
                     ));

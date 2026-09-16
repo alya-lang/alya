@@ -370,3 +370,62 @@ say sub4
         );
     }
 }
+
+#[test]
+fn test_e2e_struct_methods() {
+    let code = r#"
+struct Point
+    x
+    y
+end
+
+# 1. Instance method definition on Point
+function Point.sum(self)
+    return self.x + self.y
+end
+
+# 2. Instance method with extra arguments
+function Point.scale(self, factor)
+    return Point { x: self.x * factor, y: self.y * factor }
+end
+
+# 3. Static / Factory method on Point
+function Point.create(x, y)
+    return Point { x: x, y: y }
+end
+
+let p = Point.create(10, 20)
+say p.sum()
+
+let p2 = p.scale(3)
+say p2.x
+say p2.y
+say p2.sum()
+
+# 4. Multiple structs with identical method names (name collision check)
+struct Circle
+    radius
+end
+
+function Circle.area(self)
+    return self.radius * self.radius * 3
+end
+
+function Circle.kind(self)
+    return "Circle"
+end
+
+function Point.kind(self)
+    return "Point"
+end
+
+let c = Circle { radius: 5 }
+say c.area()
+say c.kind()
+say p.kind()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "30\n30\n60\n90\n75\nCircle\nPoint\n");
+    }
+}
