@@ -572,7 +572,14 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x0, x19\n");
     out.push_str("    mov x1, #3\n"); // F_GETFL = 3
     out.push_str("    mov x2, #0\n");
-    out.push_str(&format!("    bl {}fcntl\n", p));
+    if is_mac {
+        out.push_str("    sub sp, sp, #16\n");
+        out.push_str("    str xzr, [sp]\n");
+        out.push_str(&format!("    bl {}fcntl\n", p));
+        out.push_str("    add sp, sp, #16\n");
+    } else {
+        out.push_str(&format!("    bl {}fcntl\n", p));
+    }
     out.push_str("    cmp w0, #0\n");
     out.push_str("    blt .L_arm64_snb_err\n");
 
@@ -585,7 +592,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_arm64_snb_apply:\n");
     out.push_str("    mov x0, x19\n");
     out.push_str("    mov x1, #4\n"); // F_SETFL = 4
-    out.push_str(&format!("    bl {}fcntl\n", p));
+    out.push_str("    uxtw x2, w2\n");
+    if is_mac {
+        out.push_str("    sub sp, sp, #16\n");
+        out.push_str("    str x2, [sp]\n");
+        out.push_str(&format!("    bl {}fcntl\n", p));
+        out.push_str("    add sp, sp, #16\n");
+    } else {
+        out.push_str(&format!("    bl {}fcntl\n", p));
+    }
     out.push_str("    cmp w0, #0\n");
     out.push_str("    blt .L_arm64_snb_err\n");
     out.push_str("    mov x0, #0\n");
