@@ -153,12 +153,12 @@ end
 
 # Allocates 'size' bytes from the arena.
 # The allocation is O(1) and aligned to 8 bytes.
-pub function arena_alloc_mem(arena, size)
+pub function arena_alloc_mem(arena: Arena, size)
     return arena_alloc(arena.handle, size)
 end
 
 # Allocates 'size' bytes from the arena and zeroes the memory.
-pub function arena_alloc_zeroed(arena, size)
+pub function arena_alloc_zeroed(arena: Arena, size)
     let p = arena_alloc(arena.handle, size)
     if p != 0
         zero_mem(p, size)
@@ -168,7 +168,7 @@ end
 
 # Allocates memory in the arena and copies 'str' into it.
 # Returns a string pointer whose lifetime is tied to the arena.
-pub function arena_alloc_string(arena, str)
+pub function arena_alloc_string(arena: Arena, str)
     let slen = len(str)
     let p = arena_alloc(arena.handle, slen + 1)
     if p != 0
@@ -180,29 +180,29 @@ end
 
 # Resets all allocations within the arena.
 # Memory chunks are retained for instant reuse without OS reallocation overhead.
-pub function arena_clear(arena)
+pub function arena_clear(arena: Arena)
     arena_reset(arena.handle)
 end
 
 # Destroys the arena and frees all underlying chunk memory back to the system.
-pub function arena_free(arena)
+pub function arena_free(arena: Arena)
     if arena.handle != 0
         arena_destroy(arena.handle)
         arena.handle = 0
     end
 end
 
-pub function arena_free_all(arena)
+pub function arena_free_all(arena: Arena)
     arena_free(arena)
 end
 
 # Returns the total number of bytes currently allocated through this arena.
-pub function arena_total_allocated(arena)
+pub function arena_total_allocated(arena: Arena)
     return arena_allocated(arena.handle)
 end
 
 # Returns 1 if the arena has an active handle, 0 otherwise.
-pub function arena_is_valid(arena)
+pub function arena_is_valid(arena: Arena)
     if arena.handle != 0
         return 1
     end
@@ -227,7 +227,7 @@ pub function buffer_new(capacity)
 end
 
 # Frees the buffer's memory and zeroes its state.
-pub function buffer_free(buf)
+pub function buffer_free(buf: ByteBuffer)
     if buf.ptr != 0
         free(buf.ptr)
         buf.ptr = 0
@@ -237,7 +237,7 @@ pub function buffer_free(buf)
 end
 
 # Ensures the buffer has at least 'needed' bytes of capacity.
-pub function buffer_ensure_capacity(buf, needed)
+pub function buffer_ensure_capacity(buf: ByteBuffer, needed)
     if needed > buf.capacity
         let new_cap = buf.capacity * 2
         if new_cap < needed
@@ -249,14 +249,14 @@ pub function buffer_ensure_capacity(buf, needed)
 end
 
 # Appends a single byte to the buffer.
-pub function buffer_write_byte(buf, val)
+pub function buffer_write_byte(buf: ByteBuffer, val)
     buffer_ensure_capacity(buf, buf.size + 1)
     poke_byte(buf.ptr, buf.size, val)
     buf.size = buf.size + 1
 end
 
 # Reads a byte from the buffer at the given offset.
-pub function buffer_read_byte(buf, offset)
+pub function buffer_read_byte(buf: ByteBuffer, offset)
     if offset >= 0 and offset < buf.size
         return peek_byte(buf.ptr, offset)
     end
@@ -264,7 +264,7 @@ pub function buffer_read_byte(buf, offset)
 end
 
 # Appends a string to the buffer. Returns number of bytes written.
-pub function buffer_write_string(buf, str)
+pub function buffer_write_string(buf: ByteBuffer, str)
     let slen = len(str)
     if slen == 0
         return 0
@@ -277,24 +277,24 @@ pub function buffer_write_string(buf, str)
 end
 
 # Appends a null terminator (without increasing buffer size) and returns the string.
-pub function buffer_to_string(buf)
+pub function buffer_to_string(buf: ByteBuffer)
     buffer_ensure_capacity(buf, buf.size + 1)
     poke_byte(buf.ptr, buf.size, 0)
     return str_from_ptr(buf.ptr)
 end
 
 # Clears the buffer contents without deallocating underlying memory.
-pub function buffer_clear(buf)
+pub function buffer_clear(buf: ByteBuffer)
     buf.size = 0
 end
 
 # Returns the number of bytes currently stored in the buffer.
-pub function buffer_len(buf)
+pub function buffer_len(buf: ByteBuffer)
     return buf.size
 end
 
 # Returns 1 if the buffer is empty, 0 otherwise.
-pub function buffer_is_empty(buf)
+pub function buffer_is_empty(buf: ByteBuffer)
     if buf.size == 0
         return 1
     end
@@ -302,7 +302,7 @@ pub function buffer_is_empty(buf)
 end
 
 # Appends a 64-bit integer to the buffer (8 bytes).
-pub function buffer_write_int(buf, val)
+pub function buffer_write_int(buf: ByteBuffer, val)
     buffer_ensure_capacity(buf, buf.size + 8)
     poke_int(buf.ptr, buf.size, val)
     buf.size = buf.size + 8
@@ -310,7 +310,7 @@ pub function buffer_write_int(buf, val)
 end
 
 # Reads a 64-bit integer from the buffer at the given byte offset.
-pub function buffer_read_int(buf, offset)
+pub function buffer_read_int(buf: ByteBuffer, offset)
     if offset >= 0 and offset + 8 <= buf.size
         return peek_int(buf.ptr, offset)
     end
@@ -396,7 +396,7 @@ end
 
 # Allocates one fixed-size block from the pool in O(1) time.
 # Returns raw pointer to block, or 0 if pool is exhausted.
-pub function pool_alloc(pool)
+pub function pool_alloc(pool: Pool)
     if pool.free_head == 0
         return 0
     end
@@ -408,7 +408,7 @@ pub function pool_alloc(pool)
 end
 
 # Returns an allocated block back to the pool in O(1) time.
-pub function pool_free(pool, ptr)
+pub function pool_free(pool: Pool, ptr)
     if ptr == 0
         return 0
     end
@@ -419,12 +419,12 @@ pub function pool_free(pool, ptr)
 end
 
 # Returns the number of available free blocks in the pool.
-pub function pool_available(pool)
+pub function pool_available(pool: Pool)
     return pool.capacity - pool.allocated_count
 end
 
 # Re-links all blocks in the pool without re-allocating buffer memory.
-pub function pool_clear(pool)
+pub function pool_clear(pool: Pool)
     if pool.buffer == 0 or pool.capacity <= 0
         return 0
     end
@@ -443,7 +443,7 @@ pub function pool_clear(pool)
 end
 
 # Destroys the pool and frees underlying memory back to system heap.
-pub function pool_destroy(pool)
+pub function pool_destroy(pool: Pool)
     if pool.buffer != 0
         free(pool.buffer)
         pool.buffer = 0

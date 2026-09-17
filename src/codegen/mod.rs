@@ -356,6 +356,7 @@ impl CodeGen {
         inference: &ProgramInference,
     ) {
         let saved = self.ctx.enter_function();
+        self.ctx.current_fn_name = name.to_string();
 
         let bare = name.rsplit("::").next().unwrap_or(name);
         let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -412,10 +413,19 @@ impl CodeGen {
                 .or_else(|| {
                     if i == 0 {
                         let bare = name.rsplit("::").next().unwrap_or(name);
-                        let mut parts = bare.split("__");
-                        if let (Some(type_name), Some(_)) = (parts.next(), parts.next()) {
-                            if self.ctx.structs.contains_key(type_name) {
-                                return Some(type_name.to_string());
+                        let parts: Vec<&str> = bare.split("__").collect();
+                        if parts.len() >= 2 {
+                            for part in &parts[..parts.len() - 1] {
+                                if self.ctx.structs.contains_key(*part) {
+                                    return Some(part.to_string());
+                                }
+                                for sname in self.ctx.structs.keys() {
+                                    let s_bare = sname.rsplit("::").next().unwrap_or(sname);
+                                    let s_bare = s_bare.rsplit("__").next().unwrap_or(s_bare);
+                                    if s_bare == *part {
+                                        return Some(sname.clone());
+                                    }
+                                }
                             }
                         }
                     }

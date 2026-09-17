@@ -23,9 +23,13 @@ impl StructInference {
                 fields,
                 field_types,
                 ..
-            } = s.inner_stmt()
-            {
+            } = s.inner_stmt() {
                 struct_names.insert(name.clone());
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if bare != name {
+                    struct_names.insert(bare.to_string());
+                }
                 for (f, ft) in fields.iter().zip(field_types.iter()) {
                     if let Some(t) = ft {
                         inf.field_types.insert((name.clone(), f.clone()), t.clone());
@@ -150,24 +154,27 @@ impl StructInference {
                     }
 
                     if let Some(first_p) = params.first() {
-                        let mut parts = bare.split("__");
-                        if let (Some(type_name), Some(_)) = (parts.next(), parts.next()) {
-                            if struct_names.contains(type_name) {
-                                self.fn_params
-                                    .insert((name.clone(), 0), type_name.to_string());
-                                if bare != name {
+                        let parts: Vec<&str> = bare.split("__").collect();
+                        if parts.len() >= 2 {
+                            for type_name in &parts[..parts.len() - 1] {
+                                if struct_names.contains(*type_name) {
                                     self.fn_params
-                                        .insert((bare.to_string(), 0), type_name.to_string());
-                                }
-                                self.var_types.insert(
-                                    format!("{}::{}", name, first_p),
-                                    type_name.to_string(),
-                                );
-                                if bare != name {
+                                        .insert((name.clone(), 0), type_name.to_string());
+                                    if bare != name {
+                                        self.fn_params
+                                            .insert((bare.to_string(), 0), type_name.to_string());
+                                    }
                                     self.var_types.insert(
-                                        format!("{}::{}", bare, first_p),
+                                        format!("{}::{}", name, first_p),
                                         type_name.to_string(),
                                     );
+                                    if bare != name {
+                                        self.var_types.insert(
+                                            format!("{}::{}", bare, first_p),
+                                            type_name.to_string(),
+                                        );
+                                    }
+                                    break;
                                 }
                             }
                         }
@@ -232,8 +239,23 @@ impl StructInference {
                     self.scan_expr(value, current_fn, struct_names);
                     let st = type_ann
                         .as_ref()
-                        .filter(|t| struct_names.contains(*t))
-                        .cloned()
+                        .and_then(|t| {
+                            let b = t.rsplit("::").next().unwrap_or(t);
+                            let b = b.rsplit("__").next().unwrap_or(b);
+                            if struct_names.contains(t) {
+                                Some(t.clone())
+                            } else if struct_names.contains(b) {
+                                Some(b.to_string())
+                            } else {
+                                struct_names
+                                    .iter()
+                                    .find(|s| {
+                                        s.ends_with(&format!("__{}", b))
+                                            || s.ends_with(&format!("::{}", b))
+                                    })
+                                    .cloned()
+                            }
+                        })
                         .or_else(|| self.expr_struct_type(value, current_fn, struct_names));
                     if let Some(st) = st {
                         if let Some(fn_name) = current_fn {

@@ -1903,9 +1903,18 @@ impl CodeGen {
                     .map(|(s, i)| format!("{}.{} (index {})", s, field, i))
                     .collect::<Vec<_>>()
                     .join(", ");
+                let obj_desc = match base_obj {
+                    Expr::Identifier(id) => format!("'{}'", id),
+                    _ => "object".to_string(),
+                };
+                let in_fn = if self.ctx.current_fn_name.is_empty() {
+                    String::new()
+                } else {
+                    format!(" in function '{}'", self.ctx.current_fn_name)
+                };
                 eprintln!(
-                    "warning: ambiguous field access '.{}' on untyped object. Conflicting layouts found: {}. Please specify a type annotation.",
-                    field, details
+                    "warning: ambiguous field access '.{}' on untyped {}{}. Conflicting layouts found: {}. Please specify a type annotation.",
+                    field, obj_desc, in_fn, details
                 );
             }
             return candidates[0].1;

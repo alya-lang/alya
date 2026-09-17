@@ -139,6 +139,16 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
                         ..
                     } = stmt.inner_stmt()
                     {
+                        // If this function is a struct method (e.g. "ev::TcpServer__on_error"),
+                        // keep the receiver struct reachable!
+                        let bare_fn = fn_name.rsplit("::").next().unwrap_or(&fn_name);
+                        let parts: Vec<&str> = bare_fn.split("__").collect();
+                        if parts.len() >= 2 {
+                            for part in &parts[..parts.len() - 1] {
+                                item_refs.insert(part.to_string());
+                            }
+                        }
+
                         for t in param_types.iter().flatten() {
                             let clean = clean_type_name(t);
                             item_refs.insert(clean);

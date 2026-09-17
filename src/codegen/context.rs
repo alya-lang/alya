@@ -52,6 +52,7 @@ pub struct CodeGenContext {
     pub extern_libs: HashSet<String>,
     pub active_defers: Vec<(usize, Stmt, i32)>,
     pub next_defer_idx: usize,
+    pub current_fn_name: String,
 }
 
 impl CodeGenContext {
@@ -68,6 +69,7 @@ impl CodeGenContext {
             extern_libs: HashSet::new(),
             active_defers: Vec::new(),
             next_defer_idx: 0,
+            current_fn_name: String::new(),
         }
     }
 
