@@ -535,23 +535,23 @@ function _b64_val(ch)
     end
 end
 
-pub function base64_encode(s)
+pub function base64_encode_bytes(bytes)
     let b64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-    let slen = len(s)
+    let blen = len(bytes)
     let res = ""
     let i, b0, b1, b2, has_b1, has_b2, idx0, idx1, idx2, idx3 = 0
-    while i < slen
-        b0 = ord(char_at(s, i))
+    while i < blen
+        b0 = bytes[i]
         b1 = 0
         b2 = 0
         has_b1 = 0
         has_b2 = 0
-        if i + 1 < slen
-            b1 = ord(char_at(s, i + 1))
+        if i + 1 < blen
+            b1 = bytes[i + 1]
             has_b1 = 1
         end
-        if i + 2 < slen
-            b2 = ord(char_at(s, i + 2))
+        if i + 2 < blen
+            b2 = bytes[i + 2]
             has_b2 = 1
         end
 
@@ -577,9 +577,20 @@ pub function base64_encode(s)
     return res
 end
 
-pub function base64_decode(s)
+pub function base64_encode(s)
     let slen = len(s)
-    let res = ""
+    let bytes = []
+    let i = 0
+    while i < slen
+        bytes.push(ord(char_at(s, i)))
+        i += 1
+    end
+    return base64_encode_bytes(bytes)
+end
+
+pub function base64_decode_bytes(s)
+    let slen = len(s)
+    let bytes = []
     let i, v0, v1, v2, v3, b0, b1, b2 = 0
     let c0, c1, c2, c3 = ""
     while i + 3 < slen
@@ -594,17 +605,29 @@ pub function base64_decode(s)
         v3 = _b64_val(c3)
 
         b0 = bit_or(bit_shl(v0, 2), bit_and(bit_shr(v1, 4), 3))
-        res = res + chr(b0)
+        bytes.push(b0)
 
         if c2 != "="
             b1 = bit_and(bit_or(bit_shl(bit_and(v1, 15), 4), bit_shr(v2, 2)), 255)
-            res = res + chr(b1)
+            bytes.push(b1)
         end
         if c3 != "="
             b2 = bit_and(bit_or(bit_shl(bit_and(v2, 3), 6), v3), 255)
-            res = res + chr(b2)
+            bytes.push(b2)
         end
         i += 4
+    end
+    return bytes
+end
+
+pub function base64_decode(s)
+    let bytes = base64_decode_bytes(s)
+    let blen = len(bytes)
+    let res = ""
+    let i = 0
+    while i < blen
+        res = res + chr(bytes[i])
+        i += 1
     end
     return res
 end

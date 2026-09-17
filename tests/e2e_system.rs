@@ -958,6 +958,11 @@ say to_hex("Hi")
 say from_hex("4869")
 say to_base64("Alya")
 say from_base64("QWx5YQ==")
+say base64_encode_bytes([65, 108, 121, 97])
+let dec_bytes = base64_decode_bytes("QWx5YQ==")
+say len(dec_bytes)
+say dec_bytes[0]
+say dec_bytes[1]
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(
@@ -976,7 +981,8 @@ say from_base64("QWx5YQ==")
                 "1\n",
                 "1\n",
                 "1\n0\n1\n0\n",
-                "4869\nHi\nQWx5YQ==\nAlya\n"
+                "4869\nHi\nQWx5YQ==\nAlya\n",
+                "QWx5YQ==\n4\n65\n108\n"
             )
         );
     }

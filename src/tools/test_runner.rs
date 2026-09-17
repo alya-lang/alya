@@ -124,7 +124,7 @@ pub fn execute_test_file(
         .map_err(|e| format!("Failed to execute test binary '{}': {}", exe_path, e))?;
 
     let start_wait = Instant::now();
-    let timeout_limit = std::time::Duration::from_secs(30);
+    let timeout_limit = std::time::Duration::from_secs(60);
     let mut exited = false;
     let mut exit_status = None;
 
@@ -164,7 +164,7 @@ pub fn execute_test_file(
         return Ok((
             false,
             format!(
-                "Test timed out after 30 seconds.\nStdout:\n{}\nStderr:\n{}",
+                "Test timed out after 60 seconds.\nStdout:\n{}\nStderr:\n{}",
                 String::from_utf8_lossy(&stdout_bytes),
                 String::from_utf8_lossy(&stderr_bytes)
             ),

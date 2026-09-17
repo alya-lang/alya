@@ -437,7 +437,7 @@ fn get_embedded_stdlib(module: &str) -> Option<&'static str> {
     }
 }
 
-fn resolve_stmt_imports(
+pub(crate) fn resolve_stmt_imports(
     stmt: Stmt,
     current_dir: &std::path::Path,
     visited: &mut std::collections::HashSet<(std::path::PathBuf, Option<String>)>,
