@@ -26,19 +26,35 @@ pub struct ProgramInference {
 
 impl ProgramInference {
     pub fn analyze(program: &Program) -> Self {
+        let (inf, _) = Self::analyze_with_timing(program);
+        inf
+    }
+
+    pub fn analyze_with_timing(
+        program: &Program,
+    ) -> (Self, (std::time::Duration, std::time::Duration)) {
+        let t_idx = std::time::Instant::now();
         let call_index = crate::codegen::analysis::traversal::CallIndex::build(&program.statements);
+        let d_call_index = t_idx.elapsed();
+
+        let t_inf = std::time::Instant::now();
         let known_strings = collect_known_string_vars_with_index(program, &call_index);
         let known_floats = collect_known_float_vars_with_index(program, &call_index);
         let known_arrays = collect_known_array_vars_with_index(program, &call_index);
         let known_maps = collect_known_map_vars_with_index(program, &call_index);
         let struct_inf = StructInference::analyze(program);
-        Self {
-            known_strings,
-            known_floats,
-            known_arrays,
-            known_maps,
-            struct_inf,
-        }
+        let d_inference = t_inf.elapsed();
+
+        (
+            Self {
+                known_strings,
+                known_floats,
+                known_arrays,
+                known_maps,
+                struct_inf,
+            },
+            (d_call_index, d_inference),
+        )
     }
 
     #[inline]

@@ -104,6 +104,19 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
         for m in main_fns {
             mark_function(m, &mut reachable_functions, &mut worklist);
         }
+    } else {
+        // In library or module context without main(), all pub items and test functions are roots
+        for (name, stmt) in &function_defs {
+            let bare = bare_name(name);
+            if stmt.is_pub() || bare.starts_with("test_") || bare.starts_with("__test_") {
+                mark_function(name, &mut reachable_functions, &mut worklist);
+            }
+        }
+        for (name, stmt) in &struct_defs {
+            if stmt.is_pub() && reachable_structs.insert(name.clone()) {
+                worklist.push(WorkItem::Struct(name.clone()));
+            }
+        }
     }
 
     // 2. All top-level statements are roots
@@ -627,5 +640,71 @@ mod tests {
 
         let pruned = eliminate_dead_code(&program);
         assert_eq!(pruned.statements.len(), 2);
+    }
+
+    #[test]
+    fn test_dce_library_roots_pub_and_test() {
+        let program = Program {
+            statements: vec![
+                Stmt::Pub(Box::new(Stmt::Function {
+                    name: "exported_api".into(),
+                    params: vec![],
+                    param_types: vec![],
+                    return_type: None,
+                    defaults: vec![],
+                    body: vec![Stmt::Expr(Expr::Call {
+                        name: "internal_used_helper".into(),
+                        args: vec![],
+                    })],
+                })),
+                Stmt::Function {
+                    name: "internal_used_helper".into(),
+                    params: vec![],
+                    param_types: vec![],
+                    return_type: None,
+                    defaults: vec![],
+                    body: vec![],
+                },
+                Stmt::Function {
+                    name: "internal_dead_helper".into(),
+                    params: vec![],
+                    param_types: vec![],
+                    return_type: None,
+                    defaults: vec![],
+                    body: vec![],
+                },
+                Stmt::Function {
+                    name: "test_feature".into(),
+                    params: vec![],
+                    param_types: vec![],
+                    return_type: None,
+                    defaults: vec![],
+                    body: vec![],
+                },
+                Stmt::Let {
+                    name: "config".into(),
+                    type_ann: None,
+                    value: Expr::Number(100.0),
+                },
+            ],
+        };
+
+        let pruned = eliminate_dead_code(&program);
+        let fn_names: Vec<String> = pruned
+            .statements
+            .iter()
+            .filter_map(|s| {
+                if let Stmt::Function { name, .. } = s.inner_stmt() {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert!(fn_names.contains(&"exported_api".to_string()));
+        assert!(fn_names.contains(&"internal_used_helper".to_string()));
+        assert!(fn_names.contains(&"test_feature".to_string()));
+        assert!(!fn_names.contains(&"internal_dead_helper".to_string()));
     }
 }

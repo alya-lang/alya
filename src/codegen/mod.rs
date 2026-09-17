@@ -15,11 +15,22 @@ use crate::ast::*;
 use analysis::ProgramInference;
 use context::{CodeGenContext, VarType};
 
+#[derive(Debug, Default, Clone)]
+pub struct PipelineProfile {
+    pub d_call_index: std::time::Duration,
+    pub d_dce: std::time::Duration,
+    pub d_inference: std::time::Duration,
+    pub d_codegen: std::time::Duration,
+    pub original_stmts: usize,
+    pub pruned_stmts: usize,
+}
+
 pub struct CodeGen {
     pub(crate) arch: Architecture,
     pub(crate) os: OperatingSystem,
     pub(crate) output: String,
     pub(crate) ctx: CodeGenContext,
+    pub profile: PipelineProfile,
 }
 
 impl CodeGen {
@@ -29,6 +40,7 @@ impl CodeGen {
             os,
             output: String::new(),
             ctx: CodeGenContext::new(),
+            profile: PipelineProfile::default(),
         }
     }
 
@@ -47,7 +59,11 @@ impl CodeGen {
             program
         };
 
+        let original_stmts = program.statements.len();
+        let t_dce = std::time::Instant::now();
         let pruned_prog = analysis::eliminate_dead_code(program);
+        let d_dce = t_dce.elapsed();
+        let pruned_stmts = pruned_prog.statements.len();
         let program = &pruned_prog;
 
         // Collect all struct definitions first
@@ -153,7 +169,7 @@ impl CodeGen {
             }
         }
 
-        let inference = ProgramInference::analyze(program);
+        let (inference, (d_call_index, d_inference)) = ProgramInference::analyze_with_timing(program);
         for s in &inference.known_strings {
             if s.starts_with("map_field_str:")
                 || s.starts_with("map_str:")
@@ -311,6 +327,7 @@ impl CodeGen {
             }
         }
 
+        let t_emit = std::time::Instant::now();
         arch::emit_header(&mut self.output, self.arch, self.os);
 
         self.emit_rodata_section();
@@ -355,6 +372,16 @@ impl CodeGen {
         }
 
         runtime::emit_runtime(&mut self.output, self.arch, self.os, &self.ctx.structs);
+        let d_codegen = t_emit.elapsed();
+
+        self.profile = PipelineProfile {
+            d_call_index,
+            d_dce,
+            d_inference,
+            d_codegen,
+            original_stmts,
+            pruned_stmts,
+        };
     }
 
     fn generate_function(
@@ -792,9 +819,18 @@ impl CodeGen {
 }
 
 pub fn generate(program: &Program, arch: Architecture, os: OperatingSystem) -> String {
+    let (code, _) = generate_with_profile(program, arch, os);
+    code
+}
+
+pub fn generate_with_profile(
+    program: &Program,
+    arch: Architecture,
+    os: OperatingSystem,
+) -> (String, PipelineProfile) {
     let mut codegen = CodeGen::new(arch, os);
     codegen.generate_program(program);
-    codegen.output
+    (codegen.output, codegen.profile)
 }
 
 pub fn collect_extern_libraries(program: &Program) -> Vec<String> {

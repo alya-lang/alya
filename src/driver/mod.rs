@@ -98,22 +98,23 @@ pub fn run(args: CliArgs) -> Result<(), String> {
             let total_dur = total_start.elapsed();
             println!("\n=== Check Profile: {} ===", args.input_file);
             println!(
-                "  [1/3] Lexing:      {:>8.2} ms ({} tokens)",
+                "  [Pass 1] Lexing:             {:>8.2} ms ({} tokens)",
                 d_lex.as_secs_f64() * 1000.0,
                 token_count
             );
             println!(
-                "  [2/3] Parsing:     {:>8.2} ms ({} stmts)",
+                "  [Pass 1] Parsing:            {:>8.2} ms ({} stmts)",
                 d_parse.as_secs_f64() * 1000.0,
                 stmt_count
             );
             println!(
-                "  [3/3] Imports:     {:>8.2} ms",
-                d_import.as_secs_f64() * 1000.0
+                "  [Pass 2] Module Resolution:  {:>8.2} ms ({} files)",
+                d_import.as_secs_f64() * 1000.0,
+                imported_files.len()
             );
             println!("  ----------------------------------------");
             println!(
-                "  Total Check Time:  {:>8.2} ms",
+                "  Total Check Time:            {:>8.2} ms",
                 total_dur.as_secs_f64() * 1000.0
             );
             println!("========================================");
@@ -198,9 +199,7 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     };
 
     // 4. Code Generation
-    let t_codegen = Instant::now();
-    let code = codegen::generate(&ast, args.arch, args.os);
-    let d_codegen = t_codegen.elapsed();
+    let (code, pipeline_profile) = codegen::generate_with_profile(&ast, args.arch, args.os);
     let asm_lines = code.lines().count();
 
     fs::write(&asm_file, code)
@@ -299,49 +298,64 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     if args.time || args.stats {
         let compile_time = total_start.elapsed();
         println!("\n=== Compilation Profile: {} ===", args.input_file);
-        println!("  Source Size:       {} bytes", source.len());
+        println!("  Source Size:                 {} bytes", source.len());
         println!(
-            "  [1/5] Lexing:      {:>8.2} ms ({} tokens)",
+            "  [Pass 1] Lexing:             {:>8.2} ms ({} tokens)",
             d_lex.as_secs_f64() * 1000.0,
             token_count
         );
         println!(
-            "  [2/5] Parsing:     {:>8.2} ms ({} stmts)",
+            "  [Pass 1] Parsing:            {:>8.2} ms ({} stmts)",
             d_parse.as_secs_f64() * 1000.0,
             stmt_count
         );
         println!(
-            "  [3/5] Imports:     {:>8.2} ms",
-            d_import.as_secs_f64() * 1000.0
+            "  [Pass 2] Module Resolution:  {:>8.2} ms ({} files)",
+            d_import.as_secs_f64() * 1000.0,
+            imported_files.len()
         );
         println!(
-            "  [4/5] Codegen:     {:>8.2} ms ({} asm lines)",
-            d_codegen.as_secs_f64() * 1000.0,
+            "  [Pass 3] CallIndex Build:    {:>8.2} ms",
+            pipeline_profile.d_call_index.as_secs_f64() * 1000.0
+        );
+        println!(
+            "  [Pass 4] Tree-Shaking (DCE): {:>8.2} ms ({}/{} stmts retained)",
+            pipeline_profile.d_dce.as_secs_f64() * 1000.0,
+            pipeline_profile.pruned_stmts,
+            pipeline_profile.original_stmts
+        );
+        println!(
+            "  [Pass 5] Type Inference:     {:>8.2} ms",
+            pipeline_profile.d_inference.as_secs_f64() * 1000.0
+        );
+        println!(
+            "  [Pass 6] Machine Codegen:    {:>8.2} ms ({} asm lines)",
+            pipeline_profile.d_codegen.as_secs_f64() * 1000.0,
             asm_lines
         );
         if let Some(dur) = d_gcc {
             println!(
-                "  [5/5] GCC Link:    {:>8.2} ms",
+                "  [Pass 7] GCC Link:           {:>8.2} ms",
                 dur.as_secs_f64() * 1000.0
             );
         }
         println!("  ----------------------------------------");
         if let Some(dur) = d_exec {
             println!(
-                "  Compile Time:      {:>8.2} ms",
+                "  Compile Time:                {:>8.2} ms",
                 (compile_time - dur).as_secs_f64() * 1000.0
             );
             println!(
-                "  Execution Time:    {:>8.2} ms",
+                "  Execution Time:              {:>8.2} ms",
                 dur.as_secs_f64() * 1000.0
             );
             println!(
-                "  Total Time:        {:>8.2} ms",
+                "  Total Time:                  {:>8.2} ms",
                 compile_time.as_secs_f64() * 1000.0
             );
         } else {
             println!(
-                "  Total Time:        {:>8.2} ms",
+                "  Total Time:                  {:>8.2} ms",
                 compile_time.as_secs_f64() * 1000.0
             );
         }

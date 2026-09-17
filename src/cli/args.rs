@@ -364,14 +364,6 @@ impl CliArgs {
                         }
                     } else {
                         input_file = Some(arg.to_string());
-                        if command == CommandKind::Run && i + 1 < args.len() {
-                            if args[i + 1] == "--" {
-                                run_args.extend(args[i + 2..].iter().cloned());
-                            } else {
-                                run_args.extend(args[i + 1..].iter().cloned());
-                            }
-                            break;
-                        }
                     }
                 }
                 other => {
