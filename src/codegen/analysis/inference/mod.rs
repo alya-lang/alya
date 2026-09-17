@@ -98,8 +98,7 @@ impl ProgramInference {
 
     #[inline]
     pub fn infer_param_struct_type(&self, func_name: &str, param_idx: usize) -> Option<String> {
-        let bare = func_name.rsplit("::").next().unwrap_or(func_name);
-        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        let bare = resolve_func_bare(func_name, &self.struct_inf.struct_names);
         self.struct_inf
             .fn_params
             .get(&(func_name.to_string(), param_idx))
@@ -113,8 +112,7 @@ impl ProgramInference {
 
     #[inline]
     pub fn infer_function_return_struct_type(&self, func_name: &str) -> Option<String> {
-        let bare = func_name.rsplit("::").next().unwrap_or(func_name);
-        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        let bare = resolve_func_bare(func_name, &self.struct_inf.struct_names);
         self.struct_inf
             .fn_returns
             .get(func_name)
