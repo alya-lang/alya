@@ -3,11 +3,11 @@
 
 # --- Separators ---
 
-pub function path_separator()
+pub function path_separator() -> string
     return "/"
 end
 
-pub function native_separator()
+pub function native_separator() -> string
     if target_os() == "windows"
         return "\\"
     end
@@ -16,17 +16,17 @@ end
 
 # --- Path Classification ---
 
-pub function is_absolute(path)
-    let plen = len(path)
+pub function is_absolute(path: string) -> int
+    let plen: int = len(path)
     if plen == 0
         return 0
     end
-    let c0 = char_at(path, 0)
+    let c0: string = char_at(path, 0)
     if c0 == "/" or c0 == "\\"
         return 1
     end
     if plen >= 3 and char_at(path, 1) == ":"
-        let c2 = char_at(path, 2)
+        let c2: string = char_at(path, 2)
         if c2 == "/" or c2 == "\\"
             return 1
         end
@@ -34,17 +34,17 @@ pub function is_absolute(path)
     return 0
 end
 
-pub function is_relative(path)
+pub function is_relative(path: string) -> int
     if is_absolute(path)
         return 0
     end
     return 1
 end
 
-pub function is_root(path)
-    let plen = len(path)
+pub function is_root(path: string) -> int
+    let plen: int = len(path)
     if plen == 1
-        let c0 = char_at(path, 0)
+        let c0: string = char_at(path, 0)
         if c0 == "/" or c0 == "\\"
             return 1
         end
@@ -53,7 +53,7 @@ pub function is_root(path)
         return 1
     end
     if plen == 3 and char_at(path, 1) == ":"
-        let c2 = char_at(path, 2)
+        let c2: string = char_at(path, 2)
         if c2 == "/" or c2 == "\\"
             return 1
         end
@@ -63,17 +63,17 @@ end
 
 # --- Component Extraction ---
 
-pub function file_name(path)
-    let plen = len(path)
+pub function file_name(path: string) -> string
+    let plen: int = len(path)
     if plen == 0
         return ""
     end
-    let end_idx = plen
+    let end_idx: int = plen
     while end_idx > 1 and (char_at(path, end_idx - 1) == "/" or char_at(path, end_idx - 1) == "\\")
         end_idx -= 1
     end
-    let i = end_idx - 1
-    let ch = ""
+    let i: int = end_idx - 1
+    let ch: string = ""
     while i >= 0
         ch = char_at(path, i)
         if ch == "/" or ch == "\\"
@@ -84,17 +84,17 @@ pub function file_name(path)
     return substring(path, 0, end_idx)
 end
 
-pub function basename(path)
+pub function basename(path: string) -> string
     return file_name(path)
 end
 
-pub function file_ext(path)
-    let name = file_name(path)
-    let nlen = len(name)
+pub function file_ext(path: string) -> string
+    let name: string = file_name(path)
+    let nlen: int = len(name)
     if nlen <= 1
         return ""
     end
-    let i = nlen - 1
+    let i: int = nlen - 1
     while i > 0
         if char_at(name, i) == "."
             return substring(name, i, nlen - i)
@@ -104,42 +104,42 @@ pub function file_ext(path)
     return ""
 end
 
-pub function extname(path)
+pub function extname(path: string) -> string
     return file_ext(path)
 end
 
-pub function has_extension(path)
+pub function has_extension(path: string) -> int
     if len(file_ext(path)) > 0
         return 1
     end
     return 0
 end
 
-pub function file_stem(path)
-    let name = file_name(path)
-    let ext = file_ext(name)
-    let elen = len(ext)
+pub function file_stem(path: string) -> string
+    let name: string = file_name(path)
+    let ext: string = file_ext(name)
+    let elen: int = len(ext)
     if elen == 0
         return name
     end
     return substring(name, 0, len(name) - elen)
 end
 
-pub function stem(path)
+pub function stem(path: string) -> string
     return file_stem(path)
 end
 
-pub function parent_dir(path)
-    let plen = len(path)
+pub function parent_dir(path: string) -> string
+    let plen: int = len(path)
     if plen == 0
         return "."
     end
-    let end_idx = plen
+    let end_idx: int = plen
     while end_idx > 1 and (char_at(path, end_idx - 1) == "/" or char_at(path, end_idx - 1) == "\\")
         end_idx -= 1
     end
-    let i = end_idx - 1
-    let ch = ""
+    let i: int = end_idx - 1
+    let ch: string = ""
     while i >= 0
         ch = char_at(path, i)
         if ch == "/" or ch == "\\"
@@ -156,19 +156,19 @@ pub function parent_dir(path)
     return "."
 end
 
-pub function dirname(path)
+pub function dirname(path: string) -> string
     return parent_dir(path)
 end
 
 # --- Path Transformations ---
 
-pub function with_file_name(path, new_name)
-    let pdir = parent_dir(path)
+pub function with_file_name(path: string, new_name: string) -> string
+    let pdir: string = parent_dir(path)
     if pdir == "."
-        let has_slash = 0
-        let i = 0
-        let plen = len(path)
-        let ch = ""
+        let has_slash: int = 0
+        let i: int = 0
+        let plen: int = len(path)
+        let ch: string = ""
         while i < plen
             ch = char_at(path, i)
             if ch == "/" or ch == "\\"
@@ -183,19 +183,19 @@ pub function with_file_name(path, new_name)
     return path_join(pdir, new_name)
 end
 
-pub function with_extension(path, new_ext)
-    let pdir = parent_dir(path)
-    let st = file_stem(path)
-    let ext = new_ext
+pub function with_extension(path: string, new_ext: string) -> string
+    let pdir: string = parent_dir(path)
+    let st: string = file_stem(path)
+    let ext: string = new_ext
     if len(ext) > 0 and char_at(ext, 0) != "."
         ext = "." + ext
     end
-    let new_file = st + ext
+    let new_file: string = st + ext
     if pdir == "."
-        let has_slash = 0
-        let i = 0
-        let plen = len(path)
-        let ch = ""
+        let has_slash: int = 0
+        let i: int = 0
+        let plen: int = len(path)
+        let ch: string = ""
         while i < plen
             ch = char_at(path, i)
             if ch == "/" or ch == "\\"
@@ -212,19 +212,19 @@ end
 
 # --- Joining & Normalization ---
 
-pub function path_join(a, b)
-    let alen = len(a)
-    let blen = len(b)
+pub function path_join(a: string, b: string) -> string
+    let alen: int = len(a)
+    let blen: int = len(b)
     if alen == 0
         return b
     end
     if blen == 0
         return a
     end
-    let last_a = char_at(a, alen - 1)
-    let a_slash = (last_a == "/" or last_a == "\\")
-    let first_b = char_at(b, 0)
-    let b_slash = (first_b == "/" or first_b == "\\")
+    let last_a: string = char_at(a, alen - 1)
+    let a_slash: int = (last_a == "/" or last_a == "\\")
+    let first_b: string = char_at(b, 0)
+    let b_slash: int = (first_b == "/" or first_b == "\\")
 
     if a_slash and b_slash
         return substring(a, 0, alen - 1) + "/" + substring(b, 1, blen - 1)
@@ -237,17 +237,17 @@ pub function path_join(a, b)
     end
 end
 
-pub function path_join3(a, b, c)
+pub function path_join3(a: string, b: string, c: string) -> string
     return path_join(path_join(a, b), c)
 end
 
-pub function path_join_all(parts)
-    let total = len(parts)
+pub function path_join_all(parts: string[]) -> string
+    let total: int = len(parts)
     if total == 0
         return ""
     end
-    let res = parts[0]
-    let i = 1
+    let res: string = parts[0]
+    let i: int = 1
     while i < total
         res = path_join(res, parts[i])
         i += 1
@@ -255,11 +255,11 @@ pub function path_join_all(parts)
     return res
 end
 
-pub function to_slash(path)
-    let plen = len(path)
-    let res = ""
-    let i = 0
-    let ch = ""
+pub function to_slash(path: string) -> string
+    let plen: int = len(path)
+    let res: string = ""
+    let i: int = 0
+    let ch: string = ""
     while i < plen
         ch = char_at(path, i)
         if ch == "\\"
@@ -272,16 +272,16 @@ pub function to_slash(path)
     return res
 end
 
-pub function normalize_slashes(path)
+pub function normalize_slashes(path: string) -> string
     return to_slash(path)
 end
 
-pub function to_native_separators(path)
+pub function to_native_separators(path: string) -> string
     if target_os() == "windows"
-        let plen = len(path)
-        let res = ""
-        let i = 0
-        let ch = ""
+        let plen: int = len(path)
+        let res: string = ""
+        let i: int = 0
+        let ch: string = ""
         while i < plen
             ch = char_at(path, i)
             if ch == "/"

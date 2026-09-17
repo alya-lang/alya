@@ -1,47 +1,47 @@
 # Alya Standard Library - Time Module
 # Provides time querying and delay routines.
 
-pub function now()
+pub function now() -> int
     return time()
 end
 
-pub function now_ms()
+pub function now_ms() -> int
     return clock_ms()
 end
 
-pub function delay(ms)
+pub function delay(ms: int)
     return sleep(ms)
 end
 
-pub function sleep_sec(seconds)
+pub function sleep_sec(seconds: int)
     return sleep(seconds * 1000)
 end
 
-pub function elapsed(start_time)
+pub function elapsed(start_time: int) -> int
     return time() - start_time
 end
 
-pub function elapsed_ms(start_time_ms)
+pub function elapsed_ms(start_time_ms: int) -> int
     return clock_ms() - start_time_ms
 end
 
-pub function seconds(s)
+pub function seconds(s: int) -> int
     return s
 end
 
-pub function minutes(m)
+pub function minutes(m: int) -> int
     return m * 60
 end
 
-pub function hours(h)
+pub function hours(h: int) -> int
     return h * 3600
 end
 
-pub function days(d)
+pub function days(d: int) -> int
     return d * 86400
 end
 
-pub function is_leap_year(year)
+pub function is_leap_year(year: int) -> int
     if year % 400 == 0
         return 1
     elif year % 100 == 0
@@ -50,7 +50,7 @@ pub function is_leap_year(year)
     return year % 4 == 0
 end
 
-pub function days_in_month(month, year)
+pub function days_in_month(month: int, year: int) -> int
     when month
         is 1, 3, 5, 7, 8, 10, 12 then return 31
         is 4, 6, 9, 11 then return 30
@@ -64,12 +64,12 @@ pub function days_in_month(month, year)
     end
 end
 
-pub function format_duration(sec)
-    let h = sec / 3600
-    let rem = sec % 3600
-    let m = rem / 60
-    let s = rem % 60
-    let res = ""
+pub function format_duration(sec: int) -> string
+    let h: int = sec / 3600
+    let rem: int = sec % 3600
+    let m: int = rem / 60
+    let s: int = rem % 60
+    let res: string = ""
     if h > 0
         res = res + str(h) + "h "
     end
@@ -80,11 +80,11 @@ pub function format_duration(sec)
     return res
 end
 
-pub function timestamp()
+pub function timestamp() -> int
     return time()
 end
 
-function _time_pad2(n)
+function _time_pad2(n: int) -> string
     if n < 10
         return "0" + str(n)
     end
@@ -93,39 +93,39 @@ end
 
 # Converts epoch seconds (UTC) to a calendar date/time map
 # Returns: {"year", "month", "day", "hour", "minute", "second", "weekday"}
-pub function epoch_to_date(epoch_sec)
-    let days = epoch_sec / 86400
-    let rem = epoch_sec % 86400
+pub function epoch_to_date(epoch_sec: int)
+    let days: int = epoch_sec / 86400
+    let rem: int = epoch_sec % 86400
     if rem < 0
         rem = rem + 86400
         days = days - 1
     end
-    let hour = rem / 3600
-    let minute = (rem % 3600) / 60
-    let second = rem % 60
-    let weekday = (days + 4) % 7
+    let hour: int = rem / 3600
+    let minute: int = (rem % 3600) / 60
+    let second: int = rem % 60
+    let weekday: int = (days + 4) % 7
     if weekday < 0
         weekday = weekday + 7
     end
 
-    let z = days + 719468
-    let era = z / 146097
+    let z: int = days + 719468
+    let era: int = z / 146097
     if z < 0 and z % 146097 != 0
         era = era - 1
     end
-    let doe = z - (era * 146097)
-    let yoe = (doe - (doe / 1460) + (doe / 36524) - (doe / 146096)) / 365
-    let y = yoe + (era * 400)
-    let doy = doe - ((365 * yoe) + (yoe / 4) - (yoe / 100))
-    let mp = ((5 * doy) + 2) / 153
-    let d = doy - (((153 * mp) + 2) / 5) + 1
-    let m = 0
+    let doe: int = z - (era * 146097)
+    let yoe: int = (doe - (doe / 1460) + (doe / 36524) - (doe / 146096)) / 365
+    let y: int = yoe + (era * 400)
+    let doy: int = doe - ((365 * yoe) + (yoe / 4) - (yoe / 100))
+    let mp: int = ((5 * doy) + 2) / 153
+    let d: int = doy - (((153 * mp) + 2) / 5) + 1
+    let m: int = 0
     if mp < 10
         m = mp + 3
     else
         m = mp - 9
     end
-    let year = y
+    let year: int = y
     if m <= 2
         year = y + 1
     end
@@ -141,34 +141,34 @@ pub function epoch_to_date(epoch_sec)
 end
 
 # Converts year, month (1-12), day (1-31) to epoch seconds at 00:00:00 UTC
-pub function date_ymd_to_epoch(year, month, day)
-    let y = year
+pub function date_ymd_to_epoch(year: int, month: int, day: int) -> int
+    let y: int = year
     if month <= 2
         y = y - 1
     end
-    let era = y / 400
+    let era: int = y / 400
     if y < 0 and y % 400 != 0
         era = era - 1
     end
-    let yoe = y - (era * 400)
-    let m_adj = 0
+    let yoe: int = y - (era * 400)
+    let m_adj: int = 0
     if month > 2
         m_adj = month - 3
     else
         m_adj = month + 9
     end
-    let doy = (((153 * m_adj) + 2) / 5) + day - 1
-    let doe = (yoe * 365) + (yoe / 4) - (yoe / 100) + doy
-    let days = (era * 146097) + doe - 719468
+    let doy: int = (((153 * m_adj) + 2) / 5) + day - 1
+    let doe: int = (yoe * 365) + (yoe / 4) - (yoe / 100) + doy
+    let days: int = (era * 146097) + doe - 719468
     return days * 86400
 end
 
 # Converts a date map {"year", "month", "day", "hour", "minute", "second"} to epoch seconds
-pub function date_to_epoch(d)
-    let ymd_sec = date_ymd_to_epoch(d["year"], d["month"], d["day"])
-    let h = 0
-    let m = 0
-    let s = 0
+pub function date_to_epoch(d) -> int
+    let ymd_sec: int = date_ymd_to_epoch(d["year"], d["month"], d["day"])
+    let h: int = 0
+    let m: int = 0
+    let s: int = 0
     if d.has("hour") h = d["hour"] end
     if d.has("minute") m = d["minute"] end
     if d.has("second") s = d["second"] end
@@ -176,29 +176,29 @@ pub function date_to_epoch(d)
 end
 
 # Formats epoch seconds into an ISO 8601 string: "YYYY-MM-DDTHH:MM:SSZ"
-pub function format_iso(epoch_sec)
+pub function format_iso(epoch_sec: int) -> string
     let d = epoch_to_date(epoch_sec)
     return str(d["year"]) + "-" + _time_pad2(d["month"]) + "-" + _time_pad2(d["day"]) + "T" + _time_pad2(d["hour"]) + ":" + _time_pad2(d["minute"]) + ":" + _time_pad2(d["second"]) + "Z"
 end
 
 # Formats a calendar date/time map into an ISO 8601 string: "YYYY-MM-DDTHH:MM:SSZ"
-pub function format_date_map(d)
+pub function format_date_map(d) -> string
     return str(d["year"]) + "-" + _time_pad2(d["month"]) + "-" + _time_pad2(d["day"]) + "T" + _time_pad2(d["hour"]) + ":" + _time_pad2(d["minute"]) + ":" + _time_pad2(d["second"]) + "Z"
 end
 
 # Formats epoch seconds into "YYYY-MM-DD"
-pub function format_date(epoch_sec)
+pub function format_date(epoch_sec: int) -> string
     let d = epoch_to_date(epoch_sec)
     return str(d["year"]) + "-" + _time_pad2(d["month"]) + "-" + _time_pad2(d["day"])
 end
 
 # Formats epoch seconds into "HH:MM:SS"
-pub function format_time_hhmmss(epoch_sec)
+pub function format_time_hhmmss(epoch_sec: int) -> string
     let d = epoch_to_date(epoch_sec)
     return _time_pad2(d["hour"]) + ":" + _time_pad2(d["minute"]) + ":" + _time_pad2(d["second"])
 end
 
-pub function month_name(month)
+pub function month_name(month: int) -> string
     when month
         is 1 then return "January"
         is 2 then return "February"
@@ -216,7 +216,7 @@ pub function month_name(month)
     end
 end
 
-pub function month_short_name(month)
+pub function month_short_name(month: int) -> string
     when month
         is 1 then return "Jan"
         is 2 then return "Feb"
@@ -234,7 +234,7 @@ pub function month_short_name(month)
     end
 end
 
-pub function weekday_name(weekday)
+pub function weekday_name(weekday: int) -> string
     when weekday
         is 0 then return "Sunday"
         is 1 then return "Monday"
@@ -247,7 +247,7 @@ pub function weekday_name(weekday)
     end
 end
 
-pub function weekday_short_name(weekday)
+pub function weekday_short_name(weekday: int) -> string
     when weekday
         is 0 then return "Sun"
         is 1 then return "Mon"
@@ -261,16 +261,16 @@ pub function weekday_short_name(weekday)
 end
 
 # Returns current UTC time as ISO 8601 string
-pub function iso_now()
+pub function iso_now() -> string
     return format_iso(time())
 end
 
 # Returns current UTC date as "YYYY-MM-DD"
-pub function date_now()
+pub function date_now() -> string
     return format_date(time())
 end
 
 # Returns current UTC time as "HH:MM:SS"
-pub function time_now()
+pub function time_now() -> string
     return format_time_hhmmss(time())
 end

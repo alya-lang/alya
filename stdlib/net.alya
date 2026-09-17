@@ -8,64 +8,64 @@ import "std/str"
 
 # Creates a new TCP streaming socket (AF_INET, SOCK_STREAM).
 # Returns a socket descriptor (>= 0) or -1 on error.
-pub function tcp_socket()
+pub function tcp_socket() -> int
     return net_socket()
 end
 
 # Connects to a remote TCP server. Returns a socket descriptor (>= 0) or -1 on error.
-pub function tcp_connect(host, port)
+pub function tcp_connect(host: string, port: int) -> int
     return net_connect(host, port)
 end
 
 # Sends a string over a connected TCP socket. Returns number of bytes sent or -1 on error.
-pub function tcp_send(sock, data)
+pub function tcp_send(sock: int, data: string) -> int
     return net_send(sock, data)
 end
 
 # Receives up to max_bytes from a connected TCP socket.
 # Returns received string, or "" on connection close/EOF.
-pub function tcp_recv(sock, max_bytes)
-    if max_bytes == null or max_bytes <= 0
-        max_bytes = 4096
+pub function tcp_recv(sock: int, max_bytes: int = 4096) -> string
+    let bytes_limit: int = max_bytes
+    if bytes_limit <= 0
+        bytes_limit = 4096
     end
-    return net_recv(sock, max_bytes)
+    return net_recv(sock, bytes_limit)
 end
 
 # Closes a TCP or UDP socket connection.
-pub function tcp_close(sock)
+pub function tcp_close(sock: int) -> int
     return net_close(sock)
 end
 
 # Creates a TCP server socket listening on the specified port.
 # Returns listening socket handle or -1 on error.
-pub function tcp_listen(port, backlog)
-    if backlog == null or backlog <= 0
-        backlog = 10
+pub function tcp_listen(port: int, backlog: int = 10) -> int
+    let b: int = backlog
+    if b <= 0
+        b = 10
     end
-    return net_listen(port, backlog)
+    return net_listen(port, b)
 end
 
 # Accepts an incoming client connection on a listening server socket.
 # Returns client socket handle or -1 on error.
-pub function tcp_accept(server_sock)
+pub function tcp_accept(server_sock: int) -> int
     return net_accept(server_sock)
 end
 
 # Sets read and write timeouts on a socket in milliseconds.
 # Returns 0 on success or -1 on error.
-pub function tcp_set_timeout(sock, ms)
-    if ms == null or ms <= 0
-        ms = 10000
+pub function tcp_set_timeout(sock: int, ms: int = 10000) -> int
+    let t: int = ms
+    if t <= 0
+        t = 10000
     end
-    return net_set_timeout(sock, ms)
+    return net_set_timeout(sock, t)
 end
 
 # Sets non-blocking mode on a socket (mode = 1: non-blocking, mode = 0: blocking).
 # Returns 0 on success or -1 on error.
-pub function tcp_set_nonblocking(sock, mode = 1)
-    if mode == null
-        mode = 1
-    end
+pub function tcp_set_nonblocking(sock: int, mode: int = 1) -> int
     return net_set_nonblocking(sock, mode)
 end
 
@@ -75,27 +75,28 @@ end
 #   1: socket has data ready to read (or connection ready to accept)
 #   0: timed out (no data ready)
 #  -1: error or connection reset
-pub function tcp_poll(sock, timeout_ms = 0)
-    if timeout_ms == null or timeout_ms < 0
-        timeout_ms = 0
+pub function tcp_poll(sock: int, timeout_ms: int = 0) -> int
+    let t: int = timeout_ms
+    if t < 0
+        t = 0
     end
-    return net_poll(sock, timeout_ms)
+    return net_poll(sock, t)
 end
 
 # Returns the remote peer's IP address as a string (e.g. "127.0.0.1"), or "" on failure.
-pub function tcp_peer_ip(sock)
+pub function tcp_peer_ip(sock: int) -> string
     return net_peer_ip(sock)
 end
 
 # Returns the remote peer's port number as an integer, or -1 on failure.
-pub function tcp_peer_port(sock)
+pub function tcp_peer_port(sock: int) -> int
     return net_peer_port(sock)
 end
 
 # Returns remote peer address in "ip:port" format, or "" on failure.
-pub function tcp_peer_addr(sock)
-    let ip = net_peer_ip(sock)
-    let port = net_peer_port(sock)
+pub function tcp_peer_addr(sock: int) -> string
+    let ip: string = net_peer_ip(sock)
+    let port: int = net_peer_port(sock)
     if port < 0 or ip == ""
         return ""
     end
@@ -106,58 +107,58 @@ end
 
 # Creates a new UDP datagram socket (AF_INET, SOCK_DGRAM).
 # Returns a socket descriptor (>= 0) or -1 on error.
-pub function udp_socket()
+pub function udp_socket() -> int
     return net_udp_socket()
 end
 
 # Binds a UDP socket to the specified port on INADDR_ANY.
 # Returns 0 on success or -1 on error.
-pub function udp_bind(sock, port)
+pub function udp_bind(sock: int, port: int) -> int
     return net_udp_bind(sock, port)
 end
 
 # Sends a datagram to host:port over a UDP socket.
 # Returns number of bytes sent or -1 on error.
-pub function udp_send(sock, host, port, data)
+pub function udp_send(sock: int, host: string, port: int, data: string) -> int
     return net_udp_send(sock, host, port, data)
 end
 
 # Receives up to max_bytes from a UDP socket.
 # Returns received string, or "" on error / empty datagram.
-pub function udp_recv(sock, max_bytes)
-    if max_bytes == null or max_bytes <= 0
-        max_bytes = 4096
+pub function udp_recv(sock: int, max_bytes: int = 4096) -> string
+    let bytes_limit: int = max_bytes
+    if bytes_limit <= 0
+        bytes_limit = 4096
     end
-    return net_udp_recv(sock, max_bytes)
+    return net_udp_recv(sock, bytes_limit)
 end
 
 # Closes a UDP socket.
-pub function udp_close(sock)
+pub function udp_close(sock: int) -> int
     return net_close(sock)
 end
 
 # Sets read and write timeouts on a UDP socket in milliseconds.
-pub function udp_set_timeout(sock, ms)
-    if ms == null or ms <= 0
-        ms = 10000
+pub function udp_set_timeout(sock: int, ms: int = 10000) -> int
+    let t: int = ms
+    if t <= 0
+        t = 10000
     end
-    return net_set_timeout(sock, ms)
+    return net_set_timeout(sock, t)
 end
 
 # Sets non-blocking mode on a UDP socket (mode = 1: non-blocking, mode = 0: blocking).
-pub function udp_set_nonblocking(sock, mode = 1)
-    if mode == null
-        mode = 1
-    end
+pub function udp_set_nonblocking(sock: int, mode: int = 1) -> int
     return net_set_nonblocking(sock, mode)
 end
 
 # Polls a UDP socket for incoming datagrams within timeout_ms milliseconds.
-pub function udp_poll(sock, timeout_ms = 0)
-    if timeout_ms == null or timeout_ms < 0
-        timeout_ms = 0
+pub function udp_poll(sock: int, timeout_ms: int = 0) -> int
+    let t: int = timeout_ms
+    if t < 0
+        t = 0
     end
-    return net_poll(sock, timeout_ms)
+    return net_poll(sock, t)
 end
 
 # --- Basic Network & HTTP Protocol Helpers ---
@@ -188,7 +189,7 @@ pub enum HttpStatus
 end
 
 # Returns standard HTTP status code description.
-pub function http_status_text(code)
+pub function http_status_text(code: int) -> string
     when code
         is HttpStatus.Ok then return "OK"
         is HttpStatus.Created then return "Created"
@@ -217,6 +218,6 @@ pub function http_status_text(code)
 end
 
 # Generates standard HTTP Basic Authentication header string.
-pub function basic_auth(username, password)
+pub function basic_auth(username: string, password: string) -> string
     return "Basic " + base64_encode(username + ":" + password)
 end

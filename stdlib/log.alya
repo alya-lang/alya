@@ -19,22 +19,22 @@ pub enum LogLevel
 end
 
 # Log Levels (backward compatibility constants)
-pub let LOG_DEBUG = LogLevel.Debug
-pub let LOG_INFO = LogLevel.Info
-pub let LOG_WARN = LogLevel.Warn
-pub let LOG_ERROR = LogLevel.Error
-pub let LOG_FATAL = LogLevel.Fatal
-pub let LOG_OFF = LogLevel.Off
+pub let LOG_DEBUG: int = LogLevel.Debug
+pub let LOG_INFO: int = LogLevel.Info
+pub let LOG_WARN: int = LogLevel.Warn
+pub let LOG_ERROR: int = LogLevel.Error
+pub let LOG_FATAL: int = LogLevel.Fatal
+pub let LOG_OFF: int = LogLevel.Off
 
 pub struct Logger
-    log_name
-    log_level
-    log_colored
-    log_timestamps
-    log_file
+    log_name: string
+    log_level: int
+    log_colored: int
+    log_timestamps: int
+    log_file: string
 end
 
-pub function log_level_name(lvl)
+pub function log_level_name(lvl: int) -> string
     when lvl
         is LogLevel.Debug then return "DEBUG"
         is LogLevel.Info then return "INFO"
@@ -46,8 +46,8 @@ pub function log_level_name(lvl)
     end
 end
 
-pub function log_level_from_str(s)
-    let up = upper(s)
+pub function log_level_from_str(s: string) -> int
+    let up: string = upper(s)
     when up
         is "DEBUG" then return LogLevel.Debug
         is "INFO" then return LogLevel.Info
@@ -60,52 +60,52 @@ pub function log_level_from_str(s)
     end
 end
 
-function _log_pad2(n)
+function _log_pad2(n: int) -> string
     if n < 10
         return "0" + str(n)
     end
     return str(n)
 end
 
-function _log_timestamp()
-    let now = time() % 86400
-    let hh = (now / 3600) % 24
-    let mm = (now / 60) % 60
-    let ss = now % 60
+function _log_timestamp() -> string
+    let now: int = time() % 86400
+    let hh: int = (now / 3600) % 24
+    let mm: int = (now / 60) % 60
+    let ss: int = now % 60
     return _log_pad2(hh) + ":" + _log_pad2(mm) + ":" + _log_pad2(ss)
 end
 
-pub function logger_new(name, level)
+pub function logger_new(name: string, level: int) -> Logger
     return Logger(name, level, 1, 0, "")
 end
 
-pub function logger_set_level(l, level)
+pub function logger_set_level(l: Logger, level: int)
     l.log_level = level
 end
 
-pub function logger_set_colored(l, colored)
+pub function logger_set_colored(l: Logger, colored: int)
     l.log_colored = colored
 end
 
-pub function logger_set_timestamps(l, timestamps)
+pub function logger_set_timestamps(l: Logger, timestamps: int)
     l.log_timestamps = timestamps
 end
 
-pub function logger_set_file(l, file_path)
+pub function logger_set_file(l: Logger, file_path: string)
     l.log_file = file_path
 end
 
-pub function logger_log(l, level, message)
+pub function logger_log(l: Logger, level: int, message: string) -> int
     if level < l.log_level
         return 0
     end
 
-    let badge = "[" + log_level_name(level) + "]"
+    let badge: string = "[" + log_level_name(level) + "]"
     while len(badge) < 7
         badge = badge + " "
     end
 
-    let colored_badge = badge
+    let colored_badge: string = badge
     if l.log_colored == 1
         if level == 1
             colored_badge = color_cyan(badge)
@@ -120,11 +120,11 @@ pub function logger_log(l, level, message)
         end
     end
 
-    let prefix = ""
+    let prefix: string = ""
     if l.log_timestamps == 1
         prefix = prefix + "[" + _log_timestamp() + "] "
     end
-    let name_str = str_from_ptr(l.log_name)
+    let name_str: string = str_from_ptr(l.log_name)
     if len(name_str) > 0
         if l.log_colored == 1
             prefix = prefix + color_magenta("[" + name_str + "]") + " "
@@ -133,53 +133,53 @@ pub function logger_log(l, level, message)
         end
     end
 
-    let full_msg = prefix + colored_badge + " " + str_from_ptr(message)
+    let full_msg: string = prefix + colored_badge + " " + str_from_ptr(message)
     say full_msg
 
-    let fpath = str_from_ptr(l.log_file)
+    let fpath: string = str_from_ptr(l.log_file)
     if len(fpath) > 0
-        let plain = ansi_strip(full_msg) + "\n"
+        let plain: string = ansi_strip(full_msg) + "\n"
         append_file(fpath, plain)
     end
     return 1
 end
 
-pub function logger_debug(l, msg) return logger_log(l, 1, msg) end
-pub function logger_info(l, msg)  return logger_log(l, 2, msg) end
-pub function logger_warn(l, msg)  return logger_log(l, 3, msg) end
-pub function logger_error(l, msg) return logger_log(l, 4, msg) end
-pub function logger_fatal(l, msg) return logger_log(l, 5, msg) end
+pub function logger_debug(l: Logger, msg: string) -> int return logger_log(l, 1, msg) end
+pub function logger_info(l: Logger, msg: string) -> int  return logger_log(l, 2, msg) end
+pub function logger_warn(l: Logger, msg: string) -> int  return logger_log(l, 3, msg) end
+pub function logger_error(l: Logger, msg: string) -> int return logger_log(l, 4, msg) end
+pub function logger_fatal(l: Logger, msg: string) -> int return logger_log(l, 5, msg) end
 
 # Direct top-level functions
-pub function log_debug(msg) say color_cyan("[DEBUG] ") + str_from_ptr(msg) end
-pub function log_info(msg)  say color_green("[INFO]  ") + str_from_ptr(msg) end
-pub function log_warn(msg)  say color_yellow("[WARN]  ") + str_from_ptr(msg) end
-pub function log_error(msg) say color_red("[ERROR] ") + str_from_ptr(msg) end
-pub function log_fatal(msg) say style_bold(color_bright_red("[FATAL] ")) + str_from_ptr(msg) end
+pub function log_debug(msg: string) say color_cyan("[DEBUG] ") + str_from_ptr(msg) end
+pub function log_info(msg: string)  say color_green("[INFO]  ") + str_from_ptr(msg) end
+pub function log_warn(msg: string)  say color_yellow("[WARN]  ") + str_from_ptr(msg) end
+pub function log_error(msg: string) say color_red("[ERROR] ") + str_from_ptr(msg) end
+pub function log_fatal(msg: string) say style_bold(color_bright_red("[FATAL] ")) + str_from_ptr(msg) end
 
 # --- Logger Struct Methods ---
-pub function Logger.set_level(self, level)
+pub function Logger.set_level(self: Logger, level: int)
     logger_set_level(self, level)
 end
 
-pub function Logger.set_colored(self, colored)
+pub function Logger.set_colored(self: Logger, colored: int)
     logger_set_colored(self, colored)
 end
 
-pub function Logger.set_timestamps(self, timestamps)
+pub function Logger.set_timestamps(self: Logger, timestamps: int)
     logger_set_timestamps(self, timestamps)
 end
 
-pub function Logger.set_file(self, file_path)
+pub function Logger.set_file(self: Logger, file_path: string)
     logger_set_file(self, file_path)
 end
 
-pub function Logger.log(self, level, message)
+pub function Logger.log(self: Logger, level: int, message: string) -> int
     return logger_log(self, level, message)
 end
 
-pub function Logger.debug(self, msg) return logger_debug(self, msg) end
-pub function Logger.info(self, msg)  return logger_info(self, msg) end
-pub function Logger.warn(self, msg)  return logger_warn(self, msg) end
-pub function Logger.error(self, msg) return logger_error(self, msg) end
-pub function Logger.fatal(self, msg) return logger_fatal(self, msg) end
+pub function Logger.debug(self: Logger, msg: string) -> int return logger_debug(self, msg) end
+pub function Logger.info(self: Logger, msg: string) -> int  return logger_info(self, msg) end
+pub function Logger.warn(self: Logger, msg: string) -> int  return logger_warn(self, msg) end
+pub function Logger.error(self: Logger, msg: string) -> int return logger_error(self, msg) end
+pub function Logger.fatal(self: Logger, msg: string) -> int return logger_fatal(self, msg) end

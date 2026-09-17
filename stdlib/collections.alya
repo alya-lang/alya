@@ -15,19 +15,22 @@ pub function stack_pop(s)
 end
 
 pub function stack_peek(s)
-    let count = len(s)
+    let count: int = len(s)
     if count == 0
         return 0
     end
     return s[count - 1]
 end
 
-pub function stack_size(s)
+pub function stack_size(s) -> int
     return len(s)
 end
 
-pub function stack_is_empty(s)
-    return len(s) == 0
+pub function stack_is_empty(s) -> int
+    if len(s) == 0
+        return 1
+    end
+    return 0
 end
 
 # 2. Queue (FIFO) - O(1) amortized queue using head pointer and compaction
@@ -40,8 +43,8 @@ pub function queue_push(q, val)
 end
 
 pub function queue_pop(q)
-    let head = q[0]
-    let total = len(q)
+    let head: int = q[0]
+    let total: int = len(q)
     if head >= total
         return 0
     end
@@ -49,8 +52,8 @@ pub function queue_pop(q)
     head += 1
     q[0] = head
     if head > 32 and (head * 2) >= total
-        let count = total - head
-        let i = 0
+        let count: int = total - head
+        let i: int = 0
         while i < count
             q[i + 1] = q[head + i]
             i += 1
@@ -64,23 +67,26 @@ pub function queue_pop(q)
 end
 
 pub function queue_peek(q)
-    let head = q[0]
+    let head: int = q[0]
     if head >= len(q)
         return 0
     end
     return q[head]
 end
 
-pub function queue_size(q)
-    let sz = len(q) - q[0]
+pub function queue_size(q) -> int
+    let sz: int = len(q) - q[0]
     if sz < 0
         return 0
     end
     return sz
 end
 
-pub function queue_is_empty(q)
-    return q[0] >= len(q)
+pub function queue_is_empty(q) -> int
+    if q[0] >= len(q)
+        return 1
+    end
+    return 0
 end
 
 pub function queue_clear(q)
@@ -92,9 +98,9 @@ end
 
 pub function queue_to_array(q)
     let res = []
-    let head = q[0]
-    let total = len(q)
-    let i = head
+    let head: int = q[0]
+    let total: int = len(q)
+    let i: int = head
     while i < total
         res.push(q[i])
         i += 1
@@ -111,15 +117,18 @@ pub function set_add(s, item)
     s[item] = 1
 end
 
-pub function set_has(s, item)
-    return item in s
+pub function set_has(s, item) -> int
+    if item in s
+        return 1
+    end
+    return 0
 end
 
 pub function set_remove(s, item)
     return remove(s, item)
 end
 
-pub function set_size(s)
+pub function set_size(s) -> int
     return len(s)
 end
 
@@ -172,7 +181,7 @@ pub function set_difference(a, b)
     return res
 end
 
-pub function set_is_subset(a, b)
+pub function set_is_subset(a, b) -> int
     for k in keys(a)
         if k not in b
             return 0
@@ -182,11 +191,14 @@ pub function set_is_subset(a, b)
 end
 
 # 4. Array Utilities
-pub function array_contains(arr, val)
-    return val in arr
+pub function array_contains(arr, val) -> int
+    if val in arr
+        return 1
+    end
+    return 0
 end
 
-pub function array_index_of(arr, val)
+pub function array_index_of(arr, val) -> int
     for i, item in arr
         if item == val
             return i
@@ -195,8 +207,8 @@ pub function array_index_of(arr, val)
     return -1
 end
 
-pub function array_last_index_of(arr, val)
-    let i = len(arr) - 1
+pub function array_last_index_of(arr, val) -> int
+    let i: int = len(arr) - 1
     while i >= 0
         if arr[i] == val
             return i
@@ -206,8 +218,8 @@ pub function array_last_index_of(arr, val)
     return -1
 end
 
-pub function array_slice(arr, start_idx, end_idx)
-    let total = len(arr)
+pub function array_slice(arr, start_idx: int, end_idx: int)
+    let total: int = len(arr)
     if start_idx < 0
         start_idx = 0
     end
@@ -230,7 +242,7 @@ end
 
 pub function array_reverse(arr)
     let res = []
-    let i = len(arr) - 1
+    let i: int = len(arr) - 1
     while i >= 0
         res.push(arr[i])
         i -= 1
@@ -239,8 +251,8 @@ pub function array_reverse(arr)
 end
 
 pub function array_reverse_in_place(arr)
-    let left = 0
-    let right = len(arr) - 1
+    let left: int = 0
+    let right: int = len(arr) - 1
     let temp = 0
     while left < right
         temp = arr[left]
@@ -265,12 +277,12 @@ pub function array_unique(arr)
 end
 
 pub function array_min(arr)
-    let count = len(arr)
+    let count: int = len(arr)
     if count == 0
         return 0
     end
     let m = arr[0]
-    let i = 1
+    let i: int = 1
     while i < count
         if arr[i] < m
             m = arr[i]
@@ -281,12 +293,12 @@ pub function array_min(arr)
 end
 
 pub function array_max(arr)
-    let count = len(arr)
+    let count: int = len(arr)
     if count == 0
         return 0
     end
     let m = arr[0]
-    let i = 1
+    let i: int = 1
     while i < count
         if arr[i] > m
             m = arr[i]
@@ -297,9 +309,9 @@ pub function array_max(arr)
 end
 
 pub function array_sort_in_place(arr)
-    let n = len(arr)
-    let i = 0
-    let j = 0
+    let n: int = len(arr)
+    let i: int = 0
+    let j: int = 0
     let temp = 0
     while i < n
         j = 0
@@ -321,14 +333,14 @@ pub function array_sort(arr)
     return array_sort_in_place(copy)
 end
 
-pub function array_chunk(arr, chunk_size)
+pub function array_chunk(arr, chunk_size: int)
     let res = []
     if chunk_size <= 0
         return res
     end
-    let total = len(arr)
-    let i = 0
-    let j = 0
+    let total: int = len(arr)
+    let i: int = 0
+    let j: int = 0
     let chunk = []
     while i < total
         chunk = []
@@ -343,9 +355,9 @@ pub function array_chunk(arr, chunk_size)
     return res
 end
 
-pub function array_fill(val, count)
+pub function array_fill(val, count: int)
     let res = []
-    let i = 0
+    let i: int = 0
     while i < count
         res.push(val)
         i += 1
@@ -370,8 +382,11 @@ pub function map_merge(dest, src)
     return res
 end
 
-pub function map_is_empty(m)
-    return len(m) == 0
+pub function map_is_empty(m) -> int
+    if len(m) == 0
+        return 1
+    end
+    return 0
 end
 
 pub function map_entries(m)

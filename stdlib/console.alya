@@ -3,35 +3,35 @@
 
 # --- Encoding & Code Pages ---
 
-pub function console_set_output_cp(cp)
+pub function console_set_output_cp(cp: int) -> int
     return set_console_output_cp(cp)
 end
 
-pub function console_set_input_cp(cp)
+pub function console_set_input_cp(cp: int) -> int
     return set_console_input_cp(cp)
 end
 
-pub function console_output_cp()
+pub function console_output_cp() -> int
     return get_console_output_cp()
 end
 
-pub function console_input_cp()
+pub function console_input_cp() -> int
     return get_console_input_cp()
 end
 
-pub function console_utf8()
+pub function console_utf8() -> int
     set_console_output_cp(65001)
     set_console_input_cp(65001)
     enable_virtual_terminal()
     return 1
 end
 
-pub function set_output_encoding(encoding_name)
+pub function set_output_encoding(encoding_name: string) -> int
     return console_utf8()
 end
 
-pub function get_output_encoding()
-    let cp = console_output_cp()
+pub function get_output_encoding() -> string
+    let cp: int = console_output_cp()
     if cp == 65001
         return "UTF-8"
     elif cp == 1254 or cp == 857
@@ -44,23 +44,23 @@ end
 
 # --- Terminal Display & Cursor Control ---
 
-pub function console_enable_ansi()
+pub function console_enable_ansi() -> int
     return enable_virtual_terminal()
 end
 
-pub function console_clear()
+pub function console_clear() -> int
     return clear_console()
 end
 
-pub function console_title(title)
+pub function console_title(title: string) -> int
     return set_console_title(title)
 end
 
-pub function console_beep()
+pub function console_beep() -> int
     return beep_console()
 end
 
-pub function console_cursor_to(row, col)
+pub function console_cursor_to(row: int, col: int)
     say "\e[" + str(row) + ";" + str(col) + "H"
 end
 
@@ -75,17 +75,17 @@ end
 # --- Console Input Helpers ---
 
 # Prompts the user with message and reads a full line of text from stdin.
-pub function console_prompt(prompt_text)
+pub function console_prompt(prompt_text: string) -> string
     return ask(prompt_text)
 end
 
 # Asks user a yes/no question. Returns 1 for yes, 0 for no.
-pub function console_confirm(prompt_text, default_yes = 1)
-    let suffix = " (Y/n): "
+pub function console_confirm(prompt_text: string, default_yes: int = 1) -> int
+    let suffix: string = " (Y/n): "
     if default_yes == 0
         suffix = " (y/N): "
     end
-    let resp = lower(trim(ask(prompt_text + suffix)))
+    let resp: string = lower(trim(ask(prompt_text + suffix)))
     if len(resp) == 0
         return default_yes
     end

@@ -1,87 +1,87 @@
 # Alya Standard Library - Filesystem Module
 # Provides high-level file and directory I/O operations.
 
-pub function fs_exists(path)
+pub function fs_exists(path: string) -> int
     return file_exists(path)
 end
 
-pub function fs_read(path)
+pub function fs_read(path: string) -> string
     return read_file(path)
 end
 
-pub function fs_write(path, content)
+pub function fs_write(path: string, content: string) -> int
     return write_file(path, content)
 end
 
-pub function fs_append(path, content)
+pub function fs_append(path: string, content: string) -> int
     return append_file(path, content)
 end
 
-pub function fs_remove(path)
+pub function fs_remove(path: string) -> int
     return remove_file(path)
 end
 
-pub function fs_size(path)
+pub function fs_size(path: string) -> int
     return file_size(path)
 end
 
-pub function fs_mkdir(path)
+pub function fs_mkdir(path: string) -> int
     return make_dir(path)
 end
 
-pub function fs_rmdir(path)
+pub function fs_rmdir(path: string) -> int
     return rmdir(path)
 end
 
-pub function fs_is_dir(path)
+pub function fs_is_dir(path: string) -> int
     return is_dir(path)
 end
 
-pub function fs_list_dir(path)
+pub function fs_list_dir(path: string) -> string[]
     return list_dir(path)
 end
 
-pub function fs_read_dir(path)
+pub function fs_read_dir(path: string) -> string[]
     return list_dir(path)
 end
 
-pub function copy_file(src, dst)
+pub function copy_file(src: string, dst: string) -> int
     if file_exists(src) == 0
         return 0
     end
-    let content = read_file(src)
+    let content: string = read_file(src)
     return write_file(dst, content)
 end
 
-pub function move_file(src, dst)
-    if copy_file(src, dst)
+pub function move_file(src: string, dst: string) -> int
+    if copy_file(src, dst) == 1
         return remove_file(src)
     end
     return 0
 end
 
-pub function ensure_dir(path)
+pub function ensure_dir(path: string) -> int
     if len(path) == 0 or is_dir(path) == 1
         return 1
     end
-    let parent = file_parent(path)
+    let parent: string = file_parent(path)
     if parent != "." and parent != "/" and parent != path and len(parent) > 0
         ensure_dir(parent)
     end
     return make_dir(path)
 end
 
-pub function list_dir_recursive(path)
-    let res = []
-    let entries = list_dir(path)
-    let i = 0
+pub function list_dir_recursive(path: string) -> string[]
+    let res: string[] = []
+    let entries: string[] = list_dir(path)
+    let i: int = 0
     while i < len(entries)
-        let entry = entries[i]
-        let full_path = path + "/" + entry
+        let entry: string = entries[i]
+        let full_path: string = path + "/" + entry
         res.push(full_path)
         if is_dir(full_path) == 1
-            let sub = list_dir_recursive(full_path)
-            let j = 0
+            let sub: string[] = list_dir_recursive(full_path)
+            let j: int = 0
             while j < len(sub)
                 res.push(sub[j])
                 j += 1
@@ -92,21 +92,21 @@ pub function list_dir_recursive(path)
     return res
 end
 
-pub function fs_list_dir_recursive(path)
+pub function fs_list_dir_recursive(path: string) -> string[]
     return list_dir_recursive(path)
 end
 
-pub function copy_dir_recursive(src, dst)
+pub function copy_dir_recursive(src: string, dst: string) -> int
     if is_dir(src) == 0
         return 0
     end
     ensure_dir(dst)
-    let entries = list_dir(src)
-    let i = 0
+    let entries: string[] = list_dir(src)
+    let i: int = 0
     while i < len(entries)
-        let entry = entries[i]
-        let s = src + "/" + entry
-        let d = dst + "/" + entry
+        let entry: string = entries[i]
+        let s: string = src + "/" + entry
+        let d: string = dst + "/" + entry
         if is_dir(s) == 1
             copy_dir_recursive(s, d)
         else
@@ -117,15 +117,15 @@ pub function copy_dir_recursive(src, dst)
     return 1
 end
 
-pub function remove_dir_recursive(path)
+pub function remove_dir_recursive(path: string) -> int
     if is_dir(path) == 0
         return 0
     end
-    let entries = list_dir(path)
-    let i = 0
+    let entries: string[] = list_dir(path)
+    let i: int = 0
     while i < len(entries)
-        let entry = entries[i]
-        let full_path = path + "/" + entry
+        let entry: string = entries[i]
+        let full_path: string = path + "/" + entry
         if is_dir(full_path) == 1
             remove_dir_recursive(full_path)
         else
@@ -137,19 +137,19 @@ pub function remove_dir_recursive(path)
 end
 
 # Line-by-line file I/O
-pub function read_lines(path)
-    let res = []
+pub function read_lines(path: string) -> string[]
+    let res: string[] = []
     if file_exists(path) == 0
         return res
     end
-    let content = read_file(path)
-    let slen = len(content)
+    let content: string = read_file(path)
+    let slen: int = len(content)
     if slen == 0
         return res
     end
-    let current = ""
-    let i = 0
-    let ch = ""
+    let current: string = ""
+    let i: int = 0
+    let ch: string = ""
     while i < slen
         ch = char_at(content, i)
         when ch
@@ -173,10 +173,10 @@ pub function read_lines(path)
     return res
 end
 
-pub function write_lines(path, lines)
-    let content = ""
-    let count = len(lines)
-    let i = 0
+pub function write_lines(path: string, lines: string[]) -> int
+    let content: string = ""
+    let count: int = len(lines)
+    let i: int = 0
     while i < count
         content += lines[i] + "\n"
         i += 1
@@ -184,14 +184,14 @@ pub function write_lines(path, lines)
     return write_file(path, content)
 end
 
-pub function append_line(path, line)
+pub function append_line(path: string, line: string) -> int
     return append_file(path, line + "\n")
 end
 
-pub function append_lines(path, lines)
-    let content = ""
-    let count = len(lines)
-    let i = 0
+pub function append_lines(path: string, lines: string[]) -> int
+    let content: string = ""
+    let count: int = len(lines)
+    let i: int = 0
     while i < count
         content += lines[i] + "\n"
         i += 1
@@ -200,44 +200,47 @@ pub function append_lines(path, lines)
 end
 
 # File helpers
-pub function touch(path)
-    if file_exists(path)
+pub function touch(path: string) -> int
+    if file_exists(path) == 1
         return 1
     end
     return write_file(path, "")
 end
 
-pub function clear_file(path)
+pub function clear_file(path: string) -> int
     return write_file(path, "")
 end
 
-pub function is_empty_file(path)
+pub function is_empty_file(path: string) -> int
     if file_exists(path) == 0
         return 0
     end
-    return file_size(path) == 0
+    if file_size(path) == 0
+        return 1
+    end
+    return 0
 end
 
-pub function read_file_or(path, default_val)
+pub function read_file_or(path: string, default_val: string) -> string
     if file_exists(path) == 0
         return default_val
     end
     return read_file(path)
 end
 
-pub function file_lines_count(path)
-    let lines = read_lines(path)
+pub function file_lines_count(path: string) -> int
+    let lines: string[] = read_lines(path)
     return len(lines)
 end
 
-pub function file_basename(path)
-    let slen = len(path)
+pub function file_basename(path: string) -> string
+    let slen: int = len(path)
     if slen == 0
         return ""
     end
-    let i = slen - 1
+    let i: int = slen - 1
     while i >= 0
-        let ch = char_at(path, i)
+        let ch: string = char_at(path, i)
         if ch == "/" or ch == "\\"
             return substring(path, i + 1, slen - (i + 1))
         end
@@ -246,10 +249,10 @@ pub function file_basename(path)
     return path
 end
 
-pub function file_extension(path)
-    let base = file_basename(path)
-    let blen = len(base)
-    let i = blen - 1
+pub function file_extension(path: string) -> string
+    let base: string = file_basename(path)
+    let blen: int = len(base)
+    let i: int = blen - 1
     while i >= 0
         if char_at(base, i) == "."
             if i == 0
@@ -262,18 +265,18 @@ pub function file_extension(path)
     return ""
 end
 
-pub function file_parent(path)
-    let slen = len(path)
+pub function file_parent(path: string) -> string
+    let slen: int = len(path)
     if slen == 0
         return "."
     end
-    let end_idx = slen
+    let end_idx: int = slen
     if end_idx > 1 and (char_at(path, end_idx - 1) == "/" or char_at(path, end_idx - 1) == "\\")
         end_idx -= 1
     end
-    let i = end_idx - 1
+    let i: int = end_idx - 1
     while i >= 0
-        let ch = char_at(path, i)
+        let ch: string = char_at(path, i)
         if ch == "/" or ch == "\\"
             if i == 0
                 return "/"

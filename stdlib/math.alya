@@ -1,27 +1,27 @@
 # Alya Standard Library - Math Module
 # Provides common mathematical constants, trigonometry, statistics, and utility functions.
 
-pub let PI = 3.141592653589793
-pub let E = 2.718281828459045
-pub let TAU = 6.283185307179586
-pub let SQRT2 = 1.4142135623730951
-pub let LN2 = 0.6931471805599453
-pub let LN10 = 2.302585092994046
-pub let PHI = 1.618033988749895
+pub let PI: float = 3.141592653589793
+pub let E: float = 2.718281828459045
+pub let TAU: float = 6.283185307179586
+pub let SQRT2: float = 1.4142135623730951
+pub let LN2: float = 0.6931471805599453
+pub let LN10: float = 2.302585092994046
+pub let PHI: float = 1.618033988749895
 
-pub function deg_to_rad(deg)
+pub function deg_to_rad(deg: float) -> float
     return deg * (3.141592653589793 / 180.0)
 end
 
-pub function radians(deg)
+pub function radians(deg: float) -> float
     return deg * (3.141592653589793 / 180.0)
 end
 
-pub function rad_to_deg(rad)
+pub function rad_to_deg(rad: float) -> float
     return rad * (180.0 / 3.141592653589793)
 end
 
-pub function degrees(rad)
+pub function degrees(rad: float) -> float
     return rad * (180.0 / 3.141592653589793)
 end
 
@@ -33,7 +33,7 @@ pub function clamp(val, min_val, max_val)
     end
 end
 
-pub function sign(val)
+pub function sign(val) -> int
     when val
         is > 0 then return 1
         is < 0 then return -1
@@ -41,33 +41,33 @@ pub function sign(val)
     end
 end
 
-pub function is_even(n)
+pub function is_even(n: int) -> int
     return n % 2 == 0
 end
 
-pub function is_odd(n)
+pub function is_odd(n: int) -> int
     return n % 2 != 0
 end
 
-pub function sqrt_f(x)
+pub function sqrt_f(x) -> float
     return native_sqrt(float(x))
 end
 
-pub function hypot(a, b)
-    let fa = float(a)
-    let fb = float(b)
+pub function hypot(a, b) -> float
+    let fa: float = float(a)
+    let fb: float = float(b)
     return native_sqrt(fa * fa + fb * fb)
 end
 
-pub function round(val)
+pub function round(val: float) -> int
     when val
         is >= 0.0 then return int(val + 0.5)
         else return int(val - 0.5)
     end
 end
 
-pub function floor(val)
-    let iv = int(val)
+pub function floor(val: float) -> int
+    let iv: int = int(val)
     if val >= 0.0 or float(iv) == val
         return iv
     else
@@ -75,8 +75,8 @@ pub function floor(val)
     end
 end
 
-pub function ceil(val)
-    let iv = int(val)
+pub function ceil(val: float) -> int
+    let iv: int = int(val)
     if val <= 0.0 or float(iv) == val
         return iv
     else
@@ -84,15 +84,15 @@ pub function ceil(val)
     end
 end
 
-pub function trunc(val)
+pub function trunc(val: float) -> int
     return int(val)
 end
 
-function _normalize_angle(rad)
-    let two_pi = 6.283185307179586
-    let pi = 3.141592653589793
-    let cycles = int(rad / two_pi)
-    let rem = rad - float(cycles) * two_pi
+function _normalize_angle(rad: float) -> float
+    let two_pi: float = 6.283185307179586
+    let pi: float = 3.141592653589793
+    let cycles: int = int(rad / two_pi)
+    let rem: float = rad - float(cycles) * two_pi
     while rem > pi
         rem = rem - two_pi
     end
@@ -102,72 +102,72 @@ function _normalize_angle(rad)
     return rem
 end
 
-pub function sin(x)
+pub function sin(x) -> float
     return native_sin(float(x))
 end
 
-pub function cos(x)
+pub function cos(x) -> float
     return native_cos(float(x))
 end
 
-pub function tan(x)
+pub function tan(x) -> float
     return native_tan(float(x))
 end
 
-pub function asin(x)
+pub function asin(x) -> float
     return native_asin(float(x))
 end
 
-pub function acos(x)
+pub function acos(x) -> float
     return native_acos(float(x))
 end
 
-pub function atan(x)
+pub function atan(x) -> float
     return native_atan(float(x))
 end
 
-pub function atan2(y, x)
+pub function atan2(y, x) -> float
     return native_atan2(float(y), float(x))
 end
 
-pub function sinh(x)
+pub function sinh(x) -> float
     return native_sinh(float(x))
 end
 
-pub function cosh(x)
+pub function cosh(x) -> float
     return native_cosh(float(x))
 end
 
-pub function tanh(x)
+pub function tanh(x) -> float
     return native_tanh(float(x))
 end
 
-pub function log_n(x)
+pub function log_n(x) -> float
     return native_log(float(x))
 end
 
-pub function log2(x)
+pub function log2(x) -> float
     return native_log2(float(x))
 end
 
-pub function log10(x)
+pub function log10(x) -> float
     return native_log10(float(x))
 end
 
-pub function exp_f(x)
+pub function exp_f(x) -> float
     return native_exp(float(x))
 end
 
-pub function fmod(a, b)
+pub function fmod(a, b) -> float
     return native_fmod(float(a), float(b))
 end
 
-pub function rand_range(min_val, max_val)
+pub function rand_range(min_val: int, max_val: int) -> int
     if min_val >= max_val
         return min_val
     end
-    let r = rand()
-    let span = max_val - min_val + 1
+    let r: int = rand()
+    let span: int = max_val - min_val + 1
     return min_val + (r % span)
 end
 
@@ -179,8 +179,8 @@ pub function sum(arr)
     return total
 end
 
-pub function mean(arr)
-    let count = len(arr)
+pub function mean(arr) -> float
+    let count: int = len(arr)
     if count == 0
         return 0.0
     end
@@ -188,7 +188,7 @@ pub function mean(arr)
 end
 
 pub function median(arr)
-    let count = len(arr)
+    let count: int = len(arr)
     if count == 0
         return 0
     end
@@ -196,7 +196,7 @@ pub function median(arr)
     for x in arr
         sorted.push(x)
     end
-    let j = 1
+    let j: int = 1
     let key, k = 0
     while j < count
         key = sorted[j]
@@ -208,7 +208,7 @@ pub function median(arr)
         sorted[k + 1] = key
         j += 1
     end
-    let mid = count / 2
+    let mid: int = count / 2
     if count % 2 != 0
         return sorted[mid]
     else
@@ -216,14 +216,14 @@ pub function median(arr)
     end
 end
 
-pub function variance(arr)
-    let count = len(arr)
+pub function variance(arr) -> float
+    let count: int = len(arr)
     if count == 0
         return 0.0
     end
-    let m = mean(arr)
-    let sum_sq = 0.0
-    let diff = 0.0
+    let m: float = mean(arr)
+    let sum_sq: float = 0.0
+    let diff: float = 0.0
     for x in arr
         diff = float(x) - m
         sum_sq += diff * diff
@@ -231,28 +231,28 @@ pub function variance(arr)
     return sum_sq / float(count)
 end
 
-pub function std_dev(arr)
+pub function std_dev(arr) -> float
     return native_sqrt(variance(arr))
 end
 
-pub function lerp(a, b, t)
+pub function lerp(a: float, b: float, t: float) -> float
     return a + (b - a) * t
 end
 
-pub function norm(val, min_val, max_val)
-    let span = max_val - min_val
+pub function norm(val: float, min_val: float, max_val: float) -> float
+    let span: float = max_val - min_val
     if span == 0.0 or span == 0
         return 0.0
     end
     return (val - min_val) / span
 end
 
-pub function smoothstep(edge0, edge1, x)
-    let span = edge1 - edge0
+pub function smoothstep(edge0: float, edge1: float, x: float) -> float
+    let span: float = edge1 - edge0
     if span == 0.0 or span == 0
         return 0.0
     end
-    let t = (x - edge0) / span
+    let t: float = (x - edge0) / span
     if t < 0.0
         return 0.0
     end
@@ -262,10 +262,10 @@ pub function smoothstep(edge0, edge1, x)
     return t * t * (3.0 - 2.0 * t)
 end
 
-pub function gcd(a, b)
-    let x = abs(a)
-    let y = abs(b)
-    let temp = 0
+pub function gcd(a: int, b: int) -> int
+    let x: int = abs(a)
+    let y: int = abs(b)
+    let temp: int = 0
     while y != 0
         temp = y
         y = x % y
@@ -274,22 +274,22 @@ pub function gcd(a, b)
     return x
 end
 
-pub function lcm(a, b)
+pub function lcm(a: int, b: int) -> int
     if a == 0 or b == 0
         return 0
     end
-    let g = gcd(a, b)
-    let x = abs(a)
-    let y = abs(b)
+    let g: int = gcd(a, b)
+    let x: int = abs(a)
+    let y: int = abs(b)
     return (x / g) * y
 end
 
-pub function factorial(n)
+pub function factorial(n: int) -> int
     if n <= 1
         return 1
     end
-    let res = 1
-    let i = 2
+    let res: int = 1
+    let i: int = 2
     while i <= n
         res *= i
         i += 1
@@ -297,7 +297,7 @@ pub function factorial(n)
     return res
 end
 
-pub function is_prime(n)
+pub function is_prime(n: int) -> int
     if n <= 1
         return 0
     end
@@ -307,7 +307,7 @@ pub function is_prime(n)
     if n % 2 == 0 or n % 3 == 0
         return 0
     end
-    let i = 5
+    let i: int = 5
     while i * i <= n
         if n % i == 0 or n % (i + 2) == 0
             return 0

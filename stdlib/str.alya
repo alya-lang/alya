@@ -1,17 +1,20 @@
 # Alya Standard Library - String Module
 # Provides advanced string manipulation and inspection functions.
 
-pub function is_empty(s)
-    return s is null or len(s) == 0
+pub function is_empty(s: string) -> int
+    if s is null or len(s) == 0
+        return 1
+    end
+    return 0
 end
 
-pub function is_blank(s)
-    let slen = len(s)
+pub function is_blank(s: string) -> int
+    let slen: int = len(s)
     if slen == 0
         return 1
     end
-    let i = 0
-    let ch = ""
+    let i: int = 0
+    let ch: string = ""
     while i < slen
         ch = char_at(s, i)
         if ch != " " and ch != "\t" and ch != "\r" and ch != "\n"
@@ -22,35 +25,44 @@ pub function is_blank(s)
     return 1
 end
 
-pub function starts_with(s, prefix)
-    let plen, slen = len(prefix), len(s)
+pub function starts_with(s: string, prefix: string) -> int
+    let plen: int = len(prefix)
+    let slen: int = len(s)
     if plen > slen
         return 0
     end
     if plen == 0
         return 1
     end
-    return substring(s, 0, plen) == prefix
+    if substring(s, 0, plen) == prefix
+        return 1
+    end
+    return 0
 end
 
-pub function ends_with(s, suffix)
-    let slen, suflen = len(s), len(suffix)
+pub function ends_with(s: string, suffix: string) -> int
+    let slen: int = len(s)
+    let suflen: int = len(suffix)
     if suflen > slen
         return 0
     end
     if suflen == 0
         return 1
     end
-    return substring(s, slen - suflen, suflen) == suffix
+    if substring(s, slen - suflen, suflen) == suffix
+        return 1
+    end
+    return 0
 end
 
-pub function replace(s, old, new_s)
-    let slen, olen = len(s), len(old)
+pub function replace(s: string, old: string, new_s: string) -> string
+    let slen: int = len(s)
+    let olen: int = len(old)
     if olen == 0
         return s
     end
-    let res = ""
-    let i = 0
+    let res: string = ""
+    let i: int = 0
     while i < slen
         if i + olen <= slen and substring(s, i, olen) == old
             res += new_s
@@ -63,9 +75,9 @@ pub function replace(s, old, new_s)
     return res
 end
 
-pub function str_repeat(s, count)
-    let res = ""
-    let i = 0
+pub function str_repeat(s: string, count: int) -> string
+    let res: string = ""
+    let i: int = 0
     while i < count
         res += s
         i += 1
@@ -73,41 +85,41 @@ pub function str_repeat(s, count)
     return res
 end
 
-pub function pad_left(s, total_len, pad_char)
-    let slen = len(s)
+pub function pad_left(s: string, total_len: int, pad_char: string) -> string
+    let slen: int = len(s)
     if slen >= total_len
         return s
     end
-    let diff = total_len - slen
-    let padding = str_repeat(pad_char, diff)
+    let diff: int = total_len - slen
+    let padding: string = str_repeat(pad_char, diff)
     return padding + s
 end
 
-pub function pad_right(s, total_len, pad_char)
-    let slen = len(s)
+pub function pad_right(s: string, total_len: int, pad_char: string) -> string
+    let slen: int = len(s)
     if slen >= total_len
         return s
     end
-    let diff = total_len - slen
-    let padding = str_repeat(pad_char, diff)
+    let diff: int = total_len - slen
+    let padding: string = str_repeat(pad_char, diff)
     return s + padding
 end
 
-pub function center(s, total_len, pad_char)
-    let slen = len(s)
+pub function center(s: string, total_len: int, pad_char: string) -> string
+    let slen: int = len(s)
     if slen >= total_len
         return s
     end
-    let total_pad = total_len - slen
-    let left_pad = total_pad / 2
-    let right_pad = total_pad - left_pad
+    let total_pad: int = total_len - slen
+    let left_pad: int = total_pad / 2
+    let right_pad: int = total_pad - left_pad
     return str_repeat(pad_char, left_pad) + s + str_repeat(pad_char, right_pad)
 end
 
-pub function trim_start(s)
-    let slen = len(s)
-    let i = 0
-    let c = ""
+pub function trim_start(s: string) -> string
+    let slen: int = len(s)
+    let i: int = 0
+    let c: string = ""
     while i < slen
         c = char_at(s, i)
         if c != " " and c != "\t" and c != "\r" and c != "\n"
@@ -121,14 +133,14 @@ pub function trim_start(s)
     return substring(s, i, slen - i)
 end
 
-pub function ltrim(s)
+pub function ltrim(s: string) -> string
     return trim_start(s)
 end
 
-pub function trim_end(s)
-    let slen = len(s)
-    let i = slen - 1
-    let c = ""
+pub function trim_end(s: string) -> string
+    let slen: int = len(s)
+    let i: int = slen - 1
+    let c: string = ""
     while i >= 0
         c = char_at(s, i)
         if c != " " and c != "\t" and c != "\r" and c != "\n"
@@ -142,62 +154,66 @@ pub function trim_end(s)
     return substring(s, 0, i + 1)
 end
 
-pub function rtrim(s)
+pub function rtrim(s: string) -> string
     return trim_end(s)
 end
 
-pub function trim_char(s, ch)
-    let slen = len(s)
+pub function trim_char(s: string, ch: string) -> string
+    let slen: int = len(s)
     if slen == 0
         return ""
     end
-    let start_idx = 0
+    let start_idx: int = 0
     while start_idx < slen and char_at(s, start_idx) == ch
         start_idx += 1
     end
     if start_idx >= slen
         return ""
     end
-    let end_idx = slen - 1
+    let end_idx: int = slen - 1
     while end_idx >= start_idx and char_at(s, end_idx) == ch
         end_idx -= 1
     end
     return substring(s, start_idx, end_idx - start_idx + 1)
 end
 
-pub function capitalize(s)
-    let slen = len(s)
+pub function capitalize(s: string) -> string
+    let slen: int = len(s)
     if slen == 0
         return ""
     end
-    let first = upper(substring(s, 0, 1))
+    let first: string = upper(substring(s, 0, 1))
     if slen == 1
         return first
     end
-    let rest = lower(substring(s, 1, slen - 1))
+    let rest: string = lower(substring(s, 1, slen - 1))
     return first + rest
 end
 
-pub function title_case(s)
-    let slen = len(s)
+pub function title_case(s: string) -> string
+    let slen: int = len(s)
     if slen == 0
         return ""
     end
-    let res = ""
-    let capitalize_next = 1
-    let i = 0
-    let ch = ""
-    let c = 0
-    let is_space = 0
+    let res: string = ""
+    let capitalize_next: int = 1
+    let i: int = 0
+    let ch: string = ""
+    let c: int = 0
+    let is_space: int = 0
     while i < slen
         ch = char_at(s, i)
         c = ord(ch)
-        is_space = c == 32 or c == 9 or c == 10 or c == 13
-        if is_space
+        if c == 32 or c == 9 or c == 10 or c == 13
+            is_space = 1
+        else
+            is_space = 0
+        end
+        if is_space == 1
             res += ch
             capitalize_next = 1
         else
-            if capitalize_next
+            if capitalize_next == 1
                 res += upper(ch)
                 capitalize_next = 0
             else
@@ -209,14 +225,15 @@ pub function title_case(s)
     return res
 end
 
-pub function lines(s)
-    let res = []
-    let slen = len(s)
+pub function lines(s: string) -> string[]
+    let res: string[] = []
+    let slen: int = len(s)
     if slen == 0
         return res
     end
-    let current, ch = ""
-    let i = 0
+    let current: string = ""
+    let ch: string = ""
+    let i: int = 0
     while i < slen
         ch = char_at(s, i)
         when ch
@@ -238,13 +255,14 @@ pub function lines(s)
     return res
 end
 
-pub function count_matches(s, sub)
-    let slen, sublen = len(s), len(sub)
+pub function count_matches(s: string, sub: string) -> int
+    let slen: int = len(s)
+    let sublen: int = len(sub)
     if sublen == 0 or slen == 0 or sublen > slen
         return 0
     end
-    let count = 0
-    let i = 0
+    let count: int = 0
+    let i: int = 0
     while i <= slen - sublen
         if substring(s, i, sublen) == sub
             count += 1
@@ -256,17 +274,17 @@ pub function count_matches(s, sub)
     return count
 end
 
-pub function index_of(s, sub)
-    let slen = len(s)
-    let sublen = len(sub)
+pub function index_of(s: string, sub: string) -> int
+    let slen: int = len(s)
+    let sublen: int = len(sub)
     if sublen == 0
         return 0
     end
     if sublen > slen
         return -1
     end
-    let i = 0
-    let max_idx = slen - sublen
+    let i: int = 0
+    let max_idx: int = slen - sublen
     while i <= max_idx
         if substring(s, i, sublen) == sub
             return i
@@ -276,16 +294,16 @@ pub function index_of(s, sub)
     return -1
 end
 
-pub function last_index_of(s, sub)
-    let slen = len(s)
-    let sublen = len(sub)
+pub function last_index_of(s: string, sub: string) -> int
+    let slen: int = len(s)
+    let sublen: int = len(sub)
     if sublen == 0
         return slen
     end
     if sublen > slen
         return -1
     end
-    let i = slen - sublen
+    let i: int = slen - sublen
     while i >= 0
         if substring(s, i, sublen) == sub
             return i
@@ -295,14 +313,17 @@ pub function last_index_of(s, sub)
     return -1
 end
 
-pub function contains_str(s, sub)
-    return sub in s
+pub function contains_str(s: string, sub: string) -> int
+    if sub in s
+        return 1
+    end
+    return 0
 end
 
-pub function reverse_str(s)
-    let slen = len(s)
-    let res = ""
-    let i = slen - 1
+pub function reverse_str(s: string) -> string
+    let slen: int = len(s)
+    let res: string = ""
+    let i: int = slen - 1
     while i >= 0
         res += char_at(s, i)
         i -= 1
@@ -310,25 +331,25 @@ pub function reverse_str(s)
     return res
 end
 
-pub function truncate(s, max_len, suffix)
-    let slen = len(s)
+pub function truncate(s: string, max_len: int, suffix: string) -> string
+    let slen: int = len(s)
     if slen <= max_len
         return s
     end
-    let suflen = len(suffix)
+    let suflen: int = len(suffix)
     if max_len <= suflen
         return substring(s, 0, max_len)
     end
     return substring(s, 0, max_len - suflen) + suffix
 end
 
-pub function is_numeric(s)
-    let slen = len(s)
+pub function is_numeric(s: string) -> int
+    let slen: int = len(s)
     if slen == 0
         return 0
     end
-    let i = 0
-    let c = 0
+    let i: int = 0
+    let c: int = 0
     while i < slen
         c = ord(char_at(s, i))
         if c < 48 or c > 57
@@ -339,19 +360,19 @@ pub function is_numeric(s)
     return 1
 end
 
-pub function is_alphabetic(s)
-    let slen = len(s)
+pub function is_alphabetic(s: string) -> int
+    let slen: int = len(s)
     if slen == 0
         return 0
     end
-    let i = 0
-    let c = 0
-    let is_lower_c = 0
-    let is_upper_c = 0
+    let i: int = 0
+    let c: int = 0
+    let is_lower_c: int = 0
+    let is_upper_c: int = 0
     while i < slen
         c = ord(char_at(s, i))
-        is_lower_c = c >= 97 and c <= 122
-        is_upper_c = c >= 65 and c <= 90
+        is_lower_c = (c >= 97 and c <= 122)
+        is_upper_c = (c >= 65 and c <= 90)
         if not is_lower_c and not is_upper_c
             return 0
         end
@@ -360,21 +381,21 @@ pub function is_alphabetic(s)
     return 1
 end
 
-pub function is_alphanumeric(s)
-    let slen = len(s)
+pub function is_alphanumeric(s: string) -> int
+    let slen: int = len(s)
     if slen == 0
         return 0
     end
-    let i = 0
-    let c = 0
-    let is_digit_c = 0
-    let is_lower_c = 0
-    let is_upper_c = 0
+    let i: int = 0
+    let c: int = 0
+    let is_digit_c: int = 0
+    let is_lower_c: int = 0
+    let is_upper_c: int = 0
     while i < slen
         c = ord(char_at(s, i))
-        is_digit_c = c >= 48 and c <= 57
-        is_lower_c = c >= 97 and c <= 122
-        is_upper_c = c >= 65 and c <= 90
+        is_digit_c = (c >= 48 and c <= 57)
+        is_lower_c = (c >= 97 and c <= 122)
+        is_upper_c = (c >= 65 and c <= 90)
         if not is_digit_c and not is_lower_c and not is_upper_c
             return 0
         end
@@ -383,13 +404,13 @@ pub function is_alphanumeric(s)
     return 1
 end
 
-pub function is_upper(s)
-    let slen = len(s)
+pub function is_upper(s: string) -> int
+    let slen: int = len(s)
     if slen == 0
         return 0
     end
-    let i = 0
-    let c = 0
+    let i: int = 0
+    let c: int = 0
     while i < slen
         c = ord(char_at(s, i))
         if c < 65 or c > 90
@@ -400,13 +421,13 @@ pub function is_upper(s)
     return 1
 end
 
-pub function is_lower(s)
-    let slen = len(s)
+pub function is_lower(s: string) -> int
+    let slen: int = len(s)
     if slen == 0
         return 0
     end
-    let i = 0
-    let c = 0
+    let i: int = 0
+    let c: int = 0
     while i < slen
         c = ord(char_at(s, i))
         if c < 97 or c > 122
@@ -417,34 +438,34 @@ pub function is_lower(s)
     return 1
 end
 
-pub function slugify(s)
-    let slen = len(s)
-    let res = ""
-    let i = 0
-    let last_was_dash = 0
-    let ch = ""
-    let c = 0
-    let is_digit_c = 0
-    let is_lower_c = 0
-    let is_upper_c = 0
-    let is_sep = 0
+pub function slugify(s: string) -> string
+    let slen: int = len(s)
+    let res: string = ""
+    let i: int = 0
+    let last_was_dash: int = 0
+    let ch: string = ""
+    let c: int = 0
+    let is_digit_c: int = 0
+    let is_lower_c: int = 0
+    let is_upper_c: int = 0
+    let is_sep: int = 0
     while i < slen
         ch = char_at(s, i)
         c = ord(ch)
-        is_digit_c = c >= 48 and c <= 57
-        is_lower_c = c >= 97 and c <= 122
-        is_upper_c = c >= 65 and c <= 90
-        is_sep = ch == " " or ch == "-" or ch == "_"
+        is_digit_c = (c >= 48 and c <= 57)
+        is_lower_c = (c >= 97 and c <= 122)
+        is_upper_c = (c >= 65 and c <= 90)
+        is_sep = (ch == " " or ch == "-" or ch == "_")
 
-        if is_upper_c
+        if is_upper_c == 1
             res += lower(ch)
             last_was_dash = 0
         else
-            if is_lower_c or is_digit_c
+            if is_lower_c == 1 or is_digit_c == 1
                 res += ch
                 last_was_dash = 0
             else
-                if is_sep and not last_was_dash and len(res) > 0
+                if is_sep == 1 and last_was_dash == 0 and len(res) > 0
                     res += "-"
                     last_was_dash = 1
                 end
@@ -452,7 +473,7 @@ pub function slugify(s)
         end
         i += 1
     end
-    let rlen = len(res)
+    let rlen: int = len(res)
     if rlen > 0 and char_at(res, rlen - 1) == "-"
         return substring(res, 0, rlen - 1)
     end
@@ -461,8 +482,8 @@ end
 
 # --- Hex and Base64 String Encodings ---
 
-function _hex_val(ch)
-    let c = ord(ch)
+function _hex_val(ch: string) -> int
+    let c: int = ord(ch)
     when c
         is 48..57 then return c - 48
         is 97..102 then return c - 87
@@ -471,11 +492,14 @@ function _hex_val(ch)
     end
 end
 
-pub function hex_encode(s)
-    let hex_chars = "0123456789abcdef"
-    let slen = len(s)
-    let res = ""
-    let i, c, hi, lo = 0
+pub function hex_encode(s: string) -> string
+    let hex_chars: string = "0123456789abcdef"
+    let slen: int = len(s)
+    let res: string = ""
+    let i: int = 0
+    let c: int = 0
+    let hi: int = 0
+    let lo: int = 0
     while i < slen
         c = ord(char_at(s, i))
         hi = bit_and(bit_shr(c, 4), 15)
@@ -486,10 +510,13 @@ pub function hex_encode(s)
     return res
 end
 
-pub function hex_decode(s)
-    let slen = len(s)
-    let res = ""
-    let i, hi, lo, b = 0
+pub function hex_decode(s: string) -> string
+    let slen: int = len(s)
+    let res: string = ""
+    let i: int = 0
+    let hi: int = 0
+    let lo: int = 0
+    let b: int = 0
     while i + 1 < slen
         hi = _hex_val(char_at(s, i))
         lo = _hex_val(char_at(s, i + 1))
@@ -500,21 +527,21 @@ pub function hex_decode(s)
     return res
 end
 
-pub function is_hex(s)
-    let slen = len(s)
+pub function is_hex(s: string) -> int
+    let slen: int = len(s)
     if slen == 0 or slen % 2 != 0
         return 0
     end
-    let i = 0
-    let c = 0
-    let is_d = 0
-    let is_l = 0
-    let is_u = 0
+    let i: int = 0
+    let c: int = 0
+    let is_d: int = 0
+    let is_l: int = 0
+    let is_u: int = 0
     while i < slen
         c = ord(char_at(s, i))
-        is_d = c >= 48 and c <= 57
-        is_l = c >= 97 and c <= 102
-        is_u = c >= 65 and c <= 70
+        is_d = (c >= 48 and c <= 57)
+        is_l = (c >= 97 and c <= 102)
+        is_u = (c >= 65 and c <= 70)
         if not is_d and not is_l and not is_u
             return 0
         end
@@ -523,8 +550,8 @@ pub function is_hex(s)
     return 1
 end
 
-function _b64_val(ch)
-    let c = ord(ch)
+function _b64_val(ch: string) -> int
+    let c: int = ord(ch)
     when c
         is 65..90 then return c - 65
         is 97..122 then return c - 71
@@ -535,11 +562,20 @@ function _b64_val(ch)
     end
 end
 
-pub function base64_encode_bytes(bytes)
-    let b64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-    let blen = len(bytes)
-    let res = ""
-    let i, b0, b1, b2, has_b1, has_b2, idx0, idx1, idx2, idx3 = 0
+pub function base64_encode_bytes(bytes: int[]) -> string
+    let b64_chars: string = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    let blen: int = len(bytes)
+    let res: string = ""
+    let i: int = 0
+    let b0: int = 0
+    let b1: int = 0
+    let b2: int = 0
+    let has_b1: int = 0
+    let has_b2: int = 0
+    let idx0: int = 0
+    let idx1: int = 0
+    let idx2: int = 0
+    let idx3: int = 0
     while i < blen
         b0 = bytes[i]
         b1 = 0
@@ -562,12 +598,12 @@ pub function base64_encode_bytes(bytes)
 
         res = res + char_at(b64_chars, idx0)
         res = res + char_at(b64_chars, idx1)
-        if has_b1
+        if has_b1 == 1
             res = res + char_at(b64_chars, idx2)
         else
             res = res + "="
         end
-        if has_b2
+        if has_b2 == 1
             res = res + char_at(b64_chars, idx3)
         else
             res = res + "="
@@ -577,10 +613,10 @@ pub function base64_encode_bytes(bytes)
     return res
 end
 
-pub function base64_encode(s)
-    let slen = len(s)
-    let bytes = []
-    let i = 0
+pub function base64_encode(s: string) -> string
+    let slen: int = len(s)
+    let bytes: int[] = []
+    let i: int = 0
     while i < slen
         bytes.push(ord(char_at(s, i)))
         i += 1
@@ -588,11 +624,21 @@ pub function base64_encode(s)
     return base64_encode_bytes(bytes)
 end
 
-pub function base64_decode_bytes(s)
-    let slen = len(s)
-    let bytes = []
-    let i, v0, v1, v2, v3, b0, b1, b2 = 0
-    let c0, c1, c2, c3 = ""
+pub function base64_decode_bytes(s: string) -> int[]
+    let slen: int = len(s)
+    let bytes: int[] = []
+    let i: int = 0
+    let v0: int = 0
+    let v1: int = 0
+    let v2: int = 0
+    let v3: int = 0
+    let b0: int = 0
+    let b1: int = 0
+    let b2: int = 0
+    let c0: string = ""
+    let c1: string = ""
+    let c2: string = ""
+    let c3: string = ""
     while i + 3 < slen
         c0 = char_at(s, i)
         c1 = char_at(s, i + 1)
@@ -620,11 +666,11 @@ pub function base64_decode_bytes(s)
     return bytes
 end
 
-pub function base64_decode(s)
-    let bytes = base64_decode_bytes(s)
-    let blen = len(bytes)
-    let res = ""
-    let i = 0
+pub function base64_decode(s: string) -> string
+    let bytes: int[] = base64_decode_bytes(s)
+    let blen: int = len(bytes)
+    let res: string = ""
+    let i: int = 0
     while i < blen
         res = res + chr(bytes[i])
         i += 1
@@ -632,25 +678,25 @@ pub function base64_decode(s)
     return res
 end
 
-pub function is_base64(s)
-    let slen = len(s)
+pub function is_base64(s: string) -> int
+    let slen: int = len(s)
     if slen == 0 or slen % 4 != 0
         return 0
     end
-    let i = 0
-    let c = 0
-    let is_u = 0
-    let is_l = 0
-    let is_d = 0
-    let is_plus_slash = 0
-    let is_pad = 0
+    let i: int = 0
+    let c: int = 0
+    let is_u: int = 0
+    let is_l: int = 0
+    let is_d: int = 0
+    let is_plus_slash: int = 0
+    let is_pad: int = 0
     while i < slen
         c = ord(char_at(s, i))
-        is_u = c >= 65 and c <= 90
-        is_l = c >= 97 and c <= 122
-        is_d = c >= 48 and c <= 57
-        is_plus_slash = c == 43 or c == 47
-        is_pad = c == 61
+        is_u = (c >= 65 and c <= 90)
+        is_l = (c >= 97 and c <= 122)
+        is_d = (c >= 48 and c <= 57)
+        is_plus_slash = (c == 43 or c == 47)
+        is_pad = (c == 61)
         if not is_u and not is_l and not is_d and not is_plus_slash and not is_pad
             return 0
         end
@@ -659,18 +705,18 @@ pub function is_base64(s)
     return 1
 end
 
-pub function to_hex(s)
+pub function to_hex(s: string) -> string
     return hex_encode(s)
 end
 
-pub function from_hex(s)
+pub function from_hex(s: string) -> string
     return hex_decode(s)
 end
 
-pub function to_base64(s)
+pub function to_base64(s: string) -> string
     return base64_encode(s)
 end
 
-pub function from_base64(s)
+pub function from_base64(s: string) -> string
     return base64_decode(s)
 end

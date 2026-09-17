@@ -3,53 +3,65 @@
 
 # --- Platform & Architecture ---
 
-pub function os_name()
+pub function os_name() -> string
     return target_os()
 end
 
-pub function arch_name()
+pub function arch_name() -> string
     return target_arch()
 end
 
-pub function arch()
+pub function arch() -> string
     return target_arch()
 end
 
-pub function platform()
+pub function platform() -> string
     return target_os()
 end
 
-pub function is_windows()
-    return target_os() == "windows"
+pub function is_windows() -> int
+    if target_os() == "windows"
+        return 1
+    end
+    return 0
 end
 
-pub function is_linux()
-    return target_os() == "linux"
+pub function is_linux() -> int
+    if target_os() == "linux"
+        return 1
+    end
+    return 0
 end
 
-pub function is_macos()
-    return target_os() == "macos"
+pub function is_macos() -> int
+    if target_os() == "macos"
+        return 1
+    end
+    return 0
 end
 
-pub function is_posix()
-    return target_os() != "windows"
+pub function is_posix() -> int
+    if target_os() != "windows"
+        return 1
+    end
+    return 0
 end
 
 # --- Environment Variables ---
 
-pub function env(key)
+pub function env(key: string) -> string
     return get_env(key)
 end
 
-pub function env_or(key, default_val)
-    let val = get_env(key)
+pub function env_or(key: string, default_val: string) -> string
+    let val: string = get_env(key)
     if len(val) == 0
         return default_val
     end
     return val
 end
 
-pub function has_env(key)
+pub function has_env(key: string) -> int
     if len(get_env(key)) > 0
         return 1
     end
@@ -58,59 +70,59 @@ end
 
 # --- Command Execution & Process ---
 
-pub function exec(cmd)
+pub function exec(cmd: string) -> int
     return system_exec(cmd)
 end
 
-pub function exit_process(code)
+pub function exit_process(code: int)
     exit(code)
 end
 
-pub function get_pid()
+pub function get_pid() -> int
     return __native_get_pid()
 end
 
-pub function pid()
+pub function pid() -> int
     return __native_get_pid()
 end
 
-pub function get_cwd()
+pub function get_cwd() -> string
     return __native_get_cwd()
 end
 
-pub function cwd()
+pub function cwd() -> string
     return __native_get_cwd()
 end
 
-pub function set_cwd(path)
+pub function set_cwd(path: string) -> int
     return __native_set_cwd(path)
 end
 
-pub function chdir(path)
+pub function chdir(path: string) -> int
     return __native_set_cwd(path)
 end
 
 # --- Command Line Arguments ---
 
-pub function cli_args()
+pub function cli_args() -> string[]
     return args()
 end
 
-pub function arg_count()
-    let a = args()
+pub function arg_count() -> int
+    let a: string[] = args()
     return len(a)
 end
 
-pub function arg_at(index, default_val)
-    let a = args()
+pub function arg_at(index: int, default_val: string) -> string
+    let a: string[] = args()
     if index >= 0 and index < len(a)
         return a[index]
     end
     return default_val
 end
 
-pub function has_arg(flag)
-    let a = args()
+pub function has_arg(flag: string) -> int
+    let a: string[] = args()
     for arg in a
         if arg == flag
             return 1
@@ -121,8 +133,8 @@ end
 
 # --- Filesystem & Platform Helpers ---
 
-pub function temp_dir()
-    let t = ""
+pub function temp_dir() -> string
+    let t: string = ""
     if is_windows()
         t = get_env("TEMP")
         if len(t) > 0
@@ -141,15 +153,15 @@ pub function temp_dir()
     return "/tmp"
 end
 
-pub function home_dir()
-    let h = ""
+pub function home_dir() -> string
+    let h: string = ""
     if is_windows()
         h = get_env("USERPROFILE")
         if len(h) > 0
             return h
         end
-        let drive = get_env("HOMEDRIVE")
-        let p = get_env("HOMEPATH")
+        let drive: string = get_env("HOMEDRIVE")
+        let p: string = get_env("HOMEPATH")
         if len(drive) > 0 and len(p) > 0
             return drive + p
         end
@@ -158,8 +170,8 @@ pub function home_dir()
     return get_env("HOME")
 end
 
-pub function user_name()
-    let u = ""
+pub function user_name() -> string
+    let u: string = ""
     if is_windows()
         u = get_env("USERNAME")
         if len(u) > 0
@@ -174,8 +186,8 @@ pub function user_name()
     return get_env("LOGNAME")
 end
 
-pub function hostname()
-    let h = ""
+pub function hostname() -> string
+    let h: string = ""
     if is_windows()
         h = get_env("COMPUTERNAME")
         if len(h) > 0
@@ -190,14 +202,14 @@ pub function hostname()
     return ""
 end
 
-pub function null_device()
+pub function null_device() -> string
     if is_windows()
         return "NUL"
     end
     return "/dev/null"
 end
 
-pub function path_list_separator()
+pub function path_list_separator() -> string
     if is_windows()
         return ";"
     end

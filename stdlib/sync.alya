@@ -5,22 +5,22 @@
 
 # Creates a new mutex lock.
 # Returns a mutex handle.
-pub function mutex_new()
+pub function mutex_new() -> int
     return __native_mutex_new()
 end
 
 # Locks the mutex `m`. Blocks until acquired.
-pub function mutex_lock(m)
+pub function mutex_lock(m: int) -> int
     return __native_mutex_lock(m)
 end
 
 # Unlocks the mutex `m`.
-pub function mutex_unlock(m)
+pub function mutex_unlock(m: int) -> int
     return __native_mutex_unlock(m)
 end
 
 # Frees the mutex `m` and releases its OS resources.
-pub function mutex_free(m)
+pub function mutex_free(m: int) -> int
     return __native_mutex_free(m)
 end
 
@@ -28,17 +28,17 @@ end
 
 pub struct Channel
     q
-    lock
-    closed
+    lock: int
+    closed: int
 end
 
 # Creates a new thread-safe FIFO channel.
-pub function channel_new()
+pub function channel_new() -> Channel
     return Channel([1], mutex_new(), 0)
 end
 
 # Sends a value into the channel. Returns 1 on success, 0 if closed.
-pub function channel_send(ch, val)
+pub function channel_send(ch: Channel, val) -> int
     mutex_lock(ch.lock)
     if ch.closed == 1
         mutex_unlock(ch.lock)
@@ -51,10 +51,10 @@ end
 
 # Tries to receive a value without blocking.
 # Returns value if present, or null if empty.
-pub function channel_try_recv(ch)
+pub function channel_try_recv(ch: Channel)
     mutex_lock(ch.lock)
-    let head = ch.q[0]
-    let total = arr_len(ch.q)
+    let head: int = ch.q[0]
+    let total: int = arr_len(ch.q)
     if head >= total
         mutex_unlock(ch.lock)
         return null
@@ -63,8 +63,8 @@ pub function channel_try_recv(ch)
     head += 1
     ch.q[0] = head
     if head > 32 and (head * 2) >= total
-        let count = total - head
-        let i = 0
+        let count: int = total - head
+        let i: int = 0
         while i < count
             ch.q[i + 1] = ch.q[head + i]
             i += 1
@@ -80,15 +80,15 @@ end
 
 # Receives a value from the channel, waiting up to timeout_ms (default: 5000ms).
 # Returns the received value, or null on timeout/close.
-pub function channel_recv(ch, timeout_ms = 5000)
-    let start = clock_ms()
+pub function channel_recv(ch: Channel, timeout_ms: int = 5000)
+    let start: int = clock_ms()
     while 1
         let val = channel_try_recv(ch)
         if val != null
             return val
         end
         mutex_lock(ch.lock)
-        let is_closed = ch.closed
+        let is_closed: int = ch.closed
         mutex_unlock(ch.lock)
         if is_closed == 1
             return null
@@ -102,11 +102,11 @@ pub function channel_recv(ch, timeout_ms = 5000)
 end
 
 # Returns the number of items currently waiting in the channel.
-pub function channel_size(ch)
+pub function channel_size(ch: Channel) -> int
     mutex_lock(ch.lock)
-    let head = ch.q[0]
-    let total = arr_len(ch.q)
-    let sz = total - head
+    let head: int = ch.q[0]
+    let total: int = arr_len(ch.q)
+    let sz: int = total - head
     if sz < 0
         sz = 0
     end
@@ -115,7 +115,7 @@ pub function channel_size(ch)
 end
 
 # Closes the channel. No more items can be sent.
-pub function channel_close(ch)
+pub function channel_close(ch: Channel) -> int
     mutex_lock(ch.lock)
     ch.closed = 1
     mutex_unlock(ch.lock)
@@ -123,7 +123,7 @@ pub function channel_close(ch)
 end
 
 # Closes and releases channel mutex resources.
-pub function channel_free(ch)
+pub function channel_free(ch: Channel)
     channel_close(ch)
     mutex_free(ch.lock)
 end
@@ -131,24 +131,24 @@ end
 # --- WaitGroup (Thread-Safe Counter Synchronization) ---
 
 pub struct WaitGroup
-    count
-    lock
+    count: int
+    lock: int
 end
 
 # Creates a new WaitGroup initialized with counter = 0.
-pub function wait_group_new()
+pub function wait_group_new() -> WaitGroup
     return WaitGroup(0, mutex_new())
 end
 
 # Increments the WaitGroup counter by delta (default: 1).
-pub function wait_group_add(wg, delta = 1)
+pub function wait_group_add(wg: WaitGroup, delta: int = 1)
     mutex_lock(wg.lock)
     wg.count += delta
     mutex_unlock(wg.lock)
 end
 
 # Decrements the WaitGroup counter by 1.
-pub function wait_group_done(wg)
+pub function wait_group_done(wg: WaitGroup)
     mutex_lock(wg.lock)
     if wg.count > 0
         wg.count -= 1
@@ -158,11 +158,11 @@ end
 
 # Blocks until the WaitGroup counter becomes 0 or timeout_ms expires.
 # Returns 1 if counter reached 0, 0 if timed out.
-pub function wait_group_wait(wg, timeout_ms = 0)
-    let start = clock_ms()
+pub function wait_group_wait(wg: WaitGroup, timeout_ms: int = 0) -> int
+    let start: int = clock_ms()
     while 1
         mutex_lock(wg.lock)
-        let cur = wg.count
+        let cur: int = wg.count
         mutex_unlock(wg.lock)
         if cur <= 0
             return 1
@@ -176,25 +176,25 @@ pub function wait_group_wait(wg, timeout_ms = 0)
 end
 
 # Frees the WaitGroup's mutex resources.
-pub function wait_group_free(wg)
+pub function wait_group_free(wg: WaitGroup)
     mutex_free(wg.lock)
 end
 
 # --- Once (Execute Exactly Once Primitive) ---
 
 pub struct Once
-    done
-    lock
+    done: int
+    lock: int
 end
 
 # Creates a new Once primitive.
-pub function once_new()
+pub function once_new() -> Once
     return Once(0, mutex_new())
 end
 
 # Atomically checks if the Once instance has already run.
 # Returns 1 if this is the first invocation (caller proceeds with action), 0 otherwise.
-pub function once_check(o)
+pub function once_check(o: Once) -> int
     mutex_lock(o.lock)
     if o.done == 0
         o.done = 1
@@ -206,26 +206,26 @@ pub function once_check(o)
 end
 
 # Frees the Once primitive's mutex resources.
-pub function once_free(o)
+pub function once_free(o: Once)
     mutex_free(o.lock)
 end
 
 # --- RwLock (Reader-Writer Lock) ---
 
 pub struct RwLock
-    readers
-    writing
-    lock
+    readers: int
+    writing: int
+    lock: int
 end
 
 # Creates a new Reader-Writer lock.
-pub function rwlock_new()
+pub function rwlock_new() -> RwLock
     return RwLock(0, 0, mutex_new())
 end
 
 # Acquires a shared read lock. Blocks if a writer is active.
-pub function rwlock_read_lock(rw, timeout_ms = 5000)
-    let start = clock_ms()
+pub function rwlock_read_lock(rw: RwLock, timeout_ms: int = 5000) -> int
+    let start: int = clock_ms()
     while 1
         mutex_lock(rw.lock)
         if rw.writing == 0
@@ -243,7 +243,7 @@ pub function rwlock_read_lock(rw, timeout_ms = 5000)
 end
 
 # Releases a shared read lock.
-pub function rwlock_read_unlock(rw)
+pub function rwlock_read_unlock(rw: RwLock)
     mutex_lock(rw.lock)
     if rw.readers > 0
         rw.readers -= 1
@@ -252,8 +252,8 @@ pub function rwlock_read_unlock(rw)
 end
 
 # Acquires an exclusive write lock. Blocks if readers or another writer is active.
-pub function rwlock_write_lock(rw, timeout_ms = 5000)
-    let start = clock_ms()
+pub function rwlock_write_lock(rw: RwLock, timeout_ms: int = 5000) -> int
+    let start: int = clock_ms()
     while 1
         mutex_lock(rw.lock)
         if rw.writing == 0 and rw.readers == 0
@@ -271,83 +271,83 @@ pub function rwlock_write_lock(rw, timeout_ms = 5000)
 end
 
 # Releases an exclusive write lock.
-pub function rwlock_write_unlock(rw)
+pub function rwlock_write_unlock(rw: RwLock)
     mutex_lock(rw.lock)
     rw.writing = 0
     mutex_unlock(rw.lock)
 end
 
 # Frees the RwLock resources.
-pub function rwlock_free(rw)
+pub function rwlock_free(rw: RwLock)
     mutex_free(rw.lock)
 end
 
 # --- Struct Methods for Synchronization Primitives ---
 
-pub function Channel.send(self, val)
+pub function Channel.send(self: Channel, val) -> int
     return channel_send(self, val)
 end
 
-pub function Channel.recv(self, timeout_ms = 5000)
+pub function Channel.recv(self: Channel, timeout_ms: int = 5000)
     return channel_recv(self, timeout_ms)
 end
 
-pub function Channel.try_recv(self)
+pub function Channel.try_recv(self: Channel)
     return channel_try_recv(self)
 end
 
-pub function Channel.size(self)
+pub function Channel.size(self: Channel) -> int
     return channel_size(self)
 end
 
-pub function Channel.close(self)
+pub function Channel.close(self: Channel) -> int
     return channel_close(self)
 end
 
-pub function Channel.free(self)
+pub function Channel.free(self: Channel)
     channel_free(self)
 end
 
-pub function WaitGroup.add(self, delta = 1)
+pub function WaitGroup.add(self: WaitGroup, delta: int = 1)
     wait_group_add(self, delta)
 end
 
-pub function WaitGroup.done(self)
+pub function WaitGroup.done(self: WaitGroup)
     wait_group_done(self)
 end
 
-pub function WaitGroup.wait(self, timeout_ms = 0)
+pub function WaitGroup.wait(self: WaitGroup, timeout_ms: int = 0) -> int
     return wait_group_wait(self, timeout_ms)
 end
 
-pub function WaitGroup.free(self)
+pub function WaitGroup.free(self: WaitGroup)
     wait_group_free(self)
 end
 
-pub function Once.check(self)
+pub function Once.check(self: Once) -> int
     return once_check(self)
 end
 
-pub function Once.free(self)
+pub function Once.free(self: Once)
     once_free(self)
 end
 
-pub function RwLock.read_lock(self, timeout_ms = 5000)
+pub function RwLock.read_lock(self: RwLock, timeout_ms: int = 5000) -> int
     return rwlock_read_lock(self, timeout_ms)
 end
 
-pub function RwLock.read_unlock(self)
+pub function RwLock.read_unlock(self: RwLock)
     rwlock_read_unlock(self)
 end
 
-pub function RwLock.write_lock(self, timeout_ms = 5000)
+pub function RwLock.write_lock(self: RwLock, timeout_ms: int = 5000) -> int
     return rwlock_write_lock(self, timeout_ms)
 end
 
-pub function RwLock.write_unlock(self)
+pub function RwLock.write_unlock(self: RwLock)
     rwlock_write_unlock(self)
 end
 
-pub function RwLock.free(self)
+pub function RwLock.free(self: RwLock)
     rwlock_free(self)
 end
