@@ -1832,7 +1832,7 @@ impl CodeGen {
             }
         }
 
-        // 2. Generic name & abbreviation matching fallback
+        // 2. Exact or suffix name matching (when variable name directly reflects struct name)
         let name_opt = match base_obj {
             Expr::Identifier(obj_name) => Some(obj_name.as_str()),
             Expr::FieldAccess {
@@ -1847,22 +1847,6 @@ impl CodeGen {
         if let Some(name_str) = name_opt {
             let lower = name_str.to_lowercase();
             let norm_var = lower.replace('_', "");
-            let expanded_var = match norm_var.as_str() {
-                "req" => "request",
-                "res" => "response",
-                "ctx" => "context",
-                "srv" => "server",
-                "cfg" => "config",
-                "conn" => "connection",
-                "hdr" => "header",
-                "hdrs" => "headers",
-                "msg" => "message",
-                "buf" => "buffer",
-                "elem" => "element",
-                "idx" => "index",
-                "param" | "params" => "parameter",
-                _ => &norm_var,
-            };
 
             let mut matches: Vec<(i32, &String, usize)> = Vec::new();
             for (sname, sdef) in &self.ctx.structs {
@@ -1872,19 +1856,11 @@ impl CodeGen {
                     let s_bare = s_bare.rsplit("__").next().unwrap_or(s_bare);
                     let norm_struct = s_bare.replace('_', "");
 
-                    let score = if norm_struct == norm_var || norm_struct == expanded_var {
-                        4
-                    } else if norm_struct.ends_with(&norm_var)
-                        || norm_struct.ends_with(expanded_var)
-                    {
+                    let score = if norm_struct == norm_var {
                         3
-                    } else if norm_var.ends_with(&norm_struct)
-                        || expanded_var.ends_with(&norm_struct)
-                    {
+                    } else if norm_struct.ends_with(&norm_var) {
                         2
-                    } else if norm_struct.contains(&norm_var)
-                        || (expanded_var.len() > 3 && norm_struct.contains(expanded_var))
-                    {
+                    } else if norm_var.ends_with(&norm_struct) {
                         1
                     } else {
                         0
@@ -1897,13 +1873,12 @@ impl CodeGen {
             }
 
             if !matches.is_empty() {
-                // Sort by highest score first, tie-break alphabetically for 100% determinism
                 matches.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
                 return matches[0].2;
             }
         }
 
-        // 3. Last fallback: match any struct containing this field (sorted alphabetically for determinism)
+        // 3. Fallback: match any struct containing this field (sorted alphabetically for determinism)
         let mut candidates: Vec<(&String, usize)> = Vec::new();
         for (sname, sdef) in &self.ctx.structs {
             if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
@@ -1913,6 +1888,26 @@ impl CodeGen {
 
         if !candidates.is_empty() {
             candidates.sort_by(|a, b| a.0.cmp(b.0));
+            let first_idx = candidates[0].1;
+            if candidates.iter().any(|c| c.1 != first_idx) {
+                let mut distinct: Vec<(&str, usize)> = Vec::new();
+                for (sname, idx) in &candidates {
+                    let bare = sname.rsplit("::").next().unwrap_or(sname);
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    if !distinct.iter().any(|(b, _)| *b == bare) {
+                        distinct.push((bare, *idx));
+                    }
+                }
+                let details = distinct
+                    .iter()
+                    .map(|(s, i)| format!("{}.{} (index {})", s, field, i))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                eprintln!(
+                    "warning: ambiguous field access '.{}' on untyped object. Conflicting layouts found: {}. Please specify a type annotation.",
+                    field, details
+                );
+            }
             return candidates[0].1;
         }
 
