@@ -35,6 +35,7 @@ pub struct CliArgs {
     pub icon_path: Option<String>,
     pub run_args: Vec<String>,
     pub test_jobs: Option<usize>,
+    pub no_std: bool,
 }
 
 impl CliArgs {
@@ -83,6 +84,7 @@ impl CliArgs {
                 icon_path: None,
                 run_args: Vec::new(),
                 test_jobs: None,
+                no_std: false,
             }));
         }
 
@@ -209,6 +211,7 @@ impl CliArgs {
         let mut arch_explicit = false;
         let mut run_args = Vec::new();
         let mut test_jobs = None;
+        let mut no_std = false;
         let mut arch = if cfg!(target_arch = "aarch64") {
             Architecture::ARM64
         } else if cfg!(target_arch = "x86") {
@@ -289,6 +292,9 @@ impl CliArgs {
                 }
                 "--time" => {
                     time = true;
+                }
+                "--no-std" => {
+                    no_std = true;
                 }
                 "--stats" | "--bench" => {
                     stats = true;
@@ -424,6 +430,7 @@ impl CliArgs {
             icon_path,
             run_args,
             test_jobs,
+            no_std,
         }))
     }
 
@@ -458,6 +465,7 @@ impl CliArgs {
             icon_path: None,
             run_args: Vec::new(),
             test_jobs: None,
+            no_std: false,
         }
     }
 
@@ -492,6 +500,7 @@ impl CliArgs {
             icon_path: None,
             run_args: Vec::new(),
             test_jobs: None,
+            no_std: false,
         }
     }
 

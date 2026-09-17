@@ -81,7 +81,7 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     let base_dir = Path::new(&args.input_file)
         .parent()
         .unwrap_or_else(|| Path::new("."));
-    let imported_files = crate::parser::resolve_imports_with_sources(&mut ast, base_dir)
+    let imported_files = crate::parser::resolve_imports_with_sources_ext(&mut ast, base_dir, args.no_std)
         .map_err(|e| format!("Module import error in '{}': {}", args.input_file, e))?;
     let d_import = t_import.elapsed();
 
@@ -199,7 +199,8 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     };
 
     // 4. Code Generation
-    let (code, pipeline_profile) = codegen::generate_with_profile(&ast, args.arch, args.os);
+    let (code, pipeline_profile) =
+        codegen::generate_with_profile_ext(&ast, args.arch, args.os, args.no_std);
     let asm_lines = code.lines().count();
 
     fs::write(&asm_file, code)

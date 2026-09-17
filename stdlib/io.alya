@@ -1,0 +1,52 @@
+# Alya Standard Library - I/O Module (std/io)
+# Standard stream handles, Stream Reader/Writer abstractions, and I/O helpers.
+
+pub struct Reader
+    source
+end
+
+pub struct Writer
+    destination
+end
+
+pub function io_read_all(r: Reader) -> string
+    if r == null or r.source == null
+        return ""
+    end
+    let f = r.source
+    return f()
+end
+
+pub function io_copy(src: Reader, dst: Writer) -> int
+    let data: string = io_read_all(src)
+    if dst != null and dst.destination != null
+        let wf = dst.destination
+        wf(data)
+        return len(data)
+    end
+    return 0
+end
+
+pub function io_stdin_read() -> string
+    return ask("")
+end
+
+pub function io_stdout_write(data: string)
+    say data
+end
+
+pub function io_stderr_write(data: string)
+    say data
+end
+
+pub let stdin: Reader = Reader(io_stdin_read)
+pub let stdout: Writer = Writer(io_stdout_write)
+pub let stderr: Writer = Writer(io_stderr_write)
+
+pub function io_print(s: string)
+    say s
+end
+
+pub function io_read_line(prompt_text: string = "") -> string
+    return ask(prompt_text)
+end

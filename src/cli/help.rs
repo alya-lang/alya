@@ -58,6 +58,7 @@ pub fn print_usage() {
     println!("  --sequential          Run tests sequentially in single thread (alias for -j 1)");
     println!("  -q, --quiet           Suppress status messages and compiler banner");
     println!("  --time                Display timing for each compilation phase");
+    println!("  --no-std              Bare-metal mode: detach standard library and omit libc stubs");
     println!("  --stats, --bench      Display detailed compilation and execution metrics");
     println!("  -v, --version         Show compiler version");
     println!("  -h, --help            Show this help message\n");

@@ -31,6 +31,7 @@ pub struct CodeGen {
     pub(crate) output: String,
     pub(crate) ctx: CodeGenContext,
     pub profile: PipelineProfile,
+    pub no_std: bool,
 }
 
 impl CodeGen {
@@ -41,6 +42,7 @@ impl CodeGen {
             output: String::new(),
             ctx: CodeGenContext::new(),
             profile: PipelineProfile::default(),
+            no_std: false,
         }
     }
 
@@ -371,7 +373,9 @@ impl CodeGen {
             }
         }
 
-        runtime::emit_runtime(&mut self.output, self.arch, self.os, &self.ctx.structs);
+        if !self.no_std {
+            runtime::emit_runtime(&mut self.output, self.arch, self.os, &self.ctx.structs);
+        }
         let d_codegen = t_emit.elapsed();
 
         self.profile = PipelineProfile {
@@ -819,7 +823,7 @@ impl CodeGen {
 }
 
 pub fn generate(program: &Program, arch: Architecture, os: OperatingSystem) -> String {
-    let (code, _) = generate_with_profile(program, arch, os);
+    let (code, _) = generate_with_profile_ext(program, arch, os, false);
     code
 }
 
@@ -828,7 +832,17 @@ pub fn generate_with_profile(
     arch: Architecture,
     os: OperatingSystem,
 ) -> (String, PipelineProfile) {
+    generate_with_profile_ext(program, arch, os, false)
+}
+
+pub fn generate_with_profile_ext(
+    program: &Program,
+    arch: Architecture,
+    os: OperatingSystem,
+    no_std: bool,
+) -> (String, PipelineProfile) {
     let mut codegen = CodeGen::new(arch, os);
+    codegen.no_std = no_std;
     codegen.generate_program(program);
     (codegen.output, codegen.profile)
 }

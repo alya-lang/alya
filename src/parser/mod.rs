@@ -88,11 +88,19 @@ pub fn resolve_imports_with_sources(
     program: &mut Program,
     base_dir: &std::path::Path,
 ) -> Result<std::collections::HashSet<std::path::PathBuf>, String> {
+    resolve_imports_with_sources_ext(program, base_dir, false)
+}
+
+pub fn resolve_imports_with_sources_ext(
+    program: &mut Program,
+    base_dir: &std::path::Path,
+    no_std: bool,
+) -> Result<std::collections::HashSet<std::path::PathBuf>, String> {
     let mut visited = std::collections::HashSet::new();
     let mut resolved_stmts = Vec::new();
 
     for stmt in std::mem::take(&mut program.statements) {
-        resolve_stmt_imports(stmt, base_dir, &mut visited, &mut resolved_stmts)?;
+        resolve_stmt_imports_ext(stmt, base_dir, &mut visited, &mut resolved_stmts, no_std)?;
     }
 
     // Deduplicate private module functions (__priv_*) that were imported via multiple paths
@@ -405,16 +413,30 @@ fn prefix_expr(expr: &mut Expr, alias: &str, local_fns: &std::collections::HashS
     }
 }
 
+pub(crate) fn canonical_stdlib_module(clean: &str) -> &str {
+    match clean {
+        "rand" => "math",
+        "color" | "term" | "ansi" => "console",
+        "glob" => "path",
+        "thread" | "threads" | "concurrency" => "sync",
+        "bench" => "test",
+        other => other,
+    }
+}
+
 fn get_embedded_stdlib(module: &str) -> Option<&'static str> {
     let clean = module
         .strip_prefix("std/")
         .or_else(|| module.strip_prefix("std::"))
         .unwrap_or(module);
     let clean = clean.strip_suffix(".alya").unwrap_or(clean);
-    match clean {
+    let canonical = canonical_stdlib_module(clean);
+    match canonical {
         "math" => Some(include_str!("../../stdlib/math.alya")),
         "time" => Some(include_str!("../../stdlib/time.alya")),
         "os" => Some(include_str!("../../stdlib/os.alya")),
+        "process" => Some(include_str!("../../stdlib/process.alya")),
+        "io" => Some(include_str!("../../stdlib/io.alya")),
         "json" => Some(include_str!("../../stdlib/json.alya")),
         "mem" => Some(include_str!("../../stdlib/mem.alya")),
         "str" => Some(include_str!("../../stdlib/str.alya")),
@@ -423,25 +445,31 @@ fn get_embedded_stdlib(module: &str) -> Option<&'static str> {
         "hash" => Some(include_str!("../../stdlib/hash.alya")),
         "collections" => Some(include_str!("../../stdlib/collections.alya")),
         "test" => Some(include_str!("../../stdlib/test.alya")),
-        "bench" => Some(include_str!("../../stdlib/bench.alya")),
-        "rand" => Some(include_str!("../../stdlib/rand.alya")),
         "cli" | "argparse" => Some(include_str!("../../stdlib/cli.alya")),
-        "color" | "term" | "ansi" => Some(include_str!("../../stdlib/color.alya")),
-        "log" | "logger" => Some(include_str!("../../stdlib/log.alya")),
-        "glob" => Some(include_str!("../../stdlib/glob.alya")),
         "console" => Some(include_str!("../../stdlib/console.alya")),
+        "log" | "logger" => Some(include_str!("../../stdlib/log.alya")),
         "net" | "http" => Some(include_str!("../../stdlib/net.alya")),
         "sync" | "synchronization" => Some(include_str!("../../stdlib/sync.alya")),
-        "thread" | "threads" | "concurrency" => Some(include_str!("../../stdlib/thread.alya")),
         _ => None,
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn resolve_stmt_imports(
     stmt: Stmt,
     current_dir: &std::path::Path,
     visited: &mut std::collections::HashSet<(std::path::PathBuf, Option<String>)>,
     out: &mut Vec<Stmt>,
+) -> Result<std::collections::HashSet<String>, String> {
+    resolve_stmt_imports_ext(stmt, current_dir, visited, out, false)
+}
+
+pub(crate) fn resolve_stmt_imports_ext(
+    stmt: Stmt,
+    current_dir: &std::path::Path,
+    visited: &mut std::collections::HashSet<(std::path::PathBuf, Option<String>)>,
+    out: &mut Vec<Stmt>,
+    no_std: bool,
 ) -> Result<std::collections::HashSet<String>, String> {
     match stmt {
         Stmt::Import {
@@ -451,6 +479,12 @@ pub(crate) fn resolve_stmt_imports(
         } => {
             // Normalize path separators to '/' so Windows-style '\' works across Linux, macOS, and Windows
             let normalized_path = import_path_str.replace('\\', "/");
+            if no_std && (normalized_path.starts_with("std/") || normalized_path.starts_with("std::")) {
+                return Err(format!(
+                    "Cannot import '{}' in --no-std bare-metal mode",
+                    import_path_str
+                ));
+            }
             let path = std::path::Path::new(&normalized_path);
             let target_path = if path.is_absolute() {
                 path.to_path_buf()
@@ -467,8 +501,10 @@ pub(crate) fn resolve_stmt_imports(
                     .strip_prefix("std/")
                     .or_else(|| normalized_path.strip_prefix("std::"))
                     .unwrap_or(&normalized_path);
-                let std_dir = current_dir.join("stdlib").join(clean);
-                let std_root = std::path::Path::new("stdlib").join(clean);
+                let clean = clean.strip_suffix(".alya").unwrap_or(clean);
+                let canonical_name = canonical_stdlib_module(clean);
+                let std_dir = current_dir.join("stdlib").join(canonical_name);
+                let std_root = std::path::Path::new("stdlib").join(canonical_name);
                 if std_dir.exists() {
                     Some(std_dir)
                 } else if std_dir.with_extension("alya").exists() {
@@ -499,9 +535,15 @@ pub(crate) fn resolve_stmt_imports(
                 })?;
                 (canon, src)
             } else if normalized_path.starts_with("std/") || normalized_path.starts_with("std::") {
-                if let Some(src) = get_embedded_stdlib(&normalized_path) {
+                let clean = normalized_path
+                    .strip_prefix("std/")
+                    .or_else(|| normalized_path.strip_prefix("std::"))
+                    .unwrap_or(&normalized_path);
+                let clean = clean.strip_suffix(".alya").unwrap_or(clean);
+                let canonical_name = canonical_stdlib_module(clean);
+                if let Some(src) = get_embedded_stdlib(canonical_name) {
                     let synthetic =
-                        std::path::PathBuf::from(format!("<embedded:{}>", normalized_path));
+                        std::path::PathBuf::from(format!("<embedded:std/{}>", canonical_name));
                     if visited.contains(&(synthetic.clone(), alias.clone())) {
                         return Ok(std::collections::HashSet::new());
                     }
@@ -592,7 +634,7 @@ pub(crate) fn resolve_stmt_imports(
             for sub_stmt in sub_program.statements {
                 let is_unaliased_import = matches!(&sub_stmt, Stmt::Import { alias: None, .. });
                 let child_fns =
-                    resolve_stmt_imports(sub_stmt, sub_dir, visited, &mut sub_resolved)?;
+                    resolve_stmt_imports_ext(sub_stmt, sub_dir, visited, &mut sub_resolved, no_std)?;
                 if is_unaliased_import && (!is_embedded_stdlib || alias.is_some()) {
                     local_fns.extend(child_fns);
                 }

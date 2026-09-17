@@ -1917,3 +1917,98 @@ say "runner_passed: " + str(runner.passed)
         assert!(output.contains("runner_passed: 1"), "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_phase2_consolidated_stdlib() {
+    let code = r#"
+import "std/console"
+import "std/path"
+import "std/math"
+
+say "red_color: " + console_red("err")
+say "glob_match: " + str(glob_match("*.alya", "main.alya"))
+say "glob_no_match: " + str(glob_match("*.alya", "main.rs"))
+let r = rand_int(10, 20)
+say "rand_in_range: " + str(r >= 10 and r <= 20)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert!(output.contains("\x1b[31merr\x1b[0m"), "Got: {}", output);
+        assert!(output.contains("glob_match: 1"), "Got: {}", output);
+        assert!(output.contains("glob_no_match: 0"), "Got: {}", output);
+        assert!(output.contains("rand_in_range: 1"), "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_phase2_process_module() {
+    let code = r#"
+import "std/process"
+import "std/str"
+
+let pid = process_pid()
+say "valid_pid: " + str(pid > 0)
+let out = process_run("echo hello_process")
+say "exit_code: " + str(out.exit_code)
+say "has_output: " + str(contains_str(out.stdout, "hello_process"))
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert!(output.contains("valid_pid: 1"), "Got: {}", output);
+        assert!(output.contains("exit_code: 0"), "Got: {}", output);
+        assert!(output.contains("has_output: 1"), "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_phase2_io_module() {
+    let code = r#"
+import "std/io"
+
+function my_source() -> string
+    return "sample io content"
+end
+
+let r = Reader(my_source)
+let content = io_read_all(r)
+say "io_content: " + content
+say "io_len: " + str(len(content))
+io_print("direct io print")
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert!(output.contains("io_content: sample io content"), "Got: {}", output);
+        assert!(output.contains("io_len: 17"), "Got: {}", output);
+        assert!(output.contains("direct io print"), "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_phase2_no_std_mode() {
+    use alya::lexer::Lexer;
+    use alya::parser::{resolve_imports_with_sources_ext, Parser};
+    use alya::codegen::{generate_with_profile_ext, Architecture, OperatingSystem};
+
+    // 1. Importing std in no-std mode must fail with diagnostic error
+    let invalid_code = "import \"std/math\"\nlet x = 1";
+    let mut lexer = Lexer::new(invalid_code);
+    let tokens = lexer.tokenize().expect("Lexer error");
+    let mut parser = Parser::new(tokens);
+    let mut ast = parser.parse().expect("Parser error");
+    let res = resolve_imports_with_sources_ext(&mut ast, std::path::Path::new("."), true);
+    assert!(res.is_err(), "Importing std in no-std should fail");
+    let err_msg = res.unwrap_err();
+    assert!(err_msg.contains("Cannot import 'std/math' in --no-std bare-metal mode"), "Got: {}", err_msg);
+
+    // 2. Codegen with no_std = true must skip runtime emission
+    let valid_code = "function main() -> int\n    return 42\nend";
+    let mut lexer2 = Lexer::new(valid_code);
+    let tokens2 = lexer2.tokenize().expect("Lexer error");
+    let mut parser2 = Parser::new(tokens2);
+    let ast2 = parser2.parse().expect("Parser error");
+    let (asm_std, _) = generate_with_profile_ext(&ast2, Architecture::X64, OperatingSystem::Windows, false);
+    let (asm_no_std, _) = generate_with_profile_ext(&ast2, Architecture::X64, OperatingSystem::Windows, true);
+
+    assert!(asm_std.contains("fn_ask:"), "Standard codegen should include fn_ask runtime");
+    assert!(!asm_no_std.contains("fn_ask:"), "Bare-metal codegen must not include fn_ask runtime");
+}

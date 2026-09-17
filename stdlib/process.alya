@@ -1,0 +1,73 @@
+# Alya Standard Library - Process Module (std/process)
+# Provides subprocess spawning, execution, stream piping, and exit code handling.
+
+pub struct ProcessOutput
+    exit_code: int
+    stdout: string
+    stderr: string
+end
+
+pub struct ProcessHandle
+    pid: int
+    command: string
+end
+
+# Executes 'program' with 'args', waiting for completion and capturing stdout and stderr.
+pub function process_run(program: string, args: string[] = []) -> ProcessOutput
+    let pid: int = __native_get_pid()
+    let now_ms: int = clock_ms()
+    let out_file: string = "temp_proc_out_" + str(pid) + "_" + str(now_ms) + ".tmp"
+    let err_file: string = "temp_proc_err_" + str(pid) + "_" + str(now_ms) + ".tmp"
+
+    let cmd: string = program
+    let i: int = 0
+    let total: int = len(args)
+    while i < total
+        cmd = cmd + " " + args[i]
+        i += 1
+    end
+
+    cmd = cmd + " > " + out_file + " 2> " + err_file
+    let exit_code: int = system_exec(cmd)
+
+    let out_content: string = ""
+    if file_exists(out_file) == 1
+        out_content = read_file(out_file)
+        remove_file(out_file)
+    end
+
+    let err_content: string = ""
+    if file_exists(err_file) == 1
+        err_content = read_file(err_file)
+        remove_file(err_file)
+    end
+
+    return ProcessOutput(exit_code, out_content, err_content)
+end
+
+# Spawns a process in the background.
+pub function process_spawn(program: string, args: string[] = []) -> ProcessHandle
+    let cmd: string = program
+    let i: int = 0
+    let total: int = len(args)
+    while i < total
+        cmd = cmd + " " + args[i]
+        i += 1
+    end
+    let bg_cmd: string = cmd
+    if target_os() == "windows"
+        bg_cmd = "start /B " + cmd
+    else
+        bg_cmd = cmd + " &"
+    end
+    let code: int = system_exec(bg_cmd)
+    return ProcessHandle(code, cmd)
+end
+
+pub function process_pid() -> int
+    return __native_get_pid()
+end
+
+pub function process_exit(code: int = 0)
+    exit(code)
+end

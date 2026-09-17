@@ -290,3 +290,27 @@ pub function file_parent(path: string) -> string
     end
     return "."
 end
+
+# --- Filesystem Globbing (Merged from std/glob) ---
+
+import "std/path"
+
+pub function fs_glob(pattern: string) -> string[]
+    let parent_dir: string = file_parent(pattern)
+    let files: string[] = fs_list_dir(parent_dir)
+    let matches: string[] = []
+    let i: int = 0
+    let total: int = len(files)
+    while i < total
+        let f: string = files[i]
+        let full: string = f
+        if parent_dir != "."
+            full = parent_dir + "/" + f
+        end
+        if glob_match(pattern, full) or glob_match(pattern, f)
+            push(matches, full)
+        end
+        i += 1
+    end
+    return matches
+end

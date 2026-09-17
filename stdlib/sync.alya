@@ -351,3 +351,38 @@ end
 pub function RwLock.free(self: RwLock)
     rwlock_free(self)
 end
+
+# --- Native OS Worker Threads (Merged from std/thread) ---
+
+pub function sync_spawn(func, arg = null) -> int
+    return __native_thread_spawn(func, arg)
+end
+
+pub function sync_join(h: int)
+    return __native_thread_join(h)
+end
+
+pub function sync_thread_id() -> int
+    return __native_thread_id()
+end
+
+pub function sync_sleep(ms: int)
+    sleep(ms)
+end
+
+# --- Thread Module Aliases ---
+pub function thread_spawn(func, arg = null) -> int
+    return sync_spawn(func, arg)
+end
+
+pub function thread_join(h: int)
+    return sync_join(h)
+end
+
+pub function thread_id() -> int
+    return sync_thread_id()
+end
+
+pub function thread_sleep(ms: int)
+    sync_sleep(ms)
+end
