@@ -1,6 +1,6 @@
 pub fn print_version() {
     println!(
-        "alyac {} ({}-{})",
+        "alya {} ({}-{})",
         env!("CARGO_PKG_VERSION"),
         std::env::consts::OS,
         std::env::consts::ARCH
@@ -9,13 +9,13 @@ pub fn print_version() {
 
 pub fn print_usage() {
     println!(
-        "Alya Programming Language Compiler (alyac) v{}",
+        "Alya Language Toolchain (alya) v{}",
         env!("CARGO_PKG_VERSION")
     );
-    println!("A modern, simple, compiled programming language.\n");
+    println!("A modern, simple, compiled systems programming language.\n");
     println!("USAGE:");
-    println!("  alyac [COMMAND] [file] [OPTIONS]");
-    println!("  alyac                                # Starts interactive REPL\n");
+    println!("  alya [COMMAND] [file] [OPTIONS]");
+    println!("  alya                                 # Starts interactive REPL\n");
     println!("COMMANDS:");
     println!("  repl                  Start interactive REPL console (default when no args)");
     println!(
@@ -62,27 +62,27 @@ pub fn print_usage() {
     println!("  -v, --version         Show compiler version");
     println!("  -h, --help            Show this help message\n");
     println!("EXAMPLES:");
-    println!("  alyac                                # Start interactive REPL");
-    println!("  alyac repl                           # Start interactive REPL");
-    println!("  alyac init my_app                    # Initialize a new package");
-    println!("  alyac add raylib --path ../raylib    # Add local path dependency");
-    println!("  alyac install                        # Lock and install dependencies");
-    println!("  alyac update                         # Check for newer package versions");
-    println!("  alyac update -u                      # Upgrade alya.toml and re-lock");
-    println!("  alyac run                            # Run package entry from alya.toml");
-    println!("  alyac run hello.alya                 # Compile & run in one step");
-    println!("  alyac build hello.alya               # Produce executable (hello.exe / hello)");
-    println!("  alyac build app.alya --bundle        # Produce macOS Application Bundle (app.app)");
-    println!("  alyac hello.alya                     # Produce assembly (hello.s)");
-    println!("  alyac hello.alya -b -o my_app.exe    # Produce custom named binary");
-    println!("  alyac fmt hello.alya                 # Format single file");
-    println!("  alyac fmt . --check                  # Check formatting for entire codebase");
-    println!("  alyac test                           # Run all tests in project");
-    println!("  alyac check hello.alya               # Quick syntax validation");
-    println!("  alyac ast hello.alya                 # Inspect AST hierarchy");
-    println!("  alyac pkg list                       # List dependencies and lock status");
-    println!("  alyac pkg cache                      # Inspect package cache and storage");
+    println!("  alya                                 # Start interactive REPL");
+    println!("  alya repl                            # Start interactive REPL");
+    println!("  alya init my_app                     # Initialize a new package");
+    println!("  alya add raylib --path ../raylib     # Add local path dependency");
+    println!("  alya install                         # Lock and install dependencies");
+    println!("  alya update                          # Check for newer package versions");
+    println!("  alya update -u                       # Upgrade alya.toml and re-lock");
+    println!("  alya run                             # Run package entry from alya.toml");
+    println!("  alya run hello.alya                  # Compile & run in one step");
+    println!("  alya build hello.alya                # Produce executable (hello.exe / hello)");
+    println!("  alya build app.alya --bundle         # Produce macOS Application Bundle (app.app)");
+    println!("  alya hello.alya                      # Produce assembly (hello.s)");
+    println!("  alya hello.alya -b -o my_app.exe     # Produce custom named binary");
+    println!("  alya fmt hello.alya                  # Format single file");
+    println!("  alya fmt . --check                   # Check formatting for entire codebase");
+    println!("  alya test                            # Run all tests in project");
+    println!("  alya check hello.alya                # Quick syntax validation");
+    println!("  alya ast hello.alya                  # Inspect AST hierarchy");
+    println!("  alya pkg list                        # List dependencies and lock status");
+    println!("  alya pkg cache                       # Inspect package cache and storage");
     println!(
-        "  alyac pkg clean                      # Clean cached packages and reclaim disk space"
+        "  alya pkg clean                       # Clean cached packages and reclaim disk space"
     );
 }

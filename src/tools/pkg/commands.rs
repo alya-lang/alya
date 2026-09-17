@@ -1198,17 +1198,17 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
 }
 
 pub fn print_pkg_help() {
-    println!("Alya Package Manager (alyac pkg)");
+    println!("Alya Package Manager (alya pkg)");
     println!("Manage project dependencies, manifests (alya.toml), and lockfiles (alya.lock).\n");
     println!("USAGE:");
-    println!("  alyac pkg <COMMAND> [OPTIONS]");
-    println!("  alyac init [path] [OPTIONS]          # Shortcut for pkg init");
-    println!("  alyac add <name> [OPTIONS]           # Shortcut for pkg add");
-    println!("  alyac install                        # Shortcut for pkg install");
-    println!("  alyac update [-u | --upgrade]        # Shortcut for pkg update");
-    println!("  alyac outdated                       # Shortcut for pkg outdated");
-    println!("  alyac cache                          # Shortcut for pkg cache");
-    println!("  alyac clean                          # Shortcut for pkg clean\n");
+    println!("  alya pkg <COMMAND> [OPTIONS]");
+    println!("  alya init [path] [OPTIONS]          # Shortcut for pkg init");
+    println!("  alya add <name> [OPTIONS]           # Shortcut for pkg add");
+    println!("  alya install                        # Shortcut for pkg install");
+    println!("  alya update [-u | --upgrade]        # Shortcut for pkg update");
+    println!("  alya outdated                       # Shortcut for pkg outdated");
+    println!("  alya cache                          # Shortcut for pkg cache");
+    println!("  alya clean                          # Shortcut for pkg clean\n");
     println!("COMMANDS:");
     println!("  init [path]        Initialize a new Alya package in [path] (default: .)");
     println!("  add <name>         Add a new dependency to alya.toml");
@@ -1235,12 +1235,12 @@ pub fn print_pkg_help() {
         "  -u, --upgrade      Rewrite alya.toml with latest versions and re-lock dependencies\n"
     );
     println!("EXAMPLES:");
-    println!("  alyac init my_app");
-    println!("  alyac add http                       # Add official package via short-name");
-    println!("  alyac install                        # Install & lock dependencies");
-    println!("  alyac update                         # Check for newer package versions");
-    println!("  alyac update -u                      # Upgrade alya.toml and re-lock");
-    println!("  alyac pkg outdated                   # Check outdated packages (read-only)");
-    println!("  alyac pkg cache");
-    println!("  alyac pkg clean");
+    println!("  alya init my_app");
+    println!("  alya add http                       # Add official package via short-name");
+    println!("  alya install                        # Install & lock dependencies");
+    println!("  alya update                         # Check for newer package versions");
+    println!("  alya update -u                      # Upgrade alya.toml and re-lock");
+    println!("  alya pkg outdated                   # Check outdated packages (read-only)");
+    println!("  alya pkg cache");
+    println!("  alya pkg clean");
 }

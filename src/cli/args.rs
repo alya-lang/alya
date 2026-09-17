@@ -45,7 +45,7 @@ impl CliArgs {
             Ok(None) => process::exit(0),
             Err(err) => {
                 eprintln!("{}", err);
-                eprintln!("Run 'alyac --help' for usage instructions.");
+                eprintln!("Run 'alya --help' for usage instructions.");
                 process::exit(1);
             }
         }
@@ -141,7 +141,7 @@ impl CliArgs {
                 "help" | "-h" | "--help" => PkgCommand::Help,
                 other => {
                     return Err(format!(
-                        "Error: Unknown pkg subcommand '{}'. Run 'alyac pkg help' for usage.",
+                        "Error: Unknown pkg subcommand '{}'. Run 'alya pkg help' for usage.",
                         other
                     ))
                 }
@@ -642,7 +642,7 @@ fn parse_pkg_cache_args(args: &[String]) -> Result<PkgCommand, String> {
             "-h" | "--help" | "help" => return Ok(PkgCommand::Help),
             other => {
                 return Err(format!(
-                    "Error: Unknown option '{}' for 'pkg cache'. Run 'alyac pkg help' for usage.",
+                    "Error: Unknown option '{}' for 'pkg cache'. Run 'alya pkg help' for usage.",
                     other
                 ))
             }
@@ -659,7 +659,7 @@ fn parse_pkg_clean_args(args: &[String]) -> Result<PkgCommand, String> {
             "-h" | "--help" | "help" => return Ok(PkgCommand::Help),
             other => {
                 return Err(format!(
-                    "Error: Unknown option '{}' for 'pkg clean'. Run 'alyac pkg help' for usage.",
+                    "Error: Unknown option '{}' for 'pkg clean'. Run 'alya pkg help' for usage.",
                     other
                 ))
             }
@@ -695,7 +695,7 @@ fn parse_toolchain_args(args: &[String]) -> Result<ToolchainCommand, String> {
         "clean" | "purge" => Ok(ToolchainCommand::Clean),
         "help" | "-h" | "--help" => Ok(ToolchainCommand::Help),
         other => Err(format!(
-            "Error: Unknown toolchain subcommand '{}'. Run 'alyac toolchain help' for usage.",
+            "Error: Unknown toolchain subcommand '{}'. Run 'alya toolchain help' for usage.",
             other
         )),
     }

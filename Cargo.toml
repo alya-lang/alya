@@ -24,8 +24,12 @@ name = "alya"
 path = "src/lib.rs"
 
 [[bin]]
-name = "alyac"
+name = "alya"
 path = "src/main.rs"
+
+[[bin]]
+name = "alyac"
+path = "src/bin/alyac.rs"
 
 [[bench]]
 name = "compiler_bench"
