@@ -1,6 +1,6 @@
 use super::common::collect_function_defs;
 use crate::ast::*;
-use crate::codegen::analysis::traversal::{collect_all_call_args, find_call_arg};
+use crate::codegen::analysis::traversal::CallIndex;
 use std::collections::{HashMap, HashSet};
 
 fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bool {
@@ -884,6 +884,14 @@ fn collect_string_vars_from_stmts(
 }
 
 pub fn collect_known_string_vars(program: &Program) -> HashSet<String> {
+    let call_index = CallIndex::build(&program.statements);
+    collect_known_string_vars_with_index(program, &call_index)
+}
+
+pub fn collect_known_string_vars_with_index(
+    program: &Program,
+    call_index: &CallIndex,
+) -> HashSet<String> {
     let mut known_strings = HashSet::new();
     for stmt in &program.statements {
         let stmt = stmt.inner_stmt();
@@ -963,7 +971,7 @@ pub fn collect_known_string_vars(program: &Program) -> HashSet<String> {
                     && !known_strings.contains(&format!("fn_param_str_arr:{}:{}", bare, idx))
                 {
                     let mut call_args = Vec::new();
-                    collect_all_call_args(&program.statements, name, bare, idx, &mut call_args);
+                    call_index.collect_all_call_args(name, bare, idx, &mut call_args);
                     if !call_args.is_empty()
                         && call_args
                             .iter()
@@ -976,14 +984,8 @@ pub fn collect_known_string_vars(program: &Program) -> HashSet<String> {
                 if !known_strings.contains(&format!("fn_param_str:{}:{}", name, idx))
                     && !known_strings.contains(&format!("fn_param_str:{}:{}", bare, idx))
                 {
-                    let is_str_arg = program.statements.iter().any(|s| {
-                        if let Some(arg) = find_call_arg(s, name, idx) {
-                            expr_is_definitely_string(arg, &known_strings)
-                        } else if let Some(arg) = find_call_arg(s, bare, idx) {
-                            expr_is_definitely_string(arg, &known_strings)
-                        } else {
-                            false
-                        }
+                    let is_str_arg = call_index.has_matching_call_arg(name, bare, idx, |arg| {
+                        expr_is_definitely_string(arg, &known_strings)
                     });
                     if is_str_arg {
                         known_strings.insert(format!("fn_param_str:{}:{}", name, idx));

@@ -799,3 +799,247 @@ pub fn collect_call_args_in_expr_scoped<'a>(
         _ => {}
     }
 }
+
+#[derive(Debug, Default, Clone)]
+pub struct CallIndex<'a> {
+    /// Maps bare name -> list of (caller_scope, full_call_name, &'a [Expr])
+    by_bare: std::collections::HashMap<String, Vec<(Option<&'a str>, &'a str, &'a [Expr])>>,
+}
+
+impl<'a> CallIndex<'a> {
+    pub fn build(stmts: &'a [Stmt]) -> Self {
+        let mut index = Self::default();
+        for s in stmts {
+            index.collect_stmt(s, None);
+        }
+        index
+    }
+
+    fn record_call(&mut self, name: &'a str, args: &'a [Expr], current_scope: Option<&'a str>) {
+        let bare = name.rsplit("::").next().unwrap_or(name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        self.by_bare
+            .entry(bare.to_string())
+            .or_default()
+            .push((current_scope, name, args));
+    }
+
+    fn collect_stmt(&mut self, stmt: &'a Stmt, current_scope: Option<&'a str>) {
+        match stmt {
+            Stmt::Expr(expr) | Stmt::Say(expr) => self.collect_expr(expr, current_scope),
+            Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Const { value, .. } => {
+                self.collect_expr(value, current_scope);
+            }
+            Stmt::If {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                self.collect_expr(condition, current_scope);
+                for s in then_block {
+                    self.collect_stmt(s, current_scope);
+                }
+                if let Some(else_stmts) = else_block {
+                    for s in else_stmts {
+                        self.collect_stmt(s, current_scope);
+                    }
+                }
+            }
+            Stmt::While { condition, body } => {
+                self.collect_expr(condition, current_scope);
+                for s in body {
+                    self.collect_stmt(s, current_scope);
+                }
+            }
+            Stmt::Repeat { body } | Stmt::For { body, .. } | Stmt::ForEach { body, .. } => {
+                for s in body {
+                    self.collect_stmt(s, current_scope);
+                }
+            }
+            Stmt::Throw(opt_expr) | Stmt::Return(opt_expr) => {
+                if let Some(expr) = opt_expr {
+                    self.collect_expr(expr, current_scope);
+                }
+            }
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                for s in try_block {
+                    self.collect_stmt(s, current_scope);
+                }
+                for s in catch_block {
+                    self.collect_stmt(s, current_scope);
+                }
+                if let Some(finally_block) = finally_block {
+                    for s in finally_block {
+                        self.collect_stmt(s, current_scope);
+                    }
+                }
+            }
+            Stmt::IndexAssign {
+                array,
+                index,
+                value,
+            } => {
+                self.collect_expr(array, current_scope);
+                self.collect_expr(index, current_scope);
+                self.collect_expr(value, current_scope);
+            }
+            Stmt::FieldAssign { object, value, .. } => {
+                self.collect_expr(object, current_scope);
+                self.collect_expr(value, current_scope);
+            }
+            Stmt::Function { name, body, .. } => {
+                for s in body {
+                    self.collect_stmt(s, Some(name.as_str()));
+                }
+            }
+            Stmt::Defer(inner) => self.collect_stmt(inner, current_scope),
+            Stmt::Pub(inner) => self.collect_stmt(inner, current_scope),
+            _ => {}
+        }
+    }
+
+    fn collect_expr(&mut self, expr: &'a Expr, current_scope: Option<&'a str>) {
+        match expr {
+            Expr::Call { name, args } => {
+                self.record_call(name.as_str(), args.as_slice(), current_scope);
+                for arg in args {
+                    self.collect_expr(arg, current_scope);
+                }
+            }
+            Expr::OptionalCall { callee, args } => {
+                self.record_call(callee.as_str(), args.as_slice(), current_scope);
+                for arg in args {
+                    self.collect_expr(arg, current_scope);
+                }
+            }
+            Expr::Binary { left, right, .. } => {
+                self.collect_expr(left, current_scope);
+                self.collect_expr(right, current_scope);
+            }
+            Expr::Unary { expr, .. } => self.collect_expr(expr, current_scope),
+            Expr::Array(elements) => {
+                for elem in elements {
+                    self.collect_expr(elem, current_scope);
+                }
+            }
+            Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+                self.collect_expr(array, current_scope);
+                self.collect_expr(index, current_scope);
+            }
+            Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+                self.collect_expr(object, current_scope);
+            }
+            Expr::StructInit { fields, .. } => {
+                for (_, val) in fields {
+                    self.collect_expr(val, current_scope);
+                }
+            }
+            Expr::Map(entries) => {
+                for (k, v) in entries {
+                    self.collect_expr(k, current_scope);
+                    self.collect_expr(v, current_scope);
+                }
+            }
+            Expr::InterpolatedString(parts) => {
+                for part in parts {
+                    self.collect_expr(part, current_scope);
+                }
+            }
+            Expr::Ternary {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.collect_expr(condition, current_scope);
+                self.collect_expr(then_branch, current_scope);
+                self.collect_expr(else_branch, current_scope);
+            }
+            Expr::NullCoalesce { value, default } => {
+                self.collect_expr(value, current_scope);
+                self.collect_expr(default, current_scope);
+            }
+            Expr::TypeCheck { expr, .. } => self.collect_expr(expr, current_scope),
+            _ => {}
+        }
+    }
+
+    pub fn collect_all_call_args(
+        &self,
+        func_name: &str,
+        bare_name: &str,
+        param_idx: usize,
+        args: &mut Vec<&'a Expr>,
+    ) {
+        if let Some(list) = self.by_bare.get(bare_name) {
+            for (_, call_name, call_args) in list {
+                let call_bare = bare_name;
+                if *call_name == func_name
+                    || call_bare == bare_name
+                    || *call_name == bare_name
+                    || call_bare == func_name
+                {
+                    if let Some(arg) = call_args.get(param_idx) {
+                        args.push(arg);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn collect_all_call_args_scoped(
+        &self,
+        func_name: &str,
+        bare_name: &str,
+        param_idx: usize,
+        args: &mut Vec<(Option<&'a str>, &'a Expr)>,
+    ) {
+        if let Some(list) = self.by_bare.get(bare_name) {
+            for (scope, call_name, call_args) in list {
+                let call_bare = bare_name;
+                if *call_name == func_name
+                    || call_bare == bare_name
+                    || *call_name == bare_name
+                    || call_bare == func_name
+                {
+                    if let Some(arg) = call_args.get(param_idx) {
+                        args.push((*scope, arg));
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn has_matching_call_arg<F>(
+        &self,
+        func_name: &str,
+        bare_name: &str,
+        param_idx: usize,
+        mut predicate: F,
+    ) -> bool
+    where
+        F: FnMut(&'a Expr) -> bool,
+    {
+        if let Some(list) = self.by_bare.get(bare_name) {
+            for (_, call_name, call_args) in list {
+                let call_bare = bare_name;
+                if *call_name == func_name
+                    || call_bare == bare_name
+                    || *call_name == bare_name
+                    || call_bare == func_name
+                {
+                    if let Some(arg) = call_args.get(param_idx) {
+                        if predicate(arg) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+}

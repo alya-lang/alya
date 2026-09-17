@@ -637,9 +637,6 @@ impl CodeGen {
     }
 
     pub(super) fn generate_field_assign(&mut self, object: &Expr, field: &str, value: &Expr) {
-        let mut field_idx = 0;
-        let mut struct_found = false;
-
         let base_obj = match object {
             Expr::OptionalFieldAccess { object: inner, .. } => inner.as_ref(),
             _ => object,
@@ -663,66 +660,7 @@ impl CodeGen {
             }
         }
 
-        // 1. Precise recursive type resolution
-        if let Some(struct_name) = self.get_expr_struct_name(base_obj) {
-            let bare = struct_name.rsplit("::").next().unwrap_or(&struct_name);
-            let bare = bare.rsplit("__").next().unwrap_or(bare);
-            if let Some(sdef) = self
-                .ctx
-                .structs
-                .get(&struct_name)
-                .or_else(|| self.ctx.structs.get(bare))
-            {
-                if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
-                    field_idx = idx;
-                    struct_found = true;
-                }
-            }
-        }
-
-        // 2. Generic name matching fallback (matches when variable/field name corresponds to struct name)
-        if !struct_found {
-            let name_opt = match base_obj {
-                Expr::Identifier(obj_name) => Some(obj_name.as_str()),
-                Expr::FieldAccess {
-                    field: inner_field, ..
-                }
-                | Expr::OptionalFieldAccess {
-                    field: inner_field, ..
-                } => Some(inner_field.as_str()),
-                _ => None,
-            };
-            if let Some(name_str) = name_opt {
-                let lower = name_str.to_lowercase();
-                let norm_var = lower.replace('_', "");
-                for (sname, sdef) in &self.ctx.structs {
-                    let s_lower = sname.to_lowercase();
-                    let s_bare = s_lower.rsplit("::").next().unwrap_or(&s_lower);
-                    let s_bare = s_bare.rsplit("__").next().unwrap_or(s_bare);
-                    let norm_struct = s_bare.replace('_', "");
-                    let name_match = norm_struct == norm_var
-                        || norm_struct.ends_with(&norm_var)
-                        || norm_var.ends_with(&norm_struct);
-                    if name_match {
-                        if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
-                            field_idx = idx;
-                            struct_found = true;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. Last fallback: match any struct containing this field
-        if !struct_found {
-            for sdef in self.ctx.structs.values() {
-                if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
-                    field_idx = idx;
-                    break;
-                }
-            }
-        }
+        let field_idx = self.resolve_struct_field_index(object, field);
 
         self.generate_expression(object);
         arch::emit_push_temp(&mut self.output, self.arch);

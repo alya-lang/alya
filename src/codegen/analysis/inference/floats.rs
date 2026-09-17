@@ -1,6 +1,6 @@
 use crate::ast::*;
 use crate::codegen::analysis::inference::common::collect_function_defs;
-use crate::codegen::analysis::traversal::collect_all_call_args;
+use crate::codegen::analysis::traversal::CallIndex;
 use std::collections::HashSet;
 
 fn expr_is_definitely_float(expr: &Expr, known_floats: &HashSet<String>) -> bool {
@@ -308,6 +308,14 @@ fn collect_float_vars_from_stmts(
 }
 
 pub fn collect_known_float_vars(program: &Program) -> HashSet<String> {
+    let call_index = CallIndex::build(&program.statements);
+    collect_known_float_vars_with_index(program, &call_index)
+}
+
+pub fn collect_known_float_vars_with_index(
+    program: &Program,
+    call_index: &CallIndex,
+) -> HashSet<String> {
     let mut known_floats = HashSet::new();
     for stmt in &program.statements {
         let stmt = stmt.inner_stmt();
@@ -383,7 +391,7 @@ pub fn collect_known_float_vars(program: &Program) -> HashSet<String> {
                     && !known_floats.contains(&format!("fn_param_flt:{}:{}", bare, idx))
                 {
                     let mut call_args = Vec::new();
-                    collect_all_call_args(&program.statements, name, bare, idx, &mut call_args);
+                    call_index.collect_all_call_args(name, bare, idx, &mut call_args);
                     if !call_args.is_empty()
                         && call_args
                             .iter()
@@ -397,7 +405,7 @@ pub fn collect_known_float_vars(program: &Program) -> HashSet<String> {
                     && !known_floats.contains(&format!("fn_param_flt_arr:{}:{}", bare, idx))
                 {
                     let mut call_args = Vec::new();
-                    collect_all_call_args(&program.statements, name, bare, idx, &mut call_args);
+                    call_index.collect_all_call_args(name, bare, idx, &mut call_args);
                     if !call_args.is_empty()
                         && call_args
                             .iter()

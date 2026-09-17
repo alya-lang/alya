@@ -1810,10 +1810,7 @@ impl CodeGen {
         );
     }
 
-    fn resolve_struct_field_index(&self, object: &Expr, field: &str) -> usize {
-        let mut field_idx = 0;
-        let mut struct_found = false;
-
+    pub(crate) fn resolve_struct_field_index(&self, object: &Expr, field: &str) -> usize {
         let base_obj = match object {
             Expr::OptionalFieldAccess { object: inner, .. } => inner.as_ref(),
             _ => object,
@@ -1830,56 +1827,95 @@ impl CodeGen {
                 .or_else(|| self.ctx.structs.get(bare))
             {
                 if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
-                    field_idx = idx;
-                    struct_found = true;
+                    return idx;
                 }
             }
         }
 
-        // 2. Generic name matching fallback (matches when variable/field name corresponds to struct name)
-        if !struct_found {
-            let name_opt = match base_obj {
-                Expr::Identifier(obj_name) => Some(obj_name.as_str()),
-                Expr::FieldAccess {
-                    field: inner_field, ..
-                }
-                | Expr::OptionalFieldAccess {
-                    field: inner_field, ..
-                } => Some(inner_field.as_str()),
-                _ => None,
+        // 2. Generic name & abbreviation matching fallback
+        let name_opt = match base_obj {
+            Expr::Identifier(obj_name) => Some(obj_name.as_str()),
+            Expr::FieldAccess {
+                field: inner_field, ..
+            }
+            | Expr::OptionalFieldAccess {
+                field: inner_field, ..
+            } => Some(inner_field.as_str()),
+            _ => None,
+        };
+
+        if let Some(name_str) = name_opt {
+            let lower = name_str.to_lowercase();
+            let norm_var = lower.replace('_', "");
+            let expanded_var = match norm_var.as_str() {
+                "req" => "request",
+                "res" => "response",
+                "ctx" => "context",
+                "srv" => "server",
+                "cfg" => "config",
+                "conn" => "connection",
+                "hdr" => "header",
+                "hdrs" => "headers",
+                "msg" => "message",
+                "buf" => "buffer",
+                "elem" => "element",
+                "idx" => "index",
+                "param" | "params" => "parameter",
+                _ => &norm_var,
             };
-            if let Some(name_str) = name_opt {
-                let lower = name_str.to_lowercase();
-                let norm_var = lower.replace('_', "");
-                for (sname, sdef) in &self.ctx.structs {
+
+            let mut matches: Vec<(i32, &String, usize)> = Vec::new();
+            for (sname, sdef) in &self.ctx.structs {
+                if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
                     let s_lower = sname.to_lowercase();
                     let s_bare = s_lower.rsplit("::").next().unwrap_or(&s_lower);
                     let s_bare = s_bare.rsplit("__").next().unwrap_or(s_bare);
                     let norm_struct = s_bare.replace('_', "");
-                    let name_match = norm_struct == norm_var
-                        || norm_struct.ends_with(&norm_var)
-                        || norm_var.ends_with(&norm_struct);
-                    if name_match {
-                        if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
-                            field_idx = idx;
-                            struct_found = true;
-                            break;
-                        }
+
+                    let score = if norm_struct == norm_var || norm_struct == expanded_var {
+                        4
+                    } else if norm_struct.ends_with(&norm_var)
+                        || norm_struct.ends_with(expanded_var)
+                    {
+                        3
+                    } else if norm_var.ends_with(&norm_struct)
+                        || expanded_var.ends_with(&norm_struct)
+                    {
+                        2
+                    } else if norm_struct.contains(&norm_var)
+                        || (expanded_var.len() > 3 && norm_struct.contains(expanded_var))
+                    {
+                        1
+                    } else {
+                        0
+                    };
+
+                    if score > 0 {
+                        matches.push((score, sname, idx));
                     }
                 }
             }
-        }
 
-        // 3. Last fallback: match any struct containing this field
-        if !struct_found {
-            for sdef in self.ctx.structs.values() {
-                if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
-                    field_idx = idx;
-                    break;
-                }
+            if !matches.is_empty() {
+                // Sort by highest score first, tie-break alphabetically for 100% determinism
+                matches.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
+                return matches[0].2;
             }
         }
 
-        field_idx
+        // 3. Last fallback: match any struct containing this field (sorted alphabetically for determinism)
+        let mut candidates: Vec<(&String, usize)> = Vec::new();
+        for (sname, sdef) in &self.ctx.structs {
+            if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
+                candidates.push((sname, idx));
+            }
+        }
+
+        if !candidates.is_empty() {
+            candidates.sort_by(|a, b| a.0.cmp(b.0));
+            return candidates[0].1;
+        }
+
+        0
     }
 }

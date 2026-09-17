@@ -26,10 +26,11 @@ pub struct ProgramInference {
 
 impl ProgramInference {
     pub fn analyze(program: &Program) -> Self {
-        let known_strings = collect_known_string_vars(program);
-        let known_floats = collect_known_float_vars(program);
-        let known_arrays = collect_known_array_vars(program);
-        let known_maps = collect_known_map_vars(program);
+        let call_index = crate::codegen::analysis::traversal::CallIndex::build(&program.statements);
+        let known_strings = collect_known_string_vars_with_index(program, &call_index);
+        let known_floats = collect_known_float_vars_with_index(program, &call_index);
+        let known_arrays = collect_known_array_vars_with_index(program, &call_index);
+        let known_maps = collect_known_map_vars_with_index(program, &call_index);
         let struct_inf = StructInference::analyze(program);
         Self {
             known_strings,

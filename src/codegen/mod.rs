@@ -47,6 +47,9 @@ impl CodeGen {
             program
         };
 
+        let pruned_prog = analysis::eliminate_dead_code(program);
+        let program = &pruned_prog;
+
         // Collect all struct definitions first
         for stmt in &program.statements {
             if let Stmt::StructDef {

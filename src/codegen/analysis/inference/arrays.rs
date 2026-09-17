@@ -1,6 +1,6 @@
 use super::common::collect_function_defs;
 use crate::ast::*;
-use crate::codegen::analysis::traversal::collect_all_call_args_scoped;
+use crate::codegen::analysis::traversal::CallIndex;
 use std::collections::HashSet;
 
 fn expr_is_definitely_array(
@@ -464,6 +464,14 @@ fn collect_array_vars_from_stmts(
 }
 
 pub fn collect_known_array_vars(program: &Program) -> HashSet<String> {
+    let call_index = CallIndex::build(&program.statements);
+    collect_known_array_vars_with_index(program, &call_index)
+}
+
+pub fn collect_known_array_vars_with_index(
+    program: &Program,
+    call_index: &CallIndex,
+) -> HashSet<String> {
     let mut known_arrays = HashSet::new();
     let mut funcs = Vec::new();
     collect_function_defs(&program.statements, &mut funcs);
@@ -529,7 +537,7 @@ pub fn collect_known_array_vars(program: &Program) -> HashSet<String> {
                 }
 
                 let mut call_args = Vec::new();
-                collect_all_call_args_scoped(&program.statements, name, bare, idx, &mut call_args);
+                call_index.collect_all_call_args_scoped(name, bare, idx, &mut call_args);
                 if !call_args.is_empty() {
                     let has_def_arr = call_args.iter().any(|(caller_scope, arg)| {
                         expr_is_definitely_array(arg, *caller_scope, &known_arrays)
