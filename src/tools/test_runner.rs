@@ -207,7 +207,7 @@ fn handle_test_result(
             if out.trim().is_empty() {
                 println!("      \x1b[91m| (Process terminated abnormally with no output)\x1b[0m");
             } else {
-                for line in out.lines().take(8) {
+                for line in out.lines().take(100) {
                     println!("      \x1b[90m|\x1b[0m {}", line);
                 }
             }
