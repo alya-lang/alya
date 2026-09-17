@@ -12,15 +12,34 @@ impl Parser {
         if matches!(self.current_token().token_type, TokenType::If) {
             self.advance();
             let condition = self.parse_expression()?;
-            self.expect(TokenType::Then)?;
-            let then_branch = self.parse_expression()?;
-            self.expect(TokenType::Else)?;
-            let else_branch = self.parse_expression()?;
-            return Ok(Expr::Ternary {
-                condition: Box::new(condition),
-                then_branch: Box::new(then_branch),
-                else_branch: Box::new(else_branch),
-            });
+            if matches!(self.current_token().token_type, TokenType::Then) {
+                self.advance();
+                let then_branch = self.parse_expression()?;
+                self.expect(TokenType::Else)?;
+                let else_branch = self.parse_expression()?;
+                if matches!(self.current_token().token_type, TokenType::End) {
+                    self.advance();
+                }
+                return Ok(Expr::Ternary {
+                    condition: Box::new(condition),
+                    then_branch: Box::new(then_branch),
+                    else_branch: Box::new(else_branch),
+                });
+            } else {
+                self.skip_newlines();
+                let then_branch = self.parse_expression()?;
+                self.skip_newlines();
+                self.expect(TokenType::Else)?;
+                self.skip_newlines();
+                let else_branch = self.parse_expression()?;
+                self.skip_newlines();
+                self.expect(TokenType::End)?;
+                return Ok(Expr::Ternary {
+                    condition: Box::new(condition),
+                    then_branch: Box::new(then_branch),
+                    else_branch: Box::new(else_branch),
+                });
+            }
         }
 
         let expr = self.parse_null_coalesce()?;
@@ -136,12 +155,21 @@ impl Parser {
     }
 
     fn parse_comparison(&mut self) -> Result<Expr, String> {
-        let mut left = self.parse_shift()?;
+        let mut left = self.parse_range()?;
 
         loop {
+            if matches!(self.current_token().token_type, TokenType::As) {
+                self.advance();
+                let target = self.parse_type_annotation()?;
+                left = Expr::Cast {
+                    expr: Box::new(left),
+                    target,
+                };
+                continue;
+            }
             if matches!(self.current_token().token_type, TokenType::In) {
                 self.advance();
-                let right = self.parse_shift()?;
+                let right = self.parse_range()?;
                 left = Expr::Binary {
                     left: Box::new(left),
                     op: BinaryOp::In,
@@ -156,11 +184,34 @@ impl Parser {
             {
                 self.advance(); // not / !
                 self.advance(); // in
-                let right = self.parse_shift()?;
-                left = Expr::Binary {
-                    left: Box::new(left),
-                    op: BinaryOp::NotIn,
-                    right: Box::new(right),
+                let right = self.parse_range()?;
+                left = Expr::Unary {
+                    op: UnaryOp::Not,
+                    expr: Box::new(Expr::Binary {
+                        left: Box::new(left),
+                        op: BinaryOp::In,
+                        right: Box::new(right),
+                    }),
+                };
+                continue;
+            }
+            if matches!(self.current_token().token_type, TokenType::Not)
+                && self
+                    .peek_token()
+                    .is_some_and(|t| matches!(t.token_type, TokenType::Is))
+            {
+                self.advance(); // not / !
+                self.advance(); // is
+                let target_type = if matches!(self.current_token().token_type, TokenType::Null) {
+                    self.advance();
+                    "null".to_string()
+                } else {
+                    self.parse_type_annotation()?
+                };
+                left = Expr::TypeCheck {
+                    expr: Box::new(left),
+                    target: target_type,
+                    negated: true,
                 };
                 continue;
             }
@@ -172,18 +223,12 @@ impl Parser {
                 } else {
                     false
                 };
-                let target_type = match &self.current_token().token_type {
-                    TokenType::Identifier(id) => id.clone(),
-                    TokenType::Null => "null".to_string(),
-                    _ => {
-                        return Err(format!(
-                            "Expected type name after 'is' at line {}, column {}",
-                            self.current_token().line,
-                            self.current_token().column
-                        ));
-                    }
+                let target_type = if matches!(self.current_token().token_type, TokenType::Null) {
+                    self.advance();
+                    "null".to_string()
+                } else {
+                    self.parse_type_annotation()?
                 };
-                self.advance();
                 left = Expr::TypeCheck {
                     expr: Box::new(left),
                     target: target_type,
@@ -203,7 +248,7 @@ impl Parser {
             };
             if let Some(op) = op {
                 self.advance();
-                let right = self.parse_shift()?;
+                let right = self.parse_range()?;
                 left = Expr::Binary {
                     left: Box::new(left),
                     op,
@@ -212,6 +257,42 @@ impl Parser {
             } else {
                 break;
             }
+        }
+
+        Ok(left)
+    }
+
+    fn parse_range(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_shift()?;
+
+        if matches!(
+            self.current_token().token_type,
+            TokenType::DotDot | TokenType::DotDotEqual
+        ) {
+            let op = if matches!(self.current_token().token_type, TokenType::DotDot) {
+                BinaryOp::Range
+            } else {
+                BinaryOp::RangeInclusive
+            };
+            self.advance();
+            let right = if matches!(
+                self.current_token().token_type,
+                TokenType::RightBracket
+                    | TokenType::Comma
+                    | TokenType::Newline
+                    | TokenType::RightParen
+                    | TokenType::RightBrace
+                    | TokenType::Eof
+            ) {
+                Expr::Number(-1.0)
+            } else {
+                self.parse_shift()?
+            };
+            left = Expr::Binary {
+                left: Box::new(left),
+                op,
+                right: Box::new(right),
+            };
         }
 
         Ok(left)
@@ -280,6 +361,10 @@ impl Parser {
 
     fn parse_unary(&mut self) -> Result<Expr, String> {
         match &self.current_token().token_type {
+            TokenType::Plus => {
+                self.advance();
+                self.parse_unary()
+            }
             TokenType::Minus => {
                 self.advance();
                 let expr = self.parse_unary()?;
@@ -312,11 +397,26 @@ impl Parser {
         let mut expr = self.parse_primary()?;
 
         loop {
+            // Check if there are newlines followed immediately by '.' or '?.'
+            let mut peek_idx = self.position;
+            while peek_idx < self.tokens.len() && matches!(self.tokens[peek_idx].token_type, TokenType::Newline) {
+                peek_idx += 1;
+            }
+            if peek_idx > self.position
+                && peek_idx < self.tokens.len()
+                && matches!(
+                    self.tokens[peek_idx].token_type,
+                    TokenType::Dot | TokenType::QuestionDot
+                )
+            {
+                self.position = peek_idx;
+            }
+
             if matches!(self.current_token().token_type, TokenType::LeftBracket) {
                 self.advance();
                 if matches!(
                     self.current_token().token_type,
-                    TokenType::DotDot | TokenType::Colon
+                    TokenType::DotDot | TokenType::Colon | TokenType::DotDotEqual
                 ) {
                     self.advance();
                     let end = if matches!(self.current_token().token_type, TokenType::RightBracket)
@@ -332,9 +432,20 @@ impl Parser {
                     };
                 } else {
                     let first = self.parse_expression()?;
-                    if matches!(
+                    if let Expr::Binary {
+                        left: start,
+                        op: BinaryOp::Range | BinaryOp::RangeInclusive,
+                        right: end,
+                    } = first
+                    {
+                        self.expect(TokenType::RightBracket)?;
+                        expr = Expr::Call {
+                            name: "slice".into(),
+                            args: vec![expr, *start, *end],
+                        };
+                    } else if matches!(
                         self.current_token().token_type,
-                        TokenType::DotDot | TokenType::Colon
+                        TokenType::DotDot | TokenType::Colon | TokenType::DotDotEqual
                     ) {
                         self.advance();
                         let end =
@@ -348,6 +459,17 @@ impl Parser {
                             name: "slice".into(),
                             args: vec![expr, first, end],
                         };
+                    } else if matches!(self.current_token().token_type, TokenType::Comma) {
+                        let mut args = vec![first];
+                        while matches!(self.current_token().token_type, TokenType::Comma) {
+                            self.advance();
+                            args.push(self.parse_expression()?);
+                        }
+                        self.expect(TokenType::RightBracket)?;
+                        expr = Expr::Index {
+                            array: Box::new(expr),
+                            index: Box::new(Expr::Array(args)),
+                        };
                     } else {
                         self.expect(TokenType::RightBracket)?;
                         expr = Expr::Index {
@@ -360,12 +482,18 @@ impl Parser {
                 self.advance();
                 let field = match &self.current_token().token_type {
                     TokenType::Identifier(f) => f.clone(),
-                    _ => {
-                        return Err(format!(
-                            "Expected field name after '.' at line {}, column {}",
-                            self.current_token().line,
-                            self.current_token().column
-                        ))
+                    tok => {
+                        let s = tok.to_string();
+                        let clean = s.trim_matches('\'').to_string();
+                        if !clean.is_empty() && clean.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                            clean
+                        } else {
+                            return Err(format!(
+                                "Expected field name after '.' at line {}, column {}",
+                                self.current_token().line,
+                                self.current_token().column
+                            ));
+                        }
                     }
                 };
                 self.advance();
@@ -374,7 +502,7 @@ impl Parser {
                     let mut args = vec![expr];
                     if !matches!(self.current_token().token_type, TokenType::RightParen) {
                         loop {
-                            args.push(self.parse_expression()?);
+                            args.push(self.parse_call_argument()?);
                             if matches!(self.current_token().token_type, TokenType::Comma) {
                                 self.advance();
                             } else {
@@ -402,7 +530,7 @@ impl Parser {
                     self.advance();
                     if matches!(
                         self.current_token().token_type,
-                        TokenType::DotDot | TokenType::Colon
+                        TokenType::DotDot | TokenType::Colon | TokenType::DotDotEqual
                     ) {
                         self.advance();
                         let end =
@@ -418,9 +546,20 @@ impl Parser {
                         };
                     } else {
                         let first = self.parse_expression()?;
-                        if matches!(
+                        if let Expr::Binary {
+                            left: start,
+                            op: BinaryOp::Range | BinaryOp::RangeInclusive,
+                            right: end,
+                        } = first
+                        {
+                            self.expect(TokenType::RightBracket)?;
+                            expr = Expr::OptionalCall {
+                                callee: "slice".into(),
+                                args: vec![expr, *start, *end],
+                            };
+                        } else if matches!(
                             self.current_token().token_type,
-                            TokenType::DotDot | TokenType::Colon
+                            TokenType::DotDot | TokenType::Colon | TokenType::DotDotEqual
                         ) {
                             self.advance();
                             let end = if matches!(
@@ -449,7 +588,7 @@ impl Parser {
                     self.advance();
                     let mut args = Vec::new();
                     while !matches!(self.current_token().token_type, TokenType::RightParen) {
-                        args.push(self.parse_expression()?);
+                        args.push(self.parse_call_argument()?);
                         if matches!(self.current_token().token_type, TokenType::Comma) {
                             self.advance();
                         }
@@ -477,7 +616,7 @@ impl Parser {
                         let mut args = vec![expr];
                         if !matches!(self.current_token().token_type, TokenType::RightParen) {
                             loop {
-                                args.push(self.parse_expression()?);
+                                args.push(self.parse_call_argument()?);
                                 if matches!(self.current_token().token_type, TokenType::Comma) {
                                     self.advance();
                                 } else {
@@ -502,7 +641,7 @@ impl Parser {
                     self.advance();
                     let mut args = Vec::new();
                     while !matches!(self.current_token().token_type, TokenType::RightParen) {
-                        args.push(self.parse_expression()?);
+                        args.push(self.parse_call_argument()?);
                         if matches!(self.current_token().token_type, TokenType::Comma) {
                             self.advance();
                         }
@@ -515,12 +654,96 @@ impl Parser {
                 } else {
                     break;
                 }
+            } else if matches!(self.current_token().token_type, TokenType::LeftBrace) {
+                if let Expr::Identifier(name) = &expr {
+                    let name = name.clone();
+                    self.advance();
+                    let fields = self.parse_struct_init_fields()?;
+                    expr = Expr::StructInit { name, fields };
+                } else if let Expr::Index { array, .. } = &expr {
+                    if let Expr::Identifier(name) = &**array {
+                        let name = name.clone();
+                        self.advance();
+                        let fields = self.parse_struct_init_fields()?;
+                        expr = Expr::StructInit { name, fields };
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            } else if matches!(self.current_token().token_type, TokenType::Not) {
+                if self
+                    .peek_token()
+                    .is_some_and(|t| matches!(t.token_type, TokenType::In | TokenType::Is))
+                {
+                    break;
+                }
+                self.advance();
+                // Postfix ! force unwrap - expr remains intact
             } else {
                 break;
             }
         }
 
         Ok(expr)
+    }
+
+    pub(crate) fn parse_call_argument(&mut self) -> Result<Expr, String> {
+        if matches!(self.current_token().token_type, TokenType::Identifier(_))
+            && self.peek_token().map_or(false, |t| t.token_type == TokenType::Colon)
+        {
+            self.advance(); // consume param name
+            self.advance(); // consume ':'
+        }
+        self.parse_expression()
+    }
+
+    fn parse_struct_init_fields(&mut self) -> Result<Vec<(String, Expr)>, String> {
+        self.skip_newlines();
+        let mut fields = Vec::new();
+
+        while !matches!(
+            self.current_token().token_type,
+            TokenType::RightBrace | TokenType::Eof
+        ) {
+            self.skip_newlines();
+            if matches!(
+                self.current_token().token_type,
+                TokenType::RightBrace | TokenType::Eof
+            ) {
+                break;
+            }
+            let field_name = match &self.current_token().token_type {
+                TokenType::Identifier(f) => f.clone(),
+                _ => {
+                    return Err(format!(
+                        "Expected field name in struct initialization at line {}, column {}",
+                        self.current_token().line,
+                        self.current_token().column
+                    ));
+                }
+            };
+            self.advance();
+            let val = if matches!(
+                self.current_token().token_type,
+                TokenType::Colon | TokenType::Assign
+            ) {
+                self.advance();
+                self.parse_expression()?
+            } else {
+                Expr::Identifier(field_name.clone())
+            };
+            fields.push((field_name, val));
+            self.skip_newlines();
+            if matches!(self.current_token().token_type, TokenType::Comma) {
+                self.advance();
+                self.skip_newlines();
+            }
+        }
+
+        self.expect(TokenType::RightBrace)?;
+        Ok(fields)
     }
 
     fn parse_anonymous_function(&mut self) -> Result<Expr, String> {
@@ -541,57 +764,49 @@ impl Parser {
                 false
             };
 
-            if let TokenType::Identifier(p) = &self.current_token().token_type {
-                let param_name = p.clone();
-                self.advance();
-
-                let param_type = if matches!(self.current_token().token_type, TokenType::Colon) {
+            let param_name = match &self.current_token().token_type {
+                TokenType::Identifier(p) => {
+                    let n = p.clone();
                     self.advance();
-                    let mut t_str = match &self.current_token().token_type {
-                        TokenType::Identifier(t) => t.clone(),
-                        _ => {
-                            return Err(format!(
-                                "Expected parameter type after ':' at line {}, column {}",
-                                self.current_token().line,
-                                self.current_token().column
-                            ));
-                        }
-                    };
-                    self.advance();
-                    if matches!(self.current_token().token_type, TokenType::LeftBracket) {
-                        self.advance();
-                        self.expect(TokenType::RightBracket)?;
-                        t_str.push_str("[]");
-                    }
-                    Some(t_str)
-                } else if is_rest {
-                    Some("...".to_string())
-                } else {
-                    None
-                };
-
-                let default_val = if is_rest {
-                    Some(Expr::Array(vec![]))
-                } else if matches!(self.current_token().token_type, TokenType::Assign) {
-                    self.advance();
-                    Some(self.parse_expression()?)
-                } else {
-                    None
-                };
-
-                params.push(param_name);
-                param_types.push(param_type);
-                defaults.push(default_val);
-
-                if matches!(self.current_token().token_type, TokenType::Comma) {
-                    self.advance();
+                    n
                 }
+                TokenType::SelfKw => {
+                    self.advance();
+                    "self".to_string()
+                }
+                _ => {
+                    return Err(format!(
+                        "Expected parameter name in anonymous function at line {}, column {}",
+                        self.current_token().line,
+                        self.current_token().column
+                    ));
+                }
+            };
+
+            let param_type = if matches!(self.current_token().token_type, TokenType::Colon) {
+                self.advance();
+                Some(self.parse_type_annotation()?)
+            } else if is_rest {
+                Some("...".to_string())
             } else {
-                return Err(format!(
-                    "Expected parameter name in anonymous function at line {}, column {}",
-                    self.current_token().line,
-                    self.current_token().column
-                ));
+                None
+            };
+
+            let default_val = if is_rest {
+                Some(Expr::Array(vec![]))
+            } else if matches!(self.current_token().token_type, TokenType::Assign) {
+                self.advance();
+                Some(self.parse_expression()?)
+            } else {
+                None
+            };
+
+            params.push(param_name);
+            param_types.push(param_type);
+            defaults.push(default_val);
+
+            if matches!(self.current_token().token_type, TokenType::Comma) {
+                self.advance();
             }
         }
 
@@ -599,23 +814,7 @@ impl Parser {
 
         let return_type = if matches!(self.current_token().token_type, TokenType::Arrow) {
             self.advance();
-            let mut t_str = match &self.current_token().token_type {
-                TokenType::Identifier(t) => t.clone(),
-                _ => {
-                    return Err(format!(
-                        "Expected return type after '->' at line {}, column {}",
-                        self.current_token().line,
-                        self.current_token().column
-                    ));
-                }
-            };
-            self.advance();
-            if matches!(self.current_token().token_type, TokenType::LeftBracket) {
-                self.advance();
-                self.expect(TokenType::RightBracket)?;
-                t_str.push_str("[]");
-            }
-            Some(t_str)
+            Some(self.parse_type_annotation()?)
         } else {
             None
         };
@@ -636,6 +835,68 @@ impl Parser {
             }
             self.expect(TokenType::End)?;
             stmts
+        };
+
+        let lambda_name = format!("__alya_lambda_{}", self.lambda_counter);
+        self.lambda_counter += 1;
+        self.lambda_functions.push(Stmt::Function {
+            name: lambda_name.clone(),
+            params,
+            param_types,
+            return_type,
+            defaults,
+            body,
+        });
+
+        Ok(Expr::Identifier(lambda_name))
+    }
+
+    fn parse_closure_body(
+        &mut self,
+        params: Vec<String>,
+        param_types: Vec<Option<String>>,
+    ) -> Result<Expr, String> {
+        let return_type = if matches!(self.current_token().token_type, TokenType::Arrow) {
+            self.advance();
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
+
+        let (body, defaults) = if matches!(self.current_token().token_type, TokenType::FatArrow) {
+            self.advance();
+            if matches!(self.current_token().token_type, TokenType::Newline) {
+                self.skip_newlines();
+                let mut stmts = Vec::new();
+                while !matches!(
+                    self.current_token().token_type,
+                    TokenType::End | TokenType::RightParen | TokenType::Eof
+                ) {
+                    stmts.extend(self.parse_statement()?);
+                    self.skip_newlines();
+                }
+                if matches!(self.current_token().token_type, TokenType::End) {
+                    self.advance();
+                }
+                (stmts, vec![None; params.len()])
+            } else {
+                let expr = self.parse_expression()?;
+                (vec![Stmt::Return(Some(expr))], vec![None; params.len()])
+            }
+        } else {
+            self.skip_newlines();
+            let mut stmts = Vec::new();
+            while !matches!(
+                self.current_token().token_type,
+                TokenType::End | TokenType::RightParen | TokenType::Eof
+            ) {
+                stmts.extend(self.parse_statement()?);
+                self.skip_newlines();
+            }
+            if matches!(self.current_token().token_type, TokenType::End) {
+                self.advance();
+            }
+            (stmts, vec![None; params.len()])
         };
 
         let lambda_name = format!("__alya_lambda_{}", self.lambda_counter);
@@ -685,6 +946,84 @@ impl Parser {
             TokenType::Null => {
                 self.advance();
                 Ok(Expr::Null)
+            }
+            TokenType::Rune(c) => {
+                let val = *c as u32 as f64;
+                self.advance();
+                Ok(Expr::Number(val))
+            }
+            TokenType::SelfKw => {
+                self.advance();
+                Ok(Expr::Identifier("self".to_string()))
+            }
+            TokenType::Test => {
+                self.advance();
+                Ok(Expr::Identifier("test".to_string()))
+            }
+            TokenType::Assert => {
+                self.advance();
+                Ok(Expr::Identifier("assert".to_string()))
+            }
+            TokenType::Bench => {
+                self.advance();
+                Ok(Expr::Identifier("bench".to_string()))
+            }
+            TokenType::Comptime => {
+                self.advance();
+                Ok(Expr::Identifier("comptime".to_string()))
+            }
+            TokenType::Sizeof | TokenType::Alignof | TokenType::Typeof => {
+                let name = match self.current_token().token_type {
+                    TokenType::Sizeof => "sizeof",
+                    TokenType::Alignof => "alignof",
+                    TokenType::Typeof => "typeof",
+                    _ => unreachable!(),
+                }
+                .to_string();
+                self.advance();
+                self.expect(TokenType::LeftParen)?;
+                let arg = self.parse_expression()?;
+                self.expect(TokenType::RightParen)?;
+                Ok(Expr::Call {
+                    name,
+                    args: vec![arg],
+                })
+            }
+            TokenType::Or => {
+                self.advance(); // empty params ||
+                self.parse_closure_body(vec![], vec![])
+            }
+            TokenType::BitOr => {
+                self.advance(); // consume '|'
+                let mut params = Vec::new();
+                let mut param_types = Vec::new();
+                while !matches!(self.current_token().token_type, TokenType::BitOr | TokenType::Eof) {
+                    let name = match &self.current_token().token_type {
+                        TokenType::Identifier(id) => id.clone(),
+                        TokenType::SelfKw => "self".to_string(),
+                        _ => {
+                            return Err(format!(
+                                "Expected parameter name in closure at line {}, column {}",
+                                self.current_token().line,
+                                self.current_token().column
+                            ));
+                        }
+                    };
+                    self.advance();
+                    let p_type = if matches!(self.current_token().token_type, TokenType::Colon) {
+                        self.advance();
+                        Some(self.parse_type_annotation()?)
+                    } else {
+                        None
+                    };
+                    params.push(name);
+                    param_types.push(p_type);
+                    if matches!(self.current_token().token_type, TokenType::Comma) {
+                        self.advance();
+                    }
+                }
+                self.expect(TokenType::BitOr)?;
+                self.parse_closure_body(params, param_types)
             }
             TokenType::Function => {
                 self.advance();
@@ -748,7 +1087,7 @@ impl Parser {
                     let mut args = Vec::new();
 
                     while !matches!(self.current_token().token_type, TokenType::RightParen) {
-                        args.push(self.parse_expression()?);
+                        args.push(self.parse_call_argument()?);
                         if matches!(self.current_token().token_type, TokenType::Comma) {
                             self.advance();
                         }
@@ -763,47 +1102,7 @@ impl Parser {
                     self.parse_map_literal()
                 } else if matches!(self.current_token().token_type, TokenType::LeftBrace) {
                     self.advance();
-                    self.skip_newlines();
-                    let mut fields = Vec::new();
-
-                    while !matches!(self.current_token().token_type, TokenType::RightBrace) {
-                        self.skip_newlines();
-                        if matches!(self.current_token().token_type, TokenType::RightBrace) {
-                            break;
-                        }
-                        let field_name = match &self.current_token().token_type {
-                            TokenType::Identifier(f) => f.clone(),
-                            _ => {
-                                return Err(format!(
-                                    "Expected field name in struct initialization at line {}, column {}",
-                                    self.current_token().line,
-                                    self.current_token().column
-                                ))
-                            }
-                        };
-                        self.advance();
-                        if matches!(
-                            self.current_token().token_type,
-                            TokenType::Colon | TokenType::Assign
-                        ) {
-                            self.advance();
-                        } else {
-                            return Err(format!(
-                                "Expected ':' or '=' after field name at line {}, column {}",
-                                self.current_token().line,
-                                self.current_token().column
-                            ));
-                        }
-                        let val = self.parse_expression()?;
-                        fields.push((field_name, val));
-                        self.skip_newlines();
-                        if matches!(self.current_token().token_type, TokenType::Comma) {
-                            self.advance();
-                            self.skip_newlines();
-                        }
-                    }
-
-                    self.expect(TokenType::RightBrace)?;
+                    let fields = self.parse_struct_init_fields()?;
                     Ok(Expr::StructInit {
                         name: ident,
                         fields,
@@ -861,6 +1160,83 @@ impl Parser {
                         elements.push(ArrayElem::Spread(expr));
                     } else {
                         let expr = self.parse_expression()?;
+                        if matches!(self.current_token().token_type, TokenType::For) {
+                            self.advance(); // skip 'for'
+                            let var = match &self.current_token().token_type {
+                                TokenType::Identifier(id) => id.clone(),
+                                _ => {
+                                    return Err(format!(
+                                        "Expected loop variable after 'for' at line {}, column {}",
+                                        self.current_token().line,
+                                        self.current_token().column
+                                    ))
+                                }
+                            };
+                            self.advance();
+                            let value_var = if matches!(self.current_token().token_type, TokenType::Comma) {
+                                self.advance();
+                                match &self.current_token().token_type {
+                                    TokenType::Identifier(id) => {
+                                        let v = id.clone();
+                                        self.advance();
+                                        Some(v)
+                                    }
+                                    _ => return Err("Expected identifier after comma in comprehension".into()),
+                                }
+                            } else {
+                                None
+                            };
+                            self.expect(TokenType::In)?;
+                            let iterable = self.parse_expression()?;
+                            let filter_cond = if matches!(self.current_token().token_type, TokenType::If) {
+                                self.advance();
+                                Some(self.parse_expression()?)
+                            } else {
+                                None
+                            };
+                            self.expect(TokenType::RightBracket)?;
+
+                            let lambda_name = format!("__alya_comp_arr_{}", self.lambda_counter);
+                            self.lambda_counter += 1;
+                            let tmp_res = "__comp_res".to_string();
+                            let mut push_stmt = vec![Stmt::Expr(Expr::Call {
+                                name: "push".to_string(),
+                                args: vec![Expr::Identifier(tmp_res.clone()), expr],
+                            })];
+                            if let Some(cond) = filter_cond {
+                                push_stmt = vec![Stmt::If {
+                                    condition: cond,
+                                    then_block: push_stmt,
+                                    else_block: None,
+                                }];
+                            }
+                            let body = vec![
+                                Stmt::Let {
+                                    name: tmp_res.clone(),
+                                    type_ann: None,
+                                    value: Expr::Array(vec![]),
+                                },
+                                Stmt::ForEach {
+                                    var,
+                                    value_var,
+                                    iterable,
+                                    body: push_stmt,
+                                },
+                                Stmt::Return(Some(Expr::Identifier(tmp_res))),
+                            ];
+                            self.lambda_functions.push(Stmt::Function {
+                                name: lambda_name.clone(),
+                                params: vec![],
+                                param_types: vec![],
+                                return_type: None,
+                                defaults: vec![],
+                                body,
+                            });
+                            return Ok(Expr::Call {
+                                name: lambda_name,
+                                args: vec![],
+                            });
+                        }
                         elements.push(ArrayElem::Normal(expr));
                     }
                     self.skip_newlines();
@@ -1014,6 +1390,91 @@ impl Parser {
                 }
                 self.skip_newlines();
                 let val = self.parse_expression()?;
+                if matches!(self.current_token().token_type, TokenType::For) {
+                    self.advance(); // skip 'for'
+                    let var = match &self.current_token().token_type {
+                        TokenType::Identifier(id) => id.clone(),
+                        _ => {
+                            return Err(format!(
+                                "Expected loop variable after 'for' at line {}, column {}",
+                                self.current_token().line,
+                                self.current_token().column
+                            ))
+                        }
+                    };
+                    self.advance();
+                    let value_var = if matches!(self.current_token().token_type, TokenType::Comma) {
+                        self.advance();
+                        match &self.current_token().token_type {
+                            TokenType::Identifier(id) => {
+                                let v = id.clone();
+                                self.advance();
+                                Some(v)
+                            }
+                            _ => return Err("Expected identifier after comma in map comprehension".into()),
+                        }
+                    } else {
+                        None
+                    };
+                    self.expect(TokenType::In)?;
+                    let iterable = self.parse_expression()?;
+                    let filter_cond = if matches!(self.current_token().token_type, TokenType::If) {
+                        self.advance();
+                        Some(self.parse_expression()?)
+                    } else {
+                        None
+                    };
+                    self.expect(TokenType::RightBrace)?;
+
+                    let lambda_name = format!("__alya_comp_map_{}", self.lambda_counter);
+                    self.lambda_counter += 1;
+                    let tmp_res = "__comp_map_res".to_string();
+                    let key_expr = match &key {
+                        Expr::String(s) => Expr::Identifier(s.clone()),
+                        other => other.clone(),
+                    };
+                    let mut assign_stmt = vec![Stmt::IndexAssign {
+                        array: Expr::Identifier(tmp_res.clone()),
+                        index: key_expr,
+                        value: val,
+                    }];
+                    if let Some(cond) = filter_cond {
+                        assign_stmt = vec![Stmt::If {
+                            condition: cond,
+                            then_block: assign_stmt,
+                            else_block: None,
+                        }];
+                    }
+                    let body = vec![
+                        Stmt::Let {
+                            name: tmp_res.clone(),
+                            type_ann: None,
+                            value: Expr::Call {
+                                name: "map".to_string(),
+                                args: vec![],
+                            },
+                        },
+                        Stmt::ForEach {
+                            var,
+                            value_var,
+                            iterable,
+                            body: assign_stmt,
+                        },
+                        Stmt::Return(Some(Expr::Identifier(tmp_res))),
+                    ];
+                    self.lambda_functions.push(Stmt::Function {
+                        name: lambda_name.clone(),
+                        params: vec![],
+                        param_types: vec![],
+                        return_type: None,
+                        defaults: vec![],
+                        body,
+                    });
+                    return Ok(Expr::Call {
+                        name: lambda_name,
+                        args: vec![],
+                    });
+                }
                 entries.push(MapElem::Normal(key, val));
             }
 
@@ -1120,12 +1581,60 @@ impl Parser {
         let when_line = self.current_token().line;
         let when_col = self.current_token().column;
         self.advance(); // skip 'when'
+
+        if matches!(self.current_token().token_type, TokenType::Newline) {
+            self.skip_newlines();
+            let mut bool_arms = Vec::new();
+            let mut else_expr = None;
+            while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+                self.skip_newlines();
+                if matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+                    break;
+                }
+                if matches!(self.current_token().token_type, TokenType::Else) {
+                    self.advance();
+                    if matches!(
+                        self.current_token().token_type,
+                        TokenType::FatArrow | TokenType::Then
+                    ) {
+                        self.advance();
+                    }
+                    self.skip_newlines();
+                    let e_expr = self.parse_expression()?;
+                    else_expr = Some(e_expr);
+                    self.skip_newlines();
+                    break;
+                }
+                let cond = self.parse_expression()?;
+                if matches!(
+                    self.current_token().token_type,
+                    TokenType::FatArrow | TokenType::Then
+                ) {
+                    self.advance();
+                }
+                self.skip_newlines();
+                let val = self.parse_expression()?;
+                bool_arms.push((cond, val));
+                self.skip_newlines();
+            }
+            self.expect(TokenType::End)?;
+            let mut result = else_expr.unwrap_or(Expr::Null);
+            for (cond, val) in bool_arms.into_iter().rev() {
+                result = Expr::Ternary {
+                    condition: Box::new(cond),
+                    then_branch: Box::new(val),
+                    else_branch: Box::new(result),
+                };
+            }
+            return Ok(result);
+        }
+
         self.skip_newlines();
 
         let raw_subject = self.parse_expression()?;
         self.skip_newlines();
 
-        let mut arms: Vec<(Vec<WhenPattern>, Expr)> = Vec::new();
+        let mut arms: Vec<(Vec<WhenPattern>, Option<Expr>, Expr)> = Vec::new();
         let mut else_expr = None;
 
         while !matches!(
@@ -1162,8 +1671,17 @@ impl Parser {
                         patterns.push(WhenPattern::Relational(op, expr));
                     } else {
                         let pattern_start = self.parse_expression()?;
-                        if matches!(self.current_token().token_type, TokenType::DotDot) {
-                            self.advance(); // skip '..'
+                        if let Expr::Binary { left, op, right } = pattern_start {
+                            if op == BinaryOp::Range || op == BinaryOp::RangeInclusive {
+                                patterns.push(WhenPattern::Range(*left, *right));
+                            } else {
+                                patterns.push(WhenPattern::Exact(Expr::Binary { left, op, right }));
+                            }
+                        } else if matches!(
+                            self.current_token().token_type,
+                            TokenType::DotDot | TokenType::DotDotEqual
+                        ) {
+                            self.advance(); // skip '..' or '..='
                             let pattern_end = self.parse_expression()?;
                             patterns.push(WhenPattern::Range(pattern_start, pattern_end));
                         } else {
@@ -1179,6 +1697,13 @@ impl Parser {
                     }
                 }
 
+                let guard = if matches!(self.current_token().token_type, TokenType::If) {
+                    self.advance();
+                    Some(self.parse_expression()?)
+                } else {
+                    None
+                };
+
                 if matches!(
                     self.current_token().token_type,
                     TokenType::FatArrow | TokenType::Then
@@ -1188,7 +1713,7 @@ impl Parser {
                 self.skip_newlines();
 
                 let arm_expr = self.parse_expression()?;
-                arms.push((patterns, arm_expr));
+                arms.push((patterns, guard, arm_expr));
 
                 if matches!(self.current_token().token_type, TokenType::Comma) {
                     self.advance();
@@ -1232,8 +1757,15 @@ impl Parser {
         let default_else = else_expr.unwrap_or(Expr::Null);
         let mut current_else = default_else;
 
-        for (patterns, expr) in arms.into_iter().rev() {
-            let condition = build_when_condition(&raw_subject, patterns);
+        for (patterns, guard, expr) in arms.into_iter().rev() {
+            let mut condition = build_when_condition(&raw_subject, patterns);
+            if let Some(g) = guard {
+                condition = Expr::Binary {
+                    left: Box::new(condition),
+                    op: BinaryOp::And,
+                    right: Box::new(g),
+                };
+            }
             current_else = Expr::Ternary {
                 condition: Box::new(condition),
                 then_branch: Box::new(expr),

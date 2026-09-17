@@ -422,6 +422,10 @@ fn collect_references_in_expr(expr: &Expr, refs: &mut HashSet<String>) {
             refs.insert(target.clone());
             collect_references_in_expr(expr, refs);
         }
+        Expr::Cast { expr, target } => {
+            refs.insert(target.clone());
+            collect_references_in_expr(expr, refs);
+        }
         _ => {}
     }
 }

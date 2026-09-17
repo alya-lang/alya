@@ -965,7 +965,9 @@ impl<'a> CallIndex<'a> {
                 self.collect_expr(value, current_scope);
                 self.collect_expr(default, current_scope);
             }
-            Expr::TypeCheck { expr, .. } => self.collect_expr(expr, current_scope),
+            Expr::TypeCheck { expr, .. } | Expr::Cast { expr, .. } => {
+                self.collect_expr(expr, current_scope)
+            }
             _ => {}
         }
     }

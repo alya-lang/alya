@@ -59,6 +59,10 @@ pub enum Expr {
         target: String,
         negated: bool,
     },
+    Cast {
+        expr: Box<Expr>,
+        target: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +87,8 @@ pub enum BinaryOp {
     Shr,
     In,
     NotIn,
+    Range,
+    RangeInclusive,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

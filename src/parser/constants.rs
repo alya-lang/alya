@@ -322,6 +322,9 @@ fn resolve_expr(expr: &mut Expr, stack: &ScopeStack) {
                 resolve_expr(part, stack);
             }
         }
+        Expr::Cast { expr, .. } => {
+            resolve_expr(expr, stack);
+        }
         _ => {}
     }
 }

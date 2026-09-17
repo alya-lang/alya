@@ -67,6 +67,22 @@ impl Lexer {
                         column,
                     });
                 }
+                '\'' => {
+                    let ch = self.read_rune()?;
+                    tokens.push(Token {
+                        token_type: TokenType::Rune(ch),
+                        line,
+                        column,
+                    });
+                }
+                '@' => {
+                    self.advance();
+                    tokens.push(Token {
+                        token_type: TokenType::At,
+                        line,
+                        column,
+                    });
+                }
                 '+' => {
                     self.advance();
                     if self.current_char() == Some('=') {
@@ -149,11 +165,20 @@ impl Lexer {
                 }
                 '%' => {
                     self.advance();
-                    tokens.push(Token {
-                        token_type: TokenType::Modulo,
-                        line,
-                        column,
-                    });
+                    if self.current_char() == Some('=') {
+                        self.advance();
+                        tokens.push(Token {
+                            token_type: TokenType::ModuloAssign,
+                            line,
+                            column,
+                        });
+                    } else {
+                        tokens.push(Token {
+                            token_type: TokenType::Modulo,
+                            line,
+                            column,
+                        });
+                    }
                 }
                 '(' => {
                     self.advance();
@@ -265,11 +290,20 @@ impl Lexer {
                     } else if self.peek_char_at(1) == Some('.') {
                         self.advance();
                         self.advance();
-                        tokens.push(Token {
-                            token_type: TokenType::DotDot,
-                            line,
-                            column,
-                        });
+                        if self.current_char() == Some('=') {
+                            self.advance();
+                            tokens.push(Token {
+                                token_type: TokenType::DotDotEqual,
+                                line,
+                                column,
+                            });
+                        } else {
+                            tokens.push(Token {
+                                token_type: TokenType::DotDot,
+                                line,
+                                column,
+                            });
+                        }
                     } else if self.peek_char().is_some_and(|c| c.is_ascii_digit()) {
                         let (num, _) = self.read_number()?;
                         tokens.push(Token {
@@ -475,6 +509,46 @@ impl Lexer {
                     };
                     tokens.push(Token {
                         token_type,
+                        line,
+                        column,
+                    });
+                }
+                'f' if self.peek_char() == Some('"') => {
+                    self.advance();
+                    let s = if self.peek_char_at(1) == Some('"') && self.peek_char_at(2) == Some('"') {
+                        self.read_triple_quoted_string()?
+                    } else {
+                        self.read_format_string()?
+                    };
+                    tokens.push(Token {
+                        token_type: TokenType::String(s),
+                        line,
+                        column,
+                    });
+                }
+                'r' if self.peek_char() == Some('"') => {
+                    self.advance();
+                    let s = self.read_raw_quoted_string()?;
+                    tokens.push(Token {
+                        token_type: TokenType::String(s),
+                        line,
+                        column,
+                    });
+                }
+                'b' if self.peek_char() == Some('"') => {
+                    self.advance();
+                    let s = self.read_string()?;
+                    tokens.push(Token {
+                        token_type: TokenType::String(s),
+                        line,
+                        column,
+                    });
+                }
+                'b' if self.peek_char() == Some('\'') => {
+                    self.advance();
+                    let ch = self.read_rune()?;
+                    tokens.push(Token {
+                        token_type: TokenType::Number((ch as u8) as f64),
                         line,
                         column,
                     });

@@ -220,6 +220,9 @@ pub fn resolve_enums_in_expr(expr: &mut Expr, enums: &HashMap<String, HashMap<St
                 resolve_enums_in_expr(part, enums);
             }
         }
+        Expr::Cast { expr, .. } => {
+            resolve_enums_in_expr(expr, enums);
+        }
         _ => {}
     }
 }

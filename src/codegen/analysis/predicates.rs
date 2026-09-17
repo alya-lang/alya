@@ -707,7 +707,9 @@ pub fn is_number_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             | BinaryOp::And
             | BinaryOp::Or
             | BinaryOp::In
-            | BinaryOp::NotIn => true,
+            | BinaryOp::NotIn
+            | BinaryOp::Range
+            | BinaryOp::RangeInclusive => true,
         },
         Expr::Unary { op, expr } => match op {
             UnaryOp::Negate | UnaryOp::BitNot => !is_float_expr(expr, vars),

@@ -61,7 +61,7 @@ pub fn emit_binary_op(out: &mut String, op: BinaryOp) {
             out.push_str("    mov %ebx, %ecx\n");
             out.push_str("    shr %cl, %eax\n");
         }
-        BinaryOp::In | BinaryOp::NotIn => {}
+        BinaryOp::In | BinaryOp::NotIn | BinaryOp::Range | BinaryOp::RangeInclusive => {}
     }
 }
 
@@ -228,7 +228,7 @@ pub fn emit_binary_op_reg(out: &mut String, op: BinaryOp) {
             out.push_str("    mov %ebx, %ecx\n");
             out.push_str("    shr %cl, %eax\n");
         }
-        BinaryOp::In | BinaryOp::NotIn => {}
+        BinaryOp::In | BinaryOp::NotIn | BinaryOp::Range | BinaryOp::RangeInclusive => {}
     }
 }
 
@@ -295,7 +295,7 @@ pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
         BinaryOp::BitXor => out.push_str(&format!("    xor ${}, %eax\n", imm32)),
         BinaryOp::Shl => out.push_str(&format!("    shl ${}, %eax\n", imm & 31)),
         BinaryOp::Shr => out.push_str(&format!("    shr ${}, %eax\n", imm & 31)),
-        BinaryOp::In | BinaryOp::NotIn => {}
+        BinaryOp::In | BinaryOp::NotIn | BinaryOp::Range | BinaryOp::RangeInclusive => {}
     }
 }
 

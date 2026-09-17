@@ -1531,6 +1531,9 @@ impl CodeGen {
             } => {
                 self.generate_type_check(expr, target, *negated);
             }
+            Expr::Cast { expr, .. } => {
+                self.generate_expression(expr);
+            }
         }
     }
 

@@ -61,7 +61,7 @@ pub fn emit_binary_op(out: &mut String, op: BinaryOp) {
             out.push_str("    mov %rbx, %rcx\n");
             out.push_str("    shr %cl, %rax\n");
         }
-        BinaryOp::In | BinaryOp::NotIn => {}
+        BinaryOp::In | BinaryOp::NotIn | BinaryOp::Range | BinaryOp::RangeInclusive => {}
     }
 }
 
@@ -124,7 +124,7 @@ pub fn emit_binary_op_reg(out: &mut String, op: BinaryOp) {
             out.push_str("    mov %rbx, %rcx\n");
             out.push_str("    shr %cl, %rax\n");
         }
-        BinaryOp::In | BinaryOp::NotIn => {}
+        BinaryOp::In | BinaryOp::NotIn | BinaryOp::Range | BinaryOp::RangeInclusive => {}
     }
 }
 
@@ -240,7 +240,7 @@ pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
         }
         BinaryOp::Shl => out.push_str(&format!("    shl ${}, %rax\n", imm & 63)),
         BinaryOp::Shr => out.push_str(&format!("    shr ${}, %rax\n", imm & 63)),
-        BinaryOp::In | BinaryOp::NotIn => {}
+        BinaryOp::In | BinaryOp::NotIn | BinaryOp::Range | BinaryOp::RangeInclusive => {}
     }
 }
 

@@ -13,6 +13,7 @@ pub struct Parser {
     position: usize,
     pub(super) lambda_functions: Vec<Stmt>,
     pub(super) lambda_counter: usize,
+    pub(super) fn_depth: usize,
 }
 
 impl Parser {
@@ -22,6 +23,7 @@ impl Parser {
             position: 0,
             lambda_functions: Vec::new(),
             lambda_counter: 0,
+            fn_depth: 0,
         }
     }
 
@@ -81,6 +83,194 @@ impl Parser {
         while matches!(self.current_token().token_type, TokenType::Newline) {
             self.advance();
         }
+    }
+
+    pub(crate) fn parse_type_annotation(&mut self) -> Result<String, String> {
+        let mut t_str = String::new();
+
+        // 1. Prefix modifiers: weak, ...
+        if matches!(self.current_token().token_type, TokenType::Weak) {
+            self.advance();
+            t_str.push_str("weak ");
+        }
+        if matches!(
+            self.current_token().token_type,
+            TokenType::DotDotDot | TokenType::DotDot
+        ) {
+            self.advance();
+            t_str.push_str("...");
+        }
+
+        // 2. Base type:
+        if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+            // [KeyType: ValueType] (Map) or [T]
+            self.advance();
+            self.skip_newlines();
+            let key_type = self.parse_type_annotation()?;
+            self.skip_newlines();
+            if matches!(self.current_token().token_type, TokenType::Colon) {
+                self.advance();
+                self.skip_newlines();
+                let val_type = self.parse_type_annotation()?;
+                self.skip_newlines();
+                self.expect(TokenType::RightBracket)?;
+                t_str.push_str(&format!("[{}: {}]", key_type, val_type));
+            } else {
+                self.expect(TokenType::RightBracket)?;
+                t_str.push_str(&format!("[{}]", key_type));
+            }
+        } else if matches!(self.current_token().token_type, TokenType::LeftParen) {
+            // Tuple: (T1, T2)
+            self.advance();
+            self.skip_newlines();
+            let mut parts = Vec::new();
+            while !matches!(
+                self.current_token().token_type,
+                TokenType::RightParen | TokenType::Eof
+            ) {
+                parts.push(self.parse_type_annotation()?);
+                self.skip_newlines();
+                if matches!(self.current_token().token_type, TokenType::Comma) {
+                    self.advance();
+                    self.skip_newlines();
+                } else {
+                    break;
+                }
+            }
+            self.expect(TokenType::RightParen)?;
+            t_str.push_str(&format!("({})", parts.join(", ")));
+        } else if matches!(self.current_token().token_type, TokenType::BitOr | TokenType::Or) {
+            let is_empty = matches!(self.current_token().token_type, TokenType::Or);
+            self.advance();
+            let mut param_types = Vec::new();
+            if !is_empty {
+                while !matches!(self.current_token().token_type, TokenType::BitOr | TokenType::Eof) {
+                    param_types.push(self.parse_type_annotation()?);
+                    self.skip_newlines();
+                    if matches!(self.current_token().token_type, TokenType::Comma) {
+                        self.advance();
+                        self.skip_newlines();
+                    } else {
+                        break;
+                    }
+                }
+                self.expect(TokenType::BitOr)?;
+            }
+            let ret = if matches!(self.current_token().token_type, TokenType::Arrow) {
+                self.advance();
+                self.skip_newlines();
+                format!(" -> {}", self.parse_type_annotation()?)
+            } else {
+                String::new()
+            };
+            t_str.push_str(&format!("|{}|{}", param_types.join(", "), ret));
+        } else if let TokenType::Identifier(s) = &self.current_token().token_type {
+            let mut name = s.clone();
+            self.advance();
+
+            // Module or enum namespace: A::B or A.B
+            while matches!(
+                self.current_token().token_type,
+                TokenType::ColonColon | TokenType::Dot
+            ) {
+                self.advance();
+                if let TokenType::Identifier(member) = &self.current_token().token_type {
+                    name.push_str("::");
+                    name.push_str(member);
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            // Generic type arguments: Channel[int], Stack[T], Result[T, E]
+            if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+                if self.position + 1 < self.tokens.len()
+                    && matches!(self.tokens[self.position + 1].token_type, TokenType::RightBracket)
+                {
+                    // array suffix, leave for loop
+                } else {
+                    self.advance(); // consume '['
+                    self.skip_newlines();
+                    let mut gen_args = Vec::new();
+                    while !matches!(
+                        self.current_token().token_type,
+                        TokenType::RightBracket | TokenType::Eof
+                    ) {
+                        gen_args.push(self.parse_type_annotation()?);
+                        self.skip_newlines();
+                        if matches!(self.current_token().token_type, TokenType::Comma) {
+                            self.advance();
+                            self.skip_newlines();
+                        } else {
+                            break;
+                        }
+                    }
+                    self.expect(TokenType::RightBracket)?;
+                    name.push_str(&format!("[{}]", gen_args.join(", ")));
+                }
+            }
+
+            t_str.push_str(&name);
+        } else if matches!(self.current_token().token_type, TokenType::SelfKw) {
+            self.advance();
+            t_str.push_str("Self");
+        } else if matches!(self.current_token().token_type, TokenType::Function) {
+            // Function type: fn(T) -> R
+            self.advance();
+            let mut fn_sig = "fn".to_string();
+            if matches!(self.current_token().token_type, TokenType::LeftParen) {
+                self.advance();
+                let mut params = Vec::new();
+                while !matches!(
+                    self.current_token().token_type,
+                    TokenType::RightParen | TokenType::Eof
+                ) {
+                    params.push(self.parse_type_annotation()?);
+                    if matches!(self.current_token().token_type, TokenType::Comma) {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+                self.expect(TokenType::RightParen)?;
+                fn_sig.push_str(&format!("({})", params.join(", ")));
+            }
+            if matches!(self.current_token().token_type, TokenType::Arrow) {
+                self.advance();
+                let ret = self.parse_type_annotation()?;
+                fn_sig.push_str(&format!(" -> {}", ret));
+            }
+            t_str.push_str(&fn_sig);
+        } else {
+            return Err(format!(
+                "Expected type at line {}, column {}",
+                self.current_token().line,
+                self.current_token().column
+            ));
+        }
+
+        // 3. Suffix modifiers: ?, []
+        loop {
+            if matches!(self.current_token().token_type, TokenType::Question) {
+                self.advance();
+                t_str.push('?');
+            } else if matches!(self.current_token().token_type, TokenType::LeftBracket) {
+                if self.position + 1 < self.tokens.len()
+                    && matches!(self.tokens[self.position + 1].token_type, TokenType::RightBracket)
+                {
+                    self.advance(); // [
+                    self.advance(); // ]
+                    t_str.push_str("[]");
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(t_str)
     }
 }
 
@@ -403,7 +593,7 @@ fn prefix_expr(expr: &mut Expr, alias: &str, local_fns: &std::collections::HashS
                 prefix_expr(arg, alias, local_fns);
             }
         }
-        Expr::TypeCheck { expr, .. } => {
+        Expr::TypeCheck { expr, .. } | Expr::Cast { expr, .. } => {
             prefix_expr(expr, alias, local_fns);
         }
         Expr::Identifier(name) if local_fns.contains(name) => {
@@ -1057,7 +1247,7 @@ fn expand_defaults_in_expr(
                 expand_defaults_in_expr(part, fn_defs);
             }
         }
-        Expr::TypeCheck { expr, .. } => {
+        Expr::TypeCheck { expr, .. } | Expr::Cast { expr, .. } => {
             expand_defaults_in_expr(expr, fn_defs);
         }
         _ => {}

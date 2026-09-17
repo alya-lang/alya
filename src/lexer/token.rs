@@ -32,11 +32,25 @@ pub enum TokenType {
     From,     // from
     Defer,    // defer
     Pub,      // pub
+    Interface,// interface
+    Spawn,    // spawn
+    Select,   // select
+    Assert,   // assert
+    Test,     // test
+    Bench,    // bench
+    SelfKw,   // self
+    Weak,     // weak
+    Comptime, // comptime
+    Sizeof,   // sizeof
+    Alignof,  // alignof
+    Typeof,   // typeof
+    At,       // @
 
     // Literals
     Number(f64),
     Float(f64),
     String(String),
+    Rune(char),
     Identifier(String),
     True,
     False,
@@ -55,6 +69,7 @@ pub enum TokenType {
     MinusAssign,    // -=
     MultiplyAssign, // *=
     DivideAssign,   // /=
+    ModuloAssign,   // %=
     BitAndAssign,   // &=
     BitOrAssign,    // |=
     BitXorAssign,   // ^=
@@ -91,6 +106,7 @@ pub enum TokenType {
     NullCoalesce, // ??
     Dot,          // .
     DotDot,       // ..
+    DotDotEqual,  // ..=
     DotDotDot,    // ...
     Newline,      // \n
 
@@ -109,7 +125,7 @@ impl TokenType {
             "while" => TokenType::While,
             "for" => TokenType::For,
             "in" => TokenType::In,
-            "function" => TokenType::Function,
+            "function" | "fn" => TokenType::Function,
             "end" => TokenType::End,
             "return" => TokenType::Return,
             "when" => TokenType::When,
@@ -132,10 +148,21 @@ impl TokenType {
             "from" => TokenType::From,
             "defer" => TokenType::Defer,
             "pub" => TokenType::Pub,
+            "interface" => TokenType::Interface,
+            "spawn" => TokenType::Spawn,
+            "select" => TokenType::Select,
+            "assert" => TokenType::Assert,
+            "test" => TokenType::Test,
+            "bench" => TokenType::Bench,
+            "self" => TokenType::SelfKw,
+            "weak" => TokenType::Weak,
+            "comptime" => TokenType::Comptime,
+            "sizeof" => TokenType::Sizeof,
+            "alignof" => TokenType::Alignof,
+            "typeof" => TokenType::Typeof,
             "true" => TokenType::True,
             "false" => TokenType::False,
-            "null" => TokenType::Null,
-            "nil" => TokenType::Null,
+            "null" | "nil" => TokenType::Null,
             "and" => TokenType::And,
             "or" => TokenType::Or,
             "not" => TokenType::Not,
@@ -185,9 +212,23 @@ impl std::fmt::Display for TokenType {
             TokenType::From => write!(f, "'from'"),
             TokenType::Defer => write!(f, "'defer'"),
             TokenType::Pub => write!(f, "'pub'"),
+            TokenType::Interface => write!(f, "'interface'"),
+            TokenType::Spawn => write!(f, "'spawn'"),
+            TokenType::Select => write!(f, "'select'"),
+            TokenType::Assert => write!(f, "'assert'"),
+            TokenType::Test => write!(f, "'test'"),
+            TokenType::Bench => write!(f, "'bench'"),
+            TokenType::SelfKw => write!(f, "'self'"),
+            TokenType::Weak => write!(f, "'weak'"),
+            TokenType::Comptime => write!(f, "'comptime'"),
+            TokenType::Sizeof => write!(f, "'sizeof'"),
+            TokenType::Alignof => write!(f, "'alignof'"),
+            TokenType::Typeof => write!(f, "'typeof'"),
+            TokenType::At => write!(f, "'@'"),
             TokenType::Number(n) => write!(f, "number '{}'", n),
             TokenType::Float(n) => write!(f, "float '{}'", n),
             TokenType::String(s) => write!(f, "\"{}\"", s),
+            TokenType::Rune(c) => write!(f, "'{}'", c),
             TokenType::Identifier(s) => write!(f, "identifier '{}'", s),
             TokenType::True => write!(f, "'true'"),
             TokenType::False => write!(f, "'false'"),
@@ -204,6 +245,7 @@ impl std::fmt::Display for TokenType {
             TokenType::MinusAssign => write!(f, "'-='"),
             TokenType::MultiplyAssign => write!(f, "'*='"),
             TokenType::DivideAssign => write!(f, "'/='"),
+            TokenType::ModuloAssign => write!(f, "'%='"),
             TokenType::BitAndAssign => write!(f, "'&='"),
             TokenType::BitOrAssign => write!(f, "'|='"),
             TokenType::BitXorAssign => write!(f, "'^='"),
@@ -238,6 +280,7 @@ impl std::fmt::Display for TokenType {
             TokenType::NullCoalesce => write!(f, "'??'"),
             TokenType::Dot => write!(f, "'.'"),
             TokenType::DotDot => write!(f, "'..'"),
+            TokenType::DotDotEqual => write!(f, "'..='"),
             TokenType::DotDotDot => write!(f, "'...'"),
             TokenType::Newline => write!(f, "newline"),
             TokenType::Eof => write!(f, "end of file"),

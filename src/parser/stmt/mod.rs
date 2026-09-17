@@ -41,11 +41,43 @@ impl Parser {
             TokenType::Try => self.parse_try_catch().map(|s| vec![s]),
             TokenType::Throw => self.parse_throw().map(|s| vec![s]),
             TokenType::Defer => self.parse_defer().map(|s| vec![s]),
-            TokenType::Identifier(_) => {
+            TokenType::Assert => self.parse_assert(),
+            TokenType::Test
+                if self.fn_depth == 0
+                    && !matches!(self.peek_token().map(|t| &t.token_type), Some(TokenType::Dot)) =>
+            {
+                self.parse_test_or_bench(false)
+            }
+            TokenType::Bench
+                if self.fn_depth == 0
+                    && !matches!(self.peek_token().map(|t| &t.token_type), Some(TokenType::Dot)) =>
+            {
+                self.parse_test_or_bench(true)
+            }
+            TokenType::At => self.parse_attribute(),
+            TokenType::Interface => self.parse_interface(),
+            TokenType::Spawn => self.parse_spawn(),
+            TokenType::Select => self.parse_select(),
+            TokenType::Identifier(_)
+            | TokenType::SelfKw
+            | TokenType::Test
+            | TokenType::Bench => {
+                if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "guard") {
+                    return self.parse_guard();
+                }
+
+                // Check for multi-variable assignment: a, b = 1, 2
+                if self.check_multi_assignment() {
+                    return self.parse_multi_assignment();
+                }
+
                 // Could be assignment or function call
                 let start_pos = self.position;
                 let ident = match &self.current_token().token_type {
                     TokenType::Identifier(s) => s.clone(),
+                    TokenType::SelfKw => "self".to_string(),
+                    TokenType::Test => "test".to_string(),
+                    TokenType::Bench => "bench".to_string(),
                     _ => unreachable!(),
                 };
                 self.advance();
@@ -71,12 +103,20 @@ impl Parser {
                             self.advance();
                             let field = match &self.current_token().token_type {
                                 TokenType::Identifier(s) => s.clone(),
-                                _ => {
-                                    return Err(format!(
-                                        "Expected field name after '.' at line {}, column {}",
-                                        self.current_token().line,
-                                        self.current_token().column
-                                    ))
+                                tok => {
+                                    let s = tok.to_string();
+                                    let clean = s.trim_matches('\'').to_string();
+                                    if !clean.is_empty()
+                                        && clean.chars().all(|c| c.is_alphanumeric() || c == '_')
+                                    {
+                                        clean
+                                    } else {
+                                        return Err(format!(
+                                            "Expected field name after '.' at line {}, column {}",
+                                            self.current_token().line,
+                                            self.current_token().column
+                                        ));
+                                    }
                                 }
                             };
                             self.advance();
@@ -86,7 +126,7 @@ impl Parser {
                                 if !matches!(self.current_token().token_type, TokenType::RightParen)
                                 {
                                     loop {
-                                        args.push(self.parse_expression()?);
+                                        args.push(self.parse_call_argument()?);
                                         if matches!(
                                             self.current_token().token_type,
                                             TokenType::Comma
@@ -134,6 +174,7 @@ impl Parser {
                         | TokenType::MinusAssign
                         | TokenType::MultiplyAssign
                         | TokenType::DivideAssign
+                        | TokenType::ModuloAssign
                         | TokenType::BitAndAssign
                         | TokenType::BitOrAssign
                         | TokenType::BitXorAssign
@@ -144,6 +185,7 @@ impl Parser {
                                 TokenType::MinusAssign => BinaryOp::Subtract,
                                 TokenType::MultiplyAssign => BinaryOp::Multiply,
                                 TokenType::DivideAssign => BinaryOp::Divide,
+                                TokenType::ModuloAssign => BinaryOp::Modulo,
                                 TokenType::BitAndAssign => BinaryOp::BitAnd,
                                 TokenType::BitOrAssign => BinaryOp::BitOr,
                                 TokenType::BitXorAssign => BinaryOp::BitXor,
@@ -234,6 +276,18 @@ impl Parser {
                             value: Expr::Binary {
                                 left: Box::new(Expr::Identifier(ident)),
                                 op: BinaryOp::Divide,
+                                right: Box::new(value),
+                            },
+                        }])
+                    }
+                    TokenType::ModuloAssign => {
+                        self.advance();
+                        let value = self.parse_expression()?;
+                        Ok(vec![Stmt::Assign {
+                            name: ident.clone(),
+                            value: Expr::Binary {
+                                left: Box::new(Expr::Identifier(ident)),
+                                op: BinaryOp::Modulo,
                                 right: Box::new(value),
                             },
                         }])
@@ -464,6 +518,194 @@ impl Parser {
             Ok(Stmt::Defer(Box::new(inner)))
         } else {
             Err("Expected statement after 'defer'".into())
+        }
+    }
+
+    fn parse_assert(&mut self) -> Result<Vec<Stmt>, String> {
+        self.advance(); // consume 'assert'
+        let condition = self.parse_expression()?;
+        let message = if matches!(self.current_token().token_type, TokenType::Comma) {
+            self.advance();
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
+        let throw_msg = message.unwrap_or_else(|| Expr::String("Assertion failed".to_string()));
+        let assert_check = Stmt::If {
+            condition: Expr::Unary {
+                op: UnaryOp::Not,
+                expr: Box::new(condition),
+            },
+            then_block: vec![Stmt::Throw(Some(throw_msg))],
+            else_block: None,
+        };
+        Ok(vec![assert_check])
+    }
+
+    fn parse_test_or_bench(&mut self, is_bench: bool) -> Result<Vec<Stmt>, String> {
+        self.advance(); // consume 'test' or 'bench'
+        let name_expr = self.parse_expression()?;
+        self.skip_newlines();
+        let mut body = Vec::new();
+        while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+            body.extend(self.parse_statement()?);
+            self.skip_newlines();
+        }
+        self.expect(TokenType::End)?;
+        let prefix = if is_bench { "__bench_" } else { "__test_" };
+        let clean_name = match &name_expr {
+            Expr::String(s) => s
+                .chars()
+                .map(|c| if c.is_alphanumeric() { c } else { '_' })
+                .collect::<String>(),
+            _ => format!("{}_{}", self.current_token().line, self.current_token().column),
+        };
+        let fn_stmt = Stmt::Function {
+            name: format!("{}{}", prefix, clean_name),
+            params: vec![],
+            param_types: vec![],
+            return_type: None,
+            defaults: vec![],
+            body,
+        };
+        Ok(vec![fn_stmt])
+    }
+
+    fn parse_attribute(&mut self) -> Result<Vec<Stmt>, String> {
+        self.advance(); // consume '@'
+        let _attr_name = match &self.current_token().token_type {
+            TokenType::Identifier(s) => s.clone(),
+            tok => {
+                let s = tok.to_string();
+                let clean = s.trim_matches('\'').to_string();
+                if !clean.is_empty() && clean.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    clean
+                } else {
+                    return Err(format!(
+                        "Expected attribute name after '@' at line {}, column {}",
+                        self.current_token().line,
+                        self.current_token().column
+                    ));
+                }
+            }
+        };
+        self.advance();
+        if matches!(self.current_token().token_type, TokenType::LeftParen) {
+            self.advance();
+            let mut depth = 1;
+            while depth > 0 && !matches!(self.current_token().token_type, TokenType::Eof) {
+                if matches!(self.current_token().token_type, TokenType::LeftParen) {
+                    depth += 1;
+                } else if matches!(self.current_token().token_type, TokenType::RightParen) {
+                    depth -= 1;
+                    if depth == 0 {
+                        self.advance();
+                        break;
+                    }
+                }
+                self.advance();
+            }
+        }
+        self.skip_newlines();
+        self.parse_statement()
+    }
+
+    fn parse_spawn(&mut self) -> Result<Vec<Stmt>, String> {
+        self.advance(); // consume 'spawn'
+        let expr = self.parse_expression()?;
+        Ok(vec![Stmt::Expr(Expr::Call {
+            name: "spawn".to_string(),
+            args: vec![expr],
+        })])
+    }
+
+    fn parse_select(&mut self) -> Result<Vec<Stmt>, String> {
+        self.advance(); // consume 'select'
+        self.skip_newlines();
+        let mut depth = 1;
+        while depth > 0 && !matches!(self.current_token().token_type, TokenType::Eof) {
+            match self.current_token().token_type {
+                TokenType::Select
+                | TokenType::If
+                | TokenType::While
+                | TokenType::For
+                | TokenType::Repeat
+                | TokenType::Struct
+                | TokenType::Enum
+                | TokenType::When
+                | TokenType::Function => {
+                    depth += 1;
+                    self.advance();
+                }
+                TokenType::End => {
+                    depth -= 1;
+                    self.advance();
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ => {
+                    self.advance();
+                }
+            }
+        }
+        Ok(vec![])
+    }
+
+    fn parse_guard(&mut self) -> Result<Vec<Stmt>, String> {
+        self.advance(); // consume 'guard'
+        if matches!(self.current_token().token_type, TokenType::Let) {
+            self.advance(); // consume 'let'
+            let var_name = match &self.current_token().token_type {
+                TokenType::Identifier(s) => s.clone(),
+                _ => return Err("Expected identifier after 'guard let'".into()),
+            };
+            self.advance();
+            self.expect(TokenType::Assign)?;
+            let expr = self.parse_expression()?;
+            self.expect(TokenType::Else)?;
+            self.skip_newlines();
+            let mut else_stmts = Vec::new();
+            while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+                else_stmts.extend(self.parse_statement()?);
+                self.skip_newlines();
+            }
+            self.expect(TokenType::End)?;
+
+            let let_stmt = Stmt::Let {
+                name: var_name.clone(),
+                type_ann: None,
+                value: expr,
+            };
+            let if_stmt = Stmt::If {
+                condition: Expr::Binary {
+                    left: Box::new(Expr::Identifier(var_name)),
+                    op: BinaryOp::Equal,
+                    right: Box::new(Expr::Null),
+                },
+                then_block: else_stmts,
+                else_block: None,
+            };
+            Ok(vec![let_stmt, if_stmt])
+        } else {
+            let cond = self.parse_expression()?;
+            self.expect(TokenType::Else)?;
+            self.skip_newlines();
+            let mut else_stmts = Vec::new();
+            while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+                else_stmts.extend(self.parse_statement()?);
+                self.skip_newlines();
+            }
+            self.expect(TokenType::End)?;
+            let if_stmt = Stmt::If {
+                condition: Expr::Unary {
+                    op: UnaryOp::Not,
+                    expr: Box::new(cond),
+                },
+                then_block: else_stmts,
+                else_block: None,
+            };
+            Ok(vec![if_stmt])
         }
     }
 }

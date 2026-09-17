@@ -129,11 +129,11 @@ fn test_tokenize_comments() {
 
 #[test]
 fn test_tokenize_unexpected_character() {
-    let source = "say @bad";
+    let source = "say $bad";
     let mut lexer = Lexer::new(source);
     let result = lexer.tokenize();
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("Unexpected character '@'"));
+    assert!(result.unwrap_err().contains("Unexpected character '$'"));
 }
 
 #[test]
@@ -329,6 +329,98 @@ fn test_tokenize_question_and_null_coalesce() {
             TokenType::NullCoalesce,
             TokenType::Question,
             TokenType::NullCoalesce,
+            TokenType::Eof,
+        ]
+    );
+}
+
+#[test]
+fn test_tokenize_all_44_master_keywords() {
+    let source = "let const function fn return defer if then elif else when is while for in repeat break continue struct enum interface try catch finally throw pub import as from extern spawn select assert test bench say and or not true false null self weak comptime sizeof alignof typeof end";
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().expect("Tokenization failed");
+    let types: Vec<_> = tokens.into_iter().map(|t| t.token_type).collect();
+
+    assert_eq!(
+        types,
+        vec![
+            TokenType::Let,
+            TokenType::Const,
+            TokenType::Function,
+            TokenType::Function, // fn aliases to Function
+            TokenType::Return,
+            TokenType::Defer,
+            TokenType::If,
+            TokenType::Then,
+            TokenType::Elif,
+            TokenType::Else,
+            TokenType::When,
+            TokenType::Is,
+            TokenType::While,
+            TokenType::For,
+            TokenType::In,
+            TokenType::Repeat,
+            TokenType::Break,
+            TokenType::Continue,
+            TokenType::Struct,
+            TokenType::Enum,
+            TokenType::Interface,
+            TokenType::Try,
+            TokenType::Catch,
+            TokenType::Finally,
+            TokenType::Throw,
+            TokenType::Pub,
+            TokenType::Import,
+            TokenType::As,
+            TokenType::From,
+            TokenType::Extern,
+            TokenType::Spawn,
+            TokenType::Select,
+            TokenType::Assert,
+            TokenType::Test,
+            TokenType::Bench,
+            TokenType::Say,
+            TokenType::And,
+            TokenType::Or,
+            TokenType::Not,
+            TokenType::True,
+            TokenType::False,
+            TokenType::Null,
+            TokenType::SelfKw,
+            TokenType::Weak,
+            TokenType::Comptime,
+            TokenType::Sizeof,
+            TokenType::Alignof,
+            TokenType::Typeof,
+            TokenType::End,
+            TokenType::Eof,
+        ]
+    );
+}
+
+#[test]
+fn test_tokenize_runes_attributes_and_prefixes() {
+    let source = "@inline @test 'M' '🚀' '\\n' b'A' f\"val: {x}\" r\"raw\\n\" b\"bytes\" ..= ..";
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().expect("Tokenization failed");
+    let types: Vec<_> = tokens.into_iter().map(|t| t.token_type).collect();
+
+    assert_eq!(
+        types,
+        vec![
+            TokenType::At,
+            TokenType::Identifier("inline".into()),
+            TokenType::At,
+            TokenType::Test,
+            TokenType::Rune('M'),
+            TokenType::Rune('🚀'),
+            TokenType::Rune('\n'),
+            TokenType::Number(65.0),
+            TokenType::String("val: {x}".into()),
+            TokenType::String("raw\\n".into()),
+            TokenType::String("bytes".into()),
+            TokenType::DotDotEqual,
+            TokenType::DotDot,
             TokenType::Eof,
         ]
     );

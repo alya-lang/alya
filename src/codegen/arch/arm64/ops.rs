@@ -54,7 +54,7 @@ pub fn emit_binary_op(out: &mut String, op: BinaryOp) {
         BinaryOp::Shr => {
             out.push_str("    lsr x0, x1, x0\n");
         }
-        BinaryOp::In | BinaryOp::NotIn => {}
+        BinaryOp::In | BinaryOp::NotIn | BinaryOp::Range | BinaryOp::RangeInclusive => {}
     }
 }
 
@@ -111,7 +111,7 @@ pub fn emit_binary_op_reg(out: &mut String, op: BinaryOp) {
         BinaryOp::Shr => {
             out.push_str("    lsr x0, x0, x1\n");
         }
-        BinaryOp::In | BinaryOp::NotIn => {}
+        BinaryOp::In | BinaryOp::NotIn | BinaryOp::Range | BinaryOp::RangeInclusive => {}
     }
 }
 
@@ -231,7 +231,7 @@ pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
         }
         BinaryOp::Shl => out.push_str(&format!("    lsl x0, x0, #{}\n", imm & 63)),
         BinaryOp::Shr => out.push_str(&format!("    lsr x0, x0, #{}\n", imm & 63)),
-        BinaryOp::In | BinaryOp::NotIn => {}
+        BinaryOp::In | BinaryOp::NotIn | BinaryOp::Range | BinaryOp::RangeInclusive => {}
     }
 }
 

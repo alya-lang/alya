@@ -58,6 +58,21 @@ impl Parser {
     pub(super) fn parse_if(&mut self) -> Result<Stmt, String> {
         self.advance(); // skip 'if'
         let condition = self.parse_expression()?;
+        if matches!(self.current_token().token_type, TokenType::Then) {
+            self.advance();
+            let then_block = self.parse_statement()?;
+            let else_block = if matches!(self.current_token().token_type, TokenType::Else) {
+                self.advance();
+                Some(self.parse_statement()?)
+            } else {
+                None
+            };
+            return Ok(Stmt::If {
+                condition,
+                then_block,
+                else_block,
+            });
+        }
         self.skip_newlines();
 
         let mut then_block = Vec::new();
@@ -187,7 +202,24 @@ impl Parser {
         self.expect(TokenType::In)?;
 
         let expr = self.parse_expression()?;
-        if matches!(self.current_token().token_type, TokenType::DotDot) {
+        let (is_range, start, end) = if let Expr::Binary { left, op, right } = &expr {
+            if *op == BinaryOp::Range || *op == BinaryOp::RangeInclusive {
+                (true, *left.clone(), *right.clone())
+            } else {
+                (false, expr.clone(), Expr::Null)
+            }
+        } else if matches!(
+            self.current_token().token_type,
+            TokenType::DotDot | TokenType::DotDotEqual
+        ) {
+            self.advance();
+            let end_expr = self.parse_expression()?;
+            (true, expr.clone(), end_expr)
+        } else {
+            (false, expr.clone(), Expr::Null)
+        };
+
+        if is_range {
             if value_var.is_some() {
                 return Err(format!(
                     "Multiple loop variables are not supported for range loops at line {}, column {}",
@@ -195,8 +227,6 @@ impl Parser {
                     self.current_token().column
                 ));
             }
-            self.advance();
-            let end = self.parse_expression()?;
             self.skip_newlines();
 
             let mut body = Vec::new();
@@ -212,7 +242,7 @@ impl Parser {
 
             Ok(Stmt::For {
                 var,
-                start: expr,
+                start,
                 end,
                 body,
             })
@@ -259,7 +289,7 @@ impl Parser {
             }
         };
 
-        let mut arms: Vec<(Vec<WhenPattern>, Vec<Stmt>)> = Vec::new();
+        let mut arms: Vec<(Vec<WhenPattern>, Option<Expr>, Vec<Stmt>)> = Vec::new();
         let mut else_block = None;
 
         while !matches!(
@@ -288,8 +318,17 @@ impl Parser {
                         patterns.push(WhenPattern::Relational(op, expr));
                     } else {
                         let pattern_start = self.parse_expression()?;
-                        if matches!(self.current_token().token_type, TokenType::DotDot) {
-                            self.advance(); // skip '..'
+                        if let Expr::Binary { left, op, right } = pattern_start {
+                            if op == BinaryOp::Range || op == BinaryOp::RangeInclusive {
+                                patterns.push(WhenPattern::Range(*left, *right));
+                            } else {
+                                patterns.push(WhenPattern::Exact(Expr::Binary { left, op, right }));
+                            }
+                        } else if matches!(
+                            self.current_token().token_type,
+                            TokenType::DotDot | TokenType::DotDotEqual
+                        ) {
+                            self.advance(); // skip '..' or '..='
                             let pattern_end = self.parse_expression()?;
                             patterns.push(WhenPattern::Range(pattern_start, pattern_end));
                         } else {
@@ -304,6 +343,13 @@ impl Parser {
                         break;
                     }
                 }
+
+                let guard = if matches!(self.current_token().token_type, TokenType::If) {
+                    self.advance();
+                    Some(self.parse_expression()?)
+                } else {
+                    None
+                };
 
                 // Optional 'then' or '=>'
                 if matches!(
@@ -322,7 +368,7 @@ impl Parser {
                     arm_stmts.extend(self.parse_statement()?);
                     self.skip_newlines();
                 }
-                arms.push((patterns, arm_stmts));
+                arms.push((patterns, guard, arm_stmts));
             } else if matches!(self.current_token().token_type, TokenType::Else) {
                 self.advance(); // skip 'else'
                 if matches!(
@@ -362,8 +408,15 @@ impl Parser {
 
         // Desugar when into nested If statements
         let mut current_else = else_block;
-        for (patterns, stmts) in arms.into_iter().rev() {
-            let condition = build_when_condition(&subject, patterns);
+        for (patterns, guard, stmts) in arms.into_iter().rev() {
+            let mut condition = build_when_condition(&subject, patterns);
+            if let Some(g) = guard {
+                condition = Expr::Binary {
+                    left: Box::new(condition),
+                    op: BinaryOp::And,
+                    right: Box::new(g),
+                };
+            }
             let if_stmt = Stmt::If {
                 condition,
                 then_block: stmts,
