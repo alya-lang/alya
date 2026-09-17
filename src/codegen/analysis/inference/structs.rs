@@ -23,7 +23,8 @@ impl StructInference {
                 fields,
                 field_types,
                 ..
-            } = s.inner_stmt() {
+            } = s.inner_stmt()
+            {
                 struct_names.insert(name.clone());
                 let bare = name.rsplit("::").next().unwrap_or(name);
                 let bare = bare.rsplit("__").next().unwrap_or(bare);
