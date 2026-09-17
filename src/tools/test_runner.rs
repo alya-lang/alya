@@ -110,34 +110,76 @@ pub fn execute_test_file(
         ));
     }
 
-    // 6. Execute binary
+    // 6. Execute binary with timeout
     let exe_path = if matches!(os, OperatingSystem::Windows) {
         format!(".\\{}", temp_exe)
     } else {
         format!("./{}", temp_exe)
     };
 
-    let run_res = Command::new(&exe_path).output();
+    let mut child = Command::new(&exe_path)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to execute test binary '{}': {}", exe_path, e))?;
+
+    let start_wait = Instant::now();
+    let timeout_limit = std::time::Duration::from_secs(30);
+    let mut exited = false;
+    let mut exit_status = None;
+
+    while start_wait.elapsed() < timeout_limit {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|e| format!("Failed to check status of '{}': {}", exe_path, e))?
+        {
+            exit_status = Some(status);
+            exited = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    let (stdout_bytes, stderr_bytes, is_timeout) = if exited {
+        let output = child
+            .wait_with_output()
+            .map_err(|e| format!("Failed to read output of '{}': {}", exe_path, e))?;
+        (output.stdout, output.stderr, false)
+    } else {
+        let _ = child.kill();
+        let output = child
+            .wait_with_output()
+            .unwrap_or_else(|_| std::process::Output {
+                status: exit_status.unwrap_or_default(),
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            });
+        (output.stdout, output.stderr, true)
+    };
 
     let _ = fs::remove_file(&temp_exe);
     let elapsed = start_time.elapsed().as_millis();
 
-    match run_res {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            let full_out = format!("{}{}", stdout, stderr);
-
-            let success = output.status.success()
-                && !full_out.contains("[FAIL]")
-                && !full_out.contains("Runtime error:");
-            Ok((success, full_out, elapsed))
-        }
-        Err(e) => Err(format!(
-            "Failed to execute test binary '{}': {}",
-            exe_path, e
-        )),
+    if is_timeout {
+        return Ok((
+            false,
+            format!(
+                "Test timed out after 30 seconds.\nStdout:\n{}\nStderr:\n{}",
+                String::from_utf8_lossy(&stdout_bytes),
+                String::from_utf8_lossy(&stderr_bytes)
+            ),
+            elapsed,
+        ));
     }
+
+    let stdout = String::from_utf8_lossy(&stdout_bytes).to_string();
+    let stderr = String::from_utf8_lossy(&stderr_bytes).to_string();
+    let full_out = format!("{}{}", stdout, stderr);
+
+    let success = exit_status.map(|s| s.success()).unwrap_or(false)
+        && !full_out.contains("[FAIL]")
+        && !full_out.contains("Runtime error:");
+    Ok((success, full_out, elapsed))
 }
 
 struct TestResultItem {
@@ -196,7 +238,11 @@ pub fn run_tests(
     let default_threads = thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
-    let num_workers = jobs.unwrap_or(default_threads).max(1).min(test_files.len());
+    let max_default = if cfg!(target_os = "windows") { 4 } else { 8 };
+    let num_workers = jobs
+        .unwrap_or_else(|| default_threads.min(max_default))
+        .max(1)
+        .min(test_files.len());
 
     println!("\n=== Running Alya Test Suite ===");
     if num_workers == 1 {
