@@ -530,6 +530,142 @@ impl CodeGen {
         }
     }
 
+    pub(crate) fn get_expr_struct_name(&self, expr: &crate::ast::Expr) -> Option<String> {
+        use crate::ast::Expr;
+        match expr {
+            Expr::Identifier(name) => {
+                if let Some(VarType::Struct { struct_name, .. }) = self.ctx.variables.get(name) {
+                    Some(struct_name.clone())
+                } else {
+                    let bare = name.rsplit("::").next().unwrap_or(name);
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    if self.ctx.structs.contains_key(name) {
+                        Some(name.clone())
+                    } else if self.ctx.structs.contains_key(bare) {
+                        Some(bare.to_string())
+                    } else if let Some(VarType::Struct { struct_name, .. }) = self
+                        .ctx
+                        .variables
+                        .get(&format!("fn_ret_struct:{}", name))
+                        .or_else(|| self.ctx.variables.get(&format!("fn_ret_struct:{}", bare)))
+                    {
+                        Some(struct_name.clone())
+                    } else {
+                        None
+                    }
+                }
+            }
+            Expr::FieldAccess { object, field } | Expr::OptionalFieldAccess { object, field } => {
+                // 1. Resolve parent struct recursively
+                if let Some(parent_struct) = self.get_expr_struct_name(object) {
+                    let bare_parent = parent_struct.rsplit("::").next().unwrap_or(&parent_struct);
+                    let bare_parent = bare_parent.rsplit("__").next().unwrap_or(bare_parent);
+                    if let Some(VarType::Struct { struct_name, .. }) = self
+                        .ctx
+                        .variables
+                        .get(&format!("struct_field_struct:{}.{}", parent_struct, field))
+                        .or_else(|| {
+                            self.ctx
+                                .variables
+                                .get(&format!("struct_field_struct:{}.{}", bare_parent, field))
+                        })
+                    {
+                        return Some(struct_name.clone());
+                    }
+                    if let Some(sdef) = self
+                        .ctx
+                        .structs
+                        .get(&parent_struct)
+                        .or_else(|| self.ctx.structs.get(bare_parent))
+                    {
+                        if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
+                            if let Some(Some(ftype)) = sdef.field_types.get(idx) {
+                                let bare_ftype = ftype.rsplit("::").next().unwrap_or(ftype);
+                                let bare_ftype =
+                                    bare_ftype.rsplit("__").next().unwrap_or(bare_ftype);
+                                if self.ctx.structs.contains_key(ftype) {
+                                    return Some(ftype.clone());
+                                } else if self.ctx.structs.contains_key(bare_ftype) {
+                                    return Some(bare_ftype.to_string());
+                                } else {
+                                    return Some(ftype.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                // 2. Fallback to global field struct mapping
+                if let Some(VarType::Struct { struct_name, .. }) = self
+                    .ctx
+                    .variables
+                    .get(&format!("struct_field_struct:{}", field))
+                {
+                    Some(struct_name.clone())
+                } else {
+                    None
+                }
+            }
+            Expr::Call { name, .. } => {
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if self.ctx.structs.contains_key(name) {
+                    Some(name.clone())
+                } else if self.ctx.structs.contains_key(bare) {
+                    Some(bare.to_string())
+                } else if let Some(VarType::Struct { struct_name, .. }) = self
+                    .ctx
+                    .variables
+                    .get(&format!("fn_ret_struct:{}", name))
+                    .or_else(|| self.ctx.variables.get(&format!("fn_ret_struct:{}", bare)))
+                {
+                    Some(struct_name.clone())
+                } else {
+                    None
+                }
+            }
+            Expr::OptionalCall { callee, .. } => {
+                let bare = callee.rsplit("::").next().unwrap_or(callee);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if self.ctx.structs.contains_key(callee) {
+                    Some(callee.clone())
+                } else if self.ctx.structs.contains_key(bare) {
+                    Some(bare.to_string())
+                } else if let Some(VarType::Struct { struct_name, .. }) = self
+                    .ctx
+                    .variables
+                    .get(&format!("fn_ret_struct:{}", callee))
+                    .or_else(|| self.ctx.variables.get(&format!("fn_ret_struct:{}", bare)))
+                {
+                    Some(struct_name.clone())
+                } else {
+                    None
+                }
+            }
+            Expr::StructInit { name, .. } => {
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if self.ctx.structs.contains_key(name) {
+                    Some(name.clone())
+                } else if self.ctx.structs.contains_key(bare) {
+                    Some(bare.to_string())
+                } else {
+                    Some(name.clone())
+                }
+            }
+            Expr::Ternary {
+                then_branch,
+                else_branch,
+                ..
+            } => self
+                .get_expr_struct_name(then_branch)
+                .or_else(|| self.get_expr_struct_name(else_branch)),
+            Expr::NullCoalesce { value, default } => self
+                .get_expr_struct_name(value)
+                .or_else(|| self.get_expr_struct_name(default)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn is_heap_expression(&self, expr: &crate::ast::Expr) -> bool {
         use crate::ast::Expr;
         match expr {
@@ -548,7 +684,8 @@ impl CodeGen {
                     || crate::codegen::analysis::is_map_expr(expr, &self.ctx.variables)
             }
             Expr::FieldAccess { .. } | Expr::Index { .. } => {
-                crate::codegen::analysis::is_array_expr(expr, &self.ctx.variables)
+                self.get_expr_struct_name(expr).is_some()
+                    || crate::codegen::analysis::is_array_expr(expr, &self.ctx.variables)
                     || crate::codegen::analysis::is_map_expr(expr, &self.ctx.variables)
             }
             _ => false,
