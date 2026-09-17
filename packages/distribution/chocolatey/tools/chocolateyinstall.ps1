@@ -5,7 +5,7 @@ $version     = '0.0.18'
 $toolsDir    = "$(Split-Path -parent $MyInvocation.MyCommand.Definition)"
 
 $url64        = "https://github.com/alya-lang/alya/releases/download/v$version/alyac-v$version-x86_64-windows.zip"
-$checksum64   = '233c02a4f7655db4bba1d31aa5cae3866f993abf57e9313823a0ee414f8fe26b'
+$checksum64   = '8ba3ad83c00de8bba78d4482fd93bbf2b809371a1c7f8cd9ec8322cf748a13cf'
 $checksumType = 'sha256'
 
 $packageArgs = @{
