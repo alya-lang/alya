@@ -800,10 +800,12 @@ pub fn collect_call_args_in_expr_scoped<'a>(
     }
 }
 
+pub type CallSite<'a> = (Option<&'a str>, &'a str, &'a [Expr]);
+
 #[derive(Debug, Default, Clone)]
 pub struct CallIndex<'a> {
     /// Maps bare name -> list of (caller_scope, full_call_name, &'a [Expr])
-    by_bare: std::collections::HashMap<String, Vec<(Option<&'a str>, &'a str, &'a [Expr])>>,
+    by_bare: std::collections::HashMap<String, Vec<CallSite<'a>>>,
 }
 
 impl<'a> CallIndex<'a> {

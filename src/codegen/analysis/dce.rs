@@ -74,10 +74,8 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
         let bare = bare_name(symbol);
 
         // Check exact function
-        if function_defs.contains_key(symbol) {
-            if reachable_functions.insert(symbol.to_string()) {
-                worklist.push(WorkItem::Function(symbol.to_string()));
-            }
+        if function_defs.contains_key(symbol) && reachable_functions.insert(symbol.to_string()) {
+            worklist.push(WorkItem::Function(symbol.to_string()));
         }
         // Also check any candidate functions matching bare name (handles aliases and struct methods)
         if let Some(candidates) = functions_by_bare.get(bare) {
@@ -89,10 +87,8 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
         }
 
         // Check exact struct
-        if struct_defs.contains_key(symbol) {
-            if reachable_structs.insert(symbol.to_string()) {
-                worklist.push(WorkItem::Struct(symbol.to_string()));
-            }
+        if struct_defs.contains_key(symbol) && reachable_structs.insert(symbol.to_string()) {
+            worklist.push(WorkItem::Struct(symbol.to_string()));
         }
         if let Some(candidates) = structs_by_bare.get(bare) {
             for cand in candidates {
@@ -143,20 +139,16 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
                         ..
                     } = stmt.inner_stmt()
                     {
-                        for pt in param_types {
-                            if let Some(t) = pt {
-                                let clean = clean_type_name(t);
-                                item_refs.insert(clean);
-                            }
+                        for t in param_types.iter().flatten() {
+                            let clean = clean_type_name(t);
+                            item_refs.insert(clean);
                         }
                         if let Some(rt) = return_type {
                             let clean = clean_type_name(rt);
                             item_refs.insert(clean);
                         }
-                        for def in defaults {
-                            if let Some(expr) = def {
-                                collect_references_in_expr(expr, &mut item_refs);
-                            }
+                        for expr in defaults.iter().flatten() {
+                            collect_references_in_expr(expr, &mut item_refs);
                         }
                         for s in body {
                             collect_references_in_stmt(s, &mut item_refs);
@@ -172,16 +164,12 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
                         ..
                     } = stmt.inner_stmt()
                     {
-                        for ft in field_types {
-                            if let Some(t) = ft {
-                                let clean = clean_type_name(t);
-                                item_refs.insert(clean);
-                            }
+                        for t in field_types.iter().flatten() {
+                            let clean = clean_type_name(t);
+                            item_refs.insert(clean);
                         }
-                        for def in defaults {
-                            if let Some(expr) = def {
-                                collect_references_in_expr(expr, &mut item_refs);
-                            }
+                        for expr in defaults.iter().flatten() {
+                            collect_references_in_expr(expr, &mut item_refs);
                         }
                     }
                 }
