@@ -1882,10 +1882,47 @@ impl CodeGen {
         }
 
         if !struct_found {
-            for sdef in self.ctx.structs.values() {
-                if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
-                    field_idx = idx;
-                    break;
+            let name_opt = match base_obj {
+                Expr::Identifier(obj_name) => Some(obj_name.as_str()),
+                Expr::FieldAccess {
+                    field: inner_field, ..
+                }
+                | Expr::OptionalFieldAccess {
+                    field: inner_field, ..
+                } => Some(inner_field.as_str()),
+                _ => None,
+            };
+            if let Some(name_str) = name_opt {
+                let lower = name_str.to_lowercase();
+                for (sname, sdef) in &self.ctx.structs {
+                    let s_lower = sname.to_lowercase();
+                    let name_match = s_lower == lower
+                        || s_lower.ends_with(&lower)
+                        || (lower == "req" && s_lower.contains("request"))
+                        || (lower == "res" && s_lower.contains("response"))
+                        || (lower == "ctx" && s_lower.contains("context"))
+                        || (lower == "w" && s_lower.contains("watcher"))
+                        || (lower == "srv" && s_lower.contains("server"))
+                        || (lower == "ev" && s_lower.contains("event"))
+                        || (lower == "ws" && s_lower.contains("websocket"))
+                        || (lower == "conn"
+                            && (s_lower.contains("websocket") || s_lower.contains("connection")))
+                        || (lower == "stream" && s_lower.contains("stream"));
+                    if name_match {
+                        if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
+                            field_idx = idx;
+                            struct_found = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if !struct_found {
+                for sdef in self.ctx.structs.values() {
+                    if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
+                        field_idx = idx;
+                        break;
+                    }
                 }
             }
         }

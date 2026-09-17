@@ -389,7 +389,36 @@ impl CodeGen {
             let is_str_arr = inference.infer_param_is_string_array(name, i, program);
             let is_flt_arr = inference.infer_param_is_float_array(name, i, program);
             let is_map = inference.infer_param_is_map(name, i, program);
-            let struct_type = inference.infer_param_struct_type(name, i);
+            let struct_type = param_types
+                .get(i)
+                .and_then(|t| t.as_ref())
+                .filter(|t| {
+                    let b = t.rsplit("::").next().unwrap_or(t);
+                    let b = b.rsplit("__").next().unwrap_or(b);
+                    self.ctx.structs.contains_key(*t) || self.ctx.structs.contains_key(b)
+                })
+                .map(|t| {
+                    if self.ctx.structs.contains_key(t) {
+                        t.clone()
+                    } else {
+                        let b = t.rsplit("::").next().unwrap_or(t);
+                        let b = b.rsplit("__").next().unwrap_or(b);
+                        b.to_string()
+                    }
+                })
+                .or_else(|| {
+                    if i == 0 {
+                        let bare = name.rsplit("::").next().unwrap_or(name);
+                        let mut parts = bare.split("__");
+                        if let (Some(type_name), Some(_)) = (parts.next(), parts.next()) {
+                            if self.ctx.structs.contains_key(type_name) {
+                                return Some(type_name.to_string());
+                            }
+                        }
+                    }
+                    None
+                })
+                .or_else(|| inference.infer_param_struct_type(name, i));
             if let Some(ref sname) = struct_type {
                 self.ctx.variables.insert(
                     param.clone(),

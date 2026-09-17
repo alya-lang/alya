@@ -139,6 +139,62 @@ pub fn validate_unique_functions(stmts: &[Stmt]) -> Result<(), String> {
     Ok(())
 }
 
+fn collect_local_vars(stmts: &[Stmt], vars: &mut std::collections::HashSet<String>) {
+    for s in stmts {
+        match s.inner_stmt() {
+            Stmt::Let { name, .. } | Stmt::Const { name, .. } => {
+                vars.insert(name.clone());
+            }
+            Stmt::For { var, body, .. } => {
+                vars.insert(var.clone());
+                collect_local_vars(body, vars);
+            }
+            Stmt::ForEach {
+                var,
+                value_var,
+                body,
+                ..
+            } => {
+                vars.insert(var.clone());
+                if let Some(ref v) = value_var {
+                    vars.insert(v.clone());
+                }
+                collect_local_vars(body, vars);
+            }
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                collect_local_vars(then_block, vars);
+                if let Some(ref eb) = else_block {
+                    collect_local_vars(eb, vars);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body } => {
+                collect_local_vars(body, vars);
+            }
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                catch_var,
+                finally_block,
+                ..
+            } => {
+                collect_local_vars(try_block, vars);
+                if let Some(ref cv) = catch_var {
+                    vars.insert(cv.clone());
+                }
+                collect_local_vars(catch_block, vars);
+                if let Some(ref fb) = finally_block {
+                    collect_local_vars(fb, vars);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 fn apply_module_alias(
     stmts: &mut [Stmt],
     alias: &str,
@@ -153,6 +209,7 @@ fn prefix_stmt(stmt: &mut Stmt, alias: &str, local_fns: &std::collections::HashS
     match stmt {
         Stmt::Function {
             name,
+            params,
             defaults,
             body,
             ..
@@ -163,8 +220,17 @@ fn prefix_stmt(stmt: &mut Stmt, alias: &str, local_fns: &std::collections::HashS
             for def in defaults.iter_mut().flatten() {
                 prefix_expr(def, alias, local_fns);
             }
+            let mut inner_fns = local_fns.clone();
+            for p in params {
+                inner_fns.remove(p);
+            }
+            let mut local_vars = std::collections::HashSet::new();
+            collect_local_vars(body, &mut local_vars);
+            for v in &local_vars {
+                inner_fns.remove(v);
+            }
             for s in body {
-                prefix_stmt(s, alias, local_fns);
+                prefix_stmt(s, alias, &inner_fns);
             }
         }
         Stmt::Say(expr) => prefix_expr(expr, alias, local_fns),
@@ -331,6 +397,11 @@ fn prefix_expr(expr: &mut Expr, alias: &str, local_fns: &std::collections::HashS
         }
         Expr::TypeCheck { expr, .. } => {
             prefix_expr(expr, alias, local_fns);
+        }
+        Expr::Identifier(name) => {
+            if local_fns.contains(name) {
+                *name = format!("{}::{}", alias, name);
+            }
         }
         _ => {}
     }

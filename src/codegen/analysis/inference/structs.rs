@@ -121,17 +121,87 @@ impl StructInference {
         for s in stmts {
             match s {
                 Stmt::Function {
-                    name, params, body, ..
+                    name,
+                    params,
+                    param_types,
+                    return_type,
+                    body,
+                    ..
                 } => {
                     let bare = name.rsplit("::").next().unwrap_or(name);
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
+
+                    if let Some(ref rt) = return_type {
+                        let rt_bare = rt.rsplit("::").next().unwrap_or(rt);
+                        let rt_bare = rt_bare.rsplit("__").next().unwrap_or(rt_bare);
+                        if struct_names.contains(rt) {
+                            self.fn_returns.insert(name.to_string(), rt.clone());
+                            if bare != name {
+                                self.fn_returns.insert(bare.to_string(), rt.clone());
+                            }
+                        } else if struct_names.contains(rt_bare) {
+                            self.fn_returns
+                                .insert(name.to_string(), rt_bare.to_string());
+                            if bare != name {
+                                self.fn_returns
+                                    .insert(bare.to_string(), rt_bare.to_string());
+                            }
+                        }
+                    }
+
+                    if let Some(first_p) = params.first() {
+                        let mut parts = bare.split("__");
+                        if let (Some(type_name), Some(_)) = (parts.next(), parts.next()) {
+                            if struct_names.contains(type_name) {
+                                self.fn_params
+                                    .insert((name.clone(), 0), type_name.to_string());
+                                if bare != name {
+                                    self.fn_params
+                                        .insert((bare.to_string(), 0), type_name.to_string());
+                                }
+                                self.var_types.insert(
+                                    format!("{}::{}", name, first_p),
+                                    type_name.to_string(),
+                                );
+                                if bare != name {
+                                    self.var_types.insert(
+                                        format!("{}::{}", bare, first_p),
+                                        type_name.to_string(),
+                                    );
+                                }
+                            }
+                        }
+                    }
+
                     for (i, p) in params.iter().enumerate() {
-                        let st = self
-                            .fn_params
-                            .get(&(name.clone(), i))
-                            .or_else(|| self.fn_params.get(&(bare.to_string(), i)))
-                            .cloned();
+                        let st = param_types
+                            .get(i)
+                            .and_then(|t| t.as_ref())
+                            .filter(|t| {
+                                let b = t.rsplit("::").next().unwrap_or(t);
+                                let b = b.rsplit("__").next().unwrap_or(b);
+                                struct_names.contains(*t) || struct_names.contains(b)
+                            })
+                            .map(|t| {
+                                if struct_names.contains(t) {
+                                    t.clone()
+                                } else {
+                                    let b = t.rsplit("::").next().unwrap_or(t);
+                                    let b = b.rsplit("__").next().unwrap_or(b);
+                                    b.to_string()
+                                }
+                            })
+                            .or_else(|| {
+                                self.fn_params
+                                    .get(&(name.clone(), i))
+                                    .or_else(|| self.fn_params.get(&(bare.to_string(), i)))
+                                    .cloned()
+                            });
                         if let Some(st) = st {
+                            self.fn_params.insert((name.clone(), i), st.clone());
+                            if bare != name {
+                                self.fn_params.insert((bare.to_string(), i), st.clone());
+                            }
                             self.var_types
                                 .insert(format!("{}::{}", name, p), st.clone());
                             if bare != name {
@@ -259,9 +329,27 @@ impl StructInference {
                 Stmt::Expr(expr) | Stmt::Say(expr) => {
                     self.scan_expr(expr, current_fn, struct_names);
                 }
-                Stmt::FieldAssign { object, value, .. } => {
+                Stmt::FieldAssign {
+                    object,
+                    field,
+                    value,
+                } => {
                     self.scan_expr(object, current_fn, struct_names);
                     self.scan_expr(value, current_fn, struct_names);
+                    if let Some(parent_st) = self.expr_struct_type(object, current_fn, struct_names)
+                    {
+                        if let Some(val_st) = self.expr_struct_type(value, current_fn, struct_names)
+                        {
+                            self.field_types
+                                .insert((parent_st.clone(), field.clone()), val_st.clone());
+                            let bare = parent_st.rsplit("::").next().unwrap_or(&parent_st);
+                            let bare = bare.rsplit("__").next().unwrap_or(bare);
+                            if bare != parent_st {
+                                self.field_types
+                                    .insert((bare.to_string(), field.clone()), val_st);
+                            }
+                        }
+                    }
                 }
                 Stmt::IndexAssign {
                     array,
