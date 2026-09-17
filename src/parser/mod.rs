@@ -398,10 +398,8 @@ fn prefix_expr(expr: &mut Expr, alias: &str, local_fns: &std::collections::HashS
         Expr::TypeCheck { expr, .. } => {
             prefix_expr(expr, alias, local_fns);
         }
-        Expr::Identifier(name) => {
-            if local_fns.contains(name) {
-                *name = format!("{}::{}", alias, name);
-            }
+        Expr::Identifier(name) if local_fns.contains(name) => {
+            *name = format!("{}::{}", alias, name);
         }
         _ => {}
     }
