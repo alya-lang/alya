@@ -269,7 +269,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldr x2, [x4]\n");
     emit_adrp_add(out, "x4", "alya_mem_active_allocs", os);
     out.push_str("    ldr x3, [x4]\n");
-    out.push_str(&format!("    bl {}printf\n", p));
+    if matches!(os, OperatingSystem::MacOS) {
+        out.push_str("    sub sp, sp, #32\n");
+        out.push_str("    stp x1, x2, [sp]\n");
+        out.push_str("    str x3, [sp, #16]\n");
+        out.push_str(&format!("    bl {}printf\n", p));
+        out.push_str("    add sp, sp, #32\n");
+    } else {
+        out.push_str(&format!("    bl {}printf\n", p));
+    }
 
     // 3. Bytes
     emit_adrp_add(out, "x0", "alya_mem_fmt_bytes", os);
@@ -279,7 +287,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldr x2, [x4]\n");
     emit_adrp_add(out, "x4", "alya_mem_active_bytes", os);
     out.push_str("    ldr x3, [x4]\n");
-    out.push_str(&format!("    bl {}printf\n", p));
+    if matches!(os, OperatingSystem::MacOS) {
+        out.push_str("    sub sp, sp, #32\n");
+        out.push_str("    stp x1, x2, [sp]\n");
+        out.push_str("    str x3, [sp, #16]\n");
+        out.push_str(&format!("    bl {}printf\n", p));
+        out.push_str("    add sp, sp, #32\n");
+    } else {
+        out.push_str(&format!("    bl {}printf\n", p));
+    }
 
     // 4. Live Objects
     emit_adrp_add(out, "x0", "alya_mem_fmt_objects", os);
@@ -293,7 +309,16 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldr x4, [x4]\n");
     emit_adrp_add(out, "x5", "alya_mem_live_raw", os);
     out.push_str("    ldr x5, [x5]\n");
-    out.push_str(&format!("    bl {}printf\n", p));
+    if matches!(os, OperatingSystem::MacOS) {
+        out.push_str("    sub sp, sp, #48\n");
+        out.push_str("    stp x1, x2, [sp]\n");
+        out.push_str("    stp x3, x4, [sp, #16]\n");
+        out.push_str("    str x5, [sp, #32]\n");
+        out.push_str(&format!("    bl {}printf\n", p));
+        out.push_str("    add sp, sp, #48\n");
+    } else {
+        out.push_str(&format!("    bl {}printf\n", p));
+    }
 
     // 5. Clean vs Leaks
     emit_adrp_add(out, "x4", "alya_mem_active_allocs", os);
@@ -306,9 +331,18 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
 
     out.push_str(".L_arm64_rep_has_leaks:\n");
     emit_adrp_add(out, "x0", "alya_mem_fmt_warn", os);
+    emit_adrp_add(out, "x4", "alya_mem_active_allocs", os);
+    out.push_str("    ldr x1, [x4]\n");
     emit_adrp_add(out, "x4", "alya_mem_active_bytes", os);
     out.push_str("    ldr x2, [x4]\n");
-    out.push_str(&format!("    bl {}printf\n", p));
+    if matches!(os, OperatingSystem::MacOS) {
+        out.push_str("    sub sp, sp, #16\n");
+        out.push_str("    stp x1, x2, [sp]\n");
+        out.push_str(&format!("    bl {}printf\n", p));
+        out.push_str("    add sp, sp, #16\n");
+    } else {
+        out.push_str(&format!("    bl {}printf\n", p));
+    }
 
     emit_adrp_add(out, "x4", "alya_mem_records_head", os);
     out.push_str("    ldr x19, [x4]\n"); // cur = head
@@ -338,7 +372,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x2, x21\n");
     out.push_str("    mov x3, x22\n");
     out.push_str("    mov x4, x24\n");
-    out.push_str(&format!("    bl {}printf\n", p));
+    if matches!(os, OperatingSystem::MacOS) {
+        out.push_str("    sub sp, sp, #32\n");
+        out.push_str("    stp x1, x2, [sp]\n");
+        out.push_str("    stp x3, x4, [sp, #16]\n");
+        out.push_str(&format!("    bl {}printf\n", p));
+        out.push_str("    add sp, sp, #32\n");
+    } else {
+        out.push_str(&format!("    bl {}printf\n", p));
+    }
     out.push_str("    b .L_arm64_rep_loop_next\n");
 
     out.push_str(".L_arm64_rep_chk_arr:\n");
@@ -348,7 +390,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x1, x20\n");
     out.push_str("    mov x2, x21\n");
     out.push_str("    mov x3, x22\n");
-    out.push_str(&format!("    bl {}printf\n", p));
+    if matches!(os, OperatingSystem::MacOS) {
+        out.push_str("    sub sp, sp, #32\n");
+        out.push_str("    stp x1, x2, [sp]\n");
+        out.push_str("    str x3, [sp, #16]\n");
+        out.push_str(&format!("    bl {}printf\n", p));
+        out.push_str("    add sp, sp, #32\n");
+    } else {
+        out.push_str(&format!("    bl {}printf\n", p));
+    }
     out.push_str("    b .L_arm64_rep_loop_next\n");
 
     out.push_str(".L_arm64_rep_chk_map:\n");
@@ -358,7 +408,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x1, x20\n");
     out.push_str("    mov x2, x21\n");
     out.push_str("    mov x3, x22\n");
-    out.push_str(&format!("    bl {}printf\n", p));
+    if matches!(os, OperatingSystem::MacOS) {
+        out.push_str("    sub sp, sp, #32\n");
+        out.push_str("    stp x1, x2, [sp]\n");
+        out.push_str("    str x3, [sp, #16]\n");
+        out.push_str(&format!("    bl {}printf\n", p));
+        out.push_str("    add sp, sp, #32\n");
+    } else {
+        out.push_str(&format!("    bl {}printf\n", p));
+    }
     out.push_str("    b .L_arm64_rep_loop_next\n");
 
     out.push_str(".L_arm64_rep_chk_str:\n");
@@ -368,7 +426,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x1, x20\n");
     out.push_str("    mov x2, x21\n");
     out.push_str("    mov x3, x22\n");
-    out.push_str(&format!("    bl {}printf\n", p));
+    if matches!(os, OperatingSystem::MacOS) {
+        out.push_str("    sub sp, sp, #32\n");
+        out.push_str("    stp x1, x2, [sp]\n");
+        out.push_str("    str x3, [sp, #16]\n");
+        out.push_str(&format!("    bl {}printf\n", p));
+        out.push_str("    add sp, sp, #32\n");
+    } else {
+        out.push_str(&format!("    bl {}printf\n", p));
+    }
     out.push_str("    b .L_arm64_rep_loop_next\n");
 
     out.push_str(".L_arm64_rep_raw:\n");
@@ -376,7 +442,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x1, x20\n");
     out.push_str("    mov x2, x21\n");
     out.push_str("    mov x3, x22\n");
-    out.push_str(&format!("    bl {}printf\n", p));
+    if matches!(os, OperatingSystem::MacOS) {
+        out.push_str("    sub sp, sp, #32\n");
+        out.push_str("    stp x1, x2, [sp]\n");
+        out.push_str("    str x3, [sp, #16]\n");
+        out.push_str(&format!("    bl {}printf\n", p));
+        out.push_str("    add sp, sp, #32\n");
+    } else {
+        out.push_str(&format!("    bl {}printf\n", p));
+    }
 
     out.push_str(".L_arm64_rep_loop_next:\n");
     out.push_str("    add x20, x20, #1\n");

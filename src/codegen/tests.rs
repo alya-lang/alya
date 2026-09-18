@@ -406,3 +406,23 @@ end
     assert!(asm_arm64.contains("lsr x1, x0, #47"));
     assert!(asm_arm64.contains("ldur x1, [x0, #-16]"));
 }
+
+#[test]
+fn test_codegen_macos_arm64_mem_trace_stack_passing() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = "function main() say 42 end";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_macos = generate(&ast, Architecture::ARM64, OperatingSystem::MacOS);
+    assert!(asm_macos.contains(".global alya_mem_trace_report"));
+    assert!(asm_macos.contains("sub sp, sp, #32"));
+    assert!(asm_macos.contains("stp x1, x2, [sp]"));
+    assert!(asm_macos.contains("bl _printf"));
+    assert!(asm_macos.contains("add sp, sp, #32"));
+}
+
