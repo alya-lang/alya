@@ -434,7 +434,8 @@ pub fn generate_html(module: &DocModule) -> String {
     ));
     html.push_str("<style>\n");
     html.push_str(COMMON_CSS);
-    html.push_str(r##"
+    html.push_str(
+        r##"
 .module-layout {
   display: flex;
   min-height: calc(100vh - 64px);
@@ -590,7 +591,8 @@ main {
 </style>
 </head>
 <body>
-"##);
+"##,
+    );
 
     // Top navigation bar
     html.push_str("<header class=\"top-nav\">\n");
@@ -618,7 +620,9 @@ main {
     html.push_str("  </div>\n");
 
     if !module.constants.is_empty() {
-        html.push_str("  <div class=\"nav-group\"><div class=\"nav-group-title\">Constants</div><ul>\n");
+        html.push_str(
+            "  <div class=\"nav-group\"><div class=\"nav-group-title\">Constants</div><ul>\n",
+        );
         for c in &module.constants {
             html.push_str(&format!(
                 "    <li class=\"nav-item\"><a href=\"#c-{}\"><span>{}</span><span class=\"badge badge-const\">c</span></a></li>\n",
@@ -630,7 +634,9 @@ main {
     }
 
     if !module.interfaces.is_empty() {
-        html.push_str("  <div class=\"nav-group\"><div class=\"nav-group-title\">Interfaces</div><ul>\n");
+        html.push_str(
+            "  <div class=\"nav-group\"><div class=\"nav-group-title\">Interfaces</div><ul>\n",
+        );
         for iface in &module.interfaces {
             html.push_str(&format!(
                 "    <li class=\"nav-item\"><a href=\"#if-{}\"><span>{}</span><span class=\"badge badge-interface\">if</span></a></li>\n",
@@ -642,7 +648,9 @@ main {
     }
 
     if !module.structs.is_empty() {
-        html.push_str("  <div class=\"nav-group\"><div class=\"nav-group-title\">Structs</div><ul>\n");
+        html.push_str(
+            "  <div class=\"nav-group\"><div class=\"nav-group-title\">Structs</div><ul>\n",
+        );
         for st in &module.structs {
             html.push_str(&format!(
                 "    <li class=\"nav-item\"><a href=\"#st-{}\"><span>{}</span><span class=\"badge badge-struct\">st</span></a></li>\n",
@@ -654,7 +662,9 @@ main {
     }
 
     if !module.enums.is_empty() {
-        html.push_str("  <div class=\"nav-group\"><div class=\"nav-group-title\">Enums</div><ul>\n");
+        html.push_str(
+            "  <div class=\"nav-group\"><div class=\"nav-group-title\">Enums</div><ul>\n",
+        );
         for e in &module.enums {
             html.push_str(&format!(
                 "    <li class=\"nav-item\"><a href=\"#en-{}\"><span>{}</span><span class=\"badge badge-enum\">en</span></a></li>\n",
@@ -666,7 +676,9 @@ main {
     }
 
     if !module.functions.is_empty() {
-        html.push_str("  <div class=\"nav-group\"><div class=\"nav-group-title\">Functions</div><ul>\n");
+        html.push_str(
+            "  <div class=\"nav-group\"><div class=\"nav-group-title\">Functions</div><ul>\n",
+        );
         for f in &module.functions {
             html.push_str(&format!(
                 "    <li class=\"nav-item\"><a href=\"#fn-{}\"><span>{}()</span><span class=\"badge badge-func\">fn</span></a></li>\n",
@@ -746,7 +758,10 @@ main {
             html.push_str("  <div class=\"card-header\">\n");
             html.push_str("    <div class=\"card-title\">\n");
             html.push_str(&format!("      <span>{}</span>\n", escape_html(&c.name)));
-            html.push_str(&format!("      <a href=\"#c-{}\" class=\"anchor\">#</a>\n", escape_html(&c.name)));
+            html.push_str(&format!(
+                "      <a href=\"#c-{}\" class=\"anchor\">#</a>\n",
+                escape_html(&c.name)
+            ));
             html.push_str("    </div>\n");
             html.push_str("    <div>\n");
             if c.is_pub {
@@ -776,8 +791,14 @@ main {
             ));
             html.push_str("  <div class=\"card-header\">\n");
             html.push_str("    <div class=\"card-title\">\n");
-            html.push_str(&format!("      <span>{}</span>\n", escape_html(&iface.name)));
-            html.push_str(&format!("      <a href=\"#if-{}\" class=\"anchor\">#</a>\n", escape_html(&iface.name)));
+            html.push_str(&format!(
+                "      <span>{}</span>\n",
+                escape_html(&iface.name)
+            ));
+            html.push_str(&format!(
+                "      <a href=\"#if-{}\" class=\"anchor\">#</a>\n",
+                escape_html(&iface.name)
+            ));
             html.push_str("    </div>\n");
             html.push_str("    <div>\n");
             if iface.is_pub {
@@ -832,7 +853,10 @@ main {
             html.push_str("  <div class=\"card-header\">\n");
             html.push_str("    <div class=\"card-title\">\n");
             html.push_str(&format!("      <span>{}</span>\n", escape_html(&st.name)));
-            html.push_str(&format!("      <a href=\"#st-{}\" class=\"anchor\">#</a>\n", escape_html(&st.name)));
+            html.push_str(&format!(
+                "      <a href=\"#st-{}\" class=\"anchor\">#</a>\n",
+                escape_html(&st.name)
+            ));
             html.push_str("    </div>\n");
             html.push_str("    <div>\n");
             if st.is_pub {
@@ -887,7 +911,10 @@ main {
             html.push_str("  <div class=\"card-header\">\n");
             html.push_str("    <div class=\"card-title\">\n");
             html.push_str(&format!("      <span>{}</span>\n", escape_html(&e.name)));
-            html.push_str(&format!("      <a href=\"#en-{}\" class=\"anchor\">#</a>\n", escape_html(&e.name)));
+            html.push_str(&format!(
+                "      <a href=\"#en-{}\" class=\"anchor\">#</a>\n",
+                escape_html(&e.name)
+            ));
             html.push_str("    </div>\n");
             html.push_str("    <div>\n");
             if e.is_pub {
@@ -930,7 +957,10 @@ main {
             html.push_str("  <div class=\"card-header\">\n");
             html.push_str("    <div class=\"card-title\">\n");
             html.push_str(&format!("      <span>{}</span>\n", escape_html(&f.name)));
-            html.push_str(&format!("      <a href=\"#fn-{}\" class=\"anchor\">#</a>\n", escape_html(&f.name)));
+            html.push_str(&format!(
+                "      <a href=\"#fn-{}\" class=\"anchor\">#</a>\n",
+                escape_html(&f.name)
+            ));
             html.push_str("    </div>\n");
             html.push_str("    <div>\n");
             if f.is_pub {
@@ -1034,7 +1064,8 @@ pub fn generate_index_html(modules: &[DocModule]) -> String {
     html.push_str("<title>Alya Standard Library - Documentation</title>\n");
     html.push_str("<style>\n");
     html.push_str(COMMON_CSS);
-    html.push_str(r##"
+    html.push_str(
+        r##"
 .hero-container {
   max-width: 1200px;
   margin: 0 auto;
@@ -1275,7 +1306,8 @@ footer {
 </style>
 </head>
 <body>
-"##);
+"##,
+    );
 
     // Top Navigation
     html.push_str("<header class=\"top-nav\">\n");
@@ -1292,7 +1324,9 @@ footer {
 
     // Hero Section
     html.push_str("<div class=\"hero-container\">\n");
-    html.push_str("  <div class=\"hero-badge\">⚡ High-Performance Native Standard Library</div>\n");
+    html.push_str(
+        "  <div class=\"hero-badge\">⚡ High-Performance Native Standard Library</div>\n",
+    );
     html.push_str("  <h1 class=\"hero-title\">Alya Standard Library</h1>\n");
     html.push_str(&format!(
         "  <p class=\"hero-subtitle\">Official API documentation, contracts, and module references across all {} foundational packages.</p>\n",
@@ -1444,24 +1478,12 @@ window.addEventListener('keydown', (e) => {
 
 fn categorize_module(name: &str) -> (&'static str, &'static str, &'static str) {
     match name {
-        "math" | "str" | "mem" | "time" | "rand" => {
-            ("Core & Math", "badge-func", "Core")
-        }
-        "collections" | "json" | "hash" => {
-            ("Collections & Data", "badge-struct", "Data")
-        }
-        "fs" | "path" | "io" | "glob" => {
-            ("I/O & File System", "badge-interface", "IO")
-        }
-        "os" | "process" | "cli" | "console" | "color" => {
-            ("System & OS", "badge-amber", "System")
-        }
-        "sync" | "thread" | "net" => {
-            ("Concurrency & Net", "badge-pub", "Concurrency")
-        }
-        "test" | "bench" | "log" => {
-            ("Testing & Tooling", "badge-const", "Tooling")
-        }
+        "math" | "str" | "mem" | "time" | "rand" => ("Core & Math", "badge-func", "Core"),
+        "collections" | "json" | "hash" => ("Collections & Data", "badge-struct", "Data"),
+        "fs" | "path" | "io" | "glob" => ("I/O & File System", "badge-interface", "IO"),
+        "os" | "process" | "cli" | "console" | "color" => ("System & OS", "badge-amber", "System"),
+        "sync" | "thread" | "net" => ("Concurrency & Net", "badge-pub", "Concurrency"),
+        "test" | "bench" | "log" => ("Testing & Tooling", "badge-const", "Tooling"),
         _ => ("Module", "badge-kind", "all"),
     }
 }
@@ -1529,8 +1551,24 @@ fn highlight_signature(sig: &str) -> String {
 
     // Keywords
     let keywords = [
-        "pub ", "function ", "fn ", "struct ", "interface ", "enum ", "const ", "let ",
-        "return ", "end", "when ", "if ", "else ", "while ", "for ", "in ", "spawn ", "defer ",
+        "pub ",
+        "function ",
+        "fn ",
+        "struct ",
+        "interface ",
+        "enum ",
+        "const ",
+        "let ",
+        "return ",
+        "end",
+        "when ",
+        "if ",
+        "else ",
+        "while ",
+        "for ",
+        "in ",
+        "spawn ",
+        "defer ",
     ];
 
     let mut res = escaped;
@@ -1619,7 +1657,10 @@ fn render_markdown_html(md: &str) -> String {
                 out.push_str("</ul>\n");
                 in_list = false;
             }
-            out.push_str(&format!("<h3 style=\"font-size: 1.25rem; color: #fff; margin: 20px 0 10px;\">{}</h3>\n", escape_html(&trimmed[3..])));
+            out.push_str(&format!(
+                "<h3 style=\"font-size: 1.25rem; color: #fff; margin: 20px 0 10px;\">{}</h3>\n",
+                escape_html(&trimmed[3..])
+            ));
             continue;
         }
 
@@ -1628,7 +1669,10 @@ fn render_markdown_html(md: &str) -> String {
                 out.push_str("</ul>\n");
                 in_list = false;
             }
-            out.push_str(&format!("<h2 style=\"font-size: 1.5rem; color: #fff; margin: 24px 0 12px;\">{}</h2>\n", escape_html(&trimmed[2..])));
+            out.push_str(&format!(
+                "<h2 style=\"font-size: 1.5rem; color: #fff; margin: 24px 0 12px;\">{}</h2>\n",
+                escape_html(&trimmed[2..])
+            ));
             continue;
         }
 
@@ -1638,7 +1682,10 @@ fn render_markdown_html(md: &str) -> String {
                 in_list = true;
             }
             let item_text = &trimmed[2..];
-            out.push_str(&format!("  <li style=\"margin: 4px 0;\">{}</li>\n", format_inline_markdown(item_text)));
+            out.push_str(&format!(
+                "  <li style=\"margin: 4px 0;\">{}</li>\n",
+                format_inline_markdown(item_text)
+            ));
             continue;
         }
 
@@ -1651,7 +1698,10 @@ fn render_markdown_html(md: &str) -> String {
             continue;
         }
 
-        out.push_str(&format!("<p style=\"margin-bottom: 12px; color: #cbd5e1; font-size: 0.95rem;\">{}</p>\n", format_inline_markdown(trimmed)));
+        out.push_str(&format!(
+            "<p style=\"margin-bottom: 12px; color: #cbd5e1; font-size: 0.95rem;\">{}</p>\n",
+            format_inline_markdown(trimmed)
+        ));
     }
 
     if in_list {
