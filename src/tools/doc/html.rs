@@ -49,6 +49,31 @@ const COMMON_CSS: &str = r##"
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Custom Dark Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(8, 12, 22, 0.6);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 9999px;
+  border: 2px solid rgba(8, 12, 22, 0.6);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.45);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) rgba(8, 12, 22, 0.6);
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background-color: var(--bg);
@@ -83,6 +108,7 @@ body {
   align-items: center;
   gap: 12px;
   text-decoration: none;
+  color: inherit;
 }
 
 .brand-title {
@@ -101,17 +127,19 @@ body {
   margin-left: 2px;
 }
 
-.version-pill {
+.version-badge, .version-pill {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
-  background: rgba(56, 189, 248, 0.1);
-  border: 1px solid rgba(56, 189, 248, 0.25);
-  color: var(--accent);
+  padding: 3px 9px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #38bdf8 !important;
   border-radius: 9999px;
   font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  text-decoration: none !important;
 }
 
 .nav-links {
@@ -452,6 +480,25 @@ aside {
   height: calc(100vh - 64px);
   overflow-y: auto;
   flex-shrink: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(56, 189, 248, 0.25) transparent;
+}
+
+aside::-webkit-scrollbar {
+  width: 6px;
+}
+
+aside::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+aside::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+
+aside::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.4);
 }
 
 .back-link {
@@ -517,11 +564,18 @@ aside a:hover {
   padding-left: 6px;
 }
 
-main {
+.main-wrapper {
   flex: 1;
-  padding: 40px 48px;
-  max-width: 1020px;
-  overflow-y: auto;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  padding: 0 48px;
+}
+
+main {
+  width: 100%;
+  max-width: 1120px;
+  padding: 40px 0 80px;
 }
 
 .module-header {
@@ -557,7 +611,7 @@ main {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px;
   margin-top: 20px;
 }
@@ -586,7 +640,8 @@ main {
 @media (max-width: 860px) {
   .module-layout { flex-direction: column; }
   aside { width: 100%; height: auto; position: static; }
-  main { padding: 24px; }
+  .main-wrapper { padding: 0 20px; }
+  main { padding: 24px 0 60px; }
 }
 </style>
 </head>
@@ -600,7 +655,10 @@ main {
     html.push_str(ALYA_LOGO_SVG);
     html.push_str("    <span class=\"brand-title\">Alya</span>\n");
     html.push_str("    <span class=\"brand-sub\">Docs</span>\n");
-    html.push_str("    <span class=\"version-badge\">v0.0.18</span>\n");
+    html.push_str(&format!(
+        "    <span class=\"version-badge\">v{}</span>\n",
+        env!("CARGO_PKG_VERSION")
+    ));
     html.push_str("  </a>\n");
     html.push_str("  <nav class=\"nav-links\">\n");
     html.push_str("    <a href=\"index.html\" class=\"nav-link active\">← All Modules</a>\n");
@@ -691,6 +749,7 @@ main {
     html.push_str("</aside>\n\n");
 
     // Main content
+    html.push_str("<div class=\"main-wrapper\">\n");
     html.push_str("<main>\n");
 
     // Module Header
@@ -1005,7 +1064,8 @@ main {
     }
 
     html.push_str("</main>\n");
-    html.push_str("</div>\n");
+    html.push_str("</div>\n"); // close main-wrapper
+    html.push_str("</div>\n"); // close module-layout
 
     // Client-side scripts (filter & copy)
     html.push_str(
@@ -1315,7 +1375,10 @@ footer {
     html.push_str(ALYA_LOGO_SVG);
     html.push_str("    <span class=\"brand-title\">Alya</span>\n");
     html.push_str("    <span class=\"brand-sub\">Documentation</span>\n");
-    html.push_str("    <span class=\"version-badge\">v0.0.18</span>\n");
+    html.push_str(&format!(
+        "    <span class=\"version-badge\">v{}</span>\n",
+        env!("CARGO_PKG_VERSION")
+    ));
     html.push_str("  </div>\n");
     html.push_str("  <nav class=\"nav-links\">\n");
     html.push_str("    <a href=\"https://github.com/alya-lang/alya\" target=\"_blank\" class=\"nav-link\">GitHub Repository ↗</a>\n");
