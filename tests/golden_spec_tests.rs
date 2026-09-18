@@ -249,3 +249,21 @@ fn test_golden_spec_generics_execution() {
     }
 }
 
+#[test]
+fn test_golden_spec_enums_execution() {
+    let enums_file = get_spec_syntax_dir().join("enums.alya");
+    let source = fs::read_to_string(&enums_file)
+        .expect("Failed to read spec/syntax/enums.alya");
+
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from enums.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("Heading numeric value: 0"));
+        assert!(output.contains("Status: 404"));
+        assert!(output.contains("Is success: 0"));
+        assert!(output.contains("Is client error: 1"));
+        assert!(output.contains("Active environment: prod"));
+        assert!(output.contains("Navigation advice: Heading towards the sunrise"));
+        assert!(output.contains("Response verdict: Client correction required"));
+    }
+}

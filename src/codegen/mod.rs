@@ -247,6 +247,18 @@ impl CodeGen {
         let pruned_stmts = pruned_prog.statements.len();
         let program = &pruned_prog;
 
+        // Collect all enum definitions first
+        for stmt in &program.statements {
+            if let Stmt::EnumDef { name, .. } = stmt.inner_stmt() {
+                self.ctx.enums.insert(name.clone());
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if bare != name {
+                    self.ctx.enums.insert(bare.to_string());
+                }
+            }
+        }
+
         // Collect all struct definitions first
         for stmt in &program.statements {
             if let Stmt::StructDef {
@@ -419,7 +431,7 @@ impl CodeGen {
                 self.ctx.functions.insert(name.clone());
                 let ns_bare = name.rsplit("::").next().unwrap_or(name);
                 let bare = if let Some((prefix, _)) = ns_bare.split_once("__") {
-                    if self.ctx.structs.contains_key(prefix) {
+                    if self.ctx.structs.contains_key(prefix) || self.ctx.enums.contains(prefix) {
                         ns_bare
                     } else {
                         ns_bare.rsplit("__").next().unwrap_or(ns_bare)
@@ -637,9 +649,9 @@ impl CodeGen {
                         let bare_base = t.split('[').next().unwrap_or(t);
                         let bare = bare_base.rsplit("::").next().unwrap_or(bare_base);
                         let bare = bare.rsplit("__").next().unwrap_or(bare);
-                        if self.ctx.structs.contains_key(bare_base) {
+                        if self.ctx.structs.contains_key(bare_base) || self.ctx.enums.contains(bare_base) {
                             Some(bare_base.to_string())
-                        } else if self.ctx.structs.contains_key(bare) {
+                        } else if self.ctx.structs.contains_key(bare) || self.ctx.enums.contains(bare) {
                             Some(bare.to_string())
                         } else {
                             None
@@ -961,12 +973,14 @@ impl CodeGen {
                 }
                 if let Some(VarType::Struct { struct_name, .. }) = self.ctx.variables.get(name) {
                     Some(struct_name.clone())
+                } else if let Some(VarType::StringLabel(ename)) = self.ctx.variables.get(&format!("var_enum_type:{}", name)) {
+                    Some(ename.clone())
                 } else {
                     let bare = name.rsplit("::").next().unwrap_or(name);
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
-                    if self.ctx.structs.contains_key(name) {
+                    if self.ctx.structs.contains_key(name) || self.ctx.enums.contains(name) {
                         Some(name.clone())
-                    } else if self.ctx.structs.contains_key(bare) {
+                    } else if self.ctx.structs.contains_key(bare) || self.ctx.enums.contains(bare) {
                         Some(bare.to_string())
                     } else if let Some(VarType::Struct { struct_name, .. }) = self
                         .ctx
@@ -975,6 +989,12 @@ impl CodeGen {
                         .or_else(|| self.ctx.variables.get(&format!("fn_ret_struct:{}", bare)))
                     {
                         Some(struct_name.clone())
+                    } else if let Some(VarType::StringLabel(ename)) = self
+                        .ctx
+                        .variables
+                        .get(&format!("var_enum_type:{}", bare))
+                    {
+                        Some(ename.clone())
                     } else {
                         None
                     }

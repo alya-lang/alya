@@ -248,6 +248,9 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             },
             vars,
         ),
+        Expr::Cast { expr: inner, target } => {
+            target == "string" || target == "str" || is_string_expr(inner, vars)
+        }
         _ => false,
     }
 }
@@ -685,6 +688,9 @@ pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             },
             vars,
         ),
+        Expr::Cast { expr: inner, target } => {
+            target == "float" || target == "f64" || target == "f32" || is_float_expr(inner, vars)
+        }
         _ => false,
     }
 }

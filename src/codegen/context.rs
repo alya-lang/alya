@@ -65,6 +65,7 @@ pub struct CodeGenContext {
     pub next_defer_idx: usize,
     pub current_fn_name: String,
     pub globals: HashMap<String, (String, Option<String>)>,
+    pub enums: HashSet<String>,
 }
 
 impl CodeGenContext {
@@ -85,6 +86,7 @@ impl CodeGenContext {
             next_defer_idx: 0,
             current_fn_name: String::new(),
             globals: HashMap::new(),
+            enums: HashSet::new(),
         }
     }
 

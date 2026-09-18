@@ -46,7 +46,40 @@ pub fn resolve_enums(program: &mut Program) {
 pub fn resolve_enums_in_stmt(stmt: &mut Stmt, enums: &HashMap<String, HashMap<String, Expr>>) {
     match stmt {
         Stmt::Say(expr) | Stmt::Expr(expr) => resolve_enums_in_expr(expr, enums),
-        Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Const { value, .. } => {
+        Stmt::Let {
+            type_ann,
+            value,
+            ..
+        } => {
+            if type_ann.is_none() {
+                if let Expr::FieldAccess { object, .. } = value {
+                    if let Expr::Identifier(enum_name) = &**object {
+                        let bare = enum_name.rsplit("::").next().unwrap_or(enum_name);
+                        let bare = bare.rsplit("__").next().unwrap_or(bare);
+                        if enums.contains_key(enum_name) {
+                            *type_ann = Some(enum_name.clone());
+                        } else if enums.contains_key(bare) {
+                            *type_ann = Some(bare.to_string());
+                        }
+                    }
+                } else if let Expr::Identifier(ident) = value {
+                    if ident.contains("::") {
+                        let parts: Vec<&str> = ident.split("::").collect();
+                        if parts.len() >= 2 {
+                            let enum_name = parts[..parts.len() - 1].join("::");
+                            let bare_enum = parts[parts.len() - 2];
+                            if enums.contains_key(&enum_name) {
+                                *type_ann = Some(enum_name);
+                            } else if enums.contains_key(bare_enum) {
+                                *type_ann = Some(bare_enum.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            resolve_enums_in_expr(value, enums);
+        }
+        Stmt::Assign { value, .. } | Stmt::Const { value, .. } => {
             resolve_enums_in_expr(value, enums);
         }
         Stmt::If {

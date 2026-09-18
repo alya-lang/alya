@@ -384,9 +384,37 @@ impl CodeGen {
                     None
                 };
 
+                let is_enum_from_ann = if let Some(t) = type_ann {
+                    let bare = t.rsplit("::").next().unwrap_or(t);
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    if self.ctx.enums.contains(t) {
+                        Some(t.to_string())
+                    } else if self.ctx.enums.contains(bare) {
+                        Some(bare.to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let is_enum = is_enum_from_ann.or_else(|| match value {
+                    Expr::Identifier(ident) => {
+                        if let Some(VarType::StringLabel(ename)) = self.ctx.variables.get(&format!("var_enum_type:{}", ident)) {
+                            Some(ename.clone())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                });
+
                 let is_str = is_explicit_str || is_string_expr(value, &self.ctx.variables);
                 let is_arr = is_explicit_arr || is_array_expr(value, &self.ctx.variables);
-                let is_struct = is_struct_from_ann.or_else(|| self.get_expr_struct_name(value));
+                let is_struct = if is_enum.is_some() {
+                    None
+                } else {
+                    is_struct_from_ann.or_else(|| self.get_expr_struct_name(value))
+                };
                 let is_flt = is_explicit_flt || is_float_expr(value, &self.ctx.variables);
                 let is_map = is_explicit_map || is_map_expr(value, &self.ctx.variables);
                 let is_null = is_null_expr(value, &self.ctx.variables);
@@ -414,6 +442,13 @@ impl CodeGen {
                 }
 
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+
+                if let Some(ename) = &is_enum {
+                    self.ctx.variables.insert(
+                        format!("var_enum_type:{}", name),
+                        VarType::StringLabel(ename.clone()),
+                    );
+                }
 
                 if let Some(sname) = is_struct {
                     self.ctx.variables.insert(
