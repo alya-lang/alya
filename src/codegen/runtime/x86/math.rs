@@ -47,7 +47,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
-    // fn_isqrt
+    // fn_isqrt / fn_sqrt
+    out.push_str(".global fn_sqrt\n");
+    out.push_str("fn_sqrt:\n");
+    out.push_str(".global fn_isqrt\n");
     out.push_str("fn_isqrt:\n");
     out.push_str("    push %ebp\n");
     out.push_str("    mov %esp, %ebp\n");

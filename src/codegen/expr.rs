@@ -617,7 +617,7 @@ impl CodeGen {
                     return;
                 }
 
-                if name == "assert_eq" && (args.len() == 2 || args.len() == 3) {
+                if name == "assert_eq" && (args.len() == 2 || args.len() == 3) && !self.ctx.functions.contains("assert_eq") {
                     let eq_expr = Expr::Binary {
                         left: Box::new(args[0].clone()),
                         op: BinaryOp::Equal,
@@ -646,7 +646,7 @@ impl CodeGen {
                     return;
                 }
 
-                if name == "assert" && (args.len() == 1 || args.len() == 2) {
+                if name == "assert" && (args.len() == 1 || args.len() == 2) && !self.ctx.functions.contains("assert") {
                     self.generate_expression(&args[0]);
                     let ok_label = self.ctx.next_label();
                     arch::emit_cmp_imm(&mut self.output, self.arch, 0);
@@ -1204,30 +1204,28 @@ impl CodeGen {
                 }
 
                 // 2. Struct instance method call via UFCS: p.distance(...) -> Point__distance(p, ...)
-                if !self.ctx.functions.contains(&resolved_name) {
-                    if let Some(first_arg) = actual_args.first() {
-                        let struct_name_opt = self.get_expr_struct_name(first_arg);
-                        if let Some(sname) = struct_name_opt {
-                            let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
-                            let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
-                            let candidate1 = format!("{}__{}", sname, name);
-                            let candidate2 = format!("{}__{}", bare_sname, name);
-                            let suffix1 = format!("__{}", candidate1);
-                            let suffix2 = format!("__{}", candidate2);
-                            let suffix3 = format!("::{}", candidate1);
-                            let suffix4 = format!("::{}", candidate2);
-                            if self.ctx.functions.contains(&candidate1) {
-                                resolved_name = candidate1;
-                            } else if self.ctx.functions.contains(&candidate2) {
-                                resolved_name = candidate2;
-                            } else if let Some(matched) = self.ctx.functions.iter().find(|f| {
-                                f.ends_with(&suffix1)
-                                    || f.ends_with(&suffix2)
-                                    || f.ends_with(&suffix3)
-                                    || f.ends_with(&suffix4)
-                            }) {
-                                resolved_name = matched.clone();
-                            }
+                if let Some(first_arg) = actual_args.first() {
+                    let struct_name_opt = self.get_expr_struct_name(first_arg);
+                    if let Some(sname) = struct_name_opt {
+                        let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+                        let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                        let candidate1 = format!("{}__{}", sname, name);
+                        let candidate2 = format!("{}__{}", bare_sname, name);
+                        let suffix1 = format!("__{}", candidate1);
+                        let suffix2 = format!("__{}", candidate2);
+                        let suffix3 = format!("::{}", candidate1);
+                        let suffix4 = format!("::{}", candidate2);
+                        if self.ctx.functions.contains(&candidate1) {
+                            resolved_name = candidate1;
+                        } else if self.ctx.functions.contains(&candidate2) {
+                            resolved_name = candidate2;
+                        } else if let Some(matched) = self.ctx.functions.iter().find(|f| {
+                            f.ends_with(&suffix1)
+                                || f.ends_with(&suffix2)
+                                || f.ends_with(&suffix3)
+                                || f.ends_with(&suffix4)
+                        }) {
+                            resolved_name = matched.clone();
                         }
                     }
                 }
@@ -1612,7 +1610,21 @@ impl CodeGen {
                 arch::emit_pop_temp(&mut self.output, self.arch);
             }
             Expr::FieldAccess { object, field } => {
+                if field == "message" && is_string_expr(object, &self.ctx.variables) {
+                    self.generate_expression(object);
+                    match self.arch {
+                        Architecture::X64 => {
+                            self.output.push_str("    movq %rax, %xmm0\n");
+                        }
+                        Architecture::ARM64 => {
+                            self.output.push_str("    fmov d0, x0\n");
+                        }
+                        Architecture::X86 => {}
+                    }
+                    return;
+                }
                 let field_idx = self.resolve_struct_field_index(object, field);
+
                 let is_weak = self.is_struct_field_weak(object, field);
                 self.generate_expression(object);
                 arch::emit_struct_field_get(&mut self.output, self.arch, field_idx);
@@ -1999,10 +2011,24 @@ impl CodeGen {
                 }
             }
             Expr::OptionalFieldAccess { object, field } => {
+                if field == "message" && is_string_expr(object, &self.ctx.variables) {
+                    self.generate_expression(object);
+                    match self.arch {
+                        Architecture::X64 => {
+                            self.output.push_str("    movq %rax, %xmm0\n");
+                        }
+                        Architecture::ARM64 => {
+                            self.output.push_str("    fmov d0, x0\n");
+                        }
+                        Architecture::X86 => {}
+                    }
+                    return;
+                }
                 let null_label = self.ctx.next_label();
                 let end_label = self.ctx.next_label();
 
                 let field_idx = self.resolve_struct_field_index(object, field);
+
                 let is_weak = self.is_struct_field_weak(object, field);
 
                 self.generate_expression(object);

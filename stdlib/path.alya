@@ -108,6 +108,10 @@ pub function extname(path: string) -> string
     return file_ext(path)
 end
 
+pub function ext(path: string) -> string
+    return file_ext(path)
+end
+
 pub function has_extension(path: string) -> int
     if len(file_ext(path)) > 0
         return 1
@@ -240,6 +244,29 @@ end
 pub function path_join3(a: string, b: string, c: string) -> string
     return path_join(path_join(a, b), c)
 end
+
+pub function path__join(a: string, b: string = "", c: string = "") -> string
+    if len(c) > 0
+        return path_join3(a, b, c)
+    elif len(b) > 0
+        return path_join(a, b)
+    else
+        return a
+    end
+end
+
+pub function path__ext(path: string) -> string
+    return file_ext(path)
+end
+
+pub function path__dirname(path: string) -> string
+    return parent_dir(path)
+end
+
+pub function path__basename(path: string) -> string
+    return file_name(path)
+end
+
 
 pub function path_join_all(parts: string[]) -> string
     let total: int = len(parts)

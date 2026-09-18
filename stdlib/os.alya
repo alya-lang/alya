@@ -61,6 +61,14 @@ pub function env_or(key: string, default_val: string) -> string
     return val
 end
 
+pub function getenv(key: string)
+    let val: string = get_env(key)
+    if len(val) == 0
+        return null
+    end
+    return val
+end
+
 pub function has_env(key: string) -> int
     if len(get_env(key)) > 0
         return 1
@@ -93,6 +101,27 @@ end
 pub function cwd() -> string
     return __native_get_cwd()
 end
+
+pub function os__pid() -> int
+    return pid()
+end
+
+pub function os__cwd() -> string
+    return cwd()
+end
+
+pub function os__platform() -> string
+    return platform()
+end
+
+pub function os__arch() -> string
+    return arch()
+end
+
+pub function os__getenv(key: string)
+    return getenv(key)
+end
+
 
 pub function set_cwd(path: string) -> int
     return __native_set_cwd(path)

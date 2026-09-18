@@ -17,9 +17,18 @@ pub function delay(ms: int)
     return sleep(ms)
 end
 
+pub function time__sleep(ms: int)
+    sleep(ms)
+end
+
+pub function time__now_millis() -> int
+    return now_millis()
+end
+
 pub function sleep_sec(seconds: int)
     return sleep(seconds * 1000)
 end
+
 
 pub function elapsed(start_time: int) -> int
     return time() - start_time

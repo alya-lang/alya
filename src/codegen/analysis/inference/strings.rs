@@ -851,12 +851,18 @@ fn collect_string_vars_from_stmts(
                     )
                 {
                     known_strings.insert(format!("fn_ret_str:{}", name));
-                    known_strings.insert(format!("fn_ret_str:{}", bare));
+                    if !name.contains("__") {
+                        known_strings.insert(format!("fn_ret_str:{}", bare));
+                    }
                 }
                 collect_tuple_returns_string(body, &fn_locals, name, known_strings);
-                collect_tuple_returns_string(body, &fn_locals, bare, known_strings);
+                if !name.contains("__") {
+                    collect_tuple_returns_string(body, &fn_locals, bare, known_strings);
+                }
                 collect_function_returns_string_array(body, &fn_locals, name, known_strings);
-                collect_function_returns_string_array(body, &fn_locals, bare, known_strings);
+                if !name.contains("__") {
+                    collect_function_returns_string_array(body, &fn_locals, bare, known_strings);
+                }
                 for item in &fn_locals {
                     if let Some(var_name) = item.strip_prefix("arr_is_str:") {
                         known_strings.insert(format!("fn_local_str_arr:{}:{}", name, var_name));
@@ -933,23 +939,32 @@ pub fn collect_known_string_vars_with_index(
         {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
+            let is_mangled = name.contains("__");
             if let Some(ret) = return_type {
                 if ret == "str" || ret == "string" {
                     known_strings.insert(format!("fn_ret_str:{}", name));
-                    known_strings.insert(format!("fn_ret_str:{}", bare));
+                    if !is_mangled {
+                        known_strings.insert(format!("fn_ret_str:{}", bare));
+                    }
                 } else if ret == "str[]" || ret == "string[]" {
                     known_strings.insert(format!("fn_ret_str_arr:{}", name));
-                    known_strings.insert(format!("fn_ret_str_arr:{}", bare));
+                    if !is_mangled {
+                        known_strings.insert(format!("fn_ret_str_arr:{}", bare));
+                    }
                 }
             }
             for (idx, p_type) in param_types.iter().enumerate() {
                 if let Some(pt) = p_type {
                     if pt == "str" || pt == "string" {
                         known_strings.insert(format!("fn_param_str:{}:{}", name, idx));
-                        known_strings.insert(format!("fn_param_str:{}:{}", bare, idx));
+                        if !is_mangled {
+                            known_strings.insert(format!("fn_param_str:{}:{}", bare, idx));
+                        }
                     } else if pt == "str[]" || pt == "string[]" {
                         known_strings.insert(format!("fn_param_str_arr:{}:{}", name, idx));
-                        known_strings.insert(format!("fn_param_str_arr:{}:{}", bare, idx));
+                        if !is_mangled {
+                            known_strings.insert(format!("fn_param_str_arr:{}:{}", bare, idx));
+                        }
                     }
                 }
             }

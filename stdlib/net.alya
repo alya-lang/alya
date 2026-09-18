@@ -12,9 +12,17 @@ pub function tcp_socket() -> int
     return net_socket()
 end
 
-# Connects to a remote TCP server. Returns a socket descriptor (>= 0) or -1 on error.
+pub struct SocketError
+    message: string
+end
+
+# Connects to a remote TCP server. Returns a socket descriptor (>= 0) or throws SocketError on error.
 pub function tcp_connect(host: string, port: int) -> int
-    return net_connect(host, port)
+    let s: int = net_connect(host, port)
+    if s < 0
+        throw SocketError(f"Connection to {host}:{port} refused or failed")
+    end
+    return s
 end
 
 # Sends a string over a connected TCP socket. Returns number of bytes sent or -1 on error.
@@ -36,6 +44,23 @@ end
 pub function tcp_close(sock: int) -> int
     return net_close(sock)
 end
+
+pub function net__tcp_connect(host: string, port: int) -> int
+    return tcp_connect(host, port)
+end
+
+pub function net__send(sock: int, data: string) -> int
+    return tcp_send(sock, data)
+end
+
+pub function net__recv(sock: int, max_bytes: int = 4096) -> string
+    return tcp_recv(sock, max_bytes)
+end
+
+pub function net__close(sock: int) -> int
+    return tcp_close(sock)
+end
+
 
 # Creates a TCP server socket listening on the specified port.
 # Returns listening socket handle or -1 on error.

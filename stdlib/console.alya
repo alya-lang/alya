@@ -261,3 +261,13 @@ pub function console_magenta(text: string) -> string return color_magenta(text) 
 pub function console_cyan(text: string) -> string return color_cyan(text) end
 pub function console_white(text: string) -> string return color_white(text) end
 pub function console_gray(text: string) -> string return color_gray(text) end
+
+pub function utf8() -> int return console_utf8() end
+pub function console__utf8() -> int return console_utf8() end
+pub function green(text: string) -> string return console_green(text) end
+pub function console__green(text: string) -> string return console_green(text) end
+pub function blue(text: string) -> string return console_blue(text) end
+pub function console__blue(text: string) -> string return console_blue(text) end
+pub function bold(text: string) -> string return console_bold(text) end
+pub function console__bold(text: string) -> string return console_bold(text) end
+

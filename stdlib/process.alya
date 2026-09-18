@@ -71,3 +71,12 @@ end
 pub function process_exit(code: int = 0)
     exit(code)
 end
+
+pub function process__run(program: string, args: string[] = []) -> ProcessOutput
+    return process_run(program, args)
+end
+
+pub function process__spawn(program: string, args: string[] = []) -> ProcessHandle
+    return process_spawn(program, args)
+end
+

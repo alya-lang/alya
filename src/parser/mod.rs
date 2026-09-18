@@ -1007,7 +1007,11 @@ pub(crate) fn resolve_stmt_imports_ext(
 
 pub fn expand_default_args(program: &mut Program) {
     let mut module_stems = std::collections::HashSet::new();
-    for std_mod in ["math", "time", "fs", "os", "path", "net", "sync", "color", "env", "process", "io", "crypto", "json", "random"] {
+    for std_mod in [
+        "math", "time", "fs", "os", "path", "net", "sync", "color", "console",
+        "env", "process", "io", "crypto", "json", "random", "rand", "mem",
+        "str", "collections", "test", "glob", "cli", "log", "bench", "thread", "hash"
+    ] {
         module_stems.insert(std_mod.to_string());
     }
     expand_default_args_with_modules(program, &module_stems);
@@ -1098,8 +1102,25 @@ fn expand_defaults_in_stmt(
         }
         Stmt::Say(expr)
         | Stmt::Expr(expr)
-        | Stmt::Let { value: expr, .. }
         | Stmt::Assign { value: expr, .. } => {
+            expand_defaults_in_expr(expr, fn_defs, module_stems);
+        }
+        Stmt::Let { type_ann, value: expr, .. } => {
+            if type_ann.is_none() {
+                if let Expr::Call { name: cname, args } = expr {
+                    let bare = cname.rsplit("::").next().unwrap_or(cname.as_str());
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    if bare == "new" {
+                        if let Some(Expr::Index { array, index }) = args.first() {
+                            if let (Expr::Identifier(arr_id), Expr::Identifier(type_id)) = (&**array, &**index) {
+                                if arr_id == "Channel" {
+                                    *type_ann = Some(format!("Channel[{}]", type_id));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             expand_defaults_in_expr(expr, fn_defs, module_stems);
         }
         Stmt::IndexAssign {
@@ -1194,18 +1215,31 @@ fn expand_defaults_in_expr(
             for arg in args.iter_mut() {
                 expand_defaults_in_expr(arg, fn_defs, module_stems);
             }
-            if let Some(Expr::Identifier(prefix)) = args.first().cloned() {
+            let prefix_id = match args.first() {
+                Some(Expr::Identifier(prefix)) => Some(prefix.clone()),
+                Some(Expr::Index { array, .. }) => match &**array {
+                    Expr::Identifier(prefix) => Some(prefix.clone()),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(prefix) = prefix_id {
                 let cand_double = format!("{}__{}", prefix, name);
                 let cand_colon = format!("{}::{}", prefix, name);
-                if fn_defs.contains_key(&cand_double) {
-                    *name = cand_double;
+                if fn_defs.contains_key(&cand_double) || (prefix == "path" && name == "join") {
+                    *name = if prefix == "path" && name == "join" {
+                        "path__join".to_string()
+                    } else {
+                        cand_double
+                    };
                     args.remove(0);
                 } else if fn_defs.contains_key(&cand_colon) {
                     *name = cand_colon;
                     args.remove(0);
-                } else if module_stems.contains(&prefix) && fn_defs.contains_key(name) {
+                } else if prefix == "str" && (name == "split" || name == "join") {
                     args.remove(0);
                 }
+
             }
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             if let Some((param_count, defaults, has_rest)) =
@@ -1269,8 +1303,13 @@ fn expand_defaults_in_expr(
             expand_defaults_in_expr(array, fn_defs, module_stems);
             expand_defaults_in_expr(index, fn_defs, module_stems);
         }
-        Expr::FieldAccess { object, .. } => {
+        Expr::FieldAccess { object, field } => {
             expand_defaults_in_expr(object, fn_defs, module_stems);
+            if let Expr::Identifier(mod_name) = &**object {
+                if module_stems.contains(mod_name) {
+                    *expr = Expr::Identifier(field.clone());
+                }
+            }
         }
         Expr::StructInit { fields, .. } => {
             for (_, val) in fields {

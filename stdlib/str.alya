@@ -624,6 +624,10 @@ pub function base64_encode(s: string) -> string
     return base64_encode_bytes(bytes)
 end
 
+pub function str__base64_encode(s: string) -> string
+    return base64_encode(s)
+end
+
 pub function base64_decode_bytes(s: string) -> int[]
     let slen: int = len(s)
     let bytes: int[] = []
@@ -677,6 +681,11 @@ pub function base64_decode(s: string) -> string
     end
     return res
 end
+
+pub function str__base64_decode(s: string) -> string
+    return base64_decode(s)
+end
+
 
 pub function is_base64(s: string) -> int
     let slen: int = len(s)

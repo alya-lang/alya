@@ -15,6 +15,10 @@ pub function assert(cond: int, msg: string) -> int
     end
 end
 
+pub function test__assert(cond: int, msg: string) -> int
+    return assert(cond, msg)
+end
+
 pub function assert_eq(actual, expected, msg: string) -> int
     if actual == expected
         say "  [PASS] {msg}"
@@ -24,6 +28,11 @@ pub function assert_eq(actual, expected, msg: string) -> int
         return 0
     end
 end
+
+pub function test__assert_eq(actual, expected, msg: string) -> int
+    return assert_eq(actual, expected, msg)
+end
+
 
 pub function assert_ne(actual, expected, msg: string) -> int
     if actual != expected
@@ -96,31 +105,43 @@ pub function assert_lte(actual, expected, msg: string) -> int
 end
 
 pub function assert_null(val, msg: string) -> int
-    let is_nil: int = 0
     if val is null or val == 0
-        is_nil = 1
+        say "  [PASS] {msg}"
+        return 1
+    else
+        say "  [FAIL] {msg} (expected null)"
+        return 0
     end
-    return assert(is_nil, msg)
 end
 
 pub function assert_not_null(val, msg: string) -> int
-    let not_nil: int = 0
     if val is not null and val != 0
-        not_nil = 1
+        say "  [PASS] {msg}"
+        return 1
+    else
+        say "  [FAIL] {msg} (expected not null)"
+        return 0
     end
-    return assert(not_nil, msg)
 end
 
 pub function assert_true(cond: int, msg: string) -> int
-    return assert(cond, msg)
+    if cond
+        say "  [PASS] {msg}"
+        return 1
+    else
+        say "  [FAIL] {msg}"
+        return 0
+    end
 end
 
 pub function assert_false(cond: int, msg: string) -> int
-    let is_zero: int = 0
     if cond == 0
-        is_zero = 1
+        say "  [PASS] {msg}"
+        return 1
+    else
+        say "  [FAIL] {msg}"
+        return 0
     end
-    return assert(is_zero, msg)
 end
 
 pub struct TestRunner
@@ -220,6 +241,7 @@ pub function runner_summary(r: TestRunner) -> int
     say "----------------------------------------"
     return r.failed
 end
+
 
 pub function test_report(passed: int, total: int) -> int
     let failed: int = total - passed

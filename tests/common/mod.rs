@@ -68,7 +68,7 @@ pub fn run_alya_code_with_input_and_args(
         format!("temp_e2e_{}_{}_{}", pid, id, time)
     };
 
-    fs::write(&asm_path, asm_code).expect("Failed to write temp asm file");
+    fs::write(&asm_path, &asm_code).expect("Failed to write temp asm file");
 
     let mut gcc = Command::new("gcc");
     gcc.arg(&asm_path).arg("-o").arg(&exe_path);

@@ -2,9 +2,18 @@
 # Provides common data structures: Stack, Queue, and Set.
 
 # 1. Stack (LIFO)
+pub struct Stack
+end
+
+pub function Stack.new()
+    return []
+end
+
+
 pub function stack_new()
     return []
 end
+
 
 pub function stack_push(s, val)
     s.push(val)

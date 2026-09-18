@@ -5,7 +5,15 @@ pub function fs_exists(path: string) -> int
     return file_exists(path)
 end
 
+pub function exists(path: string) -> int
+    return file_exists(path)
+end
+
 pub function fs_read(path: string) -> string
+    return read_file(path)
+end
+
+pub function read_string(path: string) -> string
     return read_file(path)
 end
 
@@ -13,7 +21,15 @@ pub function fs_write(path: string, content: string) -> int
     return write_file(path, content)
 end
 
+pub function write_string(path: string, content: string) -> int
+    return write_file(path, content)
+end
+
 pub function fs_append(path: string, content: string) -> int
+    return append_file(path, content)
+end
+
+pub function append_string(path: string, content: string) -> int
     return append_file(path, content)
 end
 
@@ -28,6 +44,32 @@ end
 pub function fs_mkdir(path: string) -> int
     return make_dir(path)
 end
+
+pub function fs__exists(path: string) -> int
+    return exists(path)
+end
+
+
+pub function fs__read_string(path: string) -> string
+    return read_file(path)
+end
+
+pub function fs__write_string(path: string, content: string) -> int
+    return write_file(path, content)
+end
+
+pub function fs__append_string(path: string, content: string) -> int
+    return append_file(path, content)
+end
+
+pub function fs__mkdir(path: string, recursive: bool = false) -> int
+    if recursive
+        return ensure_dir(path)
+    end
+    return make_dir(path)
+end
+
+
 
 pub function fs_rmdir(path: string) -> int
     return rmdir(path)

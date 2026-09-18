@@ -199,8 +199,8 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
                 let bare_st = bare_name(&st_name);
                 for (fn_name, _) in &function_defs {
                     let bare_fn = fn_name.rsplit("::").next().unwrap_or(fn_name);
-                    let prefix1 = format!("{}__{}", st_name, "operator");
-                    let prefix2 = format!("{}__{}", bare_st, "operator");
+                    let prefix1 = format!("{}__{}", st_name, "");
+                    let prefix2 = format!("{}__{}", bare_st, "");
                     let ts1 = format!("{}__{}", st_name, "to_string");
                     let ts2 = format!("{}__{}", bare_st, "to_string");
                     if fn_name.starts_with(&prefix1)

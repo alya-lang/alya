@@ -43,6 +43,15 @@ pub let stdin: Reader = Reader(io_stdin_read)
 pub let stdout: Writer = Writer(io_stdout_write)
 pub let stderr: Writer = Writer(io_stderr_write)
 
+pub function write(target: Writer, data: string)
+    if target != null and target.destination != null
+        let wf = target.destination
+        wf(data)
+    else
+        say data
+    end
+end
+
 pub function io_print(s: string)
     say s
 end

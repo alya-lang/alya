@@ -138,6 +138,26 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             if bare == "get" && args.len() >= 3 && is_string_expr(&args[2], vars) {
                 return true;
             }
+            if let Some(first_arg) = args.first() {
+                let struct_name = match first_arg {
+                    Expr::Identifier(id) => match vars.get(id) {
+                        Some(VarType::Struct { struct_name, .. }) => Some(struct_name.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let Some(sname) = struct_name {
+                    let bare_s = sname.rsplit("::").next().unwrap_or(&sname);
+                    let bare_s = bare_s.rsplit("__").next().unwrap_or(bare_s);
+                    let c1 = format!("{}__{}", sname, name);
+                    let c2 = format!("{}__{}", bare_s, name);
+                    if vars.contains_key(&format!("fn_ret_str:{}", c1))
+                        || vars.contains_key(&format!("fn_ret_str:{}", c2))
+                    {
+                        return true;
+                    }
+                }
+            }
             if bare == "recv" || bare == "try_recv" {
                 if let Some(first_arg) = args.first() {
                     let ch_name = match first_arg {
@@ -145,8 +165,8 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                         _ => None,
                     };
                     if let Some(ch) = ch_name {
-                        if vars.contains_key(&format!("channel_elem_str:{}", ch)) {
-                            return true;
+                        if vars.contains_key(ch) {
+                            return vars.contains_key(&format!("channel_elem_str:{}", ch));
                         }
                     }
                 }

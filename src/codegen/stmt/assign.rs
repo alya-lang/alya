@@ -40,6 +40,11 @@ impl CodeGen {
                     .variables
                     .insert(name.clone(), VarType::Number(0));
             }
+            if let Some(t) = type_ann {
+                if t.starts_with("Channel[string]") || t.starts_with("Channel[str]") {
+                    self.ctx.variables.insert(format!("channel_elem_str:{}", name), VarType::Number(0));
+                }
+            }
             if let Expr::Call { name: cname, args: cargs } = value {
                 let bare = cname.rsplit("::").next().unwrap_or(cname.as_str());
                 let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -581,6 +586,11 @@ impl CodeGen {
                     }
                 }
 
+                if let Some(t) = type_ann {
+                    if t.starts_with("Channel[string]") || t.starts_with("Channel[str]") {
+                        self.ctx.variables.insert(format!("channel_elem_str:{}", name), VarType::Number(0));
+                    }
+                }
                 if let Expr::Call { name: cname, args: cargs } = value {
                     let bare = cname.rsplit("::").next().unwrap_or(cname.as_str());
                     let bare = bare.rsplit("__").next().unwrap_or(bare);

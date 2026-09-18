@@ -1903,16 +1903,33 @@ fn parse_interpolated_string(s: &str) -> Option<Vec<Expr>> {
                         let next_ch = expr_str.as_bytes()[colon_idx + 1];
                         if prev_ch != b':' && next_ch != b':' {
                             let raw_expr = &expr_str[..colon_idx];
-                            let raw_spec = &expr_str[colon_idx + 1..];
-                            let mut sub_lexer = crate::lexer::Lexer::new(raw_expr);
-                            if let Ok(sub_tokens) = sub_lexer.tokenize() {
-                                let mut sub_parser = Parser::new(sub_tokens);
-                                if let Ok(expr) = sub_parser.parse_expression() {
-                                    if sub_parser.current_token().token_type == TokenType::Eof {
-                                        parsed_expr = Some(Expr::Call {
-                                            name: format!("__alya_format:{}", raw_spec.trim()),
-                                            args: vec![expr],
-                                        });
+                            let raw_spec = expr_str[colon_idx + 1..].trim();
+                            let is_valid_spec = (raw_spec.starts_with('.')
+                                && raw_spec.ends_with('f')
+                                && raw_spec.len() > 2
+                                && raw_spec[1..raw_spec.len() - 1]
+                                    .chars()
+                                    .all(|c| c.is_ascii_digit()))
+                                || (raw_spec.starts_with('0')
+                                    && raw_spec.len() > 1
+                                    && raw_spec[1..].chars().all(|c| c.is_ascii_digit()))
+                                || matches!(raw_spec, "x" | "#x" | "X" | "#X" | "b" | "#b" | "d" | "s")
+                                || ((raw_spec.starts_with('>')
+                                    || raw_spec.starts_with('<')
+                                    || raw_spec.starts_with('^'))
+                                    && raw_spec.len() > 1
+                                    && raw_spec[1..].chars().all(|c| c.is_ascii_digit()));
+                            if is_valid_spec {
+                                let mut sub_lexer = crate::lexer::Lexer::new(raw_expr);
+                                if let Ok(sub_tokens) = sub_lexer.tokenize() {
+                                    let mut sub_parser = Parser::new(sub_tokens);
+                                    if let Ok(expr) = sub_parser.parse_expression() {
+                                        if sub_parser.current_token().token_type == TokenType::Eof {
+                                            parsed_expr = Some(Expr::Call {
+                                                name: format!("__alya_format:{}", raw_spec),
+                                                args: vec![expr],
+                                            });
+                                        }
                                     }
                                 }
                             }

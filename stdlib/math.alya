@@ -49,9 +49,10 @@ pub function is_odd(n: int) -> int
     return n % 2 != 0
 end
 
-pub function sqrt(x: float) -> float
+pub function math__sqrt(x: float) -> float
     return native_sqrt(x)
 end
+
 
 pub function sqrt_f(x) -> float
     return native_sqrt(float(x))
@@ -351,11 +352,20 @@ pub function rand_int(min_val: int, max_val: int) -> int
     return min_val + (r % range)
 end
 
+pub function math__rand_int(min_val: int, max_val: int) -> int
+    return rand_int(min_val, max_val)
+end
+
 # Monotonic 0.0 to 1.0 float
 pub function random() -> float
     let r: int = rand_next() % 1000000000
     return r / 1000000000.0
 end
+
+pub function math__random() -> float
+    return random()
+end
+
 
 pub function rand_float() -> float
     return random()
