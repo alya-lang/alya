@@ -55,10 +55,7 @@ fn test_help_and_version() {
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(parsed.command, CommandKind::Repl);
 
-    assert_eq!(
-        CliArgs::parse_from(&to_args(&["alya", "--help"])),
-        Ok(None)
-    );
+    assert_eq!(CliArgs::parse_from(&to_args(&["alya", "--help"])), Ok(None));
     assert_eq!(CliArgs::parse_from(&to_args(&["alya", "help"])), Ok(None));
     assert_eq!(
         CliArgs::parse_from(&to_args(&["alya", "--version"])),

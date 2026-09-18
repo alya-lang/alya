@@ -286,9 +286,7 @@ pub fn run_cache() -> Result<(), String> {
         total_packages
     );
     if total_bytes > 0 {
-        println!(
-            "Tip: Run 'alya pkg clean' or 'alya pkg cache clean' to remove cached packages."
-        );
+        println!("Tip: Run 'alya pkg clean' or 'alya pkg cache clean' to remove cached packages.");
     }
 
     Ok(())
