@@ -256,7 +256,7 @@ This roadmap defines the sequenced implementation phases, actionable engineering
   - Target files: `src/tools/pkg/commands.rs`, `src/tools/pkg/discovery.rs`, `src/tools/pkg/manifest.rs`, `src/codegen/mod.rs`.
   - Verification: Chapter 24 Section 1.7 spec conformance and multi-major diamond dependency validation.
 
-- [ ] **5.5 Template Repository Modernization (`Lib/template`)**
+- [x] **5.5 Template Repository Modernization (`Lib/template`)**
   - **Prerequisite Archetype**: The `Lib/template` (`alya-lang/template`) repository MUST be revised first before any package repos, as it serves as the official package template and archetype.
   - Revise `alya.toml` manifest, canonical layout (`src/`, `tests/`), CI GitHub Actions workflows, documentation templates, and idiomatic v1.0 syntax usage.
   - Target files: `Lib/template/`.
