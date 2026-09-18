@@ -1,0 +1,143 @@
+use super::json::JsonValue;
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Position {
+    pub line: u32,
+    pub character: u32,
+}
+
+impl Position {
+    pub fn new(line: u32, character: u32) -> Self {
+        Self { line, character }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        let mut map = BTreeMap::new();
+        map.insert("line".to_string(), JsonValue::Number(self.line as f64));
+        map.insert("character".to_string(), JsonValue::Number(self.character as f64));
+        JsonValue::Object(map)
+    }
+
+    pub fn from_json(json: &JsonValue) -> Option<Self> {
+        let line = json.get("line")?.as_i64()? as u32;
+        let character = json.get("character")?.as_i64()? as u32;
+        Some(Self { line, character })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Range {
+    pub start: Position,
+    pub end: Position,
+}
+
+impl Range {
+    pub fn new(start: Position, end: Position) -> Self {
+        Self { start, end }
+    }
+
+    pub fn single_line(line: u32, start_col: u32, end_col: u32) -> Self {
+        Self {
+            start: Position::new(line, start_col),
+            end: Position::new(line, end_col),
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        let mut map = BTreeMap::new();
+        map.insert("start".to_string(), self.start.to_json());
+        map.insert("end".to_string(), self.end.to_json());
+        JsonValue::Object(map)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Diagnostic {
+    pub range: Range,
+    pub severity: u32, // 1 = Error, 2 = Warning
+    pub message: String,
+    pub source: String,
+}
+
+impl Diagnostic {
+    pub fn error(range: Range, message: String) -> Self {
+        Self {
+            range,
+            severity: 1,
+            message,
+            source: "alya".to_string(),
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        let mut map = BTreeMap::new();
+        map.insert("range".to_string(), self.range.to_json());
+        map.insert("severity".to_string(), JsonValue::Number(self.severity as f64));
+        map.insert("message".to_string(), JsonValue::String(self.message.clone()));
+        map.insert("source".to_string(), JsonValue::String(self.source.clone()));
+        JsonValue::Object(map)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompletionItem {
+    pub label: String,
+    pub kind: u32,
+    pub detail: Option<String>,
+    pub doc: Option<String>,
+}
+
+impl CompletionItem {
+    pub fn new(label: &str, kind: u32, detail: Option<&str>, doc: Option<&str>) -> Self {
+        Self {
+            label: label.to_string(),
+            kind,
+            detail: detail.map(|s| s.to_string()),
+            doc: doc.map(|s| s.to_string()),
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        let mut map = BTreeMap::new();
+        map.insert("label".to_string(), JsonValue::String(self.label.clone()));
+        map.insert("kind".to_string(), JsonValue::Number(self.kind as f64));
+        if let Some(d) = &self.detail {
+            map.insert("detail".to_string(), JsonValue::String(d.clone()));
+        }
+        if let Some(doc) = &self.doc {
+            let mut doc_map = BTreeMap::new();
+            doc_map.insert("kind".to_string(), JsonValue::String("markdown".to_string()));
+            doc_map.insert("value".to_string(), JsonValue::String(doc.clone()));
+            map.insert("documentation".to_string(), JsonValue::Object(doc_map));
+        }
+        JsonValue::Object(map)
+    }
+}
+
+pub fn make_response(id: &JsonValue, result: JsonValue) -> JsonValue {
+    let mut map = BTreeMap::new();
+    map.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    map.insert("id".to_string(), id.clone());
+    map.insert("result".to_string(), result);
+    JsonValue::Object(map)
+}
+
+pub fn make_error(id: &JsonValue, code: i64, message: &str) -> JsonValue {
+    let mut map = BTreeMap::new();
+    map.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    map.insert("id".to_string(), id.clone());
+    let mut err = BTreeMap::new();
+    err.insert("code".to_string(), JsonValue::Number(code as f64));
+    err.insert("message".to_string(), JsonValue::String(message.to_string()));
+    map.insert("error".to_string(), JsonValue::Object(err));
+    JsonValue::Object(map)
+}
+
+pub fn make_notification(method: &str, params: JsonValue) -> JsonValue {
+    let mut map = BTreeMap::new();
+    map.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    map.insert("method".to_string(), JsonValue::String(method.to_string()));
+    map.insert("params".to_string(), params);
+    JsonValue::Object(map)
+}

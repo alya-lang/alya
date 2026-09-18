@@ -38,6 +38,8 @@ pub fn print_usage() {
     println!("  outdated              Check for newer dependency versions without upgrading");
     println!("  pkg <cmd>             Package manager commands (init, add, install, update, cache, clean)");
     println!("  toolchain <cmd>       Manage C/Assembly build toolchains (status, install, clean)");
+    println!("  lsp                   Start Language Server Protocol (LSP) over stdio");
+    println!("  doc [path]            Generate HTML and Markdown API documentation");
     println!("  help                  Display help information");
     println!("  version               Display version information\n");
     println!("OPTIONS:");

@@ -16,6 +16,13 @@ pub enum CommandKind {
     Repl,
     Pkg(PkgCommand),
     Toolchain(ToolchainCommand),
+    Lsp,
+    Doc {
+        input: String,
+        output_dir: Option<String>,
+        html: bool,
+        markdown: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -154,6 +161,15 @@ impl CliArgs {
         if first == "toolchain" {
             let tc_cmd = parse_toolchain_args(&args[2..])?;
             return Ok(Some(Self::create_toolchain_args(tc_cmd)));
+        }
+
+        if first == "lsp" {
+            return Ok(Some(Self::create_simple_args(CommandKind::Lsp)));
+        }
+
+        if first == "doc" {
+            let doc_cmd = parse_doc_args(&args[2..])?;
+            return Ok(Some(Self::create_simple_args(doc_cmd)));
         }
 
         let mut command = CommandKind::Build;
@@ -504,6 +520,41 @@ impl CliArgs {
         }
     }
 
+    fn create_simple_args(command: CommandKind) -> Self {
+        let arch = if cfg!(target_arch = "aarch64") {
+            Architecture::ARM64
+        } else if cfg!(target_arch = "x86") {
+            Architecture::X86
+        } else {
+            Architecture::X64
+        };
+        let os = if cfg!(target_os = "windows") {
+            OperatingSystem::Windows
+        } else if cfg!(target_os = "macos") {
+            OperatingSystem::MacOS
+        } else {
+            OperatingSystem::Linux
+        };
+        Self {
+            command,
+            input_file: String::new(),
+            output_file: None,
+            output_binary: false,
+            arch,
+            os,
+            quiet: false,
+            time: false,
+            stats: false,
+            check_only: false,
+            bundle: false,
+            bundle_id: None,
+            icon_path: None,
+            run_args: Vec::new(),
+            test_jobs: None,
+            no_std: false,
+        }
+    }
+
     pub fn print_version() {
         crate::cli::help::print_version();
     }
@@ -511,6 +562,69 @@ impl CliArgs {
     pub fn print_usage() {
         crate::cli::help::print_usage();
     }
+}
+
+fn parse_doc_args(args: &[String]) -> Result<CommandKind, String> {
+    let mut input = None;
+    let mut output_dir = None;
+    let mut html = false;
+    let mut markdown = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-h" | "--help" => {
+                println!("Usage: alya doc [path] [options]");
+                println!();
+                println!("Options:");
+                println!("  -o, --output <dir>   Output directory for generated docs (default: docs)");
+                println!("  --html               Generate HTML documentation");
+                println!("  --md, --markdown     Generate Markdown documentation");
+                println!("  -h, --help           Show help");
+                process::exit(0);
+            }
+            "-o" | "--output" => {
+                if i + 1 < args.len() {
+                    output_dir = Some(args[i + 1].clone());
+                    i += 1;
+                } else {
+                    return Err("Error: Missing argument for '-o/--output'".to_string());
+                }
+            }
+            "--html" => {
+                html = true;
+            }
+            "--md" | "--markdown" => {
+                markdown = true;
+            }
+            other if !other.starts_with('-') => {
+                if input.is_none() {
+                    input = Some(other.to_string());
+                } else {
+                    return Err(format!("Error: Unexpected argument '{}'", other));
+                }
+            }
+            other => {
+                return Err(format!("Error: Unknown doc option '{}'", other));
+            }
+        }
+        i += 1;
+    }
+
+    let input_path = input.unwrap_or_else(|| {
+        if std::path::Path::new("src").is_dir() {
+            "src".to_string()
+        } else {
+            ".".to_string()
+        }
+    });
+
+    Ok(CommandKind::Doc {
+        input: input_path,
+        output_dir,
+        html,
+        markdown,
+    })
 }
 
 fn parse_pkg_init_args(args: &[String]) -> Result<PkgCommand, String> {

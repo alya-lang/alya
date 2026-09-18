@@ -40,6 +40,16 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         return Ok(());
     }
 
+    if args.command == CommandKind::Lsp {
+        crate::tools::lsp::run_lsp()?;
+        return Ok(());
+    }
+
+    if let CommandKind::Doc { ref input, ref output_dir, html, markdown } = args.command {
+        crate::tools::doc::run_doc(input, output_dir.as_deref(), html, markdown)?;
+        return Ok(());
+    }
+
     let total_start = Instant::now();
 
     let source = fs::read_to_string(&args.input_file)

@@ -1,5 +1,7 @@
 pub mod bundle;
+pub mod doc;
 pub mod fmt;
+pub mod lsp;
 pub mod pkg;
 pub mod repl;
 pub mod test_runner;
