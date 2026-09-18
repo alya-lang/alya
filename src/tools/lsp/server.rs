@@ -245,43 +245,58 @@ pub fn send_framed_message<W: Write>(writer: &mut W, msg: &JsonValue) -> io::Res
 }
 
 pub fn read_framed_message<R: BufRead>(reader: &mut R) -> io::Result<Option<JsonValue>> {
-    let mut content_length: Option<usize> = None;
-
     loop {
-        let mut line = String::new();
-        let bytes_read = reader.read_line(&mut line)?;
-        if bytes_read == 0 {
-            // EOF
-            return Ok(None);
-        }
+        let mut content_length: Option<usize> = None;
 
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            // Empty line marks end of headers
-            break;
-        }
+        loop {
+            let mut line = String::new();
+            let bytes_read = reader.read_line(&mut line)?;
+            if bytes_read == 0 {
+                // True EOF reached on stdin
+                if content_length.is_none() {
+                    return Ok(None);
+                } else {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "Unexpected EOF while reading LSP headers",
+                    ));
+                }
+            }
 
-        if let Some(val_str) = trimmed.strip_prefix("Content-Length:") {
-            if let Ok(len) = val_str.trim().parse::<usize>() {
-                content_length = Some(len);
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                if content_length.is_some() {
+                    // Empty line marks end of headers
+                    break;
+                }
+                // Skip leading blank lines/newlines between messages
+                continue;
+            }
+
+            let lower = trimmed.to_ascii_lowercase();
+            if let Some(val_str) = lower.strip_prefix("content-length:") {
+                if let Ok(len) = val_str.trim().parse::<usize>() {
+                    content_length = Some(len);
+                }
             }
         }
-    }
 
-    let length = match content_length {
-        Some(l) => l,
-        None => return Ok(None),
-    };
+        let length = match content_length {
+            Some(l) => l,
+            None => return Ok(None),
+        };
 
-    let mut body = vec![0u8; length];
-    reader.read_exact(&mut body)?;
+        let mut body = vec![0u8; length];
+        reader.read_exact(&mut body)?;
 
-    let text = String::from_utf8_lossy(&body);
-    match JsonValue::parse(&text) {
-        Ok(val) => Ok(Some(val)),
-        Err(e) => {
-            eprintln!("[alya-lsp] JSON parse error: {}", e);
-            Ok(None)
+        let text = String::from_utf8_lossy(&body);
+        match JsonValue::parse(&text) {
+            Ok(val) => return Ok(Some(val)),
+            Err(e) => {
+                eprintln!("[alya-lsp] JSON parse error: {}", e);
+                // Continue loop to read next message instead of terminating the server
+                continue;
+            }
         }
     }
 }
