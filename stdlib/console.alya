@@ -26,18 +26,83 @@ pub function console_utf8() -> int
     return 1
 end
 
-pub function set_output_encoding(encoding_name: string) -> int
-    return console_utf8()
+function _encoding_name_for_cp(cp: int) -> string
+    return when cp
+        # --- Unicode & ASCII ---
+        is 65001 => "UTF-8"
+        is 1200 => "UTF-16LE"
+        is 1201 => "UTF-16BE"
+        is 12000 => "UTF-32LE"
+        is 12001 => "UTF-32BE"
+        is 20127 => "US-ASCII"
+
+        # --- Turkish ---
+        is 1254, 857 => "Turkish (Windows)"
+        is 28599 => "Turkish (ISO-8859-9)"
+
+        # --- Western & DOS ---
+        is 1252, 437, 850 => "Western (Windows)"
+        is 28591 => "Western (ISO-8859-1)"
+
+        # --- Central & Eastern European, Cyrillic, Greek, Baltic ---
+        is 1250, 852 => "Central European"
+        is 1251, 866, 28595 => "Cyrillic"
+        is 1253, 737 => "Greek"
+        is 1257, 775 => "Baltic"
+
+        # --- Middle Eastern ---
+        is 1255, 862 => "Hebrew"
+        is 1256, 720 => "Arabic"
+
+        # --- East Asia (CJK) & Southeast Asia ---
+        is 932 => "Shift-JIS (Japanese)"
+        is 936 => "GBK (Simplified Chinese)"
+        is 949 => "EUC-KR (Korean)"
+        is 950 => "Big5 (Traditional Chinese)"
+        is 1258 => "Vietnamese"
+        is 874 => "Thai"
+
+        else => f"CP{cp}"
+    end
 end
 
 pub function get_output_encoding() -> string
     let cp: int = console_output_cp()
-    return when cp
-        is 65001 => "UTF-8"
-        is 1254, 857 => "Turkish (Windows)"
-        is 1252, 437 => "Western (Windows)"
-        else => f"CP{cp}"
+    return _encoding_name_for_cp(cp)
+end
+
+pub function get_input_encoding() -> string
+    let cp: int = console_input_cp()
+    return _encoding_name_for_cp(cp)
+end
+
+pub function set_output_encoding(encoding_name: string) -> int
+    let clean: string = lower(encoding_name)
+    let cp: int = when clean
+        is "utf-8", "utf8" => 65001
+        is "utf-16le", "utf16le" => 1200
+        is "utf-16be", "utf16be" => 1201
+        is "ascii", "us-ascii" => 20127
+        is "turkish", "windows-1254", "cp1254" => 1254
+        is "ibm-857", "cp857" => 857
+        is "iso-8859-9", "latin-5" => 28599
+        is "western", "windows-1252", "cp1252" => 1252
+        is "oem-437", "cp437" => 437
+        is "oem-850", "cp850" => 850
+        is "iso-8859-1", "latin-1" => 28591
+        is "windows-1250", "cp1250" => 1250
+        is "windows-1251", "cp1251" => 1251
+        is "windows-1253", "cp1253" => 1253
+        is "windows-1255", "cp1255" => 1255
+        is "windows-1256", "cp1256" => 1256
+        is "shift-jis", "sjis", "cp932" => 932
+        is "gbk", "cp936" => 936
+        is "euc-kr", "cp949" => 949
+        is "big5", "cp950" => 950
+        else => 65001
     end
+    set_console_output_cp(cp)
+    return cp
 end
 
 # --- Terminal Display & Cursor Control ---

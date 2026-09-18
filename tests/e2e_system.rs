@@ -1632,11 +1632,13 @@ import "std/console"
 let ok = console_utf8()
 say "utf8: " + str(ok)
 say "enc: " + get_output_encoding()
+say "in_enc: " + get_input_encoding()
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(code, 0, "Execution failed: {}", output);
         assert!(output.contains("utf8: 1"), "Got: {}", output);
         assert!(output.contains("enc: UTF-8"), "Got: {}", output);
+        assert!(output.contains("in_enc: UTF-8"), "Got: {}", output);
     }
 }
 
