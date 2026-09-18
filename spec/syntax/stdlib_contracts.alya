@@ -9,7 +9,7 @@
 import "std/path"
 import "std/fs"
 
-let work_dir = path.join("data", "reports", "2026")
+let work_dir = path.join("target", "spec_reports")
 let file_path = path.join(work_dir, "summary.txt")
 
 say f"Target file path: {file_path}"
@@ -26,6 +26,11 @@ fs.append_string(file_path, "Core stdlib contracts verified.\n")
 
 let content = fs.read_string(file_path)
 say f"File content length: {content.length()} bytes"
+
+# Clean up temporary test file
+if fs.exists(file_path)
+    remove_file(file_path)
+end
 
 # ------------------------------------------------------------------------------
 # 2. Operating System & Environment (std/os)
