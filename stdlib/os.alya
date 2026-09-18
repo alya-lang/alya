@@ -3,6 +3,38 @@
 
 # --- Platform & Architecture ---
 
+pub enum OS
+    Windows = "windows"
+    Linux = "linux"
+    MacOS = "macos"
+    Unknown = "unknown"
+end
+
+pub enum Arch
+    X64 = "x64"
+    X86 = "x86"
+    ARM64 = "arm64"
+    Unknown = "unknown"
+end
+
+pub function current_os() -> OS
+    return when target_os()
+        is "windows" => OS.Windows
+        is "linux" => OS.Linux
+        is "macos" => OS.MacOS
+        else => OS.Unknown
+    end
+end
+
+pub function current_arch() -> Arch
+    return when target_arch()
+        is "x64" => Arch.X64
+        is "x86" => Arch.X86
+        is "arm64" => Arch.ARM64
+        else => Arch.Unknown
+    end
+end
+
 pub function os_name() -> string
     return target_os()
 end

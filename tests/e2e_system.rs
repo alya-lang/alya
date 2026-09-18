@@ -556,6 +556,38 @@ say "unreachable"
 }
 
 #[test]
+fn test_e2e_os_enums() {
+    let code = r#"
+import "std/os"
+
+let my_os = os.current_os()
+let my_arch = os.current_arch()
+
+let os_ok = when my_os
+    is os.OS.Windows => 1
+    is os.OS.Linux   => 1
+    is os.OS.MacOS   => 1
+    else             => 0
+end
+
+let arch_ok = when my_arch
+    is os.Arch.X64   => 1
+    is os.Arch.X86   => 1
+    is os.Arch.ARM64 => 1
+    else             => 0
+end
+
+say os_ok
+say arch_ok
+say (my_os == os.OS.Unknown)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed: {}", output);
+        assert_eq!(output, "1\n1\n0\n");
+    }
+}
+
+#[test]
 fn test_e2e_path_stdlib() {
     let code = r#"
 import "std/path"

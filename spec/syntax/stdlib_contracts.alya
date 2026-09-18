@@ -40,6 +40,7 @@ import "std/os"
 say f"Current PID: {os.pid()}"
 say f"Current CWD: {os.cwd()}"
 say f"Target Platform: {os.platform()} ({os.arch()})"
+say f"Typed Target: {os.current_os() as string} ({os.current_arch() as string})"
 
 let user_env = os.getenv("USER") ?? os.getenv("USERNAME") ?? "Unknown User"
 say f"Active User: {user_env}"
