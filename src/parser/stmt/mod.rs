@@ -615,10 +615,8 @@ impl Parser {
                         key = s.clone();
                     }
                 }
-                TokenType::String(s) => {
-                    if in_val {
-                        val = s.clone();
-                    }
+                TokenType::String(s) if in_val => {
+                    val = s.clone();
                 }
                 TokenType::Assign => {
                     in_val = true;

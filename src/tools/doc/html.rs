@@ -1468,8 +1468,7 @@ footer {
         let desc = if !m.description.is_empty() {
             m.description
                 .lines()
-                .filter(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
-                .next()
+                .find(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
                 .unwrap_or(&m.description)
                 .to_string()
         } else {
@@ -1741,12 +1740,11 @@ fn render_markdown_html(md: &str) -> String {
             continue;
         }
 
-        if trimmed.starts_with("### ") {
+        if let Some(title) = trimmed.strip_prefix("### ") {
             if in_list {
                 out.push_str("</ul>\n");
                 in_list = false;
             }
-            let title = &trimmed[4..];
             if title.eq_ignore_ascii_case("parameters") {
                 out.push_str("<div class=\"section-label\">Parameters</div>\n");
             } else if title.eq_ignore_ascii_case("returns") {
@@ -1759,26 +1757,26 @@ fn render_markdown_html(md: &str) -> String {
             continue;
         }
 
-        if trimmed.starts_with("## ") {
+        if let Some(content) = trimmed.strip_prefix("## ") {
             if in_list {
                 out.push_str("</ul>\n");
                 in_list = false;
             }
             out.push_str(&format!(
                 "<h3 style=\"font-size: 1.25rem; color: #fff; margin: 20px 0 10px;\">{}</h3>\n",
-                escape_html(&trimmed[3..])
+                escape_html(content)
             ));
             continue;
         }
 
-        if trimmed.starts_with("# ") {
+        if let Some(content) = trimmed.strip_prefix("# ") {
             if in_list {
                 out.push_str("</ul>\n");
                 in_list = false;
             }
             out.push_str(&format!(
                 "<h2 style=\"font-size: 1.5rem; color: #fff; margin: 24px 0 12px;\">{}</h2>\n",
-                escape_html(&trimmed[2..])
+                escape_html(content)
             ));
             continue;
         }

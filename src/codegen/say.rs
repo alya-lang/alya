@@ -76,13 +76,11 @@ impl CodeGen {
                                     args: vec![arg.clone()],
                                 });
                                 is_floats.push(false);
-                            } else if spec.starts_with('>') {
-                                let width = &spec[1..];
+                            } else if let Some(width) = spec.strip_prefix('>') {
                                 format_str.push_str(&format!("%{}s", width));
                                 exprs.push(arg.clone());
                                 is_floats.push(false);
-                            } else if spec.starts_with('<') {
-                                let width = &spec[1..];
+                            } else if let Some(width) = spec.strip_prefix('<') {
                                 format_str.push_str(&format!("%-{}s", width));
                                 exprs.push(arg.clone());
                                 is_floats.push(false);

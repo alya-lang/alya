@@ -592,7 +592,7 @@ impl CodeGen {
                             .field_types
                             .get(i)
                             .and_then(|t| t.as_deref())
-                            .map_or(false, |t| t.starts_with("weak ") || t == "weak");
+                            .is_some_and(|t| t.starts_with("weak ") || t == "weak");
                         self.generate_expression(arg);
                         if !is_weak && self.is_heap_expression(arg) {
                             arch::emit_rc_retain(
@@ -1135,7 +1135,7 @@ impl CodeGen {
                         mangled1.clone()
                     };
                     let is_struct = self.ctx.structs.contains_key(&type_name)
-                        || mod_opt.as_ref().map_or(false, |m| {
+                        || mod_opt.as_ref().is_some_and(|m| {
                             self.ctx
                                 .structs
                                 .contains_key(&format!("{}::{}", m, type_name))
@@ -1143,7 +1143,7 @@ impl CodeGen {
                     let is_var = self.ctx.variables.contains_key(&type_name);
                     let is_mod_var = mod_opt
                         .as_ref()
-                        .map_or(false, |m| self.ctx.variables.contains_key(m));
+                        .is_some_and(|m| self.ctx.variables.contains_key(m));
 
                     let valid_target = if mod_opt.is_some() {
                         is_struct && !is_mod_var
@@ -1235,7 +1235,7 @@ impl CodeGen {
                             let is_flt_ret = flattened[method_idx]
                                 .return_type
                                 .as_deref()
-                                .map_or(false, |rt| rt == "float" || rt == "f64")
+                                .is_some_and(|rt| rt == "float" || rt == "f64")
                                 || self
                                     .ctx
                                     .variables
@@ -1498,7 +1498,7 @@ impl CodeGen {
                             .get(call_name)
                             .or_else(|| self.ctx.extern_functions.get(extern_name))
                             .and_then(|info| info.return_type.as_deref())
-                            .map_or(false, |rt| rt == "float" || rt == "f64" || rt == "f32");
+                            .is_some_and(|rt| rt == "float" || rt == "f64" || rt == "f32");
                     if is_flt_ret {
                         match self.arch {
                             Architecture::X64 => {
@@ -1663,7 +1663,7 @@ impl CodeGen {
                             .field_types
                             .get(i)
                             .and_then(|t| t.as_deref())
-                            .map_or(false, |t| t.starts_with("weak ") || t == "weak");
+                            .is_some_and(|t| t.starts_with("weak ") || t == "weak");
                         self.generate_expression(arg_expr);
                         if !is_weak && self.is_heap_expression(arg_expr) {
                             arch::emit_rc_retain(
@@ -2266,65 +2266,61 @@ impl CodeGen {
                 let t = target.to_lowercase();
                 if (t == "int" || t == "i64" || t == "rune")
                     && is_string_expr(expr, &self.ctx.variables)
+                    && self.arch == Architecture::X64
                 {
-                    match self.arch {
-                        Architecture::X64 => {
-                            let end_lbl = self.ctx.next_label();
-                            let multi_lbl = self.ctx.next_label();
-                            let chk3_lbl = self.ctx.next_label();
-                            let chk4_lbl = self.ctx.next_label();
-                            self.output.push_str("    movzbq (%rax), %rcx\n");
-                            self.output.push_str("    cmp $0x80, %rcx\n");
-                            self.output.push_str(&format!("    jae {}\n", multi_lbl));
-                            self.output.push_str("    mov %rcx, %rax\n");
-                            self.output.push_str(&format!("    jmp {}\n", end_lbl));
-                            self.output.push_str(&format!("{}:\n", multi_lbl));
-                            self.output.push_str("    mov %rcx, %rdx\n");
-                            self.output.push_str("    and $0xE0, %rdx\n");
-                            self.output.push_str("    cmp $0xC0, %rdx\n");
-                            self.output.push_str(&format!("    jne {}\n", chk3_lbl));
-                            self.output.push_str("    and $0x1F, %rcx\n");
-                            self.output.push_str("    shl $6, %rcx\n");
-                            self.output.push_str("    movzbq 1(%rax), %rdx\n");
-                            self.output.push_str("    and $0x3F, %rdx\n");
-                            self.output.push_str("    or %rdx, %rcx\n");
-                            self.output.push_str("    mov %rcx, %rax\n");
-                            self.output.push_str(&format!("    jmp {}\n", end_lbl));
-                            self.output.push_str(&format!("{}:\n", chk3_lbl));
-                            self.output.push_str("    mov %rcx, %rdx\n");
-                            self.output.push_str("    and $0xF0, %rdx\n");
-                            self.output.push_str("    cmp $0xE0, %rdx\n");
-                            self.output.push_str(&format!("    jne {}\n", chk4_lbl));
-                            self.output.push_str("    and $0x0F, %rcx\n");
-                            self.output.push_str("    shl $12, %rcx\n");
-                            self.output.push_str("    movzbq 1(%rax), %rdx\n");
-                            self.output.push_str("    and $0x3F, %rdx\n");
-                            self.output.push_str("    shl $6, %rdx\n");
-                            self.output.push_str("    or %rdx, %rcx\n");
-                            self.output.push_str("    movzbq 2(%rax), %rdx\n");
-                            self.output.push_str("    and $0x3F, %rdx\n");
-                            self.output.push_str("    or %rdx, %rcx\n");
-                            self.output.push_str("    mov %rcx, %rax\n");
-                            self.output.push_str(&format!("    jmp {}\n", end_lbl));
-                            self.output.push_str(&format!("{}:\n", chk4_lbl));
-                            self.output.push_str("    and $0x07, %rcx\n");
-                            self.output.push_str("    shl $18, %rcx\n");
-                            self.output.push_str("    movzbq 1(%rax), %rdx\n");
-                            self.output.push_str("    and $0x3F, %rdx\n");
-                            self.output.push_str("    shl $12, %rdx\n");
-                            self.output.push_str("    or %rdx, %rcx\n");
-                            self.output.push_str("    movzbq 2(%rax), %rdx\n");
-                            self.output.push_str("    and $0x3F, %rdx\n");
-                            self.output.push_str("    shl $6, %rdx\n");
-                            self.output.push_str("    or %rdx, %rcx\n");
-                            self.output.push_str("    movzbq 3(%rax), %rdx\n");
-                            self.output.push_str("    and $0x3F, %rdx\n");
-                            self.output.push_str("    or %rdx, %rcx\n");
-                            self.output.push_str("    mov %rcx, %rax\n");
-                            self.output.push_str(&format!("{}:\n", end_lbl));
-                        }
-                        _ => {}
-                    }
+                    let end_lbl = self.ctx.next_label();
+                    let multi_lbl = self.ctx.next_label();
+                    let chk3_lbl = self.ctx.next_label();
+                    let chk4_lbl = self.ctx.next_label();
+                    self.output.push_str("    movzbq (%rax), %rcx\n");
+                    self.output.push_str("    cmp $0x80, %rcx\n");
+                    self.output.push_str(&format!("    jae {}\n", multi_lbl));
+                    self.output.push_str("    mov %rcx, %rax\n");
+                    self.output.push_str(&format!("    jmp {}\n", end_lbl));
+                    self.output.push_str(&format!("{}:\n", multi_lbl));
+                    self.output.push_str("    mov %rcx, %rdx\n");
+                    self.output.push_str("    and $0xE0, %rdx\n");
+                    self.output.push_str("    cmp $0xC0, %rdx\n");
+                    self.output.push_str(&format!("    jne {}\n", chk3_lbl));
+                    self.output.push_str("    and $0x1F, %rcx\n");
+                    self.output.push_str("    shl $6, %rcx\n");
+                    self.output.push_str("    movzbq 1(%rax), %rdx\n");
+                    self.output.push_str("    and $0x3F, %rdx\n");
+                    self.output.push_str("    or %rdx, %rcx\n");
+                    self.output.push_str("    mov %rcx, %rax\n");
+                    self.output.push_str(&format!("    jmp {}\n", end_lbl));
+                    self.output.push_str(&format!("{}:\n", chk3_lbl));
+                    self.output.push_str("    mov %rcx, %rdx\n");
+                    self.output.push_str("    and $0xF0, %rdx\n");
+                    self.output.push_str("    cmp $0xE0, %rdx\n");
+                    self.output.push_str(&format!("    jne {}\n", chk4_lbl));
+                    self.output.push_str("    and $0x0F, %rcx\n");
+                    self.output.push_str("    shl $12, %rcx\n");
+                    self.output.push_str("    movzbq 1(%rax), %rdx\n");
+                    self.output.push_str("    and $0x3F, %rdx\n");
+                    self.output.push_str("    shl $6, %rdx\n");
+                    self.output.push_str("    or %rdx, %rcx\n");
+                    self.output.push_str("    movzbq 2(%rax), %rdx\n");
+                    self.output.push_str("    and $0x3F, %rdx\n");
+                    self.output.push_str("    or %rdx, %rcx\n");
+                    self.output.push_str("    mov %rcx, %rax\n");
+                    self.output.push_str(&format!("    jmp {}\n", end_lbl));
+                    self.output.push_str(&format!("{}:\n", chk4_lbl));
+                    self.output.push_str("    and $0x07, %rcx\n");
+                    self.output.push_str("    shl $18, %rcx\n");
+                    self.output.push_str("    movzbq 1(%rax), %rdx\n");
+                    self.output.push_str("    and $0x3F, %rdx\n");
+                    self.output.push_str("    shl $12, %rdx\n");
+                    self.output.push_str("    or %rdx, %rcx\n");
+                    self.output.push_str("    movzbq 2(%rax), %rdx\n");
+                    self.output.push_str("    and $0x3F, %rdx\n");
+                    self.output.push_str("    shl $6, %rdx\n");
+                    self.output.push_str("    or %rdx, %rcx\n");
+                    self.output.push_str("    movzbq 3(%rax), %rdx\n");
+                    self.output.push_str("    and $0x3F, %rdx\n");
+                    self.output.push_str("    or %rdx, %rcx\n");
+                    self.output.push_str("    mov %rcx, %rax\n");
+                    self.output.push_str(&format!("{}:\n", end_lbl));
                 }
             }
         }
@@ -3183,7 +3179,7 @@ impl CodeGen {
             }
         }
 
-        for (_sname, sdef) in &self.ctx.structs {
+        for sdef in self.ctx.structs.values() {
             if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
                 if let Some(Some(ft)) = sdef.field_types.get(idx) {
                     if ft.starts_with("weak ") || ft == "weak" {

@@ -577,10 +577,9 @@ impl CodeGen {
                         .filter_map(|k| {
                             if let Some(idx_str) = k.strip_prefix(&prefix_str) {
                                 Some((true, idx_str.to_string()))
-                            } else if let Some(idx_str) = k.strip_prefix(&prefix_flt) {
-                                Some((false, idx_str.to_string()))
                             } else {
-                                None
+                                k.strip_prefix(&prefix_flt)
+                                    .map(|idx_str| (false, idx_str.to_string()))
                             }
                         })
                         .collect();

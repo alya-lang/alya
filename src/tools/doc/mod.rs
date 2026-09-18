@@ -137,8 +137,7 @@ fn process_directory(
             let desc = if !m.description.is_empty() {
                 m.description
                     .lines()
-                    .filter(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
-                    .next()
+                    .find(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
                     .unwrap_or(&m.description)
                     .to_string()
             } else {

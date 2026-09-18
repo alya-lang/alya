@@ -200,24 +200,23 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
                     }
                 }
                 let bare_st = bare_name(&st_name);
-                for (fn_name, _) in &function_defs {
+                for fn_name in function_defs.keys() {
                     let bare_fn = fn_name.rsplit("::").next().unwrap_or(fn_name);
                     let prefix1 = format!("{}__{}", st_name, "");
                     let prefix2 = format!("{}__{}", bare_st, "");
                     let ts1 = format!("{}__{}", st_name, "to_string");
                     let ts2 = format!("{}__{}", bare_st, "to_string");
-                    if fn_name.starts_with(&prefix1)
+                    if (fn_name.starts_with(&prefix1)
                         || fn_name.starts_with(&prefix2)
                         || bare_fn.starts_with(&prefix1)
                         || bare_fn.starts_with(&prefix2)
                         || fn_name.ends_with(&ts1)
                         || fn_name.ends_with(&ts2)
                         || bare_fn.ends_with(&ts1)
-                        || bare_fn.ends_with(&ts2)
+                        || bare_fn.ends_with(&ts2))
+                        && reachable_functions.insert(fn_name.clone())
                     {
-                        if reachable_functions.insert(fn_name.clone()) {
-                            worklist.push(WorkItem::Function(fn_name.clone()));
-                        }
+                        worklist.push(WorkItem::Function(fn_name.clone()));
                     }
                 }
             }

@@ -1095,7 +1095,7 @@ fn collect_fn_defaults(
                 let has_rest = param_types
                     .last()
                     .and_then(|t| t.as_deref())
-                    .map_or(false, |t| t == "..." || t.starts_with("..."));
+                    .is_some_and(|t| t == "..." || t.starts_with("..."));
                 fn_defs.insert(name.clone(), (params.len(), defaults.clone(), has_rest));
                 let bare = name.rsplit("::").next().unwrap_or(name.as_str());
                 if bare != name {

@@ -246,7 +246,7 @@ impl Parser {
         if !matches!(self.current_token().token_type, TokenType::Assign) {
             // Uninitialized variable declaration: let x: int
             let mut stmts = Vec::new();
-            for (name, type_ann) in names.into_iter().zip(types.into_iter()) {
+            for (name, type_ann) in names.into_iter().zip(types) {
                 stmts.push(Stmt::Let {
                     name,
                     type_ann,
@@ -1317,14 +1317,13 @@ fn generate_destructure_bindings(
             });
         }
         DestructurePattern::Tuple(items) | DestructurePattern::Array(items) => {
-            let mut regular_count = 0;
             for (i, item) in items.iter().enumerate() {
                 if let DestructurePattern::Rest(rname) = item {
                     let sub_expr = Expr::Call {
                         name: "slice".to_string(),
                         args: vec![
                             target.clone(),
-                            Expr::Number(regular_count as f64),
+                            Expr::Number(i as f64),
                             Expr::Call {
                                 name: "len".to_string(),
                                 args: vec![target.clone()],
@@ -1338,7 +1337,6 @@ fn generate_destructure_bindings(
                     });
                     break;
                 }
-                regular_count += 1;
                 let sub_expr = Expr::Index {
                     array: Box::new(target.clone()),
                     index: Box::new(Expr::Number(i as f64)),

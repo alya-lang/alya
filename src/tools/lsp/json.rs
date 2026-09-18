@@ -61,50 +61,44 @@ impl JsonValue {
         skip_ws(&chars, &mut idx);
         Ok(val)
     }
+}
 
-    pub fn to_string(&self) -> String {
+impl std::fmt::Display for JsonValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            JsonValue::Null => "null".to_string(),
-            JsonValue::Bool(b) => {
-                if *b {
-                    "true".to_string()
-                } else {
-                    "false".to_string()
-                }
-            }
+            JsonValue::Null => write!(f, "null"),
+            JsonValue::Bool(b) => write!(f, "{}", if *b { "true" } else { "false" }),
             JsonValue::Number(n) => {
                 if n.fract() == 0.0 {
-                    format!("{}", *n as i64)
+                    write!(f, "{}", *n as i64)
                 } else {
-                    format!("{}", n)
+                    write!(f, "{}", n)
                 }
             }
             JsonValue::String(s) => {
-                let mut out = String::with_capacity(s.len() + 2);
-                out.push('"');
+                write!(f, "\"")?;
                 for c in s.chars() {
                     match c {
-                        '"' => out.push_str("\\\""),
-                        '\\' => out.push_str("\\\\"),
-                        '\n' => out.push_str("\\n"),
-                        '\r' => out.push_str("\\r"),
-                        '\t' => out.push_str("\\t"),
-                        _ => out.push(c),
+                        '"' => write!(f, "\\\"")?,
+                        '\\' => write!(f, "\\\\")?,
+                        '\n' => write!(f, "\\n")?,
+                        '\r' => write!(f, "\\r")?,
+                        '\t' => write!(f, "\\t")?,
+                        _ => write!(f, "{}", c)?,
                     }
                 }
-                out.push('"');
-                out
+                write!(f, "\"")
             }
             JsonValue::Array(arr) => {
                 let items: Vec<String> = arr.iter().map(|v| v.to_string()).collect();
-                format!("[{}]", items.join(","))
+                write!(f, "[{}]", items.join(","))
             }
             JsonValue::Object(map) => {
                 let items: Vec<String> = map
                     .iter()
-                    .map(|(k, v)| format!("\"{}\":{}", escape_str(k), v.to_string()))
+                    .map(|(k, v)| format!("\"{}\":{}", escape_str(k), v))
                     .collect();
-                format!("{{{}}}", items.join(","))
+                write!(f, "{{{}}}", items.join(","))
             }
         }
     }
@@ -152,7 +146,7 @@ fn parse_value(chars: &[char], idx: &mut usize) -> Result<JsonValue, String> {
 }
 
 fn parse_null(chars: &[char], idx: &mut usize) -> Result<JsonValue, String> {
-    if *idx + 4 <= chars.len() && &chars[*idx..*idx + 4] == ['n', 'u', 'l', 'l'] {
+    if *idx + 4 <= chars.len() && chars[*idx..*idx + 4] == ['n', 'u', 'l', 'l'] {
         *idx += 4;
         Ok(JsonValue::Null)
     } else {
@@ -161,10 +155,10 @@ fn parse_null(chars: &[char], idx: &mut usize) -> Result<JsonValue, String> {
 }
 
 fn parse_bool(chars: &[char], idx: &mut usize) -> Result<JsonValue, String> {
-    if *idx + 4 <= chars.len() && &chars[*idx..*idx + 4] == ['t', 'r', 'u', 'e'] {
+    if *idx + 4 <= chars.len() && chars[*idx..*idx + 4] == ['t', 'r', 'u', 'e'] {
         *idx += 4;
         Ok(JsonValue::Bool(true))
-    } else if *idx + 5 <= chars.len() && &chars[*idx..*idx + 5] == ['f', 'a', 'l', 's', 'e'] {
+    } else if *idx + 5 <= chars.len() && chars[*idx..*idx + 5] == ['f', 'a', 'l', 's', 'e'] {
         *idx += 5;
         Ok(JsonValue::Bool(false))
     } else {

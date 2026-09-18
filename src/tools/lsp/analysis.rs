@@ -135,32 +135,23 @@ pub fn get_completions(source: &str, _pos: &Position) -> Vec<CompletionItem> {
                         params,
                         return_type,
                         ..
-                    } => {
-                        if seen.insert(name.clone()) {
-                            let ret = return_type.as_deref().unwrap_or("void");
-                            let sig =
-                                format!("function {}({}) -> {}", name, params.join(", "), ret);
-                            items.push(CompletionItem::new(name, 3, Some(&sig), Some(&sig)));
-                        }
+                    } if seen.insert(name.clone()) => {
+                        let ret = return_type.as_deref().unwrap_or("void");
+                        let sig = format!("function {}({}) -> {}", name, params.join(", "), ret);
+                        items.push(CompletionItem::new(name, 3, Some(&sig), Some(&sig)));
                     }
-                    Stmt::StructDef { name, fields, .. } => {
-                        if seen.insert(name.clone()) {
-                            let detail = format!("struct {} ({})", name, fields.join(", "));
-                            items.push(CompletionItem::new(name, 22, Some(&detail), Some(&detail)));
-                        }
+                    Stmt::StructDef { name, fields, .. } if seen.insert(name.clone()) => {
+                        let detail = format!("struct {} ({})", name, fields.join(", "));
+                        items.push(CompletionItem::new(name, 22, Some(&detail), Some(&detail)));
                     }
-                    Stmt::InterfaceDef { name, methods, .. } => {
-                        if seen.insert(name.clone()) {
-                            let detail = format!("interface {} ({} methods)", name, methods.len());
-                            items.push(CompletionItem::new(name, 8, Some(&detail), Some(&detail)));
-                        }
+                    Stmt::InterfaceDef { name, methods, .. } if seen.insert(name.clone()) => {
+                        let detail = format!("interface {} ({} methods)", name, methods.len());
+                        items.push(CompletionItem::new(name, 8, Some(&detail), Some(&detail)));
                     }
-                    Stmt::Let { name, type_ann, .. } => {
-                        if seen.insert(name.clone()) {
-                            let t = type_ann.as_deref().unwrap_or("auto");
-                            let detail = format!("let {}: {}", name, t);
-                            items.push(CompletionItem::new(name, 6, Some(&detail), None));
-                        }
+                    Stmt::Let { name, type_ann, .. } if seen.insert(name.clone()) => {
+                        let t = type_ann.as_deref().unwrap_or("auto");
+                        let detail = format!("let {}: {}", name, t);
+                        items.push(CompletionItem::new(name, 6, Some(&detail), None));
                     }
                     _ => {}
                 }
@@ -255,8 +246,8 @@ pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
         if let Some(rest) = trimmed.strip_prefix("pub ") {
             trimmed = rest.trim_start();
         }
-        if trimmed.starts_with("function ") {
-            let rest = &trimmed[9..].trim_start();
+        if let Some(rest) = trimmed.strip_prefix("function ") {
+            let rest = rest.trim_start();
             let fn_name: String = rest
                 .chars()
                 .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
@@ -268,8 +259,8 @@ pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
                 let char_idx = line.find(&word).unwrap_or(0) as u32;
                 return Some(Position::new(line_idx as u32, char_idx));
             }
-        } else if trimmed.starts_with("struct ") {
-            let rest = &trimmed[7..].trim_start();
+        } else if let Some(rest) = trimmed.strip_prefix("struct ") {
+            let rest = rest.trim_start();
             let st_name: String = rest
                 .chars()
                 .take_while(|c| c.is_alphanumeric() || *c == '_')
@@ -278,8 +269,8 @@ pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
                 let char_idx = line.find(&word).unwrap_or(0) as u32;
                 return Some(Position::new(line_idx as u32, char_idx));
             }
-        } else if trimmed.starts_with("interface ") {
-            let rest = &trimmed[10..].trim_start();
+        } else if let Some(rest) = trimmed.strip_prefix("interface ") {
+            let rest = rest.trim_start();
             let if_name: String = rest
                 .chars()
                 .take_while(|c| c.is_alphanumeric() || *c == '_')
@@ -288,8 +279,8 @@ pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
                 let char_idx = line.find(&word).unwrap_or(0) as u32;
                 return Some(Position::new(line_idx as u32, char_idx));
             }
-        } else if trimmed.starts_with("enum ") {
-            let rest = &trimmed[5..].trim_start();
+        } else if let Some(rest) = trimmed.strip_prefix("enum ") {
+            let rest = rest.trim_start();
             let en_name: String = rest
                 .chars()
                 .take_while(|c| c.is_alphanumeric() || *c == '_')
@@ -298,9 +289,11 @@ pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
                 let char_idx = line.find(&word).unwrap_or(0) as u32;
                 return Some(Position::new(line_idx as u32, char_idx));
             }
-        } else if trimmed.starts_with("let ") || trimmed.starts_with("const ") {
-            let kw_len = if trimmed.starts_with("let ") { 4 } else { 6 };
-            let rest = &trimmed[kw_len..].trim_start();
+        } else if let Some(rest) = trimmed
+            .strip_prefix("let ")
+            .or_else(|| trimmed.strip_prefix("const "))
+        {
+            let rest = rest.trim_start();
             let var_name: String = rest
                 .chars()
                 .take_while(|c| c.is_alphanumeric() || *c == '_')

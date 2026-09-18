@@ -245,27 +245,28 @@ fn monomorphize_expr(
                     let specialized_name = format!("{}__{}", template_name, type_suffix);
                     *name = specialized_name.clone();
 
-                    if !specializations.contains_key(&specialized_name) {
-                        let spec_param_types = t_param_types
-                            .iter()
-                            .map(|opt_t| opt_t.as_ref().map(|t| substitute_type_str(t, &subst)))
-                            .collect();
-                        let spec_return_type = t_return_type
-                            .as_ref()
-                            .map(|t| substitute_type_str(t, &subst));
-                        let spec_body = substitute_in_stmts(&t_body, &subst);
+                    specializations
+                        .entry(specialized_name.clone())
+                        .or_insert_with(|| {
+                            let spec_param_types = t_param_types
+                                .iter()
+                                .map(|opt_t| opt_t.as_ref().map(|t| substitute_type_str(t, &subst)))
+                                .collect();
+                            let spec_return_type = t_return_type
+                                .as_ref()
+                                .map(|t| substitute_type_str(t, &subst));
+                            let spec_body = substitute_in_stmts(&t_body, &subst);
 
-                        let spec_fn = Stmt::Function {
-                            name: specialized_name.clone(),
-                            params: t_params,
-                            param_types: spec_param_types,
-                            return_type: spec_return_type,
-                            defaults: t_defaults,
-                            body: spec_body,
-                            type_params: vec![],
-                        };
-                        specializations.insert(specialized_name, spec_fn);
-                    }
+                            Stmt::Function {
+                                name: specialized_name,
+                                params: t_params,
+                                param_types: spec_param_types,
+                                return_type: spec_return_type,
+                                defaults: t_defaults,
+                                body: spec_body,
+                                type_params: vec![],
+                            }
+                        });
                 }
             }
         }

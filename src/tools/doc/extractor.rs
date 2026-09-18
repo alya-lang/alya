@@ -331,7 +331,7 @@ fn parse_doc_comments(source: &str) -> (String, HashMap<String, String>) {
             if !seen_first_decl && !current_doc.is_empty() {
                 // If comments are before any declaration and followed by blank lines,
                 // consider them module documentation
-                module_doc.extend(current_doc.drain(..));
+                module_doc.append(&mut current_doc);
             }
             continue;
         }
@@ -364,8 +364,8 @@ fn extract_decl_name(line: &str) -> Option<String> {
 
     let prefixes = ["function ", "struct ", "interface ", "enum ", "const "];
     for p in prefixes {
-        if clean.starts_with(p) {
-            let rest = clean[p.len()..].trim_start();
+        if let Some(stripped) = clean.strip_prefix(p) {
+            let rest = stripped.trim_start();
             let name: String = rest
                 .chars()
                 .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.')

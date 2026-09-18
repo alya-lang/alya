@@ -744,7 +744,7 @@ impl Parser {
         if matches!(self.current_token().token_type, TokenType::Identifier(_))
             && self
                 .peek_token()
-                .map_or(false, |t| t.token_type == TokenType::Colon)
+                .is_some_and(|t| t.token_type == TokenType::Colon)
         {
             self.advance(); // consume param name
             self.advance(); // consume ':'
@@ -1820,7 +1820,7 @@ impl Parser {
                                 min_len,
                             });
                         } else if let Expr::Call { name, args } = pattern_start {
-                            if name.chars().next().map_or(false, |c| c.is_uppercase())
+                            if name.chars().next().is_some_and(|c| c.is_uppercase())
                                 || name.contains('.')
                             {
                                 let bare = name.rsplit("::").next().unwrap_or(&name);
@@ -1844,9 +1844,7 @@ impl Parser {
                                                 })
                                             } else if bare == "Err" || bare == "Error" {
                                                 "message".to_string()
-                                            } else if bare == "Ok" || bare == "Some" {
-                                                "value".to_string()
-                                            } else if i == 0 {
+                                            } else if bare == "Ok" || bare == "Some" || i == 0 {
                                                 "value".to_string()
                                             } else {
                                                 format!("f{}", i)
@@ -1876,7 +1874,7 @@ impl Parser {
                                 bindings,
                             });
                         } else if let Expr::Identifier(ref id) = pattern_start {
-                            if id.chars().next().map_or(false, |c| c.is_uppercase())
+                            if id.chars().next().is_some_and(|c| c.is_uppercase())
                                 || matches!(
                                     id.as_str(),
                                     "int" | "float" | "string" | "str" | "bool" | "array" | "map"

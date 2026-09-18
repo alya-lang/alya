@@ -27,7 +27,7 @@ fn test_golden_spec_fixtures_count() {
     let alya_files: Vec<_> = fs::read_dir(&syntax_dir)
         .expect("Failed to read spec syntax dir")
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "alya"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "alya"))
         .collect();
 
     assert_eq!(
@@ -44,7 +44,7 @@ fn test_golden_spec_conformance_matrix() {
     let mut entries: Vec<_> = fs::read_dir(&syntax_dir)
         .expect("Failed to read spec syntax dir")
         .flatten()
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "alya"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "alya"))
         .collect();
 
     entries.sort_by_key(|e| e.file_name());
@@ -106,7 +106,7 @@ fn test_golden_spec_execution_matrix() {
     let mut entries: Vec<_> = fs::read_dir(&syntax_dir)
         .expect("Failed to read spec syntax dir")
         .flatten()
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "alya"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "alya"))
         .collect();
 
     entries.sort_by_key(|e| e.file_name());
@@ -123,7 +123,7 @@ fn test_golden_spec_execution_matrix() {
         let result = std::panic::catch_unwind(|| run_alya_code_full(&source));
 
         match result {
-            Ok(Some((code, _output))) if code == 0 => {
+            Ok(Some((0, _output))) => {
                 exec_passed += 1;
                 println!("  [EXEC OK]   {:<25}", filename);
             }
@@ -602,7 +602,7 @@ fn test_all_spec_syntax_compile_to_assembly() {
     let mut entries: Vec<_> = fs::read_dir(&syntax_dir)
         .expect("Failed to read spec syntax dir")
         .flatten()
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "alya"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "alya"))
         .collect();
     entries.sort_by_key(|e| e.file_name());
 

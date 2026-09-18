@@ -132,10 +132,11 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
             if bare == "slice" {
                 return !args.is_empty() && expr_is_definitely_string(&args[0], known_strings);
             }
-            if bare == "get" {
-                if args.len() >= 3 && expr_is_definitely_string(&args[2], known_strings) {
-                    return true;
-                }
+            if bare == "get"
+                && args.len() >= 3
+                && expr_is_definitely_string(&args[2], known_strings)
+            {
+                return true;
             }
             known_strings.contains(&format!("fn_ret_str:{}", name))
                 || known_strings.contains(&format!("fn_ret_str:{}", bare))
