@@ -1,0 +1,92 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 13 - Collections, Slicing & Comprehensions
+# File: syntax/collections.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Dynamic Array Operations & Indexing
+# ------------------------------------------------------------------------------
+let numbers = [10, 20, 30, 40, 50]
+let empty_list: int[] = []
+
+say f"Length: {numbers.length()}, First: {numbers[0]}"
+say f"Negative index [-1] (last element): {numbers[-1]}"
+say f"Negative index [-2] (second to last): {numbers[-2]}"
+
+# Slicing arrays: [start..end], [start..], [..end]
+let middle_slice = numbers[1..4]      # [20, 30, 40]
+let from_two = numbers[2..]           # [30, 40, 50]
+let up_to_three = numbers[..3]        # [10, 20, 30]
+
+say f"Middle slice items: {middle_slice.length()}"
+
+# Array mutations
+numbers.push(60)
+numbers.push(70)
+let popped = numbers.pop()            # 70
+numbers[0] = 99                       # Index mutation
+
+say f"Popped: {popped}, New first: {numbers[0]}"
+
+# ------------------------------------------------------------------------------
+# 2. Hash Maps (Dictionaries: [KeyType: ValueType])
+# ------------------------------------------------------------------------------
+let user_cache: [string: string] = {
+    "user_1": "Alice",
+    "user_2": "Bob",
+    "user_3": "Charlie"
+}
+
+say f"Direct lookup: {user_cache["user_1"]}"
+
+# Safe lookup with default fallback
+let missing = user_cache.get("user_99", "Guest User")
+say f"Missing lookup fallback: {missing}"
+
+# Key membership check with 'in'
+if "user_2" in user_cache
+    say "user_2 is present in cache."
+end
+
+# Mutation and insertion
+user_cache["user_4"] = "Diana"
+user_cache.remove("user_1")
+
+# Iteration over map entries
+for key, val in user_cache
+    say f"Cache entry: {key} => {val}"
+end
+
+# ------------------------------------------------------------------------------
+# 3. Stack Tuples
+# ------------------------------------------------------------------------------
+let transaction: (int, string, float, bool) = (1001, "USD", 450.75, true)
+
+# Positional field access (.0, .1, ...)
+say f"Tx ID: {transaction.0}, Currency: {transaction.1}, Amount: {transaction.2}"
+
+# Destructuring tuple
+let (tx_id, curr, amt, is_cleared) = transaction
+if is_cleared
+    say f"Transaction #{tx_id} cleared for {amt} {curr}"
+end
+
+# ------------------------------------------------------------------------------
+# 4. Array and Map Comprehensions
+# ------------------------------------------------------------------------------
+let source_data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+# Filter even numbers and multiply by 10
+let processed = [x * 10 for x in source_data if x % 2 == 0]
+
+for item in processed
+    say f"Comprehension result: {item}"
+end
+
+# Map comprehension: transform list of keys into length map
+let fruits = ["apple", "banana", "cherry", "date"]
+let fruit_lengths = {f: f.length() for f in fruits if f.length() > 4}
+
+for fruit_name, len in fruit_lengths
+    say f"Fruit '{fruit_name}' has length {len}"
+end

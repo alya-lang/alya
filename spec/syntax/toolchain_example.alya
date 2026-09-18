@@ -1,0 +1,61 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 24 - Toolchain, CLI & Package Manager
+# File: syntax/toolchain_example.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Project Entry Point Convention
+# ------------------------------------------------------------------------------
+# Standard entry point file: src/main.alya
+# Running 'alya run' in the project root automatically executes this file.
+
+import "std/os"
+
+function main()
+    say "Alya Application Toolchain Entry Point"
+    say f"Command line arguments: {os.args()}"
+    say f"Process ID: {os.pid()}"
+end
+
+main()
+
+# ------------------------------------------------------------------------------
+# 2. Test Discovery Integration (alya test)
+# ------------------------------------------------------------------------------
+# Running 'alya test' runs both native test blocks and @test functions:
+
+test "toolchain self-check validation"
+let status = true
+assert status == true, "Self-check invariant failed"
+end
+
+@test
+function test_environment_args()
+    let args = os.args()
+    assert args.length() >= 0
+end
+
+# ------------------------------------------------------------------------------
+# 3. Package Manifest & Dependency Resolution Conventions (alya.toml)
+# ------------------------------------------------------------------------------
+# In alya.toml:
+# [package]
+# name = "app"
+# version = "1.0.0"
+#
+# [dependencies]
+# b = "1.0.0"       # Transitively requires z ^1.0.0
+# c = "1.0.0"       # Transitively requires z ^2.0.0
+#
+# Resolution Invariants:
+# 1. SemVer Coalescing: Minor/patch versions (^1.1.0 vs ^1.4.0) coalesce to 1.4.0.
+# 2. Major Segregation: Incompatible majors are isolated in .alya/packages/z-v1 and z-v2.
+# 3. Mangled Symbols: _Alya_z_v1_calc vs _Alya_z_v2_calc coexist safely without collisions.
+# 4. Native Link Constraint: Packages with `links = "lib"` enforce single-version exclusivity.
+
+# ------------------------------------------------------------------------------
+# 4. Code Quality Tooling (alya fmt & alya lint)
+# ------------------------------------------------------------------------------
+# Running 'alya fmt' formats code in-place.
+# Running 'alya lint --fix' performs static analysis, detects dead code, unused
+# symbols, and applies automatic quick fixes in-place or via LSP in IDEs.

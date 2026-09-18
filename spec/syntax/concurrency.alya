@@ -1,0 +1,88 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 17 - Concurrency, Fibers & Channels
+# File: syntax/concurrency.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Spawning Lightweight Fibers
+# ------------------------------------------------------------------------------
+function worker_fiber(worker_id: int, jobs_channel: Channel[int])
+    say f"Worker fiber #{worker_id} ready"
+    for job in jobs_channel
+        say f"Worker fiber #{worker_id} processing job #{job}"
+    end
+    say f"Worker fiber #{worker_id} completed jobs"
+end
+
+# ------------------------------------------------------------------------------
+# 2. Buffered Channel Pipeline (CSP Pattern)
+# ------------------------------------------------------------------------------
+let jobs = Channel[int].new(capacity: 5)
+
+# Spawn worker fibers (M:N cooperative green threads)
+spawn worker_fiber(1, jobs)
+spawn worker_fiber(2, jobs)
+
+# Feed jobs from current fiber
+for j in 1..=5
+    jobs.send(j)
+end
+
+# Close channel to gracefully terminate receiver loops
+jobs.close()
+
+# ------------------------------------------------------------------------------
+# 3. Multiplexing Channels with 'select'
+# ------------------------------------------------------------------------------
+let ch_a = Channel[string].new(capacity: 1)
+let ch_b = Channel[string].new(capacity: 1)
+
+spawn || =>
+ch_a.send("Packet from Sensor A")
+end
+
+spawn || =>
+ch_b.send("Packet from Sensor B")
+end
+
+# Multiplex incoming messages with non-blocking fallback
+select
+case packet_a = ch_a.recv()
+say f"Multiplexer received: {packet_a}"
+case packet_b = ch_b.recv()
+say f"Multiplexer received: {packet_b}"
+timeout 1000
+say "Timeout: No sensor packet received within 1000ms"
+else
+say "Non-blocking check: No immediate data pending"
+end
+
+# ------------------------------------------------------------------------------
+# 4. Native OS Threads & Synchronization Primitives (std/sync)
+# ------------------------------------------------------------------------------
+import "std/sync"
+
+let wg = sync.WaitGroup.new()
+let mut = sync.Mutex.new()
+let shared_counter = 0
+
+wg.add(2)
+
+# Spawn OS worker threads
+sync.spawn(|| =>
+defer wg.done()
+mut.lock()
+shared_counter += 10
+mut.unlock()
+)
+
+sync.spawn(|| =>
+defer wg.done()
+mut.lock()
+shared_counter += 20
+mut.unlock()
+)
+
+# Await both threads
+wg.wait()
+say f"Thread-safe shared counter result: {shared_counter}" # 30

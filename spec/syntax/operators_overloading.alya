@@ -1,0 +1,110 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 20 - Operator Overloading & Special Methods
+# File: syntax/operators_overloading.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. 2D Vector with Overloaded Arithmetic, Relational & Equality Operators
+# ------------------------------------------------------------------------------
+struct Vector2D
+    x: float
+    y: float
+end
+
+# Vector addition: v1 + v2
+function Vector2D.operator+(self, other: Vector2D) -> Vector2D
+    return Vector2D {
+        x: self.x + other.x,
+        y: self.y + other.y
+    }
+end
+
+# Vector subtraction: v1 - v2
+function Vector2D.operator-(self, other: Vector2D) -> Vector2D
+    return Vector2D {
+        x: self.x - other.x,
+        y: self.y - other.y
+    }
+end
+
+# Vector scalar multiplication: v * scalar
+function Vector2D.operator*(self, scalar: float) -> Vector2D
+    return Vector2D {
+        x: self.x * scalar,
+        y: self.y * scalar
+    }
+end
+
+# Unary negation: -v
+function Vector2D.operator-neg(self) -> Vector2D
+    return Vector2D {
+        x: -self.x,
+        y: -self.y
+    }
+end
+
+# Structural equality: v1 == v2
+function Vector2D.operator==(self, other: Vector2D) -> bool
+    return self.x == other.x and self.y == other.y
+end
+
+# Magnitude comparison: v1 < v2
+function Vector2D.operator<(self, other: Vector2D) -> bool
+    let mag1 = self.x * self.x + self.y * self.y
+    let mag2 = other.x * other.x + other.y * other.y
+    return mag1 < mag2
+end
+
+# Special string representation
+function Vector2D.to_string(self) -> string
+    return f"Vector2D({self.x}, {self.y})"
+end
+
+let v1 = Vector2D { x: 3.0, y: 4.0 }
+let v2 = Vector2D { x: 1.0, y: 2.0 }
+
+let v3 = v1 + v2
+let v_sub = v1 - v2
+let v4 = v1 * 2.0
+let v5 = -v1
+
+say f"v1: {v1}"
+say f"v2: {v2}"
+say f"v1 + v2: {v3}"
+say f"v1 - v2: {v_sub}"
+say f"v1 * 2: {v4}"
+say f"-v1: {v5}"
+
+if v1 + v2 == v3
+    say "Vector equality verified successfully"
+end
+
+if v2 < v1
+    say "v2 has smaller magnitude than v1"
+end
+
+# ------------------------------------------------------------------------------
+# 2. Custom Collection with Overloaded Index Operators ([] and []=)
+# ------------------------------------------------------------------------------
+struct FixedRingBuffer
+    data: int[]
+    head: int = 0
+end
+
+# Read indexing: buf[i]
+function FixedRingBuffer.operator[](self, index: int) -> int
+    let actual_idx = (self.head + index) % self.data.length()
+    return self.data[actual_idx]
+end
+
+# Write indexing: buf[i] = val
+function FixedRingBuffer.operator[]=(self, index: int, value: int)
+    let actual_idx = (self.head + index) % self.data.length()
+    self.data[actual_idx] = value
+end
+
+let ring = FixedRingBuffer { data: [100, 200, 300], head: 1 }
+say f"Element at ring[0] (actual offset 1): {ring[0]}"
+
+ring[0] = 999
+say f"Updated element at ring[0]: {ring[0]}"

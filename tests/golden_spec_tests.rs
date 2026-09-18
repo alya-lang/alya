@@ -7,7 +7,12 @@ use std::path::PathBuf;
 
 fn get_spec_syntax_dir() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir.parent().unwrap().join("spec").join("syntax")
+    let embedded = manifest_dir.join("spec").join("syntax");
+    if embedded.exists() {
+        embedded
+    } else {
+        manifest_dir.parent().unwrap().join("spec").join("syntax")
+    }
 }
 
 #[test]

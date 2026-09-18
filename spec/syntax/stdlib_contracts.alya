@@ -1,0 +1,178 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 23 - Standard Library Core Contracts
+# File: syntax/stdlib_contracts.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Path Operations & File System (std/path, std/fs)
+# ------------------------------------------------------------------------------
+import "std/path"
+import "std/fs"
+
+let work_dir = path.join("data", "reports", "2026")
+let file_path = path.join(work_dir, "summary.txt")
+
+say f"Target file path: {file_path}"
+say f"Directory: {path.dirname(file_path)}"
+say f"Base filename: {path.basename(file_path)}"
+say f"Extension: {path.ext(file_path)}"
+
+if not fs.exists(work_dir)
+    fs.mkdir(work_dir, recursive: true)
+end
+
+fs.write_string(file_path, "Alya Language Specification v1.0\n")
+fs.append_string(file_path, "Core stdlib contracts verified.\n")
+
+let content = fs.read_string(file_path)
+say f"File content length: {content.length()} bytes"
+
+# ------------------------------------------------------------------------------
+# 2. Operating System & Environment (std/os)
+# ------------------------------------------------------------------------------
+import "std/os"
+
+say f"Current PID: {os.pid()}"
+say f"Current CWD: {os.cwd()}"
+say f"Target Platform: {os.platform()} ({os.arch()})"
+
+let user_env = os.getenv("USER") ?? os.getenv("USERNAME") ?? "Unknown User"
+say f"Active User: {user_env}"
+
+# ------------------------------------------------------------------------------
+# 3. Subprocess Execution & IPC (std/process)
+# ------------------------------------------------------------------------------
+import "std/process"
+
+let proc_out = process.run("echo", ["Subprocess execution verified"])
+say f"Process exit code: {proc_out.exit_code}"
+say f"Process output: {proc_out.stdout.trim()}"
+
+# ------------------------------------------------------------------------------
+# 4. Streams & Standard I/O (std/io)
+# ------------------------------------------------------------------------------
+import "std/io"
+
+# Writing directly to standard output stream
+io.stdout.write("Direct message via std/io stdout\n")
+
+# ------------------------------------------------------------------------------
+# 5. Raw Sockets & Networking (std/net)
+# ------------------------------------------------------------------------------
+import "std/net"
+
+# Client socket connection contract (exemplary)
+try
+    let sock = net.tcp_connect("127.0.0.1", 8080)
+    net.send(sock, "PING\n")
+    let response = net.recv(sock, 1024)
+    net.close(sock)
+catch err
+    # Expected when server is not running locally
+    say f"Network probe skipped: {err.message}"
+end
+
+# ------------------------------------------------------------------------------
+# 6. Concurrency & Synchronization Primitives (std/sync)
+# ------------------------------------------------------------------------------
+import "std/sync"
+
+let wg = sync.WaitGroup.new()
+let mut = sync.Mutex.new()
+let counter = 0
+
+wg.add(2)
+
+sync.spawn(|| =>
+defer wg.done()
+mut.lock()
+counter += 1
+mut.unlock()
+)
+
+sync.spawn(|| =>
+defer wg.done()
+mut.lock()
+counter += 1
+mut.unlock()
+)
+
+wg.wait()
+say f"Thread-safe counter value: {counter}"
+
+# ------------------------------------------------------------------------------
+# 7. Clocks & Timers (std/time)
+# ------------------------------------------------------------------------------
+import "std/time"
+
+let start_time = time.now_millis()
+time.sleep(10) # 10 ms pause
+let elapsed = time.now_millis() - start_time
+say f"Elapsed sleep: {elapsed} ms"
+
+# ------------------------------------------------------------------------------
+# 8. Memory Management & Arenas (std/mem)
+# ------------------------------------------------------------------------------
+import "std/mem"
+
+let arena = mem.Arena.new(1024 * 64) # 64 KB region
+let block = arena.alloc(256)
+say f"Allocated 256 bytes from bump arena at {block}"
+arena.reset()
+arena.destroy()
+
+# ------------------------------------------------------------------------------
+# 9. Math & Randomness (std/math)
+# ------------------------------------------------------------------------------
+import "std/math"
+
+let hyp = math.sqrt(3.0 * 3.0 + 4.0 * 4.0)
+say f"Hypotenuse (3, 4): {hyp}"
+say f"Pi constant: {math.PI}"
+say f"Random float [0, 1): {math.random()}"
+say f"Random integer [1, 100]: {math.rand_int(1, 100)}"
+
+# ------------------------------------------------------------------------------
+# 10. String Algorithms & Encodings (std/str)
+# ------------------------------------------------------------------------------
+import "std/str"
+
+let raw_csv = "apple,banana,orange,grape"
+let fruits = str.split(raw_csv, ",")
+say f"Fruit items count: {fruits.length()}"
+say f"Rejoined: {str.join(fruits, " -> ")}"
+
+let secret = "Alya Native Language"
+let encoded = str.base64_encode(secret)
+let decoded = str.base64_decode(encoded)
+say f"Base64 roundtrip matches: {secret == decoded}"
+
+# ------------------------------------------------------------------------------
+# 11. Collections & Data Structures (std/collections)
+# ------------------------------------------------------------------------------
+import "std/collections"
+
+let stack = collections.Stack[int].new()
+stack.push(10)
+stack.push(20)
+stack.push(30)
+say f"Stack popped: {stack.pop()}" # 30
+
+# ------------------------------------------------------------------------------
+# 12. Terminal Styling & Control (std/console)
+# ------------------------------------------------------------------------------
+import "std/console"
+
+console.utf8()
+say console.green("✓ Stdlib tests passed successfully!")
+say console.bold(console.blue("[INFO] System running at full performance"))
+
+# ------------------------------------------------------------------------------
+# 13. Unit Testing & Assertions (std/test)
+# ------------------------------------------------------------------------------
+import "std/test"
+
+test.assert(math.PI > 3.14, "Pi must be greater than 3.14")
+test.assert_eq(2 + 2, 4, "Arithmetic identity check")
+
+say "All standard library core contracts verified."

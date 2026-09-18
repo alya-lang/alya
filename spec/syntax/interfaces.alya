@@ -1,0 +1,94 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 14 - Interfaces & Structural Polymorphism
+# File: syntax/interfaces.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Interface Definitions
+# ------------------------------------------------------------------------------
+interface Shape
+function area(self) -> float
+    function perimeter(self) -> float
+    end
+
+    interface Describable
+    function describe(self) -> string
+    end
+
+    # Composed interface
+    interface DetailedShape
+    Shape
+    Describable
+end
+
+# ------------------------------------------------------------------------------
+# 2. Structs Implicitly Satisfying Interfaces
+# ------------------------------------------------------------------------------
+struct Circle
+    radius: float
+end
+
+function Circle.area(self) -> float
+    return 3.14159 * self.radius * self.radius
+end
+
+function Circle.perimeter(self) -> float
+    return 2.0 * 3.14159 * self.radius
+end
+
+function Circle.describe(self) -> string
+    return f"Circle with radius {self.radius}"
+end
+
+struct Rectangle
+    width: float
+    height: float
+end
+
+function Rectangle.area(self) -> float
+    return self.width * self.height
+end
+
+function Rectangle.perimeter(self) -> float
+    return 2.0 * (self.width + self.height)
+end
+
+function Rectangle.describe(self) -> string
+    return f"Rectangle {self.width}x{self.height}"
+end
+
+# ------------------------------------------------------------------------------
+# 3. Polymorphic Consumption via Interfaces
+# ------------------------------------------------------------------------------
+function print_shape_metrics(s: Shape)
+    say f"Area: {s.area()}"
+    say f"Perimeter: {s.perimeter()}"
+end
+
+function log_detailed_info(ds: DetailedShape)
+    say f"Description: {ds.describe()}"
+    say f"Calculated Area: {ds.area()}"
+end
+
+let c = Circle { radius: 5.0 }
+let r = Rectangle { width: 10.0, height: 4.0 }
+
+# Both Circle and Rectangle satisfy Shape and DetailedShape implicitly
+print_shape_metrics(c)
+print_shape_metrics(r)
+
+log_detailed_info(c)
+
+# ------------------------------------------------------------------------------
+# 4. Type Queries & Pattern Matching on Interfaces
+# ------------------------------------------------------------------------------
+function inspect_geometry(s: Shape)
+    when s
+        is Circle => say "Identified concrete Circle instance"
+        is Rectangle => say "Identified concrete Rectangle instance"
+        else => say "Unrecognized shape"
+    end
+end
+
+inspect_geometry(c)
+inspect_geometry(r)

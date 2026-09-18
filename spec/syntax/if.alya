@@ -1,0 +1,109 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 04 - Conditionals (if / elif / else)
+# File: syntax/if.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Basic 'if' Statement
+# ------------------------------------------------------------------------------
+let temperature = 32
+
+if temperature > 30
+    say "Warning: High temperature threshold exceeded."
+end
+
+# ------------------------------------------------------------------------------
+# 2. 'if' / 'else' Statement
+# ------------------------------------------------------------------------------
+let is_authenticated = false
+
+if is_authenticated
+    say "Session valid: Entering user dashboard."
+else
+    say "Access denied: Redirecting to authentication service."
+end
+
+# ------------------------------------------------------------------------------
+# 3. Multi-Branch 'if' / 'elif' / 'else' Cascade
+# ------------------------------------------------------------------------------
+let score = 84
+
+if score >= 90
+    say "Grade: A (Distinction)"
+elif score >= 80
+    say "Grade: B (High Pass)"
+elif score >= 70
+    say "Grade: C (Pass)"
+elif score >= 50
+    say "Grade: D (Conditional)"
+else
+    say "Grade: F (Fail)"
+end
+
+# ------------------------------------------------------------------------------
+# 4. 'if' Used as an Expression (Returning Values)
+# ------------------------------------------------------------------------------
+let is_member = true
+let discount_rate = if is_member then 0.20 else 0.05
+say f"Calculated discount: {discount_rate * 100}%"
+
+# Multi-line 'if' expression
+let status_badge = if score >= 80
+"Honors"
+else
+"Standard"
+end
+say f"Status badge: {status_badge}"
+
+# ------------------------------------------------------------------------------
+# 5. Inline Single-Line 'if' with 'then'
+# ------------------------------------------------------------------------------
+let debug_logging = true
+if debug_logging then say "[DEBUG] Subsystem initialized at high resolution"
+
+    let pending_tasks = 0
+    if pending_tasks == 0 then say "Worker thread pool idle"
+
+        # Inline 'if ... then ... else'
+        let mode_str = if debug_logging then "Verbose" else "Silent"
+
+        # ------------------------------------------------------------------------------
+        # 6. Compound Boolean Conditions & Branch Fusion Invariants
+        # ------------------------------------------------------------------------------
+        let user_role = "maintainer"
+        let is_active = true
+        let failed_login_attempts = 0
+
+        # Compiler fuses (role == "admin" or role == "maintainer") and is_active into direct jump cascades
+        if (user_role == "admin" or user_role == "maintainer") and is_active and failed_login_attempts < 3
+            say "Authorized for repository write access."
+        end
+
+        # ------------------------------------------------------------------------------
+        # 7. Smart-Casting inside 'if' Branches
+        # ------------------------------------------------------------------------------
+        let nullable_name: string? = "Alya Developer"
+
+        if nullable_name != null
+            # Flow-sensitive type analysis: inside this block, nullable_name is promoted to non-null 'string'
+            say f"Hello, {nullable_name.to_upper()}!"
+        else
+            say "Anonymous user detected."
+        end
+
+        # ------------------------------------------------------------------------------
+        # 8. Nested Conditionals & Scope Encapsulation
+        # ------------------------------------------------------------------------------
+        let system_online = true
+        let storage_free_gb = 45
+
+        if system_online
+            let temp_diagnostic = "Diagnostic OK"
+            if storage_free_gb < 10
+                say "CRITICAL: Low disk space!"
+            else
+                say f"System operating normally ({storage_free_gb} GB free). Status: {temp_diagnostic}"
+            end
+            # temp_diagnostic is accessible here
+        end
+        # temp_diagnostic is out of scope here

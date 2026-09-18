@@ -1,0 +1,108 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 10 - Error Handling
+# File: syntax/error_handling.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Custom Structured Error Types
+# ------------------------------------------------------------------------------
+struct NetworkError
+    code: int
+    endpoint: string
+    reason: string
+end
+
+struct ValidationError
+    field: string
+    message: string
+end
+
+# ------------------------------------------------------------------------------
+# 2. 'throw' Statement with Structured Errors
+# ------------------------------------------------------------------------------
+function fetch_record(endpoint: string, id: int) -> string
+    if id <= 0
+        throw ValidationError {
+            field: "id",
+            message: "Record ID must be positive"
+        }
+    end
+
+    if endpoint == "offline.service.internal"
+        throw NetworkError {
+            code: 503,
+            endpoint: endpoint,
+            reason: "Target gateway unreachable"
+        }
+    end
+
+    return f"RecordData for {id} from {endpoint}"
+end
+
+# ------------------------------------------------------------------------------
+# 3. 'try' / 'catch' with Typed Pattern Matching via 'when'
+# ------------------------------------------------------------------------------
+try
+    let data = fetch_record("offline.service.internal", 42)
+    say f"Received data: {data}"
+catch err
+    when err
+        is ValidationError =>
+            say f"Validation rejected: Field '{err.field}' -> {err.message}"
+        is NetworkError =>
+            say f"Network failed ({err.code}) at {err.endpoint}: {err.reason}"
+        else =>
+            say f"Unhandled generic error: {err}"
+    end
+end
+
+# ------------------------------------------------------------------------------
+# 4. 'try' / 'catch' with 'finally' Cleanup Guarantee
+# ------------------------------------------------------------------------------
+let file_handle_open = false
+
+try
+    file_handle_open = true
+    say "File handle opened for transaction."
+    throw "Disk I/O failure mid-write"
+catch err
+    say f"Caught write error: {err}"
+finally
+    file_handle_open = false
+    say f"Finally guarantee executed: Handle closed (open={file_handle_open})"
+end
+
+# ------------------------------------------------------------------------------
+# 5. Guaranteed Interaction: 'defer' and 'try' / 'finally'
+# ------------------------------------------------------------------------------
+function transaction_pipeline() -> bool
+    defer say "Step 4: Function-level defer executed"
+
+    try
+        defer say "Step 2: Try-block-level defer executed"
+        say "Step 1: Inside try block before throw"
+        throw "Simulation failure"
+    catch err
+        say f"Step 3: Caught simulation error: {err}"
+        return false
+    finally
+        say "Step 3.5: Finally block executed before return"
+    end
+end
+
+transaction_pipeline()
+
+# ------------------------------------------------------------------------------
+# 6. Re-throwing Caught Errors
+# ------------------------------------------------------------------------------
+function outer_supervisor()
+    try
+        fetch_record("valid.host", -1)
+    catch err
+        say "Supervisor logging error before re-throw..."
+        # Re-throw err to higher call frame
+        # throw err
+    end
+end
+
+outer_supervisor()

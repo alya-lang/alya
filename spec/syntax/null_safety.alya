@@ -1,0 +1,72 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 19 - Null Safety & Optionals
+# File: syntax/null_safety.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Non-nullable vs Nullable Types
+# ------------------------------------------------------------------------------
+let guaranteed_text: string = "Always present"
+# guaranteed_text = null  # Compile error: Cannot assign null to non-nullable 'string'
+
+let optional_nickname: string? = null
+say f"Initial optional value: {optional_nickname}"
+
+# ------------------------------------------------------------------------------
+# 2. Safe Navigation (?.) and Null Coalescing (??)
+# ------------------------------------------------------------------------------
+struct Profile
+    bio: string?
+    website: string?
+end
+
+let p: Profile? = Profile { bio: null, website: "https://alya-lang.org" }
+
+# Safe navigation chains:
+let bio_length: int? = p?.bio?.length()
+say f"Bio length: {bio_length}"
+
+# Null coalescing with fallback:
+let final_bio: string = p?.bio ?? "No biography provided yet."
+say f"User bio: {final_bio}"
+
+# ------------------------------------------------------------------------------
+# 3. Flow-Sensitive Type Narrowing (Smart Casting)
+# ------------------------------------------------------------------------------
+function verify_contact(contact: string?)
+    if contact != null
+        # Inside this branch, contact is automatically narrowed from 'string?' to 'string'
+        say f"Contact confirmed: {contact.upper()}"
+        say f"Length of contact: {contact.length()}"
+    else
+        say "No contact information registered"
+    end
+end
+
+verify_contact("alice@alya.dev")
+verify_contact(null)
+
+# ------------------------------------------------------------------------------
+# 4. 'guard let' Early Exit Unwrapping
+# ------------------------------------------------------------------------------
+function parse_and_greet(name_opt: string?)
+    guard let safe_name = name_opt else
+    say "Cannot greet: provided name is null"
+    return
+end
+
+# 'safe_name' is non-nullable for all subsequent lines in this function
+say f"Greetings, {safe_name}! Your name has {safe_name.length()} characters."
+end
+
+parse_and_greet(null)
+parse_and_greet("Bjarne")
+
+# ------------------------------------------------------------------------------
+# 5. Force Unwrap Operator (!)
+# ------------------------------------------------------------------------------
+let confirmed_token: string? = "secret_auth_token_9981"
+
+# Force unwrap (asserts non-null at runtime)
+let non_null_token: string = confirmed_token!
+say f"Active session token: {non_null_token}"

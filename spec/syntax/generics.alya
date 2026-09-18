@@ -1,0 +1,87 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 15 - Generics & Parametric Polymorphism
+# File: syntax/generics.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Generic Functions with Inference
+# ------------------------------------------------------------------------------
+function swap[T](a: T, b: T) -> (T, T)
+    return b, a
+end
+
+# Explicit and inferred invocations
+let n1, n2 = swap(100, 200)
+let s1, s2 = swap("Left", "Right")
+
+say f"Swapped integers: {n1}, {n2}"
+say f"Swapped strings: {s1}, {s2}"
+
+# ------------------------------------------------------------------------------
+# 2. Generic Data Structure (Stack[T])
+# ------------------------------------------------------------------------------
+struct Stack[T]
+    items: T[]
+end
+
+function Stack[T].new() -> Stack[T]
+    return Stack[T] { items: [] }
+end
+
+function Stack[T].push(self, item: T)
+    self.items.push(item)
+end
+
+function Stack[T].pop(self) -> T
+    return self.items.pop()
+end
+
+function Stack[T].size(self) -> int
+    return self.items.length()
+end
+
+let int_stack = Stack[int].new()
+int_stack.push(10)
+int_stack.push(20)
+int_stack.push(30)
+
+say f"Stack size: {int_stack.size()}"
+say f"Popped top element: {int_stack.pop()}"
+
+# ------------------------------------------------------------------------------
+# 3. Multiple Type Parameters
+# ------------------------------------------------------------------------------
+struct KeyValuePair[K, V]
+    key: K
+    value: V
+end
+
+let entry = KeyValuePair[string, int] {
+    key: "HTTP_STATUS",
+    value: 200
+}
+
+say f"Entry pair: {entry.key} = {entry.value}"
+
+# ------------------------------------------------------------------------------
+# 4. Bounded Generics (Interface Constraints)
+# ------------------------------------------------------------------------------
+interface Printable
+function to_string(self) -> string
+end
+
+struct Book
+    title: string
+    author: string
+end
+
+function Book.to_string(self) -> string
+    return f"'{self.title}' by {self.author}"
+end
+
+function log_printable[T: Printable](entity: T)
+    say f"[LOG] {entity.to_string()}"
+end
+
+let b = Book { title: "The Pragmatic Programmer", author: "Hunt & Thomas" }
+log_printable(b)

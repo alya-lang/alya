@@ -1,0 +1,59 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 21 - Strings, Unicode & Runes
+# File: syntax/strings_unicode.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Unicode Strings and Runes
+# ------------------------------------------------------------------------------
+let greeting = "Merhaba, Dünya! 🚀"
+let first_rune: rune = 'M'
+let rocket_rune: rune = '🚀'
+
+say f"Greeting: {greeting}"
+say f"Byte length: {greeting.byte_length()}"
+say f"Rune count: {greeting.char_count()}"
+say f"Rocket codepoint (numeric): {rocket_rune as int}"
+
+# ------------------------------------------------------------------------------
+# 2. Codepoint Iteration vs Byte Iteration
+# ------------------------------------------------------------------------------
+let sample = "Alya Çiçek"
+
+say "Iterating by codepoints (runes):"
+for ch in sample
+    say f"  Rune: '{ch}' (Codepoint: {ch as int})"
+end
+
+say "Iterating by raw UTF-8 bytes:"
+for b in sample.bytes()
+    say f"  Byte: {b}"
+end
+
+# ------------------------------------------------------------------------------
+# 3. String Slicing and Extraction
+# ------------------------------------------------------------------------------
+let slice = greeting[0..7] # "Merhaba"
+say f"Extracted substring: '{slice}'"
+
+# ------------------------------------------------------------------------------
+# 4. Advanced Formatted String Specifiers
+# ------------------------------------------------------------------------------
+let ratio: float = 3.14159265
+let user_id: int = 42
+let hex_code: int = 255
+let label: string = "Alya"
+
+# Float precision
+say f"Precision 2 decimals: {ratio:.2f}"
+
+# Zero-padded width
+say f"Padded ID: {user_id:05}"
+
+# Hex and binary formatting
+say f"Hexadecimal: {hex_code:#x}"
+say f"Binary: {user_id:#b}"
+
+# Alignment and column width
+say f"Right aligned: [{label:>10}]"
+say f"Left aligned:  [{label:<10}]"

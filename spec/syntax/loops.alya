@@ -1,0 +1,122 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 06 - Loops & Iteration
+# File: syntax/loops.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. 'while' Loop
+# ------------------------------------------------------------------------------
+let countdown = 5
+
+while countdown > 0
+    say f"Countdown tick: {countdown}"
+    countdown -= 1
+end
+say "Countdown finished!"
+
+# Multi-condition while loop
+let worker_busy = true
+let retry_budget = 3
+
+while worker_busy and retry_budget > 0
+    say f"Worker polling, retries left: {retry_budget}"
+    retry_budget -= 1
+    if retry_budget == 1
+        worker_busy = false # Job finished
+    end
+end
+
+# ------------------------------------------------------------------------------
+# 2. 'for .. in' Numeric Range Loops (Exclusive & Inclusive)
+# ------------------------------------------------------------------------------
+# Half-open range (0..5 -> 0, 1, 2, 3, 4)
+let sum_exclusive = 0
+for i in 0..5
+    sum_exclusive += i
+end
+say f"Sum of 0..5 (exclusive): {sum_exclusive}" # 10
+
+# Inclusive range (1..=5 -> 1, 2, 3, 4, 5)
+let product_inclusive = 1
+for i in 1..=5
+    product_inclusive *= i
+end
+say f"Product of 1..=5 (factorial 5): {product_inclusive}" # 120
+
+# ------------------------------------------------------------------------------
+# 3. 'for item in' Collection Iteration
+# ------------------------------------------------------------------------------
+let tech_stack = ["Alya", "Assembly", "Rust", "Linux", "Darwin"]
+
+for tech in tech_stack
+    say f"Technology: {tech}"
+end
+
+# ------------------------------------------------------------------------------
+# 4. 'for index, item in' Array Indexed Iteration
+# ------------------------------------------------------------------------------
+let pipeline_steps = ["Lexer", "Parser", "TypeInference", "TreeShaking", "Codegen"]
+
+for idx, step in pipeline_steps
+    say f"Step #{idx + 1}: {step}"
+end
+
+# ------------------------------------------------------------------------------
+# 5. 'for key, val in' Hash Map Iteration
+# ------------------------------------------------------------------------------
+let server_headers = {
+    "Content-Type": "application/json",
+    "Server": "Alya/1.0",
+    "Connection": "keep-alive"
+}
+
+for header, val in server_headers
+    say f"HTTP Header: {header}: {val}"
+end
+
+# ------------------------------------------------------------------------------
+# 6. 'repeat' Loop (Unconditional) with 'break' and 'continue'
+# ------------------------------------------------------------------------------
+let tick_count = 0
+
+repeat
+    tick_count += 1
+
+    # Skip odd ticks using continue
+    if tick_count % 2 != 0
+        continue
+    end
+
+    say f"Even tick processed: {tick_count}"
+
+    # Exit loop unconditionally when threshold reached
+    if tick_count >= 6
+        say "Loop threshold reached, breaking out."
+        break
+    end
+end
+
+# ------------------------------------------------------------------------------
+# 7. Nested Loops & Matrix Traversal
+# ------------------------------------------------------------------------------
+let grid = [
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9]
+]
+
+let target = 5
+let found = false
+
+for row_idx, row in grid
+    for col_idx, cell in row
+        if cell == target
+            say f"Target {target} located at grid[{row_idx}][{col_idx}]"
+            found = true
+            break
+        end
+    end
+    if found
+        break
+    end
+end

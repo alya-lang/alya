@@ -1,0 +1,113 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 08 - Structs & Methods (Object Model)
+# File: syntax/structs.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Struct Declaration with Types and Default Values
+# ------------------------------------------------------------------------------
+struct Point2D
+    x: float
+    y: float
+    label: string = "unnamed"
+end
+
+# ------------------------------------------------------------------------------
+# 2. Instantiation Patterns (Full, Defaults, Shorthand)
+# ------------------------------------------------------------------------------
+# All fields explicitly specified
+let p1 = Point2D {
+    x: 10.5,
+    y: 20.0,
+    label: "Origin-Offset"
+}
+
+# Relying on default value for 'label'
+let p2 = Point2D {
+    x: 0.0,
+    y: 0.0
+}
+
+# Field initialization shorthand (when variable names match field names)
+let x = 50.0
+let y = 75.0
+let p_short = Point2D { x, y, label: "ShorthandPoint" }
+
+say f"Point 1: {p1.label} at ({p1.x}, {p1.y})"
+say f"Point 2: {p2.label} at ({p2.x}, {p2.y})"
+say f"Shorthand: {p_short.label} at ({p_short.x}, {p_short.y})"
+
+# ------------------------------------------------------------------------------
+# 3. Instance Methods (UFCS via 'self') & Mutability
+# ------------------------------------------------------------------------------
+function Point2D.distance_to(self, other: Point2D) -> float
+    let dx = self.x - other.x
+    let dy = self.y - other.y
+    return (dx * dx + dy * dy)
+end
+
+function Point2D.shift(self, dx: float, dy: float)
+    self.x += dx
+    self.y += dy
+end
+
+let dist_sq = p1.distance_to(p2)
+say f"Distance squared: {dist_sq}"
+
+p2.shift(5.0, 5.0)
+say f"Point 2 shifted to ({p2.x}, {p2.y})"
+
+# ------------------------------------------------------------------------------
+# 4. Static Factory Methods & Method Chaining
+# ------------------------------------------------------------------------------
+function Point2D.zero() -> Point2D
+    return Point2D {
+        x: 0.0,
+        y: 0.0,
+        label: "Origin"
+    }
+end
+
+# Fluent Builder Pattern with Method Chaining
+struct HttpRequestBuilder
+    url: string = ""
+    method: string = "GET"
+    timeout_ms: int = 3000
+end
+
+function HttpRequestBuilder.new(url: string) -> HttpRequestBuilder
+    return HttpRequestBuilder { url: url }
+end
+
+function HttpRequestBuilder.with_method(self, m: string) -> HttpRequestBuilder
+    self.method = m
+    return self
+end
+
+function HttpRequestBuilder.with_timeout(self, ms: int) -> HttpRequestBuilder
+    self.timeout_ms = ms
+    return self
+end
+
+let req = HttpRequestBuilder.new("https://api.alya.dev/v1/health")
+.with_method("POST")
+.with_timeout(5000)
+
+say f"Built Request: {req.method} {req.url} (timeout: {req.timeout_ms}ms)"
+
+# ------------------------------------------------------------------------------
+# 5. Struct Composition & Nested Access
+# ------------------------------------------------------------------------------
+struct BoundingBox
+    top_left: Point2D
+    bottom_right: Point2D
+    color_code: int = 0xFFFFFF
+end
+
+let box = BoundingBox {
+    top_left: Point2D { x: 0.0, y: 100.0, label: "TopLeft" },
+    bottom_right: Point2D { x: 100.0, y: 0.0, label: "BottomRight" }
+}
+
+say f"Box top-left coordinates: ({box.top_left.x}, {box.top_left.y})"
+say f"Box border color: {box.color_code}"

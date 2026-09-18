@@ -1,0 +1,106 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 02 - Types & Type System
+# File: syntax/types.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Boolean Type (bool)
+# ------------------------------------------------------------------------------
+let is_running: bool = true
+let is_completed: bool = false
+
+# Strict boolean evaluation (integers cannot implicitly coerce to bool)
+if is_running and not is_completed
+    say "System is currently executing task."
+end
+
+# ------------------------------------------------------------------------------
+# 2. Signed Integer Scalar Primitives
+# ------------------------------------------------------------------------------
+let num_default: int = 42             # Canonical default signed 64-bit integer
+let num_i8: i8 = -128                 # 8-bit signed (-128 to 127)
+let num_i16: i16 = -32768             # 16-bit signed
+let num_i32: i32 = -2147483648        # 32-bit signed (C int compatible)
+let num_i64: i64 = 9223372036854775807# 64-bit signed
+
+say f"Signed scalars: i8={num_i8}, i16={num_i16}, i32={num_i32}, i64={num_i64}"
+
+# ------------------------------------------------------------------------------
+# 3. Unsigned Integer Scalar Primitives
+# ------------------------------------------------------------------------------
+let num_u8: u8 = 255                  # 8-bit unsigned byte (0 to 255)
+let num_u16: u16 = 65535              # 16-bit unsigned
+let num_u32: u32 = 4294967295         # 32-bit unsigned
+let num_u64: u64 = 18446744073709551615 # 64-bit unsigned
+
+# Architecture-dependent pointer size (32-bit on x86, 64-bit on x64/ARM64)
+let mem_offset: usize = 0x7FFF_FFFF
+
+say f"Unsigned scalars: u8={num_u8}, u16={num_u16}, u32={num_u32}, usize={mem_offset}"
+
+# ------------------------------------------------------------------------------
+# 4. Floating-Point Scalar Primitives
+# ------------------------------------------------------------------------------
+let num_f32: f32 = 3.14159            # 32-bit single-precision IEEE 754
+let num_float: float = 2.718281828459 # Default 64-bit double-precision IEEE 754
+let num_f64: f64 = num_float          # f64 is an alias for float
+
+say f"Floats: f32={num_f32}, float/f64={num_f64}"
+
+# ------------------------------------------------------------------------------
+# 5. Character & String Primitives
+# ------------------------------------------------------------------------------
+let codepoint: rune = '⌘'             # 32-bit Unicode codepoint
+let text: string = "Alya Language"    # Immutable UTF-8 byte slice backed by ARC
+
+say f"Rune codepoint: {codepoint}, String: '{text}'"
+
+# ------------------------------------------------------------------------------
+# 6. Composite Types: Arrays, Maps, and Tuples
+# ------------------------------------------------------------------------------
+# Dynamic Arrays (T[])
+let numbers: int[] = [10, 20, 30, 40]
+let matrix: int[][] = [[1, 2], [3, 4]]# Multi-dimensional array
+
+# Hash Maps ([KeyType: ValueType])
+let score_board: [string: int] = { "Alice": 100, "Bob": 85 }
+
+# Fixed-Size Tuples (T1, T2, ...)
+let user_entry: (int, string, bool) = (101, "Alice", true)
+
+say f"Array len: {numbers.length()}, Matrix row len: {matrix.length()}"
+say f"Map keys count: {score_board.length()}, Tuple: ({user_entry.0}, {user_entry.1}, {user_entry.2})"
+
+# ------------------------------------------------------------------------------
+# 7. Nullable Optionals (T?) & Raw Pointers (ptr)
+# ------------------------------------------------------------------------------
+let maybe_number: int? = null         # Can hold an int or null
+maybe_number = 500
+
+let raw_c_buffer: ptr = null          # Raw pointer for C FFI bindings
+
+# ------------------------------------------------------------------------------
+# 8. Explicit Type Casting with 'as' Keyword
+# ------------------------------------------------------------------------------
+let source_int: int = 1000
+let cast_float = source_int as float  # int to float conversion
+let cast_byte = source_int as u8      # Truncating conversion (1000 % 256 = 232)
+let cast_i32 = source_int as i32      # 64-bit to 32-bit conversion
+
+let float_pi = 3.99
+let truncated_int = float_pi as int   # Truncates to 3
+
+say f"Cast results: float={cast_float}, byte={cast_byte}, truncated={truncated_int}"
+
+# ------------------------------------------------------------------------------
+# 9. Dynamic Type Querying with 'is' and 'not is'
+# ------------------------------------------------------------------------------
+let query_val: any = 42
+
+if query_val is int
+    say "query_val is verified as 64-bit integer"
+end
+
+if query_val not is string
+    say "query_val is confirmed not to be a string"
+end

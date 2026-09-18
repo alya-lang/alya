@@ -1,0 +1,63 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 22 - Testing, Assertions & Benchmarking
+# File: syntax/testing.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. First-Class Assertions (assert & assert_eq)
+# ------------------------------------------------------------------------------
+function calculate_discount(price: float, percentage: float) -> float
+    assert price >= 0.0, "Price cannot be negative"
+    assert percentage >= 0.0 and percentage <= 100.0, "Percentage must be between 0 and 100"
+
+    return price * (1.0 - percentage / 100.0)
+end
+
+let discounted = calculate_discount(100.0, 15.0)
+assert discounted == 85.0, "Discount calculation mismatch"
+assert_eq(discounted, 85.0, "Discount calculation identity check")
+
+say f"Calculated valid discount: {discounted}"
+
+# ------------------------------------------------------------------------------
+# 2. Native 'test' Blocks
+# ------------------------------------------------------------------------------
+test "basic arithmetic invariants hold"
+let x = 10
+let y = 20
+assert_eq(x + y, 30)
+assert_eq(y - x, 10)
+end
+
+test "string formatting and concatenation"
+let first = "Alya"
+let last = "Language"
+let full = f"{first} {last}"
+
+assert_eq(full, "Alya Language")
+assert full.length() == 13
+end
+
+test "map insertion and membership validation"
+let store = { "alpha": 1, "beta": 2 }
+assert_eq(store["alpha"], 1)
+assert "beta" in store
+assert "gamma" not in store
+end
+
+# ------------------------------------------------------------------------------
+# 3. Native 'bench' Micro-Benchmark Blocks
+# ------------------------------------------------------------------------------
+bench "integer loop accumulation"
+let sum = 0
+for i in 0..10000
+    sum += i
+end
+end
+
+bench "array allocation and sequential push"
+let list: int[] = []
+for i in 0..1000
+    list.push(i)
+end
+end

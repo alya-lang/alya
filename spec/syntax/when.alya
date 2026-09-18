@@ -1,0 +1,199 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 05 - Pattern Matching (when)
+# File: syntax/when.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Exact Value Matching (Statement Form)
+# ------------------------------------------------------------------------------
+let day_of_week = 3
+
+when day_of_week
+    is 1
+        say "Monday"
+    is 2
+        say "Tuesday"
+    is 3
+        say "Wednesday"
+    is 4, 5
+        say "Thursday or Friday"
+    is 6, 7
+        say "Weekend!"
+    else
+        say "Invalid day index"
+end
+
+# ------------------------------------------------------------------------------
+# 2. Multi-Value and Range Arms (0..10, 10..=20)
+# ------------------------------------------------------------------------------
+let http_status = 404
+
+when http_status
+    is 200, 201, 204
+        say "2xx Success response"
+    is 301, 302, 307
+        say "3xx Redirection"
+    is 400..500                         # 400 through 499 (half-open range)
+        say "4xx Client Error"
+    is 500..=599                        # 500 through 599 (inclusive range)
+        say "5xx Server Error"
+    else
+        say f"Unrecognized HTTP status code: {http_status}"
+end
+
+# ------------------------------------------------------------------------------
+# 3. Relational Arms (Direct Comparison on Subject)
+# ------------------------------------------------------------------------------
+let user_age = 42
+
+when user_age
+    is < 0
+        say "Invalid negative age"
+    is < 13
+        say "Child"
+    is 13..20
+        say "Adolescent / Teenager"
+    is < 65
+        say "Working Adult"
+    else
+        say "Senior Citizen"
+end
+
+# ------------------------------------------------------------------------------
+# 4. String Value Matching
+# ------------------------------------------------------------------------------
+let command = "build"
+
+when command
+    is "run", "start"
+        say "Starting process execution"
+    is "build", "compile"
+        say "Generating standalone binary"
+    is "test"
+        say "Executing test suite"
+    else
+        say f"Unknown command: '{command}'"
+end
+
+# ------------------------------------------------------------------------------
+# 5. 'when' as an Expression (Arrow '=>' Form)
+# ------------------------------------------------------------------------------
+let rank = 2
+
+let title = when rank
+    is 1 => "Novice"
+    is 2 => "Apprentice"
+    is 3 => "Journeyman"
+    is 4 => "Master"
+    else => "Grandmaster"
+end
+
+say f"Assigned title: {title}"
+
+# ------------------------------------------------------------------------------
+# 6. Argumentless 'when' (Boolean Condition Cascade)
+# ------------------------------------------------------------------------------
+let test_score = 88
+let attendance_pct = 95
+
+let final_verdict = when
+    test_score >= 90 and attendance_pct >= 90 => "High Distinction"
+    test_score >= 80                          => "Distinction"
+    test_score >= 70                          => "Merit"
+    test_score >= 50                          => "Pass"
+    else                                      => "Fail"
+end
+
+say f"Final student verdict: {final_verdict}"
+
+# ------------------------------------------------------------------------------
+# 7. Type Pattern Matching with Guard Clauses
+# ------------------------------------------------------------------------------
+let packet: any = 150
+
+when packet
+    is int if packet > 100
+        say f"Large integer packet: {packet}"
+    is int
+        say f"Standard integer packet: {packet}"
+    is string if packet.length() > 0
+        say f"Non-empty string packet: {packet}"
+    is null
+        say "Null packet received"
+    else
+        say "Unknown packet data format"
+end
+
+# ------------------------------------------------------------------------------
+# 8. Enum Pattern Matching
+# ------------------------------------------------------------------------------
+enum TrafficLight
+    Red
+    Yellow
+    Green
+end
+
+let current_signal = TrafficLight.Yellow
+
+let action = when current_signal
+    is TrafficLight.Red    => "Stop"
+    is TrafficLight.Yellow => "Prepare to stop"
+    is TrafficLight.Green  => "Proceed safely"
+end
+
+say f"Signal action: {action}"
+
+# ------------------------------------------------------------------------------
+# 9. Destructuring Pattern Matching (Tuples & Structural Matching)
+# ------------------------------------------------------------------------------
+let coords = (10, 25)
+
+when coords
+    is (0, 0) =>
+        say "Coordinates at origin"
+    is (x, y) if x == y =>
+        say f"Diagonal point at {x}"
+    is (x, y) =>
+        say f"Cartesian point: x={x}, y={y}"
+end
+
+# ------------------------------------------------------------------------------
+# 10. Tagged Union & Variant Pattern Matching
+# ------------------------------------------------------------------------------
+struct Success
+    value: int
+end
+
+struct Failure
+    message: string
+end
+
+function check_status_code(code: int) -> any
+    if code >= 200 and code < 300
+        return Success { value: code }
+    else
+        return Failure { message: "Service Unavailable" }
+    end
+end
+
+let ok_res = check_status_code(200)
+
+when ok_res
+    is Success(code) =>
+        say f"HTTP request succeeded with status {code}"
+    is Failure(err_msg) =>
+        say f"HTTP request failed: {err_msg}"
+    else =>
+        say "Unknown response state"
+end
+
+let fail_res = check_status_code(503)
+
+when fail_res
+    is Success(code) =>
+        say f"HTTP request succeeded with status {code}"
+    is Failure(err_msg) =>
+        say f"HTTP request failed: {err_msg}"
+    else =>
+        say "Unknown response state"
+end

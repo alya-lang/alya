@@ -1,0 +1,152 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 07 - Functions, Closures & Defer
+# File: syntax/functions.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Standard Function with Parameters and Return Type
+# ------------------------------------------------------------------------------
+function calculate_hypotenuse(a: float, b: float) -> float
+    let sum_sq = (a * a) + (b * b)
+    return sum_sq
+end
+
+# Void returning function (return type optional or explicit -> void)
+function log_event(message: string) -> void
+    say f"[LOG] {message}"
+end
+
+# ------------------------------------------------------------------------------
+# 2. Function with Default Parameters
+# ------------------------------------------------------------------------------
+function format_header(title: string, level: int = 1, uppercase: bool = false) -> string
+    let text = title
+    if uppercase
+        text = text.to_upper()
+    end
+    return f"H{level}: {text}"
+end
+
+say format_header("Introduction")
+say format_header("System Architecture", 2, true)
+
+# ------------------------------------------------------------------------------
+# 3. Variadic (Rest) Parameters
+# ------------------------------------------------------------------------------
+function average(...values: int[]) -> float
+    if values.length() == 0
+        return 0.0
+    end
+
+    let total = 0
+    for v in values
+        total += v
+    end
+    return (total as float) / (values.length() as float)
+end
+
+let avg = average(10, 20, 30, 40, 50)
+say f"Average value: {avg}"
+
+# ------------------------------------------------------------------------------
+# 4. Multiple Return Values (Tuples)
+# ------------------------------------------------------------------------------
+function min_and_max(a: int, b: int) -> (int, int)
+    if a < b
+        return a, b
+    else
+        return b, a
+    end
+end
+
+let min_val, max_val = min_and_max(42, 19)
+say f"Min: {min_val}, Max: {max_val}"
+
+# ------------------------------------------------------------------------------
+# 5. Methods & UFCS (Uniform Function Call Syntax)
+# ------------------------------------------------------------------------------
+struct Vector2
+    x: float
+    y: float
+end
+
+# Static / Associated Factory Function
+function Vector2.new(x: float = 0.0, y: float = 0.0) -> Vector2
+    return Vector2 { x: x, y: y }
+end
+
+# Instance Method with 'self'
+function Vector2.magnitude_squared(self) -> float
+    return self.x * self.x + self.y * self.y
+end
+
+let vec = Vector2.new(3.0, 4.0)
+# Both call styles are valid via UFCS:
+say f"Method style: {vec.magnitude_squared()}"
+say f"Function style: {Vector2.magnitude_squared(vec)}"
+
+# ------------------------------------------------------------------------------
+# 6. Closures, Lambdas & Higher-Order Functions
+# ------------------------------------------------------------------------------
+# Compact single-line arrow lambda
+let square = |x: int| => x * x
+say f"Square of 5: {square(5)}"
+
+# Multi-line closure capturing outer state
+let counter = 0
+let increment = |step: int| -> int
+counter += step
+return counter
+end
+
+increment(5)
+increment(10)
+say f"Counter after steps: {counter}" # 15
+
+# Passing functions as arguments (Higher-Order Functions)
+function apply_transform(val: int, transform: |int| -> int) -> int
+    return transform(val)
+end
+
+let doubled = apply_transform(21, |x: int| => x * 2)
+say f"Doubled via callback: {doubled}" # 42
+
+# ------------------------------------------------------------------------------
+# 7. 'defer' Statement (LIFO Resource Teardown)
+# ------------------------------------------------------------------------------
+function process_resource(resource_id: string) -> bool
+    say f"1. Allocating resource: {resource_id}"
+    defer say f"4. Deferred teardown: {resource_id} successfully released (LIFO step 2)"
+    defer say f"3. Deferred cleanup: flushing socket for {resource_id} (LIFO step 1)"
+
+    say "2. Performing computational workload..."
+    return true
+end
+
+process_resource("RES_9081")
+
+# ------------------------------------------------------------------------------
+# 8. Permissible Program Entry Point Signatures ('main')
+# ------------------------------------------------------------------------------
+# Signature 1: Zero arguments, void return
+# function main()
+#     say "Running main application"
+# end
+
+# Signature 2: Zero arguments with integer exit code
+# function main() -> int
+#     return 0
+# end
+
+# Signature 3: CLI arguments array
+# function main(args: string[])
+#     say f"Received args count: {args.length()}"
+# end
+
+# Signature 4: CLI arguments array with integer exit code
+# function main(args: string[]) -> int
+#     if args.length() == 0
+#         return 1
+#     end
+#     return 0
+# end

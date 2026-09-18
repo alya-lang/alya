@@ -1,0 +1,83 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 09 - Enums & Discriminants
+# File: syntax/enums.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Sequential Enum (Auto-indexed from 0)
+# ------------------------------------------------------------------------------
+enum Direction
+    North # 0
+    East  # 1
+    South # 2
+    West  # 3
+end
+
+let heading = Direction.North
+say f"Heading numeric value: {heading as int}"
+
+# ------------------------------------------------------------------------------
+# 2. Explicit Integer Discriminants
+# ------------------------------------------------------------------------------
+enum HttpStatus
+    Ok = 200
+    Created = 201
+    Accepted = 202
+    BadRequest = 400
+    Unauthorized = 401
+    NotFound = 404
+    InternalServerError = 500
+end
+
+let current_status = HttpStatus.NotFound
+
+# Associated UFCS Method on Enum
+function HttpStatus.is_success(self) -> bool
+    let val = self as int
+    return val >= 200 and val < 300
+end
+
+function HttpStatus.is_client_error(self) -> bool
+    let val = self as int
+    return val >= 400 and val < 500
+end
+
+say f"Status: {current_status as int}"
+say f"Is success: {current_status.is_success()}"           # false
+say f"Is client error: {current_status.is_client_error()}" # true
+
+# ------------------------------------------------------------------------------
+# 3. String-Backed Enums
+# ------------------------------------------------------------------------------
+enum Environment
+    Development = "dev"
+    Staging = "staging"
+    Production = "prod"
+end
+
+let active_env = Environment.Production
+say f"Active environment: {active_env as string}"
+
+# ------------------------------------------------------------------------------
+# 4. Pattern Matching on Enums via 'when'
+# ------------------------------------------------------------------------------
+let current_dir = Direction.East
+
+let movement_advice = when current_dir
+    is Direction.North => "Heading towards the northern pole"
+    is Direction.East  => "Heading towards the sunrise"
+    is Direction.South => "Heading towards the equator"
+    is Direction.West  => "Heading towards the sunset"
+end
+
+say f"Navigation advice: {movement_advice}"
+
+# Matching HTTP statuses with multi-arms
+let response_verdict = when current_status
+    is HttpStatus.Ok, HttpStatus.Created, HttpStatus.Accepted => "Request fulfilled"
+    is HttpStatus.BadRequest, HttpStatus.NotFound             => "Client correction required"
+    is HttpStatus.InternalServerError                         => "Server failure reported"
+    else                                                      => "Other status code"
+end
+
+say f"Response verdict: {response_verdict}"

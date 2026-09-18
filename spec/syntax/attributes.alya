@@ -1,0 +1,112 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 18 - Attributes, Directives & Comptime
+# File: syntax/attributes.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Function Inlining & Cold Directives
+# ------------------------------------------------------------------------------
+@inline
+function fast_clamp(val: int, min_val: int, max_val: int) -> int
+    if val < min_val then return min_val
+        if val > max_val then return max_val
+            return val
+        end
+
+        @cold
+        function log_fatal_and_abort(err_code: int)
+            say f"FATAL ABORT: Error code {err_code}"
+        end
+
+        # ------------------------------------------------------------------------------
+        # 2. ABI & Layout Attributes
+        # ------------------------------------------------------------------------------
+        @repr(C)
+        struct CCompatibleHeader
+            magic: u32
+            version: u16
+            flags: u16
+        end
+
+        @export("native_add")
+        function exported_c_addition(a: int, b: int) -> int
+            return a + b
+        end
+
+        # ------------------------------------------------------------------------------
+        # 3. Conditional Compilation by Platform (@cfg)
+        # ------------------------------------------------------------------------------
+        @cfg(os = "windows")
+        function get_os_category() -> string
+            return "Running on Microsoft Windows"
+        end
+
+        @cfg(os = "linux")
+        function get_os_category() -> string
+            return "Running on GNU/Linux"
+        end
+
+        @cfg(os = "macos")
+        function get_os_category() -> string
+            return "Running on Apple macOS"
+        end
+
+        say get_os_category()
+
+        # ------------------------------------------------------------------------------
+        # 4. Built-in Test Annotations (@test)
+        # ------------------------------------------------------------------------------
+        @test
+        function test_clamping_logic()
+            let clamped = fast_clamp(150, 0, 100)
+            say f"Clamped result: {clamped}"
+        end
+
+        # ------------------------------------------------------------------------------
+        # 5. Type Introspection (sizeof, alignof, typeof)
+        # ------------------------------------------------------------------------------
+        say f"Size of CCompatibleHeader: {sizeof(CCompatibleHeader)} bytes"
+        say f"Alignment of CCompatibleHeader: {alignof(CCompatibleHeader)} bytes"
+
+        let sample_text = "Alya Programming Language"
+        say f"Type of sample_text: {typeof(sample_text)}"
+
+        # ------------------------------------------------------------------------------
+        # 6. Deprecation Annotations (@deprecated) with Pure Markdown Docstrings
+        # ------------------------------------------------------------------------------
+        ## Calculates distance using legacy Euclidean algorithm.
+        ##
+        ## ### Parameters
+        ## - `x1`: Starting X coordinate.
+        ## - `y1`: Starting Y coordinate.
+        ## - `x2`: Target X coordinate.
+        ## - `y2`: Target Y coordinate.
+        ##
+        ## ### Returns
+        ## The direct linear distance between both points.
+        ##
+        ## ### Throws
+        ## `MathError` if non-finite coordinates are supplied.
+        @deprecated("Use Point2D.distance_to instead")
+        function legacy_distance(x1: float, y1: float, x2: float, y2: float) -> float
+            let dx = x2 - x1
+            let dy = y2 - y1
+            return (dx * dx + dy * dy)
+        end
+
+        ## Converts raw input buffer into UTF-8 representation.
+        @deprecated(since = "0.2.0", note = "Use str.from_utf8_bytes instead", error = false)
+        function decode_raw_ascii(data: u8[]) -> string
+            return "legacy decoded string"
+        end
+
+        # ------------------------------------------------------------------------------
+        # 7. Compile-Time Evaluation (comptime)
+        # ------------------------------------------------------------------------------
+        const MAX_PACKET_SIZE = comptime { 1024 * 64 }
+        const SECONDS_PER_DAY = comptime(24 * 60 * 60)
+        let compile_banner = comptime { "ALYA_" + "NATIVE" }
+
+        say f"Comptime computed packet limit: {MAX_PACKET_SIZE} bytes"
+        say f"Comptime seconds in a day: {SECONDS_PER_DAY}s"
+        say f"Comptime banner: {compile_banner}"

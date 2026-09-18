@@ -1,0 +1,88 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 11 - Modules, Packages & Visibility
+# File: syntax/modules.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Standard Library Imports (Whole Module Namespace)
+# ------------------------------------------------------------------------------
+import "std/math"
+import "std/os"
+
+let root_val = math.sqrt(64.0)
+say f"Square root: {root_val}, Host OS: {os.platform()}"
+
+# ------------------------------------------------------------------------------
+# 2. Aliased Imports with 'as'
+# ------------------------------------------------------------------------------
+import "std/str" as text_ops
+import "std/time" as clock
+
+let raw_msg = "   alya compiler pipeline   "
+say f"Trimmed & Uppercase: '{text_ops.trim(raw_msg).to_upper()}'"
+say f"Current epoch ms: {clock.now_millis()}"
+
+# ------------------------------------------------------------------------------
+# 3. Selective Imports via 'from ... import'
+# ------------------------------------------------------------------------------
+from "std/math" import PI, floor, ceil, random
+
+say f"Direct Pi: {PI}"
+say f"Direct floor: {floor(7.9)}"
+say f"Direct ceil: {ceil(7.1)}"
+say f"Direct random: {random()}"
+
+# ------------------------------------------------------------------------------
+# 4. Third-Party Package & Relative File Imports
+# ------------------------------------------------------------------------------
+# Importing from an external package managed via alya.toml:
+# import "alya-lang/http"
+# import "alya-lang/crypto" as cipher
+#
+# Multi-Major Package Coexistence & Diamond Dependency Resolution:
+# Under Alya's Major-Segregated resolution, incompatible major versions (e.g. z-v1 vs z-v2)
+# are isolated on disk and scoped contextually per package manifest:
+# import "z"           # Resolves to the major version declared in this package's alya.toml
+# import "z2" as z_next # Package aliasing allows coexisting major versions if declared
+#
+# Strict Dependency Isolation:
+# Modules can only import packages explicitly declared in their owning alya.toml.
+# Transitive dependencies cannot be implicitly leaked or imported.
+
+# Importing from relative project files:
+# import "./utils/helpers" as helpers
+# from "../shared/models" import UserRecord, AccountState
+
+# ------------------------------------------------------------------------------
+# 5. Public ('pub') Visibility vs Module-Private Defaults
+# ------------------------------------------------------------------------------
+# Public Constant: Exported to importing modules
+pub const MAX_CONNECTIONS: int = 1000
+
+# Public Struct & Interface
+pub struct ClientSession
+    session_id: string
+    created_at: int
+    is_authenticated: bool = false
+end
+
+pub interface SessionValidator
+function validate(session: ClientSession) -> bool
+end
+
+# Public Factory Function
+pub function create_session(id: string) -> ClientSession
+    return ClientSession {
+        session_id: id,
+        created_at: clock.now(),
+        is_authenticated: true
+    }
+end
+
+# Private Helper Function (accessible only within this module/file)
+function internal_checksum(id: string) -> int
+    return id.length() * 31
+end
+
+let sess = create_session("sess_alpha_99")
+say f"Session {sess.session_id} created with internal token: {internal_checksum(sess.session_id)}"

@@ -1,0 +1,88 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 16 - Memory Model, ARC & Lifecycle
+# File: syntax/memory.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Stack Allocation (Value Types)
+# ------------------------------------------------------------------------------
+function stack_demonstration()
+    let a: int = 42
+    let b = a        # Bitwise copy on stack
+    b += 10
+
+    say f"Original a: {a}" # Still 42
+    say f"Copied b: {b}"   # 52
+end
+
+stack_demonstration()
+
+# ------------------------------------------------------------------------------
+# 2. Heap Allocation & Automatic Reference Counting (ARC)
+# ------------------------------------------------------------------------------
+struct HeavyPayload
+    id: int
+    data: string
+end
+
+function arc_scope_lifecycle()
+    let p1 = HeavyPayload { id: 1, data: "Important Payload" } # Refcount = 1
+    say f"Created payload #{p1.id}"
+
+    if true
+        let p2 = p1 # Refcount = 2 (p1 and p2 point to same heap payload)
+        say f"Alias p2 data: {p2.data}"
+        # Leaving scope: p2 is released. Refcount drops back to 1.
+    end
+
+    # Leaving function: p1 is released. Refcount reaches 0 -> Memory freed instantly.
+end
+
+arc_scope_lifecycle()
+
+# ------------------------------------------------------------------------------
+# 3. Weak References for Cycle Prevention
+# ------------------------------------------------------------------------------
+struct Folder
+    name: string
+    parent: weak Folder # Prevents cyclical reference memory leaks
+    subfolders: Folder[]
+end
+
+function build_directory_tree()
+    let root = Folder {
+        name: "root",
+        parent: null,
+        subfolders: []
+    }
+
+    let bin = Folder {
+        name: "bin",
+        parent: root, # Assigned as weak reference
+        subfolders: []
+    }
+
+    root.subfolders.push(bin)
+    say f"Created folder '{bin.name}' with parent '{root.name}'"
+end
+
+build_directory_tree()
+
+# ------------------------------------------------------------------------------
+# 4. Memory Arenas (Batch O(1) Reclaim)
+# ------------------------------------------------------------------------------
+import "std/mem"
+
+function run_arena_workload()
+    # Create arena with 64KB initial chunk
+    let arena = mem.Arena.new(65536)
+    defer arena.destroy() # Reclaims all allocations in 1 CPU cycle
+
+    say "Allocating temporary scratch buffers inside arena..."
+    for i in 0..1000
+        let buf = arena.alloc(64) # Fast pointer bump, zero ARC overhead
+    end
+    say "Arena workload finished, ready for instant bulk deallocation"
+end
+
+run_arena_workload()

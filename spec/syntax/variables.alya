@@ -1,0 +1,128 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 01 - Variables, Mutability & Constants
+# File: syntax/variables.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Type-Inferred Declarations
+# ------------------------------------------------------------------------------
+let count = 42                       # Inferred as int
+let price = 19.99                    # Inferred as float
+let name = "Alya Language"           # Inferred as string
+let is_active = true                 # Inferred as bool
+let null_val = null                  # Inferred as null
+
+# ------------------------------------------------------------------------------
+# 2. Explicitly Typed Declarations
+# ------------------------------------------------------------------------------
+let max_retries: int = 5
+let ratio: float = 0.85
+let app_title: string = "High-Performance Gateway"
+let is_verified: bool = true
+let buffer_size: usize = 16384
+
+# ------------------------------------------------------------------------------
+# 3. Uninitialized Declarations with Definite Assignment
+# ------------------------------------------------------------------------------
+# 3.1 Linear Definite Assignment
+let uninit_val: int                  # Explicit type mandatory when uninitialized
+# say uninit_val                     # COMPILE ERROR: Used before assignment!
+uninit_val = 1000
+say f"Initialized linearly: {uninit_val}"
+
+# 3.2 Branch-Exhaustive Definite Assignment
+let status_code: int
+let is_authorized = true
+
+if is_authorized
+    status_code = 200                # Assigned on true branch
+else
+    status_code = 403                # Assigned on false branch
+end
+say f"Status code after exhaustive branches: {status_code}" # OK: Proven initialized
+
+# ------------------------------------------------------------------------------
+# 4. Mutability & Compound Assignments
+# ------------------------------------------------------------------------------
+let score = 100
+score = 200                          # Direct reassignment
+score += 50                          # Addition assignment (250)
+score -= 20                          # Subtraction assignment (230)
+score *= 2                           # Multiplication assignment (460)
+score /= 4                           # Division assignment (115)
+score %= 10                          # Modulo assignment (5)
+
+let bitflags = 0b0001
+bitflags |= 0b0010                   # Bitwise OR assignment (0b0011)
+bitflags &= 0b0111                   # Bitwise AND assignment
+bitflags ^= 0b0010                   # Bitwise XOR assignment
+
+say f"Mutated score: {score}, Bitflags: {bitflags}"
+
+# ------------------------------------------------------------------------------
+# 5. Multiple Declarations & Atomic Multi-Swap
+# ------------------------------------------------------------------------------
+let width, height = 1920, 1080       # Multi-variable initialization
+let pos_x: int, pos_y: int = 10, 20  # Typed multi-variable initialization
+
+# Atomic Swap without temporary variables
+let alpha = "First"
+let beta = "Second"
+alpha, beta = beta, alpha            # alpha is now "Second", beta is "First"
+
+say f"Resolution: {width}x{height}, Swapped: {alpha}, {beta}"
+
+# ------------------------------------------------------------------------------
+# 6. Destructuring Patterns & Wildcards
+# ------------------------------------------------------------------------------
+# 6.1 Tuple Destructuring with Wildcard (_)
+let coordinates = (100, 200, 300)
+let (x, y, z) = coordinates
+let (start_x, _, end_z) = coordinates # Underscore ignores the middle element
+
+# 6.2 Nested Tuple Destructuring
+let nested_pair = ((10, 20), (30, 40))
+let ((x1, y1), (x2, y2)) = nested_pair
+
+# 6.3 Array Destructuring
+let colors = ["Red", "Green", "Blue", "Yellow"]
+let [primary, secondary] = colors
+let [first_col, _, third_col] = colors
+
+# 6.4 Map / Dictionary Destructuring
+let server_config = { "host": "127.0.0.1", "port": "8080", "secure": "true" }
+let { host, port } = server_config
+
+say f"Destructured: x={x}, y={y}, z={z}, host={host}:{port}"
+
+# ------------------------------------------------------------------------------
+# 7. Compile-Time Constants
+# ------------------------------------------------------------------------------
+const PI = 3.141592653589793
+const DEFAULT_TIMEOUT_MS: int = 5000
+const SYSTEM_NAME: string = "Alya-Kernel"
+
+# PI = 3.14                          # COMPILE ERROR: Cannot reassign to constant!
+# const UNINIT_CONST: int            # COMPILE ERROR: Constants must be initialized!
+
+say f"System: {SYSTEM_NAME}, Timeout: {DEFAULT_TIMEOUT_MS}ms, PI: {PI}"
+
+# ------------------------------------------------------------------------------
+# 8. Lexical Scope & Variable Shadowing
+# ------------------------------------------------------------------------------
+let scope_demo = "Global Level"
+
+if true
+    say f"Inside before shadow: {scope_demo}" # "Global Level"
+    let scope_demo = "Block Level"            # Shadowing outer variable
+    say f"Inside after shadow: {scope_demo}"  # "Block Level"
+
+    if true
+        let scope_demo = "Deep Inner Level"   # Double shadowing
+        say f"Deep inner: {scope_demo}"       # "Deep Inner Level"
+    end
+
+    say f"Back to block: {scope_demo}"        # "Block Level"
+end
+
+say f"Back to global: {scope_demo}"           # "Global Level" (Outer unchanged)

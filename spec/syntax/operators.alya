@@ -1,0 +1,129 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 03 - Operators & Expressions
+# File: syntax/operators.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Arithmetic Operators & Expressions
+# ------------------------------------------------------------------------------
+let a = 20
+let b = 6
+
+let add_res = a + b                   # 26
+let sub_res = a - b                   # 14
+let mul_res = a * b                   # 120
+let div_res = a / b                   # 3 (integer truncation)
+let mod_res = a % b                   # 2
+let neg_res = -a                      # -20 (unary negation)
+let pos_res = +b                      # 6 (unary plus)
+
+# ------------------------------------------------------------------------------
+# 2. Relational & Comparison Operators
+# ------------------------------------------------------------------------------
+let eq = (a == 20)                    # true
+let ne = (b != 6)                     # false
+let lt = (b < a)                      # true
+let lte = (b <= 6)                    # true
+let gt = (a > b)                      # true
+let gte = (a >= 25)                   # false
+
+# ------------------------------------------------------------------------------
+# 3. Logical Operators & Short-Circuit Evaluation
+# ------------------------------------------------------------------------------
+let flag_t = true
+let flag_f = false
+
+let log_and = flag_t and flag_f       # false (also accepts &&)
+let log_or = flag_t or flag_f         # true  (also accepts ||)
+let log_not = not flag_t              # false (also accepts !)
+
+# Short-circuit guarantee: right-hand expression is never evaluated if left determines result
+function should_not_run() -> bool
+    say "FATAL: Evaluated short-circuited expression!"
+    return false
+end
+
+let safe_or = true or should_not_run()     # Evaluates to true, right side skipped
+let safe_and = false and should_not_run()  # Evaluates to false, right side skipped
+
+# ------------------------------------------------------------------------------
+# 4. Bitwise Operators & Shifts
+# ------------------------------------------------------------------------------
+let mask_a = 0b1100_1010
+let mask_b = 0b0011_0101
+
+let bit_and = mask_a & mask_b         # Bitwise AND
+let bit_or = mask_a | mask_b          # Bitwise OR
+let bit_xor = mask_a ^ mask_b         # Bitwise XOR
+let bit_not = ~mask_a                 # Bitwise NOT (one's complement)
+let shl_res = 1 << 4                  # Left shift (16)
+let shr_res = 32 >> 2                 # Arithmetic right shift (8)
+
+# ------------------------------------------------------------------------------
+# 5. Range Construction Operators (.. and ..=)
+# ------------------------------------------------------------------------------
+let half_open = 0..5                  # 0, 1, 2, 3, 4 (exclusive end)
+let inclusive = 0..=5                 # 0, 1, 2, 3, 4, 5 (inclusive end)
+
+# ------------------------------------------------------------------------------
+# 6. Modern Expressive Operators: ??, ?., ?:
+# ------------------------------------------------------------------------------
+# Null Coalescing (??)
+let default_port = 8080
+let env_port: int? = null
+let active_port = env_port ?? default_port # Evaluates to 8080
+
+# Chained Null Coalescing
+let opt1: string? = null
+let opt2: string? = null
+let opt3: string? = "Resolved Value"
+let final_opt = opt1 ?? opt2 ?? opt3 ?? "Default"
+
+# Optional Chaining (?.)
+struct GeoLocation
+    city: string
+end
+
+struct UserProfile
+    location: GeoLocation?
+end
+
+let profile: UserProfile? = null
+let safe_city = profile?.location?.city # Evaluates to null without runtime crash
+
+# Ternary Conditional (? :)
+let user_age = 19
+let permission = user_age >= 18 ? "Access Granted" : "Access Denied"
+
+# ------------------------------------------------------------------------------
+# 7. Membership & Type Query Operators (in, not in, is)
+# ------------------------------------------------------------------------------
+let active_users = ["Alice", "Bob", "Charlie"]
+let is_alice_active = "Alice" in active_users     # true
+let is_eve_active = "Eve" not in active_users     # true
+
+let roles = { "admin": 1, "editor": 2 }
+let has_admin_role = "admin" in roles             # true
+
+let sentence = "Alya programming language"
+let has_alya = "Alya" in sentence                 # true
+
+let test_val: any = "Hello"
+let is_string = test_val is string                # true
+
+# ------------------------------------------------------------------------------
+# 8. Operator Precedence & Evaluation Order Invariants
+# ------------------------------------------------------------------------------
+# Multiplicative (*) binds tighter than Additive (+)
+let prec_math = 2 + 3 * 4             # 14 (not 20)
+
+# Bitwise Shift (<<) binds lower than Additive (+)
+let prec_shift = 1 << 2 + 1           # 1 << 3 = 8 (not (1 << 2) + 1 = 5)
+
+# Relational (<) binds tighter than Logical Conjunction (and)
+let prec_logic = 5 < 10 and 20 > 10   # (5 < 10) and (20 > 10) = true
+
+# Null Coalescing (??) binds lower than logical operators
+let prec_coalesce = null ?? (true and false) # false
+
+say f"Precedence checks: math={prec_math}, shift={prec_shift}, logic={prec_logic}"

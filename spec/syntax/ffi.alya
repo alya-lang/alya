@@ -1,0 +1,81 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 12 - FFI & Low-Level Interop
+# File: syntax/ffi.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Standard C Runtime (libc) Direct Declarations
+# ------------------------------------------------------------------------------
+extern "C"
+    function puts(s: str) -> i32
+    function abs(n: i32) -> i32
+    function strlen(s: str) -> usize
+    function malloc(size: usize) -> ptr
+    function free(p: ptr) -> void
+end
+
+puts("FFI: Invoking native C puts directly from Alya")
+let abs_val = abs(-100)
+say f"Computed abs(-100) via libc: {abs_val}"
+
+# ------------------------------------------------------------------------------
+# 2. Binding External Dynamic Shared Libraries ('from "lib"')
+# ------------------------------------------------------------------------------
+extern "C" from "sqlite3"
+    function sqlite3_libversion() -> str
+    function sqlite3_libversion_number() -> i32
+end
+
+# ------------------------------------------------------------------------------
+# 3. C-Compatible Struct Representation (@repr(C))
+# ------------------------------------------------------------------------------
+@repr(C)
+struct NativeTimeVal
+    tv_sec: i64
+    tv_usec: i64
+end
+
+@repr(C)
+struct NativeBufferDesc
+    buffer_ptr: ptr
+    byte_length: usize
+    flags: u32
+end
+
+# ------------------------------------------------------------------------------
+# 4. Safe Ergonomic Wrapper Pattern
+# ------------------------------------------------------------------------------
+# C raw functions can be dangerous (null pointers, buffer overflows).
+# Idiomatic Alya wraps them in safe, type-checked functions:
+
+extern "C"
+    function cos(angle: f64) -> f64
+    function sin(angle: f64) -> f64
+end
+
+function safe_trig_calc(degrees: float) -> (float, float)
+    let radians = degrees * 3.141592653589793 / 180.0
+    let cos_val = cos(radians as f64)
+    let sin_val = sin(radians as f64)
+    return cos_val as float, sin_val as float
+end
+
+let c_val, s_val = safe_trig_calc(45.0)
+say f"Cos(45deg) = {c_val}, Sin(45deg) = {s_val}"
+
+# ------------------------------------------------------------------------------
+# 5. Raw Pointer Handling and Null Pointer Checking
+# ------------------------------------------------------------------------------
+function allocate_scratchpad(bytes: usize) -> ptr?
+    let raw_p = malloc(bytes)
+    if raw_p == null
+        return null
+    end
+    return raw_p
+end
+
+let scratch = allocate_scratchpad(1024)
+if scratch != null
+    say "Scratchpad memory allocated successfully."
+    free(scratch)
+end

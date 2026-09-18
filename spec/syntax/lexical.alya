@@ -1,0 +1,111 @@
+# ==============================================================================
+# Alya Language Specification: Chapter 00 - Lexical Structure & Literals
+# File: syntax/lexical.alya
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Comments & Markdown Docstrings
+# ------------------------------------------------------------------------------
+# Standard single-line comment (ignored by compiler)
+# TODO: Implement additional cache layer
+
+## Calculates the Euclidean distance between two 2D points.
+##
+## ### Parameters
+## - `x1`, `y1`: Starting coordinate pair.
+## - `x2`, `y2`: Destination coordinate pair.
+##
+## ### Returns
+## The straight-line distance as a 64-bit floating-point value.
+##
+## ### Remarks
+## Utilizes hardware FPU instructions for hypotenuse computation.
+function calculate_distance(x1: float, y1: float, x2: float, y2: float) -> float
+    let dx = x2 - x1
+    let dy = y2 - y1
+    return (dx * dx + dy * dy) # sqrt will be called via std/math
+end
+
+# ------------------------------------------------------------------------------
+# 2. Numeric Literals (Integers with Bases & Digit Separators)
+# ------------------------------------------------------------------------------
+# Decimal integers
+let dec_zero = 0
+let dec_small = 42
+let dec_large = 1_000_000_000        # Underscores for million readability
+
+# Hexadecimal integers (prefixed with 0x or 0X)
+let hex_byte = 0xFF
+let hex_word = 0xCAFE_BABE
+let hex_lower = 0xdead_beef
+
+# Binary integers (prefixed with 0b or 0B)
+let bin_byte = 0b1111_0000
+let bin_flags = 0b1010_0101_0011_1100
+
+# Octal integers (prefixed with 0o or 0O)
+let oct_perms = 0o755                 # Unix file permissions rwxr-xr-x
+let oct_mask = 0o644
+
+say f"Decimal: {dec_large}, Hex: {hex_word}, Bin: {bin_byte}, Oct: {oct_perms}"
+
+# ------------------------------------------------------------------------------
+# 3. Floating-Point Literals (Decimals & Scientific Exponents)
+# ------------------------------------------------------------------------------
+let flt_zero = 0.0
+let flt_pi = 3.141592653589793
+let flt_neg = -273.15                 # Absolute zero in Celsius
+let flt_sci_small = 1.25e-4           # 0.000125
+let flt_sci_large = 6.022e+23         # Avogadro constant
+let flt_sci_capital = 3.0E8           # Speed of light in m/s
+
+say f"Pi: {flt_pi}, Scientific: {flt_sci_small}, Speed of light: {flt_sci_capital}"
+
+# ------------------------------------------------------------------------------
+# 4. String Literals & Escape Sequences
+# ------------------------------------------------------------------------------
+# Standard string with all canonical escapes
+let standard_escapes = "Line 1\nLine 2\r\nTabbed:\t\"Quoted\"\tBackslash:\\\tNullByte:\0Done"
+
+# Interpolated string (f-string) with expression evaluation and escaped braces
+let user = "Alice"
+let balance = 150.75
+let f_string_demo = f"User '{user}' has balance: ${balance * 1.05} (Tax included)"
+let f_escaped_braces = f"Literal curly braces: {{ and }} without interpolation"
+
+# Raw string (r-string) - No escape characters processed (ideal for regex and Windows paths)
+let win_registry_path = r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+let email_regex = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
+
+# Multiline string preserving internal formatting and double quotes
+let sql_query = """
+SELECT u.id, u.username, p.display_name
+FROM users u
+INNER JOIN profiles p ON u.id = p.user_id
+WHERE u.active = true AND u.role IN ("admin", "maintainer")
+ORDER BY u.created_at DESC;
+"""
+
+say standard_escapes
+say f_string_demo
+say f_escaped_braces
+say f"Windows Path: {win_registry_path}"
+say f"SQL:\n{sql_query}"
+
+# ------------------------------------------------------------------------------
+# 5. Rune Literals (32-bit Unicode Codepoints)
+# ------------------------------------------------------------------------------
+let rune_ascii: rune = 'A'
+let rune_turkish: rune = 'ğ'
+let rune_emoji: rune = '🚀'
+let rune_symbol: rune = '⌘'
+
+say f"Rune values: {rune_ascii}, {rune_turkish}, {rune_emoji}, {rune_symbol}"
+
+# ------------------------------------------------------------------------------
+# 6. Byte Literals (u8 and u8[])
+# ------------------------------------------------------------------------------
+let byte_char: u8 = b'X'              # Evaluates to integer ASCII 88
+let byte_array: u8[] = b"PNG\r\n\x1a\n" # Byte string array
+
+say f"Byte char: {byte_char}, Magic bytes count: {byte_array.length()}"
