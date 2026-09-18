@@ -122,19 +122,35 @@ pub fn format_bytes(bytes: usize) -> String {
     }
 }
 
-fn run_bench<F, R>(
+pub fn format_thousands(n: usize) -> String {
+    let s = n.to_string();
+    let mut result = String::with_capacity(s.len() + s.len() / 3);
+    let rem = s.len() % 3;
+    for (i, ch) in s.chars().enumerate() {
+        if i > 0 && (i == rem || (i > rem && (i - rem) % 3 == 0)) {
+            result.push(',');
+        }
+        result.push(ch);
+    }
+    result
+}
+
+fn run_bench_with_setup<S, I, F, R>(
     name: &'static str,
     target_duration: Duration,
+    mut setup: S,
     mut f: F,
     throughput_calc: impl Fn(usize, Duration) -> String,
 ) -> BenchStat
 where
-    F: FnMut() -> R,
+    S: FnMut() -> I,
+    F: FnMut(I) -> R,
 {
     // Warmup
     let warmup_end = Instant::now() + Duration::from_millis(60);
     while Instant::now() < warmup_end {
-        black_box(f());
+        let input = setup();
+        black_box(f(input));
     }
 
     // Timed measurements
@@ -145,9 +161,10 @@ where
     let mut total_iters = 0;
 
     while start_all.elapsed() < target_duration || total_iters < 10 {
+        let input = setup();
         reset_alloc();
         let t0 = Instant::now();
-        black_box(f());
+        black_box(f(input));
         let el = t0.elapsed();
         let (bytes, count) = get_alloc();
         times.push(el);
@@ -202,20 +219,44 @@ where
     }
 }
 
+fn run_bench<F, R>(
+    name: &'static str,
+    target_duration: Duration,
+    mut f: F,
+    throughput_calc: impl Fn(usize, Duration) -> String,
+) -> BenchStat
+where
+    F: FnMut() -> R,
+{
+    run_bench_with_setup(name, target_duration, || (), |_| f(), throughput_calc)
+}
+
 fn sample_large_source() -> String {
     let mut src = String::new();
-    src.push_str("# Synthetic Alya source file for compiler benchmarking\n");
-    src.push_str("struct Vector3\n    x\n    y\n    z\nend\n\n");
-    src.push_str("struct Matrix\n    m00\n    m01\n    m10\n    m11\nend\n\n");
+    src.push_str("# Modern Alya Synthetic Workload for Compiler Benchmarking (Spec v1.0)\n\n");
 
-    for i in 0..50 {
+    // 1. Enums
+    src.push_str("enum JobState\n    Queued\n    Running\n    Success\n    Failed\nend\n\n");
+    src.push_str("enum Severity\n    Debug\n    Info\n    Warn\n    Error\nend\n\n");
+
+    // 2. Structs with typed fields
+    src.push_str("struct Vector3\n    x\n    y\n    z\nend\n\n");
+    src.push_str("struct Matrix2x2\n    m00\n    m01\n    m10\n    m11\nend\n\n");
+    src.push_str("struct TaskRecord\n    id\n    title\n    priority\n    state\nend\n\n");
+
+    // 3. Interfaces
+    src.push_str("interface Evaluator\n    function evaluate(self, input)\nend\n\n");
+
+    // 4. Multiple functions with arithmetic, while loops, and pattern matching
+    for i in 0..40 {
         src.push_str(&format!(
-            "function calculate_block_{i}(a, b, c)\n    let total = a * 2 + b * 3 - c / 4\n    let acc = 0\n    let j = 0\n    while j < 40\n        acc = acc + j * total\n        if acc > 1000\n            acc = acc % 997\n        else\n            acc = acc + 1\n        end\n        j = j + 1\n    end\n    return acc + {i}\nend\n\nfunction transform_vector_{i}(v)\n    let rx = v.x * {i} + v.y\n    let ry = v.y * {i} - v.z\n    let rz = v.z * {i} + v.x\n    return rx + ry + rz\nend\n\n"
+            "function compute_kernel_{i}(a, b, c)\n    let base = a * 2 + b * 3 - c / 4\n    let acc = 0\n    let step = 0\n    while step < 30\n        acc = acc + step * base\n        if acc > 500\n            acc = acc % 499\n        else\n            acc = acc + 1\n        end\n        step = step + 1\n    end\n    let modifier = when acc % 4\n        is 0 => 10\n        is 1 => 20\n        is 2 => 30\n        else => 5\n    end\n    return acc * modifier + {i}\nend\n\nfunction transform_vector_{i}(v)\n    let scale = {i}\n    let rx = v.x * scale + v.y\n    let ry = v.y * scale - v.z\n    let rz = v.z * scale + v.x\n    return rx + ry + rz\nend\n\n"
         ));
     }
 
+    // 5. Entry point utilizing collections, string interpolation, and dispatch
     src.push_str(
-        "function benchmark_entry()\n    let sum = 0\n    let i = 0\n    while i < 50\n        sum = sum + calculate_block_0(i, i + 1, i + 2)\n        i = i + 1\n    end\n    say \"Benchmark completed: sum is\"\n    say sum\n    return sum\nend\n\nbenchmark_entry()\n",
+        "function benchmark_entry()\n    let sum = 0\n    let idx = 0\n    let values = [10, 20, 30, 40, 50]\n    while idx < 40\n        sum = sum + compute_kernel_0(idx, idx + 1, idx + 2)\n        idx = idx + 1\n    end\n    let vec = Vector3(1.5, 2.5, 3.5)\n    let v_res = transform_vector_0(vec)\n    say f\"Benchmark finished: sum={sum}, v_res={v_res}\"\n    return sum\nend\n\nbenchmark_entry()\n",
     );
 
     src
@@ -228,30 +269,48 @@ fn main() {
         "macos" => "macOS",
         other => other,
     };
-    let arch = std::env::consts::ARCH;
+    let arch_name = std::env::consts::ARCH;
     let logical_cores = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1);
     let alya_ver = env!("CARGO_PKG_VERSION");
+
+    let host_os = match std::env::consts::OS {
+        "windows" => OperatingSystem::Windows,
+        "linux" => OperatingSystem::Linux,
+        "macos" => OperatingSystem::MacOS,
+        _ => OperatingSystem::Windows,
+    };
+    let host_arch = match std::env::consts::ARCH {
+        "x86_64" => Architecture::X64,
+        "aarch64" => Architecture::ARM64,
+        "x86" => Architecture::X86,
+        _ => Architecture::X64,
+    };
+
+    let cpu_desc = if let Ok(proc_id) = std::env::var("PROCESSOR_IDENTIFIER") {
+        proc_id.trim().to_string()
+    } else if let Ok(content) = std::fs::read_to_string("/proc/cpuinfo") {
+        content
+            .lines()
+            .find(|line| line.starts_with("model name"))
+            .and_then(|line| line.split(':').nth(1))
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| format!("{} logical cores", logical_cores))
+    } else {
+        format!("{} logical cores", logical_cores)
+    };
 
     let source = sample_large_source();
     let source_bytes = source.len();
     let source_lines = source.lines().count();
 
     println!("// * Summary *\n");
-    println!("Alya Compiler Benchmark v{alya_ver}, {os_name} ({arch})");
-    if let Ok(proc_id) = std::env::var("PROCESSOR_IDENTIFIER") {
-        println!(
-            "Processor: {}, {} logical cores",
-            proc_id.trim(),
-            logical_cores
-        );
-    } else {
-        println!("Processor: {} logical cores", logical_cores);
-    }
+    println!("Alya Compiler Benchmark v{alya_ver}, {os_name} ({arch_name})");
+    println!("Processor: {}, {} logical cores", cpu_desc, logical_cores);
     println!("Toolchain: rustc 1.75+ (stable), Profile: Release (opt-level=3, LTO=true)");
     println!(
-        "Workload : {} lines, {:.2} KB synthetic program (50+ functions, structs, control flow)\n",
+        "Workload : {} lines, {:.2} KB modern synthetic program (40+ functions, structs, enums, when, collections)\n",
         source_lines,
         source_bytes as f64 / 1024.0
     );
@@ -279,19 +338,20 @@ fn main() {
     let tokens = lexer.tokenize().unwrap();
     let token_count = tokens.len();
 
-    // 2. Parser Benchmark
-    let parse_stat = run_bench(
+    // 2. Parser Benchmark (Setup isolated: token clone happens outside timed & memory measurement)
+    let parse_stat = run_bench_with_setup(
         "Parser::parse",
         Duration::from_millis(400),
-        || {
-            let mut parser = Parser::new(tokens.clone());
+        || tokens.clone(),
+        |toks| {
+            let mut parser = Parser::new(toks);
             parser.parse().unwrap()
         },
         |iters, dur| {
             let total_lines_processed = (source_lines * iters) as f64;
             let secs = dur.as_secs_f64();
             let lines_per_sec = total_lines_processed / secs;
-            format!("{:.0} lines/s", lines_per_sec)
+            format!("{} lines/s", format_thousands(lines_per_sec as usize))
         },
     );
 
@@ -307,37 +367,60 @@ fn main() {
         |iters, dur| {
             let secs = dur.as_secs_f64();
             let ops_per_sec = (iters as f64) / secs;
-            format!("{:.0} ops/s", ops_per_sec)
+            format!("{} ops/s", format_thousands(ops_per_sec as usize))
         },
     );
 
-    // 4. Codegen x64 Benchmark
-    let asm = generate(&program, Architecture::X64, OperatingSystem::Windows);
-    let sample_out_len = asm.len();
-    let sample_out_lines = asm.lines().count();
+    // 4. Codegen Benchmark (Host Architecture)
+    let host_asm = generate(&program, host_arch, host_os);
+    let host_out_len = host_asm.len();
+    let host_out_lines = host_asm.lines().count();
 
-    let codegen_stat = run_bench(
-        "CodeGen::generate (x64)",
+    let host_label: &'static str = match host_arch {
+        Architecture::X64 => "CodeGen::generate (Host: x64)",
+        Architecture::ARM64 => "CodeGen::generate (Host: ARM64)",
+        Architecture::X86 => "CodeGen::generate (Host: x86)",
+    };
+
+    let codegen_host_stat = run_bench(
+        host_label,
         Duration::from_millis(400),
-        || generate(&program, Architecture::X64, OperatingSystem::Windows),
+        || generate(&program, host_arch, host_os),
         |iters, dur| {
-            let total_lines = (sample_out_lines * iters) as f64;
+            let total_lines = (host_out_lines * iters) as f64;
             let secs = dur.as_secs_f64();
             let lines_per_sec = total_lines / secs;
-            format!("{:.0} asm lines/s", lines_per_sec)
+            format!("{} asm lines/s", format_thousands(lines_per_sec as usize))
         },
     );
 
-    // 5. Full Pipeline Benchmark (Lex -> Parse -> Codegen)
+    // 5. Cross-Target Codegen Benchmark (ARM64)
+    let arm_asm = generate(&program, Architecture::ARM64, OperatingSystem::Linux);
+    let arm_out_lines = arm_asm.lines().count();
+
+    let codegen_arm_stat = run_bench(
+        "CodeGen::generate (Cross: ARM64)",
+        Duration::from_millis(400),
+        || generate(&program, Architecture::ARM64, OperatingSystem::Linux),
+        |iters, dur| {
+            let total_lines = (arm_out_lines * iters) as f64;
+            let secs = dur.as_secs_f64();
+            let lines_per_sec = total_lines / secs;
+            format!("{} asm lines/s", format_thousands(lines_per_sec as usize))
+        },
+    );
+
+    // 6. Full Frontend Pipeline Benchmark (Lex -> Parse -> Infer -> Codegen)
     let full_stat = run_bench(
-        "Full Frontend Pipeline",
+        "Full Compiler Pipeline",
         Duration::from_millis(500),
         || {
             let mut lexer = Lexer::new(&source);
             let tokens = lexer.tokenize().unwrap();
             let mut parser = Parser::new(tokens);
             let prog = parser.parse().unwrap();
-            generate(&prog, Architecture::X64, OperatingSystem::Windows)
+            let _ = ProgramInference::analyze(&prog);
+            generate(&prog, host_arch, host_os)
         },
         |iters, dur| {
             let secs = dur.as_secs_f64();
@@ -349,15 +432,22 @@ fn main() {
     let baseline_mean_nanos = lex_stat.mean.as_nanos() as f64;
     let baseline_alloc = lex_stat.allocated_bytes.max(1) as f64;
 
-    let results = [lex_stat, parse_stat, infer_stat, codegen_stat, full_stat];
+    let results = [
+        lex_stat,
+        parse_stat,
+        infer_stat,
+        codegen_host_stat,
+        codegen_arm_stat,
+        full_stat,
+    ];
 
     // BenchmarkDotNet Summary Table
     println!(
-        "| {:<26} | {:>6} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>6} | {:>10} | {:>11} | {:>19} |",
+        "| {:<32} | {:>6} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>6} | {:>10} | {:>11} | {:>22} |",
         "Benchmark Stage", "Iters", "Mean", "Error", "StdDev", "Min", "Max", "Ratio", "Allocated", "Alloc Ratio", "Throughput"
     );
     println!(
-        "|:{:-<26}-|-{:-<6}:|-{:-<10}:|-{:-<10}:|-{:-<10}:|-{:-<10}:|-{:-<10}:|-{:-<6}:|-{:-<10}:|-{:-<11}:|-{:-<19}:|",
+        "|:{:-<32}-|-{:-<6}:|-{:-<10}:|-{:-<10}:|-{:-<10}:|-{:-<10}:|-{:-<10}:|-{:-<6}:|-{:-<10}:|-{:-<11}:|-{:-<22}:|",
         "", "", "", "", "", "", "", "", "", "", ""
     );
 
@@ -366,7 +456,7 @@ fn main() {
         let alloc_ratio = (r.allocated_bytes as f64) / baseline_alloc;
 
         println!(
-            "| {:<26} | {:>6} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>6.2} | {:>10} | {:>11.2} | {:>19} |",
+            "| {:<32} | {:>6} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>6.2} | {:>10} | {:>11.2} | {:>22} |",
             r.name,
             r.iterations,
             format_duration(r.mean),
@@ -392,9 +482,9 @@ fn main() {
     println!("  Throughput  : Processed workload units per second\n");
 
     println!(
-        "Synthetic Workload Metrics: {} tokens, {} lines generated ASM ({:.1} KB)",
+        "Workload Metrics: {} tokens, {} lines generated ASM ({:.1} KB)",
         token_count,
-        sample_out_lines,
-        sample_out_len as f64 / 1024.0
+        host_out_lines,
+        host_out_len as f64 / 1024.0
     );
 }
