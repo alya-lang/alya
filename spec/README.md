@@ -148,6 +148,8 @@ To ensure compiler binary lightness, rapid community evolution, zero duplicate "
    - Managed declaratively through `alya.toml`, locked deterministically in `alya.lock` with SHA-256 cryptographic verification.
    - Global package caching in `~/.alya/cache` with zero-network cloning.
 
+> 📖 **Read the Complete Boundary Governance:** [`STDLIB_PKG_ARCHITECTURE.md`](STDLIB_PKG_ARCHITECTURE.md) documents the 3-tier classification model, the 100-line pruning rule, deduplication audit, and the 6 golden anti-duplication rules between `std/*` and `Lib/*`.
+
 ---
 
 ## 🔌 Foreign Function Interface (C FFI Engine)

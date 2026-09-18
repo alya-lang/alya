@@ -58,6 +58,8 @@ Alya is designed to balance the ergonomics of an expressive, readable language w
 
 ## Upcoming Milestones: The 5 Strategic Pillars
 
+> 🚀 **Active Compiler Implementation Roadmap:** All granular phase-by-phase implementation tasks, golden test requirements, and future milestones (Phases 0 through 6) are tracked in [`spec/ROADMAP.md`](spec/ROADMAP.md).
+
 The next evolution of Alya transitions the project from a complete standalone language to an extensible, industry-grade ecosystem.
 
 ```text
@@ -107,76 +109,7 @@ Enable community library sharing, versioned dependency resolution, and automated
 
 ---
 
-### Standard Library (Stdlib) vs Package (Pkg) Architecture
-
-To preserve compiler binary lightness, rapid community evolution, and zero-middleware performance, Alya adheres to a clear three-tier architectural separation between embedded standard library modules (`std/*`) and standalone packages (`alya.toml`).
-
-> Detailed boundary rules, deduplication audit, and design guidelines are documented in [`STDLIB_PKG_ARCHITECTURE.md`](STDLIB_PKG_ARCHITECTURE.md).
-
-#### 1. Architectural Philosophy
-
-| Criterion | Standard Library (`std/*`) | Standalone Package (`alya-lang/*`) |
-| :--- | :--- | :--- |
-| **Role** | Core runtime extension and OS syscall abstractions. | Domain-specific, feature-rich ecosystems. |
-| **Dependency** | Built directly into compiler, zero external dependencies. | Managed via `alya.toml` and locked in `alya.lock`. |
-| **Versioning** | Tied to compiler release (`alyac v0.0.x`). | Independent Semantic Versioning (`v0.1.0`, `v1.2.0`). |
-| **Binary Footprint** | Embedded in compiler binary (`include_str!`); must remain minimal. | Zero impact on compiler binary; resolved at build time per project. |
-| **Velocity** | Ultra-stable, highly conservative, avoids API breakage. | Rapid iteration, community-driven, continuous feature releases. |
-| **Testing** | Core compiler CI test suites. | Dedicated CI matrices, micro-benchmarks, and extensive documentation. |
-
-#### 2. The 3-Tier Classification Model
-
-```text
-                  ┌────────────────────────────────────────────────────────┐
-                  │                 ALL ALYA MODULES                       │
-                  └──────────────────────────┬─────────────────────────────┘
-                                             │
-             ┌───────────────────────────────┼──────────────────────────────┐
-             ▼                               ▼                              ▼
-     [TIER 1: CORE STDLIB]           [TIER 2: HYBRID CORE]          [TIER 3: STANDALONE PKG]
-  Never externalized; core        Minimal core in stdlib; rich    Fully decoupled domain
-  syscalls and language runtime.  API delegated to package.       libraries (unbundled).
-  ─────────────────────────────── ─────────────────────────────── ──────────────────────────
-  • os, fs, path, time            • cli  (only raw args/flags)    • crypto (SHA, HMAC, KDF)
-  • math, str, mem                • net  (only raw TCP/UDP)       • csv    (RFC-4180 parser)
-  • collections, thread           • log  (only console colors)    • url    (WHATWG standard)
-  • test, bench, console          • rand (only core LCG PRNG)     • http   (client/server)
-                                  • json (only basic parse/str)   • uuid   (v4, v7, ULID)
-                                                                  • jwt    (RFC-7519 tokens)
-```
-
-1. **Tier 1 (Core Stdlib - Preserved & Protected):**
-   - Essential system calls and data type intrinsics (`os`, `fs`, `path`, `time`, `math`, `str`, `collections`, `thread`, `mem`, `console`, `test`, `bench`).
-   - Must remain built-in for zero-setup execution of standalone scripts and CLI tools.
-
-2. **Tier 2 (Hybrid Modules - Pruned & Lightweight):**
-   - **`std/cli`**: Stripped from 570 lines to ~100 lines; provides fast, lightweight OS argument accessors (`cli_raw_args`, `cli_has_flag`). Advanced parsing (subcommands, automated `--help`, validation) lives in `alya-lang/cli`.
-   - **`std/net`**: Stripped from 730 lines to ~200 lines; dedicated purely to raw TCP/UDP socket I/O. All HTTP client/server/routing is in `alya-lang/http`.
-   - **`std/log`**: Retained as a fast, single-file console logger with ANSI colors. JSON formatting, file rotation, and pipelines live in `alya-lang/logger`.
-   - **`std/json`**: Minimal recursive parser and stringifier for basic scripting. Full AST DOM, streaming tokenizer, schema validation, and pretty-printer live in `alya-lang/json`.
-   - **`std/rand`**: Stripped from 425 lines to ~85 lines; contains only global LCG PRNG, range generators, and probabilities. Complex distributions, multi-engine PRNGs (SplitMix64, PCG32, Xorshift64), and sampling live in `alya-lang/rand`.
-
-3. **Tier 3 (Standalone Domain Packages - Unbundled):**
-   - Domain-heavy libraries completely removed from compiler binary.
-   - Clean break: zero backward-compatibility baggage or deprecated shims; standalone packages are resolved exclusively via `alya.toml`.
-
-#### 3. Official Package Ecosystem Directory
-
-All official packages are published under the `alya-lang` GitHub organization with clean, acyclic dependency graphs (DAG):
-
-| Package | Repository | Description | Dependencies |
-| :--- | :--- | :--- | :--- |
-| **`rand`** | [`alya-lang/rand`](https://github.com/alya-lang/rand) | Multi-engine PRNG (SplitMix, Xorshift, PCG), statistical distributions, sampling, and byte entropy | None |
-| **`crypto`** | [`alya-lang/crypto`](https://github.com/alya-lang/crypto) | Cryptographic hashes (SHA-256, SHA-224, SHA-1, MD5), HMAC, PBKDF2, Base64/Base64URL, timing protection | `rand` |
-| **`uuid`** | [`alya-lang/uuid`](https://github.com/alya-lang/uuid) | RFC 4122 UUID v4, RFC 9562 UUID v7 (time-ordered), Crockford Base32 ULID, NanoID, parser & validators | `rand` |
-| **`jwt`** | [`alya-lang/jwt`](https://github.com/alya-lang/jwt) | RFC 7519 JSON Web Token signing, verification, and claim validation | `crypto` |
-| **`mime`** | [`alya-lang/mime`](https://github.com/alya-lang/mime) | Complete database of 1,000+ MIME types, file extensions, and charset resolution | None |
-| **`url`** | [`alya-lang/url`](https://github.com/alya-lang/url) | WHATWG-compliant URL parser, `UrlSearchParams`, percent-encoding, and path normalization | None |
-| **`http`** | [`alya-lang/http`](https://github.com/alya-lang/http) | Production HTTP client, server, parametric router, and middleware (CORS, Static, Recovery) | `url`, `mime` |
-| **`cli`** | [`alya-lang/cli`](https://github.com/alya-lang/cli) | Advanced command-line argument parser, flag clustering, subcommands, and auto-generated help | None |
-| **`logger`** | [`alya-lang/logger`](https://github.com/alya-lang/logger) | High-throughput structured JSON logger, file rotation, and multi-appender pipelines | None |
-| **`json`** | [`alya-lang/json`](https://github.com/alya-lang/json) | JSON AST DOM, streaming tokenizer, schema validator, and indentation pretty-printer | None |
-| **`csv`** | [`alya-lang/csv`](https://github.com/alya-lang/csv) | RFC 4180 compliant CSV/TSV state machine, streaming parser, and header-to-map record mapping | None |
+> 📦 **Standard Library vs Package Architecture:** Detailed 3-tier boundary rules, deduplication governance, and official package ecosystem directories are maintained in [`spec/STDLIB_PKG_ARCHITECTURE.md`](spec/STDLIB_PKG_ARCHITECTURE.md) and [`spec/README.md`](spec/README.md).
 
 ---
 
@@ -255,6 +188,8 @@ Provide modern IDE capabilities and official editor extensions across VS Code an
 
 ### Pillar 4: Memory Resilience & Cycle Detection (ARC Enhancements) 📋
 
+> 📋 **Active Spec Roadmap:** Tracked under [`spec/ROADMAP.md`](spec/ROADMAP.md) **Phase 4.6 (Bacon-Rajan Cycle Collector)** and **Phase 4.7 (`--mem-trace` Heap Trace Engine)**.
+
 Enhance Alya's Automatic Reference Counting (ARC) with advanced cyclic graph reclamation and memory profiling.
 
 #### Goals & Architecture
@@ -273,6 +208,8 @@ Enhance Alya's Automatic Reference Counting (ARC) with advanced cyclic graph rec
 ---
 
 ### Pillar 5: Concurrency Strategy — "Colorless Concurrency" over `async/await` 📋
+
+> 📋 **Active Spec Roadmap:** Tracked under [`spec/ROADMAP.md`](spec/ROADMAP.md) **Phase 4.5 (Reactor Event Thread Pool)** and **Phase 4.8 (M:N Fiber Scheduler & Growable Stacks)**.
 
 A fundamental architectural decision of Alya is the deliberate rejection of the `async/await` paradigm ("What Color is Your Function?").
 
@@ -315,6 +252,8 @@ A fundamental architectural decision of Alya is the deliberate rejection of the 
 ---
 
 ## Future Explorations 💡
+
+> 💡 **Active Spec Roadmap:** Tracked under [`spec/ROADMAP.md`](spec/ROADMAP.md) **Phase 6 (Future Explorations: WebAssembly, Type Annotations, Native GUI, SIMD Vectorization)**.
 
 - **Optional Type Annotations (`let x: int`, `fn add(a: int, b: int): int`)**: Gradual typing for high-performance JIT/AOT code generation and compile-time contract enforcement.
 - **WebAssembly Target (`wasm32-unknown-unknown`)**: Compile Alya code directly to WebAssembly for browser sandboxes and edge compute runtimes.

@@ -11,6 +11,8 @@ The Alya Standard Library (`std/*`) is strictly limited to **low-level operating
 - **Zero Duplication**: Alya strictly forbids having a "toy" version in stdlib and a "real" version in packages. If a domain is protocol-heavy or fast-evolving (like HTTP, TLS/Crypto, SQL, or full CLI frameworks), it belongs strictly in official standalone packages (`alya-lang/*`).
 - **Bare-Metal Compatibility (`--no-std`)**: Applications targeting microcontrollers, bare-metal kernels, or custom embedded runtimes can pass `--no-std` to completely detach the standard library.
 
+> 📖 **Architectural Policy & Deduplication Governance:** For detailed boundary rules, the 100-line pruning threshold, and anti-duplication governance between `std/*` and `Lib/*`, consult [`STDLIB_PKG_ARCHITECTURE.md`](../STDLIB_PKG_ARCHITECTURE.md).
+
 ---
 
 ### 1.2 The 14 Core Standard Library Modules

@@ -24,10 +24,13 @@ This roadmap defines the sequenced implementation phases, actionable engineering
 │ [Phase 3] Grammar, Lexer & Parser Conformance (Rune, 15-Level Pratt, Main)
 ├──────────────────────────────────┬─────────────────────────────────────┤
 │                                  ▼
-│ [Phase 4] Advanced Runtime & Systems (Weak ARC, Fibers, Event Thread Pool)
+│ [Phase 4] Advanced Runtime & Systems (Weak ARC, Fibers, Cycle Collector)
 ├──────────────────────────────────┬─────────────────────────────────────┤
 │                                  ▼
 │ [Phase 5] Tooling & Ecosystem (LSP, DocGen, Linter, Resolution, Packages) │
+├──────────────────────────────────┬─────────────────────────────────────┤
+│                                  ▼
+│ [Phase 6] Future Explorations (WebAssembly, GUI, SIMD, Gradual Typing)  │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -202,6 +205,27 @@ This roadmap defines the sequenced implementation phases, actionable engineering
   - Target files: `Lib/uv/`, `Lib/event/`.
   - Verification: Asynchronous disk read/write benchmarks matching `EVENT_UV_ROADMAP.md` criteria.
 
+- [ ] **4.6 Background / Scoped Cycle Collector (Bacon-Rajan Algorithm)**
+  - Non-blocking, trial-deletion cycle detection algorithm to identify and sweep isolated cyclic reference islands.
+  - Periodic and on-demand traversal sweeping unreachable cyclic graphs without global stop-the-world pauses.
+  - Target files: `src/codegen/runtime/arc.rs`, `src/codegen/runtime/gc.rs`.
+  - Verification: Cyclic graph structures (e.g. doubly-linked lists and parent-child tree loops) are completely reclaimed with zero leaks.
+
+- [ ] **4.7 Memory Diagnostics & Heap Trace Engine (`alya run --mem-trace`)**
+  - Implement `--mem-trace` compiler and runtime instrumentation:
+    - Live object counters and active allocation tracking.
+    - Leak detection reporting upon program termination with allocation site attribution.
+  - Target files: `src/codegen/runtime/alloc.rs`, `src/cli/mod.rs`.
+  - Verification: `alya run test_alloc.alya --mem-trace` outputs formatted live reference summary and detects deliberate leaks.
+
+- [ ] **4.8 M:N Cooperative Fiber Scheduler & Growable Stacks ("Colorless Concurrency")**
+  - Architectural realization of Alya's Colorless Concurrency model (rejecting `async/await` function coloring):
+    - Lightweight user-space green fibers with segmented/growable stacks.
+    - M:N cooperative scheduler multiplexing thousands of fibers across native OS worker thread pools.
+    - Sockets, timers, and channels automatically yield upon waiting, preserving natural, synchronous syntax with asynchronous throughput (`spawn handle_client(sock)`).
+  - Target files: `src/codegen/runtime/fiber.rs`, `src/codegen/stmt/control.rs`.
+  - Verification: Concurrency stress tests spawning 100,000 active fibers with sub-millisecond scheduling latency.
+
 ---
 
 ## 🛠️ Phase 5: Developer Tooling & Ecosystem
@@ -258,6 +282,37 @@ This roadmap defines the sequenced implementation phases, actionable engineering
 
 ---
 
+## 💡 Phase 6: Future Explorations & Long-Term Targets
+
+- [ ] **6.1 WebAssembly Target (`wasm32-unknown-unknown`)**
+  - Direct compilation of Alya source code to WebAssembly binaries (`.wasm`) for browser sandboxes, Cloudflare Workers, and edge compute runtimes.
+  - Native WASI (WebAssembly System Interface) runtime stubs for file I/O and console output.
+  - Target files: `src/codegen/arch/wasm32/`, `src/driver/mod.rs`.
+  - Verification: `alya build app.alya --target wasm32` executes under Node.js / Wasmtime.
+
+- [ ] **6.2 Optional Type Annotations & Static Gradual Typing**
+  - Gradual typing syntax: `let x: int = 42`, `function add(a: int, b: int) -> int`.
+  - Type-checker validation pass verifying parameter and return type assignments at compile time.
+  - Specialized JIT/AOT code generation leveraging explicit scalar types for zero-box register allocation.
+  - Target files: `src/parser/`, `src/codegen/analysis/`.
+  - Verification: Golden tests for static type mismatch rejections and optimized scalar emission.
+
+- [ ] **6.3 Native GUI Toolkit Integration**
+  - Lightweight direct bindings to native platform windowing APIs with zero heavy C++ runtime dependencies:
+    - Windows: Win32 API and Direct2D/DirectWrite.
+    - macOS: Cocoa / Metal runtime bindings.
+    - Linux: Wayland and X11 protocols via native socket IPC.
+  - Target files: `Lib/gui/`, `src/tools/bundle.rs`.
+  - Verification: Cross-platform hello-world window example with event dispatch loop.
+
+- [ ] **6.4 Explicit SIMD Vectorization Primitives**
+  - First-class vector data types (`f64x4`, `f32x8`, `i32x8`, `i64x4`) with native operator overloading (`+`, `-`, `*`, `/`).
+  - Direct machine instruction mapping to AVX2/AVX-512 on x64 and Neon on ARM64.
+  - Target files: `src/codegen/arch/x64/ops.rs`, `src/codegen/arch/arm64/ops.rs`.
+  - Verification: High-throughput Mandelbrot and matrix multiplication benchmarks achieving $> 4\times$ throughput speedup.
+
+---
+
 ## 📊 Summary Progress Tracker
 
 | Phase | Milestone | Priority | Status |
@@ -266,5 +321,6 @@ This roadmap defines the sequenced implementation phases, actionable engineering
 | **1** | **Algorithmic Pipeline & Scalability (CallIndex, Tree-Shaking)** | 🔴 Immediate | ✅ Complete |
 | **2** | **Standard Library Consolidation & Modern Syntax (14 Modules)** | 🟡 High | 🟡 In Progress |
 | **3** | **Grammar, Lexer & Parser Conformance (Rune, Pratt, Main)** | 🟡 High | ✅ Complete |
-| **4** | **Advanced Systems Runtime (Weak ARC, Fibers, Event Thread Pool)** | 🔵 Normal | 🟡 In Progress |
+| **4** | **Advanced Systems Runtime (Weak ARC, Fibers, Cycle Collector, Event)** | 🔵 Normal | 🟡 In Progress |
 | **5** | **Developer Tooling & Ecosystem (Linter, LSP, Resolution, Packages)** | 🟢 Future | 🟡 In Progress |
+| **6** | **Future Explorations & Targets (WASM, GUI, SIMD, Gradual Typing)** | 💡 Research | 📋 Planned |
