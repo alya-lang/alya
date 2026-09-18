@@ -1969,7 +1969,7 @@ say "runner_passed: " + str(runner.passed)
 }
 
 #[test]
-fn test_e2e_phase2_consolidated_stdlib() {
+fn test_e2e_consolidated_stdlib() {
     let code = r#"
 import "std/console"
 import "std/path"
@@ -1991,7 +1991,7 @@ say "rand_in_range: " + str(r >= 10 and r <= 20)
 }
 
 #[test]
-fn test_e2e_phase2_process_module() {
+fn test_e2e_process_module() {
     let code = r#"
 import "std/process"
 import "std/str"
@@ -2011,7 +2011,7 @@ say "has_output: " + str(contains_str(out.stdout, "hello_process"))
 }
 
 #[test]
-fn test_e2e_phase2_io_module() {
+fn test_e2e_io_module() {
     let code = r#"
 import "std/io"
 
@@ -2038,7 +2038,7 @@ io_print("direct io print")
 }
 
 #[test]
-fn test_e2e_phase2_no_std_mode() {
+fn test_e2e_no_std_mode() {
     use alya::codegen::{generate_with_profile_ext, Architecture, OperatingSystem};
     use alya::lexer::Lexer;
     use alya::parser::{resolve_imports_with_sources_ext, Parser};
@@ -2080,7 +2080,7 @@ fn test_e2e_phase2_no_std_mode() {
 }
 
 #[test]
-fn test_e2e_phase4_bounded_channel_blocking() {
+fn test_e2e_bounded_channel_blocking() {
     let code = r#"
 import "std/sync"
 
@@ -2133,7 +2133,7 @@ ch.free()
 }
 
 #[test]
-fn test_e2e_phase4_rendezvous_channel_semantics() {
+fn test_e2e_rendezvous_channel_semantics() {
     let code = r#"
 import "std/sync"
 
@@ -2177,7 +2177,7 @@ ch.free()
 }
 
 #[test]
-fn test_e2e_phase4_dynamic_interface_querying() {
+fn test_e2e_dynamic_interface_querying() {
     let code = r#"
 interface Shape
     function area(self) -> int
