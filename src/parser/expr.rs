@@ -1960,7 +1960,8 @@ impl Parser {
                 all_bindings.extend(bindings);
             }
             expr = crate::parser::stmt::control::substitute_bindings(&expr, &all_bindings);
-            let guard = guard.map(|g| crate::parser::stmt::control::substitute_bindings(&g, &all_bindings));
+            let guard =
+                guard.map(|g| crate::parser::stmt::control::substitute_bindings(&g, &all_bindings));
             let mut condition = build_when_condition(&raw_subject, patterns);
             if let Some(g) = guard {
                 condition = Expr::Binary {

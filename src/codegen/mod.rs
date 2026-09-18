@@ -821,7 +821,9 @@ impl CodeGen {
                 || param_types
                     .get(i)
                     .and_then(|t| t.as_deref())
-                    .map_or(false, |t| t == "..." || t.starts_with("...") || t.ends_with("[]"));
+                    .map_or(false, |t| {
+                        t == "..." || t.starts_with("...") || t.ends_with("[]")
+                    });
             let is_str_arr = inference.infer_param_is_string_array(name, i, program);
             let is_flt_arr = inference.infer_param_is_float_array(name, i, program);
             let is_map = inference.infer_param_is_map(name, i, program);

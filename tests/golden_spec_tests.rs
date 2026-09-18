@@ -549,4 +549,3 @@ fn test_golden_spec_when_execution() {
         assert!(output.contains("HTTP request failed: Service Unavailable"));
     }
 }
-

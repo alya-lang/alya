@@ -272,7 +272,8 @@ impl StructInference {
                     self.scan_expr(expr, current_fn, struct_names, fn_names);
                     if let Some(fn_name) = current_fn {
                         if !self.conflicted_returns.contains(fn_name) {
-                            if let Some(st) = self.expr_struct_type(expr, current_fn, struct_names) {
+                            if let Some(st) = self.expr_struct_type(expr, current_fn, struct_names)
+                            {
                                 let bare = resolve_func_bare(fn_name, struct_names);
                                 if let Some(existing) = self.fn_returns.get(fn_name) {
                                     if existing != &st {
