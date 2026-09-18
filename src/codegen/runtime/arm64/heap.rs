@@ -20,6 +20,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    str x2, [x1]\n");
     out.push_str("    ldr x0, [sp, #16]\n");
     out.push_str(&format!("    bl {}malloc\n", p));
+    out.push_str("    str x0, [sp, #24]\n");
+    out.push_str("    ldr x1, [sp, #16]\n");
+    out.push_str("    mov x2, #5\n");
+    out.push_str("    mov x3, #0\n");
+    out.push_str("    bl alya_mem_track_alloc\n");
+    out.push_str("    ldr x0, [sp, #24]\n");
     out.push_str("    ldp x29, x30, [sp], #32\n");
     out.push_str("    ret\n\n");
 
@@ -27,13 +33,16 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".align 2\n");
     out.push_str(".global fn_free\n");
     out.push_str("fn_free:\n");
-    out.push_str("    stp x29, x30, [sp, #-16]!\n");
+    out.push_str("    stp x29, x30, [sp, #-32]!\n");
     out.push_str("    mov x29, sp\n");
     out.push_str("    cbz x0, .L_arm64_free_done\n");
+    out.push_str("    str x0, [sp, #16]\n");
+    out.push_str("    bl alya_mem_track_free\n");
+    out.push_str("    ldr x0, [sp, #16]\n");
     out.push_str(&format!("    bl {}free\n", p));
     out.push_str(".L_arm64_free_done:\n");
     out.push_str("    mov x0, #0\n");
-    out.push_str("    ldp x29, x30, [sp], #16\n");
+    out.push_str("    ldp x29, x30, [sp], #32\n");
     out.push_str("    ret\n\n");
 
     // fn_realloc
@@ -174,6 +183,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x2, x21\n");
     out.push_str(&format!("    bl {}memcpy\n", p));
     out.push_str("    mov x0, x20\n");
+    out.push_str("    mov x1, x21\n");
+    out.push_str("    mov x2, #4\n"); // kind: String
+    out.push_str("    mov x3, #0\n");
+    out.push_str("    bl alya_mem_track_alloc\n");
+    out.push_str("    mov x0, x20\n");
     out.push_str("    b .L_arm64_sclone_done\n");
     out.push_str(".L_arm64_sclone_empty:\n");
     emit_adrp_add(out, "x0", "alya_str_empty", os);
@@ -187,13 +201,16 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".align 2\n");
     out.push_str(".global fn_str_free\n");
     out.push_str("fn_str_free:\n");
-    out.push_str("    stp x29, x30, [sp, #-16]!\n");
+    out.push_str("    stp x29, x30, [sp, #-32]!\n");
     out.push_str("    mov x29, sp\n");
     out.push_str("    cbz x0, .L_arm64_sfree_done\n");
+    out.push_str("    str x0, [sp, #16]\n");
+    out.push_str("    bl alya_mem_track_free\n");
+    out.push_str("    ldr x0, [sp, #16]\n");
     out.push_str(&format!("    bl {}free\n", p));
     out.push_str(".L_arm64_sfree_done:\n");
     out.push_str("    mov x0, #0\n");
-    out.push_str("    ldp x29, x30, [sp], #16\n");
+    out.push_str("    ldp x29, x30, [sp], #32\n");
     out.push_str("    ret\n\n");
 
     // fn_rc_retain
@@ -278,6 +295,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    cbz x0, .L_arm64_rc_free_outer\n");
     out.push_str(&format!("    bl {}free\n", p));
     out.push_str(".L_arm64_rc_free_outer:\n");
+    out.push_str("    mov x0, x19\n");
+    out.push_str("    bl alya_mem_track_free\n");
     out.push_str("    sub x0, x19, #16\n");
     out.push_str(&format!("    bl {}free\n", p));
     out.push_str(".L_arm64_rc_rel_done:\n");

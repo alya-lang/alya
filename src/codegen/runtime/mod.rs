@@ -18,6 +18,7 @@ pub fn emit_runtime(
     structs: &HashMap<String, StructDefInfo>,
     interfaces: &HashMap<String, crate::codegen::context::InterfaceDefInfo>,
     vtables: &HashMap<(String, String), String>,
+    _mem_trace: bool,
 ) {
     data::emit_data_sections(out, arch, os, structs, interfaces, vtables);
 

@@ -17,6 +17,7 @@ pub fn emit_header(out: &mut String, os: OperatingSystem) {
         out.push_str(".globl _main\n");
         out.push_str(".extern _printf\n");
         out.push_str(".extern _exit\n");
+        out.push_str(".extern _atexit\n");
         out.push_str(".extern _getchar\n");
         out.push_str(".extern _fflush\n");
         out.push_str(".extern _calloc\n");
@@ -91,6 +92,7 @@ pub fn emit_header(out: &mut String, os: OperatingSystem) {
         out.push_str(".global main\n");
         out.push_str(".extern printf\n");
         out.push_str(".extern exit\n");
+        out.push_str(".extern atexit\n");
         out.push_str(".extern getchar\n");
         out.push_str(".extern fflush\n");
         out.push_str(".extern calloc\n");

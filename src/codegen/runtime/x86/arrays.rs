@@ -41,6 +41,14 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov %ebx, 4(%edi)\n");
     out.push_str("    mov %eax, 8(%edi)\n");
     out.push_str("    mov %edi, %eax\n");
+    out.push_str("    push %eax\n");
+    out.push_str("    push $0\n");
+    out.push_str("    push $1\n");
+    out.push_str("    push %edx\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    call alya_mem_track_alloc\n");
+    out.push_str("    add $16, %esp\n");
+    out.push_str("    pop %eax\n");
     out.push_str("    pop %edi\n");
     out.push_str("    pop %esi\n");
     out.push_str("    pop %ebx\n");

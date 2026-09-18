@@ -17,10 +17,24 @@ pub fn run_alya_code_with_args(source: &str, cli_args: &[&str]) -> Option<(i32, 
     run_alya_code_with_input_and_args(source, None, cli_args)
 }
 
+#[allow(dead_code)]
+pub fn run_alya_code_with_trace(source: &str) -> Option<(i32, String)> {
+    run_alya_code_with_options(source, None, &[], true)
+}
+
 pub fn run_alya_code_with_input_and_args(
     source: &str,
     input: Option<&str>,
     cli_args: &[&str],
+) -> Option<(i32, String)> {
+    run_alya_code_with_options(source, input, cli_args, false)
+}
+
+pub fn run_alya_code_with_options(
+    source: &str,
+    input: Option<&str>,
+    cli_args: &[&str],
+    mem_trace: bool,
 ) -> Option<(i32, String)> {
     // Check if gcc is available
     if Command::new("gcc").arg("--version").output().is_err() {
@@ -51,7 +65,11 @@ pub fn run_alya_code_with_input_and_args(
         Architecture::X64
     };
 
-    let asm_code = codegen::generate(&ast, arch, os);
+    let asm_code = if mem_trace {
+        codegen::generate_full(&ast, arch, os, false, true).0
+    } else {
+        codegen::generate(&ast, arch, os)
+    };
 
     let pid = std::process::id();
     let id = TEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);

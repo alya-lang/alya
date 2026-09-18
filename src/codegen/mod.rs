@@ -32,6 +32,7 @@ pub struct CodeGen {
     pub(crate) ctx: CodeGenContext,
     pub profile: PipelineProfile,
     pub no_std: bool,
+    pub mem_trace: bool,
 }
 
 fn collect_expr_identifiers(expr: &Expr, idents: &mut std::collections::HashSet<String>) {
@@ -227,6 +228,7 @@ impl CodeGen {
             ctx: CodeGenContext::new(),
             profile: PipelineProfile::default(),
             no_std: false,
+            mem_trace: false,
         }
     }
 
@@ -696,6 +698,55 @@ impl CodeGen {
         let t_emit = std::time::Instant::now();
         arch::emit_header(&mut self.output, self.arch, self.os);
 
+        if self.mem_trace {
+            if matches!(self.arch, Architecture::X86) {
+                self.output
+                    .push_str("    movl $1, alya_mem_trace_enabled\n");
+                self.output.push_str("    push $alya_mem_trace_report\n");
+                self.output.push_str("    call atexit\n");
+                self.output.push_str("    add $4, %esp\n");
+            } else if matches!(self.arch, Architecture::ARM64) {
+                arch::arm64::emit_adrp_add(
+                    &mut self.output,
+                    "x0",
+                    "alya_mem_trace_enabled",
+                    self.os,
+                );
+                self.output.push_str("    mov x1, #1\n");
+                self.output.push_str("    str x1, [x0]\n");
+                arch::arm64::emit_adrp_add(
+                    &mut self.output,
+                    "x0",
+                    "alya_mem_trace_report",
+                    self.os,
+                );
+                if matches!(self.os, OperatingSystem::MacOS) {
+                    self.output.push_str("    bl _atexit\n");
+                } else {
+                    self.output.push_str("    bl atexit\n");
+                }
+            } else {
+                // x64
+                self.output
+                    .push_str("    movq $1, alya_mem_trace_enabled(%rip)\n");
+                if matches!(self.os, OperatingSystem::Windows) {
+                    self.output
+                        .push_str("    lea alya_mem_trace_report(%rip), %rcx\n");
+                    self.output.push_str("    sub $32, %rsp\n");
+                    self.output.push_str("    call atexit\n");
+                    self.output.push_str("    add $32, %rsp\n");
+                } else if matches!(self.os, OperatingSystem::MacOS) {
+                    self.output
+                        .push_str("    lea alya_mem_trace_report(%rip), %rdi\n");
+                    self.output.push_str("    call _atexit\n");
+                } else {
+                    self.output
+                        .push_str("    lea alya_mem_trace_report(%rip), %rdi\n");
+                    self.output.push_str("    call atexit\n");
+                }
+            }
+        }
+
         if !self.ctx.globals.is_empty() {
             self.emit_data_section();
             let word_dir = if matches!(self.arch, Architecture::X86) {
@@ -738,6 +789,34 @@ impl CodeGen {
 
         self.emit_cleanup_scope(None);
 
+        if self.mem_trace {
+            if matches!(self.arch, Architecture::X86) {
+                self.output.push_str("    push %ebp\n");
+                self.output.push_str("    mov %esp, %ebp\n");
+                self.output.push_str("    and $-16, %esp\n");
+                self.output.push_str("    call alya_mem_trace_report\n");
+                self.output.push_str("    mov %ebp, %esp\n");
+                self.output.push_str("    pop %ebp\n");
+            } else if matches!(self.arch, Architecture::ARM64) {
+                self.output.push_str("    bl alya_mem_trace_report\n");
+            } else if matches!(self.os, OperatingSystem::Windows) {
+                self.output.push_str("    push %rbp\n");
+                self.output.push_str("    mov %rsp, %rbp\n");
+                self.output.push_str("    and $-16, %rsp\n");
+                self.output.push_str("    sub $32, %rsp\n");
+                self.output.push_str("    call alya_mem_trace_report\n");
+                self.output.push_str("    mov %rbp, %rsp\n");
+                self.output.push_str("    pop %rbp\n");
+            } else {
+                self.output.push_str("    push %rbp\n");
+                self.output.push_str("    mov %rsp, %rbp\n");
+                self.output.push_str("    and $-16, %rsp\n");
+                self.output.push_str("    call alya_mem_trace_report\n");
+                self.output.push_str("    mov %rbp, %rsp\n");
+                self.output.push_str("    pop %rbp\n");
+            }
+        }
+
         arch::emit_footer(&mut self.output, self.arch);
 
         for func in functions {
@@ -761,6 +840,7 @@ impl CodeGen {
                 &self.ctx.structs,
                 &self.ctx.interfaces,
                 &self.ctx.vtables,
+                self.mem_trace,
             );
         }
         let d_codegen = t_emit.elapsed();
@@ -1389,8 +1469,19 @@ pub fn generate_with_profile_ext(
     os: OperatingSystem,
     no_std: bool,
 ) -> (String, PipelineProfile) {
+    generate_full(program, arch, os, no_std, false)
+}
+
+pub fn generate_full(
+    program: &Program,
+    arch: Architecture,
+    os: OperatingSystem,
+    no_std: bool,
+    mem_trace: bool,
+) -> (String, PipelineProfile) {
     let mut codegen = CodeGen::new(arch, os);
     codegen.no_std = no_std;
+    codegen.mem_trace = mem_trace;
     codegen.generate_program(program);
     (codegen.output, codegen.profile)
 }

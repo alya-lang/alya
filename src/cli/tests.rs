@@ -336,3 +336,15 @@ fn test_subcommand_test_with_jobs_and_sequential() {
     assert_eq!(parsed3.command, CommandKind::Test);
     assert_eq!(parsed3.test_jobs, Some(8));
 }
+
+#[test]
+fn test_mem_trace_flag() {
+    let args1 = to_args(&["alya", "run", "main.alya", "--mem-trace"]);
+    let parsed1 = CliArgs::parse_from(&args1).unwrap().unwrap();
+    assert_eq!(parsed1.command, CommandKind::Run);
+    assert!(parsed1.mem_trace);
+
+    let args2 = to_args(&["alya", "build", "main.alya"]);
+    let parsed2 = CliArgs::parse_from(&args2).unwrap().unwrap();
+    assert!(!parsed2.mem_trace);
+}

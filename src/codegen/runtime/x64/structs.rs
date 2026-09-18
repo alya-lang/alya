@@ -35,6 +35,23 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movq $1, 8(%rax)\n");
     out.push_str("    lea 16(%rax), %rax\n");
     out.push_str("    mov %r12, (%rax)\n");
+    out.push_str("    push %rax\n");
+    if is_win {
+        out.push_str("    mov %rax, %rcx\n");
+        out.push_str("    mov %r11, %rdx\n");
+        out.push_str("    mov $3, %r8\n");
+        out.push_str("    mov (%r12), %r9\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_mem_track_alloc\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str("    mov %r11, %rsi\n");
+        out.push_str("    mov $3, %rdx\n");
+        out.push_str("    mov (%r12), %rcx\n");
+        out.push_str("    call alya_mem_track_alloc\n");
+    }
+    out.push_str("    pop %rax\n");
     out.push_str("    pop %r13\n");
     out.push_str("    pop %r12\n");
     out.push_str("    mov %rbp, %rsp\n");
@@ -69,6 +86,23 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea 16(%rax), %rax\n");
     out.push_str("    mov %r12, (%rax)\n");
     out.push_str("    mov %r13, 8(%rax)\n");
+    out.push_str("    push %rax\n");
+    if is_win {
+        out.push_str("    mov %rax, %rcx\n");
+        out.push_str("    mov $32, %rdx\n");
+        out.push_str("    mov $3, %r8\n");
+        out.push_str("    xor %r9, %r9\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_mem_track_alloc\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str("    mov $32, %rsi\n");
+        out.push_str("    mov $3, %rdx\n");
+        out.push_str("    xor %rcx, %rcx\n");
+        out.push_str("    call alya_mem_track_alloc\n");
+    }
+    out.push_str("    pop %rax\n");
     out.push_str("    pop %r13\n");
     out.push_str("    pop %r12\n");
     out.push_str("    mov %rbp, %rsp\n");

@@ -114,6 +114,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x3, x3, x1\n");
     out.push_str("    str x3, [x2]\n");
     out.push_str("    mov x0, x19\n");
+    out.push_str("    mov x2, #2\n");
+    out.push_str("    mov x3, #0\n");
+    out.push_str("    stp x0, x1, [sp, #-16]!\n");
+    out.push_str("    bl alya_mem_track_alloc\n");
+    out.push_str("    ldp x0, x1, [sp], #16\n");
     out.push_str("    ldp x19, x20, [sp, #16]\n");
     out.push_str("    ldp x29, x30, [sp], #32\n");
     out.push_str("    ret\n\n");

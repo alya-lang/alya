@@ -2293,3 +2293,168 @@ inspect_dynamic(p)
         );
     }
 }
+
+#[test]
+fn test_e2e_mem_trace_clean_execution() {
+    let code = r#"
+struct Person
+    name
+    age
+end
+
+fn run_work()
+    let p = Person { name: "Alice", age: 30 }
+    let numbers = [10, 20, 30]
+    let dict = { "status": "active" }
+    say "Person: {p.name}, numbers len: {len(numbers)}"
+end
+
+run_work()
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("ALYA MEMORY TRACE & LEAK REPORT"),
+            "Expected trace header, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected clean execution status, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Structs         : 0 active"),
+            "Expected 0 live structs, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Arrays          : 0 active"),
+            "Expected 0 live arrays, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Maps            : 0 active"),
+            "Expected 0 live maps, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_mem_trace_leak_detection() {
+    let code = r#"
+struct Node
+    id
+    label
+end
+
+let mut i = 0
+while i < 1
+    let leaked_struct = Node { id: 101, label: "leak_node" }
+    let leaked_array = [10, 20, 30, 40]
+    let leaked_map = { "key": 999 }
+    say "Allocated objects inside unmanaged loop iteration."
+    i = i + 1
+end
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("ALYA MEMORY TRACE & LEAK REPORT"),
+            "Expected trace header, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("STATUS: [WARN]"),
+            "Expected warning status, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("memory leak(s) detected"),
+            "Expected leak detection, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Type: Struct (Node)"),
+            "Expected leak attribution to Struct (Node), got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Type: Array"),
+            "Expected leak attribution to Array, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Type: Map"),
+            "Expected leak attribution to Map, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_mem_trace_cyclic_leak() {
+    let code = r#"
+struct Node
+    id
+    next
+end
+
+fn create_cycle()
+    let a = Node { id: 1, next: 0 }
+    let b = Node { id: 2, next: 0 }
+    a.next = b
+    b.next = a
+end
+
+create_cycle()
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("ALYA MEMORY TRACE & LEAK REPORT"),
+            "Expected trace header, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("STATUS: [WARN]"),
+            "Expected warning status, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("memory leak(s) detected"),
+            "Expected leak detection, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Type: Struct (Node)"),
+            "Expected leak attribution to Struct (Node), got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_mem_trace_disabled_zero_overhead() {
+    let code = r#"
+struct Point
+    x
+    y
+end
+
+let pt = Point { x: 5, y: 10 }
+say "Point: {pt.x}, {pt.y}"
+"#;
+
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            !output.contains("ALYA MEMORY TRACE & LEAK REPORT"),
+            "Trace report should NOT appear when disabled"
+        );
+    }
+}

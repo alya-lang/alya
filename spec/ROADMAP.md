@@ -211,7 +211,7 @@ This roadmap defines the sequenced implementation phases, actionable engineering
   - Target files: `src/codegen/runtime/arc.rs`, `src/codegen/runtime/gc.rs`.
   - Verification: Cyclic graph structures (e.g. doubly-linked lists and parent-child tree loops) are completely reclaimed with zero leaks.
 
-- [ ] **4.7 Memory Diagnostics & Heap Trace Engine (`alya run --mem-trace`)**
+- [x] **4.7 Memory Diagnostics & Heap Trace Engine (`alya run --mem-trace`)**
   - Implement `--mem-trace` compiler and runtime instrumentation:
     - Live object counters and active allocation tracking.
     - Leak detection reporting upon program termination with allocation site attribution.

@@ -48,6 +48,34 @@ pub fn emit_data_sections(
             out.push_str("    .quad 0\n");
             out.push_str("alya_allocated_bytes:\n");
             out.push_str("    .quad 0\n");
+            out.push_str("alya_mem_trace_enabled:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_mem_report_done:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_mem_records_head:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_mem_total_allocs:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_mem_total_frees:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_mem_active_allocs:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_mem_total_bytes:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_mem_active_bytes:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_mem_peak_bytes:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_mem_live_structs:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_mem_live_arrays:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_mem_live_maps:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_mem_live_strings:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_mem_live_raw:\n");
+            out.push_str("    .quad 0\n");
         }
         Architecture::X86 => {
             out.push_str("alya_str_idx:\n");
@@ -71,6 +99,34 @@ pub fn emit_data_sections(
             out.push_str("alya_rand_state:\n");
             out.push_str("    .long 0\n");
             out.push_str("alya_allocated_bytes:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_mem_trace_enabled:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_mem_report_done:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_mem_records_head:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_mem_total_allocs:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_mem_total_frees:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_mem_active_allocs:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_mem_total_bytes:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_mem_active_bytes:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_mem_peak_bytes:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_mem_live_structs:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_mem_live_arrays:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_mem_live_maps:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_mem_live_strings:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_mem_live_raw:\n");
             out.push_str("    .long 0\n");
         }
     }
@@ -181,6 +237,57 @@ pub fn emit_data_sections(
 
     out.push_str("alya_fmt_struct_comma:\n");
     out.push_str(&format!("    {} \", \"\n", str_directive));
+
+    // Memory trace report format strings
+    let int_fmt = if matches!(arch, Architecture::X86) {
+        "%d"
+    } else {
+        "%lld"
+    };
+    out.push_str("alya_mem_fmt_header:\n");
+    out.push_str(&format!("    {} \"\\n============================================================\\n                 ALYA MEMORY TRACE & LEAK REPORT\\n============================================================\\n\"\n", str_directive));
+    out.push_str("alya_mem_fmt_totals:\n");
+    out.push_str(&format!("    {} \"  Total Allocations   : {}\\n  Total Deallocations : {}\\n  Active Allocations  : {}\\n\"\n", str_directive, int_fmt, int_fmt, int_fmt));
+    out.push_str("alya_mem_fmt_bytes:\n");
+    out.push_str(&format!("    {} \"  Total Allocated     : {} bytes\\n  Peak Memory Usage   : {} bytes\\n  Active Heap Memory  : {} bytes\\n\\n\"\n", str_directive, int_fmt, int_fmt, int_fmt));
+    out.push_str("alya_mem_fmt_objects:\n");
+    out.push_str(&format!("    {} \"  Live Object Summary:\\n    * Structs         : {} active\\n    * Arrays          : {} active\\n    * Maps            : {} active\\n    * Strings         : {} active\\n    * Raw Buffers     : {} active\\n\"\n", str_directive, int_fmt, int_fmt, int_fmt, int_fmt, int_fmt));
+    out.push_str("alya_mem_fmt_clean:\n");
+    out.push_str(&format!("    {} \"------------------------------------------------------------\\n  STATUS: [OK] Clean execution, 0 memory leaks detected\\n============================================================\\n\\n\"\n", str_directive));
+    out.push_str("alya_mem_fmt_warn:\n");
+    out.push_str(&format!("    {} \"------------------------------------------------------------\\n  STATUS: [WARN] {} memory leak(s) detected ({} bytes uncollected)\\n\\n  Uncollected Allocations (Leak Attribution):\\n\"\n", str_directive, int_fmt, int_fmt));
+    out.push_str("alya_mem_fmt_item_struct:\n");
+    out.push_str(&format!(
+        "    {} \"    [{}] %p ({} bytes) Type: Struct (%s)\\n\"\n",
+        str_directive, int_fmt, int_fmt
+    ));
+    out.push_str("alya_mem_fmt_item_array:\n");
+    out.push_str(&format!(
+        "    {} \"    [{}] %p ({} bytes) Type: Array\\n\"\n",
+        str_directive, int_fmt, int_fmt
+    ));
+    out.push_str("alya_mem_fmt_item_map:\n");
+    out.push_str(&format!(
+        "    {} \"    [{}] %p ({} bytes) Type: Map\\n\"\n",
+        str_directive, int_fmt, int_fmt
+    ));
+    out.push_str("alya_mem_fmt_item_str:\n");
+    out.push_str(&format!(
+        "    {} \"    [{}] %p ({} bytes) Type: String\\n\"\n",
+        str_directive, int_fmt, int_fmt
+    ));
+    out.push_str("alya_mem_fmt_item_raw:\n");
+    out.push_str(&format!(
+        "    {} \"    [{}] %p ({} bytes) Type: Raw Buffer\\n\"\n",
+        str_directive, int_fmt, int_fmt
+    ));
+    out.push_str("alya_mem_fmt_footer:\n");
+    out.push_str(&format!(
+        "    {} \"============================================================\\n\\n\"\n",
+        str_directive
+    ));
+    out.push_str("alya_str_anon_struct:\n");
+    out.push_str(&format!("    {} \"Anonymous\"\n", str_directive));
 
     // Struct name and field name strings
     let mut emitted_names = std::collections::HashSet::new();

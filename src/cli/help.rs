@@ -63,6 +63,9 @@ pub fn print_usage() {
     println!(
         "  --no-std              Bare-metal mode: detach standard library and omit libc stubs"
     );
+    println!(
+        "  --mem-trace           Enable memory diagnostics, allocation tracking, and leak detection"
+    );
     println!("  --stats, --bench      Display detailed compilation and execution metrics");
     println!("  -v, --version         Show compiler version");
     println!("  -h, --help            Show this help message\n");

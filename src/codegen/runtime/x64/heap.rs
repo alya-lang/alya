@@ -11,15 +11,40 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("fn_alloc:\n");
     out.push_str("    push %rbp\n");
     out.push_str("    mov %rsp, %rbp\n");
-    out.push_str("    sub $32, %rsp\n");
+    out.push_str("    push %rbx\n");
+    out.push_str("    sub $40, %rsp\n");
     if is_win {
+        out.push_str("    mov %rcx, %rbx\n");
         out.push_str("    add %rcx, alya_allocated_bytes(%rip)\n");
         out.push_str("    call malloc\n");
+        out.push_str("    test %rax, %rax\n");
+        out.push_str("    jz .L_x64_alloc_done\n");
+        out.push_str("    push %rax\n");
+        out.push_str("    mov %rax, %rcx\n");
+        out.push_str("    mov %rbx, %rdx\n");
+        out.push_str("    mov $5, %r8\n");
+        out.push_str("    xor %r9, %r9\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_mem_track_alloc\n");
+        out.push_str("    add $32, %rsp\n");
+        out.push_str("    pop %rax\n");
     } else {
+        out.push_str("    mov %rdi, %rbx\n");
         out.push_str("    add %rdi, alya_allocated_bytes(%rip)\n");
         out.push_str(&format!("    call {}malloc\n", p));
+        out.push_str("    test %rax, %rax\n");
+        out.push_str("    jz .L_x64_alloc_done\n");
+        out.push_str("    push %rax\n");
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str("    mov %rbx, %rsi\n");
+        out.push_str("    mov $5, %rdx\n");
+        out.push_str("    xor %rcx, %rcx\n");
+        out.push_str("    call alya_mem_track_alloc\n");
+        out.push_str("    pop %rax\n");
     }
-    out.push_str("    add $32, %rsp\n");
+    out.push_str(".L_x64_alloc_done:\n");
+    out.push_str("    add $40, %rsp\n");
+    out.push_str("    pop %rbx\n");
     out.push_str("    mov %rbp, %rsp\n");
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
@@ -33,10 +58,18 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if is_win {
         out.push_str("    test %rcx, %rcx\n");
         out.push_str("    jz .L_x64_free_done\n");
+        out.push_str("    push %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_mem_track_free\n");
+        out.push_str("    add $32, %rsp\n");
+        out.push_str("    pop %rcx\n");
         out.push_str("    call free\n");
     } else {
         out.push_str("    test %rdi, %rdi\n");
         out.push_str("    jz .L_x64_free_done\n");
+        out.push_str("    push %rdi\n");
+        out.push_str("    call alya_mem_track_free\n");
+        out.push_str("    pop %rdi\n");
         out.push_str(&format!("    call {}free\n", p));
     }
     out.push_str(".L_x64_free_done:\n");
@@ -265,6 +298,23 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    mov %r12, %rdx\n");
         out.push_str(&format!("    call {}memcpy\n", p));
     }
+    out.push_str("    push %rax\n");
+    if is_win {
+        out.push_str("    mov %rax, %rcx\n");
+        out.push_str("    mov %r12, %rdx\n");
+        out.push_str("    mov $4, %r8\n");
+        out.push_str("    xor %r9, %r9\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_mem_track_alloc\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str("    mov %r12, %rsi\n");
+        out.push_str("    mov $4, %rdx\n");
+        out.push_str("    xor %rcx, %rcx\n");
+        out.push_str("    call alya_mem_track_alloc\n");
+    }
+    out.push_str("    pop %rax\n");
     out.push_str("    jmp .L_x64_sclone_done\n");
     out.push_str(".L_x64_sclone_empty:\n");
     out.push_str("    lea alya_str_empty(%rip), %rax\n");
@@ -286,10 +336,18 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if is_win {
         out.push_str("    test %rcx, %rcx\n");
         out.push_str("    jz .L_x64_sfree_done\n");
+        out.push_str("    push %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_mem_track_free\n");
+        out.push_str("    add $32, %rsp\n");
+        out.push_str("    pop %rcx\n");
         out.push_str("    call free\n");
     } else {
         out.push_str("    test %rdi, %rdi\n");
         out.push_str("    jz .L_x64_sfree_done\n");
+        out.push_str("    push %rdi\n");
+        out.push_str("    call alya_mem_track_free\n");
+        out.push_str("    pop %rdi\n");
         out.push_str(&format!("    call {}free\n", p));
     }
     out.push_str(".L_x64_sfree_done:\n");
@@ -365,6 +423,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_x64_rc_rel_ok:\n");
     out.push_str("    lock decq -8(%rbx)\n");
     out.push_str("    jnz .L_x64_rc_rel_done\n");
+    if is_win {
+        out.push_str("    mov %rbx, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_mem_track_free\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %rbx, %rdi\n");
+        out.push_str("    call alya_mem_track_free\n");
+    }
     out.push_str("    cmp $0x5A110001, %r12\n");
     out.push_str("    je .L_x64_rc_free_inner\n");
     out.push_str("    cmp $0x5A110002, %r12\n");

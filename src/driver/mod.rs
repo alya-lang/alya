@@ -217,7 +217,7 @@ pub fn run(args: CliArgs) -> Result<(), String> {
 
     // 4. Code Generation
     let (code, pipeline_profile) =
-        codegen::generate_with_profile_ext(&ast, args.arch, args.os, args.no_std);
+        codegen::generate_full(&ast, args.arch, args.os, args.no_std, args.mem_trace);
     let asm_lines = code.lines().count();
 
     fs::write(&asm_file, code)

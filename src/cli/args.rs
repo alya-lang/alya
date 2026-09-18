@@ -43,6 +43,7 @@ pub struct CliArgs {
     pub run_args: Vec<String>,
     pub test_jobs: Option<usize>,
     pub no_std: bool,
+    pub mem_trace: bool,
 }
 
 impl CliArgs {
@@ -92,6 +93,7 @@ impl CliArgs {
                 run_args: Vec::new(),
                 test_jobs: None,
                 no_std: false,
+                mem_trace: false,
             }));
         }
 
@@ -228,6 +230,7 @@ impl CliArgs {
         let mut run_args = Vec::new();
         let mut test_jobs = None;
         let mut no_std = false;
+        let mut mem_trace = false;
         let mut arch = if cfg!(target_arch = "aarch64") {
             Architecture::ARM64
         } else if cfg!(target_arch = "x86") {
@@ -311,6 +314,9 @@ impl CliArgs {
                 }
                 "--no-std" => {
                     no_std = true;
+                }
+                "--mem-trace" => {
+                    mem_trace = true;
                 }
                 "--stats" | "--bench" => {
                     stats = true;
@@ -447,6 +453,7 @@ impl CliArgs {
             run_args,
             test_jobs,
             no_std,
+            mem_trace,
         }))
     }
 
@@ -482,6 +489,7 @@ impl CliArgs {
             run_args: Vec::new(),
             test_jobs: None,
             no_std: false,
+            mem_trace: false,
         }
     }
 
@@ -517,6 +525,7 @@ impl CliArgs {
             run_args: Vec::new(),
             test_jobs: None,
             no_std: false,
+            mem_trace: false,
         }
     }
 
@@ -552,6 +561,7 @@ impl CliArgs {
             run_args: Vec::new(),
             test_jobs: None,
             no_std: false,
+            mem_trace: false,
         }
     }
 

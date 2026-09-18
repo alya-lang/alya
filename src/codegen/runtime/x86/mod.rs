@@ -1,3 +1,4 @@
+pub mod alloc;
 pub mod arena;
 pub mod arrays;
 pub mod errors;
@@ -15,6 +16,7 @@ pub mod thread;
 use crate::codegen::target::OperatingSystem;
 
 pub fn emit_x86_runtime(out: &mut String, os: OperatingSystem) {
+    alloc::emit(out, os);
     str_ops::emit(out, os);
     str_split::emit(out, os);
     io::emit(out, os);

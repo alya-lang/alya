@@ -14,6 +14,7 @@ pub fn emit_header(out: &mut String) {
     out.push_str(".global main\n");
     out.push_str(".extern printf\n");
     out.push_str(".extern exit\n");
+    out.push_str(".extern atexit\n");
     out.push_str(".extern getchar\n");
     out.push_str(".extern fflush\n");
     out.push_str(".extern calloc\n");

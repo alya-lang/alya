@@ -162,6 +162,23 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    add $8, %rsp\n");
     }
     out.push_str("    addq $1576, alya_allocated_bytes(%rip)\n");
+    out.push_str("    push %rax\n");
+    if is_win {
+        out.push_str("    mov %rax, %rcx\n");
+        out.push_str("    mov $1576, %rdx\n");
+        out.push_str("    mov $2, %r8\n");
+        out.push_str("    xor %r9, %r9\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_mem_track_alloc\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str("    mov $1576, %rsi\n");
+        out.push_str("    mov $2, %rdx\n");
+        out.push_str("    xor %rcx, %rcx\n");
+        out.push_str("    call alya_mem_track_alloc\n");
+    }
+    out.push_str("    pop %rax\n");
     out.push_str("    pop %rbx\n");
     out.push_str("    mov %rbp, %rsp\n");
     out.push_str("    pop %rbp\n");
