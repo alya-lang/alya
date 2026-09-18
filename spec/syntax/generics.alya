@@ -67,7 +67,7 @@ say f"Entry pair: {entry.key} = {entry.value}"
 # 4. Bounded Generics (Interface Constraints)
 # ------------------------------------------------------------------------------
 interface Printable
-function to_string(self) -> string
+    function to_string(self) -> string
 end
 
 struct Book

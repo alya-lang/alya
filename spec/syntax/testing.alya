@@ -23,60 +23,60 @@ say f"Calculated valid discount: {discounted}"
 # 2. Native 'test' Blocks
 # ------------------------------------------------------------------------------
 test "basic arithmetic invariants hold"
-let x = 10
-let y = 20
-assert_eq(x + y, 30)
-assert_eq(y - x, 10)
+    let x = 10
+    let y = 20
+    assert_eq(x + y, 30)
+    assert_eq(y - x, 10)
 end
 
 test "string formatting and concatenation"
-let first = "Alya"
-let last = "Language"
-let full = f"{first} {last}"
+    let first = "Alya"
+    let last = "Language"
+    let full = f"{first} {last}"
 
-assert_eq(full, "Alya Language")
-assert full.length() == 13
+    assert_eq(full, "Alya Language")
+    assert full.length() == 13
 end
 
 test "map insertion and membership validation"
-let store = { "alpha": 1, "beta": 2 }
-assert_eq(store["alpha"], 1)
-assert "beta" in store
-assert "gamma" not in store
+    let store = { "alpha": 1, "beta": 2 }
+    assert_eq(store["alpha"], 1)
+    assert "beta" in store
+    assert "gamma" not in store
 end
 
 # ------------------------------------------------------------------------------
 # 3. Native 'bench' Micro-Benchmark Blocks
 # ------------------------------------------------------------------------------
 bench "integer loop accumulation"
-let sum = 0
-for i in 0..10000
-    sum += i
-end
+    let sum = 0
+    for i in 0..10000
+        sum += i
+    end
 end
 
 bench "array allocation and sequential push"
-let list: int[] = []
-for i in 0..1000
-    list.push(i)
-end
+    let list: int[] = []
+    for i in 0..1000
+        list.push(i)
+    end
 end
 
 bench "mandelbrot complex float grid iteration"
-let max_iter = 50
-let iters = 0
-let cr = -0.75
-let ci = 0.1
-let zr = 0.0
-let zi = 0.0
-while iters < max_iter
-    let zr2 = zr * zr
-    let zi2 = zi * zi
-    if zr2 + zi2 > 4.0
-        break
+    let max_iter = 50
+    let iters = 0
+    let cr = -0.75
+    let ci = 0.1
+    let zr = 0.0
+    let zi = 0.0
+    while iters < max_iter
+        let zr2 = zr * zr
+        let zi2 = zi * zi
+        if zr2 + zi2 > 4.0
+            break
+        end
+        zi = 2.0 * zr * zi + ci
+        zr = zr2 - zi2 + cr
+        iters += 1
     end
-    zi = 2.0 * zr * zi + ci
-    zr = zr2 - zi2 + cr
-    iters += 1
-end
 end

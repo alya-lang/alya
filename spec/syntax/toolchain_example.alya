@@ -25,8 +25,8 @@ main()
 # Running 'alya test' runs both native test blocks and @test functions:
 
 test "toolchain self-check validation"
-let status = true
-assert status == true, "Self-check invariant failed"
+    let status = true
+    assert status == true, "Self-check invariant failed"
 end
 
 @test

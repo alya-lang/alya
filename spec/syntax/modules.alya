@@ -67,7 +67,7 @@ pub struct ClientSession
 end
 
 pub interface SessionValidator
-function validate(session: ClientSession) -> bool
+    function validate(session: ClientSession) -> bool
 end
 
 # Public Factory Function

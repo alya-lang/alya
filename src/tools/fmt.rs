@@ -18,6 +18,9 @@ enum BlockKind {
     Brace,
     Bracket,
     Extern,
+    Interface,
+    Test,
+    Bench,
 }
 
 fn is_in_extern_block(stack: &[BlockKind]) -> bool {
@@ -25,6 +28,17 @@ fn is_in_extern_block(stack: &[BlockKind]) -> bool {
         match b {
             BlockKind::Brace | BlockKind::Bracket => continue,
             BlockKind::Extern => return true,
+            _ => return false,
+        }
+    }
+    false
+}
+
+fn is_in_interface_block(stack: &[BlockKind]) -> bool {
+    for b in stack.iter().rev() {
+        match b {
+            BlockKind::Brace | BlockKind::Bracket => continue,
+            BlockKind::Interface => return true,
             _ => return false,
         }
     }
@@ -323,7 +337,7 @@ fn ends_with_word_outside_quotes(s: &str, word: &str) -> bool {
     !in_str_scan
 }
 
-fn get_block_starter(code: &str, in_extern: bool) -> Option<BlockKind> {
+fn get_block_starter(code: &str, in_extern: bool, in_interface: bool) -> Option<BlockKind> {
     // If the line ends with 'end' outside quotes, whatever block it opened is immediately closed on the same line
     if ends_with_word_outside_quotes(code, "end") {
         return None;
@@ -340,7 +354,7 @@ fn get_block_starter(code: &str, in_extern: bool) -> Option<BlockKind> {
     if first_word == "extern" {
         return Some(BlockKind::Extern);
     }
-    if !in_extern {
+    if !in_extern && !in_interface {
         if first_word == "function"
             || first_word == "fn"
             || code_after_pub.starts_with("function(")
@@ -389,6 +403,20 @@ fn get_block_starter(code: &str, in_extern: bool) -> Option<BlockKind> {
     }
     if first_word == "enum" {
         return Some(BlockKind::Enum);
+    }
+    if first_word == "interface" {
+        return Some(BlockKind::Interface);
+    }
+    if (first_word == "test" || first_word == "bench")
+        && !code_after_pub.starts_with("test.")
+        && !code_after_pub.starts_with("bench.")
+        && !code_after_pub.contains('=')
+    {
+        if first_word == "test" {
+            return Some(BlockKind::Test);
+        } else {
+            return Some(BlockKind::Bench);
+        }
     }
     None
 }
@@ -704,7 +732,8 @@ pub fn format_source(source: &str) -> Result<String, String> {
         // Indent increase triggers (opens a new block for following lines)
         if !is_end && !is_is && !is_else && !is_elif && !is_catch && !is_finally {
             let in_extern = is_in_extern_block(&block_stack);
-            if let Some(new_block) = get_block_starter(code, in_extern) {
+            let in_interface = is_in_interface_block(&block_stack);
+            if let Some(new_block) = get_block_starter(code, in_extern, in_interface) {
                 block_stack.push(new_block);
             }
         }
@@ -1307,6 +1336,43 @@ if val is int
     say "integer"
 elif val is not string
     say "not string"
+end
+"#;
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_test_bench_and_interface_blocks() {
+        let input = r#"test "basic addition"
+let x = 10
+assert_eq(x + 5, 15)
+end
+
+bench "inner loop"
+let i = 0
+while i < 100
+i += 1
+end
+end
+
+interface Greeter
+function greet(name: string) -> string
+end
+"#;
+        let expected = r#"test "basic addition"
+    let x = 10
+    assert_eq(x + 5, 15)
+end
+
+bench "inner loop"
+    let i = 0
+    while i < 100
+        i += 1
+    end
+end
+
+interface Greeter
+    function greet(name: string) -> string
 end
 "#;
         assert_eq!(format_source(input).unwrap(), expected);

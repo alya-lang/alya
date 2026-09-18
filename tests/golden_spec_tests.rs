@@ -552,7 +552,9 @@ fn test_golden_spec_when_execution() {
         assert!(output.contains("Cartesian point: x=10, y=25"));
         assert!(output.contains("HTTP request succeeded with status 200"));
         assert!(output.contains("HTTP request failed: Service Unavailable"));
-        assert!(output.contains("Calculator evaluator: 15 + 7 = 22, 15 - 7 = 8, 15 * 7 = 105, 15 / 7 = 2, 15 % 7 = 1"));
+        assert!(output.contains(
+            "Calculator evaluator: 15 + 7 = 22, 15 - 7 = 8, 15 * 7 = 105, 15 / 7 = 2, 15 % 7 = 1"
+        ));
     }
 }
 
@@ -627,7 +629,11 @@ fn test_all_spec_syntax_compile_to_assembly() {
             alya::codegen::Architecture::X64,
             alya::codegen::OperatingSystem::Windows,
         );
-        assert!(!x64_win.is_empty(), "Empty x64 Windows assembly for '{}'", filename);
+        assert!(
+            !x64_win.is_empty(),
+            "Empty x64 Windows assembly for '{}'",
+            filename
+        );
 
         // 2. Codegen for x64 Linux
         let x64_linux = alya::codegen::generate(
@@ -635,7 +641,11 @@ fn test_all_spec_syntax_compile_to_assembly() {
             alya::codegen::Architecture::X64,
             alya::codegen::OperatingSystem::Linux,
         );
-        assert!(!x64_linux.is_empty(), "Empty x64 Linux assembly for '{}'", filename);
+        assert!(
+            !x64_linux.is_empty(),
+            "Empty x64 Linux assembly for '{}'",
+            filename
+        );
 
         // 3. Codegen for x86 Linux
         let x86_linux = alya::codegen::generate(
@@ -643,7 +653,11 @@ fn test_all_spec_syntax_compile_to_assembly() {
             alya::codegen::Architecture::X86,
             alya::codegen::OperatingSystem::Linux,
         );
-        assert!(!x86_linux.is_empty(), "Empty x86 Linux assembly for '{}'", filename);
+        assert!(
+            !x86_linux.is_empty(),
+            "Empty x86 Linux assembly for '{}'",
+            filename
+        );
 
         // 4. Codegen for ARM64 Linux
         let arm64_linux = alya::codegen::generate(
@@ -651,7 +665,11 @@ fn test_all_spec_syntax_compile_to_assembly() {
             alya::codegen::Architecture::ARM64,
             alya::codegen::OperatingSystem::Linux,
         );
-        assert!(!arm64_linux.is_empty(), "Empty arm64 Linux assembly for '{}'", filename);
+        assert!(
+            !arm64_linux.is_empty(),
+            "Empty arm64 Linux assembly for '{}'",
+            filename
+        );
 
         // 5. Codegen for macOS ARM64
         let macos_arm64 = alya::codegen::generate(
@@ -659,6 +677,10 @@ fn test_all_spec_syntax_compile_to_assembly() {
             alya::codegen::Architecture::ARM64,
             alya::codegen::OperatingSystem::MacOS,
         );
-        assert!(!macos_arm64.is_empty(), "Empty macOS ARM64 assembly for '{}'", filename);
+        assert!(
+            !macos_arm64.is_empty(),
+            "Empty macOS ARM64 assembly for '{}'",
+            filename
+        );
     }
 }

@@ -7,16 +7,16 @@
 # 1. Interface Definitions
 # ------------------------------------------------------------------------------
 interface Shape
-function area(self) -> float
+    function area(self) -> float
     function perimeter(self) -> float
-    end
+end
 
-    interface Describable
+interface Describable
     function describe(self) -> string
-    end
+end
 
-    # Composed interface
-    interface DetailedShape
+# Composed interface
+interface DetailedShape
     Shape
     Describable
 end
