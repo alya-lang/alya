@@ -12,10 +12,10 @@
 #   - Non-hanging automated smoke test mode (--test)
 #
 # Usage:
-#   alyac run apps/game_of_life/main.alya
-#   alyac run apps/game_of_life/main.alya -- --pattern glider --gens 80
-#   alyac run apps/game_of_life/main.alya -- --pattern random --gens 120
-#   alyac run apps/game_of_life/main.alya -- --test
+#   alya run apps/game_of_life/main.alya
+#   alya run apps/game_of_life/main.alya -- --pattern glider --gens 80
+#   alya run apps/game_of_life/main.alya -- --pattern random --gens 120
+#   alya run apps/game_of_life/main.alya -- --test
 # ═══════════════════════════════════════════════════════════════
 
 import "term" as ui

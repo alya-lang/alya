@@ -19,8 +19,8 @@
 #     7 | 8 | 9
 #
 # Usage:
-#   alyac run
-#   alyac run -- --test
+#   alya run
+#   alya run -- --test
 # ═══════════════════════════════════════════════════════════════
 
 import "term" as ui

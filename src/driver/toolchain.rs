@@ -120,7 +120,7 @@ pub fn detect_local_toolchain(os: OperatingSystem) -> Option<ToolchainInfo> {
         OperatingSystem::Linux => &["gcc", "clang"],
     };
 
-    // 1. Check portable sibling directory (e.g. <dir>/alyac.exe and <dir>/toolchain/bin/gcc.exe)
+    // 1. Check portable sibling directory (e.g. <dir>/alya.exe / <dir>/alya.exe and <dir>/toolchain/bin/gcc.exe)
     if let Ok(current_exe) = env::current_exe() {
         if let Some(parent) = current_exe.parent() {
             let sibling_bin = parent.join("toolchain").join("bin");
@@ -215,7 +215,7 @@ pub fn resolve_toolchain(
                     "\nError: C/Assembly build tools (GCC or Clang) not detected in PATH.\n\
                      Alya requires an assembler and linker to produce executables.\n\n\
                      Suggested installation:\n  {}\n\n\
-                     Alternatively, run 'alyac toolchain install' to install a portable standalone toolchain.\n",
+                     Alternatively, run 'alya toolchain install' to install a portable standalone toolchain.\n",
                     hint
                 ))
             }
@@ -443,7 +443,7 @@ pub fn install_toolchain(
     Ok(toolchain)
 }
 
-/// CLI command handler for `alyac toolchain [status|install|clean|help]`
+/// CLI command handler for `alya toolchain [status|install|clean|help]`
 pub fn run_toolchain_cmd(
     cmd: &ToolchainCommand,
     arch: Architecture,
@@ -484,7 +484,7 @@ pub fn run_toolchain_cmd(
                 }
                 Err(_) => {
                     println!("\nActive Toolchain: None (Builds will fail without GCC/Clang)");
-                    println!("Run 'alyac toolchain install' to install minimal toolchain.");
+                    println!("Run 'alya toolchain install' to install minimal toolchain.");
                 }
             }
         }
@@ -509,7 +509,7 @@ pub fn run_toolchain_cmd(
         }
         ToolchainCommand::Help => {
             println!("Alya Toolchain Manager");
-            println!("Usage: alyac toolchain <command>\n");
+            println!("Usage: alya toolchain <command>\n");
             println!("Commands:");
             println!("  status     Show active compiler, version, and location");
             println!("  install    Pre-emptively download and configure portable toolchain");

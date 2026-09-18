@@ -13,9 +13,9 @@
 #   - Modern struct methods, destructuring, and pattern matching
 #
 # Usage:
-#   alyac run apps/http_bench/main.alya
-#   alyac run apps/http_bench/main.alya -- -u http://127.0.0.1:8080/json -n 1000 -c 4
-#   alyac run apps/http_bench/main.alya -- -u http://127.0.0.1:8080/json -n 5000 -c 8 -k
+#   alya run apps/http_bench/main.alya
+#   alya run apps/http_bench/main.alya -- -u http://127.0.0.1:8080/json -n 1000 -c 4
+#   alya run apps/http_bench/main.alya -- -u http://127.0.0.1:8080/json -n 5000 -c 8 -k
 # ═══════════════════════════════════════════════════════════════
 
 import "url" as u
@@ -305,7 +305,7 @@ function main()
         say ""
         say color_red("✗ Error:") + " Could not connect to target server at " + style_bold(cfg.url)
         say color_yellow("  Hint:") + " Make sure the HTTP server is running first in another terminal:"
-        say "        " + style_bold(color_cyan("alyac run apps/http_server/main.alya --port 8080"))
+        say "        " + style_bold(color_cyan("alya run apps/http_server/main.alya --port 8080"))
         say ""
         return
     end

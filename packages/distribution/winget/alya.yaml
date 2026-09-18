@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
-PackageIdentifier: Alya.alyac
+PackageIdentifier: Alya.alya
 PackageVersion: 0.0.18
 PackageLocale: en-US
 PackageName: Alya Programming Language Compiler
@@ -15,7 +15,7 @@ Description: |
   Alya compiles directly to native assembly and coordinates with minimal toolchains.
   With the zero-setup toolchain resolver, you can compile and run Alya programs
   instantly on Windows with zero manual GCC configuration.
-Moniker: alyac
+Moniker: alya
 Tags:
   - alya
   - compiler
@@ -26,11 +26,11 @@ PackageUrl: https://github.com/alya-lang/alya
 Installers:
   - Architecture: x64
     InstallerType: zip
-    InstallerUrl: https://github.com/alya-lang/alya/releases/download/v0.0.18/alyac-v0.0.18-x86_64-windows.zip
+    InstallerUrl: https://github.com/alya-lang/alya/releases/download/v0.0.18/alya-v0.0.18-x86_64-windows.zip
     InstallerSha256: 8ba3ad83c00de8bba78d4482fd93bbf2b809371a1c7f8cd9ec8322cf748a13cf
     NestedInstallerType: portable
     NestedInstallerFiles:
-      - RelativeFilePath: alyac-v0.0.18-x86_64-windows/alyac.exe
-        PortableCommandAlias: alyac
+      - RelativeFilePath: alya-v0.0.18-x86_64-windows/alya.exe
+        PortableCommandAlias: alya
 ManifestType: singleton
 ManifestVersion: 1.6.0

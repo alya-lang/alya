@@ -15,9 +15,9 @@
 #   - Configurable port and worker threads via CLI arguments
 #
 # Usage:
-#   alyac run
-#   alyac run -- --port 8080 --workers 4
-#   alyac run -- --test
+#   alya run
+#   alya run -- --port 8080 --workers 4
+#   alya run -- --test
 # ═══════════════════════════════════════════════════════════════
 
 import "mime" as m

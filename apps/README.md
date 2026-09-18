@@ -32,19 +32,19 @@ A cellular automaton simulating Conway's 4 rules on a wrap-around toroidal 2D bo
 * **Run**:
   ```bash
   # Run as a package from its directory
-  cd apps/game_of_life && alyac run
+  cd apps/game_of_life && alya run
 
   # Or run directly via file path
-  alyac run apps/game_of_life/main.alya
+  alya run apps/game_of_life/main.alya
 
   # Glider preset for 80 generations
-  alyac run apps/game_of_life/main.alya -- --pattern glider --gens 80
+  alya run apps/game_of_life/main.alya -- --pattern glider --gens 80
 
   # Random soup preset for 120 generations
-  alyac run apps/game_of_life/main.alya -- --pattern random --gens 120
+  alya run apps/game_of_life/main.alya -- --pattern random --gens 120
 
   # Automated smoke test (non-interactive)
-  alyac run apps/game_of_life/main.alya -- --test
+  alya run apps/game_of_life/main.alya -- --test
   ```
 
 ---
@@ -57,16 +57,16 @@ A high-throughput HTTP benchmarking utility inspired by `wrk` and `autocannon`.
 * **Run**:
   ```bash
   # Run as a package
-  cd apps/http_bench && alyac run
+  cd apps/http_bench && alya run
 
   # Benchmark target with 1,000 requests over 4 concurrent connections
-  alyac run apps/http_bench/main.alya -- -u http://127.0.0.1:8080/ -n 1000 -c 4
+  alya run apps/http_bench/main.alya -- -u http://127.0.0.1:8080/ -n 1000 -c 4
 
   # Keep-Alive benchmark with 5,000 requests over 8 workers
-  alyac run apps/http_bench/main.alya -- -u http://127.0.0.1:8080/api/status -n 5000 -c 8 -k
+  alya run apps/http_bench/main.alya -- -u http://127.0.0.1:8080/api/status -n 5000 -c 8 -k
 
   # Automated smoke test
-  alyac run apps/http_bench/main.alya -- --test
+  alya run apps/http_bench/main.alya -- --test
   ```
 
 ---
@@ -79,13 +79,13 @@ A full-featured native HTTP/1.1 web server built with raw POSIX/Winsock sockets 
 * **Run**:
   ```bash
   # Run as a package on default port (8080)
-  cd apps/http_server && alyac run
+  cd apps/http_server && alya run
 
   # Custom port and worker threads
-  alyac run apps/http_server/main.alya -- --port 3000 --workers 4
+  alya run apps/http_server/main.alya -- --port 3000 --workers 4
 
   # Automated test mode
-  alyac run apps/http_server/main.alya -- --test
+  alya run apps/http_server/main.alya -- --test
   ```
 
 ---
@@ -98,13 +98,13 @@ A rapid network reconnaissance tool that probes target hosts and services.
 * **Run**:
   ```bash
   # Run as a package
-  cd apps/port_scanner && alyac run
+  cd apps/port_scanner && alya run
 
   # Scan localhost
-  alyac run apps/port_scanner/main.alya -- -t 127.0.0.1
+  alya run apps/port_scanner/main.alya -- -t 127.0.0.1
 
   # Automated simulation / smoke test
-  alyac run apps/port_scanner/main.alya -- --test
+  alya run apps/port_scanner/main.alya -- --test
   ```
 
 ---
@@ -121,13 +121,13 @@ A classic Snake game rendered directly inside the terminal with clean box format
 * **Run**:
   ```bash
   # Interactive mode
-  cd apps/snake && alyac run
+  cd apps/snake && alya run
 
   # Autonomous AI autopilot demonstration
-  alyac run apps/snake/main.alya -- --demo
+  alya run apps/snake/main.alya -- --demo
 
   # Automated test mode
-  alyac run apps/snake/main.alya -- --test
+  alya run apps/snake/main.alya -- --test
   ```
 
 ---
@@ -148,42 +148,42 @@ An interactive, ANSI-colored board game supporting two-player local matches and 
 * **Run**:
   ```bash
   # Launch interactive game
-  cd apps/tictactoe && alyac run
+  cd apps/tictactoe && alya run
 
   # Automated smoke test
-  alyac run apps/tictactoe/main.alya -- --test
+  alya run apps/tictactoe/main.alya -- --test
   ```
 
 ---
 
 ### 7. Terminal Todo Manager (`todo`)
-A persistent terminal task manager and productivity tracker built using the **Alya Package Manager (`alyac pkg`)**.
+A persistent terminal task manager and productivity tracker built using the **Alya Package Manager (`alya pkg`)**.
 
 * **Ecosystem Packages**: `term` (tables, status badges, progress bars), `crypto` (task hashing), `rand` (task identifiers).
 * **Key Features**: Auto-increment IDs, priority classification (🔴 HIGH, 🟡 MED, 🟢 LOW), category tags (`#core`, `#docs`, `#apps`), disk persistence, real-time completion progress bar, and dual CLI / interactive REPL modes.
 * **Run**:
   ```bash
   # Run as a package (automatically resolves alya.toml and dependencies)
-  cd apps/todo && alyac run
+  cd apps/todo && alya run
 
   # Inspect package dependencies and lockfile
-  cd apps/todo && alyac pkg list
+  cd apps/todo && alya pkg list
 
   # Add new tasks
-  alyac run apps/todo/main.alya -- add "Build C FFI engine" --pri high --tag core
-  alyac run apps/todo/main.alya -- add "Write LSP docs" --pri med --tag docs
+  alya run apps/todo/main.alya -- add "Build C FFI engine" --pri high --tag core
+  alya run apps/todo/main.alya -- add "Write LSP docs" --pri med --tag docs
 
   # List tasks and view progress
-  alyac run apps/todo/main.alya -- list
+  alya run apps/todo/main.alya -- list
 
   # Mark task completed
-  alyac run apps/todo/main.alya -- done 1
+  alya run apps/todo/main.alya -- done 1
 
   # View productivity metrics
-  alyac run apps/todo/main.alya -- stats
+  alya run apps/todo/main.alya -- stats
 
   # Automated test suite
-  alyac run apps/todo/main.alya -- --test
+  alya run apps/todo/main.alya -- --test
   ```
 
 ---
@@ -195,13 +195,13 @@ All applications can be managed using standard Alya package commands:
 ```bash
 # Install / restore all locked packages
 cd apps/http_bench
-alyac install
+alya install
 
 # List dependencies and versions
-alyac pkg list
+alya pkg list
 
 # Run package entry point
-alyac run
+alya run
 ```
 
 ---
@@ -212,10 +212,10 @@ To produce a single, self-contained native executable that runs without the comp
 
 ```bash
 # On Linux / macOS
-alyac build apps/http_bench/main.alya -o http_bench
+alya build apps/http_bench/main.alya -o http_bench
 
 # On Windows (produces http_bench.exe)
-alyac build apps/http_bench/main.alya -o http_bench.exe
+alya build apps/http_bench/main.alya -o http_bench.exe
 ```
 
 ### Packaging as a macOS Application Bundle (`.app`)
@@ -224,10 +224,10 @@ Alya features built-in macOS Application Bundling via the `--bundle` (or `--app`
 
 ```bash
 # Basic bundle creation (produces Snake.app with default Alya App icon)
-alyac build apps/snake/main.alya --bundle -o Snake.app
+alya build apps/snake/main.alya --bundle -o Snake.app
 
 # Full bundle with custom Bundle ID and custom icon
-alyac build apps/game_of_life/main.alya \
+alya build apps/game_of_life/main.alya \
   --bundle \
   -o GameOfLife.app \
   --bundle-id com.company.gameoflife \
@@ -245,7 +245,7 @@ GameOfLife.app/
         └── AppIcon.icns            # Multi-resolution Apple ICNS (16px to 512px Retina)
 ```
 
-> 💡 **Default Icon**: When `--icon` is omitted, `alyac` automatically embeds the official **Alya Application Icon** (`assets/brand/icons/alya-app-dark.icns`) with zero external file dependencies.
+> 💡 **Default Icon**: When `--icon` is omitted, `alya` automatically embeds the official **Alya Application Icon** (`assets/brand/icons/alya-app-dark.icns`) with zero external file dependencies.
 
 ---
 
@@ -254,11 +254,11 @@ GameOfLife.app/
 All 7 applications include an automated `--test` flag suitable for CI/CD test runners and verification without hanging on interactive inputs:
 
 ```bash
-alyac run apps/game_of_life/main.alya -- --test
-alyac run apps/http_bench/main.alya -- --test
-alyac run apps/http_server/main.alya -- --test
-alyac run apps/port_scanner/main.alya -- --test
-alyac run apps/snake/main.alya -- --test
-alyac run apps/tictactoe/main.alya -- --test
-alyac run apps/todo/main.alya -- --test
+alya run apps/game_of_life/main.alya -- --test
+alya run apps/http_bench/main.alya -- --test
+alya run apps/http_server/main.alya -- --test
+alya run apps/port_scanner/main.alya -- --test
+alya run apps/snake/main.alya -- --test
+alya run apps/tictactoe/main.alya -- --test
+alya run apps/todo/main.alya -- --test
 ```

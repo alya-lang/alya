@@ -571,7 +571,7 @@ say product    # 60
 | `std/os` | Operating system interop | `os_name`, `arch_name`, `env`, `env_or`, `os_exit`, `exec` |
 | `std/mem` | Low-level & arena allocator | `arena_new`, `arena_alloc_mem`, `arena_clear`, `alloc_mem`, `free_mem`, `peek_byte`, `poke_byte` |
 
-> 📦 **Looking for `uuid`, `csv`, `url`, `http`, `crypto`, `term`, or `logger`?** These rich domain libraries are maintained as official standalone packages (`alyac add uuid`, `alyac add csv`, `alyac add url`, `alyac add http`, `alyac add crypto`, `alyac add term`, `alyac add logger`).
+> 📦 **Looking for `uuid`, `csv`, `url`, `http`, `crypto`, `term`, or `logger`?** These rich domain libraries are maintained as official standalone packages (`alya add uuid`, `alya add csv`, `alya add url`, `alya add http`, `alya add crypto`, `alya add term`, `alya add logger`).
 
 ---
 
@@ -686,7 +686,7 @@ end
 
 Run with arguments:
 ```bash
-alyac run script.alya -- hello world 42
+alya run script.alya -- hello world 42
 ```
 
 ---
@@ -820,18 +820,18 @@ bench_summary(runner)
 
 ### 20. Developer CLI & Tooling (`fmt`, `test`)
 
-The `alyac` compiler includes developer utilities directly out of the box:
+The `alya` compiler includes developer utilities directly out of the box:
 
 ```bash
 # In-place code formatting
-alyac fmt main.alya
+alya fmt main.alya
 
 # Format entire codebase
-alyac fmt .
+alya fmt .
 
 # CI dry-run verification
-alyac fmt . --check
+alya fmt . --check
 
 # Test suite discovery and execution
-alyac test
+alya test
 ```

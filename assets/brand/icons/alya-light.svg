@@ -191,7 +191,7 @@
     </g>
   </g>
 
-  <!-- CLI COMMAND PILL (>_ ALYAC) -->
+  <!-- CLI COMMAND PILL (>_ alya) -->
   <g transform="translate(256, 412)">
     <!-- Pill Container -->
     <rect x="-100" y="-19" width="200" height="38" rx="19"
@@ -205,7 +205,7 @@
     <!-- Cursor '_' -->
     <rect x="-56" y="5.5" width="8" height="2.8" rx="0.8" fill="#9333ea" />
 
-    <!-- Pure Vector Letterforms for ALYAC (High Contrast Dark Slate) -->
+    <!-- Pure Vector Letterforms for alya (High Contrast Dark Slate) -->
     <g fill="#0f172a">
       <!-- A -->
       <path d="M -36 9 L -27.5 -9 L -19 9 L -23.5 9 L -25 5.2 L -30 5.2 L -31.5 9 Z M -27.5 -4.5 L -29 2 L -26 2 Z" />

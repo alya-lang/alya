@@ -837,7 +837,7 @@ pub fn run_list() -> Result<(), String> {
             );
         } else {
             println!(
-                "  • {:<16} {:<35} [not locked - run 'alyac install']",
+                "  • {:<16} {:<35} [not locked - run 'alya install']",
                 name, dep_desc
             );
         }
@@ -1145,7 +1145,7 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
                 "\n{} package(s) can be upgraded or refreshed.",
                 upgradable_count
             );
-            println!("Run 'alyac update -u' (or 'alyac update --upgrade') to upgrade alya.toml and re-lock.");
+            println!("Run 'alya update -u' (or 'alya update --upgrade') to upgrade alya.toml and re-lock.");
         } else {
             println!("\nAll dependencies are up to date!");
         }

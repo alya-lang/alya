@@ -173,10 +173,10 @@ def main():
 
     # 7. Checksums from dist/
     dist_dir = Path("dist")
-    linux_pkg = f"alyac-{tag}-x86_64-linux.tar.gz"
-    mac_arm_pkg = f"alyac-{tag}-arm64-macos.tar.gz"
-    mac_x64_pkg = f"alyac-{tag}-x86_64-macos.tar.gz"
-    win_pkg = f"alyac-{tag}-x86_64-windows.zip"
+    linux_pkg = f"alya-{tag}-x86_64-linux.tar.gz"
+    mac_arm_pkg = f"alya-{tag}-arm64-macos.tar.gz"
+    mac_x64_pkg = f"alya-{tag}-x86_64-macos.tar.gz"
+    win_pkg = f"alya-{tag}-x86_64-windows.zip"
 
     linux_sha = get_checksum(dist_dir, linux_pkg)
     mac_arm_sha = get_checksum(dist_dir, mac_arm_pkg)

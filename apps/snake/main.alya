@@ -18,9 +18,9 @@
 #   Q: Quit game
 #
 # Usage:
-#   alyac run apps/snake/main.alya
-#   alyac run apps/snake/main.alya -- --demo
-#   alyac run apps/snake/main.alya -- --test
+#   alya run apps/snake/main.alya
+#   alya run apps/snake/main.alya -- --demo
+#   alya run apps/snake/main.alya -- --test
 # ═══════════════════════════════════════════════════════════════
 
 import "term" as ui

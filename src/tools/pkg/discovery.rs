@@ -179,7 +179,7 @@ pub fn resolve_package_import(
 
         if !pkg_dir.exists() {
             return Err(format!(
-                "Package '{}' is declared in alya.toml but not installed at '{}'. Run 'alyac install' to resolve dependencies.",
+                "Package '{}' is declared in alya.toml but not installed at '{}'. Run 'alya install' to resolve dependencies.",
                 pkg_name,
                 pkg_dir.display()
             ));

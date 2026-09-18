@@ -14,7 +14,7 @@ Architecture ◄── Standard Library ◄── Error Handling ◄── Data 
 
 | Chapter | Topic | Highlights | Complexity |
 |:---|:---|:---|:---:|
-| **[1. Getting Started](getting-started.md)** | Toolchain & Workflow | Installing `alyac`, compiling binaries, running scripts, CLI tools (`fmt`, `test`, `--time`, `--arch`) | 🟢 Beginner |
+| **[1. Getting Started](getting-started.md)** | Toolchain & Workflow | Installing `alya`, compiling binaries, running scripts, CLI tools (`fmt`, `test`, `--time`, `--arch`) | 🟢 Beginner |
 | **[2. Language Basics](basics.md)** | Syntax & Fundamentals | Variables (`let`), `null`, bitwise operators, ternary `? :`, null coalescing `??`, strings (`"""..."""`, \`...\`), `say`, `ask` | 🟢 Beginner |
 | **[3. Control Flow](control-flow.md)** | Decision & Iteration | `if`/`elif`/`else`, inline `if` & ternary, `while`, `for .. in`, `repeat`, `break`/`continue`, `when` | 🟢 Beginner |
 | **[4. Functions & Modules](functions-and-modules.md)** | Code Organization | Defining functions, default parameters, recursion, file imports (`import`), cycle prevention | 🟡 Intermediate |

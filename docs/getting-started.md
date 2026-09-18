@@ -6,13 +6,13 @@
 
 ## 1. Overview
 
-The `alyac` compiler is a standalone binary written in Rust that compiles Alya source files (`.alya`) directly into native assembly language (GNU as or Apple Mach-O) and coordinates with system toolchains (`gcc`, `clang`, or `x86_64-w64-mingw32-gcc`) to link standalone executables.
+The `alya` compiler is a standalone binary written in Rust that compiles Alya source files (`.alya`) directly into native assembly language (GNU as or Apple Mach-O) and coordinates with system toolchains (`gcc`, `clang`, or `x86_64-w64-mingw32-gcc`) to link standalone executables.
 
 ---
 
 ## 2. Prerequisites
 
-To use `alyac` to build standalone native executables, you need a C linker/assembler installed:
+To use `alya` to build standalone native executables, you need a C linker/assembler installed:
 
 * **Linux**: `gcc` (`sudo apt install build-essential`)
 * **macOS**: Apple Command Line Tools (`xcode-select --install`)
@@ -23,7 +23,7 @@ To use `alyac` to build standalone native executables, you need a C linker/assem
 ## 3. Installation
 
 ### Option A: Pre-built Binaries (Recommended)
-Download ready-to-run releases for your platform from the [Alya Releases](https://github.com/alya-lang/alya/releases) page. Extract the archive and place `alyac` (or `alyac.exe`) into your system `PATH`.
+Download ready-to-run releases for your platform from the [Alya Releases](https://github.com/alya-lang/alya/releases) page. Extract the archive and place `alya` (or `alya.exe`) into your system `PATH`.
 
 ### Option B: Building from Source
 Ensure [Rust 1.75+](https://rustup.rs/) is installed on your machine:
@@ -37,7 +37,7 @@ cd Alya
 cargo build --release
 
 # The compiled binary will be located at:
-# ./target/release/alyac (or alyac.exe on Windows)
+# ./target/release/alya (or alya.exe on Windows)
 
 # Optionally install into ~/.cargo/bin:
 cargo install --path .
@@ -47,10 +47,10 @@ cargo install --path .
 
 ## 4. CLI Command Reference
 
-`alyac` provides a clean and modern CLI interface:
+`alya` provides a clean and modern CLI interface:
 
 ```text
-Usage: alyac [command] [options] <file.alya>
+Usage: alya [command] [options] <file.alya>
 
 Commands:
   run <file>               Compile and immediately execute the program
@@ -88,7 +88,7 @@ say "Hello, World!"
 
 Run it immediately with:
 ```bash
-alyac run hello.alya
+alya run hello.alya
 ```
 **Output:**
 ```text
@@ -98,11 +98,11 @@ Hello, World!
 ---
 
 ### Level 2: Practical & Idiomatic (Compiling Standalone Binaries)
-Compile your code directly to an optimized native binary without needing `alyac` to run it:
+Compile your code directly to an optimized native binary without needing `alya` to run it:
 
 ```bash
 # Compile to a native binary
-alyac build hello.alya -o hello_app
+alya build hello.alya -o hello_app
 
 # Run the standalone binary directly
 ./hello_app
@@ -110,7 +110,7 @@ alyac build hello.alya -o hello_app
 
 On Windows:
 ```powershell
-alyac build hello.alya -o hello_app.exe
+alya build hello.alya -o hello_app.exe
 .\hello_app.exe
 ```
 
@@ -122,7 +122,7 @@ Inspect the generated assembly, measure compiler stage timings, or target anothe
 
 ```bash
 # Measure microsecond breakdown across lexer, parser, codegen, and linker
-alyac run hello.alya --time
+alya run hello.alya --time
 ```
 **Output:**
 ```text
@@ -139,31 +139,31 @@ alyac run hello.alya --time
 Generate assembly for a different CPU architecture (e.g. Apple Silicon ARM64 from an x64 machine):
 ```bash
 # Emit clean ARM64 assembly with comments
-alyac hello.alya --arch arm64 -o hello_arm64.s
+alya hello.alya --arch arm64 -o hello_arm64.s
 ```
 
 Inspect the compiler's Abstract Syntax Tree (AST):
 ```bash
-alyac ast hello.alya
+alya ast hello.alya
 ```
 
 ---
 
 ### Level 4: Developer Tooling (Formatter & Test Runner)
 
-`alyac` comes with built-in code formatting and automated test discovery tools:
+`alya` comes with built-in code formatting and automated test discovery tools:
 
 ```bash
 # 1. Format a single file in-place
-alyac fmt main.alya
+alya fmt main.alya
 
 # 2. Format an entire directory / project
-alyac fmt .
+alya fmt .
 
 # 3. Check formatting without modifying files (useful in CI)
-alyac fmt . --check
+alya fmt . --check
 
 # 4. Discover and execute test suites across the project
-alyac test
+alya test
 ```
 

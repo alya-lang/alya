@@ -43,7 +43,7 @@ def main():
     print(f"Updating distribution manifests for {tag} ({version}) with sha256: {sha256}")
 
     # 1. Chocolatey nuspec
-    nuspec = dist_dir / "chocolatey" / "alyac.nuspec"
+    nuspec = dist_dir / "chocolatey" / "alya.nuspec"
     update_file(nuspec, r"<version>.*?</version>", f"<version>{version}</version>")
     update_file(
         nuspec,
@@ -55,8 +55,8 @@ def main():
     verif = dist_dir / "chocolatey" / "tools" / "VERIFICATION.txt"
     update_file(
         verif,
-        r"releases/download/v[^/]+/alyac-v[^/]+-x86_64-windows\.zip",
-        f"releases/download/{tag}/alyac-{tag}-x86_64-windows.zip",
+        r"releases/download/v[^/]+/alya-v[^/]+-x86_64-windows\.zip",
+        f"releases/download/{tag}/alya-{tag}-x86_64-windows.zip",
     )
     update_file(
         verif,
@@ -72,51 +72,51 @@ def main():
 
     # 4. Chocolatey README.md
     choco_readme = dist_dir / "chocolatey" / "README.md"
-    update_file(choco_readme, r"choco push alyac\.[^.]+\.[^.]+\.[^.]+\.nupkg", f"choco push alyac.{version}.nupkg")
+    update_file(choco_readme, r"choco push alya\.[^.]+\.[^.]+\.[^.]+\.nupkg", f"choco push alya.{version}.nupkg")
 
-    # 5. Scoop alyac.json (parsed via json to preserve autoupdate block)
-    scoop_file = dist_dir / "scoop" / "alyac.json"
+    # 5. Scoop alya.json (parsed via json to preserve autoupdate block)
+    scoop_file = dist_dir / "scoop" / "alya.json"
     if scoop_file.is_file():
         import json
         scoop_data = json.loads(scoop_file.read_text(encoding="utf-8"))
         scoop_data["version"] = version
         if "architecture" in scoop_data and "64bit" in scoop_data["architecture"]:
-            scoop_data["architecture"]["64bit"]["url"] = f"https://github.com/alya-lang/alya/releases/download/{tag}/alyac-{tag}-x86_64-windows.zip"
+            scoop_data["architecture"]["64bit"]["url"] = f"https://github.com/alya-lang/alya/releases/download/{tag}/alya-{tag}-x86_64-windows.zip"
             scoop_data["architecture"]["64bit"]["hash"] = sha256
-            scoop_data["architecture"]["64bit"]["extract_dir"] = f"alyac-{tag}-x86_64-windows"
+            scoop_data["architecture"]["64bit"]["extract_dir"] = f"alya-{tag}-x86_64-windows"
         new_json = json.dumps(scoop_data, indent=2) + "\n"
         if new_json != scoop_file.read_text(encoding="utf-8"):
             scoop_file.write_text(new_json, encoding="utf-8")
-            print("[updated] alyac.json")
+            print("[updated] alya.json")
         else:
-            print("[unchanged] alyac.json")
+            print("[unchanged] alya.json")
 
-    # 6. WinGet alyac.yaml
-    winget = dist_dir / "winget" / "alyac.yaml"
+    # 6. WinGet alya.yaml
+    winget = dist_dir / "winget" / "alya.yaml"
     update_file(winget, r"PackageVersion:\s*\S+", f"PackageVersion: {version}")
     update_file(
         winget,
-        r"InstallerUrl:\s*https://github\.com/alya-lang/alya/releases/download/[^/]+/alyac-[^/]+-x86_64-windows\.zip",
-        f"InstallerUrl: https://github.com/alya-lang/alya/releases/download/{tag}/alyac-{tag}-x86_64-windows.zip",
+        r"InstallerUrl:\s*https://github\.com/alya-lang/alya/releases/download/[^/]+/alya-[^/]+-x86_64-windows\.zip",
+        f"InstallerUrl: https://github.com/alya-lang/alya/releases/download/{tag}/alya-{tag}-x86_64-windows.zip",
     )
     update_file(winget, r"InstallerSha256:\s*\S+", f"InstallerSha256: {sha256}")
     update_file(
         winget,
-        r"RelativeFilePath:\s*alyac-[^/]+/alyac\.exe",
-        f"RelativeFilePath: alyac-{tag}-x86_64-windows/alyac.exe",
+        r"RelativeFilePath:\s*alya-[^/]+/alya\.exe",
+        f"RelativeFilePath: alya-{tag}-x86_64-windows/alya.exe",
     )
 
     # 7. WinGet README.md
     winget_readme = dist_dir / "winget" / "README.md"
     update_file(
         winget_readme,
-        r"releases/download/[^/]+/alyac-[^/]+-x86_64-windows\.zip",
-        f"releases/download/{tag}/alyac-{tag}-x86_64-windows.zip",
+        r"releases/download/[^/]+/alya-[^/]+-x86_64-windows\.zip",
+        f"releases/download/{tag}/alya-{tag}-x86_64-windows.zip",
     )
     update_file(
         winget_readme,
-        r"manifests/a/Alya/alyac/[^/]+/Alya\.alyac\.yaml",
-        f"manifests/a/Alya/alyac/{version}/Alya.alyac.yaml",
+        r"manifests/a/Alya/alya/[^/]+/Alya\.alya\.yaml",
+        f"manifests/a/Alya/alya/{version}/Alya.alya.yaml",
     )
 
 

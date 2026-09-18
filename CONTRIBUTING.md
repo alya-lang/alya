@@ -68,7 +68,7 @@ The compiler codebase in `src/` is organized into modular subsystems:
   - `stmt.rs`: Code generation for control flow and exception handling.
   - `say.rs`: Printing and string formatting assembly generators.
 - [`src/diagnostics/`](src/diagnostics/): Friendly and pretty-printed error messages with source code snippets.
-- [`src/cli/`](src/cli/): Command-line argument parsing and flag handling (`alyac run`, `build`, `check`, etc.).
+- [`src/cli/`](src/cli/): Command-line argument parsing and flag handling (`alya run`, `build`, `check`, etc.).
 - [`src/driver/`](src/driver/): Compilation orchestrator and GCC linker invocation.
 
 ---

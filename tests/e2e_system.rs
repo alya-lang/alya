@@ -635,8 +635,8 @@ say with_extension("path/to/file.txt", "md")
 say with_extension("file.txt", "")
 
 # 6. Joining & Normalization
-say path_join("usr/local", "bin/alyac")
-say path_join("usr/local/", "/bin/alyac")
+say path_join("usr/local", "bin/alya")
+say path_join("usr/local/", "/bin/alya")
 say path_join3("usr", "local", "bin")
 let parts = ["a", "b", "c", "d"]
 say path_join_all(parts)
@@ -681,8 +681,8 @@ say normalize_slashes("foo\\bar\\baz")
                 "path/to/file.md\n",
                 "path/to/file.md\n",
                 "file\n",
-                "usr/local/bin/alyac\n",
-                "usr/local/bin/alyac\n",
+                "usr/local/bin/alya\n",
+                "usr/local/bin/alya\n",
                 "usr/local/bin\n",
                 "a/b/c/d\n",
                 "foo/bar/baz\n",

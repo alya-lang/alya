@@ -77,7 +77,7 @@ pub fn compile_with_gcc(
             }
         }
         Err(e) => Err(format!(
-            "Error: Failed to execute compiler '{}': {}\nMake sure the toolchain is installed properly (run 'alyac toolchain status').",
+            "Error: Failed to execute compiler '{}': {}\nMake sure the toolchain is installed properly (run 'alya toolchain status').",
             toolchain.compiler_path.display(),
             e
         )),

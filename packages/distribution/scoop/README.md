@@ -1,4 +1,4 @@
-# Scoop Manifest for Alya Compiler (`alyac`)
+# Scoop Manifest for Alya Compiler (`alya`)
 
 Official Scoop manifest definition for installing the Alya programming language compiler.
 
@@ -6,16 +6,16 @@ Official Scoop manifest definition for installing the Alya programming language 
 
 ### Option 1: Install directly from manifest URL or file
 ```powershell
-scoop install https://raw.githubusercontent.com/alya-lang/alya/main/packages/distribution/scoop/alyac.json
+scoop install https://raw.githubusercontent.com/alya-lang/alya/main/packages/distribution/scoop/alya.json
 ```
 
 ### Option 2: Install from local repository
 ```powershell
-scoop install ./alyac.json
+scoop install ./alya.json
 ```
 
 ## Verify Installation
 ```powershell
-alyac --version
-alyac toolchain status
+alya --version
+alya toolchain status
 ```

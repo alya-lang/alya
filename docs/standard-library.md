@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-Alya comes with a comprehensive, built-in standard library bundled directly into the compiler (`stdlib/`). You can import any module using `import "std/<module>"`. If standard library files are not present on disk, the `alyac` compiler automatically extracts them from its embedded binary fallback table.
+Alya comes with a comprehensive, built-in standard library bundled directly into the compiler (`stdlib/`). You can import any module using `import "std/<module>"`. If standard library files are not present on disk, the `alya` compiler automatically extracts them from its embedded binary fallback table.
 
 ---
 
@@ -217,15 +217,15 @@ Lightweight pseudo-random number generator for scripting, ranges, floats, and pr
 
 ### 📦 Standalone Ecosystem Packages: `csv`, `url`, `http`, `crypto`, `uuid`, `term`, `logger`
 
-Specialized domain libraries are maintained as official standalone packages rather than bundled compiler bloat. Install them into your project with `alyac add`:
+Specialized domain libraries are maintained as official standalone packages rather than bundled compiler bloat. Install them into your project with `alya add`:
 
-* **`uuid`**: RFC 4122 UUID v4, RFC 9562 UUID v7, ULID, and NanoID generator (`alyac add uuid`). See [alya-lang/uuid](https://github.com/alya-lang/uuid).
-* **`csv`**: RFC 4180 compliant CSV & TSV parser, serializer, and file I/O (`alyac add csv`). See [alya-lang/csv](https://github.com/alya-lang/csv).
-* **`url`**: WHATWG and RFC 3986 compliant URL and `UrlSearchParams` parser and builder (`alyac add url`). See [alya-lang/url](https://github.com/alya-lang/url).
-* **`http`**: HTTP Client & Server framework with middleware and routing (`alyac add http`). See [alya-lang/http](https://github.com/alya-lang/http).
-* **`crypto`**: AES, ChaCha20, SHA, HMAC, PBKDF2, Base64/Base64URL, and Constant-Time Equality (`alyac add crypto`). See [alya-lang/crypto](https://github.com/alya-lang/crypto).
-* **`term`**: Rich TUI toolkit with boxes, tables, charts, trees, and progress bars (`alyac add term`). See [alya-lang/term](https://github.com/alya-lang/term).
-* **`logger`**: Structured multi-target logging with file rotation, JSON formatting, and async sinks (`alyac add logger`). See [alya-lang/logger](https://github.com/alya-lang/logger).
+* **`uuid`**: RFC 4122 UUID v4, RFC 9562 UUID v7, ULID, and NanoID generator (`alya add uuid`). See [alya-lang/uuid](https://github.com/alya-lang/uuid).
+* **`csv`**: RFC 4180 compliant CSV & TSV parser, serializer, and file I/O (`alya add csv`). See [alya-lang/csv](https://github.com/alya-lang/csv).
+* **`url`**: WHATWG and RFC 3986 compliant URL and `UrlSearchParams` parser and builder (`alya add url`). See [alya-lang/url](https://github.com/alya-lang/url).
+* **`http`**: HTTP Client & Server framework with middleware and routing (`alya add http`). See [alya-lang/http](https://github.com/alya-lang/http).
+* **`crypto`**: AES, ChaCha20, SHA, HMAC, PBKDF2, Base64/Base64URL, and Constant-Time Equality (`alya add crypto`). See [alya-lang/crypto](https://github.com/alya-lang/crypto).
+* **`term`**: Rich TUI toolkit with boxes, tables, charts, trees, and progress bars (`alya add term`). See [alya-lang/term](https://github.com/alya-lang/term).
+* **`logger`**: Structured multi-target logging with file rotation, JSON formatting, and async sinks (`alya add logger`). See [alya-lang/logger](https://github.com/alya-lang/logger).
 
 ---
 

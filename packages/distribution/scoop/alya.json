@@ -5,12 +5,12 @@
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/alya-lang/alya/releases/download/v0.0.18/alyac-v0.0.18-x86_64-windows.zip",
+      "url": "https://github.com/alya-lang/alya/releases/download/v0.0.18/alya-v0.0.18-x86_64-windows.zip",
       "hash": "8ba3ad83c00de8bba78d4482fd93bbf2b809371a1c7f8cd9ec8322cf748a13cf",
-      "extract_dir": "alyac-v0.0.18-x86_64-windows"
+      "extract_dir": "alya-v0.0.18-x86_64-windows"
     }
   },
-  "bin": "alyac.exe",
+  "bin": "alya.exe",
   "suggest": {
     "MinGW-w64": "main/mingw"
   },
@@ -20,8 +20,8 @@
   "autoupdate": {
     "architecture": {
       "64bit": {
-        "url": "https://github.com/alya-lang/alya/releases/download/v$version/alyac-v$version-x86_64-windows.zip",
-        "extract_dir": "alyac-v$version-x86_64-windows"
+        "url": "https://github.com/alya-lang/alya/releases/download/v$version/alya-v$version-x86_64-windows.zip",
+        "extract_dir": "alya-v$version-x86_64-windows"
       }
     }
   }

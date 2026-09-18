@@ -591,7 +591,7 @@ fn test_resolve_uninstalled_package_error() {
     let res = resolve_imports(&mut ast, &app_dir);
     assert!(res.is_err());
     let err_msg = res.unwrap_err();
-    assert!(err_msg.contains("Run 'alyac install' to resolve dependencies."));
+    assert!(err_msg.contains("Run 'alya install' to resolve dependencies."));
 
     let _ = std::fs::remove_dir_all(&base_temp);
 }

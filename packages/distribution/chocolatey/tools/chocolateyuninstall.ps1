@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-$packageName = 'alyac'
+$packageName = 'alya'
 $toolsDir    = "$(Split-Path -parent $MyInvocation.MyCommand.Definition)"
 
 # Remove extracted executable and artifacts while preserving installer scripts

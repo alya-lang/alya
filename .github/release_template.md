@@ -8,18 +8,18 @@ Alya is an expressive, compiled, multi-paradigm systems programming language des
 
 | Platform | Architecture | Package | Checksum |
 |:---|:---|:---|:---:|
-| <img src="https://svgl.app/library/linux.svg" width="16" height="16" valign="middle" alt="Linux" />&nbsp;**Linux** | `x86_64` | [alyac-{{VERSION}}-x86_64-linux.tar.gz](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alyac-{{VERSION}}-x86_64-linux.tar.gz) | [`{{LINUX_SHA_SHORT}}`](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alyac-{{VERSION}}-x86_64-linux.tar.gz.sha256) |
-| <picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/apple_dark.svg"><source media="(prefers-color-scheme: light)" srcset="https://svgl.app/library/apple.svg"><img src="https://svgl.app/library/apple.svg" width="16" height="16" valign="middle" alt="macOS" /></picture>&nbsp;**macOS** | `arm64` (Apple Silicon) | [alyac-{{VERSION}}-arm64-macos.tar.gz](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alyac-{{VERSION}}-arm64-macos.tar.gz) | [`{{MAC_ARM_SHA_SHORT}}`](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alyac-{{VERSION}}-arm64-macos.tar.gz.sha256) |
-| <picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/apple_dark.svg"><source media="(prefers-color-scheme: light)" srcset="https://svgl.app/library/apple.svg"><img src="https://svgl.app/library/apple.svg" width="16" height="16" valign="middle" alt="macOS" /></picture>&nbsp;**macOS** | `x86_64` (Intel) | [alyac-{{VERSION}}-x86_64-macos.tar.gz](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alyac-{{VERSION}}-x86_64-macos.tar.gz) | [`{{MAC_X64_SHA_SHORT}}`](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alyac-{{VERSION}}-x86_64-macos.tar.gz.sha256) |
-| <img src="https://svgl.app/library/windows.svg" width="16" height="16" valign="middle" alt="Windows" />&nbsp;**Windows** | `x86_64` | [alyac-{{VERSION}}-x86_64-windows.zip](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alyac-{{VERSION}}-x86_64-windows.zip) | [`{{WIN_SHA_SHORT}}`](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alyac-{{VERSION}}-x86_64-windows.zip.sha256) |
+| <img src="https://svgl.app/library/linux.svg" width="16" height="16" valign="middle" alt="Linux" />&nbsp;**Linux** | `x86_64` | [alya-{{VERSION}}-x86_64-linux.tar.gz](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-x86_64-linux.tar.gz) | [`{{LINUX_SHA_SHORT}}`](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-x86_64-linux.tar.gz.sha256) |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/apple_dark.svg"><source media="(prefers-color-scheme: light)" srcset="https://svgl.app/library/apple.svg"><img src="https://svgl.app/library/apple.svg" width="16" height="16" valign="middle" alt="macOS" /></picture>&nbsp;**macOS** | `arm64` (Apple Silicon) | [alya-{{VERSION}}-arm64-macos.tar.gz](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-arm64-macos.tar.gz) | [`{{MAC_ARM_SHA_SHORT}}`](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-arm64-macos.tar.gz.sha256) |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/apple_dark.svg"><source media="(prefers-color-scheme: light)" srcset="https://svgl.app/library/apple.svg"><img src="https://svgl.app/library/apple.svg" width="16" height="16" valign="middle" alt="macOS" /></picture>&nbsp;**macOS** | `x86_64` (Intel) | [alya-{{VERSION}}-x86_64-macos.tar.gz](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-x86_64-macos.tar.gz) | [`{{MAC_X64_SHA_SHORT}}`](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-x86_64-macos.tar.gz.sha256) |
+| <img src="https://svgl.app/library/windows.svg" width="16" height="16" valign="middle" alt="Windows" />&nbsp;**Windows** | `x86_64` | [alya-{{VERSION}}-x86_64-windows.zip](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-x86_64-windows.zip) | [`{{WIN_SHA_SHORT}}`](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-x86_64-windows.zip.sha256) |
 
 ### 🔒 SHA-256 Checksums
 
 ```text
-{{LINUX_SHA}}  alyac-{{VERSION}}-x86_64-linux.tar.gz
-{{MAC_ARM_SHA}}  alyac-{{VERSION}}-arm64-macos.tar.gz
-{{MAC_X64_SHA}}  alyac-{{VERSION}}-x86_64-macos.tar.gz
-{{WIN_SHA}}  alyac-{{VERSION}}-x86_64-windows.zip
+{{LINUX_SHA}}  alya-{{VERSION}}-x86_64-linux.tar.gz
+{{MAC_ARM_SHA}}  alya-{{VERSION}}-arm64-macos.tar.gz
+{{MAC_X64_SHA}}  alya-{{VERSION}}-x86_64-macos.tar.gz
+{{WIN_SHA}}  alya-{{VERSION}}-x86_64-windows.zip
 ```
 
 ---
@@ -29,30 +29,30 @@ Alya is an expressive, compiled, multi-paradigm systems programming language des
 ### Linux / macOS
 ```bash
 # 1. Extract the archive
-tar -xzf alyac-{{VERSION}}-<platform>.tar.gz
-cd alyac-{{VERSION}}-<platform>
+tar -xzf alya-{{VERSION}}-<platform>.tar.gz
+cd alya-{{VERSION}}-<platform>
 
 # 2. Check compiler version
-./alyac --version
+./alya --version
 
 # 3. Run an Alya program directly
-./alyac run main.alya
+./alya run main.alya
 
 # 4. Or compile to a native binary
-./alyac build main.alya
+./alya build main.alya
 ```
 
 ### Windows (PowerShell)
 ```powershell
 # 1. Extract the archive
-Expand-Archive alyac-{{VERSION}}-x86_64-windows.zip
-cd alyac-{{VERSION}}-x86_64-windows
+Expand-Archive alya-{{VERSION}}-x86_64-windows.zip
+cd alya-{{VERSION}}-x86_64-windows
 
 # 2. Check compiler version
-.\alyac.exe --version
+.\alya.exe --version
 
 # 3. Run an Alya program directly
-.\alyac.exe run main.alya
+.\alya.exe run main.alya
 ```
 
 ---
@@ -61,10 +61,10 @@ cd alyac-{{VERSION}}-x86_64-windows
 
 ```bash
 # Linux / macOS
-shasum -a 256 -c alyac-{{VERSION}}-<platform>.tar.gz.sha256
+shasum -a 256 -c alya-{{VERSION}}-<platform>.tar.gz.sha256
 
 # Windows (PowerShell)
-(Get-FileHash alyac-{{VERSION}}-x86_64-windows.zip -Algorithm SHA256).Hash.ToLower()
+(Get-FileHash alya-{{VERSION}}-x86_64-windows.zip -Algorithm SHA256).Hash.ToLower()
 ```
 
 ---

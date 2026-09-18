@@ -7,7 +7,7 @@ fn to_args(slice: &[&str]) -> Vec<String> {
 
 #[test]
 fn test_subcommand_run() {
-    let args = to_args(&["alyac", "run", "hello.alya"]);
+    let args = to_args(&["alya", "run", "hello.alya"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(parsed.command, CommandKind::Run);
     assert_eq!(parsed.input_file, "hello.alya");
@@ -16,7 +16,7 @@ fn test_subcommand_run() {
 
 #[test]
 fn test_subcommand_build() {
-    let args = to_args(&["alyac", "build", "main.alya", "-o", "main.exe"]);
+    let args = to_args(&["alya", "build", "main.alya", "-o", "main.exe"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(parsed.command, CommandKind::Build);
     assert_eq!(parsed.input_file, "main.alya");
@@ -26,7 +26,7 @@ fn test_subcommand_build() {
 
 #[test]
 fn test_subcommand_check() {
-    let args = to_args(&["alyac", "check", "code.alya"]);
+    let args = to_args(&["alya", "check", "code.alya"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(parsed.command, CommandKind::Check);
     assert_eq!(parsed.input_file, "code.alya");
@@ -34,7 +34,7 @@ fn test_subcommand_check() {
 
 #[test]
 fn test_flag_run_and_quiet() {
-    let args = to_args(&["alyac", "test.alya", "-r", "-q"]);
+    let args = to_args(&["alya", "test.alya", "-r", "-q"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(parsed.command, CommandKind::Run);
     assert!(parsed.output_binary);
@@ -43,7 +43,7 @@ fn test_flag_run_and_quiet() {
 
 #[test]
 fn test_target_arch_and_os() {
-    let args = to_args(&["alyac", "test.alya", "--arch", "arm64", "--os", "linux"]);
+    let args = to_args(&["alya", "test.alya", "--arch", "arm64", "--os", "linux"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(parsed.arch, Architecture::ARM64);
     assert_eq!(parsed.os, OperatingSystem::Linux);
@@ -51,28 +51,28 @@ fn test_target_arch_and_os() {
 
 #[test]
 fn test_help_and_version() {
-    let args = to_args(&["alyac"]);
+    let args = to_args(&["alya"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(parsed.command, CommandKind::Repl);
 
     assert_eq!(
-        CliArgs::parse_from(&to_args(&["alyac", "--help"])),
+        CliArgs::parse_from(&to_args(&["alya", "--help"])),
         Ok(None)
     );
-    assert_eq!(CliArgs::parse_from(&to_args(&["alyac", "help"])), Ok(None));
+    assert_eq!(CliArgs::parse_from(&to_args(&["alya", "help"])), Ok(None));
     assert_eq!(
-        CliArgs::parse_from(&to_args(&["alyac", "--version"])),
+        CliArgs::parse_from(&to_args(&["alya", "--version"])),
         Ok(None)
     );
     assert_eq!(
-        CliArgs::parse_from(&to_args(&["alyac", "version"])),
+        CliArgs::parse_from(&to_args(&["alya", "version"])),
         Ok(None)
     );
 }
 
 #[test]
 fn test_subcommand_repl() {
-    let args = to_args(&["alyac", "repl"]);
+    let args = to_args(&["alya", "repl"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(parsed.command, CommandKind::Repl);
 }
@@ -80,7 +80,7 @@ fn test_subcommand_repl() {
 #[test]
 fn test_run_with_double_dash_args() {
     let args = to_args(&[
-        "alyac",
+        "alya",
         "run",
         "spec/syntax/variables.alya",
         "--",
@@ -97,7 +97,7 @@ fn test_run_with_double_dash_args() {
 #[test]
 fn test_run_with_trailing_args_without_dash() {
     let args = to_args(&[
-        "alyac",
+        "alya",
         "run",
         "spec/syntax/variables.alya",
         "foo",
@@ -112,17 +112,17 @@ fn test_run_with_trailing_args_without_dash() {
 
 #[test]
 fn test_time_and_stats_flags() {
-    let args = to_args(&["alyac", "build", "main.alya", "--time"]);
+    let args = to_args(&["alya", "build", "main.alya", "--time"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert!(parsed.time);
     assert!(!parsed.stats);
 
-    let args_stats = to_args(&["alyac", "main.alya", "--stats"]);
+    let args_stats = to_args(&["alya", "main.alya", "--stats"]);
     let parsed_stats = CliArgs::parse_from(&args_stats).unwrap().unwrap();
     assert!(parsed_stats.time);
     assert!(parsed_stats.stats);
 
-    let args_bench = to_args(&["alyac", "main.alya", "--bench"]);
+    let args_bench = to_args(&["alya", "main.alya", "--bench"]);
     let parsed_bench = CliArgs::parse_from(&args_bench).unwrap().unwrap();
     assert!(parsed_bench.time);
     assert!(parsed_bench.stats);
@@ -131,7 +131,7 @@ fn test_time_and_stats_flags() {
 #[test]
 fn test_run_with_program_flags_without_double_dash() {
     let args = to_args(&[
-        "alyac",
+        "alya",
         "run",
         "apps/http_server/main.alya",
         "--port",
@@ -145,20 +145,20 @@ fn test_run_with_program_flags_without_double_dash() {
 
 #[test]
 fn test_bundle_flags() {
-    let args = to_args(&["alyac", "build", "game.alya", "--bundle"]);
+    let args = to_args(&["alya", "build", "game.alya", "--bundle"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert!(parsed.bundle);
     assert!(parsed.output_binary);
     assert_eq!(parsed.os, OperatingSystem::MacOS);
 
-    let args_arm = to_args(&["alyac", "build", "game.alya", "--bundle", "--arch", "arm64"]);
+    let args_arm = to_args(&["alya", "build", "game.alya", "--bundle", "--arch", "arm64"]);
     let parsed_arm = CliArgs::parse_from(&args_arm).unwrap().unwrap();
     assert!(parsed_arm.bundle);
     assert_eq!(parsed_arm.os, OperatingSystem::MacOS);
     assert_eq!(parsed_arm.arch, Architecture::ARM64);
 
     let args_custom = to_args(&[
-        "alyac",
+        "alya",
         "build",
         "game.alya",
         "--app",
@@ -179,7 +179,7 @@ fn test_bundle_flags() {
 
 #[test]
 fn test_pkg_init_cli() {
-    let args = to_args(&["alyac", "init", "my_pkg", "--lib"]);
+    let args = to_args(&["alya", "init", "my_pkg", "--lib"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     match parsed.command {
         CommandKind::Pkg(crate::tools::pkg::PkgCommand::Init { path, name, is_lib }) => {
@@ -193,7 +193,7 @@ fn test_pkg_init_cli() {
 
 #[test]
 fn test_pkg_add_cli() {
-    let args = to_args(&["alyac", "add", "raylib", "--path", "../raylib"]);
+    let args = to_args(&["alya", "add", "raylib", "--path", "../raylib"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     match parsed.command {
         CommandKind::Pkg(crate::tools::pkg::PkgCommand::Add {
@@ -214,7 +214,7 @@ fn test_pkg_add_cli() {
 
 #[test]
 fn test_pkg_add_version_at_syntax() {
-    let args = to_args(&["alyac", "add", "http@0.1.0"]);
+    let args = to_args(&["alya", "add", "http@0.1.0"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     match parsed.command {
         CommandKind::Pkg(crate::tools::pkg::PkgCommand::Add {
@@ -230,7 +230,7 @@ fn test_pkg_add_version_at_syntax() {
 
 #[test]
 fn test_pkg_add_shorthand_syntax() {
-    let args = to_args(&["alyac", "add", "alya-lang/crypto@v0.1.0"]);
+    let args = to_args(&["alya", "add", "alya-lang/crypto@v0.1.0"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     match parsed.command {
         CommandKind::Pkg(crate::tools::pkg::PkgCommand::Add {
@@ -246,7 +246,7 @@ fn test_pkg_add_shorthand_syntax() {
 
 #[test]
 fn test_pkg_install_cli() {
-    let args = to_args(&["alyac", "install"]);
+    let args = to_args(&["alya", "install"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(
         parsed.command,
@@ -256,35 +256,35 @@ fn test_pkg_install_cli() {
 
 #[test]
 fn test_pkg_subcommands() {
-    let args = to_args(&["alyac", "pkg", "list"]);
+    let args = to_args(&["alya", "pkg", "list"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(
         parsed.command,
         CommandKind::Pkg(crate::tools::pkg::PkgCommand::List)
     );
 
-    let args2 = to_args(&["alyac", "pkg", "update"]);
+    let args2 = to_args(&["alya", "pkg", "update"]);
     let parsed2 = CliArgs::parse_from(&args2).unwrap().unwrap();
     assert_eq!(
         parsed2.command,
         CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update { upgrade: false })
     );
 
-    let args_u = to_args(&["alyac", "update", "-u"]);
+    let args_u = to_args(&["alya", "update", "-u"]);
     let parsed_u = CliArgs::parse_from(&args_u).unwrap().unwrap();
     assert_eq!(
         parsed_u.command,
         CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update { upgrade: true })
     );
 
-    let args_outdated = to_args(&["alyac", "pkg", "outdated"]);
+    let args_outdated = to_args(&["alya", "pkg", "outdated"]);
     let parsed_outdated = CliArgs::parse_from(&args_outdated).unwrap().unwrap();
     assert_eq!(
         parsed_outdated.command,
         CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update { upgrade: false })
     );
 
-    let args3 = to_args(&["alyac", "pkg", "cache"]);
+    let args3 = to_args(&["alya", "pkg", "cache"]);
     let parsed3 = CliArgs::parse_from(&args3).unwrap().unwrap();
     assert_eq!(
         parsed3.command,
@@ -294,7 +294,7 @@ fn test_pkg_subcommands() {
         })
     );
 
-    let args4 = to_args(&["alyac", "pkg", "cache", "clean", "--all"]);
+    let args4 = to_args(&["alya", "pkg", "cache", "clean", "--all"]);
     let parsed4 = CliArgs::parse_from(&args4).unwrap().unwrap();
     assert_eq!(
         parsed4.command,
@@ -304,14 +304,14 @@ fn test_pkg_subcommands() {
         })
     );
 
-    let args5 = to_args(&["alyac", "pkg", "clean"]);
+    let args5 = to_args(&["alya", "pkg", "clean"]);
     let parsed5 = CliArgs::parse_from(&args5).unwrap().unwrap();
     assert_eq!(
         parsed5.command,
         CommandKind::Pkg(crate::tools::pkg::PkgCommand::Clean { all: false })
     );
 
-    let args6 = to_args(&["alyac", "cache"]);
+    let args6 = to_args(&["alya", "cache"]);
     let parsed6 = CliArgs::parse_from(&args6).unwrap().unwrap();
     assert_eq!(
         parsed6.command,
@@ -324,17 +324,17 @@ fn test_pkg_subcommands() {
 
 #[test]
 fn test_subcommand_test_with_jobs_and_sequential() {
-    let args1 = to_args(&["alyac", "test", "--sequential"]);
+    let args1 = to_args(&["alya", "test", "--sequential"]);
     let parsed1 = CliArgs::parse_from(&args1).unwrap().unwrap();
     assert_eq!(parsed1.command, CommandKind::Test);
     assert_eq!(parsed1.test_jobs, Some(1));
 
-    let args2 = to_args(&["alyac", "test", "-j", "4"]);
+    let args2 = to_args(&["alya", "test", "-j", "4"]);
     let parsed2 = CliArgs::parse_from(&args2).unwrap().unwrap();
     assert_eq!(parsed2.command, CommandKind::Test);
     assert_eq!(parsed2.test_jobs, Some(4));
 
-    let args3 = to_args(&["alyac", "test", "--jobs", "8"]);
+    let args3 = to_args(&["alya", "test", "--jobs", "8"]);
     let parsed3 = CliArgs::parse_from(&args3).unwrap().unwrap();
     assert_eq!(parsed3.command, CommandKind::Test);
     assert_eq!(parsed3.test_jobs, Some(8));

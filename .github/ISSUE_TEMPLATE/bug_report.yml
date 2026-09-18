@@ -12,7 +12,7 @@ body:
     id: version
     attributes:
       label: Alya Compiler Version
-      description: What version of Alya are you using? (run `alyac --version`)
+      description: What version of Alya are you using? (run `alya --version`)
       placeholder: "e.g. 0.0.1"
     validations:
       required: true
@@ -68,7 +68,7 @@ body:
     attributes:
       label: Command Executed
       description: What exact command did you run?
-      placeholder: "alyac run program.alya"
+      placeholder: "alya run program.alya"
     validations:
       required: true
 

@@ -3,7 +3,7 @@ Verification is intended to assist the Chocolatey moderators and community
 in verifying that this package's contents are trustworthy.
 
 1. The package archive is downloaded directly from the official Alya GitHub release:
-   https://github.com/alya-lang/alya/releases/download/v0.0.18/alyac-v0.0.18-x86_64-windows.zip
+   https://github.com/alya-lang/alya/releases/download/v0.0.18/alya-v0.0.18-x86_64-windows.zip
 
 2. Checksum (SHA-256):
    8ba3ad83c00de8bba78d4482fd93bbf2b809371a1c7f8cd9ec8322cf748a13cf upon GitHub Release asset generation)

@@ -13,9 +13,9 @@
 #   - Non-hanging --test / --simulate mode for automated test suites
 #
 # Usage:
-#   alyac run apps/port_scanner/main.alya
-#   alyac run apps/port_scanner/main.alya -- -t 127.0.0.1
-#   alyac run apps/port_scanner/main.alya -- --test
+#   alya run apps/port_scanner/main.alya
+#   alya run apps/port_scanner/main.alya -- -t 127.0.0.1
+#   alya run apps/port_scanner/main.alya -- --test
 # ═══════════════════════════════════════════════════════════════
 
 import "term" as ui

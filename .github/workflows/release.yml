@@ -30,22 +30,22 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             platform: x86_64-linux
-            bin: alyac
+            bin: alya
             archive: tar.gz
           - os: macos-latest
             target: x86_64-apple-darwin
             platform: x86_64-macos
-            bin: alyac
+            bin: alya
             archive: tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
             platform: arm64-macos
-            bin: alyac
+            bin: alya
             archive: tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             platform: x86_64-windows
-            bin: alyac.exe
+            bin: alya.exe
             archive: zip
 
     steps:
@@ -65,7 +65,7 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}"
-          PACKAGE_NAME="alyac-${VERSION}-${{ matrix.platform }}"
+          PACKAGE_NAME="alya-${VERSION}-${{ matrix.platform }}"
           mkdir "${PACKAGE_NAME}"
           cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "${PACKAGE_NAME}/"
           cp README.md LICENSE "${PACKAGE_NAME}/"
@@ -79,7 +79,7 @@ jobs:
           $Version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "${{ inputs.tag }}" }
           
           # 1. Standard lightweight package
-          $PackageName = "alyac-$Version-${{ matrix.platform }}"
+          $PackageName = "alya-$Version-${{ matrix.platform }}"
           New-Item -ItemType Directory -Force -Path $PackageName | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.bin }}" -Destination $PackageName
           Copy-Item README.md, LICENSE -Destination $PackageName
@@ -88,7 +88,7 @@ jobs:
           "$hash  $PackageName.zip" | Out-File -FilePath "$PackageName.zip.sha256" -Encoding ascii
 
           # 2. Standalone offline package (with pre-bundled toolchain)
-          $StandaloneName = "alyac-$Version-${{ matrix.platform }}-standalone"
+          $StandaloneName = "alya-$Version-${{ matrix.platform }}-standalone"
           New-Item -ItemType Directory -Force -Path $StandaloneName | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.bin }}" -Destination $StandaloneName
           Copy-Item README.md, LICENSE -Destination $StandaloneName
@@ -120,7 +120,7 @@ jobs:
         with:
           name: release-${{ matrix.platform }}
           path: |
-            alyac-*-${{ matrix.platform }}.*
+            alya-*-${{ matrix.platform }}.*
           if-no-files-found: error
 
   publish:
@@ -166,7 +166,7 @@ jobs:
       - name: Update Distribution Manifests and Push Checksums
         run: |
           TAG="${{ steps.notes.outputs.tag }}"
-          WIN_SHA=$(cut -d' ' -f1 < dist/alyac-${TAG}-x86_64-windows.zip.sha256)
+          WIN_SHA=$(cut -d' ' -f1 < dist/alya-${TAG}-x86_64-windows.zip.sha256)
           echo "Updating distribution manifests for $TAG with Windows ZIP SHA-256: $WIN_SHA"
 
           git config user.name "github-actions[bot]"

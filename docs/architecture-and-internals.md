@@ -6,7 +6,7 @@
 
 ## 1. Compiler Pipeline
 
-The `alyac` compiler is written entirely in Rust and designed for high throughput and zero external compiler dependencies. Unlike compilers requiring LLVM or large runtime libraries, Alya uses a clean single-pass pipeline emitting native assembly directly:
+The `alya` compiler is written entirely in Rust and designed for high throughput and zero external compiler dependencies. Unlike compilers requiring LLVM or large runtime libraries, Alya uses a clean single-pass pipeline emitting native assembly directly:
 
 ```text
 Source Code (.alya)
@@ -83,7 +83,7 @@ The compiler runs an interprocedural fixed-point analysis over the AST (up to 6 
 ---
 
 ### F. ARM64 Immediate Range Splitting (`movz` / `movk`)
-Standard ARM64 instructions limit immediate operands to 16-bit values with shifts. When emitting immediate values that exceed standard ranges (e.g. large integer constants or buffer capacities), `alyac` automatically decomposes the constant into a `movz` (move with zero) instruction followed by `movk` (move with keep) instructions.
+Standard ARM64 instructions limit immediate operands to 16-bit values with shifts. When emitting immediate values that exceed standard ranges (e.g. large integer constants or buffer capacities), `alya` automatically decomposes the constant into a `movz` (move with zero) instruction followed by `movk` (move with keep) instructions.
 
 ---
 

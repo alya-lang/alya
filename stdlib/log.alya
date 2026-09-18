@@ -3,7 +3,7 @@
 #
 # NOTE: For advanced features such as structured JSON logging, size-based
 # file rotation, and multi-appender pipelines, use the official package:
-#   alya-lang/logger (alyac add logger)
+#   alya-lang/logger (alya add logger)
 
 import "std/color"
 

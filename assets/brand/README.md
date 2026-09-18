@@ -2,7 +2,7 @@
 
 Official visual identity assets, file system icons, and emblems for the **Alya** programming language.
 
-These assets are engineered for editor icon themes (VS Code, JetBrains), operating system file associations (Windows Explorer, macOS Finder), application binaries (`alyac`), documentation, and websites.
+These assets are engineered for editor icon themes (VS Code, JetBrains), operating system file associations (Windows Explorer, macOS Finder), application binaries (`alya`), documentation, and websites.
 
 ---
 
@@ -19,14 +19,14 @@ assets/brand/
 │   ├── alya-file-light.png       # 424×512 transparent PNG (Light theme)
 │   ├── alya-file-light.ico       # Multi-resolution Windows ICO (Light theme)
 │   ├── alya-file-light.icns      # Multi-resolution Apple ICNS (Light theme)
-│   ├── alyac-dark.svg            # Compiler application icon (Dark theme)
-│   ├── alyac-dark.png            # 512×512 transparent PNG (Dark theme)
-│   ├── alyac-dark.ico            # Multi-resolution Windows ICO for alyac.exe (Dark theme)
-│   ├── alyac-dark.icns           # Multi-resolution Apple ICNS for alyac macOS CLI/tool (Dark theme)
-│   ├── alyac-light.svg           # Compiler application icon (Light theme)
-│   ├── alyac-light.png           # 512×512 transparent PNG (Light theme)
-│   ├── alyac-light.ico           # Multi-resolution Windows ICO for alyac.exe (Light theme)
-│   ├── alyac-light.icns          # Multi-resolution Apple ICNS for alyac macOS CLI/tool (Light theme)
+│   ├── alya-dark.svg            # Compiler application icon (Dark theme)
+│   ├── alya-dark.png            # 512×512 transparent PNG (Dark theme)
+│   ├── alya-dark.ico            # Multi-resolution Windows ICO for alya.exe (Dark theme)
+│   ├── alya-dark.icns           # Multi-resolution Apple ICNS for alya macOS CLI/tool (Dark theme)
+│   ├── alya-light.svg           # Compiler application icon (Light theme)
+│   ├── alya-light.png           # 512×512 transparent PNG (Light theme)
+│   ├── alya-light.ico           # Multi-resolution Windows ICO for alya.exe (Light theme)
+│   ├── alya-light.icns          # Multi-resolution Apple ICNS for alya macOS CLI/tool (Light theme)
 │   ├── alya-app-dark.svg         # Application package icon (Dark theme)
 │   ├── alya-app-dark.png         # 512×512 transparent PNG (Dark theme)
 │   ├── alya-app-dark.ico         # Multi-resolution Windows ICO for bundled applications (Dark theme)
@@ -59,18 +59,18 @@ assets/brand/
 - **Badge**: Bottom `.ALYA` pill with a pulse status indicator and 100% vector-drawn letterforms (zero external font dependencies).
 - **Native Dimensions**: **`424 × 512 px`** (Height: 512px, Width: 424px, tightly bounded with no empty side gaps).
 
-### 2. Compiler & CLI Application Icons (`icons/alyac-*`)
+### 2. Compiler & CLI Application Icons (`icons/alya-*`)
 - **Silhouette**: Modern squircle terminal container with macOS/Linux traffic light window controls, frosted shell tab, active compiler status LED, and high-tech circuit bus traces.
 - **Centerpiece**: Precision 3D Alya Delta Prism with luminous speed chevron.
-- **Badge**: Bottom interactive CLI command pill `>_ ALYAC` with a terminal prompt chevron, glowing cursor, and 100% vector-drawn letterforms.
-- **Native Dimensions**: **`512 × 512 px`** (Square 1:1, perfectly engineered for embedding directly into `alyac.exe` binaries via Windows Resource tools or system application launchers).
+- **Badge**: Bottom interactive CLI command pill `>_ alya` with a terminal prompt chevron, glowing cursor, and 100% vector-drawn letterforms.
+- **Native Dimensions**: **`512 × 512 px`** (Square 1:1, perfectly engineered for embedding directly into `alya.exe` binaries via Windows Resource tools or system application launchers).
 
 ### 3. Application Package Icons (`icons/alya-app-*`)
 - **Silhouette**: Universal desktop squircle app container with glassmorphism elevation shadow, frosted viewport header bar, app identity jewel (`◆`), and runtime execution status LED.
 - **Stage Layout**: Precision application blueprint alignment crosshairs and concentric geometry calibration rings (`0.04` opacity).
 - **Centerpiece**: Full-glory 3D Alya Delta Prism with supersonic speed chevron and glowing core spark.
 - **Badge**: Bottom native application pill `▦ ALYA APP` with a 4-tile UI architecture matrix glyph in alternating amethyst violet and azure cyan.
-- **Native Dimensions**: **`512 × 512 px`** (Square 1:1, default embedded icon for macOS `.app` bundles via `alyac build --bundle` and desktop application packages).
+- **Native Dimensions**: **`512 × 512 px`** (Square 1:1, default embedded icon for macOS `.app` bundles via `alya build --bundle` and desktop application packages).
 
 ### 4. Standalone Emblems (`logos/`)
 - **Motif**: 3D chiseled Delta Prism forming the letter **A**, featuring:
@@ -214,9 +214,9 @@ In `icon-theme.json`:
 }
 ```
 
-### 2. Windows Executable Icon (`alyac.exe`)
+### 2. Windows Executable Icon (`alya.exe`)
 
-When compiling `alyac` with Rust, embed `alya-icon-dark.ico` as the binary application icon in `build.rs` using `winres`:
+When compiling `alya` with Rust, embed `alya-icon-dark.ico` as the binary application icon in `build.rs` using `winres`:
 
 ```rust
 // Cargo.toml: [build-dependencies] winres = "0.1"
