@@ -128,10 +128,26 @@ fn process_directory(
     // Generate index.html and index.md
     if gen_markdown {
         let mut index_md = String::new();
-        index_md.push_str("# API Documentation Index\n\n");
+        index_md.push_str("# Alya Standard Library Documentation\n\n");
+        index_md.push_str("Official API reference index across all standard library modules.\n\n");
+        index_md.push_str("| Module | Description | API Link |\n");
+        index_md.push_str("| :--- | :--- | :--- |\n");
         for m in &modules {
             let target_file_name = m.name.replace('/', "_");
-            index_md.push_str(&format!("- [{}]({}.md)\n", m.name, target_file_name));
+            let desc = if !m.description.is_empty() {
+                m.description
+                    .lines()
+                    .filter(|l| !l.trim().is_empty() && !l.trim().starts_with('#'))
+                    .next()
+                    .unwrap_or(&m.description)
+                    .to_string()
+            } else {
+                "-".to_string()
+            };
+            index_md.push_str(&format!(
+                "| `std/{}` | {} | [{}.md]({}.md) |\n",
+                m.name, desc, m.name, target_file_name
+            ));
         }
         let index_file = out_dir.join("index.md");
         let _ = fs::write(&index_file, index_md);
@@ -139,24 +155,7 @@ fn process_directory(
     }
 
     if gen_html {
-        let mut index_html = String::new();
-        index_html.push_str("<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>Alya Documentation Index</title>");
-        index_html.push_str(r#"<style>
-body { font-family: -apple-system, sans-serif; background: #0f172a; color: #f8fafc; padding: 40px; max-width: 800px; margin: 0 auto; }
-h1 { color: #38bdf8; margin-bottom: 24px; }
-ul { list-style: none; padding: 0; }
-li { margin: 12px 0; }
-a { color: #38bdf8; text-decoration: none; font-size: 1.1rem; }
-a:hover { text-decoration: underline; }
-</style></head><body><h1>Alya Documentation Index</h1><ul>"#);
-        for m in &modules {
-            let target_file_name = m.name.replace('/', "_");
-            index_html.push_str(&format!(
-                "<li><a href=\"{}.html\">{}</a></li>",
-                target_file_name, m.name
-            ));
-        }
-        index_html.push_str("</ul></body></html>");
+        let index_html = crate::tools::doc::html::generate_index_html(&modules);
         let index_file = out_dir.join("index.html");
         let _ = fs::write(&index_file, index_html);
         println!("  ✓ Generated HTML Index: {}", index_file.display());
