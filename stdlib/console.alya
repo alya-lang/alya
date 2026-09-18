@@ -270,4 +270,3 @@ pub function blue(text: string) -> string return console_blue(text) end
 pub function console__blue(text: string) -> string return console_blue(text) end
 pub function bold(text: string) -> string return console_bold(text) end
 pub function console__bold(text: string) -> string return console_bold(text) end
-

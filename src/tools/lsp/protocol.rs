@@ -15,7 +15,10 @@ impl Position {
     pub fn to_json(&self) -> JsonValue {
         let mut map = BTreeMap::new();
         map.insert("line".to_string(), JsonValue::Number(self.line as f64));
-        map.insert("character".to_string(), JsonValue::Number(self.character as f64));
+        map.insert(
+            "character".to_string(),
+            JsonValue::Number(self.character as f64),
+        );
         JsonValue::Object(map)
     }
 
@@ -73,8 +76,14 @@ impl Diagnostic {
     pub fn to_json(&self) -> JsonValue {
         let mut map = BTreeMap::new();
         map.insert("range".to_string(), self.range.to_json());
-        map.insert("severity".to_string(), JsonValue::Number(self.severity as f64));
-        map.insert("message".to_string(), JsonValue::String(self.message.clone()));
+        map.insert(
+            "severity".to_string(),
+            JsonValue::Number(self.severity as f64),
+        );
+        map.insert(
+            "message".to_string(),
+            JsonValue::String(self.message.clone()),
+        );
         map.insert("source".to_string(), JsonValue::String(self.source.clone()));
         JsonValue::Object(map)
     }
@@ -107,7 +116,10 @@ impl CompletionItem {
         }
         if let Some(doc) = &self.doc {
             let mut doc_map = BTreeMap::new();
-            doc_map.insert("kind".to_string(), JsonValue::String("markdown".to_string()));
+            doc_map.insert(
+                "kind".to_string(),
+                JsonValue::String("markdown".to_string()),
+            );
             doc_map.insert("value".to_string(), JsonValue::String(doc.clone()));
             map.insert("documentation".to_string(), JsonValue::Object(doc_map));
         }
@@ -129,7 +141,10 @@ pub fn make_error(id: &JsonValue, code: i64, message: &str) -> JsonValue {
     map.insert("id".to_string(), id.clone());
     let mut err = BTreeMap::new();
     err.insert("code".to_string(), JsonValue::Number(code as f64));
-    err.insert("message".to_string(), JsonValue::String(message.to_string()));
+    err.insert(
+        "message".to_string(),
+        JsonValue::String(message.to_string()),
+    );
     map.insert("error".to_string(), JsonValue::Object(err));
     JsonValue::Object(map)
 }

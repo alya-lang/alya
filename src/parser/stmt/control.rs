@@ -339,7 +339,10 @@ impl Parser {
                             patterns.push(WhenPattern::Range(pattern_start, pattern_end));
                         } else if let Expr::Identifier(ref id) = pattern_start {
                             if id.chars().next().map_or(false, |c| c.is_uppercase())
-                                || matches!(id.as_str(), "int" | "float" | "string" | "str" | "bool" | "array" | "map")
+                                || matches!(
+                                    id.as_str(),
+                                    "int" | "float" | "string" | "str" | "bool" | "array" | "map"
+                                )
                             {
                                 patterns.push(WhenPattern::Type(id.clone()));
                             } else {

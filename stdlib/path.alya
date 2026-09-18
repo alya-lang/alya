@@ -267,7 +267,6 @@ pub function path__basename(path: string) -> string
     return file_name(path)
 end
 
-
 pub function path_join_all(parts: string[]) -> string
     let total: int = len(parts)
     if total == 0

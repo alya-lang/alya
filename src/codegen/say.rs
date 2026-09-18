@@ -59,7 +59,9 @@ impl CodeGen {
                                 format_str.push_str(&format!("%{}", spec));
                                 exprs.push(arg.clone());
                                 is_floats.push(true);
-                            } else if spec.starts_with('0') && spec.chars().skip(1).all(|c| c.is_ascii_digit()) {
+                            } else if spec.starts_with('0')
+                                && spec.chars().skip(1).all(|c| c.is_ascii_digit())
+                            {
                                 format_str.push_str(&format!("%{}lld", spec));
                                 exprs.push(arg.clone());
                                 is_floats.push(false);
@@ -94,9 +96,12 @@ impl CodeGen {
                             if is_null_expr(part, &self.ctx.variables) {
                                 format_str.push_str("null");
                             } else {
-                                let struct_to_string = if let Some(sname) = self.get_expr_struct_name(part) {
+                                let struct_to_string = if let Some(sname) =
+                                    self.get_expr_struct_name(part)
+                                {
                                     let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
-                                    let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                                    let bare_sname =
+                                        bare_sname.rsplit("__").next().unwrap_or(bare_sname);
                                     let cand1 = format!("{}__{}", sname, "to_string");
                                     let cand2 = format!("{}__{}", bare_sname, "to_string");
                                     if self.ctx.functions.contains(&cand1) {
@@ -104,7 +109,11 @@ impl CodeGen {
                                     } else if self.ctx.functions.contains(&cand2) {
                                         Some(cand2)
                                     } else {
-                                        self.ctx.functions.iter().find(|f| f.ends_with("__to_string")).cloned()
+                                        self.ctx
+                                            .functions
+                                            .iter()
+                                            .find(|f| f.ends_with("__to_string"))
+                                            .cloned()
                                     }
                                 } else {
                                     None
@@ -479,7 +488,11 @@ impl CodeGen {
                     } else if self.ctx.functions.contains(&cand2) {
                         Some(cand2)
                     } else {
-                        self.ctx.functions.iter().find(|f| f.ends_with("__to_string")).cloned()
+                        self.ctx
+                            .functions
+                            .iter()
+                            .find(|f| f.ends_with("__to_string"))
+                            .cloned()
                     };
                     if let Some(call_name) = matched {
                         self.generate_say(&Expr::Call {

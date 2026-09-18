@@ -116,8 +116,9 @@ fn process_directory(
         if gen_html {
             let html_content = generate_html(&module);
             let html_file = out_dir.join(format!("{}.html", target_file_name));
-            fs::write(&html_file, html_content)
-                .map_err(|e| format!("Failed to write HTML doc '{}': {}", html_file.display(), e))?;
+            fs::write(&html_file, html_content).map_err(|e| {
+                format!("Failed to write HTML doc '{}': {}", html_file.display(), e)
+            })?;
             println!("  ✓ Generated HTML doc: {}", html_file.display());
         }
 
@@ -150,7 +151,10 @@ a:hover { text-decoration: underline; }
 </style></head><body><h1>Alya Documentation Index</h1><ul>"#);
         for m in &modules {
             let target_file_name = m.name.replace('/', "_");
-            index_html.push_str(&format!("<li><a href=\"{}.html\">{}</a></li>", target_file_name, m.name));
+            index_html.push_str(&format!(
+                "<li><a href=\"{}.html\">{}</a></li>",
+                target_file_name, m.name
+            ));
         }
         index_html.push_str("</ul></body></html>");
         let index_file = out_dir.join("index.html");

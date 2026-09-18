@@ -368,9 +368,7 @@ pub(crate) fn collect_references_in_stmt(stmt: &Stmt, refs: &mut HashSet<String>
         Stmt::Defer(inner) | Stmt::Pub(inner) => {
             collect_references_in_stmt(inner, refs);
         }
-        Stmt::Function {
-            body, defaults, ..
-        } => {
+        Stmt::Function { body, defaults, .. } => {
             for d in defaults.iter().flatten() {
                 collect_references_in_expr(d, refs);
             }

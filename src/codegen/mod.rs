@@ -143,10 +143,7 @@ fn collect_stmt_identifiers(stmt: &Stmt, idents: &mut std::collections::HashSet<
             }
         }
         Stmt::For {
-            start,
-            end,
-            body,
-            ..
+            start, end, body, ..
         } => {
             collect_expr_identifiers(start, idents);
             collect_expr_identifiers(end, idents);
@@ -154,11 +151,7 @@ fn collect_stmt_identifiers(stmt: &Stmt, idents: &mut std::collections::HashSet<
                 collect_stmt_identifiers(s, idents);
             }
         }
-        Stmt::ForEach {
-            iterable,
-            body,
-            ..
-        } => {
+        Stmt::ForEach { iterable, body, .. } => {
             collect_expr_identifiers(iterable, idents);
             for s in body {
                 collect_stmt_identifiers(s, idents);
@@ -207,7 +200,11 @@ fn collect_local_stmt_vars(stmts: &[Stmt], vars: &mut std::collections::HashSet<
                     vars.insert(v.clone());
                 }
             }
-            Stmt::If { then_block, else_block, .. } => {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
                 collect_local_stmt_vars(then_block, vars);
                 if let Some(eb) = else_block {
                     collect_local_stmt_vars(eb, vars);
@@ -393,7 +390,8 @@ impl CodeGen {
             }
         }
 
-        let (inference, (d_call_index, d_inference)) = ProgramInference::analyze_with_timing(program);
+        let (inference, (d_call_index, d_inference)) =
+            ProgramInference::analyze_with_timing(program);
         for s in &inference.known_strings {
             if s.starts_with("map_field_str:")
                 || s.starts_with("map_str:")
@@ -428,7 +426,10 @@ impl CodeGen {
         }
 
         for stmt in &program.statements {
-            if let Stmt::Function { name, param_types, .. } = stmt.inner_stmt() {
+            if let Stmt::Function {
+                name, param_types, ..
+            } = stmt.inner_stmt()
+            {
                 self.ctx.functions.insert(name.clone());
                 let ns_bare = name.rsplit("::").next().unwrap_or(name);
                 let bare = if let Some((prefix, _)) = ns_bare.split_once("__") {
@@ -513,13 +514,26 @@ impl CodeGen {
                 });
                 if satisfies {
                     let vtable_label = format!("alya_vtable_{}_{}", bare_sdef, bare_idef);
-                    self.ctx.vtables.insert((bare_sdef.to_string(), bare_idef.to_string()), vtable_label.clone());
-                    self.ctx.vtables.insert((sname.clone(), iname.clone()), vtable_label);
+                    self.ctx.vtables.insert(
+                        (bare_sdef.to_string(), bare_idef.to_string()),
+                        vtable_label.clone(),
+                    );
+                    self.ctx
+                        .vtables
+                        .insert((sname.clone(), iname.clone()), vtable_label);
                     for m in &flattened {
-                        if m.return_type.as_deref() == Some("float") || m.return_type.as_deref() == Some("f64") {
-                            self.ctx.variables.insert(format!("fn_ret_flt:{}", m.name), VarType::Float(0));
-                        } else if m.return_type.as_deref() == Some("string") || m.return_type.as_deref() == Some("str") {
-                            self.ctx.variables.insert(format!("fn_ret_str:{}", m.name), VarType::StringOffset(0));
+                        if m.return_type.as_deref() == Some("float")
+                            || m.return_type.as_deref() == Some("f64")
+                        {
+                            self.ctx
+                                .variables
+                                .insert(format!("fn_ret_flt:{}", m.name), VarType::Float(0));
+                        } else if m.return_type.as_deref() == Some("string")
+                            || m.return_type.as_deref() == Some("str")
+                        {
+                            self.ctx
+                                .variables
+                                .insert(format!("fn_ret_str:{}", m.name), VarType::StringOffset(0));
                         }
                     }
                 }
@@ -643,16 +657,25 @@ impl CodeGen {
         }
 
         for stmt in &top_level {
-            if let Stmt::Let { name, type_ann, value } = stmt.inner_stmt() {
+            if let Stmt::Let {
+                name,
+                type_ann,
+                value,
+            } = stmt.inner_stmt()
+            {
                 if function_idents.contains(name) {
                     let symbol = format!("alya_global_{}", name);
                     let sname = if let Some(t) = type_ann {
                         let bare_base = t.split('[').next().unwrap_or(t);
                         let bare = bare_base.rsplit("::").next().unwrap_or(bare_base);
                         let bare = bare.rsplit("__").next().unwrap_or(bare);
-                        if self.ctx.structs.contains_key(bare_base) || self.ctx.enums.contains(bare_base) {
+                        if self.ctx.structs.contains_key(bare_base)
+                            || self.ctx.enums.contains(bare_base)
+                        {
                             Some(bare_base.to_string())
-                        } else if self.ctx.structs.contains_key(bare) || self.ctx.enums.contains(bare) {
+                        } else if self.ctx.structs.contains_key(bare)
+                            || self.ctx.enums.contains(bare)
+                        {
                             Some(bare.to_string())
                         } else {
                             None
@@ -676,7 +699,10 @@ impl CodeGen {
                 ".quad"
             };
             for (symbol, _) in self.ctx.globals.values() {
-                self.output.push_str(&format!(".global {}\n{}:\n    {} 0\n", symbol, symbol, word_dir));
+                self.output.push_str(&format!(
+                    ".global {}\n{}:\n    {} 0\n",
+                    symbol, symbol, word_dir
+                ));
             }
             self.output.push_str(".text\n");
         }
@@ -894,8 +920,12 @@ impl CodeGen {
                     .insert(param.clone(), VarType::Number(self.ctx.stack_offset));
             }
 
-            let is_heap_param =
-                struct_type.is_some() || interface_type.is_some() || is_arr || is_str_arr || is_flt_arr || is_map;
+            let is_heap_param = struct_type.is_some()
+                || interface_type.is_some()
+                || is_arr
+                || is_str_arr
+                || is_flt_arr
+                || is_map;
             if is_heap_param {
                 heap_param_offsets.push(self.ctx.stack_offset);
             }
@@ -974,7 +1004,9 @@ impl CodeGen {
                 }
                 if let Some(VarType::Struct { struct_name, .. }) = self.ctx.variables.get(name) {
                     Some(struct_name.clone())
-                } else if let Some(VarType::StringLabel(ename)) = self.ctx.variables.get(&format!("var_enum_type:{}", name)) {
+                } else if let Some(VarType::StringLabel(ename)) =
+                    self.ctx.variables.get(&format!("var_enum_type:{}", name))
+                {
                     Some(ename.clone())
                 } else {
                     let bare = name.rsplit("::").next().unwrap_or(name);
@@ -990,10 +1022,8 @@ impl CodeGen {
                         .or_else(|| self.ctx.variables.get(&format!("fn_ret_struct:{}", bare)))
                     {
                         Some(struct_name.clone())
-                    } else if let Some(VarType::StringLabel(ename)) = self
-                        .ctx
-                        .variables
-                        .get(&format!("var_enum_type:{}", bare))
+                    } else if let Some(VarType::StringLabel(ename)) =
+                        self.ctx.variables.get(&format!("var_enum_type:{}", bare))
                     {
                         Some(ename.clone())
                     } else {
@@ -1074,7 +1104,10 @@ impl CodeGen {
                         }
                     }
                 }
-                if let Some(target) = name.strip_suffix("__new").or_else(|| name.strip_suffix("::new")) {
+                if let Some(target) = name
+                    .strip_suffix("__new")
+                    .or_else(|| name.strip_suffix("::new"))
+                {
                     let bare = target.rsplit("::").next().unwrap_or(target);
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
                     return Some(bare.to_string());
@@ -1262,7 +1295,9 @@ impl CodeGen {
         use crate::ast::Expr;
         match expr {
             Expr::Identifier(name) => {
-                if let Some(VarType::Interface { interface_name, .. }) = self.ctx.variables.get(name) {
+                if let Some(VarType::Interface { interface_name, .. }) =
+                    self.ctx.variables.get(name)
+                {
                     Some(interface_name.clone())
                 } else {
                     None

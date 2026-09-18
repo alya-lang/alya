@@ -31,14 +31,20 @@ fn parse_error_to_diagnostic(err: &str, source: &str) -> Diagnostic {
     // Alya errors typically contain: "at line X, column Y" or similar
     if let Some(idx) = err.find("line ") {
         let remainder = &err[idx + 5..];
-        let num_str: String = remainder.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let num_str: String = remainder
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
         if let Ok(l) = num_str.parse::<u32>() {
             line = l;
         }
     }
     if let Some(idx) = err.find("column ") {
         let remainder = &err[idx + 7..];
-        let num_str: String = remainder.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let num_str: String = remainder
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
         if let Ok(c) = num_str.parse::<u32>() {
             col = c;
         }
@@ -92,12 +98,28 @@ pub fn get_completions(source: &str, _pos: &Position) -> Vec<CompletionItem> {
 
     // 2. Standard Library Modules (Kind 9)
     let std_modules = [
-        "std/math", "std/fs", "std/os", "std/sync", "std/time", "std/net",
-        "std/io", "std/json", "std/crypto", "std/env", "std/process",
-        "std/path", "std/color", "std/thread",
+        "std/math",
+        "std/fs",
+        "std/os",
+        "std/sync",
+        "std/time",
+        "std/net",
+        "std/io",
+        "std/json",
+        "std/crypto",
+        "std/env",
+        "std/process",
+        "std/path",
+        "std/color",
+        "std/thread",
     ];
     for m in std_modules {
-        items.push(CompletionItem::new(m, 9, Some("module"), Some("Alya Standard Library Module")));
+        items.push(CompletionItem::new(
+            m,
+            9,
+            Some("module"),
+            Some("Alya Standard Library Module"),
+        ));
     }
 
     // 3. User Definitions from AST (Functions: 3, Structs: 22, Interfaces: 8)
@@ -108,10 +130,16 @@ pub fn get_completions(source: &str, _pos: &Position) -> Vec<CompletionItem> {
         if let Ok(ast) = parser.parse() {
             for stmt in &ast.statements {
                 match stmt.inner_stmt() {
-                    Stmt::Function { name, params, return_type, .. } => {
+                    Stmt::Function {
+                        name,
+                        params,
+                        return_type,
+                        ..
+                    } => {
                         if seen.insert(name.clone()) {
                             let ret = return_type.as_deref().unwrap_or("void");
-                            let sig = format!("function {}({}) -> {}", name, params.join(", "), ret);
+                            let sig =
+                                format!("function {}({}) -> {}", name, params.join(", "), ret);
                             items.push(CompletionItem::new(name, 3, Some(&sig), Some(&sig)));
                         }
                     }
@@ -174,16 +202,37 @@ pub fn get_hover(source: &str, pos: &Position) -> Option<String> {
         if let Ok(ast) = parser.parse() {
             for stmt in &ast.statements {
                 match stmt.inner_stmt() {
-                    Stmt::Function { name, params, return_type, .. } if name == &word => {
+                    Stmt::Function {
+                        name,
+                        params,
+                        return_type,
+                        ..
+                    } if name == &word => {
                         let ret = return_type.as_deref().unwrap_or("void");
-                        return Some(format!("```alya\nfunction {}({}) -> {}\n```", name, params.join(", "), ret));
+                        return Some(format!(
+                            "```alya\nfunction {}({}) -> {}\n```",
+                            name,
+                            params.join(", "),
+                            ret
+                        ));
                     }
                     Stmt::StructDef { name, fields, .. } if name == &word => {
-                        return Some(format!("```alya\nstruct {}\n    {}\nend\n```", name, fields.join("\n    ")));
+                        return Some(format!(
+                            "```alya\nstruct {}\n    {}\nend\n```",
+                            name,
+                            fields.join("\n    ")
+                        ));
                     }
                     Stmt::InterfaceDef { name, methods, .. } if name == &word => {
-                        let m_names: Vec<String> = methods.iter().map(|m| format!("function {}({})", m.name, m.params.join(", "))).collect();
-                        return Some(format!("```alya\ninterface {}\n    {}\nend\n```", name, m_names.join("\n    ")));
+                        let m_names: Vec<String> = methods
+                            .iter()
+                            .map(|m| format!("function {}({})", m.name, m.params.join(", ")))
+                            .collect();
+                        return Some(format!(
+                            "```alya\ninterface {}\n    {}\nend\n```",
+                            name,
+                            m_names.join("\n    ")
+                        ));
                     }
                     Stmt::Let { name, type_ann, .. } if name == &word => {
                         let t = type_ann.as_deref().unwrap_or("inferred");
@@ -208,28 +257,43 @@ pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
         }
         if trimmed.starts_with("function ") {
             let rest = &trimmed[9..].trim_start();
-            let fn_name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.').collect();
-            if fn_name == word || fn_name.ends_with(&format!(".{}", word)) || fn_name.ends_with(&format!("__{}", word)) {
+            let fn_name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
+                .collect();
+            if fn_name == word
+                || fn_name.ends_with(&format!(".{}", word))
+                || fn_name.ends_with(&format!("__{}", word))
+            {
                 let char_idx = line.find(&word).unwrap_or(0) as u32;
                 return Some(Position::new(line_idx as u32, char_idx));
             }
         } else if trimmed.starts_with("struct ") {
             let rest = &trimmed[7..].trim_start();
-            let st_name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+            let st_name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
             if st_name == word {
                 let char_idx = line.find(&word).unwrap_or(0) as u32;
                 return Some(Position::new(line_idx as u32, char_idx));
             }
         } else if trimmed.starts_with("interface ") {
             let rest = &trimmed[10..].trim_start();
-            let if_name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+            let if_name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
             if if_name == word {
                 let char_idx = line.find(&word).unwrap_or(0) as u32;
                 return Some(Position::new(line_idx as u32, char_idx));
             }
         } else if trimmed.starts_with("enum ") {
             let rest = &trimmed[5..].trim_start();
-            let en_name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+            let en_name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
             if en_name == word {
                 let char_idx = line.find(&word).unwrap_or(0) as u32;
                 return Some(Position::new(line_idx as u32, char_idx));
@@ -237,7 +301,10 @@ pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
         } else if trimmed.starts_with("let ") || trimmed.starts_with("const ") {
             let kw_len = if trimmed.starts_with("let ") { 4 } else { 6 };
             let rest = &trimmed[kw_len..].trim_start();
-            let var_name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+            let var_name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
             if var_name == word {
                 let char_idx = line.find(&word).unwrap_or(0) as u32;
                 return Some(Position::new(line_idx as u32, char_idx));

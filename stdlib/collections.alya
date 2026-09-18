@@ -9,11 +9,9 @@ pub function Stack.new()
     return []
 end
 
-
 pub function stack_new()
     return []
 end
-
 
 pub function stack_push(s, val)
     s.push(val)

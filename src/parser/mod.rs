@@ -140,12 +140,18 @@ impl Parser {
             }
             self.expect(TokenType::RightParen)?;
             t_str.push_str(&format!("({})", parts.join(", ")));
-        } else if matches!(self.current_token().token_type, TokenType::BitOr | TokenType::Or) {
+        } else if matches!(
+            self.current_token().token_type,
+            TokenType::BitOr | TokenType::Or
+        ) {
             let is_empty = matches!(self.current_token().token_type, TokenType::Or);
             self.advance();
             let mut param_types = Vec::new();
             if !is_empty {
-                while !matches!(self.current_token().token_type, TokenType::BitOr | TokenType::Eof) {
+                while !matches!(
+                    self.current_token().token_type,
+                    TokenType::BitOr | TokenType::Eof
+                ) {
                     param_types.push(self.parse_type_annotation()?);
                     self.skip_newlines();
                     if matches!(self.current_token().token_type, TokenType::Comma) {
@@ -187,7 +193,10 @@ impl Parser {
             // Generic type arguments: Channel[int], Stack[T], Result[T, E]
             if matches!(self.current_token().token_type, TokenType::LeftBracket) {
                 if self.position + 1 < self.tokens.len()
-                    && matches!(self.tokens[self.position + 1].token_type, TokenType::RightBracket)
+                    && matches!(
+                        self.tokens[self.position + 1].token_type,
+                        TokenType::RightBracket
+                    )
                 {
                     // array suffix, leave for loop
                 } else {
@@ -258,7 +267,10 @@ impl Parser {
                 t_str.push('?');
             } else if matches!(self.current_token().token_type, TokenType::LeftBracket) {
                 if self.position + 1 < self.tokens.len()
-                    && matches!(self.tokens[self.position + 1].token_type, TokenType::RightBracket)
+                    && matches!(
+                        self.tokens[self.position + 1].token_type,
+                        TokenType::RightBracket
+                    )
                 {
                     self.advance(); // [
                     self.advance(); // ]
@@ -309,7 +321,10 @@ pub fn resolve_imports_with_sources_ext(
     program.statements = resolved_stmts;
 
     let mut module_stems = std::collections::HashSet::new();
-    for std_mod in ["math", "time", "fs", "os", "path", "net", "sync", "color", "env", "process", "io", "crypto", "json", "random"] {
+    for std_mod in [
+        "math", "time", "fs", "os", "path", "net", "sync", "color", "env", "process", "io",
+        "crypto", "json", "random",
+    ] {
         module_stems.insert(std_mod.to_string());
     }
     for (path, alias) in &visited {
@@ -682,7 +697,9 @@ pub(crate) fn resolve_stmt_imports_ext(
         } => {
             // Normalize path separators to '/' so Windows-style '\' works across Linux, macOS, and Windows
             let normalized_path = import_path_str.replace('\\', "/");
-            if no_std && (normalized_path.starts_with("std/") || normalized_path.starts_with("std::")) {
+            if no_std
+                && (normalized_path.starts_with("std/") || normalized_path.starts_with("std::"))
+            {
                 return Err(format!(
                     "Cannot import '{}' in --no-std bare-metal mode",
                     import_path_str
@@ -836,8 +853,13 @@ pub(crate) fn resolve_stmt_imports_ext(
             let mut sub_resolved = Vec::new();
             for sub_stmt in sub_program.statements {
                 let is_unaliased_import = matches!(&sub_stmt, Stmt::Import { alias: None, .. });
-                let child_fns =
-                    resolve_stmt_imports_ext(sub_stmt, sub_dir, visited, &mut sub_resolved, no_std)?;
+                let child_fns = resolve_stmt_imports_ext(
+                    sub_stmt,
+                    sub_dir,
+                    visited,
+                    &mut sub_resolved,
+                    no_std,
+                )?;
                 if is_unaliased_import && (!is_embedded_stdlib || alias.is_some()) {
                     local_fns.extend(child_fns);
                 }
@@ -1008,9 +1030,32 @@ pub(crate) fn resolve_stmt_imports_ext(
 pub fn expand_default_args(program: &mut Program) {
     let mut module_stems = std::collections::HashSet::new();
     for std_mod in [
-        "math", "time", "fs", "os", "path", "net", "sync", "color", "console",
-        "env", "process", "io", "crypto", "json", "random", "rand", "mem",
-        "str", "collections", "test", "glob", "cli", "log", "bench", "thread", "hash"
+        "math",
+        "time",
+        "fs",
+        "os",
+        "path",
+        "net",
+        "sync",
+        "color",
+        "console",
+        "env",
+        "process",
+        "io",
+        "crypto",
+        "json",
+        "random",
+        "rand",
+        "mem",
+        "str",
+        "collections",
+        "test",
+        "glob",
+        "cli",
+        "log",
+        "bench",
+        "thread",
+        "hash",
     ] {
         module_stems.insert(std_mod.to_string());
     }
@@ -1100,19 +1145,23 @@ fn expand_defaults_in_stmt(
                 expand_defaults_in_stmt(s, fn_defs, module_stems);
             }
         }
-        Stmt::Say(expr)
-        | Stmt::Expr(expr)
-        | Stmt::Assign { value: expr, .. } => {
+        Stmt::Say(expr) | Stmt::Expr(expr) | Stmt::Assign { value: expr, .. } => {
             expand_defaults_in_expr(expr, fn_defs, module_stems);
         }
-        Stmt::Let { type_ann, value: expr, .. } => {
+        Stmt::Let {
+            type_ann,
+            value: expr,
+            ..
+        } => {
             if type_ann.is_none() {
                 if let Expr::Call { name: cname, args } = expr {
                     let bare = cname.rsplit("::").next().unwrap_or(cname.as_str());
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
                     if bare == "new" {
                         if let Some(Expr::Index { array, index }) = args.first() {
-                            if let (Expr::Identifier(arr_id), Expr::Identifier(type_id)) = (&**array, &**index) {
+                            if let (Expr::Identifier(arr_id), Expr::Identifier(type_id)) =
+                                (&**array, &**index)
+                            {
                                 if arr_id == "Channel" {
                                     *type_ann = Some(format!("Channel[{}]", type_id));
                                 }
@@ -1239,7 +1288,6 @@ fn expand_defaults_in_expr(
                 } else if prefix == "str" && (name == "split" || name == "join") {
                     args.remove(0);
                 }
-
             }
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             if let Some((param_count, defaults, has_rest)) =

@@ -429,7 +429,10 @@ impl Parser {
         // Optional generic type parameter on base type: Stack[T].push(...) or function: swap[T](...)
         if matches!(self.current_token().token_type, TokenType::LeftBracket) {
             self.advance();
-            while !matches!(self.current_token().token_type, TokenType::RightBracket | TokenType::Eof) {
+            while !matches!(
+                self.current_token().token_type,
+                TokenType::RightBracket | TokenType::Eof
+            ) {
                 if let TokenType::Identifier(type_param) = &self.current_token().token_type {
                     let tp = type_param.clone();
                     self.advance();
@@ -463,10 +466,14 @@ impl Parser {
                     name = format!("{}__{}", name, m);
                     if m == "operator" {
                         let op_suffix = match &self.current_token().token_type {
-                            TokenType::Plus => { self.advance(); "+" }
+                            TokenType::Plus => {
+                                self.advance();
+                                "+"
+                            }
                             TokenType::Minus => {
                                 self.advance();
-                                if let TokenType::Identifier(id) = &self.current_token().token_type {
+                                if let TokenType::Identifier(id) = &self.current_token().token_type
+                                {
                                     if id == "neg" {
                                         self.advance();
                                         "-neg"
@@ -477,15 +484,42 @@ impl Parser {
                                     "-"
                                 }
                             }
-                            TokenType::Multiply => { self.advance(); "*" }
-                            TokenType::Divide => { self.advance(); "/" }
-                            TokenType::Modulo => { self.advance(); "%" }
-                            TokenType::Equal => { self.advance(); "==" }
-                            TokenType::NotEqual => { self.advance(); "!=" }
-                            TokenType::Less => { self.advance(); "<" }
-                            TokenType::Greater => { self.advance(); ">" }
-                            TokenType::LessEqual => { self.advance(); "<=" }
-                            TokenType::GreaterEqual => { self.advance(); ">=" }
+                            TokenType::Multiply => {
+                                self.advance();
+                                "*"
+                            }
+                            TokenType::Divide => {
+                                self.advance();
+                                "/"
+                            }
+                            TokenType::Modulo => {
+                                self.advance();
+                                "%"
+                            }
+                            TokenType::Equal => {
+                                self.advance();
+                                "=="
+                            }
+                            TokenType::NotEqual => {
+                                self.advance();
+                                "!="
+                            }
+                            TokenType::Less => {
+                                self.advance();
+                                "<"
+                            }
+                            TokenType::Greater => {
+                                self.advance();
+                                ">"
+                            }
+                            TokenType::LessEqual => {
+                                self.advance();
+                                "<="
+                            }
+                            TokenType::GreaterEqual => {
+                                self.advance();
+                                ">="
+                            }
                             TokenType::LeftBracket => {
                                 self.advance();
                                 self.expect(TokenType::RightBracket)?;
@@ -496,7 +530,7 @@ impl Parser {
                                     "[]"
                                 }
                             }
-                            _ => ""
+                            _ => "",
                         };
                         if !op_suffix.is_empty() {
                             name.push_str(op_suffix);
@@ -1030,7 +1064,10 @@ impl Parser {
         // Optional type parameters [T, U]
         if matches!(self.current_token().token_type, TokenType::LeftBracket) {
             self.advance();
-            while !matches!(self.current_token().token_type, TokenType::RightBracket | TokenType::Eof) {
+            while !matches!(
+                self.current_token().token_type,
+                TokenType::RightBracket | TokenType::Eof
+            ) {
                 self.advance();
             }
             if matches!(self.current_token().token_type, TokenType::RightBracket) {
@@ -1042,7 +1079,10 @@ impl Parser {
         let mut methods = Vec::new();
         let mut embedded = Vec::new();
 
-        while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+        while !matches!(
+            self.current_token().token_type,
+            TokenType::End | TokenType::Eof
+        ) {
             if matches!(self.current_token().token_type, TokenType::Function) {
                 self.advance(); // skip 'function'
                 let fn_name = match &self.current_token().token_type {
@@ -1061,7 +1101,10 @@ impl Parser {
                 // params (...)
                 if matches!(self.current_token().token_type, TokenType::LeftParen) {
                     self.advance();
-                    while !matches!(self.current_token().token_type, TokenType::RightParen | TokenType::Eof) {
+                    while !matches!(
+                        self.current_token().token_type,
+                        TokenType::RightParen | TokenType::Eof
+                    ) {
                         self.skip_newlines();
                         let param_name = match &self.current_token().token_type {
                             TokenType::Identifier(s) => s.clone(),
@@ -1076,12 +1119,13 @@ impl Parser {
                             }
                         };
                         self.advance();
-                        let param_type = if matches!(self.current_token().token_type, TokenType::Colon) {
-                            self.advance();
-                            Some(self.parse_type_annotation()?)
-                        } else {
-                            None
-                        };
+                        let param_type =
+                            if matches!(self.current_token().token_type, TokenType::Colon) {
+                                self.advance();
+                                Some(self.parse_type_annotation()?)
+                            } else {
+                                None
+                            };
                         params.push(param_name);
                         param_types.push(param_type);
                         if matches!(self.current_token().token_type, TokenType::Comma) {
@@ -1131,7 +1175,10 @@ impl Parser {
                 self.advance();
                 self.skip_newlines();
                 let mut pats = Vec::new();
-                while !matches!(self.current_token().token_type, TokenType::RightParen | TokenType::Eof) {
+                while !matches!(
+                    self.current_token().token_type,
+                    TokenType::RightParen | TokenType::Eof
+                ) {
                     pats.push(self.parse_destructure_pattern()?);
                     self.skip_newlines();
                     if matches!(self.current_token().token_type, TokenType::Comma) {
@@ -1148,8 +1195,14 @@ impl Parser {
                 self.advance();
                 self.skip_newlines();
                 let mut pats = Vec::new();
-                while !matches!(self.current_token().token_type, TokenType::RightBracket | TokenType::Eof) {
-                    if matches!(self.current_token().token_type, TokenType::DotDotDot | TokenType::DotDot) {
+                while !matches!(
+                    self.current_token().token_type,
+                    TokenType::RightBracket | TokenType::Eof
+                ) {
+                    if matches!(
+                        self.current_token().token_type,
+                        TokenType::DotDotDot | TokenType::DotDot
+                    ) {
                         self.advance();
                         let rname = match &self.current_token().token_type {
                             TokenType::Identifier(s) => s.clone(),
@@ -1175,7 +1228,10 @@ impl Parser {
                 self.advance();
                 self.skip_newlines();
                 let mut fields = Vec::new();
-                while !matches!(self.current_token().token_type, TokenType::RightBrace | TokenType::Eof) {
+                while !matches!(
+                    self.current_token().token_type,
+                    TokenType::RightBrace | TokenType::Eof
+                ) {
                     let field_key = match &self.current_token().token_type {
                         TokenType::Identifier(s) => s.clone(),
                         TokenType::String(s) => s.clone(),

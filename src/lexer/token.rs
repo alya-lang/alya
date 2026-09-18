@@ -1,50 +1,50 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     // Keywords
-    Say,      // say (like print)
-    Let,      // let (variable declaration)
-    If,       // if
-    Else,     // else
-    Elif,     // elif
-    While,    // while
-    For,      // for
-    In,       // in
-    Function, // function
-    End,      // end
-    Return,   // return
-    When,     // when (pattern matching)
-    Is,       // is
-    Then,     // then
-    Repeat,   // repeat (infinite loop)
-    Break,    // break
-    Continue, // continue
-    Ask,      // ask (input)
-    Try,      // try
-    Catch,    // catch
-    Finally,  // finally
-    Throw,    // throw
-    Import,   // import
-    As,       // as
-    Struct,   // struct
-    Enum,     // enum
-    Const,    // const
-    Extern,   // extern
-    From,     // from
-    Defer,    // defer
-    Pub,      // pub
-    Interface,// interface
-    Spawn,    // spawn
-    Select,   // select
-    Assert,   // assert
-    Test,     // test
-    Bench,    // bench
-    SelfKw,   // self
-    Weak,     // weak
-    Comptime, // comptime
-    Sizeof,   // sizeof
-    Alignof,  // alignof
-    Typeof,   // typeof
-    At,       // @
+    Say,       // say (like print)
+    Let,       // let (variable declaration)
+    If,        // if
+    Else,      // else
+    Elif,      // elif
+    While,     // while
+    For,       // for
+    In,        // in
+    Function,  // function
+    End,       // end
+    Return,    // return
+    When,      // when (pattern matching)
+    Is,        // is
+    Then,      // then
+    Repeat,    // repeat (infinite loop)
+    Break,     // break
+    Continue,  // continue
+    Ask,       // ask (input)
+    Try,       // try
+    Catch,     // catch
+    Finally,   // finally
+    Throw,     // throw
+    Import,    // import
+    As,        // as
+    Struct,    // struct
+    Enum,      // enum
+    Const,     // const
+    Extern,    // extern
+    From,      // from
+    Defer,     // defer
+    Pub,       // pub
+    Interface, // interface
+    Spawn,     // spawn
+    Select,    // select
+    Assert,    // assert
+    Test,      // test
+    Bench,     // bench
+    SelfKw,    // self
+    Weak,      // weak
+    Comptime,  // comptime
+    Sizeof,    // sizeof
+    Alignof,   // alignof
+    Typeof,    // typeof
+    At,        // @
 
     // Literals
     Number(f64),

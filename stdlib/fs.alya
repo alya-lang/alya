@@ -49,7 +49,6 @@ pub function fs__exists(path: string) -> int
     return exists(path)
 end
 
-
 pub function fs__read_string(path: string) -> string
     return read_file(path)
 end
@@ -68,8 +67,6 @@ pub function fs__mkdir(path: string, recursive: bool = false) -> int
     end
     return make_dir(path)
 end
-
-
 
 pub function fs_rmdir(path: string) -> int
     return rmdir(path)

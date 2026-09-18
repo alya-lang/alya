@@ -45,7 +45,13 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         return Ok(());
     }
 
-    if let CommandKind::Doc { ref input, ref output_dir, html, markdown } = args.command {
+    if let CommandKind::Doc {
+        ref input,
+        ref output_dir,
+        html,
+        markdown,
+    } = args.command
+    {
         crate::tools::doc::run_doc(input, output_dir.as_deref(), html, markdown)?;
         return Ok(());
     }
@@ -91,8 +97,9 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     let base_dir = Path::new(&args.input_file)
         .parent()
         .unwrap_or_else(|| Path::new("."));
-    let imported_files = crate::parser::resolve_imports_with_sources_ext(&mut ast, base_dir, args.no_std)
-        .map_err(|e| format!("Module import error in '{}': {}", args.input_file, e))?;
+    let imported_files =
+        crate::parser::resolve_imports_with_sources_ext(&mut ast, base_dir, args.no_std)
+            .map_err(|e| format!("Module import error in '{}': {}", args.input_file, e))?;
     let d_import = t_import.elapsed();
 
     if args.command == CommandKind::EmitAst {

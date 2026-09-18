@@ -153,16 +153,28 @@ pub fn emit_pop_temp(out: &mut String) {
 
 pub fn emit_load_global(out: &mut String, symbol: &str, os: OperatingSystem) {
     if matches!(os, OperatingSystem::MacOS) {
-        out.push_str(&format!("    adrp x9, {}@PAGE\n    ldr x0, [x9, {}@PAGEOFF]\n", symbol, symbol));
+        out.push_str(&format!(
+            "    adrp x9, {}@PAGE\n    ldr x0, [x9, {}@PAGEOFF]\n",
+            symbol, symbol
+        ));
     } else {
-        out.push_str(&format!("    adrp x9, {}\n    ldr x0, [x9, :lo12:{}]\n", symbol, symbol));
+        out.push_str(&format!(
+            "    adrp x9, {}\n    ldr x0, [x9, :lo12:{}]\n",
+            symbol, symbol
+        ));
     }
 }
 
 pub fn emit_store_global(out: &mut String, symbol: &str, os: OperatingSystem) {
     if matches!(os, OperatingSystem::MacOS) {
-        out.push_str(&format!("    adrp x9, {}@PAGE\n    str x0, [x9, {}@PAGEOFF]\n", symbol, symbol));
+        out.push_str(&format!(
+            "    adrp x9, {}@PAGE\n    str x0, [x9, {}@PAGEOFF]\n",
+            symbol, symbol
+        ));
     } else {
-        out.push_str(&format!("    adrp x9, {}\n    str x0, [x9, :lo12:{}]\n", symbol, symbol));
+        out.push_str(&format!(
+            "    adrp x9, {}\n    str x0, [x9, :lo12:{}]\n",
+            symbol, symbol
+        ));
     }
 }

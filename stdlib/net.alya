@@ -61,7 +61,6 @@ pub function net__close(sock: int) -> int
     return tcp_close(sock)
 end
 
-
 # Creates a TCP server socket listening on the specified port.
 # Returns listening socket handle or -1 on error.
 pub function tcp_listen(port: int, backlog: int = 10) -> int

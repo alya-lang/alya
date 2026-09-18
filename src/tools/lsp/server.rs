@@ -41,25 +41,43 @@ impl ServerState {
         None
     }
 
-    fn handle_request(&mut self, method: &str, id: &JsonValue, params: Option<&JsonValue>) -> JsonValue {
+    fn handle_request(
+        &mut self,
+        method: &str,
+        id: &JsonValue,
+        params: Option<&JsonValue>,
+    ) -> JsonValue {
         match method {
             "initialize" => {
                 let mut capabilities = BTreeMap::new();
                 // 1 = Full sync
                 capabilities.insert("textDocumentSync".to_string(), JsonValue::Number(1.0));
-                
+
                 let mut completion_provider = BTreeMap::new();
                 completion_provider.insert("resolveProvider".to_string(), JsonValue::Bool(false));
-                let triggers = vec![JsonValue::String(".".to_string()), JsonValue::String(":".to_string())];
-                completion_provider.insert("triggerCharacters".to_string(), JsonValue::Array(triggers));
-                capabilities.insert("completionProvider".to_string(), JsonValue::Object(completion_provider));
+                let triggers = vec![
+                    JsonValue::String(".".to_string()),
+                    JsonValue::String(":".to_string()),
+                ];
+                completion_provider
+                    .insert("triggerCharacters".to_string(), JsonValue::Array(triggers));
+                capabilities.insert(
+                    "completionProvider".to_string(),
+                    JsonValue::Object(completion_provider),
+                );
 
                 capabilities.insert("hoverProvider".to_string(), JsonValue::Bool(true));
                 capabilities.insert("definitionProvider".to_string(), JsonValue::Bool(true));
 
                 let mut server_info = BTreeMap::new();
-                server_info.insert("name".to_string(), JsonValue::String("alya-lsp".to_string()));
-                server_info.insert("version".to_string(), JsonValue::String("1.0.0".to_string()));
+                server_info.insert(
+                    "name".to_string(),
+                    JsonValue::String("alya-lsp".to_string()),
+                );
+                server_info.insert(
+                    "version".to_string(),
+                    JsonValue::String("1.0.0".to_string()),
+                );
 
                 let mut result = BTreeMap::new();
                 result.insert("capabilities".to_string(), JsonValue::Object(capabilities));
@@ -73,13 +91,19 @@ impl ServerState {
             }
             "textDocument/completion" => {
                 let items = self.handle_completion(params);
-                make_response(id, JsonValue::Array(items.into_iter().map(|it| it.to_json()).collect()))
+                make_response(
+                    id,
+                    JsonValue::Array(items.into_iter().map(|it| it.to_json()).collect()),
+                )
             }
             "textDocument/hover" => {
                 let hover_opt = self.handle_hover(params);
                 if let Some(doc) = hover_opt {
                     let mut contents = BTreeMap::new();
-                    contents.insert("kind".to_string(), JsonValue::String("markdown".to_string()));
+                    contents.insert(
+                        "kind".to_string(),
+                        JsonValue::String("markdown".to_string()),
+                    );
                     contents.insert("value".to_string(), JsonValue::String(doc));
 
                     let mut res = BTreeMap::new();
@@ -107,7 +131,11 @@ impl ServerState {
         }
     }
 
-    fn handle_notification(&mut self, method: &str, params: Option<&JsonValue>) -> Option<JsonValue> {
+    fn handle_notification(
+        &mut self,
+        method: &str,
+        params: Option<&JsonValue>,
+    ) -> Option<JsonValue> {
         match method {
             "initialized" => None,
             "exit" => {
@@ -162,12 +190,19 @@ impl ServerState {
         make_notification("textDocument/publishDiagnostics", JsonValue::Object(params))
     }
 
-    fn handle_completion(&self, params: Option<&JsonValue>) -> Vec<super::protocol::CompletionItem> {
+    fn handle_completion(
+        &self,
+        params: Option<&JsonValue>,
+    ) -> Vec<super::protocol::CompletionItem> {
         let params = match params {
             Some(p) => p,
             None => return Vec::new(),
         };
-        let uri = match params.get("textDocument").and_then(|td| td.get("uri")).and_then(|u| u.as_str()) {
+        let uri = match params
+            .get("textDocument")
+            .and_then(|td| td.get("uri"))
+            .and_then(|u| u.as_str())
+        {
             Some(u) => u,
             None => return Vec::new(),
         };

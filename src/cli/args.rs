@@ -577,7 +577,9 @@ fn parse_doc_args(args: &[String]) -> Result<CommandKind, String> {
                 println!("Usage: alya doc [path] [options]");
                 println!();
                 println!("Options:");
-                println!("  -o, --output <dir>   Output directory for generated docs (default: docs)");
+                println!(
+                    "  -o, --output <dir>   Output directory for generated docs (default: docs)"
+                );
                 println!("  --html               Generate HTML documentation");
                 println!("  --md, --markdown     Generate Markdown documentation");
                 println!("  -h, --help           Show help");

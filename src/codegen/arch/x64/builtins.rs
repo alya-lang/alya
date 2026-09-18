@@ -225,7 +225,11 @@ pub fn emit_fat_ptr_new(
         }
         out.push_str("    mov %rax, %rdi\n");
         out.push_str(&format!("    lea {}(%rip), %rsi\n", vtable_label));
-        let p = if matches!(os, OperatingSystem::MacOS) { "_" } else { "" };
+        let p = if matches!(os, OperatingSystem::MacOS) {
+            "_"
+        } else {
+            ""
+        };
         out.push_str(&format!("    call {}alya_fat_ptr_new\n", p));
         if misaligned {
             out.push_str("    add $8, %rsp\n");

@@ -94,7 +94,8 @@ fn expr_is_definitely_float(expr: &Expr, known_floats: &HashSet<String>) -> bool
         }
         Expr::Index { array, index } => {
             if let (Expr::Identifier(arr_name), Expr::Number(idx)) = (&**array, &**index) {
-                if known_floats.contains(&format!("tuple_elem_flt:{}:{}", arr_name, *idx as usize)) {
+                if known_floats.contains(&format!("tuple_elem_flt:{}:{}", arr_name, *idx as usize))
+                {
                     return true;
                 }
             }
@@ -105,11 +106,20 @@ fn expr_is_definitely_float(expr: &Expr, known_floats: &HashSet<String>) -> bool
                 _ => false,
             }
         }
-        Expr::Cast { expr: inner, target } => {
+        Expr::Cast {
+            expr: inner,
+            target,
+        } => {
             let t = target.to_lowercase();
             if t == "float" || t == "f64" || t == "f32" {
                 true
-            } else if t == "int" || t == "i64" || t == "i32" || t == "usize" || t == "str" || t == "string" {
+            } else if t == "int"
+                || t == "i64"
+                || t == "i32"
+                || t == "usize"
+                || t == "str"
+                || t == "string"
+            {
                 false
             } else {
                 expr_is_definitely_float(inner, known_floats)
@@ -254,14 +264,16 @@ fn collect_float_vars_from_stmts(
                             if let Some(idx_str) = item.strip_prefix(&prefix1) {
                                 scope.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
                                 if is_top_level {
-                                    known_floats.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
+                                    known_floats
+                                        .insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
                                 }
                             }
                         } else if item.starts_with(&prefix2) {
                             if let Some(idx_str) = item.strip_prefix(&prefix2) {
                                 scope.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
                                 if is_top_level {
-                                    known_floats.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
+                                    known_floats
+                                        .insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
                                 }
                             }
                         }
@@ -314,14 +326,16 @@ fn collect_float_vars_from_stmts(
                             if let Some(idx_str) = item.strip_prefix(&prefix1) {
                                 scope.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
                                 if is_top_level {
-                                    known_floats.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
+                                    known_floats
+                                        .insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
                                 }
                             }
                         } else if item.starts_with(&prefix2) {
                             if let Some(idx_str) = item.strip_prefix(&prefix2) {
                                 scope.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
                                 if is_top_level {
-                                    known_floats.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
+                                    known_floats
+                                        .insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
                                 }
                             }
                         }

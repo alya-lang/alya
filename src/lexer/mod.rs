@@ -544,11 +544,12 @@ impl Lexer {
                 }
                 'f' if self.peek_char() == Some('"') => {
                     self.advance();
-                    let s = if self.peek_char_at(1) == Some('"') && self.peek_char_at(2) == Some('"') {
-                        self.read_triple_quoted_string()?
-                    } else {
-                        self.read_format_string()?
-                    };
+                    let s =
+                        if self.peek_char_at(1) == Some('"') && self.peek_char_at(2) == Some('"') {
+                            self.read_triple_quoted_string()?
+                        } else {
+                            self.read_format_string()?
+                        };
                     tokens.push(Token {
                         token_type: TokenType::String(s),
                         line,

@@ -108,7 +108,8 @@ impl Lexer {
                 self.advance();
             } else if ch == '_' {
                 self.advance();
-            } else if ch == '.' && !has_dot && self.peek_char().is_some_and(|c| c.is_ascii_digit()) {
+            } else if ch == '.' && !has_dot && self.peek_char().is_some_and(|c| c.is_ascii_digit())
+            {
                 has_dot = true;
                 s.push('.');
                 self.advance();
@@ -413,7 +414,8 @@ impl Lexer {
                                 }
                                 self.advance();
                             }
-                            let hex_str: String = self.input[hex_start..self.position].iter().collect();
+                            let hex_str: String =
+                                self.input[hex_start..self.position].iter().collect();
                             self.advance(); // skip '}'
                             let codepoint = u32::from_str_radix(&hex_str, 16).map_err(|_| {
                                 format!(

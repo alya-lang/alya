@@ -33,7 +33,6 @@ pub function test__assert_eq(actual, expected, msg: string) -> int
     return assert_eq(actual, expected, msg)
 end
 
-
 pub function assert_ne(actual, expected, msg: string) -> int
     if actual != expected
         say "  [PASS] {msg}"
@@ -241,7 +240,6 @@ pub function runner_summary(r: TestRunner) -> int
     say "----------------------------------------"
     return r.failed
 end
-
 
 pub function test_report(passed: int, total: int) -> int
     let failed: int = total - passed

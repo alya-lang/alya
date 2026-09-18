@@ -29,7 +29,6 @@ pub function sleep_sec(seconds: int)
     return sleep(seconds * 1000)
 end
 
-
 pub function elapsed(start_time: int) -> int
     return time() - start_time
 end

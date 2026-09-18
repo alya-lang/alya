@@ -1,7 +1,7 @@
 mod common;
-use common::*;
 use alya::lexer::Lexer;
 use alya::parser::Parser;
+use common::*;
 use std::fs;
 use std::path::PathBuf;
 
@@ -107,9 +107,7 @@ fn test_golden_spec_execution_matrix() {
         let source = fs::read_to_string(entry.path()).unwrap();
 
         // Skip files known to require external files or specific environment if any
-        let result = std::panic::catch_unwind(|| {
-            run_alya_code_full(&source)
-        });
+        let result = std::panic::catch_unwind(|| run_alya_code_full(&source));
 
         match result {
             Ok(Some((code, _output))) if code == 0 => {
@@ -118,7 +116,10 @@ fn test_golden_spec_execution_matrix() {
             }
             Ok(Some((code, output))) => {
                 let first_line = output.lines().next().unwrap_or("").to_string();
-                println!("  [EXEC FAIL] {:<25} (code={}): {}", filename, code, first_line);
+                println!(
+                    "  [EXEC FAIL] {:<25} (code={}): {}",
+                    filename, code, first_line
+                );
             }
             Ok(None) => {
                 println!("  [NO GCC]    {:<25}", filename);
@@ -138,7 +139,11 @@ fn test_golden_spec_variables_execution() {
     let source = fs::read_to_string(&var_file).expect("Failed to read variables.alya");
     if let Some((code, output)) = run_alya_code_full(&source) {
         println!("Output from variables.alya (code={}):\n{}", code, output);
-        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
         assert!(output.contains("Initialized linearly: 1000"));
         assert!(output.contains("Status code after exhaustive branches: 200"));
         assert!(output.contains("Mutated score: 5, Bitflags: 1"));
@@ -159,7 +164,11 @@ fn test_golden_spec_collections_execution() {
     let source = fs::read_to_string(&col_file).expect("Failed to read collections.alya");
     if let Some((code, output)) = run_alya_code_full(&source) {
         println!("Output from collections.alya (code={}):\n{}", code, output);
-        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
         assert!(output.contains("Length: 5, First: 10"));
         assert!(output.contains("Negative index [-1] (last element): 50"));
         assert!(output.contains("Negative index [-2] (second to last): 40"));
@@ -179,11 +188,14 @@ fn test_golden_spec_collections_execution() {
 #[test]
 fn test_golden_spec_memory_execution() {
     let memory_file = get_spec_syntax_dir().join("memory.alya");
-    let source = fs::read_to_string(&memory_file)
-        .expect("Failed to read spec/syntax/memory.alya");
+    let source = fs::read_to_string(&memory_file).expect("Failed to read spec/syntax/memory.alya");
 
     if let Some((code, output)) = run_alya_code_full(&source) {
-        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
         assert!(output.contains("Original a: 42"));
         assert!(output.contains("Copied b: 52"));
         assert!(output.contains("Created payload #1"));
@@ -197,13 +209,19 @@ fn test_golden_spec_memory_execution() {
 #[test]
 fn test_golden_spec_concurrency_execution() {
     let conc_file = get_spec_syntax_dir().join("concurrency.alya");
-    let source = fs::read_to_string(&conc_file)
-        .expect("Failed to read spec/syntax/concurrency.alya");
+    let source =
+        fs::read_to_string(&conc_file).expect("Failed to read spec/syntax/concurrency.alya");
 
     if let Some((code, output)) = run_alya_code_full(&source) {
         println!("Output from concurrency.alya (code={}):\n{}", code, output);
-        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
-        assert!(output.contains("Worker fiber #1 ready") || output.contains("Worker fiber #2 ready"));
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
+        assert!(
+            output.contains("Worker fiber #1 ready") || output.contains("Worker fiber #2 ready")
+        );
         assert!(output.contains("processing job #"));
         assert!(output.contains("completed jobs"));
         assert!(output.contains("Multiplexer received: Packet from Sensor"));
@@ -214,12 +232,16 @@ fn test_golden_spec_concurrency_execution() {
 #[test]
 fn test_golden_spec_interfaces_execution() {
     let iface_file = get_spec_syntax_dir().join("interfaces.alya");
-    let source = fs::read_to_string(&iface_file)
-        .expect("Failed to read spec/syntax/interfaces.alya");
+    let source =
+        fs::read_to_string(&iface_file).expect("Failed to read spec/syntax/interfaces.alya");
 
     if let Some((code, output)) = run_alya_code_full(&source) {
         println!("Output from interfaces.alya (code={}):\n{}", code, output);
-        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
         assert!(output.contains("Area: 78.5397"));
         assert!(output.contains("Perimeter: 31.4159"));
         assert!(output.contains("Area: 40"));
@@ -234,12 +256,15 @@ fn test_golden_spec_interfaces_execution() {
 #[test]
 fn test_golden_spec_generics_execution() {
     let gen_file = get_spec_syntax_dir().join("generics.alya");
-    let source = fs::read_to_string(&gen_file)
-        .expect("Failed to read spec/syntax/generics.alya");
+    let source = fs::read_to_string(&gen_file).expect("Failed to read spec/syntax/generics.alya");
 
     if let Some((code, output)) = run_alya_code_full(&source) {
         println!("Output from generics.alya (code={}):\n{}", code, output);
-        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
         assert!(output.contains("Swapped integers: 200, 100"));
         assert!(output.contains("Swapped strings: Right, Left"));
         assert!(output.contains("Stack size: 3"));
@@ -252,12 +277,15 @@ fn test_golden_spec_generics_execution() {
 #[test]
 fn test_golden_spec_enums_execution() {
     let enums_file = get_spec_syntax_dir().join("enums.alya");
-    let source = fs::read_to_string(&enums_file)
-        .expect("Failed to read spec/syntax/enums.alya");
+    let source = fs::read_to_string(&enums_file).expect("Failed to read spec/syntax/enums.alya");
 
     if let Some((code, output)) = run_alya_code_full(&source) {
         println!("Output from enums.alya (code={}):\n{}", code, output);
-        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
         assert!(output.contains("Heading numeric value: 0"));
         assert!(output.contains("Status: 404"));
         assert!(output.contains("Is success: 0"));
@@ -271,12 +299,19 @@ fn test_golden_spec_enums_execution() {
 #[test]
 fn test_golden_spec_operators_overloading_execution() {
     let file = get_spec_syntax_dir().join("operators_overloading.alya");
-    let source = fs::read_to_string(&file)
-        .expect("Failed to read spec/syntax/operators_overloading.alya");
+    let source =
+        fs::read_to_string(&file).expect("Failed to read spec/syntax/operators_overloading.alya");
 
     if let Some((code, output)) = run_alya_code_full(&source) {
-        println!("Output from operators_overloading.alya (code={}):\n{}", code, output);
-        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        println!(
+            "Output from operators_overloading.alya (code={}):\n{}",
+            code, output
+        );
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
         assert!(output.contains("v1: Vector2D(3, 4)"));
         assert!(output.contains("v2: Vector2D(1, 2)"));
         assert!(output.contains("v1 + v2: Vector2D(4, 6)"));
@@ -296,7 +331,11 @@ fn test_golden_spec_if_execution() {
     let source = fs::read_to_string(&file).expect("Failed to read if.alya");
     if let Some((code, output)) = run_alya_code_full(&source) {
         println!("Output from if.alya (code={}):\n{}", code, output);
-        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
         assert!(output.contains("Warning: High temperature threshold exceeded."));
         assert!(output.contains("Access denied: Redirecting to authentication service."));
         assert!(output.contains("Grade: B (High Pass)"));
@@ -315,8 +354,15 @@ fn test_golden_spec_strings_unicode_execution() {
     let file = get_spec_syntax_dir().join("strings_unicode.alya");
     let source = fs::read_to_string(&file).expect("Failed to read strings_unicode.alya");
     if let Some((code, output)) = run_alya_code_full(&source) {
-        println!("Output from strings_unicode.alya (code={}):\n{}", code, output);
-        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        println!(
+            "Output from strings_unicode.alya (code={}):\n{}",
+            code, output
+        );
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
         assert!(output.contains("Greeting: Merhaba, Dünya! 🚀"));
         assert!(output.contains("Byte length: 21"));
         assert!(output.contains("Rune count: 17"));
@@ -345,7 +391,11 @@ fn test_golden_spec_testing_execution() {
     let source = fs::read_to_string(&file).expect("Failed to read testing.alya");
     if let Some((code, output)) = run_alya_code_full(&source) {
         println!("Output from testing.alya (code={}):\n{}", code, output);
-        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
         assert!(output.contains("Calculated valid discount: 85"));
     }
 }
@@ -356,7 +406,11 @@ fn test_golden_spec_attributes_execution() {
     let source = fs::read_to_string(&file).expect("Failed to read attributes.alya");
     if let Some((code, output)) = run_alya_code_full(&source) {
         println!("Output from attributes.alya (code={}):\n{}", code, output);
-        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
         assert!(output.contains("Running on Microsoft Windows"));
         assert!(output.contains("Size of CCompatibleHeader: 8 bytes"));
         assert!(output.contains("Alignment of CCompatibleHeader: 4 bytes"));
@@ -371,12 +425,18 @@ fn test_golden_spec_lexical_execution() {
 
     if let Some((code, output)) = run_alya_code_full(&source) {
         println!("Output from lexical.alya (code={}):\n{}", code, output);
-        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
         assert!(output.contains("Decimal: 1000000000, Hex: 3405691582, Bin: 240, Oct: 493"));
         assert!(output.contains("Pi: 3.14159, Scientific: 0.000125, Speed of light: 3e+08"));
         assert!(output.contains("User 'Alice' has balance: $158.287 (Tax included)"));
         assert!(output.contains("Literal curly braces: { and } without interpolation"));
-        assert!(output.contains("Windows Path: HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"));
+        assert!(output.contains(
+            "Windows Path: HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"
+        ));
         assert!(output.contains("SELECT u.id, u.username, p.display_name"));
         assert!(output.contains("Rune values: 65, 287, 128640, 8984"));
         assert!(output.contains("Byte char: 88, Magic bytes count: 9"));
@@ -415,13 +475,14 @@ fn test_golden_spec_ffi_execution() {
     let source = fs::read_to_string(&file).expect("Failed to read ffi.alya");
     if let Some((code, output)) = run_alya_code_full(&source) {
         println!("Output from ffi.alya (code={}):\n{}", code, output);
-        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
         assert!(output.contains("FFI: Invoking native C puts directly from Alya"));
         assert!(output.contains("Computed abs(-100) via libc: 100"));
         assert!(output.contains("Cos(45deg) = 0.707107, Sin(45deg) = 0.707107"));
         assert!(output.contains("Scratchpad memory allocated successfully."));
     }
 }
-
-
-

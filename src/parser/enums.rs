@@ -47,9 +47,7 @@ pub fn resolve_enums_in_stmt(stmt: &mut Stmt, enums: &HashMap<String, HashMap<St
     match stmt {
         Stmt::Say(expr) | Stmt::Expr(expr) => resolve_enums_in_expr(expr, enums),
         Stmt::Let {
-            type_ann,
-            value,
-            ..
+            type_ann, value, ..
         } => {
             if type_ann.is_none() {
                 if let Expr::FieldAccess { object, .. } = value {

@@ -466,7 +466,9 @@ impl StructInference {
                     if let Some(st) = self.expr_struct_type(arg, current_fn, struct_names) {
                         let key1 = (effective_name.to_string(), i);
                         let key2 = (bare.to_string(), i);
-                        if self.conflicted_params.contains(&key1) || self.conflicted_params.contains(&key2) {
+                        if self.conflicted_params.contains(&key1)
+                            || self.conflicted_params.contains(&key2)
+                        {
                             // Already marked ambiguous, do not assign
                         } else if let Some(existing) = self.fn_params.get(&key1).cloned() {
                             if existing != st {
@@ -554,8 +556,12 @@ pub fn infer_param_struct_type(
 ) -> Option<String> {
     let inf = StructInference::analyze(program);
     let bare = resolve_func_bare(func_name, &inf.struct_names);
-    if inf.conflicted_params.contains(&(func_name.to_string(), param_idx))
-        || inf.conflicted_params.contains(&(bare.to_string(), param_idx))
+    if inf
+        .conflicted_params
+        .contains(&(func_name.to_string(), param_idx))
+        || inf
+            .conflicted_params
+            .contains(&(bare.to_string(), param_idx))
     {
         return None;
     }

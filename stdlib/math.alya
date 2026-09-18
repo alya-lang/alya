@@ -53,7 +53,6 @@ pub function math__sqrt(x: float) -> float
     return native_sqrt(x)
 end
 
-
 pub function sqrt_f(x) -> float
     return native_sqrt(float(x))
 end
@@ -365,7 +364,6 @@ end
 pub function math__random() -> float
     return random()
 end
-
 
 pub function rand_float() -> float
     return random()

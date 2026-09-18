@@ -399,7 +399,9 @@ impl Parser {
         loop {
             // Check if there are newlines followed immediately by '.' or '?.'
             let mut peek_idx = self.position;
-            while peek_idx < self.tokens.len() && matches!(self.tokens[peek_idx].token_type, TokenType::Newline) {
+            while peek_idx < self.tokens.len()
+                && matches!(self.tokens[peek_idx].token_type, TokenType::Newline)
+            {
                 peek_idx += 1;
             }
             if peek_idx > self.position
@@ -494,7 +496,9 @@ impl Parser {
                     tok => {
                         let s = tok.to_string();
                         let clean = s.trim_matches('\'').to_string();
-                        if !clean.is_empty() && clean.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                        if !clean.is_empty()
+                            && clean.chars().all(|c| c.is_alphanumeric() || c == '_')
+                        {
                             clean
                         } else {
                             return Err(format!(
@@ -666,10 +670,13 @@ impl Parser {
                             Some((name.clone(), type_arg.clone()))
                         }
                         (Expr::Identifier(name), Expr::Array(type_args)) => {
-                            let parts: Vec<String> = type_args.iter().filter_map(|e| match e {
-                                Expr::Identifier(id) => Some(id.clone()),
-                                _ => None,
-                            }).collect();
+                            let parts: Vec<String> = type_args
+                                .iter()
+                                .filter_map(|e| match e {
+                                    Expr::Identifier(id) => Some(id.clone()),
+                                    _ => None,
+                                })
+                                .collect();
                             if parts.len() == type_args.len() && !parts.is_empty() {
                                 Some((name.clone(), parts.join("_")))
                             } else {
@@ -735,7 +742,9 @@ impl Parser {
 
     pub(crate) fn parse_call_argument(&mut self) -> Result<Expr, String> {
         if matches!(self.current_token().token_type, TokenType::Identifier(_))
-            && self.peek_token().map_or(false, |t| t.token_type == TokenType::Colon)
+            && self
+                .peek_token()
+                .map_or(false, |t| t.token_type == TokenType::Colon)
         {
             self.advance(); // consume param name
             self.advance(); // consume ':'
@@ -1043,7 +1052,10 @@ impl Parser {
                 self.advance(); // consume '|'
                 let mut params = Vec::new();
                 let mut param_types = Vec::new();
-                while !matches!(self.current_token().token_type, TokenType::BitOr | TokenType::Eof) {
+                while !matches!(
+                    self.current_token().token_type,
+                    TokenType::BitOr | TokenType::Eof
+                ) {
                     let name = match &self.current_token().token_type {
                         TokenType::Identifier(id) => id.clone(),
                         TokenType::SelfKw => "self".to_string(),
@@ -1219,27 +1231,34 @@ impl Parser {
                                 }
                             };
                             self.advance();
-                            let value_var = if matches!(self.current_token().token_type, TokenType::Comma) {
-                                self.advance();
-                                match &self.current_token().token_type {
-                                    TokenType::Identifier(id) => {
-                                        let v = id.clone();
-                                        self.advance();
-                                        Some(v)
+                            let value_var =
+                                if matches!(self.current_token().token_type, TokenType::Comma) {
+                                    self.advance();
+                                    match &self.current_token().token_type {
+                                        TokenType::Identifier(id) => {
+                                            let v = id.clone();
+                                            self.advance();
+                                            Some(v)
+                                        }
+                                        _ => {
+                                            return Err(
+                                                "Expected identifier after comma in comprehension"
+                                                    .into(),
+                                            )
+                                        }
                                     }
-                                    _ => return Err("Expected identifier after comma in comprehension".into()),
-                                }
-                            } else {
-                                None
-                            };
+                                } else {
+                                    None
+                                };
                             self.expect(TokenType::In)?;
                             let iterable = self.parse_expression()?;
-                            let filter_cond = if matches!(self.current_token().token_type, TokenType::If) {
-                                self.advance();
-                                Some(self.parse_expression()?)
-                            } else {
-                                None
-                            };
+                            let filter_cond =
+                                if matches!(self.current_token().token_type, TokenType::If) {
+                                    self.advance();
+                                    Some(self.parse_expression()?)
+                                } else {
+                                    None
+                                };
                             self.expect(TokenType::RightBracket)?;
 
                             let lambda_name = format!("__alya_comp_arr_{}", self.lambda_counter);
@@ -1459,7 +1478,11 @@ impl Parser {
                                 self.advance();
                                 Some(v)
                             }
-                            _ => return Err("Expected identifier after comma in map comprehension".into()),
+                            _ => {
+                                return Err(
+                                    "Expected identifier after comma in map comprehension".into()
+                                )
+                            }
                         }
                     } else {
                         None
@@ -1636,9 +1659,15 @@ impl Parser {
             self.skip_newlines();
             let mut bool_arms = Vec::new();
             let mut else_expr = None;
-            while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+            while !matches!(
+                self.current_token().token_type,
+                TokenType::End | TokenType::Eof
+            ) {
                 self.skip_newlines();
-                if matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+                if matches!(
+                    self.current_token().token_type,
+                    TokenType::End | TokenType::Eof
+                ) {
                     break;
                 }
                 if matches!(self.current_token().token_type, TokenType::Else) {
@@ -1736,7 +1765,10 @@ impl Parser {
                             patterns.push(WhenPattern::Range(pattern_start, pattern_end));
                         } else if let Expr::Identifier(ref id) = pattern_start {
                             if id.chars().next().map_or(false, |c| c.is_uppercase())
-                                || matches!(id.as_str(), "int" | "float" | "string" | "str" | "bool" | "array" | "map")
+                                || matches!(
+                                    id.as_str(),
+                                    "int" | "float" | "string" | "str" | "bool" | "array" | "map"
+                                )
                             {
                                 patterns.push(WhenPattern::Type(id.clone()));
                             } else {
@@ -1913,7 +1945,10 @@ fn parse_interpolated_string(s: &str) -> Option<Vec<Expr>> {
                                 || (raw_spec.starts_with('0')
                                     && raw_spec.len() > 1
                                     && raw_spec[1..].chars().all(|c| c.is_ascii_digit()))
-                                || matches!(raw_spec, "x" | "#x" | "X" | "#X" | "b" | "#b" | "d" | "s")
+                                || matches!(
+                                    raw_spec,
+                                    "x" | "#x" | "X" | "#X" | "b" | "#b" | "d" | "s"
+                                )
                                 || ((raw_spec.starts_with('>')
                                     || raw_spec.starts_with('<')
                                     || raw_spec.starts_with('^'))

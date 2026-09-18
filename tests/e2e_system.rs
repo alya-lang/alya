@@ -1781,9 +1781,21 @@ run_test()
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(code, 0, "Execution failed: {}", output);
         assert!(output.contains("c.item null: 1"), "Got: {}", output);
-        assert!(output.contains("inside function n rc: 1"), "Got: {}", output);
-        assert!(output.contains("inside function c.item null: 0"), "Got: {}", output);
-        assert!(output.contains("after return c.item null: 1"), "Got: {}", output);
+        assert!(
+            output.contains("inside function n rc: 1"),
+            "Got: {}",
+            output
+        );
+        assert!(
+            output.contains("inside function c.item null: 0"),
+            "Got: {}",
+            output
+        );
+        assert!(
+            output.contains("after return c.item null: 1"),
+            "Got: {}",
+            output
+        );
     }
 }
 
@@ -2015,7 +2027,11 @@ io_print("direct io print")
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(code, 0, "Execution failed: {}", output);
-        assert!(output.contains("io_content: sample io content"), "Got: {}", output);
+        assert!(
+            output.contains("io_content: sample io content"),
+            "Got: {}",
+            output
+        );
         assert!(output.contains("io_len: 17"), "Got: {}", output);
         assert!(output.contains("direct io print"), "Got: {}", output);
     }
@@ -2023,9 +2039,9 @@ io_print("direct io print")
 
 #[test]
 fn test_e2e_phase2_no_std_mode() {
+    use alya::codegen::{generate_with_profile_ext, Architecture, OperatingSystem};
     use alya::lexer::Lexer;
     use alya::parser::{resolve_imports_with_sources_ext, Parser};
-    use alya::codegen::{generate_with_profile_ext, Architecture, OperatingSystem};
 
     // 1. Importing std in no-std mode must fail with diagnostic error
     let invalid_code = "import \"std/math\"\nlet x = 1";
@@ -2036,7 +2052,11 @@ fn test_e2e_phase2_no_std_mode() {
     let res = resolve_imports_with_sources_ext(&mut ast, std::path::Path::new("."), true);
     assert!(res.is_err(), "Importing std in no-std should fail");
     let err_msg = res.unwrap_err();
-    assert!(err_msg.contains("Cannot import 'std/math' in --no-std bare-metal mode"), "Got: {}", err_msg);
+    assert!(
+        err_msg.contains("Cannot import 'std/math' in --no-std bare-metal mode"),
+        "Got: {}",
+        err_msg
+    );
 
     // 2. Codegen with no_std = true must skip runtime emission
     let valid_code = "function main() -> int\n    return 42\nend";
@@ -2044,11 +2064,19 @@ fn test_e2e_phase2_no_std_mode() {
     let tokens2 = lexer2.tokenize().expect("Lexer error");
     let mut parser2 = Parser::new(tokens2);
     let ast2 = parser2.parse().expect("Parser error");
-    let (asm_std, _) = generate_with_profile_ext(&ast2, Architecture::X64, OperatingSystem::Windows, false);
-    let (asm_no_std, _) = generate_with_profile_ext(&ast2, Architecture::X64, OperatingSystem::Windows, true);
+    let (asm_std, _) =
+        generate_with_profile_ext(&ast2, Architecture::X64, OperatingSystem::Windows, false);
+    let (asm_no_std, _) =
+        generate_with_profile_ext(&ast2, Architecture::X64, OperatingSystem::Windows, true);
 
-    assert!(asm_std.contains("fn_ask:"), "Standard codegen should include fn_ask runtime");
-    assert!(!asm_no_std.contains("fn_ask:"), "Bare-metal codegen must not include fn_ask runtime");
+    assert!(
+        asm_std.contains("fn_ask:"),
+        "Standard codegen should include fn_ask runtime"
+    );
+    assert!(
+        !asm_no_std.contains("fn_ask:"),
+        "Bare-metal codegen must not include fn_ask runtime"
+    );
 }
 
 #[test]
@@ -2135,8 +2163,16 @@ ch.free()
         assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
         assert!(output.contains("ch_is_rendezvous: 1"), "Got: {}", output);
         assert!(output.contains("rendezvous_try_send: 0"), "Got: {}", output);
-        assert!(output.contains("rendezvous_recv_val: 999"), "Got: {}", output);
-        assert!(output.contains("rendezvous_send_completed: 1"), "Got: {}", output);
+        assert!(
+            output.contains("rendezvous_recv_val: 999"),
+            "Got: {}",
+            output
+        );
+        assert!(
+            output.contains("rendezvous_send_completed: 1"),
+            "Got: {}",
+            output
+        );
     }
 }
 
@@ -2209,9 +2245,16 @@ inspect_dynamic(p)
         assert!(output.contains("p is Describable: 0"), "Got: {}", output);
         assert!(output.contains("p is not Shape: 1"), "Got: {}", output);
         assert!(output.contains("dynamic: is Shape"), "Got: {}", output);
-        assert!(output.contains("dynamic: is Describable"), "Got: {}", output);
+        assert!(
+            output.contains("dynamic: is Describable"),
+            "Got: {}",
+            output
+        );
         assert!(output.contains("dynamic: not Shape"), "Got: {}", output);
-        assert!(output.contains("dynamic: not Describable"), "Got: {}", output);
+        assert!(
+            output.contains("dynamic: not Describable"),
+            "Got: {}",
+            output
+        );
     }
 }
-

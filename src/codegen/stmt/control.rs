@@ -55,7 +55,11 @@ impl CodeGen {
                         let cand2 = format!("{}__{}{}", bare_sname, "operator", op_sym);
                         self.ctx.functions.contains(&cand1)
                             || self.ctx.functions.contains(&cand2)
-                            || self.ctx.functions.iter().any(|f| f.ends_with(&format!("__{}{}", "operator", op_sym)))
+                            || self
+                                .ctx
+                                .functions
+                                .iter()
+                                .any(|f| f.ends_with(&format!("__{}{}", "operator", op_sym)))
                     } else {
                         false
                     }
@@ -213,7 +217,11 @@ impl CodeGen {
                         let cand2 = format!("{}__{}{}", bare_sname, "operator", op_sym);
                         self.ctx.functions.contains(&cand1)
                             || self.ctx.functions.contains(&cand2)
-                            || self.ctx.functions.iter().any(|f| f.ends_with(&format!("__{}{}", "operator", op_sym)))
+                            || self
+                                .ctx
+                                .functions
+                                .iter()
+                                .any(|f| f.ends_with(&format!("__{}{}", "operator", op_sym)))
                     } else {
                         false
                     }
@@ -610,11 +618,21 @@ impl CodeGen {
                 Architecture::X86 => {
                     arch::emit_load_num(&mut self.output, self.arch, 5000);
                     arch::emit_push_temp(&mut self.output, self.arch);
-                    arch::emit_load_var(&mut self.output, self.arch, ch_offset, initial_stack_offset + 4);
+                    arch::emit_load_var(
+                        &mut self.output,
+                        self.arch,
+                        ch_offset,
+                        initial_stack_offset + 4,
+                    );
                     arch::emit_push_temp(&mut self.output, self.arch);
                 }
                 _ => {
-                    arch::emit_load_var(&mut self.output, self.arch, ch_offset, initial_stack_offset);
+                    arch::emit_load_var(
+                        &mut self.output,
+                        self.arch,
+                        ch_offset,
+                        initial_stack_offset,
+                    );
                     arch::emit_push_temp(&mut self.output, self.arch);
                     arch::emit_load_num(&mut self.output, self.arch, 5000);
                     arch::emit_push_temp(&mut self.output, self.arch);
@@ -647,7 +665,12 @@ impl CodeGen {
                 &end_label,
             );
 
-            arch::emit_store_var(&mut self.output, self.arch, var_offset, self.ctx.stack_offset);
+            arch::emit_store_var(
+                &mut self.output,
+                self.arch,
+                var_offset,
+                self.ctx.stack_offset,
+            );
 
             for s in body {
                 self.generate_statement(s);

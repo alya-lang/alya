@@ -686,7 +686,6 @@ pub function str__base64_decode(s: string) -> string
     return base64_decode(s)
 end
 
-
 pub function is_base64(s: string) -> int
     let slen: int = len(s)
     if slen == 0 or slen % 4 != 0

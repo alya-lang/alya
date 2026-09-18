@@ -122,7 +122,6 @@ pub function os__getenv(key: string)
     return getenv(key)
 end
 
-
 pub function set_cwd(path: string) -> int
     return __native_set_cwd(path)
 end

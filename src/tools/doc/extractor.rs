@@ -180,10 +180,15 @@ pub fn extract_module_docs(source: &str, file_path: &str) -> DocModule {
                 };
 
                 // Check if this is a method: e.g. "Point.distance" or "Point__distance"
-                if let Some((st_name, m_name)) = name.split_once('.').or_else(|| name.split_once("__")) {
+                if let Some((st_name, m_name)) =
+                    name.split_once('.').or_else(|| name.split_once("__"))
+                {
                     let mut m_fn = doc_fn.clone();
                     m_fn.name = m_name.to_string();
-                    struct_methods.entry(st_name.to_string()).or_default().push(m_fn);
+                    struct_methods
+                        .entry(st_name.to_string())
+                        .or_default()
+                        .push(m_fn);
                 } else {
                     standalone_functions.push(doc_fn);
                 }

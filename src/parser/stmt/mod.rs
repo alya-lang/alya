@@ -44,13 +44,19 @@ impl Parser {
             TokenType::Assert => self.parse_assert(),
             TokenType::Test
                 if self.fn_depth == 0
-                    && !matches!(self.peek_token().map(|t| &t.token_type), Some(TokenType::Dot)) =>
+                    && !matches!(
+                        self.peek_token().map(|t| &t.token_type),
+                        Some(TokenType::Dot)
+                    ) =>
             {
                 self.parse_test_or_bench(false)
             }
             TokenType::Bench
                 if self.fn_depth == 0
-                    && !matches!(self.peek_token().map(|t| &t.token_type), Some(TokenType::Dot)) =>
+                    && !matches!(
+                        self.peek_token().map(|t| &t.token_type),
+                        Some(TokenType::Dot)
+                    ) =>
             {
                 self.parse_test_or_bench(true)
             }
@@ -58,11 +64,9 @@ impl Parser {
             TokenType::Interface => self.parse_interface(),
             TokenType::Spawn => self.parse_spawn(),
             TokenType::Select => self.parse_select(),
-            TokenType::Identifier(_)
-            | TokenType::SelfKw
-            | TokenType::Test
-            | TokenType::Bench => {
-                if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "guard") {
+            TokenType::Identifier(_) | TokenType::SelfKw | TokenType::Test | TokenType::Bench => {
+                if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "guard")
+                {
                     return self.parse_guard();
                 }
 
@@ -547,7 +551,10 @@ impl Parser {
         let name_expr = self.parse_expression()?;
         self.skip_newlines();
         let mut body = Vec::new();
-        while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+        while !matches!(
+            self.current_token().token_type,
+            TokenType::End | TokenType::Eof
+        ) {
             body.extend(self.parse_statement()?);
             self.skip_newlines();
         }
@@ -558,7 +565,11 @@ impl Parser {
                 .chars()
                 .map(|c| if c.is_alphanumeric() { c } else { '_' })
                 .collect::<String>(),
-            _ => format!("{}_{}", self.current_token().line, self.current_token().column),
+            _ => format!(
+                "{}_{}",
+                self.current_token().line,
+                self.current_token().column
+            ),
         };
         let fn_stmt = Stmt::Function {
             name: format!("{}{}", prefix, clean_name),
@@ -577,8 +588,15 @@ impl Parser {
         if tokens.is_empty() {
             return true;
         }
-        if let Some(crate::lexer::Token { token_type: TokenType::Identifier(ref id), .. }) = tokens.first() {
-            if id == "not" && tokens.len() >= 3 && matches!(tokens[1].token_type, TokenType::LeftParen) {
+        if let Some(crate::lexer::Token {
+            token_type: TokenType::Identifier(ref id),
+            ..
+        }) = tokens.first()
+        {
+            if id == "not"
+                && tokens.len() >= 3
+                && matches!(tokens[1].token_type, TokenType::LeftParen)
+            {
                 let inner = &tokens[2..tokens.len().saturating_sub(1)];
                 return !Self::evaluate_cfg_tokens(inner);
             }
@@ -752,27 +770,38 @@ impl Parser {
         let mut timeout_clause: Option<(Expr, Vec<Stmt>)> = None;
         let mut else_clause: Option<Vec<Stmt>> = None;
 
-        while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+        while !matches!(
+            self.current_token().token_type,
+            TokenType::End | TokenType::Eof
+        ) {
             self.skip_newlines();
-            if matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+            if matches!(
+                self.current_token().token_type,
+                TokenType::End | TokenType::Eof
+            ) {
                 break;
             }
 
-            if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "case") {
+            if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "case")
+            {
                 self.advance(); // consume 'case'
-                let var_name = if matches!(self.current_token().token_type, TokenType::Identifier(_))
-                    && matches!(self.peek_token().map(|t| &t.token_type), Some(TokenType::Assign))
-                {
-                    let name = match &self.current_token().token_type {
-                        TokenType::Identifier(s) => s.clone(),
-                        _ => unreachable!(),
+                let var_name =
+                    if matches!(self.current_token().token_type, TokenType::Identifier(_))
+                        && matches!(
+                            self.peek_token().map(|t| &t.token_type),
+                            Some(TokenType::Assign)
+                        )
+                    {
+                        let name = match &self.current_token().token_type {
+                            TokenType::Identifier(s) => s.clone(),
+                            _ => unreachable!(),
+                        };
+                        self.advance(); // identifier
+                        self.advance(); // '='
+                        Some(name)
+                    } else {
+                        None
                     };
-                    self.advance(); // identifier
-                    self.advance(); // '='
-                    Some(name)
-                } else {
-                    None
-                };
 
                 let mut ch_op = self.parse_expression()?;
                 if let Expr::Call { ref mut name, .. } = ch_op {
@@ -787,15 +816,21 @@ impl Parser {
                     self.current_token().token_type,
                     TokenType::End | TokenType::Else | TokenType::Eof
                 ) {
-                    if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "case" || s == "timeout") {
+                    if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "case" || s == "timeout")
+                    {
                         break;
                     }
                     body.extend(self.parse_statement()?);
                     self.skip_newlines();
                 }
 
-                cases.push(SelectCase { var_name, ch_op, body });
-            } else if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "timeout") {
+                cases.push(SelectCase {
+                    var_name,
+                    ch_op,
+                    body,
+                });
+            } else if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "timeout")
+            {
                 self.advance(); // consume 'timeout'
                 let timeout_expr = self.parse_expression()?;
                 self.skip_newlines();
@@ -805,7 +840,8 @@ impl Parser {
                     self.current_token().token_type,
                     TokenType::End | TokenType::Else | TokenType::Eof
                 ) {
-                    if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "case" || s == "timeout") {
+                    if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "case" || s == "timeout")
+                    {
                         break;
                     }
                     body.extend(self.parse_statement()?);
@@ -818,7 +854,10 @@ impl Parser {
                 self.skip_newlines();
 
                 let mut body = Vec::new();
-                while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+                while !matches!(
+                    self.current_token().token_type,
+                    TokenType::End | TokenType::Eof
+                ) {
                     body.extend(self.parse_statement()?);
                     self.skip_newlines();
                 }
@@ -985,7 +1024,10 @@ impl Parser {
             self.expect(TokenType::Else)?;
             self.skip_newlines();
             let mut else_stmts = Vec::new();
-            while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+            while !matches!(
+                self.current_token().token_type,
+                TokenType::End | TokenType::Eof
+            ) {
                 else_stmts.extend(self.parse_statement()?);
                 self.skip_newlines();
             }
@@ -1011,7 +1053,10 @@ impl Parser {
             self.expect(TokenType::Else)?;
             self.skip_newlines();
             let mut else_stmts = Vec::new();
-            while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+            while !matches!(
+                self.current_token().token_type,
+                TokenType::End | TokenType::Eof
+            ) {
                 else_stmts.extend(self.parse_statement()?);
                 self.skip_newlines();
             }

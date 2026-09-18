@@ -484,8 +484,6 @@ pub function Arena.destroy(self) arena_free(self) end
 pub function Arena.total_allocated(self) return arena_total_allocated(self) end
 pub function Arena.is_valid(self) return arena_is_valid(self) end
 
-
-
 # ByteBuffer Methods
 pub function ByteBuffer.write_byte(self, val) buffer_write_byte(self, val) end
 pub function ByteBuffer.read_byte(self, offset) return buffer_read_byte(self, offset) end

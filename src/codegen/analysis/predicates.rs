@@ -113,7 +113,8 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "format_binary"
                     | "to_string"
                     | "typeof"
-            ) || bare.starts_with("__alya_format:") {
+            ) || bare.starts_with("__alya_format:")
+            {
                 return true;
             }
             if matches!(
@@ -273,9 +274,13 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             },
             vars,
         ),
-        Expr::Cast { expr: inner, target } => {
+        Expr::Cast {
+            expr: inner,
+            target,
+        } => {
             let t = target.to_lowercase();
-            if t == "int" || t == "i64" || t == "float" || t == "f64" || t == "bool" || t == "rune" {
+            if t == "int" || t == "i64" || t == "float" || t == "f64" || t == "bool" || t == "rune"
+            {
                 false
             } else {
                 t == "string" || t == "str" || is_string_expr(inner, vars)
@@ -718,11 +723,20 @@ pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             },
             vars,
         ),
-        Expr::Cast { expr: inner, target } => {
+        Expr::Cast {
+            expr: inner,
+            target,
+        } => {
             let t = target.to_lowercase();
             if t == "float" || t == "f64" || t == "f32" {
                 true
-            } else if t == "int" || t == "i64" || t == "i32" || t == "usize" || t == "str" || t == "string" {
+            } else if t == "int"
+                || t == "i64"
+                || t == "i32"
+                || t == "usize"
+                || t == "str"
+                || t == "string"
+            {
                 false
             } else {
                 is_float_expr(inner, vars)

@@ -13,78 +13,72 @@ impl CodeGen {
         let name = name.to_string();
         if self.ctx.current_fn_name.is_empty() {
             if let Some((symbol, sname)) = self.ctx.globals.get(&name).cloned() {
-            self.generate_expression(value);
-            if self.is_heap_expression(value) {
-                arch::emit_rc_retain(
-                    &mut self.output,
-                    self.arch,
-                    self.ctx.stack_offset,
-                    self.os,
-                );
-            }
-            arch::emit_store_global(&mut self.output, self.arch, &symbol, self.os);
-            if let Some(sn) = sname {
-                self.ctx
-                    .variables
-                    .insert(name.clone(), VarType::Struct { struct_name: sn, offset: 0 });
-            } else if is_string_expr(value, &self.ctx.variables) {
-                self.ctx
-                    .variables
-                    .insert(name.clone(), VarType::StringOffset(0));
-            } else if is_float_expr(value, &self.ctx.variables) {
-                self.ctx
-                    .variables
-                    .insert(name.clone(), VarType::Float(0));
-            } else {
-                self.ctx
-                    .variables
-                    .insert(name.clone(), VarType::Number(0));
-            }
-            if let Some(t) = type_ann {
-                if t.starts_with("Channel[string]") || t.starts_with("Channel[str]") {
-                    self.ctx.variables.insert(format!("channel_elem_str:{}", name), VarType::Number(0));
+                self.generate_expression(value);
+                if self.is_heap_expression(value) {
+                    arch::emit_rc_retain(
+                        &mut self.output,
+                        self.arch,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
                 }
-            }
-            if let Expr::Call { name: cname, args: cargs } = value {
-                let bare = cname.rsplit("::").next().unwrap_or(cname.as_str());
-                let bare = bare.rsplit("__").next().unwrap_or(bare);
-                if bare == "new" {
-                    if let Some(Expr::Index { array, index }) = cargs.first() {
-                        if let (Expr::Identifier(arr_id), Expr::Identifier(type_id)) = (&**array, &**index) {
-                            if arr_id == "Channel" && (type_id == "string" || type_id == "str") {
-                                self.ctx.variables.insert(format!("channel_elem_str:{}", name), VarType::Number(0));
+                arch::emit_store_global(&mut self.output, self.arch, &symbol, self.os);
+                if let Some(sn) = sname {
+                    self.ctx.variables.insert(
+                        name.clone(),
+                        VarType::Struct {
+                            struct_name: sn,
+                            offset: 0,
+                        },
+                    );
+                } else if is_string_expr(value, &self.ctx.variables) {
+                    self.ctx
+                        .variables
+                        .insert(name.clone(), VarType::StringOffset(0));
+                } else if is_float_expr(value, &self.ctx.variables) {
+                    self.ctx.variables.insert(name.clone(), VarType::Float(0));
+                } else {
+                    self.ctx.variables.insert(name.clone(), VarType::Number(0));
+                }
+                if let Some(t) = type_ann {
+                    if t.starts_with("Channel[string]") || t.starts_with("Channel[str]") {
+                        self.ctx
+                            .variables
+                            .insert(format!("channel_elem_str:{}", name), VarType::Number(0));
+                    }
+                }
+                if let Expr::Call {
+                    name: cname,
+                    args: cargs,
+                } = value
+                {
+                    let bare = cname.rsplit("::").next().unwrap_or(cname.as_str());
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    if bare == "new" {
+                        if let Some(Expr::Index { array, index }) = cargs.first() {
+                            if let (Expr::Identifier(arr_id), Expr::Identifier(type_id)) =
+                                (&**array, &**index)
+                            {
+                                if arr_id == "Channel" && (type_id == "string" || type_id == "str")
+                                {
+                                    self.ctx.variables.insert(
+                                        format!("channel_elem_str:{}", name),
+                                        VarType::Number(0),
+                                    );
+                                }
                             }
                         }
                     }
                 }
-            }
-            if let Expr::Array(elems) = value {
-                for (i, elem) in elems.iter().enumerate() {
-                    if is_string_expr(elem, &self.ctx.variables) {
-                        self.ctx.variables.insert(
-                            format!("tuple_elem_str:{}:{}", name, i),
-                            VarType::StringOffset(0),
-                        );
-                    }
-                    if is_float_expr(elem, &self.ctx.variables) {
-                        self.ctx.variables.insert(
-                            format!("tuple_elem_flt:{}:{}", name, i),
-                            VarType::Float(0),
-                        );
-                    }
-                }
-            }
-            if let Some(ann) = type_ann {
-                let ann = ann.trim();
-                if ann.starts_with('(') && ann.ends_with(')') {
-                    for (i, ty) in ann[1..ann.len() - 1].split(',').enumerate() {
-                        let ty = ty.trim();
-                        if ty == "string" || ty == "str" {
+                if let Expr::Array(elems) = value {
+                    for (i, elem) in elems.iter().enumerate() {
+                        if is_string_expr(elem, &self.ctx.variables) {
                             self.ctx.variables.insert(
                                 format!("tuple_elem_str:{}:{}", name, i),
                                 VarType::StringOffset(0),
                             );
-                        } else if ty == "float" || ty == "f64" || ty == "f32" {
+                        }
+                        if is_float_expr(elem, &self.ctx.variables) {
                             self.ctx.variables.insert(
                                 format!("tuple_elem_flt:{}:{}", name, i),
                                 VarType::Float(0),
@@ -92,10 +86,28 @@ impl CodeGen {
                         }
                     }
                 }
+                if let Some(ann) = type_ann {
+                    let ann = ann.trim();
+                    if ann.starts_with('(') && ann.ends_with(')') {
+                        for (i, ty) in ann[1..ann.len() - 1].split(',').enumerate() {
+                            let ty = ty.trim();
+                            if ty == "string" || ty == "str" {
+                                self.ctx.variables.insert(
+                                    format!("tuple_elem_str:{}:{}", name, i),
+                                    VarType::StringOffset(0),
+                                );
+                            } else if ty == "float" || ty == "f64" || ty == "f32" {
+                                self.ctx.variables.insert(
+                                    format!("tuple_elem_flt:{}:{}", name, i),
+                                    VarType::Float(0),
+                                );
+                            }
+                        }
+                    }
+                }
+                return;
             }
-            return;
         }
-    }
         match value {
             Expr::Null => {
                 self.generate_expression(value);
@@ -180,10 +192,9 @@ impl CodeGen {
                         );
                     }
                     if is_float_expr(elem, &self.ctx.variables) {
-                        self.ctx.variables.insert(
-                            format!("tuple_elem_flt:{}:{}", name, i),
-                            VarType::Float(0),
-                        );
+                        self.ctx
+                            .variables
+                            .insert(format!("tuple_elem_flt:{}:{}", name, i), VarType::Float(0));
                     }
                 }
                 if let Some(ann) = type_ann {
@@ -404,7 +415,9 @@ impl CodeGen {
                 };
                 let is_enum = is_enum_from_ann.or_else(|| match value {
                     Expr::Identifier(ident) => {
-                        if let Some(VarType::StringLabel(ename)) = self.ctx.variables.get(&format!("var_enum_type:{}", ident)) {
+                        if let Some(VarType::StringLabel(ename)) =
+                            self.ctx.variables.get(&format!("var_enum_type:{}", ident))
+                        {
                             Some(ename.clone())
                         } else {
                             None
@@ -588,17 +601,29 @@ impl CodeGen {
 
                 if let Some(t) = type_ann {
                     if t.starts_with("Channel[string]") || t.starts_with("Channel[str]") {
-                        self.ctx.variables.insert(format!("channel_elem_str:{}", name), VarType::Number(0));
+                        self.ctx
+                            .variables
+                            .insert(format!("channel_elem_str:{}", name), VarType::Number(0));
                     }
                 }
-                if let Expr::Call { name: cname, args: cargs } = value {
+                if let Expr::Call {
+                    name: cname,
+                    args: cargs,
+                } = value
+                {
                     let bare = cname.rsplit("::").next().unwrap_or(cname.as_str());
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
                     if bare == "new" {
                         if let Some(Expr::Index { array, index }) = cargs.first() {
-                            if let (Expr::Identifier(arr_id), Expr::Identifier(type_id)) = (&**array, &**index) {
-                                if arr_id == "Channel" && (type_id == "string" || type_id == "str") {
-                                    self.ctx.variables.insert(format!("channel_elem_str:{}", name), VarType::Number(0));
+                            if let (Expr::Identifier(arr_id), Expr::Identifier(type_id)) =
+                                (&**array, &**index)
+                            {
+                                if arr_id == "Channel" && (type_id == "string" || type_id == "str")
+                                {
+                                    self.ctx.variables.insert(
+                                        format!("channel_elem_str:{}", name),
+                                        VarType::Number(0),
+                                    );
                                 }
                             }
                         }
@@ -975,7 +1000,11 @@ impl CodeGen {
             } else if self.ctx.functions.contains(&cand2) {
                 Some(cand2)
             } else {
-                self.ctx.functions.iter().find(|f| f.ends_with("__operator[]=")).cloned()
+                self.ctx
+                    .functions
+                    .iter()
+                    .find(|f| f.ends_with("__operator[]="))
+                    .cloned()
             };
             if let Some(call_name) = matched {
                 self.generate_expression(&Expr::Call {

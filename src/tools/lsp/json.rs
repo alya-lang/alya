@@ -65,7 +65,13 @@ impl JsonValue {
     pub fn to_string(&self) -> String {
         match self {
             JsonValue::Null => "null".to_string(),
-            JsonValue::Bool(b) => if *b { "true".to_string() } else { "false".to_string() },
+            JsonValue::Bool(b) => {
+                if *b {
+                    "true".to_string()
+                } else {
+                    "false".to_string()
+                }
+            }
             JsonValue::Number(n) => {
                 if n.fract() == 0.0 {
                     format!("{}", *n as i64)
@@ -138,7 +144,10 @@ fn parse_value(chars: &[char], idx: &mut usize) -> Result<JsonValue, String> {
         '[' => parse_array(chars, idx),
         '{' => parse_object(chars, idx),
         '-' | '0'..='9' => parse_number(chars, idx),
-        other => Err(format!("Unexpected character '{}' at offset {}", other, *idx)),
+        other => Err(format!(
+            "Unexpected character '{}' at offset {}",
+            other, *idx
+        )),
     }
 }
 
@@ -263,7 +272,10 @@ fn parse_array(chars: &[char], idx: &mut usize) -> Result<JsonValue, String> {
         if chars[*idx] == ',' {
             *idx += 1;
         } else {
-            return Err(format!("Expected ',' or ']' in array, got '{}'", chars[*idx]));
+            return Err(format!(
+                "Expected ',' or ']' in array, got '{}'",
+                chars[*idx]
+            ));
         }
     }
 
@@ -304,7 +316,10 @@ fn parse_object(chars: &[char], idx: &mut usize) -> Result<JsonValue, String> {
         if chars[*idx] == ',' {
             *idx += 1;
         } else {
-            return Err(format!("Expected ',' or '}}' in object, got '{}'", chars[*idx]));
+            return Err(format!(
+                "Expected ',' or '}}' in object, got '{}'",
+                chars[*idx]
+            ));
         }
     }
 

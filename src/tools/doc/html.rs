@@ -6,7 +6,10 @@ pub fn generate_html(module: &DocModule) -> String {
     html.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n");
     html.push_str("<meta charset=\"UTF-8\">\n");
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
-    html.push_str(&format!("<title>Module {} - Alya Docs</title>\n", escape_html(&module.name)));
+    html.push_str(&format!(
+        "<title>Module {} - Alya Docs</title>\n",
+        escape_html(&module.name)
+    ));
     html.push_str(r#"<style>
 :root {
   --bg: #0f172a;
@@ -138,7 +141,11 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
     if !module.constants.is_empty() {
         html.push_str("<div class=\"nav-group\"><p><strong>Constants</strong></p><ul>\n");
         for c in &module.constants {
-            html.push_str(&format!("<li class=\"nav-item\"><a href=\"#c-{}\">{}</a></li>\n", escape_html(&c.name), escape_html(&c.name)));
+            html.push_str(&format!(
+                "<li class=\"nav-item\"><a href=\"#c-{}\">{}</a></li>\n",
+                escape_html(&c.name),
+                escape_html(&c.name)
+            ));
         }
         html.push_str("</ul></div>\n");
     }
@@ -146,7 +153,11 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
     if !module.interfaces.is_empty() {
         html.push_str("<div class=\"nav-group\"><p><strong>Interfaces</strong></p><ul>\n");
         for iface in &module.interfaces {
-            html.push_str(&format!("<li class=\"nav-item\"><a href=\"#if-{}\">{}</a></li>\n", escape_html(&iface.name), escape_html(&iface.name)));
+            html.push_str(&format!(
+                "<li class=\"nav-item\"><a href=\"#if-{}\">{}</a></li>\n",
+                escape_html(&iface.name),
+                escape_html(&iface.name)
+            ));
         }
         html.push_str("</ul></div>\n");
     }
@@ -154,7 +165,11 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
     if !module.structs.is_empty() {
         html.push_str("<div class=\"nav-group\"><p><strong>Structs</strong></p><ul>\n");
         for st in &module.structs {
-            html.push_str(&format!("<li class=\"nav-item\"><a href=\"#st-{}\">{}</a></li>\n", escape_html(&st.name), escape_html(&st.name)));
+            html.push_str(&format!(
+                "<li class=\"nav-item\"><a href=\"#st-{}\">{}</a></li>\n",
+                escape_html(&st.name),
+                escape_html(&st.name)
+            ));
         }
         html.push_str("</ul></div>\n");
     }
@@ -162,7 +177,11 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
     if !module.enums.is_empty() {
         html.push_str("<div class=\"nav-group\"><p><strong>Enums</strong></p><ul>\n");
         for e in &module.enums {
-            html.push_str(&format!("<li class=\"nav-item\"><a href=\"#en-{}\">{}</a></li>\n", escape_html(&e.name), escape_html(&e.name)));
+            html.push_str(&format!(
+                "<li class=\"nav-item\"><a href=\"#en-{}\">{}</a></li>\n",
+                escape_html(&e.name),
+                escape_html(&e.name)
+            ));
         }
         html.push_str("</ul></div>\n");
     }
@@ -170,7 +189,11 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
     if !module.functions.is_empty() {
         html.push_str("<div class=\"nav-group\"><p><strong>Functions</strong></p><ul>\n");
         for f in &module.functions {
-            html.push_str(&format!("<li class=\"nav-item\"><a href=\"#fn-{}\">{}()</a></li>\n", escape_html(&f.name), escape_html(&f.name)));
+            html.push_str(&format!(
+                "<li class=\"nav-item\"><a href=\"#fn-{}\">{}()</a></li>\n",
+                escape_html(&f.name),
+                escape_html(&f.name)
+            ));
         }
         html.push_str("</ul></div>\n");
     }
@@ -178,7 +201,10 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
 
     // Main content
     html.push_str("<main>\n");
-    html.push_str(&format!("<h1>Module <code>{}</code></h1>\n", escape_html(&module.name)));
+    html.push_str(&format!(
+        "<h1>Module <code>{}</code></h1>\n",
+        escape_html(&module.name)
+    ));
     if !module.description.is_empty() {
         html.push_str(&render_markdown_html(&module.description));
     }
@@ -187,13 +213,20 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
     if !module.constants.is_empty() {
         html.push_str("<h2>Constants</h2>\n");
         for c in &module.constants {
-            html.push_str(&format!("<div class=\"card doc-item\" id=\"c-{}\">\n", escape_html(&c.name)));
+            html.push_str(&format!(
+                "<div class=\"card doc-item\" id=\"c-{}\">\n",
+                escape_html(&c.name)
+            ));
             if c.is_pub {
                 html.push_str("<span class=\"badge badge-pub\">pub</span>");
             }
             html.push_str("<span class=\"badge badge-kind\">const</span>");
             html.push_str(&format!("<h3>{}</h3>\n", escape_html(&c.name)));
-            html.push_str(&format!("<pre><code>const {} = {}</code></pre>\n", escape_html(&c.name), escape_html(&c.value)));
+            html.push_str(&format!(
+                "<pre><code>const {} = {}</code></pre>\n",
+                escape_html(&c.name),
+                escape_html(&c.value)
+            ));
             if !c.doc.is_empty() {
                 html.push_str(&render_markdown_html(&c.doc));
             }
@@ -205,7 +238,10 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
     if !module.interfaces.is_empty() {
         html.push_str("<h2>Interfaces</h2>\n");
         for iface in &module.interfaces {
-            html.push_str(&format!("<div class=\"card doc-item\" id=\"if-{}\">\n", escape_html(&iface.name)));
+            html.push_str(&format!(
+                "<div class=\"card doc-item\" id=\"if-{}\">\n",
+                escape_html(&iface.name)
+            ));
             if iface.is_pub {
                 html.push_str("<span class=\"badge badge-pub\">pub</span>");
             }
@@ -217,15 +253,24 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
             if !iface.methods.is_empty() {
                 html.push_str("<h4>Methods</h4><ul>\n");
                 for m in &iface.methods {
-                    let param_str: Vec<String> = m.params.iter().map(|p| {
-                        if let Some(ref ty) = p.type_ann {
-                            format!("{}: {}", p.name, ty)
-                        } else {
-                            p.name.clone()
-                        }
-                    }).collect();
+                    let param_str: Vec<String> = m
+                        .params
+                        .iter()
+                        .map(|p| {
+                            if let Some(ref ty) = p.type_ann {
+                                format!("{}: {}", p.name, ty)
+                            } else {
+                                p.name.clone()
+                            }
+                        })
+                        .collect();
                     let ret = m.return_type.as_deref().unwrap_or("void");
-                    html.push_str(&format!("<li><code>function {}({}) -> {}</code></li>\n", escape_html(&m.name), escape_html(&param_str.join(", ")), escape_html(ret)));
+                    html.push_str(&format!(
+                        "<li><code>function {}({}) -> {}</code></li>\n",
+                        escape_html(&m.name),
+                        escape_html(&param_str.join(", ")),
+                        escape_html(ret)
+                    ));
                 }
                 html.push_str("</ul>\n");
             }
@@ -237,7 +282,10 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
     if !module.structs.is_empty() {
         html.push_str("<h2>Structs</h2>\n");
         for st in &module.structs {
-            html.push_str(&format!("<div class=\"card doc-item\" id=\"st-{}\">\n", escape_html(&st.name)));
+            html.push_str(&format!(
+                "<div class=\"card doc-item\" id=\"st-{}\">\n",
+                escape_html(&st.name)
+            ));
             if st.is_pub {
                 html.push_str("<span class=\"badge badge-pub\">pub</span>");
             }
@@ -258,7 +306,10 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
             if !st.methods.is_empty() {
                 html.push_str("<h4>Methods</h4>\n");
                 for m in &st.methods {
-                    html.push_str(&format!("<pre><code>{}</code></pre>\n", escape_html(&m.signature)));
+                    html.push_str(&format!(
+                        "<pre><code>{}</code></pre>\n",
+                        escape_html(&m.signature)
+                    ));
                     if !m.doc.is_empty() {
                         html.push_str(&render_markdown_html(&m.doc));
                     }
@@ -272,7 +323,10 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
     if !module.enums.is_empty() {
         html.push_str("<h2>Enums</h2>\n");
         for e in &module.enums {
-            html.push_str(&format!("<div class=\"card doc-item\" id=\"en-{}\">\n", escape_html(&e.name)));
+            html.push_str(&format!(
+                "<div class=\"card doc-item\" id=\"en-{}\">\n",
+                escape_html(&e.name)
+            ));
             if e.is_pub {
                 html.push_str("<span class=\"badge badge-pub\">pub</span>");
             }
@@ -281,10 +335,16 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
             if !e.doc.is_empty() {
                 html.push_str(&render_markdown_html(&e.doc));
             }
-            html.push_str("<table>\n<thead><tr><th>Variant</th><th>Value</th></tr></thead>\n<tbody>\n");
+            html.push_str(
+                "<table>\n<thead><tr><th>Variant</th><th>Value</th></tr></thead>\n<tbody>\n",
+            );
             for v in &e.variants {
                 let val = v.value.as_deref().unwrap_or("-");
-                html.push_str(&format!("<tr><td><code>{}</code></td><td><code>{}</code></td></tr>\n", escape_html(&v.name), escape_html(val)));
+                html.push_str(&format!(
+                    "<tr><td><code>{}</code></td><td><code>{}</code></td></tr>\n",
+                    escape_html(&v.name),
+                    escape_html(val)
+                ));
             }
             html.push_str("</tbody></table>\n");
             html.push_str("</div>\n");
@@ -295,13 +355,19 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
     if !module.functions.is_empty() {
         html.push_str("<h2>Functions</h2>\n");
         for f in &module.functions {
-            html.push_str(&format!("<div class=\"card doc-item\" id=\"fn-{}\">\n", escape_html(&f.name)));
+            html.push_str(&format!(
+                "<div class=\"card doc-item\" id=\"fn-{}\">\n",
+                escape_html(&f.name)
+            ));
             if f.is_pub {
                 html.push_str("<span class=\"badge badge-pub\">pub</span>");
             }
             html.push_str("<span class=\"badge badge-kind\">function</span>");
             html.push_str(&format!("<h3>{}</h3>\n", escape_html(&f.name)));
-            html.push_str(&format!("<pre><code>{}</code></pre>\n", escape_html(&f.signature)));
+            html.push_str(&format!(
+                "<pre><code>{}</code></pre>\n",
+                escape_html(&f.signature)
+            ));
             if !f.doc.is_empty() {
                 html.push_str(&render_markdown_html(&f.doc));
             }
@@ -315,7 +381,10 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
                 html.push_str("</tbody></table>\n");
             }
             if let Some(ref ret) = f.return_type {
-                html.push_str(&format!("<p><strong>Returns:</strong> <code>{}</code></p>\n", escape_html(ret)));
+                html.push_str(&format!(
+                    "<p><strong>Returns:</strong> <code>{}</code></p>\n",
+                    escape_html(ret)
+                ));
             }
             html.push_str("</div>\n");
         }
@@ -324,7 +393,8 @@ th { background: rgba(0, 0, 0, 0.2); color: var(--accent); font-weight: 600; }
     html.push_str("</main>\n");
 
     // Filter script
-    html.push_str(r#"<script>
+    html.push_str(
+        r#"<script>
 function filterSymbols() {
   const q = document.getElementById('search').value.toLowerCase();
   document.querySelectorAll('.nav-item').forEach(el => {
@@ -339,7 +409,8 @@ function filterSymbols() {
 </script>
 </body>
 </html>
-"#);
+"#,
+    );
 
     html
 }

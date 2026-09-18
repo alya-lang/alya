@@ -113,7 +113,8 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
                     | "format_binary"
                     | "to_string"
                     | "typeof"
-            ) || bare.starts_with("__alya_format:") {
+            ) || bare.starts_with("__alya_format:")
+            {
                 return true;
             }
             if matches!(

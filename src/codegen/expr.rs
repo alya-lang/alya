@@ -258,7 +258,11 @@ impl CodeGen {
                         } else if self.ctx.functions.contains(&cand2) {
                             Some(cand2.clone())
                         } else {
-                            self.ctx.functions.iter().find(|f| f.ends_with(&format!("__{}{}", "operator", op_sym))).cloned()
+                            self.ctx
+                                .functions
+                                .iter()
+                                .find(|f| f.ends_with(&format!("__{}{}", "operator", op_sym)))
+                                .cloned()
                         };
                         if let Some(call_name) = matched {
                             self.generate_expression(&Expr::Call {
@@ -417,7 +421,11 @@ impl CodeGen {
                         } else if self.ctx.functions.contains(&cand2) {
                             Some(cand2)
                         } else {
-                            self.ctx.functions.iter().find(|f| f.ends_with("__operator-neg")).cloned()
+                            self.ctx
+                                .functions
+                                .iter()
+                                .find(|f| f.ends_with("__operator-neg"))
+                                .cloned()
                         };
                         if let Some(call_name) = matched {
                             self.generate_expression(&Expr::Call {
@@ -617,7 +625,10 @@ impl CodeGen {
                     return;
                 }
 
-                if name == "assert_eq" && (args.len() == 2 || args.len() == 3) && !self.ctx.functions.contains("assert_eq") {
+                if name == "assert_eq"
+                    && (args.len() == 2 || args.len() == 3)
+                    && !self.ctx.functions.contains("assert_eq")
+                {
                     let eq_expr = Expr::Binary {
                         left: Box::new(args[0].clone()),
                         op: BinaryOp::Equal,
@@ -646,7 +657,10 @@ impl CodeGen {
                     return;
                 }
 
-                if name == "assert" && (args.len() == 1 || args.len() == 2) && !self.ctx.functions.contains("assert") {
+                if name == "assert"
+                    && (args.len() == 1 || args.len() == 2)
+                    && !self.ctx.functions.contains("assert")
+                {
                     self.generate_expression(&args[0]);
                     let ok_label = self.ctx.next_label();
                     arch::emit_cmp_imm(&mut self.output, self.arch, 0);
@@ -720,13 +734,20 @@ impl CodeGen {
                     return;
                 }
 
-                let is_struct_receiver = args.first().and_then(|a| self.get_expr_struct_name(a)).is_some_and(|sname| {
-                    let bare = sname.rsplit("::").next().unwrap_or(&sname);
-                    let bare = bare.rsplit("__").next().unwrap_or(bare);
-                    self.ctx.functions.contains(&format!("{}__{}", sname, name))
-                        || self.ctx.functions.contains(&format!("{}__{}", bare, name))
-                        || self.ctx.functions.iter().any(|f| f.ends_with(&format!("{}__{}", bare, name)))
-                });
+                let is_struct_receiver = args
+                    .first()
+                    .and_then(|a| self.get_expr_struct_name(a))
+                    .is_some_and(|sname| {
+                        let bare = sname.rsplit("::").next().unwrap_or(&sname);
+                        let bare = bare.rsplit("__").next().unwrap_or(bare);
+                        self.ctx.functions.contains(&format!("{}__{}", sname, name))
+                            || self.ctx.functions.contains(&format!("{}__{}", bare, name))
+                            || self
+                                .ctx
+                                .functions
+                                .iter()
+                                .any(|f| f.ends_with(&format!("{}__{}", bare, name)))
+                    });
 
                 if name == "get" && args.len() == 2 && !is_struct_receiver {
                     let mut three_args = args.clone();
@@ -835,7 +856,11 @@ impl CodeGen {
                         } else if self.ctx.functions.contains(&cand2) {
                             Some(cand2)
                         } else {
-                            self.ctx.functions.iter().find(|f| f.ends_with("__to_string")).cloned()
+                            self.ctx
+                                .functions
+                                .iter()
+                                .find(|f| f.ends_with("__to_string"))
+                                .cloned()
                         };
                         if let Some(call_name) = matched {
                             self.generate_expression(&Expr::Call {
@@ -1081,19 +1106,17 @@ impl CodeGen {
                             None
                         }
                     }
-                    Some(Expr::Index { array, .. }) => {
-                        match &**array {
-                            Expr::Identifier(type_name) => Some((None, type_name.clone())),
-                            Expr::FieldAccess { object, field } => {
-                                if let Expr::Identifier(mod_name) = &**object {
-                                    Some((Some(mod_name.clone()), field.clone()))
-                                } else {
-                                    None
-                                }
+                    Some(Expr::Index { array, .. }) => match &**array {
+                        Expr::Identifier(type_name) => Some((None, type_name.clone())),
+                        Expr::FieldAccess { object, field } => {
+                            if let Expr::Identifier(mod_name) = &**object {
+                                Some((Some(mod_name.clone()), field.clone()))
+                            } else {
+                                None
                             }
-                            _ => None,
                         }
-                    }
+                        _ => None,
+                    },
                     _ => None,
                 };
 
@@ -1111,9 +1134,15 @@ impl CodeGen {
                         mangled1.clone()
                     };
                     let is_struct = self.ctx.structs.contains_key(&type_name)
-                        || mod_opt.as_ref().map_or(false, |m| self.ctx.structs.contains_key(&format!("{}::{}", m, type_name)));
+                        || mod_opt.as_ref().map_or(false, |m| {
+                            self.ctx
+                                .structs
+                                .contains_key(&format!("{}::{}", m, type_name))
+                        });
                     let is_var = self.ctx.variables.contains_key(&type_name);
-                    let is_mod_var = mod_opt.as_ref().map_or(false, |m| self.ctx.variables.contains_key(m));
+                    let is_mod_var = mod_opt
+                        .as_ref()
+                        .map_or(false, |m| self.ctx.variables.contains_key(m));
 
                     let valid_target = if mod_opt.is_some() {
                         is_struct && !is_mod_var
@@ -1123,12 +1152,14 @@ impl CodeGen {
                             || self.ctx.functions.contains(&mangled_single)
                             || self.ctx.functions.contains(&mangled2)
                             || self.ctx.functions.contains(&mangled3)
-                            || self.ctx.functions.iter().any(|f| f.ends_with(&format!("__{}", mangled1)) || f.ends_with(&format!("::{}", mangled1))))
+                            || self.ctx.functions.iter().any(|f| {
+                                f.ends_with(&format!("__{}", mangled1))
+                                    || f.ends_with(&format!("::{}", mangled1))
+                            }))
                             && !is_var
                     };
 
-                    if valid_target
-                    {
+                    if valid_target {
                         if self.ctx.functions.contains(&mangled2) {
                             resolved_name = mangled2;
                         } else if self.ctx.functions.contains(&mangled3) {
@@ -1138,7 +1169,8 @@ impl CodeGen {
                         } else if self.ctx.functions.contains(&mangled_single) {
                             resolved_name = mangled_single;
                         } else if let Some(matched) = self.ctx.functions.iter().find(|f| {
-                            f.ends_with(&format!("__{}", mangled1)) || f.ends_with(&format!("::{}", mangled1))
+                            f.ends_with(&format!("__{}", mangled1))
+                                || f.ends_with(&format!("::{}", mangled1))
                         }) {
                             resolved_name = matched.clone();
                         } else {
@@ -1151,8 +1183,13 @@ impl CodeGen {
                 // 1b. Interface instance dynamic method dispatch: s.area()
                 if let Some(first_arg) = actual_args.first() {
                     if let Some(iname) = self.get_expr_interface_name(first_arg) {
-                        let flattened = crate::codegen::get_interface_flattened_methods(&iname, &self.ctx.interfaces);
-                        if let Some((method_idx, _)) = flattened.iter().enumerate().find(|(_, m)| m.name == *name) {
+                        let flattened = crate::codegen::get_interface_flattened_methods(
+                            &iname,
+                            &self.ctx.interfaces,
+                        );
+                        if let Some((method_idx, _)) =
+                            flattened.iter().enumerate().find(|(_, m)| m.name == *name)
+                        {
                             let initial_stack_offset = self.ctx.stack_offset;
                             let word_size: i32 = match self.arch {
                                 Architecture::ARM64 => 16,
@@ -1167,7 +1204,8 @@ impl CodeGen {
 
                             // Evaluate remaining arguments
                             for (idx, arg) in actual_args.iter().skip(1).enumerate() {
-                                self.ctx.stack_offset = initial_stack_offset + ((idx + 1) as i32 * word_size);
+                                self.ctx.stack_offset =
+                                    initial_stack_offset + ((idx + 1) as i32 * word_size);
                                 self.generate_expression(arg);
                                 arch::emit_push_temp(&mut self.output, self.arch);
                             }
@@ -1179,7 +1217,10 @@ impl CodeGen {
                             // 2. Load vtable pointer: 8(%rax)
                             self.output.push_str("    movq 8(%rax), %r11\n");
                             // 3. Load function pointer: ((method_idx + 1) * 8)(%r11)
-                            self.output.push_str(&format!("    movq {}(%r11), %r11\n", (method_idx + 1) * 8));
+                            self.output.push_str(&format!(
+                                "    movq {}(%r11), %r11\n",
+                                (method_idx + 1) * 8
+                            ));
 
                             // 4. Call function pointer
                             arch::x64::control::emit_call_target(
@@ -1194,7 +1235,10 @@ impl CodeGen {
                                 .return_type
                                 .as_deref()
                                 .map_or(false, |rt| rt == "float" || rt == "f64")
-                                || self.ctx.variables.contains_key(&format!("fn_ret_flt:{}", name));
+                                || self
+                                    .ctx
+                                    .variables
+                                    .contains_key(&format!("fn_ret_flt:{}", name));
                             if is_flt_ret && matches!(self.arch, Architecture::X64) {
                                 self.output.push_str("    movq %xmm0, %rax\n");
                             }
@@ -1279,12 +1323,18 @@ impl CodeGen {
                                     .variables
                                     .get(&format!("fn_param_interface:{}:{}", call_name, param_idx))
                                     .or_else(|| {
-                                        let bare = call_name.rsplit("::").next().unwrap_or(call_name);
+                                        let bare =
+                                            call_name.rsplit("::").next().unwrap_or(call_name);
                                         let bare = bare.rsplit("__").next().unwrap_or(bare);
-                                        self.ctx.variables.get(&format!("fn_param_interface:{}:{}", bare, param_idx))
+                                        self.ctx.variables.get(&format!(
+                                            "fn_param_interface:{}:{}",
+                                            bare, param_idx
+                                        ))
                                     })
                                     .and_then(|vt| match vt {
-                                        VarType::Interface { interface_name, .. } => Some(interface_name.clone()),
+                                        VarType::Interface { interface_name, .. } => {
+                                            Some(interface_name.clone())
+                                        }
                                         _ => None,
                                     });
                                 if let Some(iname) = expected_iface {
@@ -1297,9 +1347,13 @@ impl CodeGen {
                                         .ctx
                                         .vtables
                                         .get(&(bare_s.to_string(), bare_i.to_string()))
-                                        .or_else(|| self.ctx.vtables.get(&(sname.clone(), iname.clone())))
+                                        .or_else(|| {
+                                            self.ctx.vtables.get(&(sname.clone(), iname.clone()))
+                                        })
                                         .cloned()
-                                        .unwrap_or_else(|| format!("alya_vtable_{}_{}", bare_s, bare_i));
+                                        .unwrap_or_else(|| {
+                                            format!("alya_vtable_{}_{}", bare_s, bare_i)
+                                        });
                                     Some(vtable)
                                 } else {
                                     None
@@ -1311,7 +1365,13 @@ impl CodeGen {
                             self.ctx.stack_offset = initial_stack_offset + (idx as i32 * word_size);
                             self.generate_expression(arg);
                             if let Some(vtable_label) = coerce_vtable {
-                                arch::emit_fat_ptr_new(&mut self.output, self.arch, &vtable_label, self.ctx.stack_offset, self.os);
+                                arch::emit_fat_ptr_new(
+                                    &mut self.output,
+                                    self.arch,
+                                    &vtable_label,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
                             }
                             arch::emit_push_temp(&mut self.output, self.arch);
                         }
@@ -1326,12 +1386,18 @@ impl CodeGen {
                                     .variables
                                     .get(&format!("fn_param_interface:{}:{}", call_name, param_idx))
                                     .or_else(|| {
-                                        let bare = call_name.rsplit("::").next().unwrap_or(call_name);
+                                        let bare =
+                                            call_name.rsplit("::").next().unwrap_or(call_name);
                                         let bare = bare.rsplit("__").next().unwrap_or(bare);
-                                        self.ctx.variables.get(&format!("fn_param_interface:{}:{}", bare, param_idx))
+                                        self.ctx.variables.get(&format!(
+                                            "fn_param_interface:{}:{}",
+                                            bare, param_idx
+                                        ))
                                     })
                                     .and_then(|vt| match vt {
-                                        VarType::Interface { interface_name, .. } => Some(interface_name.clone()),
+                                        VarType::Interface { interface_name, .. } => {
+                                            Some(interface_name.clone())
+                                        }
                                         _ => None,
                                     });
                                 if let Some(iname) = expected_iface {
@@ -1344,9 +1410,13 @@ impl CodeGen {
                                         .ctx
                                         .vtables
                                         .get(&(bare_s.to_string(), bare_i.to_string()))
-                                        .or_else(|| self.ctx.vtables.get(&(sname.clone(), iname.clone())))
+                                        .or_else(|| {
+                                            self.ctx.vtables.get(&(sname.clone(), iname.clone()))
+                                        })
                                         .cloned()
-                                        .unwrap_or_else(|| format!("alya_vtable_{}_{}", bare_s, bare_i));
+                                        .unwrap_or_else(|| {
+                                            format!("alya_vtable_{}_{}", bare_s, bare_i)
+                                        });
                                     Some(vtable)
                                 } else {
                                     None
@@ -1355,10 +1425,17 @@ impl CodeGen {
                                 None
                             };
 
-                            self.ctx.stack_offset = initial_stack_offset + (param_idx as i32 * word_size);
+                            self.ctx.stack_offset =
+                                initial_stack_offset + (param_idx as i32 * word_size);
                             self.generate_expression(arg);
                             if let Some(vtable_label) = coerce_vtable {
-                                arch::emit_fat_ptr_new(&mut self.output, self.arch, &vtable_label, self.ctx.stack_offset, self.os);
+                                arch::emit_fat_ptr_new(
+                                    &mut self.output,
+                                    self.arch,
+                                    &vtable_label,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
                             }
                             arch::emit_push_temp(&mut self.output, self.arch);
                         }
@@ -1406,8 +1483,14 @@ impl CodeGen {
                         initial_stack_offset,
                         self.os,
                     );
-                    let is_flt_ret = self.ctx.variables.contains_key(&format!("fn_ret_flt:{}", call_name))
-                        || self.ctx.variables.contains_key(&format!("fn_ret_flt:{}", extern_name))
+                    let is_flt_ret = self
+                        .ctx
+                        .variables
+                        .contains_key(&format!("fn_ret_flt:{}", call_name))
+                        || self
+                            .ctx
+                            .variables
+                            .contains_key(&format!("fn_ret_flt:{}", extern_name))
                         || self
                             .ctx
                             .extern_functions
@@ -1820,7 +1903,11 @@ impl CodeGen {
                     } else if self.ctx.functions.contains(&cand2) {
                         Some(cand2)
                     } else {
-                        self.ctx.functions.iter().find(|f| f.ends_with("__operator[]")).cloned()
+                        self.ctx
+                            .functions
+                            .iter()
+                            .find(|f| f.ends_with("__operator[]"))
+                            .cloned()
                     };
                     if let Some(call_name) = matched {
                         self.generate_expression(&Expr::Call {
@@ -2176,7 +2263,9 @@ impl CodeGen {
             Expr::Cast { expr, target } => {
                 self.generate_expression(expr);
                 let t = target.to_lowercase();
-                if (t == "int" || t == "i64" || t == "rune") && is_string_expr(expr, &self.ctx.variables) {
+                if (t == "int" || t == "i64" || t == "rune")
+                    && is_string_expr(expr, &self.ctx.variables)
+                {
                     match self.arch {
                         Architecture::X64 => {
                             let end_lbl = self.ctx.next_label();
@@ -2403,9 +2492,17 @@ impl CodeGen {
                                 bs == bare_s && bi == bare_target
                             });
                         let res = if satisfies {
-                            if negated { 0 } else { 1 }
+                            if negated {
+                                0
+                            } else {
+                                1
+                            }
                         } else {
-                            if negated { 1 } else { 0 }
+                            if negated {
+                                1
+                            } else {
+                                0
+                            }
                         };
                         arch::emit_load_num(&mut self.output, self.arch, res);
                     } else {
@@ -2426,9 +2523,17 @@ impl CodeGen {
                 } else if let Some(sname) = known_struct {
                     let matches = sname == target || sname.ends_with(&format!("::{}", target));
                     let res = if matches {
-                        if negated { 0 } else { 1 }
+                        if negated {
+                            0
+                        } else {
+                            1
+                        }
                     } else {
-                        if negated { 1 } else { 0 }
+                        if negated {
+                            1
+                        } else {
+                            0
+                        }
                     };
                     arch::emit_load_num(&mut self.output, self.arch, res);
                 } else if is_known_target_struct {
@@ -2473,7 +2578,8 @@ impl CodeGen {
                 self.output.push_str(&format!("    jb {}\n", false_label));
                 self.output.push_str("    movq -16(%rax), %rdx\n");
                 self.output.push_str("    cmp $0x5A110003, %rdx\n");
-                self.output.push_str(&format!("    je {}\n", concrete_label));
+                self.output
+                    .push_str(&format!("    je {}\n", concrete_label));
                 self.output.push_str("    cmp $0x5A110004, %rdx\n");
                 self.output.push_str(&format!("    jne {}\n", false_label));
                 // Fat pointer: load vtable at 8(%rax), then load descriptor from 0(%r11)
@@ -2481,13 +2587,15 @@ impl CodeGen {
                 self.output.push_str("    test %r11, %r11\n");
                 self.output.push_str(&format!("    jz {}\n", false_label));
                 self.output.push_str("    movq (%r11), %r11\n");
-                self.output.push_str(&format!("    jmp {}\n", check_desc_label));
+                self.output
+                    .push_str(&format!("    jmp {}\n", check_desc_label));
                 // Concrete struct: load descriptor from 0(%rax)
                 self.output.push_str(&format!("{}:\n", concrete_label));
                 self.output.push_str("    movq (%rax), %r11\n");
                 // Check descriptor against target descriptor
                 self.output.push_str(&format!("{}:\n", check_desc_label));
-                self.output.push_str(&format!("    lea {}(%rip), %rdx\n", desc_label));
+                self.output
+                    .push_str(&format!("    lea {}(%rip), %rdx\n", desc_label));
                 self.output.push_str("    cmp %rdx, %r11\n");
                 self.output.push_str(&format!("    jne {}\n", false_label));
                 self.output.push_str(&format!(
@@ -2511,7 +2619,8 @@ impl CodeGen {
                 self.output.push_str(&format!("    jb {}\n", false_label));
                 self.output.push_str("    movl -8(%eax), %edx\n");
                 self.output.push_str("    cmp $0x5A110003, %edx\n");
-                self.output.push_str(&format!("    je {}\n", concrete_label));
+                self.output
+                    .push_str(&format!("    je {}\n", concrete_label));
                 self.output.push_str("    cmp $0x5A110004, %edx\n");
                 self.output.push_str(&format!("    jne {}\n", false_label));
                 // Fat pointer
@@ -2519,13 +2628,15 @@ impl CodeGen {
                 self.output.push_str("    test %ecx, %ecx\n");
                 self.output.push_str(&format!("    jz {}\n", false_label));
                 self.output.push_str("    movl (%ecx), %ecx\n");
-                self.output.push_str(&format!("    jmp {}\n", check_desc_label));
+                self.output
+                    .push_str(&format!("    jmp {}\n", check_desc_label));
                 // Concrete
                 self.output.push_str(&format!("{}:\n", concrete_label));
                 self.output.push_str("    movl (%eax), %ecx\n");
                 // Check desc
                 self.output.push_str(&format!("{}:\n", check_desc_label));
-                self.output.push_str(&format!("    cmp ${}, %ecx\n", desc_label));
+                self.output
+                    .push_str(&format!("    cmp ${}, %ecx\n", desc_label));
                 self.output.push_str(&format!("    jne {}\n", false_label));
                 self.output.push_str(&format!(
                     "    movl ${}, %eax\n",
@@ -2547,39 +2658,44 @@ impl CodeGen {
                 self.output.push_str("    cmp x0, #65536\n");
                 self.output.push_str(&format!("    b.lo {}\n", false_label));
                 self.output.push_str("    lsr x1, x0, #47\n");
-                self.output.push_str(&format!("    cbnz x1, {}\n", false_label));
+                self.output
+                    .push_str(&format!("    cbnz x1, {}\n", false_label));
                 self.output.push_str("    ldur x1, [x0, #-16]\n");
                 self.output.push_str("    movz x2, #0x0003\n");
                 self.output.push_str("    movk x2, #0x5A11, lsl #16\n");
                 self.output.push_str("    cmp x1, x2\n");
-                self.output.push_str(&format!("    b.eq {}\n", concrete_label));
+                self.output
+                    .push_str(&format!("    b.eq {}\n", concrete_label));
                 self.output.push_str("    movz x2, #0x0004\n");
                 self.output.push_str("    movk x2, #0x5A11, lsl #16\n");
                 self.output.push_str("    cmp x1, x2\n");
                 self.output.push_str(&format!("    b.ne {}\n", false_label));
                 // Fat pointer
                 self.output.push_str("    ldr x2, [x0, #8]\n");
-                self.output.push_str(&format!("    cbz x2, {}\n", false_label));
+                self.output
+                    .push_str(&format!("    cbz x2, {}\n", false_label));
                 self.output.push_str("    ldr x2, [x2]\n");
-                self.output.push_str(&format!("    b {}\n", check_desc_label));
+                self.output
+                    .push_str(&format!("    b {}\n", check_desc_label));
                 // Concrete
                 self.output.push_str(&format!("{}:\n", concrete_label));
                 self.output.push_str("    ldr x2, [x0]\n");
                 // Check desc
                 self.output.push_str(&format!("{}:\n", check_desc_label));
-                crate::codegen::arch::arm64::emit_adrp_add(&mut self.output, "x3", &desc_label, self.os);
+                crate::codegen::arch::arm64::emit_adrp_add(
+                    &mut self.output,
+                    "x3",
+                    &desc_label,
+                    self.os,
+                );
                 self.output.push_str("    cmp x2, x3\n");
                 self.output.push_str(&format!("    b.ne {}\n", false_label));
-                self.output.push_str(&format!(
-                    "    mov x0, #{}\n",
-                    if negated { 0 } else { 1 }
-                ));
+                self.output
+                    .push_str(&format!("    mov x0, #{}\n", if negated { 0 } else { 1 }));
                 self.output.push_str(&format!("    b {}\n", end_label));
                 self.output.push_str(&format!("{}:\n", false_label));
-                self.output.push_str(&format!(
-                    "    mov x0, #{}\n",
-                    if negated { 1 } else { 0 }
-                ));
+                self.output
+                    .push_str(&format!("    mov x0, #{}\n", if negated { 1 } else { 0 }));
                 self.output.push_str(&format!("{}:\n", end_label));
             }
         }
@@ -2606,7 +2722,10 @@ impl CodeGen {
             })
             .collect();
 
-        eprintln!("IN emit_interface_type_check: target={}, matching_structs={:?}", target, matching_structs);
+        eprintln!(
+            "IN emit_interface_type_check: target={}, matching_structs={:?}",
+            target, matching_structs
+        );
 
         let mut unique_structs = Vec::new();
         for s in matching_structs {
@@ -2637,7 +2756,8 @@ impl CodeGen {
                 self.output.push_str(&format!("    jb {}\n", false_label));
                 self.output.push_str("    movq -16(%rax), %rdx\n");
                 self.output.push_str("    cmp $0x5A110003, %rdx\n");
-                self.output.push_str(&format!("    je {}\n", concrete_label));
+                self.output
+                    .push_str(&format!("    je {}\n", concrete_label));
                 self.output.push_str("    cmp $0x5A110004, %rdx\n");
                 self.output.push_str(&format!("    jne {}\n", false_label));
                 // Fat pointer: load vtable at 8(%rax), then load descriptor from 0(%r11)
@@ -2645,7 +2765,8 @@ impl CodeGen {
                 self.output.push_str("    test %r11, %r11\n");
                 self.output.push_str(&format!("    jz {}\n", false_label));
                 self.output.push_str("    movq (%r11), %r11\n");
-                self.output.push_str(&format!("    jmp {}\n", check_desc_label));
+                self.output
+                    .push_str(&format!("    jmp {}\n", check_desc_label));
                 // Concrete struct: load descriptor from 0(%rax)
                 self.output.push_str(&format!("{}:\n", concrete_label));
                 self.output.push_str("    movq (%rax), %r11\n");
@@ -2653,7 +2774,8 @@ impl CodeGen {
                 self.output.push_str(&format!("{}:\n", check_desc_label));
                 for s in &unique_structs {
                     let desc_label = format!("alya_struct_desc_{}", s);
-                    self.output.push_str(&format!("    lea {}(%rip), %rdx\n", desc_label));
+                    self.output
+                        .push_str(&format!("    lea {}(%rip), %rdx\n", desc_label));
                     self.output.push_str("    cmp %rdx, %r11\n");
                     self.output.push_str(&format!("    je {}\n", true_label));
                 }
@@ -2680,7 +2802,8 @@ impl CodeGen {
                 self.output.push_str(&format!("    jb {}\n", false_label));
                 self.output.push_str("    movl -8(%eax), %edx\n");
                 self.output.push_str("    cmp $0x5A110003, %edx\n");
-                self.output.push_str(&format!("    je {}\n", concrete_label));
+                self.output
+                    .push_str(&format!("    je {}\n", concrete_label));
                 self.output.push_str("    cmp $0x5A110004, %edx\n");
                 self.output.push_str(&format!("    jne {}\n", false_label));
                 // Fat pointer
@@ -2688,7 +2811,8 @@ impl CodeGen {
                 self.output.push_str("    test %ecx, %ecx\n");
                 self.output.push_str(&format!("    jz {}\n", false_label));
                 self.output.push_str("    movl (%ecx), %ecx\n");
-                self.output.push_str(&format!("    jmp {}\n", check_desc_label));
+                self.output
+                    .push_str(&format!("    jmp {}\n", check_desc_label));
                 // Concrete
                 self.output.push_str(&format!("{}:\n", concrete_label));
                 self.output.push_str("    movl (%eax), %ecx\n");
@@ -2696,7 +2820,8 @@ impl CodeGen {
                 self.output.push_str(&format!("{}:\n", check_desc_label));
                 for s in &unique_structs {
                     let desc_label = format!("alya_struct_desc_{}", s);
-                    self.output.push_str(&format!("    cmp ${}, %ecx\n", desc_label));
+                    self.output
+                        .push_str(&format!("    cmp ${}, %ecx\n", desc_label));
                     self.output.push_str(&format!("    je {}\n", true_label));
                 }
                 self.output.push_str(&format!("    jmp {}\n", false_label));
@@ -2721,21 +2846,25 @@ impl CodeGen {
                 self.output.push_str("    cmp x0, #65536\n");
                 self.output.push_str(&format!("    b.lo {}\n", false_label));
                 self.output.push_str("    lsr x1, x0, #47\n");
-                self.output.push_str(&format!("    cbnz x1, {}\n", false_label));
+                self.output
+                    .push_str(&format!("    cbnz x1, {}\n", false_label));
                 self.output.push_str("    ldur x1, [x0, #-16]\n");
                 self.output.push_str("    movz x2, #0x0003\n");
                 self.output.push_str("    movk x2, #0x5A11, lsl #16\n");
                 self.output.push_str("    cmp x1, x2\n");
-                self.output.push_str(&format!("    b.eq {}\n", concrete_label));
+                self.output
+                    .push_str(&format!("    b.eq {}\n", concrete_label));
                 self.output.push_str("    movz x2, #0x0004\n");
                 self.output.push_str("    movk x2, #0x5A11, lsl #16\n");
                 self.output.push_str("    cmp x1, x2\n");
                 self.output.push_str(&format!("    b.ne {}\n", false_label));
                 // Fat pointer
                 self.output.push_str("    ldr x2, [x0, #8]\n");
-                self.output.push_str(&format!("    cbz x2, {}\n", false_label));
+                self.output
+                    .push_str(&format!("    cbz x2, {}\n", false_label));
                 self.output.push_str("    ldr x2, [x2]\n");
-                self.output.push_str(&format!("    b {}\n", check_desc_label));
+                self.output
+                    .push_str(&format!("    b {}\n", check_desc_label));
                 // Concrete
                 self.output.push_str(&format!("{}:\n", concrete_label));
                 self.output.push_str("    ldr x2, [x0]\n");
@@ -2743,22 +2872,23 @@ impl CodeGen {
                 self.output.push_str(&format!("{}:\n", check_desc_label));
                 for s in &unique_structs {
                     let desc_label = format!("alya_struct_desc_{}", s);
-                    crate::codegen::arch::arm64::emit_adrp_add(&mut self.output, "x3", &desc_label, self.os);
+                    crate::codegen::arch::arm64::emit_adrp_add(
+                        &mut self.output,
+                        "x3",
+                        &desc_label,
+                        self.os,
+                    );
                     self.output.push_str("    cmp x2, x3\n");
                     self.output.push_str(&format!("    b.eq {}\n", true_label));
                 }
                 self.output.push_str(&format!("    b {}\n", false_label));
                 self.output.push_str(&format!("{}:\n", true_label));
-                self.output.push_str(&format!(
-                    "    mov x0, #{}\n",
-                    if negated { 0 } else { 1 }
-                ));
+                self.output
+                    .push_str(&format!("    mov x0, #{}\n", if negated { 0 } else { 1 }));
                 self.output.push_str(&format!("    b {}\n", end_label));
                 self.output.push_str(&format!("{}:\n", false_label));
-                self.output.push_str(&format!(
-                    "    mov x0, #{}\n",
-                    if negated { 1 } else { 0 }
-                ));
+                self.output
+                    .push_str(&format!("    mov x0, #{}\n", if negated { 1 } else { 0 }));
                 self.output.push_str(&format!("{}:\n", end_label));
             }
         }
@@ -3101,4 +3231,3 @@ impl CodeGen {
         }
     }
 }
-

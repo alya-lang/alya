@@ -17,25 +17,41 @@ pub fn generate_markdown(module: &DocModule) -> String {
     if !module.interfaces.is_empty() {
         md.push_str("- [Interfaces](#interfaces)\n");
         for iface in &module.interfaces {
-            md.push_str(&format!("  - [`{}`](#interface-{})\n", iface.name, iface.name.to_lowercase()));
+            md.push_str(&format!(
+                "  - [`{}`](#interface-{})\n",
+                iface.name,
+                iface.name.to_lowercase()
+            ));
         }
     }
     if !module.structs.is_empty() {
         md.push_str("- [Structs](#structs)\n");
         for st in &module.structs {
-            md.push_str(&format!("  - [`{}`](#struct-{})\n", st.name, st.name.to_lowercase()));
+            md.push_str(&format!(
+                "  - [`{}`](#struct-{})\n",
+                st.name,
+                st.name.to_lowercase()
+            ));
         }
     }
     if !module.enums.is_empty() {
         md.push_str("- [Enums](#enums)\n");
         for e in &module.enums {
-            md.push_str(&format!("  - [`{}`](#enum-{})\n", e.name, e.name.to_lowercase()));
+            md.push_str(&format!(
+                "  - [`{}`](#enum-{})\n",
+                e.name,
+                e.name.to_lowercase()
+            ));
         }
     }
     if !module.functions.is_empty() {
         md.push_str("- [Functions](#functions)\n");
         for f in &module.functions {
-            md.push_str(&format!("  - [`{}`](#function-{})\n", f.name, f.name.to_lowercase().replace('.', "-")));
+            md.push_str(&format!(
+                "  - [`{}`](#function-{})\n",
+                f.name,
+                f.name.to_lowercase().replace('.', "-")
+            ));
         }
     }
     md.push('\n');
@@ -48,7 +64,10 @@ pub fn generate_markdown(module: &DocModule) -> String {
         for c in &module.constants {
             let vis = if c.is_pub { "`pub`" } else { "private" };
             let doc_preview = c.doc.lines().next().unwrap_or("-");
-            md.push_str(&format!("| `{}` | `{}` | {} | {} |\n", c.name, c.value, vis, doc_preview));
+            md.push_str(&format!(
+                "| `{}` | `{}` | {} | {} |\n",
+                c.name, c.value, vis, doc_preview
+            ));
         }
         md.push('\n');
     }
@@ -62,7 +81,10 @@ pub fn generate_markdown(module: &DocModule) -> String {
                 md.push_str("**Visibility:** `pub`\n\n");
             }
             if !iface.embedded.is_empty() {
-                md.push_str(&format!("**Embedded:** `{}`\n\n", iface.embedded.join("`, `")));
+                md.push_str(&format!(
+                    "**Embedded:** `{}`\n\n",
+                    iface.embedded.join("`, `")
+                ));
             }
             if !iface.doc.is_empty() {
                 md.push_str(&iface.doc);
@@ -72,15 +94,24 @@ pub fn generate_markdown(module: &DocModule) -> String {
             if !iface.methods.is_empty() {
                 md.push_str("#### Methods\n\n");
                 for m in &iface.methods {
-                    let param_str: Vec<String> = m.params.iter().map(|p| {
-                        if let Some(ref ty) = p.type_ann {
-                            format!("{}: {}", p.name, ty)
-                        } else {
-                            p.name.clone()
-                        }
-                    }).collect();
+                    let param_str: Vec<String> = m
+                        .params
+                        .iter()
+                        .map(|p| {
+                            if let Some(ref ty) = p.type_ann {
+                                format!("{}: {}", p.name, ty)
+                            } else {
+                                p.name.clone()
+                            }
+                        })
+                        .collect();
                     let ret = m.return_type.as_deref().unwrap_or("void");
-                    md.push_str(&format!("- `function {}({}) -> {}`\n", m.name, param_str.join(", "), ret));
+                    md.push_str(&format!(
+                        "- `function {}({}) -> {}`\n",
+                        m.name,
+                        param_str.join(", "),
+                        ret
+                    ));
                 }
                 md.push('\n');
             }
