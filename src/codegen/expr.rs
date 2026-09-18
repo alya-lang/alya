@@ -1198,39 +1198,70 @@ impl CodeGen {
                                 _ => 8,
                             };
 
-                            // Evaluate receiver: load concrete instance data_ptr (offset 0 of fat pointer)
-                            self.generate_expression(first_arg);
-                            self.output.push_str("    movq (%rax), %rax\n");
-                            arch::emit_push_temp(&mut self.output, self.arch);
-
-                            // Evaluate remaining arguments
-                            for (idx, arg) in actual_args.iter().skip(1).enumerate() {
-                                self.ctx.stack_offset =
-                                    initial_stack_offset + ((idx + 1) as i32 * word_size);
-                                self.generate_expression(arg);
+                            if matches!(self.arch, Architecture::ARM64) {
+                                // Evaluate receiver: load concrete instance data_ptr (offset 0 of fat pointer)
+                                self.generate_expression(first_arg);
+                                self.output.push_str("    ldr x0, [x0]\n");
                                 arch::emit_push_temp(&mut self.output, self.arch);
+
+                                // Evaluate remaining arguments
+                                for (idx, arg) in actual_args.iter().skip(1).enumerate() {
+                                    self.ctx.stack_offset =
+                                        initial_stack_offset + ((idx + 1) as i32 * word_size);
+                                    self.generate_expression(arg);
+                                    arch::emit_push_temp(&mut self.output, self.arch);
+                                }
+                                self.ctx.stack_offset = initial_stack_offset;
+
+                                // Load method function pointer from vtable:
+                                self.generate_expression(first_arg);
+                                self.output.push_str("    ldr x16, [x0, #8]\n");
+                                self.output.push_str(&format!(
+                                    "    ldr x16, [x16, #{}]\n",
+                                    (method_idx + 1) * 8
+                                ));
+
+                                // Call function pointer
+                                arch::arm64::control::emit_call_target(
+                                    &mut self.output,
+                                    "x16",
+                                    actual_args.len(),
+                                );
+                            } else {
+                                // Evaluate receiver: load concrete instance data_ptr (offset 0 of fat pointer)
+                                self.generate_expression(first_arg);
+                                self.output.push_str("    movq (%rax), %rax\n");
+                                arch::emit_push_temp(&mut self.output, self.arch);
+
+                                // Evaluate remaining arguments
+                                for (idx, arg) in actual_args.iter().skip(1).enumerate() {
+                                    self.ctx.stack_offset =
+                                        initial_stack_offset + ((idx + 1) as i32 * word_size);
+                                    self.generate_expression(arg);
+                                    arch::emit_push_temp(&mut self.output, self.arch);
+                                }
+                                self.ctx.stack_offset = initial_stack_offset;
+
+                                // Load method function pointer from vtable:
+                                // 1. Load fat pointer again
+                                self.generate_expression(first_arg);
+                                // 2. Load vtable pointer: 8(%rax)
+                                self.output.push_str("    movq 8(%rax), %r11\n");
+                                // 3. Load function pointer: ((method_idx + 1) * 8)(%r11)
+                                self.output.push_str(&format!(
+                                    "    movq {}(%r11), %r11\n",
+                                    (method_idx + 1) * 8
+                                ));
+
+                                // 4. Call function pointer
+                                arch::x64::control::emit_call_target(
+                                    &mut self.output,
+                                    "*%r11",
+                                    actual_args.len(),
+                                    initial_stack_offset,
+                                    self.os,
+                                );
                             }
-                            self.ctx.stack_offset = initial_stack_offset;
-
-                            // Load method function pointer from vtable:
-                            // 1. Load fat pointer again
-                            self.generate_expression(first_arg);
-                            // 2. Load vtable pointer: 8(%rax)
-                            self.output.push_str("    movq 8(%rax), %r11\n");
-                            // 3. Load function pointer: ((method_idx + 1) * 8)(%r11)
-                            self.output.push_str(&format!(
-                                "    movq {}(%r11), %r11\n",
-                                (method_idx + 1) * 8
-                            ));
-
-                            // 4. Call function pointer
-                            arch::x64::control::emit_call_target(
-                                &mut self.output,
-                                "*%r11",
-                                actual_args.len(),
-                                initial_stack_offset,
-                                self.os,
-                            );
 
                             let is_flt_ret = flattened[method_idx]
                                 .return_type

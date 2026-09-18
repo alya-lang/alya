@@ -66,7 +66,7 @@ pub fn emit_function_epilogue(out: &mut String) {
     out.push_str("    ret\n\n");
 }
 
-fn emit_call_target(out: &mut String, target: &str, args_count: usize) {
+pub fn emit_call_target(out: &mut String, target: &str, args_count: usize) {
     if args_count <= 8 {
         for i in (0..args_count).rev() {
             let reg = match i {
