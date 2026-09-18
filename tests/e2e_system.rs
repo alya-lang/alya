@@ -2154,6 +2154,7 @@ spawn(|| =>
 # Synchronous rendezvous handoff: send blocks until worker receives it
 let ok = ch.send(999)
 say "rendezvous_send_completed: " + str(ok)
+sleep(50)
 
 ch.close()
 ch.free()
