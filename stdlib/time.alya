@@ -99,7 +99,6 @@ pub function now_nanos() -> int
     return clock_ms() * 1000000
 end
 
-
 function _time_pad2(n: int) -> string
     if n < 10
         return f"0{n}"
