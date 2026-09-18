@@ -1143,19 +1143,26 @@ impl Parser {
 
                 while matches!(self.current_token().token_type, TokenType::ColonColon) {
                     self.advance();
-                    match &self.current_token().token_type {
-                        TokenType::Identifier(member) => {
-                            ident = format!("{}::{}", ident, member);
-                            self.advance();
+                    let member = match &self.current_token().token_type {
+                        TokenType::Identifier(member) => member.clone(),
+                        tok => {
+                            let s = tok.to_string();
+                            let clean = s.trim_matches('\'').to_string();
+                            if !clean.is_empty()
+                                && clean.chars().all(|c| c.is_alphanumeric() || c == '_')
+                            {
+                                clean
+                            } else {
+                                return Err(format!(
+                                    "Expected identifier after '::' at line {}, column {}",
+                                    self.current_token().line,
+                                    self.current_token().column
+                                ));
+                            }
                         }
-                        _ => {
-                            return Err(format!(
-                                "Expected identifier after '::' at line {}, column {}",
-                                self.current_token().line,
-                                self.current_token().column
-                            ));
-                        }
-                    }
+                    };
+                    ident = format!("{}::{}", ident, member);
+                    self.advance();
                 }
 
                 // Check for lambda / anonymous function: fn(...) => expr or fn(...) ... end
