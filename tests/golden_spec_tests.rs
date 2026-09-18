@@ -364,3 +364,23 @@ fn test_golden_spec_attributes_execution() {
     }
 }
 
+#[test]
+fn test_golden_spec_lexical_execution() {
+    let file = get_spec_syntax_dir().join("lexical.alya");
+    let source = fs::read_to_string(&file).expect("Failed to read lexical.alya");
+
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from lexical.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("Decimal: 1000000000, Hex: 3405691582, Bin: 240, Oct: 493"));
+        assert!(output.contains("Pi: 3.14159, Scientific: 0.000125, Speed of light: 3e+08"));
+        assert!(output.contains("User 'Alice' has balance: $158.287 (Tax included)"));
+        assert!(output.contains("Literal curly braces: { and } without interpolation"));
+        assert!(output.contains("Windows Path: HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"));
+        assert!(output.contains("SELECT u.id, u.username, p.display_name"));
+        assert!(output.contains("Rune values: 65, 287, 128640, 8984"));
+        assert!(output.contains("Byte char: 88, Magic bytes count: 9"));
+    }
+}
+
+

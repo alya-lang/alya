@@ -7,6 +7,7 @@ pub fn escape_string(s: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\t' => out.push_str("\\t"),
             '\r' => out.push_str("\\r"),
+            '\0' => out.push_str("\\000"),
             '\x1b' => out.push_str("\\033"),
             '\x07' => out.push_str("\\007"),
             '\x08' => out.push_str("\\b"),
