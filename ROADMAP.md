@@ -229,24 +229,27 @@ say sqlite3_libversion()
 
 ---
 
-### Pillar 3: Language Server Protocol (Alya LSP) 📋
+### Pillar 3: Language Server Protocol (Alya LSP) & IDE Toolchain ✅
 
-Provide modern IDE capabilities across VS Code, JetBrains, Neovim, and Sublime Text.
+Provide modern IDE capabilities and official editor extensions across VS Code and beyond.
 
-#### Goals & Architecture
-- **Dedicated LSP Subcommand (`alyac lsp`)**:
-  - Standard Microsoft Language Server Protocol v3.17 server running over JSON-RPC (stdio or TCP).
-  - Incremental AST parsing with fault tolerance for incomplete syntax during typing.
-- **Editor Features**:
-  - **Real-Time Diagnostics**: Instant error squiggles and syntax warnings as the user types.
-  - **Autocompletion**: Context-aware suggestions for keywords, variables, struct fields, functions, and standard library modules (`std/*`).
-  - **Go to Definition**: Jump directly to function definitions, imported modules, or struct declarations.
-  - **Hover Information**: Inline type info, parameter hints, and module documentation.
-  - **Document Formatting**: Direct integration with `alyac fmt` for format-on-save.
-  - **Semantic Highlighting**: Rich token coloring beyond static regex grammars.
-- **Official Editor Extensions**:
-  - Publish `vscode-alya` on Visual Studio Code Marketplace and Open VSX Registry.
-  - Treesitter grammar and Neovim LSP configuration presets.
+#### Completed Capabilities
+- **Dedicated LSP Subcommand (`alya lsp`)**:
+  - Microsoft Language Server Protocol v3.17 server running over JSON-RPC (stdio).
+  - Real-time diagnostic parser reporting syntax and type errors on `textDocument/didOpen` and `didChange`.
+  - Context-aware autocompletion for keywords, identifiers, and language constructs.
+  - Hover tooltips providing type signatures and documentation info.
+  - Go to definition resolving symbol declarations across the file.
+- **Official VS Code Extension (`vscode-alya` v0.3.0)**:
+  - Official GitHub repository: [`alya-lang/vscode-alya`](https://github.com/alya-lang/vscode-alya).
+  - Standalone `.vsix` releases with automated GitHub Actions CI/CD packaging and release pipelines.
+  - **Official VS Code Test Explorer**: Full integration with VS Code's Testing sidebar via the `TestController API`.
+  - **Native Assembly & AST Inspector**: Side-by-side assembly output inspection (`alya build -S`) and AST hierarchy inspection (`alya ast`).
+  - **CodeLens Integration**: One-click `▶ Run` above `function main()` and `🧪 Run Test` above `test` blocks.
+  - **In-Place Formatter**: Native Format on Save (`editor.formatOnSave`) and Format Document (`Shift+Alt+F`) via `alya fmt`.
+  - **Brand File Icons & Theme**: Embedded vector Dark/Light SVG icons and dedicated `Alya File Icons` theme.
+  - **Rich Snippets Suite**: Tab-triggered templates for all modern language idioms (`fn`, `struct`, `when`, `extern "C"`, `spawn`, `try`).
+  - **Interactive Status Bar**: Real-time compiler version indicator, LSP process health status, and 1-click quick actions menu.
 
 ---
 
