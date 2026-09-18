@@ -1,3 +1,5 @@
+mod common;
+use common::*;
 use alya::lexer::Lexer;
 use alya::parser::Parser;
 use std::fs;
@@ -84,3 +86,39 @@ fn test_golden_spec_conformance_matrix() {
         lex_passed, total, parse_passed, total
     );
 }
+
+#[test]
+fn test_golden_spec_memory_execution() {
+    let memory_file = get_spec_syntax_dir().join("memory.alya");
+    let source = fs::read_to_string(&memory_file)
+        .expect("Failed to read spec/syntax/memory.alya");
+
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("Original a: 42"));
+        assert!(output.contains("Copied b: 52"));
+        assert!(output.contains("Created payload #1"));
+        assert!(output.contains("Alias p2 data: Important Payload"));
+        assert!(output.contains("Created folder 'bin' with parent 'root'"));
+        assert!(output.contains("Allocating temporary scratch buffers inside arena..."));
+        assert!(output.contains("Arena workload finished, ready for instant bulk deallocation"));
+    }
+}
+
+#[test]
+fn test_golden_spec_concurrency_execution() {
+    let conc_file = get_spec_syntax_dir().join("concurrency.alya");
+    let source = fs::read_to_string(&conc_file)
+        .expect("Failed to read spec/syntax/concurrency.alya");
+
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from concurrency.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("Worker fiber #1 ready") || output.contains("Worker fiber #2 ready"));
+        assert!(output.contains("processing job #"));
+        assert!(output.contains("completed jobs"));
+        assert!(output.contains("Multiplexer received: Packet from Sensor"));
+        assert!(output.contains("Thread-safe shared counter result: 30"));
+    }
+}
+

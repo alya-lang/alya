@@ -269,3 +269,17 @@ pub fn emit_rc_release_stack(out: &mut String, offset: i32) {
     emit_arm64_load_x29_offset(out, "x0", offset, "x9");
     out.push_str("    bl fn_rc_release\n");
 }
+
+pub fn emit_weak_check(out: &mut String, lbl: &str) {
+    let clean_lbl = lbl.trim_start_matches('.');
+    out.push_str(&format!("    cbz x0, .L_weak_done_{}\n", clean_lbl));
+    out.push_str("    str x0, [sp, #-16]!\n");
+    out.push_str("    bl fn_rc_count\n");
+    out.push_str("    ldr x1, [sp], #16\n");
+    out.push_str(&format!("    cbnz x0, .L_weak_alive_{}\n", clean_lbl));
+    out.push_str("    mov x0, #0\n");
+    out.push_str(&format!("    b .L_weak_done_{}\n", clean_lbl));
+    out.push_str(&format!(".L_weak_alive_{}:\n", clean_lbl));
+    out.push_str("    mov x0, x1\n");
+    out.push_str(&format!(".L_weak_done_{}:\n", clean_lbl));
+}

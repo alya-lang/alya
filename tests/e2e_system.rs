@@ -1750,6 +1750,44 @@ say "non-heap str rc: " + str(rc_count("hello"))
 }
 
 #[test]
+fn test_e2e_weak_references() {
+    let code = r#"
+struct Node
+    val: int
+end
+
+struct Container
+    item: weak Node
+end
+
+function attach_node(c)
+    let n = Node { val: 42 }
+    c.item = n
+    say f"inside function n rc: {rc_count(n)}"
+    say f"inside function c.item null: {c.item == null}"
+end
+
+function run_test()
+    let c = Container { item: null }
+    say f"c.item null: {c.item == null}"
+
+    attach_node(c)
+    # After attach_node returns, n is freed!
+    say f"after return c.item null: {c.item == null}"
+end
+
+run_test()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert!(output.contains("c.item null: 1"), "Got: {}", output);
+        assert!(output.contains("inside function n rc: 1"), "Got: {}", output);
+        assert!(output.contains("inside function c.item null: 0"), "Got: {}", output);
+        assert!(output.contains("after return c.item null: 1"), "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_sync_stdlib() {
     let code = r#"
 import "std/sync"

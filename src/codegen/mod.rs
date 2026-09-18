@@ -34,6 +34,193 @@ pub struct CodeGen {
     pub no_std: bool,
 }
 
+fn collect_expr_identifiers(expr: &Expr, idents: &mut std::collections::HashSet<String>) {
+    match expr {
+        Expr::Identifier(id) => {
+            idents.insert(id.clone());
+        }
+        Expr::Binary { left, right, .. } => {
+            collect_expr_identifiers(left, idents);
+            collect_expr_identifiers(right, idents);
+        }
+        Expr::Unary { expr, .. } | Expr::Cast { expr, .. } | Expr::TypeCheck { expr, .. } => {
+            collect_expr_identifiers(expr, idents);
+        }
+        Expr::Call { args, .. } | Expr::OptionalCall { args, .. } => {
+            for arg in args {
+                collect_expr_identifiers(arg, idents);
+            }
+        }
+        Expr::Array(items) | Expr::InterpolatedString(items) => {
+            for item in items {
+                collect_expr_identifiers(item, idents);
+            }
+        }
+        Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+            collect_expr_identifiers(array, idents);
+            collect_expr_identifiers(index, idents);
+        }
+        Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+            collect_expr_identifiers(object, idents);
+        }
+        Expr::StructInit { fields, .. } => {
+            for (_, val) in fields {
+                collect_expr_identifiers(val, idents);
+            }
+        }
+        Expr::Map(pairs) => {
+            for (k, v) in pairs {
+                collect_expr_identifiers(k, idents);
+                collect_expr_identifiers(v, idents);
+            }
+        }
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            collect_expr_identifiers(condition, idents);
+            collect_expr_identifiers(then_branch, idents);
+            collect_expr_identifiers(else_branch, idents);
+        }
+        Expr::NullCoalesce { value, default } => {
+            collect_expr_identifiers(value, idents);
+            collect_expr_identifiers(default, idents);
+        }
+        _ => {}
+    }
+}
+
+fn collect_stmt_identifiers(stmt: &Stmt, idents: &mut std::collections::HashSet<String>) {
+    match stmt.inner_stmt() {
+        Stmt::Expr(e) | Stmt::Say(e) | Stmt::Return(Some(e)) | Stmt::Throw(Some(e)) => {
+            collect_expr_identifiers(e, idents);
+        }
+        Stmt::Let { value, .. } | Stmt::Const { value, .. } => {
+            collect_expr_identifiers(value, idents);
+        }
+        Stmt::Assign { name, value } => {
+            idents.insert(name.clone());
+            collect_expr_identifiers(value, idents);
+        }
+        Stmt::FieldAssign { object, value, .. } => {
+            collect_expr_identifiers(object, idents);
+            collect_expr_identifiers(value, idents);
+        }
+        Stmt::IndexAssign {
+            array,
+            index,
+            value,
+        } => {
+            collect_expr_identifiers(array, idents);
+            collect_expr_identifiers(index, idents);
+            collect_expr_identifiers(value, idents);
+        }
+        Stmt::If {
+            condition,
+            then_block,
+            else_block,
+        } => {
+            collect_expr_identifiers(condition, idents);
+            for s in then_block {
+                collect_stmt_identifiers(s, idents);
+            }
+            if let Some(eb) = else_block {
+                for s in eb {
+                    collect_stmt_identifiers(s, idents);
+                }
+            }
+        }
+        Stmt::While { condition, body } => {
+            collect_expr_identifiers(condition, idents);
+            for s in body {
+                collect_stmt_identifiers(s, idents);
+            }
+        }
+        Stmt::Repeat { body } => {
+            for s in body {
+                collect_stmt_identifiers(s, idents);
+            }
+        }
+        Stmt::For {
+            start,
+            end,
+            body,
+            ..
+        } => {
+            collect_expr_identifiers(start, idents);
+            collect_expr_identifiers(end, idents);
+            for s in body {
+                collect_stmt_identifiers(s, idents);
+            }
+        }
+        Stmt::ForEach {
+            iterable,
+            body,
+            ..
+        } => {
+            collect_expr_identifiers(iterable, idents);
+            for s in body {
+                collect_stmt_identifiers(s, idents);
+            }
+        }
+        Stmt::Defer(inner) => {
+            collect_stmt_identifiers(inner, idents);
+        }
+        Stmt::TryCatch {
+            try_block,
+            catch_block,
+            finally_block,
+            ..
+        } => {
+            for s in try_block {
+                collect_stmt_identifiers(s, idents);
+            }
+            for s in catch_block {
+                collect_stmt_identifiers(s, idents);
+            }
+            if let Some(fb) = finally_block {
+                for s in fb {
+                    collect_stmt_identifiers(s, idents);
+                }
+            }
+        }
+        Stmt::Pub(inner) => {
+            collect_stmt_identifiers(inner, idents);
+        }
+        _ => {}
+    }
+}
+
+fn collect_local_stmt_vars(stmts: &[Stmt], vars: &mut std::collections::HashSet<String>) {
+    for stmt in stmts {
+        match stmt.inner_stmt() {
+            Stmt::Let { name, .. } => {
+                vars.insert(name.clone());
+            }
+            Stmt::For { var, .. } => {
+                vars.insert(var.clone());
+            }
+            Stmt::ForEach { var, value_var, .. } => {
+                vars.insert(var.clone());
+                if let Some(ref v) = value_var {
+                    vars.insert(v.clone());
+                }
+            }
+            Stmt::If { then_block, else_block, .. } => {
+                collect_local_stmt_vars(then_block, vars);
+                if let Some(eb) = else_block {
+                    collect_local_stmt_vars(eb, vars);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+                collect_local_stmt_vars(body, vars);
+            }
+            _ => {}
+        }
+    }
+}
+
 impl CodeGen {
     pub fn new(arch: Architecture, os: OperatingSystem) -> Self {
         Self {
@@ -329,8 +516,66 @@ impl CodeGen {
             }
         }
 
+        // Identify top-level variables used in functions/lambdas that need to be module globals
+        let mut function_idents = std::collections::HashSet::new();
+        for func in &functions {
+            if let Stmt::Function { params, body, .. } = func {
+                let mut local_vars = std::collections::HashSet::new();
+                for p in params {
+                    local_vars.insert(p.clone());
+                }
+                collect_local_stmt_vars(body, &mut local_vars);
+
+                let mut body_idents = std::collections::HashSet::new();
+                for s in body {
+                    collect_stmt_identifiers(s, &mut body_idents);
+                }
+                for id in body_idents {
+                    if !local_vars.contains(&id) {
+                        function_idents.insert(id);
+                    }
+                }
+            }
+        }
+
+        for stmt in &top_level {
+            if let Stmt::Let { name, type_ann, value } = stmt.inner_stmt() {
+                if function_idents.contains(name) {
+                    let symbol = format!("alya_global_{}", name);
+                    let sname = if let Some(t) = type_ann {
+                        let bare_base = t.split('[').next().unwrap_or(t);
+                        let bare = bare_base.rsplit("::").next().unwrap_or(bare_base);
+                        let bare = bare.rsplit("__").next().unwrap_or(bare);
+                        if self.ctx.structs.contains_key(bare_base) {
+                            Some(bare_base.to_string())
+                        } else if self.ctx.structs.contains_key(bare) {
+                            Some(bare.to_string())
+                        } else {
+                            None
+                        }
+                    } else {
+                        self.get_expr_struct_name(value)
+                    };
+                    self.ctx.globals.insert(name.clone(), (symbol, sname));
+                }
+            }
+        }
+
         let t_emit = std::time::Instant::now();
         arch::emit_header(&mut self.output, self.arch, self.os);
+
+        if !self.ctx.globals.is_empty() {
+            self.emit_data_section();
+            let word_dir = if matches!(self.arch, Architecture::X86) {
+                ".long"
+            } else {
+                ".quad"
+            };
+            for (symbol, _) in self.ctx.globals.values() {
+                self.output.push_str(&format!(".global {}\n{}:\n    {} 0\n", symbol, symbol, word_dir));
+            }
+            self.output.push_str(".text\n");
+        }
 
         self.emit_rodata_section();
         self.output.push_str(".global alya_rodata_start\n");
@@ -436,17 +681,18 @@ impl CodeGen {
             let is_flt_arr = inference.infer_param_is_float_array(name, i, program);
             let is_map = inference.infer_param_is_map(name, i, program);
             let struct_type = if let Some(Some(t)) = param_types.get(i) {
-                let b = t.rsplit("::").next().unwrap_or(t);
+                let bare_base = t.split('[').next().unwrap_or(t);
+                let b = bare_base.rsplit("::").next().unwrap_or(bare_base);
                 let b = b.rsplit("__").next().unwrap_or(b);
-                if self.ctx.structs.contains_key(t) {
-                    Some(t.clone())
+                if self.ctx.structs.contains_key(bare_base) {
+                    Some(bare_base.to_string())
                 } else if self.ctx.structs.contains_key(b) {
                     Some(b.to_string())
                 } else {
                     None
                 }
             } else {
-                let method_receiver = if i == 0 {
+                let method_receiver = if i == 0 && param == "self" {
                     let bare = name.rsplit("::").next().unwrap_or(name);
                     let parts: Vec<&str> = bare.split("__").collect();
                     if parts.len() >= 2 {
@@ -590,6 +836,9 @@ impl CodeGen {
         use crate::ast::Expr;
         match expr {
             Expr::Identifier(name) => {
+                if let Some((_, Some(sname))) = self.ctx.globals.get(name) {
+                    return Some(sname.clone());
+                }
                 if let Some(VarType::Struct { struct_name, .. }) = self.ctx.variables.get(name) {
                     Some(struct_name.clone())
                 } else {
@@ -662,6 +911,33 @@ impl CodeGen {
                 }
             }
             Expr::Call { name, args } => {
+                if name == "new" {
+                    if let Some(first_arg) = args.first() {
+                        let target_type = match first_arg {
+                            Expr::Identifier(id) => Some(id.as_str()),
+                            Expr::FieldAccess { field, .. } => Some(field.as_str()),
+                            Expr::Index { array, .. } => match &**array {
+                                Expr::Identifier(id) => Some(id.as_str()),
+                                _ => None,
+                            },
+                            _ => None,
+                        };
+                        if let Some(tname) = target_type {
+                            let bare = tname.rsplit("::").next().unwrap_or(tname);
+                            let bare = bare.rsplit("__").next().unwrap_or(bare);
+                            if self.ctx.structs.contains_key(tname) {
+                                return Some(tname.to_string());
+                            } else if self.ctx.structs.contains_key(bare) {
+                                return Some(bare.to_string());
+                            }
+                        }
+                    }
+                }
+                if let Some(target) = name.strip_suffix("__new").or_else(|| name.strip_suffix("::new")) {
+                    let bare = target.rsplit("::").next().unwrap_or(target);
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    return Some(bare.to_string());
+                }
                 if let Some(first_arg) = args.first() {
                     if let Some(st) = self.get_expr_struct_name(first_arg) {
                         let bare_st = st.rsplit("::").next().unwrap_or(&st);
@@ -810,6 +1086,14 @@ impl CodeGen {
                 .push_str(".section __TEXT,__cstring,cstring_literals\n");
         } else {
             self.output.push_str(".section .rodata\n");
+        }
+    }
+
+    pub(crate) fn emit_data_section(&mut self) {
+        if matches!(self.os, OperatingSystem::MacOS) {
+            self.output.push_str(".section __DATA,__data\n");
+        } else {
+            self.output.push_str(".section .data\n");
         }
     }
 

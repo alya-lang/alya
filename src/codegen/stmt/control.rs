@@ -5,6 +5,7 @@ use crate::codegen::analysis::{
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
+use crate::codegen::target::Architecture;
 
 impl CodeGen {
     pub(crate) fn generate_condition_jump_if_false(
@@ -492,6 +493,97 @@ impl CodeGen {
             }),
             _ => None,
         };
+
+        let is_channel = inferred_struct_type.as_deref() == Some("Channel")
+            || self.get_expr_struct_name(iterable).as_deref() == Some("Channel");
+
+        if is_channel {
+            self.generate_expression(iterable);
+            arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+            let ch_offset = self.ctx.stack_offset;
+
+            arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+            let var_offset = self.ctx.stack_offset;
+            self.ctx
+                .variables
+                .insert(var.to_string(), VarType::Number(var_offset));
+
+            let start_label = self.ctx.next_label();
+            let step_label = self.ctx.next_label();
+            let end_label = self.ctx.next_label();
+            let loop_body_stack_offset = self.ctx.stack_offset;
+            let loop_body_variables = self.ctx.variables.clone();
+
+            self.ctx.push_loop(
+                step_label.clone(),
+                end_label.clone(),
+                loop_body_stack_offset,
+            );
+
+            self.output.push_str(&format!("{}:\n", start_label));
+
+            let initial_stack_offset = self.ctx.stack_offset;
+            match self.arch {
+                Architecture::X86 => {
+                    arch::emit_load_num(&mut self.output, self.arch, 5000);
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                    arch::emit_load_var(&mut self.output, self.arch, ch_offset, initial_stack_offset + 4);
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                }
+                _ => {
+                    arch::emit_load_var(&mut self.output, self.arch, ch_offset, initial_stack_offset);
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                    arch::emit_load_num(&mut self.output, self.arch, 5000);
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                }
+            }
+
+            let recv_fn = self
+                .ctx
+                .functions
+                .iter()
+                .find(|f| f.ends_with("Channel__recv") || f.ends_with("channel_recv"))
+                .map(|s| s.as_str())
+                .unwrap_or("channel_recv");
+            arch::emit_function_call(
+                &mut self.output,
+                self.arch,
+                recv_fn,
+                2,
+                initial_stack_offset,
+                self.os,
+            );
+            self.ctx.stack_offset = initial_stack_offset;
+
+            arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+            arch::emit_cond_jump(
+                &mut self.output,
+                self.arch,
+                BinaryOp::Equal,
+                false,
+                &end_label,
+            );
+
+            arch::emit_store_var(&mut self.output, self.arch, var_offset, self.ctx.stack_offset);
+
+            for s in body {
+                self.generate_statement(s);
+            }
+
+            let body_delta = self.ctx.stack_offset - loop_body_stack_offset;
+            if body_delta > 0 {
+                arch::emit_stack_restore(&mut self.output, self.arch, body_delta);
+            }
+            self.ctx.stack_offset = loop_body_stack_offset;
+            self.ctx.variables = loop_body_variables;
+
+            self.output.push_str(&format!("{}:\n", step_label));
+            arch::emit_jump(&mut self.output, self.arch, &start_label);
+            self.output.push_str(&format!("{}:\n", end_label));
+
+            self.ctx.pop_loop();
+            return;
+        }
 
         let is_map = is_map_expr(iterable, &self.ctx.variables);
         let is_map_str_val = is_map

@@ -276,3 +276,19 @@ pub fn emit_rc_release_stack(out: &mut String, offset: i32) {
     out.push_str("    call fn_rc_release\n");
     out.push_str("    add $4, %esp\n");
 }
+
+pub fn emit_weak_check(out: &mut String, lbl: &str) {
+    let clean_lbl = lbl.trim_start_matches('.');
+    out.push_str("    test %eax, %eax\n");
+    out.push_str(&format!("    jz .L_weak_done_{}\n", clean_lbl));
+    out.push_str("    push %eax\n");
+    out.push_str("    call fn_rc_count\n");
+    out.push_str("    pop %edx\n");
+    out.push_str("    test %eax, %eax\n");
+    out.push_str(&format!("    jnz .L_weak_alive_{}\n", clean_lbl));
+    out.push_str("    xor %eax, %eax\n");
+    out.push_str(&format!("    jmp .L_weak_done_{}\n", clean_lbl));
+    out.push_str(&format!(".L_weak_alive_{}:\n", clean_lbl));
+    out.push_str("    mov %edx, %eax\n");
+    out.push_str(&format!(".L_weak_done_{}:\n", clean_lbl));
+}

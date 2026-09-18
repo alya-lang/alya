@@ -474,10 +474,12 @@ end
 # --- Struct Methods for Memory Types ---
 
 # Arena Methods
+pub function Arena.new(chunk_size = 65536) return arena_new(chunk_size) end
 pub function Arena.alloc(self, size) return arena_alloc_mem(self, size) end
 pub function Arena.alloc_string(self, s) return arena_alloc_string(self, s) end
 pub function Arena.clear(self) arena_clear(self) end
 pub function Arena.free(self) arena_free(self) end
+pub function Arena.destroy(self) arena_free(self) end
 pub function Arena.total_allocated(self) return arena_total_allocated(self) end
 pub function Arena.is_valid(self) return arena_is_valid(self) end
 

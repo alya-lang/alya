@@ -337,3 +337,17 @@ pub fn emit_rc_release_stack(
         Architecture::ARM64 => arm64::builtins::emit_rc_release_stack(out, offset),
     }
 }
+
+pub fn emit_weak_check(
+    out: &mut String,
+    arch: Architecture,
+    stack_offset: i32,
+    os: OperatingSystem,
+    lbl: &str,
+) {
+    match arch {
+        Architecture::X86 => x86::builtins::emit_weak_check(out, lbl),
+        Architecture::X64 => x64::builtins::emit_weak_check(out, stack_offset, os, lbl),
+        Architecture::ARM64 => arm64::builtins::emit_weak_check(out, lbl),
+    }
+}

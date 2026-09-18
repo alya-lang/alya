@@ -3,6 +3,10 @@
 
 # --- Mutex (Mutual Exclusion Lock) ---
 
+pub struct Mutex
+    handle: int
+end
+
 # Creates a new mutex lock.
 # Returns a mutex handle.
 pub function mutex_new() -> int
@@ -22,6 +26,22 @@ end
 # Frees the mutex `m` and releases its OS resources.
 pub function mutex_free(m: int) -> int
     return __native_mutex_free(m)
+end
+
+pub function Mutex.new() -> Mutex
+    return Mutex(mutex_new())
+end
+
+pub function Mutex.lock(self: Mutex) -> int
+    return mutex_lock(self.handle)
+end
+
+pub function Mutex.unlock(self: Mutex) -> int
+    return mutex_unlock(self.handle)
+end
+
+pub function Mutex.free(self: Mutex) -> int
+    return mutex_free(self.handle)
 end
 
 # --- Channel (Thread-Safe FIFO Queue) ---
@@ -284,6 +304,10 @@ end
 
 # --- Struct Methods for Synchronization Primitives ---
 
+pub function Channel.new(capacity: int = 0) -> Channel
+    return channel_new()
+end
+
 pub function Channel.send(self: Channel, val) -> int
     return channel_send(self, val)
 end
@@ -306,6 +330,10 @@ end
 
 pub function Channel.free(self: Channel)
     channel_free(self)
+end
+
+pub function WaitGroup.new() -> WaitGroup
+    return wait_group_new()
 end
 
 pub function WaitGroup.add(self: WaitGroup, delta: int = 1)
@@ -356,6 +384,14 @@ end
 
 pub function sync_spawn(func, arg = null) -> int
     return __native_thread_spawn(func, arg)
+end
+
+pub function sync__spawn(func, arg = null) -> int
+    return sync_spawn(func, arg)
+end
+
+pub function spawn(func, arg = null) -> int
+    return sync_spawn(func, arg)
 end
 
 pub function sync_join(h: int)

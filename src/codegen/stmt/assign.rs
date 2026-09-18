@@ -11,6 +11,51 @@ use crate::codegen::target::Architecture;
 impl CodeGen {
     pub(super) fn generate_let(&mut self, name: &str, type_ann: Option<&str>, value: &Expr) {
         let name = name.to_string();
+        if self.ctx.current_fn_name.is_empty() {
+            if let Some((symbol, sname)) = self.ctx.globals.get(&name).cloned() {
+            self.generate_expression(value);
+            if self.is_heap_expression(value) {
+                arch::emit_rc_retain(
+                    &mut self.output,
+                    self.arch,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+            }
+            arch::emit_store_global(&mut self.output, self.arch, &symbol, self.os);
+            if let Some(sn) = sname {
+                self.ctx
+                    .variables
+                    .insert(name.clone(), VarType::Struct { struct_name: sn, offset: 0 });
+            } else if is_string_expr(value, &self.ctx.variables) {
+                self.ctx
+                    .variables
+                    .insert(name.clone(), VarType::StringOffset(0));
+            } else if is_float_expr(value, &self.ctx.variables) {
+                self.ctx
+                    .variables
+                    .insert(name.clone(), VarType::Float(0));
+            } else {
+                self.ctx
+                    .variables
+                    .insert(name.clone(), VarType::Number(0));
+            }
+            if let Expr::Call { name: cname, args: cargs } = value {
+                let bare = cname.rsplit("::").next().unwrap_or(cname.as_str());
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if bare == "new" {
+                    if let Some(Expr::Index { array, index }) = cargs.first() {
+                        if let (Expr::Identifier(arr_id), Expr::Identifier(type_id)) = (&**array, &**index) {
+                            if arr_id == "Channel" && (type_id == "string" || type_id == "str") {
+                                self.ctx.variables.insert(format!("channel_elem_str:{}", name), VarType::Number(0));
+                            }
+                        }
+                    }
+                }
+            }
+            return;
+        }
+    }
         match value {
             Expr::Null => {
                 self.generate_expression(value);
@@ -404,9 +449,18 @@ impl CodeGen {
                     }
                 }
 
-                if let Expr::Call { name: cname, .. } = value {
+                if let Expr::Call { name: cname, args: cargs } = value {
                     let bare = cname.rsplit("::").next().unwrap_or(cname.as_str());
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    if bare == "new" {
+                        if let Some(Expr::Index { array, index }) = cargs.first() {
+                            if let (Expr::Identifier(arr_id), Expr::Identifier(type_id)) = (&**array, &**index) {
+                                if arr_id == "Channel" && (type_id == "string" || type_id == "str") {
+                                    self.ctx.variables.insert(format!("channel_elem_str:{}", name), VarType::Number(0));
+                                }
+                            }
+                        }
+                    }
                     let prefix1 = format!("fn_ret_tuple_str:{}:", cname);
                     let prefix2 = format!("fn_ret_tuple_str:{}:", bare);
                     let matching: Vec<(String, String)> = self
@@ -496,6 +550,24 @@ impl CodeGen {
                     }
                     Architecture::X86 => {}
                 }
+            }
+        }
+
+        let is_local_var = match self.ctx.variables.get(&name) {
+            Some(VarType::Number(off))
+            | Some(VarType::Float(off))
+            | Some(VarType::StringOffset(off))
+            | Some(VarType::Array(off))
+            | Some(VarType::Map(off))
+            | Some(VarType::Null(off))
+            | Some(VarType::Struct { offset: off, .. }) => *off != 0,
+            _ => false,
+        };
+
+        if !is_local_var {
+            if let Some((symbol, _)) = self.ctx.globals.get(&name).cloned() {
+                arch::emit_store_global(&mut self.output, self.arch, &symbol, self.os);
+                return;
             }
         }
 
@@ -661,12 +733,13 @@ impl CodeGen {
         }
 
         let field_idx = self.resolve_struct_field_index(object, field);
+        let is_weak = self.is_struct_field_weak(object, field);
 
         self.generate_expression(object);
         arch::emit_push_temp(&mut self.output, self.arch);
 
         self.generate_expression(value);
-        if self.is_heap_expression(value) {
+        if !is_weak && self.is_heap_expression(value) {
             arch::emit_rc_retain(
                 &mut self.output,
                 self.arch,

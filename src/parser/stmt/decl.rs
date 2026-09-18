@@ -412,6 +412,8 @@ impl Parser {
             TokenType::Test => "test".to_string(),
             TokenType::Bench => "bench".to_string(),
             TokenType::Comptime => "comptime".to_string(),
+            TokenType::Spawn => "spawn".to_string(),
+            TokenType::Select => "select".to_string(),
             _ => {
                 return Err(format!(
                     "Expected function name at line {}, column {}",

@@ -469,6 +469,40 @@ pub fn emit_rc_release(out: &mut String, stack_offset: i32, os: OperatingSystem)
     }
 }
 
+pub fn emit_weak_check(out: &mut String, stack_offset: i32, os: OperatingSystem, lbl: &str) {
+    let clean_lbl = lbl.trim_start_matches('.');
+    out.push_str("    test %rax, %rax\n");
+    out.push_str(&format!("    jz .L_weak_done_{}\n", clean_lbl));
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    push %rax\n");
+        out.push_str("    mov %rax, %rcx\n");
+        let padding = if stack_offset % 16 == 0 { 40 } else { 32 };
+        out.push_str(&format!("    sub ${}, %rsp\n", padding));
+        out.push_str("    call fn_rc_count\n");
+        out.push_str(&format!("    add ${}, %rsp\n", padding));
+        out.push_str("    pop %rdx\n");
+    } else {
+        out.push_str("    push %rax\n");
+        out.push_str("    mov %rax, %rdi\n");
+        let misaligned = stack_offset % 16 == 0;
+        if misaligned {
+            out.push_str("    sub $8, %rsp\n");
+        }
+        out.push_str("    call fn_rc_count\n");
+        if misaligned {
+            out.push_str("    add $8, %rsp\n");
+        }
+        out.push_str("    pop %rdx\n");
+    }
+    out.push_str("    test %rax, %rax\n");
+    out.push_str(&format!("    jnz .L_weak_alive_{}\n", clean_lbl));
+    out.push_str("    xor %rax, %rax\n");
+    out.push_str(&format!("    jmp .L_weak_done_{}\n", clean_lbl));
+    out.push_str(&format!(".L_weak_alive_{}:\n", clean_lbl));
+    out.push_str("    mov %rdx, %rax\n");
+    out.push_str(&format!(".L_weak_done_{}:\n", clean_lbl));
+}
+
 pub fn emit_rc_release_stack(
     out: &mut String,
     offset: i32,

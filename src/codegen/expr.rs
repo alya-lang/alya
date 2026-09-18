@@ -35,6 +35,68 @@ impl CodeGen {
             }
             Expr::Identifier(name) => {
                 if let Some(var_type) = self.ctx.variables.get(name).cloned() {
+                    let has_local_offset = match var_type {
+                        VarType::Number(offset)
+                        | VarType::StringOffset(offset)
+                        | VarType::Array(offset)
+                        | VarType::Map(offset)
+                        | VarType::Null(offset)
+                        | VarType::Float(offset)
+                        | VarType::Struct { offset, .. } => offset != 0,
+                        _ => false,
+                    };
+                    if has_local_offset {
+                        match var_type {
+                            VarType::Number(offset)
+                            | VarType::StringOffset(offset)
+                            | VarType::Array(offset)
+                            | VarType::Map(offset)
+                            | VarType::Null(offset)
+                            | VarType::Struct { offset, .. } => {
+                                arch::emit_load_var(
+                                    &mut self.output,
+                                    self.arch,
+                                    offset,
+                                    self.ctx.stack_offset,
+                                );
+                                return;
+                            }
+                            VarType::Float(offset) => match self.arch {
+                                Architecture::ARM64 => {
+                                    arch::arm64::loads::emit_arm64_load_x29_offset(
+                                        &mut self.output,
+                                        "d0",
+                                        offset,
+                                        "x9",
+                                    );
+                                    self.output.push_str("    fmov x0, d0\n");
+                                    return;
+                                }
+                                Architecture::X64 => {
+                                    self.output
+                                        .push_str(&format!("    movsd -{}(%rbp), %xmm0\n", offset));
+                                    self.output.push_str("    movq %xmm0, %rax\n");
+                                    return;
+                                }
+                                Architecture::X86 => {
+                                    arch::emit_load_var(
+                                        &mut self.output,
+                                        self.arch,
+                                        offset,
+                                        self.ctx.stack_offset,
+                                    );
+                                    return;
+                                }
+                            },
+                            _ => {}
+                        }
+                    }
+                }
+                if let Some((symbol, _)) = self.ctx.globals.get(name) {
+                    arch::emit_load_global(&mut self.output, self.arch, symbol, self.os);
+                    return;
+                }
+                if let Some(var_type) = self.ctx.variables.get(name).cloned() {
                     match var_type {
                         VarType::Number(offset)
                         | VarType::StringOffset(offset)
@@ -458,8 +520,13 @@ impl CodeGen {
                                 .variables
                                 .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
                         }
+                        let is_weak = sdef
+                            .field_types
+                            .get(i)
+                            .and_then(|t| t.as_deref())
+                            .map_or(false, |t| t.starts_with("weak ") || t == "weak");
                         self.generate_expression(arg);
-                        if self.is_heap_expression(arg) {
+                        if !is_weak && self.is_heap_expression(arg) {
                             arch::emit_rc_retain(
                                 &mut self.output,
                                 self.arch,
@@ -789,13 +856,79 @@ impl CodeGen {
                 let mut resolved_name = name.clone();
                 let mut actual_args = args.clone();
 
-                // 1. Static struct method call: Point.new(args) -> Point__new(args)
-                if let Some(Expr::Identifier(type_name)) = actual_args.first() {
-                    let mangled = format!("{}__{}", type_name, name);
-                    if self.ctx.structs.contains_key(type_name)
-                        && !self.ctx.variables.contains_key(type_name)
+                // 1. Static struct method call: Point.new(args) -> Point__new(args) or Module.Struct.new(args)
+                let static_type_info = match actual_args.first() {
+                    Some(Expr::Identifier(type_name)) => Some((None, type_name.clone())),
+                    Some(Expr::FieldAccess { object, field }) => {
+                        if let Expr::Identifier(mod_name) = &**object {
+                            Some((Some(mod_name.clone()), field.clone()))
+                        } else {
+                            None
+                        }
+                    }
+                    Some(Expr::Index { array, .. }) => {
+                        match &**array {
+                            Expr::Identifier(type_name) => Some((None, type_name.clone())),
+                            Expr::FieldAccess { object, field } => {
+                                if let Expr::Identifier(mod_name) = &**object {
+                                    Some((Some(mod_name.clone()), field.clone()))
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                };
+
+                if let Some((mod_opt, type_name)) = static_type_info {
+                    let mangled1 = format!("{}__{}", type_name, name);
+                    let mangled_single = format!("{}_{}", type_name, name);
+                    let mangled2 = if let Some(ref m) = mod_opt {
+                        format!("{}__{}__{}", m, type_name, name)
+                    } else {
+                        mangled1.clone()
+                    };
+                    let mangled3 = if let Some(ref m) = mod_opt {
+                        format!("{}::{}__{}", m, type_name, name)
+                    } else {
+                        mangled1.clone()
+                    };
+                    let is_struct = self.ctx.structs.contains_key(&type_name)
+                        || mod_opt.as_ref().map_or(false, |m| self.ctx.structs.contains_key(&format!("{}::{}", m, type_name)));
+                    let is_var = self.ctx.variables.contains_key(&type_name);
+                    let is_mod_var = mod_opt.as_ref().map_or(false, |m| self.ctx.variables.contains_key(m));
+
+                    let valid_target = if mod_opt.is_some() {
+                        is_struct && !is_mod_var
+                    } else {
+                        (is_struct
+                            || self.ctx.functions.contains(&mangled1)
+                            || self.ctx.functions.contains(&mangled_single)
+                            || self.ctx.functions.contains(&mangled2)
+                            || self.ctx.functions.contains(&mangled3)
+                            || self.ctx.functions.iter().any(|f| f.ends_with(&format!("__{}", mangled1)) || f.ends_with(&format!("::{}", mangled1))))
+                            && !is_var
+                    };
+
+                    if valid_target
                     {
-                        resolved_name = mangled;
+                        if self.ctx.functions.contains(&mangled2) {
+                            resolved_name = mangled2;
+                        } else if self.ctx.functions.contains(&mangled3) {
+                            resolved_name = mangled3;
+                        } else if self.ctx.functions.contains(&mangled1) {
+                            resolved_name = mangled1;
+                        } else if self.ctx.functions.contains(&mangled_single) {
+                            resolved_name = mangled_single;
+                        } else if let Some(matched) = self.ctx.functions.iter().find(|f| {
+                            f.ends_with(&format!("__{}", mangled1)) || f.ends_with(&format!("::{}", mangled1))
+                        }) {
+                            resolved_name = matched.clone();
+                        } else {
+                            resolved_name = mangled1;
+                        }
                         actual_args.remove(0);
                     }
                 }
@@ -1067,8 +1200,13 @@ impl CodeGen {
                             } else {
                                 &Expr::Number(0.0)
                             };
+                        let is_weak = sdef
+                            .field_types
+                            .get(i)
+                            .and_then(|t| t.as_deref())
+                            .map_or(false, |t| t.starts_with("weak ") || t == "weak");
                         self.generate_expression(arg_expr);
-                        if self.is_heap_expression(arg_expr) {
+                        if !is_weak && self.is_heap_expression(arg_expr) {
                             arch::emit_rc_retain(
                                 &mut self.output,
                                 self.arch,
@@ -1098,8 +1236,19 @@ impl CodeGen {
             }
             Expr::FieldAccess { object, field } => {
                 let field_idx = self.resolve_struct_field_index(object, field);
+                let is_weak = self.is_struct_field_weak(object, field);
                 self.generate_expression(object);
                 arch::emit_struct_field_get(&mut self.output, self.arch, field_idx);
+                if is_weak {
+                    let lbl = self.ctx.next_label();
+                    arch::emit_weak_check(
+                        &mut self.output,
+                        self.arch,
+                        self.ctx.stack_offset,
+                        self.os,
+                        &lbl,
+                    );
+                }
                 match self.arch {
                     Architecture::X64 => {
                         self.output.push_str("    movq %rax, %xmm0\n");
@@ -1398,6 +1547,7 @@ impl CodeGen {
                 let end_label = self.ctx.next_label();
 
                 let field_idx = self.resolve_struct_field_index(object, field);
+                let is_weak = self.is_struct_field_weak(object, field);
 
                 self.generate_expression(object);
                 arch::emit_cmp_imm(&mut self.output, self.arch, 0);
@@ -1410,6 +1560,16 @@ impl CodeGen {
                 );
 
                 arch::emit_struct_field_get(&mut self.output, self.arch, field_idx);
+                if is_weak {
+                    let lbl = self.ctx.next_label();
+                    arch::emit_weak_check(
+                        &mut self.output,
+                        self.arch,
+                        self.ctx.stack_offset,
+                        self.os,
+                        &lbl,
+                    );
+                }
                 match self.arch {
                     Architecture::X64 => {
                         self.output.push_str("    movq %rax, %xmm0\n");
@@ -1924,5 +2084,72 @@ impl CodeGen {
         }
 
         0
+    }
+
+    pub(crate) fn is_struct_field_weak(&self, object: &Expr, field: &str) -> bool {
+        let base_obj = match object {
+            Expr::OptionalFieldAccess { object: inner, .. } => inner.as_ref(),
+            _ => object,
+        };
+
+        if let Some(struct_name) = self.get_expr_struct_name(base_obj) {
+            let bare = struct_name.rsplit("::").next().unwrap_or(&struct_name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            if let Some(sdef) = self
+                .ctx
+                .structs
+                .get(&struct_name)
+                .or_else(|| self.ctx.structs.get(bare))
+            {
+                if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
+                    if let Some(Some(ft)) = sdef.field_types.get(idx) {
+                        return ft.starts_with("weak ") || ft == "weak";
+                    }
+                }
+            }
+        }
+
+        let name_opt = match base_obj {
+            Expr::Identifier(obj_name) => Some(obj_name.as_str()),
+            Expr::FieldAccess {
+                field: inner_field, ..
+            }
+            | Expr::OptionalFieldAccess {
+                field: inner_field, ..
+            } => Some(inner_field.as_str()),
+            _ => None,
+        };
+
+        if let Some(name_str) = name_opt {
+            let lower = name_str.to_lowercase();
+            let norm_var = lower.replace('_', "");
+            for (sname, sdef) in &self.ctx.structs {
+                if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
+                    let s_lower = sname.to_lowercase();
+                    let s_bare = s_lower.rsplit("::").next().unwrap_or(&s_lower);
+                    let s_bare = s_bare.rsplit("__").next().unwrap_or(s_bare);
+                    let norm_struct = s_bare.replace('_', "");
+                    if norm_struct == norm_var
+                        || norm_struct.ends_with(&norm_var)
+                        || norm_var.ends_with(&norm_struct)
+                    {
+                        if let Some(Some(ft)) = sdef.field_types.get(idx) {
+                            return ft.starts_with("weak ") || ft == "weak";
+                        }
+                    }
+                }
+            }
+        }
+
+        for (_sname, sdef) in &self.ctx.structs {
+            if let Some(idx) = sdef.fields.iter().position(|f| f == field) {
+                if let Some(Some(ft)) = sdef.field_types.get(idx) {
+                    if ft.starts_with("weak ") || ft == "weak" {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 }

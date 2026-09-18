@@ -130,6 +130,19 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             if bare == "slice" {
                 return !args.is_empty() && is_string_expr(&args[0], vars);
             }
+            if bare == "recv" || bare == "try_recv" {
+                if let Some(first_arg) = args.first() {
+                    let ch_name = match first_arg {
+                        Expr::Identifier(id) => Some(id.as_str()),
+                        _ => None,
+                    };
+                    if let Some(ch) = ch_name {
+                        if vars.contains_key(&format!("channel_elem_str:{}", ch)) {
+                            return true;
+                        }
+                    }
+                }
+            }
             if matches!(
                 bare,
                 "json_parse_array"

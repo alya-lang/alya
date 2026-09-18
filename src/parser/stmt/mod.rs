@@ -613,43 +613,284 @@ impl Parser {
     fn parse_spawn(&mut self) -> Result<Vec<Stmt>, String> {
         self.advance(); // consume 'spawn'
         let expr = self.parse_expression()?;
-        Ok(vec![Stmt::Expr(Expr::Call {
-            name: "spawn".to_string(),
-            args: vec![expr],
-        })])
+        match expr {
+            Expr::Call { name, args } => {
+                if args.is_empty() {
+                    Ok(vec![Stmt::Expr(Expr::Call {
+                        name: "spawn".to_string(),
+                        args: vec![Expr::Identifier(name), Expr::Null],
+                    })])
+                } else if args.len() == 1 {
+                    Ok(vec![Stmt::Expr(Expr::Call {
+                        name: "spawn".to_string(),
+                        args: vec![Expr::Identifier(name), args.into_iter().next().unwrap()],
+                    })])
+                } else {
+                    let thunk_name = format!("__alya_spawn_thunk_{}", self.lambda_counter);
+                    self.lambda_counter += 1;
+                    let pack_ident = "__pack".to_string();
+                    let thunk_args: Vec<Expr> = (0..args.len())
+                        .map(|i| Expr::Index {
+                            array: Box::new(Expr::Identifier(pack_ident.clone())),
+                            index: Box::new(Expr::Number(i as f64)),
+                        })
+                        .collect();
+                    let thunk_fn = Stmt::Function {
+                        name: thunk_name.clone(),
+                        params: vec![pack_ident],
+                        param_types: vec![None],
+                        return_type: None,
+                        defaults: vec![None],
+                        body: vec![Stmt::Expr(Expr::Call {
+                            name,
+                            args: thunk_args,
+                        })],
+                    };
+                    self.lambda_functions.push(thunk_fn);
+                    Ok(vec![Stmt::Expr(Expr::Call {
+                        name: "spawn".to_string(),
+                        args: vec![Expr::Identifier(thunk_name), Expr::Array(args)],
+                    })])
+                }
+            }
+            other => Ok(vec![Stmt::Expr(Expr::Call {
+                name: "spawn".to_string(),
+                args: vec![other, Expr::Null],
+            })]),
+        }
     }
 
     fn parse_select(&mut self) -> Result<Vec<Stmt>, String> {
         self.advance(); // consume 'select'
         self.skip_newlines();
-        let mut depth = 1;
-        while depth > 0 && !matches!(self.current_token().token_type, TokenType::Eof) {
-            match self.current_token().token_type {
-                TokenType::Select
-                | TokenType::If
-                | TokenType::While
-                | TokenType::For
-                | TokenType::Repeat
-                | TokenType::Struct
-                | TokenType::Enum
-                | TokenType::When
-                | TokenType::Function => {
-                    depth += 1;
-                    self.advance();
-                }
-                TokenType::End => {
-                    depth -= 1;
-                    self.advance();
-                    if depth == 0 {
-                        break;
+
+        struct SelectCase {
+            var_name: Option<String>,
+            ch_op: Expr,
+            body: Vec<Stmt>,
+        }
+
+        let mut cases: Vec<SelectCase> = Vec::new();
+        let mut timeout_clause: Option<(Expr, Vec<Stmt>)> = None;
+        let mut else_clause: Option<Vec<Stmt>> = None;
+
+        while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+            self.skip_newlines();
+            if matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+                break;
+            }
+
+            if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "case") {
+                self.advance(); // consume 'case'
+                let var_name = if matches!(self.current_token().token_type, TokenType::Identifier(_))
+                    && matches!(self.peek_token().map(|t| &t.token_type), Some(TokenType::Assign))
+                {
+                    let name = match &self.current_token().token_type {
+                        TokenType::Identifier(s) => s.clone(),
+                        _ => unreachable!(),
+                    };
+                    self.advance(); // identifier
+                    self.advance(); // '='
+                    Some(name)
+                } else {
+                    None
+                };
+
+                let mut ch_op = self.parse_expression()?;
+                if let Expr::Call { ref mut name, .. } = ch_op {
+                    if name == "recv" {
+                        *name = "try_recv".to_string();
                     }
                 }
-                _ => {
-                    self.advance();
+                self.skip_newlines();
+
+                let mut body = Vec::new();
+                while !matches!(
+                    self.current_token().token_type,
+                    TokenType::End | TokenType::Else | TokenType::Eof
+                ) {
+                    if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "case" || s == "timeout") {
+                        break;
+                    }
+                    body.extend(self.parse_statement()?);
+                    self.skip_newlines();
                 }
+
+                cases.push(SelectCase { var_name, ch_op, body });
+            } else if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "timeout") {
+                self.advance(); // consume 'timeout'
+                let timeout_expr = self.parse_expression()?;
+                self.skip_newlines();
+
+                let mut body = Vec::new();
+                while !matches!(
+                    self.current_token().token_type,
+                    TokenType::End | TokenType::Else | TokenType::Eof
+                ) {
+                    if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "case" || s == "timeout") {
+                        break;
+                    }
+                    body.extend(self.parse_statement()?);
+                    self.skip_newlines();
+                }
+
+                timeout_clause = Some((timeout_expr, body));
+            } else if matches!(self.current_token().token_type, TokenType::Else) {
+                self.advance(); // consume 'else'
+                self.skip_newlines();
+
+                let mut body = Vec::new();
+                while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
+                    body.extend(self.parse_statement()?);
+                    self.skip_newlines();
+                }
+
+                else_clause = Some(body);
+            } else {
+                return Err(format!(
+                    "Unexpected token in select statement: {:?}",
+                    self.current_token()
+                ));
             }
         }
-        Ok(vec![])
+
+        self.expect(TokenType::End)?;
+
+        let sel_id = self.lambda_counter;
+        self.lambda_counter += 1;
+        let matched_var = format!("__sel_matched_{}", sel_id);
+        let start_var = format!("__sel_start_{}", sel_id);
+        let timeout_var = format!("__sel_timeout_{}", sel_id);
+
+        let mut stmts = Vec::new();
+        stmts.push(Stmt::Let {
+            name: matched_var.clone(),
+            type_ann: Some("int".into()),
+            value: Expr::Number(0.0),
+        });
+
+        if let Some((ref t_expr, _)) = timeout_clause {
+            stmts.push(Stmt::Let {
+                name: start_var.clone(),
+                type_ann: Some("int".into()),
+                value: Expr::Call {
+                    name: "clock_ms".into(),
+                    args: vec![],
+                },
+            });
+            stmts.push(Stmt::Let {
+                name: timeout_var.clone(),
+                type_ann: Some("int".into()),
+                value: t_expr.clone(),
+            });
+        }
+
+        let mut loop_body = Vec::new();
+        for (i, c) in cases.iter().enumerate() {
+            let val_var = format!("__sel_val_{}_{}", sel_id, i);
+            let mut case_inner = Vec::new();
+            case_inner.push(Stmt::Let {
+                name: val_var.clone(),
+                type_ann: None,
+                value: c.ch_op.clone(),
+            });
+            let mut if_val_present = Vec::new();
+            if let Some(ref vname) = c.var_name {
+                if_val_present.push(Stmt::Let {
+                    name: vname.clone(),
+                    type_ann: None,
+                    value: Expr::Identifier(val_var.clone()),
+                });
+            }
+            if_val_present.extend(c.body.clone());
+            if_val_present.push(Stmt::Assign {
+                name: matched_var.clone(),
+                value: Expr::Number(1.0),
+            });
+            case_inner.push(Stmt::If {
+                condition: Expr::Binary {
+                    left: Box::new(Expr::Identifier(val_var)),
+                    op: BinaryOp::NotEqual,
+                    right: Box::new(Expr::Null),
+                },
+                then_block: if_val_present,
+                else_block: None,
+            });
+
+            loop_body.push(Stmt::If {
+                condition: Expr::Binary {
+                    left: Box::new(Expr::Identifier(matched_var.clone())),
+                    op: BinaryOp::Equal,
+                    right: Box::new(Expr::Number(0.0)),
+                },
+                then_block: case_inner,
+                else_block: None,
+            });
+        }
+
+        let mut after_cases = Vec::new();
+        if let Some((_, ref t_body)) = timeout_clause {
+            let elapsed = Expr::Binary {
+                left: Box::new(Expr::Call {
+                    name: "clock_ms".into(),
+                    args: vec![],
+                }),
+                op: BinaryOp::Subtract,
+                right: Box::new(Expr::Identifier(start_var)),
+            };
+            let timed_out_cond = Expr::Binary {
+                left: Box::new(elapsed),
+                op: BinaryOp::GreaterEqual,
+                right: Box::new(Expr::Identifier(timeout_var)),
+            };
+            let mut timeout_block = t_body.clone();
+            timeout_block.push(Stmt::Assign {
+                name: matched_var.clone(),
+                value: Expr::Number(1.0),
+            });
+            let else_block = vec![Stmt::Expr(Expr::Call {
+                name: "sleep".into(),
+                args: vec![Expr::Number(1.0)],
+            })];
+            after_cases.push(Stmt::If {
+                condition: timed_out_cond,
+                then_block: timeout_block,
+                else_block: Some(else_block),
+            });
+        } else if let Some(ref e_body) = else_clause {
+            let mut non_blocking_block = e_body.clone();
+            non_blocking_block.push(Stmt::Assign {
+                name: matched_var.clone(),
+                value: Expr::Number(1.0),
+            });
+            after_cases.extend(non_blocking_block);
+        } else {
+            after_cases.push(Stmt::Expr(Expr::Call {
+                name: "sleep".into(),
+                args: vec![Expr::Number(1.0)],
+            }));
+        }
+
+        loop_body.push(Stmt::If {
+            condition: Expr::Binary {
+                left: Box::new(Expr::Identifier(matched_var.clone())),
+                op: BinaryOp::Equal,
+                right: Box::new(Expr::Number(0.0)),
+            },
+            then_block: after_cases,
+            else_block: None,
+        });
+
+        stmts.push(Stmt::While {
+            condition: Expr::Binary {
+                left: Box::new(Expr::Identifier(matched_var)),
+                op: BinaryOp::Equal,
+                right: Box::new(Expr::Number(0.0)),
+            },
+            body: loop_body,
+        });
+
+        Ok(stmts)
     }
 
     fn parse_guard(&mut self) -> Result<Vec<Stmt>, String> {

@@ -37,6 +37,7 @@ pub struct ScopeState {
     pub loop_stack: Vec<(String, String, i32)>,
     pub active_defers: Vec<(usize, Stmt, i32)>,
     pub next_defer_idx: usize,
+    pub current_fn_name: String,
 }
 
 #[derive(Debug, Default)]
@@ -53,6 +54,7 @@ pub struct CodeGenContext {
     pub active_defers: Vec<(usize, Stmt, i32)>,
     pub next_defer_idx: usize,
     pub current_fn_name: String,
+    pub globals: HashMap<String, (String, Option<String>)>,
 }
 
 impl CodeGenContext {
@@ -70,6 +72,7 @@ impl CodeGenContext {
             active_defers: Vec::new(),
             next_defer_idx: 0,
             current_fn_name: String::new(),
+            globals: HashMap::new(),
         }
     }
 
@@ -101,7 +104,8 @@ impl CodeGenContext {
     pub fn enter_function(&mut self) -> ScopeState {
         let mut fn_vars = HashMap::new();
         for (k, v) in &self.variables {
-            if k.starts_with("map_field_str:")
+            if self.globals.contains_key(k)
+                || k.starts_with("map_field_str:")
                 || k.starts_with("map_str:")
                 || k.starts_with("fn_ret_str:")
                 || k.starts_with("fn_ret_str_arr:")
@@ -118,6 +122,7 @@ impl CodeGenContext {
                 || k.starts_with("arr_is_flt:")
                 || k.starts_with("fn_param_str:")
                 || k.starts_with("fn_param_str_arr:")
+                || k.starts_with("channel_elem_str:")
             {
                 fn_vars.insert(k.clone(), v.clone());
             }
@@ -128,6 +133,7 @@ impl CodeGenContext {
             loop_stack: std::mem::take(&mut self.loop_stack),
             active_defers: std::mem::take(&mut self.active_defers),
             next_defer_idx: self.next_defer_idx,
+            current_fn_name: std::mem::take(&mut self.current_fn_name),
         };
         self.stack_offset = 0;
         self.next_defer_idx = 0;
@@ -140,5 +146,6 @@ impl CodeGenContext {
         self.loop_stack = saved.loop_stack;
         self.active_defers = saved.active_defers;
         self.next_defer_idx = saved.next_defer_idx;
+        self.current_fn_name = saved.current_fn_name;
     }
 }

@@ -96,3 +96,19 @@ pub fn emit_pop_temp(out: &mut String, arch: Architecture) {
         Architecture::X86 => x86::emit_pop_temp(out),
     }
 }
+
+pub fn emit_load_global(out: &mut String, arch: Architecture, symbol: &str, os: OperatingSystem) {
+    match arch {
+        Architecture::ARM64 => arm64::loads::emit_load_global(out, symbol, os),
+        Architecture::X64 => x64::loads::emit_load_global(out, symbol),
+        Architecture::X86 => x86::loads::emit_load_global(out, symbol),
+    }
+}
+
+pub fn emit_store_global(out: &mut String, arch: Architecture, symbol: &str, os: OperatingSystem) {
+    match arch {
+        Architecture::ARM64 => arm64::loads::emit_store_global(out, symbol, os),
+        Architecture::X64 => x64::loads::emit_store_global(out, symbol),
+        Architecture::X86 => x86::loads::emit_store_global(out, symbol),
+    }
+}

@@ -58,3 +58,11 @@ pub fn emit_push_temp(out: &mut String) {
 pub fn emit_pop_temp(out: &mut String) {
     out.push_str("    pop %rax\n");
 }
+
+pub fn emit_load_global(out: &mut String, symbol: &str) {
+    out.push_str(&format!("    movq {}(%rip), %rax\n", symbol));
+}
+
+pub fn emit_store_global(out: &mut String, symbol: &str) {
+    out.push_str(&format!("    movq %rax, {}(%rip)\n", symbol));
+}

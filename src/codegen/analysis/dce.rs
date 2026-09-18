@@ -314,6 +314,8 @@ fn collect_references_in_stmt(stmt: &Stmt, refs: &mut HashSet<String>) {
             }
         }
         Stmt::ForEach { iterable, body, .. } => {
+            refs.insert("channel_recv".to_string());
+            refs.insert("Channel__recv".to_string());
             collect_references_in_expr(iterable, refs);
             for s in body {
                 collect_references_in_stmt(s, refs);

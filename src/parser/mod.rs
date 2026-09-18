@@ -1166,6 +1166,17 @@ fn expand_defaults_in_expr(
             for arg in args.iter_mut() {
                 expand_defaults_in_expr(arg, fn_defs);
             }
+            if let Some(Expr::Identifier(prefix)) = args.first().cloned() {
+                let cand_double = format!("{}__{}", prefix, name);
+                let cand_colon = format!("{}::{}", prefix, name);
+                if fn_defs.contains_key(&cand_double) {
+                    *name = cand_double;
+                    args.remove(0);
+                } else if fn_defs.contains_key(&cand_colon) {
+                    *name = cand_colon;
+                    args.remove(0);
+                }
+            }
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             if let Some((param_count, defaults, has_rest)) =
                 fn_defs.get(name).or_else(|| fn_defs.get(bare))

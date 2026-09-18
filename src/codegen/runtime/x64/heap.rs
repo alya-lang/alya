@@ -312,7 +312,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    test $7, %r11\n");
     out.push_str("    jnz .L_x64_rc_retain_done\n");
     out.push_str("    cmp $65536, %r11\n");
-    out.push_str("    jb .L_x64_rc_retain_done\n");
+    out.push_str("    jbe .L_x64_rc_retain_done\n");
     out.push_str("    mov $0x00007fffffffffff, %rax\n");
     out.push_str("    cmp %rax, %r11\n");
     out.push_str("    ja .L_x64_rc_retain_done\n");
@@ -347,7 +347,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    test $7, %rbx\n");
     out.push_str("    jnz .L_x64_rc_rel_done\n");
     out.push_str("    cmp $65536, %rbx\n");
-    out.push_str("    jb .L_x64_rc_rel_done\n");
+    out.push_str("    jbe .L_x64_rc_rel_done\n");
     out.push_str("    mov $0x00007fffffffffff, %rax\n");
     out.push_str("    cmp %rax, %rbx\n");
     out.push_str("    ja .L_x64_rc_rel_done\n");
@@ -408,7 +408,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    test $7, %rax\n");
     out.push_str("    jnz .L_x64_rcc_zero\n");
     out.push_str("    cmp $65536, %rax\n");
-    out.push_str("    jb .L_x64_rcc_zero\n");
+    out.push_str("    jbe .L_x64_rcc_zero\n");
     out.push_str("    mov $0x00007fffffffffff, %rdx\n");
     out.push_str("    cmp %rdx, %rax\n");
     out.push_str("    ja .L_x64_rcc_zero\n");
