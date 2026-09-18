@@ -699,7 +699,14 @@ pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             vars,
         ),
         Expr::Cast { expr: inner, target } => {
-            target == "float" || target == "f64" || target == "f32" || is_float_expr(inner, vars)
+            let t = target.to_lowercase();
+            if t == "float" || t == "f64" || t == "f32" {
+                true
+            } else if t == "int" || t == "i64" || t == "i32" || t == "usize" || t == "str" || t == "string" {
+                false
+            } else {
+                is_float_expr(inner, vars)
+            }
         }
         _ => false,
     }

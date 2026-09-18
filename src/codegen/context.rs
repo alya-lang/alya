@@ -124,6 +124,7 @@ impl CodeGenContext {
                 || k.starts_with("fn_ret_str:")
                 || k.starts_with("fn_ret_str_arr:")
                 || k.starts_with("fn_ret_flt:")
+                || k.starts_with("fn_ret_tuple_flt:")
                 || k.starts_with("fn_ret_struct:")
                 || k.starts_with("fn_ret_tuple_str:")
                 || k.starts_with("tuple_elem_str:")

@@ -404,6 +404,22 @@ fn test_golden_spec_modules_execution() {
     }
     if let Some((code, output)) = run_alya_code_full(&source) {
         println!("Output from modules.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0);
+        assert!(output.contains("Square root: 8"));
+    }
+}
+
+#[test]
+fn test_golden_spec_ffi_execution() {
+    let file = get_spec_syntax_dir().join("ffi.alya");
+    let source = fs::read_to_string(&file).expect("Failed to read ffi.alya");
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from ffi.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("FFI: Invoking native C puts directly from Alya"));
+        assert!(output.contains("Computed abs(-100) via libc: 100"));
+        assert!(output.contains("Cos(45deg) = 0.707107, Sin(45deg) = 0.707107"));
+        assert!(output.contains("Scratchpad memory allocated successfully."));
     }
 }
 

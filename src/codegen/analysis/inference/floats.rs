@@ -105,6 +105,16 @@ fn expr_is_definitely_float(expr: &Expr, known_floats: &HashSet<String>) -> bool
                 _ => false,
             }
         }
+        Expr::Cast { expr: inner, target } => {
+            let t = target.to_lowercase();
+            if t == "float" || t == "f64" || t == "f32" {
+                true
+            } else if t == "int" || t == "i64" || t == "i32" || t == "usize" || t == "str" || t == "string" {
+                false
+            } else {
+                expr_is_definitely_float(inner, known_floats)
+            }
+        }
         _ => false,
     }
 }
@@ -152,6 +162,50 @@ fn stmts_return_float(stmts: &[Stmt], known_floats: &HashSet<String>) -> bool {
     })
 }
 
+fn collect_tuple_returns_float(
+    stmts: &[Stmt],
+    known_floats: &HashSet<String>,
+    fn_name: &str,
+    target_floats: &mut HashSet<String>,
+) {
+    for s in stmts {
+        match s {
+            Stmt::Return(Some(Expr::Array(elements))) => {
+                for (i, elem) in elements.iter().enumerate() {
+                    if expr_is_definitely_float(elem, known_floats) {
+                        target_floats.insert(format!("fn_ret_tuple_flt:{}:{}", fn_name, i));
+                    }
+                }
+            }
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                collect_tuple_returns_float(then_block, known_floats, fn_name, target_floats);
+                if let Some(eb) = else_block {
+                    collect_tuple_returns_float(eb, known_floats, fn_name, target_floats);
+                }
+            }
+            Stmt::While { body, .. }
+            | Stmt::Repeat { body }
+            | Stmt::For { body, .. }
+            | Stmt::ForEach { body, .. } => {
+                collect_tuple_returns_float(body, known_floats, fn_name, target_floats);
+            }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                collect_tuple_returns_float(
+                    std::slice::from_ref(inner),
+                    known_floats,
+                    fn_name,
+                    target_floats,
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
 fn collect_float_vars_from_stmts(
     stmts: &[Stmt],
     scope: &mut HashSet<String>,
@@ -190,7 +244,29 @@ fn collect_float_vars_from_stmts(
                         known_floats.insert(format!("arr_is_flt:{}", name));
                     }
                 }
-                if let Expr::Array(elems) = value {
+                if let Expr::Call { name: cname, .. } = value {
+                    let bare = cname.rsplit("::").next().unwrap_or(cname.as_str());
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    let prefix1 = format!("fn_ret_tuple_flt:{}:", cname);
+                    let prefix2 = format!("fn_ret_tuple_flt:{}:", bare);
+                    for item in known_floats.clone() {
+                        if item.starts_with(&prefix1) {
+                            if let Some(idx_str) = item.strip_prefix(&prefix1) {
+                                scope.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
+                                if is_top_level {
+                                    known_floats.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
+                                }
+                            }
+                        } else if item.starts_with(&prefix2) {
+                            if let Some(idx_str) = item.strip_prefix(&prefix2) {
+                                scope.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
+                                if is_top_level {
+                                    known_floats.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
+                                }
+                            }
+                        }
+                    }
+                } else if let Expr::Array(elems) = value {
                     for (i, elem) in elems.iter().enumerate() {
                         if expr_is_definitely_float(elem, scope) {
                             scope.insert(format!("tuple_elem_flt:{}:{}", name, i));
@@ -226,6 +302,29 @@ fn collect_float_vars_from_stmts(
                     scope.insert(format!("arr_is_flt:{}", name));
                     if is_top_level {
                         known_floats.insert(format!("arr_is_flt:{}", name));
+                    }
+                }
+                if let Expr::Call { name: cname, .. } = value {
+                    let bare = cname.rsplit("::").next().unwrap_or(cname.as_str());
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    let prefix1 = format!("fn_ret_tuple_flt:{}:", cname);
+                    let prefix2 = format!("fn_ret_tuple_flt:{}:", bare);
+                    for item in known_floats.clone() {
+                        if item.starts_with(&prefix1) {
+                            if let Some(idx_str) = item.strip_prefix(&prefix1) {
+                                scope.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
+                                if is_top_level {
+                                    known_floats.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
+                                }
+                            }
+                        } else if item.starts_with(&prefix2) {
+                            if let Some(idx_str) = item.strip_prefix(&prefix2) {
+                                scope.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
+                                if is_top_level {
+                                    known_floats.insert(format!("tuple_elem_flt:{}:{}", name, idx_str));
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -320,6 +419,8 @@ fn collect_float_vars_from_stmts(
                     }
                 }
                 collect_float_vars_from_stmts(body, &mut fn_locals, known_floats, false);
+                collect_tuple_returns_float(body, &fn_locals, name, known_floats);
+                collect_tuple_returns_float(body, &fn_locals, bare, known_floats);
                 if stmts_return_float(body, &fn_locals) {
                     known_floats.insert(format!("fn_ret_flt:{}", name));
                     known_floats.insert(format!("fn_ret_flt:{}", bare));
@@ -352,14 +453,21 @@ pub fn collect_known_float_vars_with_index(
         let stmt = stmt.inner_stmt();
         if let Stmt::ExternBlock { functions, .. } = stmt {
             for f in functions {
+                let bare = f.name.rsplit("::").next().unwrap_or(&f.name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
                 if let Some(ret) = &f.return_type {
-                    if ret == "float" || ret == "f64" || ret == "f32" {
+                    let ret_trimmed = ret.trim();
+                    if ret_trimmed == "float" || ret_trimmed == "f64" || ret_trimmed == "f32" {
                         known_floats.insert(format!("fn_ret_flt:{}", f.name));
+                        if bare != f.name {
+                            known_floats.insert(format!("fn_ret_flt:{}", bare));
+                        }
                     }
                 }
             }
         } else if let Stmt::Function {
             name,
+            body,
             param_types,
             return_type,
             ..
@@ -368,11 +476,23 @@ pub fn collect_known_float_vars_with_index(
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             if let Some(ret) = return_type {
-                if ret == "float" || ret == "f64" || ret == "f32" {
+                let ret_trimmed = ret.trim();
+                if ret_trimmed == "float" || ret_trimmed == "f64" || ret_trimmed == "f32" {
                     known_floats.insert(format!("fn_ret_flt:{}", name));
                     known_floats.insert(format!("fn_ret_flt:{}", bare));
+                } else if ret_trimmed.starts_with('(') && ret_trimmed.ends_with(')') {
+                    for (i, ty) in ret_trimmed[1..ret_trimmed.len() - 1].split(',').enumerate() {
+                        let ty = ty.trim();
+                        if ty == "float" || ty == "f64" || ty == "f32" {
+                            known_floats.insert(format!("fn_ret_tuple_flt:{}:{}", name, i));
+                            known_floats.insert(format!("fn_ret_tuple_flt:{}:{}", bare, i));
+                        }
+                    }
                 }
             }
+            let kf_snapshot = known_floats.clone();
+            collect_tuple_returns_float(body, &kf_snapshot, name, &mut known_floats);
+            collect_tuple_returns_float(body, &kf_snapshot, bare, &mut known_floats);
             for (idx, p_type) in param_types.iter().enumerate() {
                 if let Some(pt) = p_type {
                     if pt == "float" || pt == "f64" || pt == "f32" {

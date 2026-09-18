@@ -612,6 +612,25 @@ impl CodeGen {
                             VarType::StringOffset(0),
                         );
                     }
+                    let prefix_flt1 = format!("fn_ret_tuple_flt:{}:", cname);
+                    let prefix_flt2 = format!("fn_ret_tuple_flt:{}:", bare);
+                    let matching_flt: Vec<(String, String)> = self
+                        .ctx
+                        .variables
+                        .keys()
+                        .filter(|k| k.starts_with(&prefix_flt1) || k.starts_with(&prefix_flt2))
+                        .filter_map(|k| {
+                            k.strip_prefix(&prefix_flt1)
+                                .or_else(|| k.strip_prefix(&prefix_flt2))
+                                .map(|idx| (name.clone(), idx.to_string()))
+                        })
+                        .collect();
+                    for (arr_name, idx_str) in matching_flt {
+                        self.ctx.variables.insert(
+                            format!("tuple_elem_flt:{}:{}", arr_name, idx_str),
+                            VarType::Float(0),
+                        );
+                    }
                 } else if let Expr::Array(elems) = value {
                     for (i, elem) in elems.iter().enumerate() {
                         if is_string_expr(elem, &self.ctx.variables) {
@@ -860,6 +879,25 @@ impl CodeGen {
                 self.ctx.variables.insert(
                     format!("tuple_elem_str:{}:{}", arr_name, idx_str),
                     VarType::StringOffset(0),
+                );
+            }
+            let prefix_flt1 = format!("fn_ret_tuple_flt:{}:", cname);
+            let prefix_flt2 = format!("fn_ret_tuple_flt:{}:", bare);
+            let matching_flt: Vec<(String, String)> = self
+                .ctx
+                .variables
+                .keys()
+                .filter(|k| k.starts_with(&prefix_flt1) || k.starts_with(&prefix_flt2))
+                .filter_map(|k| {
+                    k.strip_prefix(&prefix_flt1)
+                        .or_else(|| k.strip_prefix(&prefix_flt2))
+                        .map(|idx| (name.clone(), idx.to_string()))
+                })
+                .collect();
+            for (arr_name, idx_str) in matching_flt {
+                self.ctx.variables.insert(
+                    format!("tuple_elem_flt:{}:{}", arr_name, idx_str),
+                    VarType::Float(0),
                 );
             }
         } else if let Expr::Array(elems) = value {

@@ -413,6 +413,7 @@ impl CodeGen {
 
         for s in &inference.known_floats {
             if s.starts_with("fn_ret_flt:")
+                || s.starts_with("fn_ret_tuple_flt:")
                 || s.starts_with("struct_field_flt:")
                 || s.starts_with("tuple_elem_flt:")
             {
@@ -1352,13 +1353,26 @@ pub fn generate_with_profile_ext(
 }
 
 pub fn collect_extern_libraries(program: &Program) -> Vec<String> {
+    use std::collections::HashSet;
+    let mut refs = HashSet::new();
+    for stmt in &program.statements {
+        analysis::dce::collect_references_in_stmt(stmt, &mut refs);
+    }
+
     let mut libs = Vec::new();
     for stmt in &program.statements {
         if let Stmt::ExternBlock {
-            lib: Some(ref lib), ..
+            lib: Some(ref lib),
+            functions,
+            ..
         } = stmt.inner_stmt()
         {
-            if !libs.contains(lib) {
+            let is_used = functions.is_empty()
+                || functions.iter().any(|f| {
+                    let bare = analysis::dce::bare_name(&f.name);
+                    refs.contains(&f.name) || refs.contains(bare)
+                });
+            if is_used && !libs.contains(lib) {
                 libs.push(lib.clone());
             }
         }

@@ -1408,6 +1408,26 @@ impl CodeGen {
                         initial_stack_offset,
                         self.os,
                     );
+                    let is_flt_ret = self.ctx.variables.contains_key(&format!("fn_ret_flt:{}", call_name))
+                        || self.ctx.variables.contains_key(&format!("fn_ret_flt:{}", extern_name))
+                        || self
+                            .ctx
+                            .extern_functions
+                            .get(call_name)
+                            .or_else(|| self.ctx.extern_functions.get(extern_name))
+                            .and_then(|info| info.return_type.as_deref())
+                            .map_or(false, |rt| rt == "float" || rt == "f64" || rt == "f32");
+                    if is_flt_ret {
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output.push_str("    movq %xmm0, %rax\n");
+                            }
+                            Architecture::ARM64 => {
+                                self.output.push_str("    fmov x0, d0\n");
+                            }
+                            Architecture::X86 => {}
+                        }
+                    }
                 } else {
                     arch::emit_function_call(
                         &mut self.output,

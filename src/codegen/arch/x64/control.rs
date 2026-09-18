@@ -83,14 +83,15 @@ pub fn emit_call_target(
     if matches!(os, OperatingSystem::Windows) {
         if args_count <= 4 {
             for i in (0..args_count).rev() {
-                let reg = match i {
-                    0 => "%rcx",
-                    1 => "%rdx",
-                    2 => "%r8",
-                    3 => "%r9",
+                let (reg, xmm) = match i {
+                    0 => ("%rcx", "%xmm0"),
+                    1 => ("%rdx", "%xmm1"),
+                    2 => ("%r8", "%xmm2"),
+                    3 => ("%r9", "%xmm3"),
                     _ => unreachable!(),
                 };
                 out.push_str(&format!("    pop {}\n", reg));
+                out.push_str(&format!("    movq {}, {}\n", reg, xmm));
             }
             let padding = if stack_offset % 16 == 0 { 32 } else { 40 };
             out.push_str(&format!("    sub ${}, %rsp\n", padding));
@@ -105,9 +106,13 @@ pub fn emit_call_target(
                 needed + 8
             };
             out.push_str(&format!("    mov {}(%rsp), %rcx\n", (args_count - 1) * 8));
+            out.push_str("    movq %rcx, %xmm0\n");
             out.push_str(&format!("    mov {}(%rsp), %rdx\n", (args_count - 2) * 8));
+            out.push_str("    movq %rdx, %xmm1\n");
             out.push_str(&format!("    mov {}(%rsp), %r8\n", (args_count - 3) * 8));
+            out.push_str("    movq %r8, %xmm2\n");
             out.push_str(&format!("    mov {}(%rsp), %r9\n", (args_count - 4) * 8));
+            out.push_str("    movq %r9, %xmm3\n");
             out.push_str(&format!("    sub ${}, %rsp\n", total_alloc));
             for k in 4..args_count {
                 let src_off = total_alloc + ((args_count - 1 - k) * 8) as i32;
@@ -123,16 +128,17 @@ pub fn emit_call_target(
         }
     } else if args_count <= 6 {
         for i in (0..args_count).rev() {
-            let reg = match i {
-                0 => "%rdi",
-                1 => "%rsi",
-                2 => "%rdx",
-                3 => "%rcx",
-                4 => "%r8",
-                5 => "%r9",
+            let (reg, xmm) = match i {
+                0 => ("%rdi", "%xmm0"),
+                1 => ("%rsi", "%xmm1"),
+                2 => ("%rdx", "%xmm2"),
+                3 => ("%rcx", "%xmm3"),
+                4 => ("%r8", "%xmm4"),
+                5 => ("%r9", "%xmm5"),
                 _ => unreachable!(),
             };
             out.push_str(&format!("    pop {}\n", reg));
+            out.push_str(&format!("    movq {}, {}\n", reg, xmm));
         }
         let misaligned = stack_offset % 16 != 0;
         if misaligned {
@@ -151,11 +157,17 @@ pub fn emit_call_target(
             needed + 8
         };
         out.push_str(&format!("    mov {}(%rsp), %rdi\n", (args_count - 1) * 8));
+        out.push_str("    movq %rdi, %xmm0\n");
         out.push_str(&format!("    mov {}(%rsp), %rsi\n", (args_count - 2) * 8));
+        out.push_str("    movq %rsi, %xmm1\n");
         out.push_str(&format!("    mov {}(%rsp), %rdx\n", (args_count - 3) * 8));
+        out.push_str("    movq %rdx, %xmm2\n");
         out.push_str(&format!("    mov {}(%rsp), %rcx\n", (args_count - 4) * 8));
+        out.push_str("    movq %rcx, %xmm3\n");
         out.push_str(&format!("    mov {}(%rsp), %r8\n", (args_count - 5) * 8));
+        out.push_str("    movq %r8, %xmm4\n");
         out.push_str(&format!("    mov {}(%rsp), %r9\n", (args_count - 6) * 8));
+        out.push_str("    movq %r9, %xmm5\n");
         out.push_str(&format!("    sub ${}, %rsp\n", total_alloc));
         for k in 6..args_count {
             let src_off = total_alloc + ((args_count - 1 - k) * 8) as i32;

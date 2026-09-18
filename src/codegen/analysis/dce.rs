@@ -259,7 +259,7 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
     }
 }
 
-fn bare_name(name: &str) -> &str {
+pub(crate) fn bare_name(name: &str) -> &str {
     let bare = name.rsplit("::").next().unwrap_or(name);
     bare.rsplit("__").next().unwrap_or(bare)
 }
@@ -270,7 +270,7 @@ fn clean_type_name(t: &str) -> String {
     bare.to_string()
 }
 
-fn collect_references_in_stmt(stmt: &Stmt, refs: &mut HashSet<String>) {
+pub(crate) fn collect_references_in_stmt(stmt: &Stmt, refs: &mut HashSet<String>) {
     match stmt {
         Stmt::Expr(expr) | Stmt::Say(expr) => {
             collect_references_in_expr(expr, refs);
@@ -365,11 +365,23 @@ fn collect_references_in_stmt(stmt: &Stmt, refs: &mut HashSet<String>) {
                 }
             }
         }
-        Stmt::Defer(inner) => {
+        Stmt::Defer(inner) | Stmt::Pub(inner) => {
             collect_references_in_stmt(inner, refs);
         }
-        Stmt::Pub(inner) => {
-            collect_references_in_stmt(inner, refs);
+        Stmt::Function {
+            body, defaults, ..
+        } => {
+            for d in defaults.iter().flatten() {
+                collect_references_in_expr(d, refs);
+            }
+            for s in body {
+                collect_references_in_stmt(s, refs);
+            }
+        }
+        Stmt::StructDef { defaults, .. } => {
+            for d in defaults.iter().flatten() {
+                collect_references_in_expr(d, refs);
+            }
         }
         _ => {}
     }
