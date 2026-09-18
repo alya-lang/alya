@@ -112,6 +112,7 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "basic_auth"
                     | "format_binary"
                     | "to_string"
+                    | "typeof"
             ) || bare.starts_with("__alya_format:") {
                 return true;
             }

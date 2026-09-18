@@ -572,9 +572,71 @@ impl Parser {
         Ok(vec![fn_stmt])
     }
 
+    fn evaluate_cfg_tokens(tokens: &[crate::lexer::Token]) -> bool {
+        use crate::lexer::TokenType;
+        if tokens.is_empty() {
+            return true;
+        }
+        if let Some(crate::lexer::Token { token_type: TokenType::Identifier(ref id), .. }) = tokens.first() {
+            if id == "not" && tokens.len() >= 3 && matches!(tokens[1].token_type, TokenType::LeftParen) {
+                let inner = &tokens[2..tokens.len().saturating_sub(1)];
+                return !Self::evaluate_cfg_tokens(inner);
+            }
+        }
+
+        let mut key = String::new();
+        let mut val = String::new();
+        let mut in_val = false;
+
+        for tok in tokens {
+            match &tok.token_type {
+                TokenType::Identifier(s) => {
+                    if in_val {
+                        val = s.clone();
+                    } else {
+                        key = s.clone();
+                    }
+                }
+                TokenType::String(s) => {
+                    if in_val {
+                        val = s.clone();
+                    }
+                }
+                TokenType::Assign => {
+                    in_val = true;
+                }
+                _ => {}
+            }
+        }
+
+        let cur_os = if cfg!(target_os = "windows") {
+            "windows"
+        } else if cfg!(target_os = "linux") {
+            "linux"
+        } else if cfg!(target_os = "macos") {
+            "macos"
+        } else {
+            std::env::consts::OS
+        };
+
+        if key == "os" || key == "target_os" {
+            return val == cur_os;
+        }
+
+        if key == "arch" || key == "target_arch" {
+            let arch = std::env::consts::ARCH;
+            return val == arch
+                || (val == "x64" && arch == "x86_64")
+                || (val == "x86_64" && arch == "x86_64")
+                || (val == "arm64" && arch == "aarch64");
+        }
+
+        true
+    }
+
     fn parse_attribute(&mut self) -> Result<Vec<Stmt>, String> {
         self.advance(); // consume '@'
-        let _attr_name = match &self.current_token().token_type {
+        let attr_name = match &self.current_token().token_type {
             TokenType::Identifier(s) => s.clone(),
             tok => {
                 let s = tok.to_string();
@@ -591,21 +653,35 @@ impl Parser {
             }
         };
         self.advance();
+        let mut cfg_match = true;
         if matches!(self.current_token().token_type, TokenType::LeftParen) {
             self.advance();
             let mut depth = 1;
+            let mut paren_tokens = Vec::new();
             while depth > 0 && !matches!(self.current_token().token_type, TokenType::Eof) {
                 if matches!(self.current_token().token_type, TokenType::LeftParen) {
                     depth += 1;
+                    paren_tokens.push(self.current_token().clone());
                 } else if matches!(self.current_token().token_type, TokenType::RightParen) {
                     depth -= 1;
                     if depth == 0 {
                         self.advance();
                         break;
                     }
+                    paren_tokens.push(self.current_token().clone());
+                } else {
+                    paren_tokens.push(self.current_token().clone());
                 }
                 self.advance();
             }
+            if attr_name == "cfg" {
+                cfg_match = Self::evaluate_cfg_tokens(&paren_tokens);
+            }
+        }
+        if !cfg_match {
+            self.skip_newlines();
+            let _ = self.parse_statement()?;
+            return Ok(vec![]);
         }
         self.skip_newlines();
         self.parse_statement()

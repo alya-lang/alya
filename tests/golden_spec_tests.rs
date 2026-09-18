@@ -350,3 +350,17 @@ fn test_golden_spec_testing_execution() {
     }
 }
 
+#[test]
+fn test_golden_spec_attributes_execution() {
+    let file = get_spec_syntax_dir().join("attributes.alya");
+    let source = fs::read_to_string(&file).expect("Failed to read attributes.alya");
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from attributes.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("Running on Microsoft Windows"));
+        assert!(output.contains("Size of CCompatibleHeader: 8 bytes"));
+        assert!(output.contains("Alignment of CCompatibleHeader: 4 bytes"));
+        assert!(output.contains("Type of sample_text: string"));
+    }
+}
+

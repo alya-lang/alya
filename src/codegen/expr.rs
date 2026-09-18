@@ -669,6 +669,57 @@ impl CodeGen {
                     return;
                 }
 
+                if name == "sizeof" && args.len() == 1 {
+                    let tname = match &args[0] {
+                        Expr::Identifier(s) => s.as_str(),
+                        Expr::String(s) => s.as_str(),
+                        _ => "int",
+                    };
+                    let (size, _) = Self::get_type_size_and_align(tname, &self.ctx.structs);
+                    arch::emit_load_num(&mut self.output, self.arch, size);
+                    return;
+                }
+
+                if name == "alignof" && args.len() == 1 {
+                    let tname = match &args[0] {
+                        Expr::Identifier(s) => s.as_str(),
+                        Expr::String(s) => s.as_str(),
+                        _ => "int",
+                    };
+                    let (_, align) = Self::get_type_size_and_align(tname, &self.ctx.structs);
+                    arch::emit_load_num(&mut self.output, self.arch, align);
+                    return;
+                }
+
+                if name == "typeof" && args.len() == 1 {
+                    let type_name: String = if is_string_expr(&args[0], &self.ctx.variables) {
+                        "string".to_string()
+                    } else if is_float_expr(&args[0], &self.ctx.variables) {
+                        "float".to_string()
+                    } else if is_array_expr(&args[0], &self.ctx.variables) {
+                        "array".to_string()
+                    } else if is_map_expr(&args[0], &self.ctx.variables) {
+                        "map".to_string()
+                    } else if let Some(sname) = self.get_expr_struct_name(&args[0]) {
+                        sname
+                    } else if let Expr::Identifier(ref id) = args[0] {
+                        match self.ctx.variables.get(id) {
+                            Some(VarType::Float(_)) => "float".to_string(),
+                            Some(VarType::StringOffset(_) | VarType::StringLabel(_)) => {
+                                "string".to_string()
+                            }
+                            Some(VarType::Array(_)) => "array".to_string(),
+                            Some(VarType::Map(_)) => "map".to_string(),
+                            Some(VarType::Struct { struct_name, .. }) => struct_name.clone(),
+                            _ => "int".to_string(),
+                        }
+                    } else {
+                        "int".to_string()
+                    };
+                    self.generate_expression(&Expr::String(type_name));
+                    return;
+                }
+
                 let is_struct_receiver = args.first().and_then(|a| self.get_expr_struct_name(a)).is_some_and(|sname| {
                     let bare = sname.rsplit("::").next().unwrap_or(&sname);
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -2741,4 +2792,42 @@ impl CodeGen {
         }
         false
     }
+
+    pub(crate) fn get_type_size_and_align(
+        type_name: &str,
+        structs: &std::collections::HashMap<String, crate::codegen::context::StructDefInfo>,
+    ) -> (i64, i64) {
+        match type_name {
+            "i8" | "u8" | "byte" | "bool" => (1, 1),
+            "i16" | "u16" => (2, 2),
+            "i32" | "u32" | "int32" | "uint32" | "f32" | "float32" => (4, 4),
+            "i64" | "u64" | "int" | "uint" | "f64" | "float" | "rune" | "string" | "str" => (8, 8),
+            _ => {
+                let bare = type_name.rsplit("::").next().unwrap_or(type_name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if let Some(sdef) = structs.get(type_name).or_else(|| structs.get(bare)) {
+                    let mut current_offset: i64 = 0;
+                    let mut max_align: i64 = 1;
+                    for ftype_opt in &sdef.field_types {
+                        let ftype = ftype_opt.as_deref().unwrap_or("int");
+                        let (fsize, falign) = Self::get_type_size_and_align(ftype, structs);
+                        if falign > max_align {
+                            max_align = falign;
+                        }
+                        if falign > 0 && current_offset % falign != 0 {
+                            current_offset += falign - (current_offset % falign);
+                        }
+                        current_offset += fsize;
+                    }
+                    if max_align > 0 && current_offset % max_align != 0 {
+                        current_offset += max_align - (current_offset % max_align);
+                    }
+                    (current_offset, max_align)
+                } else {
+                    (8, 8)
+                }
+            }
+        }
+    }
 }
+
