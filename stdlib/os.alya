@@ -136,17 +136,25 @@ pub function cli_args() -> string[]
     return args()
 end
 
+pub function os_args() -> string[]
+    return args()
+end
+
 pub function arg_count() -> int
     let a: string[] = args()
     return len(a)
 end
 
-pub function arg_at(index: int, default_val: string) -> string
+pub function arg_at(index: int, default_val: string = "") -> string
     let a: string[] = args()
     if index >= 0 and index < len(a)
         return a[index]
     end
     return default_val
+end
+
+pub function os_arg_at(index: int, default_val: string = "") -> string
+    return arg_at(index, default_val)
 end
 
 pub function has_arg(flag: string) -> int
@@ -157,6 +165,22 @@ pub function has_arg(flag: string) -> int
         end
     end
     return 0
+end
+
+pub function os_has_arg(flag: string) -> int
+    return has_arg(flag)
+end
+
+pub function os_exit(code: int = 0)
+    exit(code)
+end
+
+pub function os_set_cwd(path: string) -> int
+    return set_cwd(path)
+end
+
+pub function os_setenv(key: string, value: string) -> int
+    return set_env(key, value)
 end
 
 # --- Filesystem & Platform Helpers ---
@@ -191,7 +215,7 @@ pub function home_dir() -> string
         let drive: string = get_env("HOMEDRIVE")
         let p: string = get_env("HOMEPATH")
         if len(drive) > 0 and len(p) > 0
-            return drive + p
+            return f"{drive}{p}"
         end
         return ""
     end
@@ -231,15 +255,15 @@ pub function hostname() -> string
 end
 
 pub function null_device() -> string
-    if is_windows()
-        return "NUL"
+    return when target_os()
+        is "windows" => "NUL"
+        else => "/dev/null"
     end
-    return "/dev/null"
 end
 
 pub function path_list_separator() -> string
-    if is_windows()
-        return ";"
+    return when target_os()
+        is "windows" => ";"
+        else => ":"
     end
-    return ":"
 end

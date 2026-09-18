@@ -20,7 +20,7 @@ end
 pub function tcp_connect(host: string, port: int) -> int
     let s: int = net_connect(host, port)
     if s < 0
-        throw SocketError(f"Connection to {host}:{port} refused or failed")
+        throw SocketError { message: f"Connection to {host}:{port} refused or failed" }
     end
     return s
 end
@@ -214,34 +214,36 @@ end
 
 # Returns standard HTTP status code description.
 pub function http_status_text(code: int) -> string
-    when code
-        is HttpStatus.Ok then return "OK"
-        is HttpStatus.Created then return "Created"
-        is HttpStatus.Accepted then return "Accepted"
-        is HttpStatus.NoContent then return "No Content"
-        is HttpStatus.MovedPermanently then return "Moved Permanently"
-        is HttpStatus.Found then return "Found"
-        is HttpStatus.NotModified then return "Not Modified"
-        is HttpStatus.TemporaryRedirect then return "Temporary Redirect"
-        is HttpStatus.PermanentRedirect then return "Permanent Redirect"
-        is HttpStatus.BadRequest then return "Bad Request"
-        is HttpStatus.Unauthorized then return "Unauthorized"
-        is HttpStatus.Forbidden then return "Forbidden"
-        is HttpStatus.NotFound then return "Not Found"
-        is HttpStatus.MethodNotAllowed then return "Method Not Allowed"
-        is HttpStatus.RequestTimeout then return "Request Timeout"
-        is HttpStatus.Conflict then return "Conflict"
-        is HttpStatus.UnprocessableEntity then return "Unprocessable Entity"
-        is HttpStatus.TooManyRequests then return "Too Many Requests"
-        is HttpStatus.InternalServerError then return "Internal Server Error"
-        is HttpStatus.BadGateway then return "Bad Gateway"
-        is HttpStatus.ServiceUnavailable then return "Service Unavailable"
-        is HttpStatus.GatewayTimeout then return "Gateway Timeout"
-        else return "Unknown Status"
+    return when code
+        is HttpStatus.Ok => "OK"
+        is HttpStatus.Created => "Created"
+        is HttpStatus.Accepted => "Accepted"
+        is HttpStatus.NoContent => "No Content"
+        is HttpStatus.MovedPermanently => "Moved Permanently"
+        is HttpStatus.Found => "Found"
+        is HttpStatus.NotModified => "Not Modified"
+        is HttpStatus.TemporaryRedirect => "Temporary Redirect"
+        is HttpStatus.PermanentRedirect => "Permanent Redirect"
+        is HttpStatus.BadRequest => "Bad Request"
+        is HttpStatus.Unauthorized => "Unauthorized"
+        is HttpStatus.Forbidden => "Forbidden"
+        is HttpStatus.NotFound => "Not Found"
+        is HttpStatus.MethodNotAllowed => "Method Not Allowed"
+        is HttpStatus.RequestTimeout => "Request Timeout"
+        is HttpStatus.Conflict => "Conflict"
+        is HttpStatus.UnprocessableEntity => "Unprocessable Entity"
+        is HttpStatus.TooManyRequests => "Too Many Requests"
+        is HttpStatus.InternalServerError => "Internal Server Error"
+        is HttpStatus.BadGateway => "Bad Gateway"
+        is HttpStatus.ServiceUnavailable => "Service Unavailable"
+        is HttpStatus.GatewayTimeout => "Gateway Timeout"
+        else => "Unknown Status"
     end
 end
 
 # Generates standard HTTP Basic Authentication header string.
 pub function basic_auth(username: string, password: string) -> string
-    return "Basic " + base64_encode(username + ":" + password)
+    let creds: string = f"{username}:{password}"
+    let b64: string = base64_encode(creds)
+    return f"Basic {b64}"
 end

@@ -115,7 +115,7 @@ This roadmap defines the sequenced implementation phases, actionable engineering
   - Target files: `src/cli/mod.rs`, `src/driver/mod.rs`, `src/codegen/mod.rs`.
   - Verification: Compiling with `--no-std` emits assembly with zero libc or stdlib symbols.
 
-- [ ] **2.4 Standard Library Modern Syntax Refactoring**
+- [x] **2.4 Standard Library Modern Syntax Refactoring**
   - Idiomatically refactor all 14 core standard library modules (`std/fs`, `std/path`, `std/os`, `std/process`, `std/io`, `std/net`, `std/sync`, `std/time`, `std/mem`, `std/math`, `std/str`, `std/collections`, `std/console`, `std/test`) to adopt v1.0 syntax idioms:
     - Deep destructuring patterns (`let { x, y } = point`, `let [first, ...rest] = list`).
     - Tagged unions for algebraic return types (`type Result[T, E] = Ok(T) | Err(E)`).
@@ -319,7 +319,7 @@ This roadmap defines the sequenced implementation phases, actionable engineering
 |:---:|---|:---:|:---:|
 | **0** | **Foundation & Toolchain Alignment** | 🔴 Immediate | ✅ Complete |
 | **1** | **Algorithmic Pipeline & Scalability (CallIndex, Tree-Shaking)** | 🔴 Immediate | ✅ Complete |
-| **2** | **Standard Library Consolidation & Modern Syntax (14 Modules)** | 🟡 High | 🟡 In Progress |
+| **2** | **Standard Library Consolidation & Modern Syntax (14 Modules)** | 🟡 High | ✅ Complete |
 | **3** | **Grammar, Lexer & Parser Conformance (Rune, Pratt, Main)** | 🟡 High | ✅ Complete |
 | **4** | **Advanced Systems Runtime (Weak ARC, Fibers, Cycle Collector, Event)** | 🔵 Normal | 🟡 In Progress |
 | **5** | **Developer Tooling & Ecosystem (Linter, LSP, Resolution, Packages)** | 🟢 Future | 🟡 In Progress |

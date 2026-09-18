@@ -83,22 +83,26 @@ pub function format_duration(sec: int) -> string
     let s: int = rem % 60
     let res: string = ""
     if h > 0
-        res = res + str(h) + "h "
+        res = f"{res}{h}h "
     end
     if m > 0 or h > 0
-        res = res + str(m) + "m "
+        res = f"{res}{m}m "
     end
-    res = res + str(s) + "s"
-    return res
+    return f"{res}{s}s"
 end
 
 pub function timestamp() -> int
     return time()
 end
 
+pub function now_nanos() -> int
+    return clock_ms() * 1000000
+end
+
+
 function _time_pad2(n: int) -> string
     if n < 10
-        return "0" + str(n)
+        return f"0{n}"
     end
     return str(n)
 end
@@ -190,85 +194,103 @@ end
 # Formats epoch seconds into an ISO 8601 string: "YYYY-MM-DDTHH:MM:SSZ"
 pub function format_iso(epoch_sec: int) -> string
     let d = epoch_to_date(epoch_sec)
-    return str(d["year"]) + "-" + _time_pad2(d["month"]) + "-" + _time_pad2(d["day"]) + "T" + _time_pad2(d["hour"]) + ":" + _time_pad2(d["minute"]) + ":" + _time_pad2(d["second"]) + "Z"
+    let yr = d["year"]
+    let mo = _time_pad2(d["month"])
+    let dy = _time_pad2(d["day"])
+    let hr = _time_pad2(d["hour"])
+    let mn = _time_pad2(d["minute"])
+    let sc = _time_pad2(d["second"])
+    return f"{yr}-{mo}-{dy}T{hr}:{mn}:{sc}Z"
 end
 
 # Formats a calendar date/time map into an ISO 8601 string: "YYYY-MM-DDTHH:MM:SSZ"
 pub function format_date_map(d) -> string
-    return str(d["year"]) + "-" + _time_pad2(d["month"]) + "-" + _time_pad2(d["day"]) + "T" + _time_pad2(d["hour"]) + ":" + _time_pad2(d["minute"]) + ":" + _time_pad2(d["second"]) + "Z"
+    let yr = d["year"]
+    let mo = _time_pad2(d["month"])
+    let dy = _time_pad2(d["day"])
+    let hr = _time_pad2(d["hour"])
+    let mn = _time_pad2(d["minute"])
+    let sc = _time_pad2(d["second"])
+    return f"{yr}-{mo}-{dy}T{hr}:{mn}:{sc}Z"
 end
 
 # Formats epoch seconds into "YYYY-MM-DD"
 pub function format_date(epoch_sec: int) -> string
     let d = epoch_to_date(epoch_sec)
-    return str(d["year"]) + "-" + _time_pad2(d["month"]) + "-" + _time_pad2(d["day"])
+    let yr = d["year"]
+    let mo = _time_pad2(d["month"])
+    let dy = _time_pad2(d["day"])
+    return f"{yr}-{mo}-{dy}"
 end
 
 # Formats epoch seconds into "HH:MM:SS"
 pub function format_time_hhmmss(epoch_sec: int) -> string
     let d = epoch_to_date(epoch_sec)
-    return _time_pad2(d["hour"]) + ":" + _time_pad2(d["minute"]) + ":" + _time_pad2(d["second"])
+    let hr = _time_pad2(d["hour"])
+    let mn = _time_pad2(d["minute"])
+    let sc = _time_pad2(d["second"])
+    return f"{hr}:{mn}:{sc}"
 end
 
 pub function month_name(month: int) -> string
-    when month
-        is 1 then return "January"
-        is 2 then return "February"
-        is 3 then return "March"
-        is 4 then return "April"
-        is 5 then return "May"
-        is 6 then return "June"
-        is 7 then return "July"
-        is 8 then return "August"
-        is 9 then return "September"
-        is 10 then return "October"
-        is 11 then return "November"
-        is 12 then return "December"
-        else return "Unknown"
+    return when month
+        is 1 => "January"
+        is 2 => "February"
+        is 3 => "March"
+        is 4 => "April"
+        is 5 => "May"
+        is 6 => "June"
+        is 7 => "July"
+        is 8 => "August"
+        is 9 => "September"
+        is 10 => "October"
+        is 11 => "November"
+        is 12 => "December"
+        else => "Unknown"
     end
 end
 
 pub function month_short_name(month: int) -> string
-    when month
-        is 1 then return "Jan"
-        is 2 then return "Feb"
-        is 3 then return "Mar"
-        is 4 then return "Apr"
-        is 5 then return "May"
-        is 6 then return "Jun"
-        is 7 then return "Jul"
-        is 8 then return "Aug"
-        is 9 then return "Sep"
-        is 10 then return "Oct"
-        is 11 then return "Nov"
-        is 12 then return "Dec"
-        else return "Unk"
+    return when month
+        is 1 => "Jan"
+        is 2 => "Feb"
+        is 3 => "Mar"
+        is 4 => "Apr"
+        is 5 => "May"
+        is 6 => "Jun"
+        is 7 => "Jul"
+        is 8 => "Aug"
+        is 9 => "Sep"
+        is 10 => "Oct"
+        is 11 => "Nov"
+        is 12 => "Dec"
+        else => "Unk"
     end
 end
 
 pub function weekday_name(weekday: int) -> string
-    when weekday
-        is 0 then return "Sunday"
-        is 1 then return "Monday"
-        is 2 then return "Tuesday"
-        is 3 then return "Wednesday"
-        is 4 then return "Thursday"
-        is 5 then return "Friday"
-        is 6 then return "Saturday"
-        else return "Unknown"
+    return when weekday
+        is 0 => "Sunday"
+        is 1 => "Monday"
+        is 2 => "Tuesday"
+        is 3 => "Wednesday"
+        is 4 => "Thursday"
+        is 5 => "Friday"
+        is 6 => "Saturday"
+        else => "Unknown"
     end
 end
 
 pub function weekday_short_name(weekday: int) -> string
-    when weekday
-        is 0 then return "Sun"
-        is 1 then return "Mon"
-        is 2 then return "Tue"
-        is 3 then return "Wed"
-        is 4 then return "Thu"
-        is 5 then return "Fri"
-        is 6 then return "Sat"
-        else return "Unk"
+    return when weekday
+        is 0 => "Sun"
+        is 1 => "Mon"
+        is 2 => "Tue"
+        is 3 => "Wed"
+        is 4 => "Thu"
+        is 5 => "Fri"
+        is 6 => "Sat"
+        else => "Unk"
     end
 end
 

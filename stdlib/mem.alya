@@ -148,7 +148,7 @@ pub function arena_new(chunk_size)
         chunk_size = 65536
     end
     let h = arena_create(chunk_size)
-    return Arena(h, chunk_size)
+    return Arena { handle: h, chunk_size: chunk_size }
 end
 
 # Allocates 'size' bytes from the arena.
@@ -223,7 +223,7 @@ pub function buffer_new(capacity)
         capacity = 64
     end
     let p = alloc(capacity)
-    return ByteBuffer(p, 0, capacity)
+    return ByteBuffer { ptr: p, size: 0, capacity: capacity }
 end
 
 # Frees the buffer's memory and zeroes its state.

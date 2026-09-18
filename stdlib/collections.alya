@@ -41,6 +41,13 @@ pub function stack_is_empty(s) -> int
 end
 
 # 2. Queue (FIFO) - O(1) amortized queue using head pointer and compaction
+pub struct Queue
+end
+
+pub function Queue.new()
+    return queue_new()
+end
+
 pub function queue_new()
     return [1]
 end
@@ -116,6 +123,13 @@ pub function queue_to_array(q)
 end
 
 # 3. Set (Unique items)
+pub struct Set
+end
+
+pub function Set.new()
+    return set_new()
+end
+
 pub function set_new()
     return {}
 end

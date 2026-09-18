@@ -39,13 +39,26 @@ pub function io_stderr_write(data: string)
     say data
 end
 
-pub let stdin: Reader = Reader(io_stdin_read)
-pub let stdout: Writer = Writer(io_stdout_write)
-pub let stderr: Writer = Writer(io_stderr_write)
+pub let stdin: Reader = Reader { source: io_stdin_read }
+pub let stdout: Writer = Writer { destination: io_stdout_write }
+pub let stderr: Writer = Writer { destination: io_stderr_write }
 
 pub function write(target: Writer, data: string)
     if target != null and target.destination != null
         let wf = target.destination
+        wf(data)
+    else
+        say data
+    end
+end
+
+pub function Reader.read_all(self: Reader) -> string
+    return io_read_all(self)
+end
+
+pub function Writer.write(self: Writer, data: string)
+    if self != null and self.destination != null
+        let wf = self.destination
         wf(data)
     else
         say data

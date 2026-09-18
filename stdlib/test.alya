@@ -150,7 +150,7 @@ pub struct TestRunner
 end
 
 pub function runner_new() -> TestRunner
-    return TestRunner(0, 0, 0)
+    return TestRunner { total: 0, passed: 0, failed: 0 }
 end
 
 pub function runner_assert(r: TestRunner, cond: int, msg: string) -> int
@@ -341,7 +341,7 @@ end
 
 pub function bench_runner(name: string) -> BenchRunner
     say "=== Benchmark Suite: " + name + " ==="
-    return BenchRunner(name, [], 0, 0, 0, 0, 0)
+    return BenchRunner { suite_name: name, records: [], total_runs: 0, total_ms: 0, start_ms: 0, start_alloc: 0, run_iters: 0 }
 end
 
 pub function bench_start(b: BenchRunner, iters: int)
@@ -359,20 +359,16 @@ function _bench_format_thousands(n: int) -> string
     let rem: int = slen % 3
     let res: string = ""
     let i: int = 0
+    if rem > 0
+        res = substring(s, 0, rem)
+        i = rem
+    end
     while i < slen
-        if i > 0
-            if i == rem
-                res = res + ","
-            else
-                if i > rem
-                    if (i - rem) % 3 == 0
-                        res = res + ","
-                    end
-                end
-            end
+        if len(res) > 0
+            res = res + ","
         end
-        res = res + substring(s, i, 1)
-        i += 1
+        res = res + substring(s, i, 3)
+        i += 3
     end
     return res
 end
@@ -398,7 +394,7 @@ pub function bench_stop(b: BenchRunner, name: string) -> int
 
     say "  * " + name + ": " + _bench_format_thousands(iters) + " iters in " + str(elapsed) + " ms (~" + _bench_format_thousands(ns_per_op) + " ns/op | " + _bench_format_thousands(ops_sec) + " ops/sec)"
 
-    let rec: BenchRecord = BenchRecord(name, iters, elapsed, alloc_per_op, ns_per_op, ops_sec)
+    let rec: BenchRecord = BenchRecord { op_name: name, op_iters: iters, op_elapsed: elapsed, op_alloc: alloc_per_op, op_ns: ns_per_op, op_throughput: ops_sec }
     push(b.records, rec)
     b.total_runs += 1
     b.total_ms += elapsed

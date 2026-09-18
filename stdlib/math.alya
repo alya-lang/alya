@@ -26,18 +26,18 @@ pub function degrees(rad: float) -> float
 end
 
 pub function clamp(val, min_val, max_val)
-    when val
-        is < min_val then return min_val
-        is > max_val then return max_val
-        else return val
+    return when val
+        is < min_val => min_val
+        is > max_val => max_val
+        else => val
     end
 end
 
 pub function sign(val) -> int
-    when val
-        is > 0 then return 1
-        is < 0 then return -1
-        else return 0
+    return when val
+        is > 0 => 1
+        is < 0 => -1
+        else => 0
     end
 end
 
@@ -64,9 +64,9 @@ pub function hypot(a, b) -> float
 end
 
 pub function round(val: float) -> int
-    when val
-        is >= 0.0 then return int(val + 0.5)
-        else return int(val - 0.5)
+    return when val
+        is >= 0.0 => int(val + 0.5)
+        else => int(val - 0.5)
     end
 end
 

@@ -8,10 +8,10 @@ pub function path_separator() -> string
 end
 
 pub function native_separator() -> string
-    if target_os() == "windows"
-        return "\\"
+    return when target_os()
+        is "windows" => "\\"
+        else => "/"
     end
-    return "/"
 end
 
 # --- Path Classification ---

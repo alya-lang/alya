@@ -29,7 +29,7 @@ pub function mutex_free(m: int) -> int
 end
 
 pub function Mutex.new() -> Mutex
-    return Mutex(mutex_new())
+    return Mutex { handle: mutex_new() }
 end
 
 pub function Mutex.lock(self: Mutex) -> int
@@ -58,12 +58,12 @@ end
 # If capacity > 0, the channel is bounded (sends block when queue size >= capacity).
 # If capacity <= 0, the channel is unbounded.
 pub function channel_new(capacity: int = 0) -> Channel
-    return Channel([1], mutex_new(), 0, capacity, 0)
+    return Channel { q: [1], lock: mutex_new(), closed: 0, capacity: capacity, rendezvous: 0 }
 end
 
 # Creates an unbuffered rendezvous channel where sends block until consumed by a receiver.
 pub function channel_rendezvous() -> Channel
-    return Channel([1], mutex_new(), 0, 0, 1)
+    return Channel { q: [1], lock: mutex_new(), closed: 0, capacity: 0, rendezvous: 1 }
 end
 
 # Sends a value into the channel. Returns 1 on success, 0 if closed.
@@ -264,7 +264,7 @@ end
 
 # Creates a new WaitGroup initialized with counter = 0.
 pub function wait_group_new() -> WaitGroup
-    return WaitGroup(0, mutex_new())
+    return WaitGroup { count: 0, lock: mutex_new() }
 end
 
 # Increments the WaitGroup counter by delta (default: 1).

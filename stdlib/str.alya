@@ -552,13 +552,13 @@ end
 
 function _b64_val(ch: string) -> int
     let c: int = ord(ch)
-    when c
-        is 65..90 then return c - 65
-        is 97..122 then return c - 71
-        is 48..57 then return c + 4
-        is 43 then return 62
-        is 47 then return 63
-        else return 0
+    return when c
+        is 65..90 => c - 65
+        is 97..122 => c - 71
+        is 48..57 => c + 4
+        is 43 => 62
+        is 47 => 63
+        else => 0
     end
 end
 

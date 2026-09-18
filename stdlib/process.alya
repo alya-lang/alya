@@ -16,18 +16,15 @@ end
 pub function process_run(program: string, args: string[] = []) -> ProcessOutput
     let pid: int = __native_get_pid()
     let now_ms: int = clock_ms()
-    let out_file: string = "temp_proc_out_" + str(pid) + "_" + str(now_ms) + ".tmp"
-    let err_file: string = "temp_proc_err_" + str(pid) + "_" + str(now_ms) + ".tmp"
+    let out_file: string = f"temp_proc_out_{pid}_{now_ms}.tmp"
+    let err_file: string = f"temp_proc_err_{pid}_{now_ms}.tmp"
 
     let cmd: string = program
-    let i: int = 0
-    let total: int = len(args)
-    while i < total
-        cmd = cmd + " " + args[i]
-        i += 1
+    for arg in args
+        cmd = f"{cmd} {arg}"
     end
 
-    cmd = cmd + " > " + out_file + " 2> " + err_file
+    cmd = f"{cmd} > {out_file} 2> {err_file}"
     let exit_code: int = system_exec(cmd)
 
     let out_content: string = ""
@@ -42,26 +39,25 @@ pub function process_run(program: string, args: string[] = []) -> ProcessOutput
         remove_file(err_file)
     end
 
-    return ProcessOutput(exit_code, out_content, err_content)
+    return ProcessOutput { exit_code: exit_code, stdout: out_content, stderr: err_content }
 end
 
 # Spawns a process in the background.
 pub function process_spawn(program: string, args: string[] = []) -> ProcessHandle
     let cmd: string = program
-    let i: int = 0
-    let total: int = len(args)
-    while i < total
-        cmd = cmd + " " + args[i]
-        i += 1
+    for arg in args
+        cmd = f"{cmd} {arg}"
     end
-    let bg_cmd: string = cmd
-    if target_os() == "windows"
-        bg_cmd = "start /B " + cmd
-    else
-        bg_cmd = cmd + " &"
+    let bg_cmd: string = when target_os()
+        is "windows" => f"start /B {cmd}"
+        else => f"{cmd} &"
     end
     let code: int = system_exec(bg_cmd)
-    return ProcessHandle(code, cmd)
+    return ProcessHandle { pid: code, command: cmd }
+end
+
+pub function ProcessOutput.is_ok(self: ProcessOutput) -> bool
+    return self.exit_code == 0
 end
 
 pub function process_pid() -> int

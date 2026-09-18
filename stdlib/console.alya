@@ -32,14 +32,12 @@ end
 
 pub function get_output_encoding() -> string
     let cp: int = console_output_cp()
-    if cp == 65001
-        return "UTF-8"
-    elif cp == 1254 or cp == 857
-        return "Turkish (Windows)"
-    elif cp == 1252 or cp == 437
-        return "Western (Windows)"
+    return when cp
+        is 65001 => "UTF-8"
+        is 1254, 857 => "Turkish (Windows)"
+        is 1252, 437 => "Western (Windows)"
+        else => f"CP{cp}"
     end
-    return "CP" + str(cp)
 end
 
 # --- Terminal Display & Cursor Control ---
