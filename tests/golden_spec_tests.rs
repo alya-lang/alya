@@ -428,7 +428,14 @@ fn test_golden_spec_attributes_execution() {
             "Execution failed with code {}\nOutput:\n{}",
             code, output
         );
-        assert!(output.contains("Running on Microsoft Windows"));
+        let expected_os = if cfg!(target_os = "windows") {
+            "Running on Microsoft Windows"
+        } else if cfg!(target_os = "macos") {
+            "Running on Apple macOS"
+        } else {
+            "Running on GNU/Linux"
+        };
+        assert!(output.contains(expected_os));
         assert!(output.contains("Size of CCompatibleHeader: 8 bytes"));
         assert!(output.contains("Alignment of CCompatibleHeader: 4 bytes"));
         assert!(output.contains("Type of sample_text: string"));
