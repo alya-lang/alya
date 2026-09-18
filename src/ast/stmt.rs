@@ -110,6 +110,19 @@ pub enum Stmt {
     },
     Defer(Box<Stmt>),
     Pub(Box<Stmt>),
+    InterfaceDef {
+        name: String,
+        methods: Vec<InterfaceMethod>,
+        embedded: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InterfaceMethod {
+    pub name: String,
+    pub params: Vec<String>,
+    pub param_types: Vec<Option<String>>,
+    pub return_type: Option<String>,
 }
 
 impl Stmt {
@@ -136,6 +149,7 @@ impl Stmt {
             Stmt::Function { name, .. } => Some(name),
             Stmt::StructDef { name, .. } => Some(name),
             Stmt::EnumDef { name, .. } => Some(name),
+            Stmt::InterfaceDef { name, .. } => Some(name),
             Stmt::Const { name, .. } => Some(name),
             Stmt::Let { name, .. } => Some(name),
             _ => None,

@@ -378,6 +378,43 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldp x29, x30, [sp], #32\n");
     out.push_str("    ret\n\n");
 
+    // fn_str_from_float
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_str_from_float\n");
+    out.push_str("fn_str_from_float:\n");
+    out.push_str("    stp x29, x30, [sp, #-48]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    stp x19, x20, [sp, #16]\n");
+    out.push_str("    stp x21, x22, [sp, #32]\n");
+    out.push_str("    fmov d8, d0\n");
+    emit_adrp_add(out, "x0", "alya_str_idx", os);
+    out.push_str("    ldr x1, [x0]\n");
+    out.push_str("    movz x2, #950000 & 0xffff\n");
+    out.push_str("    movk x2, #950000 >> 16, lsl #16\n");
+    out.push_str("    cmp x1, x2\n");
+    out.push_str("    b.lo .L_arm64_str_flt_buf_ok\n");
+    out.push_str("    mov x1, #0\n");
+    out.push_str(".L_arm64_str_flt_buf_ok:\n");
+    emit_adrp_add(out, "x2", "alya_str_buf", os);
+    out.push_str("    add x19, x2, x1\n");
+    out.push_str("    mov x20, x1\n");
+    out.push_str("    mov x0, x19\n");
+    emit_adrp_add(out, "x1", "alya_fmt_flt_val", os);
+    out.push_str("    fmov d0, d8\n");
+    let p = if matches!(os, OperatingSystem::MacOS) { "_" } else { "" };
+    out.push_str(&format!("    bl {}sprintf\n", p));
+    out.push_str("    add x20, x20, x0\n");
+    out.push_str("    add x20, x20, #1\n");
+    out.push_str("    add x20, x20, #7\n");
+    out.push_str("    and x20, x20, #-8\n");
+    emit_adrp_add(out, "x2", "alya_str_idx", os);
+    out.push_str("    str x20, [x2]\n");
+    out.push_str("    mov x0, x19\n");
+    out.push_str("    ldp x21, x22, [sp, #32]\n");
+    out.push_str("    ldp x19, x20, [sp, #16]\n");
+    out.push_str("    ldp x29, x30, [sp], #48\n");
+    out.push_str("    ret\n\n");
+
     // fn_str
     out.push_str(".align 2\n");
     out.push_str(".global fn_str\n");

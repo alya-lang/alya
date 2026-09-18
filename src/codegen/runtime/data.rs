@@ -7,6 +7,8 @@ pub fn emit_data_sections(
     arch: Architecture,
     os: OperatingSystem,
     structs: &HashMap<String, StructDefInfo>,
+    interfaces: &HashMap<String, crate::codegen::context::InterfaceDefInfo>,
+    vtables: &HashMap<(String, String), String>,
 ) {
     if matches!(os, OperatingSystem::MacOS) {
         out.push_str("\n.section __DATA,__bss\n");
@@ -108,6 +110,8 @@ pub fn emit_data_sections(
     out.push_str(&format!("    {} \"%s\"\n", str_directive));
     out.push_str("alya_fmt_say_str:\n");
     out.push_str(&format!("    {} \"%s\\n\"\n", str_directive));
+    out.push_str("alya_fmt_flt_val:\n");
+    out.push_str(&format!("    {} \"%g\"\n", str_directive));
     out.push_str("alya_str_console_clear:\n");
     out.push_str(
         "    .byte 0x1b, 0x5b, 0x32, 0x4a, 0x1b, 0x5b, 0x33, 0x4a, 0x1b, 0x5b, 0x48, 0x00\n",
@@ -179,14 +183,20 @@ pub fn emit_data_sections(
     out.push_str(&format!("    {} \", \"\n", str_directive));
 
     // Struct name and field name strings
+    let mut emitted_names = std::collections::HashSet::new();
     for (name, sdef) in structs {
-        let name_label = format!("alya_struct_{}_name", name);
+        let bare = name.rsplit("::").next().unwrap_or(name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        if !emitted_names.insert(bare.to_string()) {
+            continue;
+        }
+        let name_label = format!("alya_struct_{}_name", bare);
         out.push_str(&format!(
             "{}:\n    {} \"{}\"\n",
-            name_label, str_directive, name
+            name_label, str_directive, bare
         ));
         for (i, f) in sdef.fields.iter().enumerate() {
-            let field_label = format!("alya_struct_{}_f_{}", name, i);
+            let field_label = format!("alya_struct_{}_f_{}", bare, i);
             out.push_str(&format!(
                 "{}:\n    {} \"{}\"\n",
                 field_label, str_directive, f
@@ -211,13 +221,35 @@ pub fn emit_data_sections(
         ".quad"
     };
 
+    let mut emitted_descs = std::collections::HashSet::new();
     for (name, sdef) in structs {
-        let desc_label = format!("alya_struct_desc_{}", name);
+        let bare = name.rsplit("::").next().unwrap_or(name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        let desc_label = format!("alya_struct_desc_{}", bare);
+        if !emitted_descs.insert(desc_label.clone()) {
+            continue;
+        }
         out.push_str(&format!("{}:\n", desc_label));
-        out.push_str(&format!("    {} alya_struct_{}_name\n", ptr_dir, name));
+        out.push_str(&format!("    {} alya_struct_{}_name\n", ptr_dir, bare));
         out.push_str(&format!("    {} {}\n", ptr_dir, sdef.fields.len()));
         for (i, _) in sdef.fields.iter().enumerate() {
-            out.push_str(&format!("    {} alya_struct_{}_f_{}\n", ptr_dir, name, i));
+            out.push_str(&format!("    {} alya_struct_{}_f_{}\n", ptr_dir, bare, i));
+        }
+    }
+
+    let mut emitted_vtables = std::collections::HashSet::new();
+    for ((sname, iname), vtable_label) in vtables {
+        if !emitted_vtables.insert(vtable_label.clone()) {
+            continue;
+        }
+        let bare_s = sname.rsplit("::").next().unwrap_or(sname);
+        let bare_s = bare_s.rsplit("__").next().unwrap_or(bare_s);
+        let flattened = crate::codegen::get_interface_flattened_methods(iname, interfaces);
+        out.push_str(&format!(".global {}\n", vtable_label));
+        out.push_str(&format!("{}:\n", vtable_label));
+        out.push_str(&format!("    {} alya_struct_desc_{}\n", ptr_dir, bare_s));
+        for m in &flattened {
+            out.push_str(&format!("    {} fn_{}__{}\n", ptr_dir, bare_s, m.name));
         }
     }
 

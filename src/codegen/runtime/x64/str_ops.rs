@@ -484,6 +484,64 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
+    // fn_str_from_float
+    out.push_str(".global fn_str_from_float\n");
+    out.push_str("fn_str_from_float:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %rbx\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    out.push_str("    push %r14\n");
+    out.push_str("    push %r15\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %rcx, %r14\n");
+    } else {
+        out.push_str("    movq %xmm0, %r14\n");
+    }
+    super::emit_str_buf_ctx(out, os);
+    out.push_str("    mov (%r9), %rbx\n");
+    out.push_str("    cmp $950000, %rbx\n");
+    out.push_str("    jb .L_x64_str_flt_buf_ok\n");
+    out.push_str("    xor %rbx, %rbx\n");
+    out.push_str(".L_x64_str_flt_buf_ok:\n");
+    out.push_str("    lea (%r8, %rbx), %r12\n");
+    out.push_str("    mov %r12, %r13\n");
+    out.push_str("    mov %rbx, %r15\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    lea alya_fmt_flt_val(%rip), %rdx\n");
+        out.push_str("    mov %r14, %r8\n");
+        out.push_str("    movq %r14, %xmm2\n");
+        out.push_str("    sub $40, %rsp\n");
+        out.push_str("    call sprintf\n");
+        out.push_str("    add $40, %rsp\n");
+    } else {
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str("    lea alya_fmt_flt_val(%rip), %rsi\n");
+        out.push_str("    movq %r14, %xmm0\n");
+        out.push_str("    mov $1, %rax\n");
+        out.push_str("    sub $8, %rsp\n");
+        let p = if matches!(os, OperatingSystem::MacOS) { "_" } else { "" };
+        out.push_str(&format!("    call {}sprintf\n", p));
+        out.push_str("    add $8, %rsp\n");
+    }
+    super::emit_str_buf_ctx(out, os);
+    out.push_str("    add %rax, %r15\n");
+    out.push_str("    inc %r15\n");
+    out.push_str("    add $7, %r15\n");
+    out.push_str("    and $-8, %r15\n");
+    out.push_str("    mov %r15, (%r9)\n");
+    out.push_str("    mov %r13, %rax\n");
+    out.push_str("    pop %r15\n");
+    out.push_str("    pop %r14\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    pop %rbx\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
     // fn_str
     out.push_str(".global fn_str\n");
     out.push_str("fn_str:\n");

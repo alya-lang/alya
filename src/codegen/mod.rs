@@ -358,6 +358,37 @@ impl CodeGen {
             }
         }
 
+        // Collect all interface definitions
+        for stmt in &program.statements {
+            if let Stmt::InterfaceDef {
+                name,
+                methods,
+                embedded,
+            } = stmt.inner_stmt()
+            {
+                self.ctx.interfaces.insert(
+                    name.clone(),
+                    context::InterfaceDefInfo {
+                        name: name.clone(),
+                        methods: methods.clone(),
+                        embedded: embedded.clone(),
+                    },
+                );
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if bare != name {
+                    self.ctx.interfaces.insert(
+                        bare.to_string(),
+                        context::InterfaceDefInfo {
+                            name: bare.to_string(),
+                            methods: methods.clone(),
+                            embedded: embedded.clone(),
+                        },
+                    );
+                }
+            }
+        }
+
         let (inference, (d_call_index, d_inference)) = ProgramInference::analyze_with_timing(program);
         for s in &inference.known_strings {
             if s.starts_with("map_field_str:")
@@ -389,8 +420,52 @@ impl CodeGen {
         }
 
         for stmt in &program.statements {
-            if let Stmt::Function { name, .. } = stmt.inner_stmt() {
+            if let Stmt::Function { name, param_types, .. } = stmt.inner_stmt() {
                 self.ctx.functions.insert(name.clone());
+                let ns_bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = if let Some((prefix, _)) = ns_bare.split_once("__") {
+                    if self.ctx.structs.contains_key(prefix) {
+                        ns_bare
+                    } else {
+                        ns_bare.rsplit("__").next().unwrap_or(ns_bare)
+                    }
+                } else {
+                    ns_bare
+                };
+
+                for (i, ptype) in param_types.iter().enumerate() {
+                    if let Some(t) = ptype {
+                        let bare_base = t.split('[').next().unwrap_or(t);
+                        let b = bare_base.rsplit("::").next().unwrap_or(bare_base);
+                        let b = b.rsplit("__").next().unwrap_or(b);
+                        let iface_name = if self.ctx.interfaces.contains_key(bare_base) {
+                            Some(bare_base.to_string())
+                        } else if self.ctx.interfaces.contains_key(b) {
+                            Some(b.to_string())
+                        } else {
+                            None
+                        };
+                        if let Some(iname) = iface_name {
+                            self.ctx.variables.insert(
+                                format!("fn_param_interface:{}:{}", name, i),
+                                VarType::Interface {
+                                    interface_name: iname.clone(),
+                                    offset: 0,
+                                },
+                            );
+                            if bare != name {
+                                self.ctx.variables.insert(
+                                    format!("fn_param_interface:{}:{}", bare, i),
+                                    VarType::Interface {
+                                        interface_name: iname,
+                                        offset: 0,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+
                 if let Some(sname) = inference.infer_function_return_struct_type(name) {
                     self.ctx.variables.insert(
                         format!("fn_ret_struct:{}", name),
@@ -399,16 +474,6 @@ impl CodeGen {
                             offset: 0,
                         },
                     );
-                    let ns_bare = name.rsplit("::").next().unwrap_or(name);
-                    let bare = if let Some((prefix, _)) = ns_bare.split_once("__") {
-                        if self.ctx.structs.contains_key(prefix) {
-                            ns_bare
-                        } else {
-                            ns_bare.rsplit("__").next().unwrap_or(ns_bare)
-                        }
-                    } else {
-                        ns_bare
-                    };
                     if bare != name {
                         self.ctx.variables.insert(
                             format!("fn_ret_struct:{}", bare),
@@ -417,6 +482,37 @@ impl CodeGen {
                                 offset: 0,
                             },
                         );
+                    }
+                }
+            }
+        }
+
+        // Compute virtual method tables (VTables) for structs implicitly satisfying interfaces
+        for (sname, sdef) in &self.ctx.structs {
+            let bare_sdef = sdef.name.rsplit("::").next().unwrap_or(&sdef.name);
+            let bare_sdef = bare_sdef.rsplit("__").next().unwrap_or(bare_sdef);
+            for (iname, idef) in &self.ctx.interfaces {
+                let bare_idef = idef.name.rsplit("::").next().unwrap_or(&idef.name);
+                let bare_idef = bare_idef.rsplit("__").next().unwrap_or(bare_idef);
+                let flattened = get_interface_flattened_methods(&idef.name, &self.ctx.interfaces);
+                if flattened.is_empty() {
+                    continue;
+                }
+                let satisfies = flattened.iter().all(|m| {
+                    let c1 = format!("{}__{}", sdef.name, m.name);
+                    let c2 = format!("{}__{}", bare_sdef, m.name);
+                    self.ctx.functions.contains(&c1) || self.ctx.functions.contains(&c2)
+                });
+                if satisfies {
+                    let vtable_label = format!("alya_vtable_{}_{}", bare_sdef, bare_idef);
+                    self.ctx.vtables.insert((bare_sdef.to_string(), bare_idef.to_string()), vtable_label.clone());
+                    self.ctx.vtables.insert((sname.clone(), iname.clone()), vtable_label);
+                    for m in &flattened {
+                        if m.return_type.as_deref() == Some("float") || m.return_type.as_deref() == Some("f64") {
+                            self.ctx.variables.insert(format!("fn_ret_flt:{}", m.name), VarType::Float(0));
+                        } else if m.return_type.as_deref() == Some("string") || m.return_type.as_deref() == Some("str") {
+                            self.ctx.variables.insert(format!("fn_ret_str:{}", m.name), VarType::StringOffset(0));
+                        }
                     }
                 }
             }
@@ -619,7 +715,14 @@ impl CodeGen {
         }
 
         if !self.no_std {
-            runtime::emit_runtime(&mut self.output, self.arch, self.os, &self.ctx.structs);
+            runtime::emit_runtime(
+                &mut self.output,
+                self.arch,
+                self.os,
+                &self.ctx.structs,
+                &self.ctx.interfaces,
+                &self.ctx.vtables,
+            );
         }
         let d_codegen = t_emit.elapsed();
 
@@ -721,11 +824,33 @@ impl CodeGen {
 
                 method_receiver.or_else(|| inference.infer_param_struct_type(name, i))
             };
+            let interface_type = if let Some(Some(t)) = param_types.get(i) {
+                let bare_base = t.split('[').next().unwrap_or(t);
+                let b = bare_base.rsplit("::").next().unwrap_or(bare_base);
+                let b = b.rsplit("__").next().unwrap_or(b);
+                if self.ctx.interfaces.contains_key(bare_base) {
+                    Some(bare_base.to_string())
+                } else if self.ctx.interfaces.contains_key(b) {
+                    Some(b.to_string())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
             if let Some(ref sname) = struct_type {
                 self.ctx.variables.insert(
                     param.clone(),
                     VarType::Struct {
                         struct_name: sname.clone(),
+                        offset: self.ctx.stack_offset,
+                    },
+                );
+            } else if let Some(ref iname) = interface_type {
+                self.ctx.variables.insert(
+                    param.clone(),
+                    VarType::Interface {
+                        interface_name: iname.clone(),
                         offset: self.ctx.stack_offset,
                     },
                 );
@@ -762,7 +887,7 @@ impl CodeGen {
             }
 
             let is_heap_param =
-                struct_type.is_some() || is_arr || is_str_arr || is_flt_arr || is_map;
+                struct_type.is_some() || interface_type.is_some() || is_arr || is_str_arr || is_flt_arr || is_map;
             if is_heap_param {
                 heap_param_offsets.push(self.ctx.stack_offset);
             }
@@ -1054,13 +1179,30 @@ impl CodeGen {
         }
     }
 
+    pub(crate) fn get_expr_interface_name(&self, expr: &crate::ast::Expr) -> Option<String> {
+        use crate::ast::Expr;
+        match expr {
+            Expr::Identifier(name) => {
+                if let Some(VarType::Interface { interface_name, .. }) = self.ctx.variables.get(name) {
+                    Some(interface_name.clone())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn is_heap_expression(&self, expr: &crate::ast::Expr) -> bool {
         use crate::ast::Expr;
         match expr {
             Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. } => true,
             Expr::Identifier(name) => matches!(
                 self.ctx.variables.get(name),
-                Some(VarType::Array(_)) | Some(VarType::Map(_)) | Some(VarType::Struct { .. })
+                Some(VarType::Array(_))
+                    | Some(VarType::Map(_))
+                    | Some(VarType::Struct { .. })
+                    | Some(VarType::Interface { .. })
             ),
             Expr::Call { name, .. } => {
                 self.ctx.structs.contains_key(name)
@@ -1185,4 +1327,34 @@ fn collect_all_defers(stmts: &[Stmt]) -> Vec<Stmt> {
         }
     }
     defers
+}
+
+pub(crate) fn get_interface_flattened_methods(
+    interface_name: &str,
+    interfaces: &std::collections::HashMap<String, context::InterfaceDefInfo>,
+) -> Vec<crate::ast::InterfaceMethod> {
+    let mut result = Vec::new();
+    let mut visited = std::collections::HashSet::new();
+    fn recurse(
+        name: &str,
+        interfaces: &std::collections::HashMap<String, context::InterfaceDefInfo>,
+        visited: &mut std::collections::HashSet<String>,
+        result: &mut Vec<crate::ast::InterfaceMethod>,
+    ) {
+        if !visited.insert(name.to_string()) {
+            return;
+        }
+        if let Some(idef) = interfaces.get(name) {
+            for m in &idef.methods {
+                if !result.iter().any(|existing| existing.name == m.name) {
+                    result.push(m.clone());
+                }
+            }
+            for emb in &idef.embedded {
+                recurse(emb, interfaces, visited, result);
+            }
+        }
+    }
+    recurse(interface_name, interfaces, &mut visited, &mut result);
+    result
 }

@@ -105,6 +105,13 @@ pub fn emit_struct_new(out: &mut String, desc_label: &str, field_count: usize) {
     out.push_str("    add $8, %esp\n");
 }
 
+pub fn emit_fat_ptr_new(out: &mut String, vtable_label: &str) {
+    out.push_str(&format!("    push ${}\n", vtable_label));
+    out.push_str("    push %eax\n");
+    out.push_str("    call alya_fat_ptr_new\n");
+    out.push_str("    add $8, %esp\n");
+}
+
 pub fn emit_struct_field_get(out: &mut String, field_idx: usize) {
     out.push_str(&format!("    movl {}(%eax), %eax\n", (field_idx + 1) * 4));
 }

@@ -6,6 +6,7 @@ pub(crate) enum WhenPattern {
     Exact(Expr),
     Range(Expr, Expr),
     Relational(BinaryOp, Expr),
+    Type(String),
 }
 
 pub(crate) fn build_pattern_condition(subject: &Expr, pattern: WhenPattern) -> Expr {
@@ -14,6 +15,11 @@ pub(crate) fn build_pattern_condition(subject: &Expr, pattern: WhenPattern) -> E
             left: Box::new(subject.clone()),
             op: BinaryOp::Equal,
             right: Box::new(expr),
+        },
+        WhenPattern::Type(target) => Expr::TypeCheck {
+            expr: Box::new(subject.clone()),
+            target,
+            negated: false,
         },
         WhenPattern::Range(start, end) => {
             let gte = Expr::Binary {
@@ -331,6 +337,14 @@ impl Parser {
                             self.advance(); // skip '..' or '..='
                             let pattern_end = self.parse_expression()?;
                             patterns.push(WhenPattern::Range(pattern_start, pattern_end));
+                        } else if let Expr::Identifier(ref id) = pattern_start {
+                            if id.chars().next().map_or(false, |c| c.is_uppercase())
+                                || matches!(id.as_str(), "int" | "float" | "string" | "str" | "bool" | "array" | "map")
+                            {
+                                patterns.push(WhenPattern::Type(id.clone()));
+                            } else {
+                                patterns.push(WhenPattern::Exact(pattern_start));
+                            }
                         } else {
                             patterns.push(WhenPattern::Exact(pattern_start));
                         }

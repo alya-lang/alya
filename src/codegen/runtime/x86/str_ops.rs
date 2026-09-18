@@ -408,6 +408,41 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
+    // fn_str_from_float
+    out.push_str(".global fn_str_from_float\n");
+    out.push_str("fn_str_from_float:\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    mov alya_str_idx, %ebx\n");
+    out.push_str("    cmp $950000, %ebx\n");
+    out.push_str("    jb .L_x86_str_flt_buf_ok\n");
+    out.push_str("    xor %ebx, %ebx\n");
+    out.push_str(".L_x86_str_flt_buf_ok:\n");
+    out.push_str("    lea alya_str_buf, %edx\n");
+    out.push_str("    lea (%edx, %ebx), %edi\n");
+    out.push_str("    push 12(%ebp)\n");
+    out.push_str("    push 8(%ebp)\n");
+    out.push_str("    push $alya_fmt_flt_val\n");
+    out.push_str("    push %edi\n");
+    let p = if matches!(os, OperatingSystem::MacOS) { "_" } else { "" };
+    out.push_str(&format!("    call {}sprintf\n", p));
+    out.push_str("    add $16, %esp\n");
+    out.push_str("    add %eax, %ebx\n");
+    out.push_str("    inc %ebx\n");
+    out.push_str("    add $3, %ebx\n");
+    out.push_str("    and $-4, %ebx\n");
+    out.push_str("    mov %ebx, alya_str_idx\n");
+    out.push_str("    mov %edi, %eax\n");
+    out.push_str("    pop %esi\n");
+    out.push_str("    pop %edi\n");
+    out.push_str("    pop %ebx\n");
+    out.push_str("    mov %ebp, %esp\n");
+    out.push_str("    pop %ebp\n");
+    out.push_str("    ret\n\n");
+
     // fn_str
     out.push_str(".global fn_str\n");
     out.push_str("fn_str:\n");

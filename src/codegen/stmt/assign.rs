@@ -579,7 +579,8 @@ impl CodeGen {
                 | VarType::Array(offset)
                 | VarType::Map(offset)
                 | VarType::Null(offset)
-                | VarType::Struct { offset, .. } => {
+                | VarType::Struct { offset, .. }
+                | VarType::Interface { offset, .. } => {
                     if is_flt {
                         arch::emit_store_var_float(
                             &mut self.output,
@@ -653,6 +654,14 @@ impl CodeGen {
                         self.ctx
                             .variables
                             .insert(name.clone(), VarType::Float(offset));
+                    } else if let VarType::Interface { interface_name, .. } = var_type {
+                        self.ctx.variables.insert(
+                            name.clone(),
+                            VarType::Interface {
+                                interface_name,
+                                offset,
+                            },
+                        );
                     } else {
                         let is_struct = self.get_expr_struct_name(value);
                         if let Some(sname) = is_struct {

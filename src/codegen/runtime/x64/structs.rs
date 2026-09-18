@@ -41,6 +41,40 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
+    // alya_fat_ptr_new
+    out.push_str(".global alya_fat_ptr_new\n");
+    out.push_str("alya_fat_ptr_new:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    if is_win {
+        out.push_str("    mov %rcx, %r12\n");
+        out.push_str("    mov %rdx, %r13\n");
+        out.push_str("    mov $4, %rcx\n");
+        out.push_str("    mov $8, %rdx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call calloc\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %rdi, %r12\n");
+        out.push_str("    mov %rsi, %r13\n");
+        out.push_str("    mov $4, %rdi\n");
+        out.push_str("    mov $8, %rsi\n");
+        out.push_str(&format!("    call {}calloc\n", p));
+    }
+    out.push_str("    add $32, alya_allocated_bytes(%rip)\n");
+    out.push_str("    movq $0x5A110004, (%rax)\n");
+    out.push_str("    movq $1, 8(%rax)\n");
+    out.push_str("    lea 16(%rax), %rax\n");
+    out.push_str("    mov %r12, (%rax)\n");
+    out.push_str("    mov %r13, 8(%rax)\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
     // alya_print_struct
     out.push_str("alya_print_struct:\n");
     out.push_str("    push %rbp\n");

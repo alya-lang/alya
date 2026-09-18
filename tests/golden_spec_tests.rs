@@ -122,3 +122,23 @@ fn test_golden_spec_concurrency_execution() {
     }
 }
 
+#[test]
+fn test_golden_spec_interfaces_execution() {
+    let iface_file = get_spec_syntax_dir().join("interfaces.alya");
+    let source = fs::read_to_string(&iface_file)
+        .expect("Failed to read spec/syntax/interfaces.alya");
+
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from interfaces.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("Area: 78.5397"));
+        assert!(output.contains("Perimeter: 31.4159"));
+        assert!(output.contains("Area: 40"));
+        assert!(output.contains("Perimeter: 28"));
+        assert!(output.contains("Description: Circle with radius 5"));
+        assert!(output.contains("Calculated Area: 78.5397"));
+        assert!(output.contains("Identified concrete Circle instance"));
+        assert!(output.contains("Identified concrete Rectangle instance"));
+    }
+}
+

@@ -73,7 +73,7 @@ pub fn emit_function_param_push(
     }
 }
 
-fn emit_call_target(
+pub fn emit_call_target(
     out: &mut String,
     target: &str,
     args_count: usize,

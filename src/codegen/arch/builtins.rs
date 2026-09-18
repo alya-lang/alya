@@ -194,6 +194,20 @@ pub fn emit_struct_new(
     }
 }
 
+pub fn emit_fat_ptr_new(
+    out: &mut String,
+    arch: Architecture,
+    vtable_label: &str,
+    stack_offset: i32,
+    os: OperatingSystem,
+) {
+    match arch {
+        Architecture::ARM64 => arm64::emit_fat_ptr_new(out, vtable_label, os),
+        Architecture::X64 => x64::emit_fat_ptr_new(out, vtable_label, stack_offset, os),
+        Architecture::X86 => x86::emit_fat_ptr_new(out, vtable_label),
+    }
+}
+
 pub fn emit_struct_field_get(out: &mut String, arch: Architecture, field_idx: usize) {
     match arch {
         Architecture::ARM64 => arm64::emit_struct_field_get(out, field_idx),

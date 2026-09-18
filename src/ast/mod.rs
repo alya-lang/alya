@@ -2,7 +2,7 @@ pub mod expr;
 pub mod stmt;
 
 pub use expr::{BinaryOp, Expr, UnaryOp};
-pub use stmt::{ExternFnDecl, ExternParam, ImportSymbol, Stmt};
+pub use stmt::{ExternFnDecl, ExternParam, ImportSymbol, InterfaceMethod, Stmt};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {

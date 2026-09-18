@@ -322,6 +322,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    cmp $0x5A110002, %rax\n");
     out.push_str("    je .L_x64_rc_retain_ok\n");
     out.push_str("    cmp $0x5A110003, %rax\n");
+    out.push_str("    je .L_x64_rc_retain_ok\n");
+    out.push_str("    cmp $0x5A110004, %rax\n");
     out.push_str("    jne .L_x64_rc_retain_done\n");
     out.push_str(".L_x64_rc_retain_ok:\n");
     out.push_str("    lock incq -8(%r11)\n");
@@ -357,6 +359,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    cmp $0x5A110002, %r12\n");
     out.push_str("    je .L_x64_rc_rel_ok\n");
     out.push_str("    cmp $0x5A110003, %r12\n");
+    out.push_str("    je .L_x64_rc_rel_ok\n");
+    out.push_str("    cmp $0x5A110004, %r12\n");
     out.push_str("    jne .L_x64_rc_rel_done\n");
     out.push_str(".L_x64_rc_rel_ok:\n");
     out.push_str("    lock decq -8(%rbx)\n");
@@ -418,6 +422,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    cmp $0x5A110002, %rdx\n");
     out.push_str("    je .L_x64_rcc_ok\n");
     out.push_str("    cmp $0x5A110003, %rdx\n");
+    out.push_str("    je .L_x64_rcc_ok\n");
+    out.push_str("    cmp $0x5A110004, %rdx\n");
     out.push_str("    je .L_x64_rcc_ok\n");
     out.push_str(".L_x64_rcc_zero:\n");
     out.push_str("    xor %rax, %rax\n");

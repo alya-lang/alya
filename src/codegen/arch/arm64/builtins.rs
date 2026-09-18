@@ -112,6 +112,16 @@ pub fn emit_struct_new(
     out.push_str("    bl alya_struct_new\n");
 }
 
+pub fn emit_fat_ptr_new(
+    out: &mut String,
+    vtable_label: &str,
+    os: OperatingSystem,
+) {
+    emit_adrp_add(out, "x1", vtable_label, os);
+    let p = if matches!(os, OperatingSystem::MacOS) { "_" } else { "" };
+    out.push_str(&format!("    bl {}alya_fat_ptr_new\n", p));
+}
+
 pub fn emit_struct_field_get(out: &mut String, field_idx: usize) {
     out.push_str(&format!("    ldr x0, [x0, #{}]\n", (field_idx + 1) * 8));
 }

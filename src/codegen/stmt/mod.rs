@@ -178,7 +178,7 @@ impl CodeGen {
                     );
                 }
             }
-            Stmt::EnumDef { .. } => {}
+            Stmt::EnumDef { .. } | Stmt::InterfaceDef { .. } => {}
             Stmt::Pub(inner) => self.generate_statement(inner),
         }
     }

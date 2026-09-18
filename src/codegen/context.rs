@@ -28,6 +28,14 @@ pub enum VarType {
     Map(i32),            // Stack offset for map pointers
     Null(i32),           // Stack offset for null variables
     Struct { struct_name: String, offset: i32 },
+    Interface { interface_name: String, offset: i32 },
+}
+
+#[derive(Debug, Clone)]
+pub struct InterfaceDefInfo {
+    pub name: String,
+    pub methods: Vec<crate::ast::InterfaceMethod>,
+    pub embedded: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +54,8 @@ pub struct CodeGenContext {
     pub string_counter: usize,
     pub variables: HashMap<String, VarType>,
     pub structs: HashMap<String, StructDefInfo>,
+    pub interfaces: HashMap<String, InterfaceDefInfo>,
+    pub vtables: HashMap<(String, String), String>,
     pub stack_offset: i32,
     pub loop_stack: Vec<(String, String, i32)>,
     pub functions: HashSet<String>,
@@ -64,6 +74,8 @@ impl CodeGenContext {
             string_counter: 0,
             variables: HashMap::new(),
             structs: HashMap::new(),
+            interfaces: HashMap::new(),
+            vtables: HashMap::new(),
             stack_offset: 0,
             loop_stack: Vec::new(),
             functions: HashSet::new(),
@@ -123,6 +135,7 @@ impl CodeGenContext {
                 || k.starts_with("fn_param_str:")
                 || k.starts_with("fn_param_str_arr:")
                 || k.starts_with("channel_elem_str:")
+                || k.starts_with("fn_param_interface:")
             {
                 fn_vars.insert(k.clone(), v.clone());
             }

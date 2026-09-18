@@ -16,8 +16,10 @@ pub fn emit_runtime(
     arch: Architecture,
     os: OperatingSystem,
     structs: &HashMap<String, StructDefInfo>,
+    interfaces: &HashMap<String, crate::codegen::context::InterfaceDefInfo>,
+    vtables: &HashMap<(String, String), String>,
 ) {
-    data::emit_data_sections(out, arch, os, structs);
+    data::emit_data_sections(out, arch, os, structs, interfaces, vtables);
 
     out.push_str("\n.text\n");
 

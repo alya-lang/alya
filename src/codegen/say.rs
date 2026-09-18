@@ -288,6 +288,22 @@ impl CodeGen {
                             );
                             self.output.push('\n');
                         }
+                        VarType::Interface { offset, .. } => {
+                            arch::emit_load_var(
+                                &mut self.output,
+                                self.arch,
+                                offset,
+                                self.ctx.stack_offset,
+                            );
+                            self.output.push_str("    movq (%rax), %rax\n");
+                            arch::emit_print_struct(
+                                &mut self.output,
+                                self.arch,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                            self.output.push('\n');
+                        }
                         VarType::Null(_) => {
                             let label = self.ctx.next_string_label();
                             self.emit_rodata_section();

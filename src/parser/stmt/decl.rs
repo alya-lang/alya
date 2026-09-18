@@ -968,7 +968,7 @@ impl Parser {
 
     pub(crate) fn parse_interface(&mut self) -> Result<Vec<Stmt>, String> {
         self.advance(); // skip 'interface'
-        let _name = match &self.current_token().token_type {
+        let name = match &self.current_token().token_type {
             TokenType::Identifier(s) => s.clone(),
             _ => {
                 return Err(format!(
@@ -992,10 +992,13 @@ impl Parser {
         }
         self.skip_newlines();
 
+        let mut methods = Vec::new();
+        let mut embedded = Vec::new();
+
         while !matches!(self.current_token().token_type, TokenType::End | TokenType::Eof) {
             if matches!(self.current_token().token_type, TokenType::Function) {
                 self.advance(); // skip 'function'
-                let _fn_name = match &self.current_token().token_type {
+                let fn_name = match &self.current_token().token_type {
                     TokenType::Identifier(s) => s.clone(),
                     _ => {
                         return Err(format!(
@@ -1006,30 +1009,55 @@ impl Parser {
                     }
                 };
                 self.advance();
+                let mut params = Vec::new();
+                let mut param_types = Vec::new();
                 // params (...)
                 if matches!(self.current_token().token_type, TokenType::LeftParen) {
                     self.advance();
-                    let mut depth = 1;
-                    while depth > 0 && !matches!(self.current_token().token_type, TokenType::Eof) {
-                        if matches!(self.current_token().token_type, TokenType::LeftParen) {
-                            depth += 1;
-                        } else if matches!(self.current_token().token_type, TokenType::RightParen) {
-                            depth -= 1;
-                            if depth == 0 {
-                                self.advance();
-                                break;
+                    while !matches!(self.current_token().token_type, TokenType::RightParen | TokenType::Eof) {
+                        self.skip_newlines();
+                        let param_name = match &self.current_token().token_type {
+                            TokenType::Identifier(s) => s.clone(),
+                            TokenType::SelfKw => "self".to_string(),
+                            other => {
+                                return Err(format!(
+                                    "Expected parameter name in interface method at line {}, column {}, got {:?}",
+                                    self.current_token().line,
+                                    self.current_token().column,
+                                    other
+                                ));
                             }
-                        }
+                        };
                         self.advance();
+                        let param_type = if matches!(self.current_token().token_type, TokenType::Colon) {
+                            self.advance();
+                            Some(self.parse_type_annotation()?)
+                        } else {
+                            None
+                        };
+                        params.push(param_name);
+                        param_types.push(param_type);
+                        if matches!(self.current_token().token_type, TokenType::Comma) {
+                            self.advance();
+                        }
                     }
+                    self.expect(TokenType::RightParen)?;
                 }
                 // optional -> return_type
-                if matches!(self.current_token().token_type, TokenType::Arrow) {
+                let return_type = if matches!(self.current_token().token_type, TokenType::Arrow) {
                     self.advance();
-                    let _ = self.parse_type_annotation()?;
-                }
-            } else if matches!(self.current_token().token_type, TokenType::Identifier(_)) {
-                // Composed interface identifier
+                    Some(self.parse_type_annotation()?)
+                } else {
+                    None
+                };
+                methods.push(InterfaceMethod {
+                    name: fn_name,
+                    params,
+                    param_types,
+                    return_type,
+                });
+            } else if let TokenType::Identifier(emb) = self.current_token().token_type.clone() {
+                embedded.push(emb);
                 self.advance();
             } else {
                 return Err(format!(
@@ -1042,7 +1070,11 @@ impl Parser {
             self.skip_newlines();
         }
         self.expect(TokenType::End)?;
-        Ok(vec![])
+        Ok(vec![Stmt::InterfaceDef {
+            name,
+            methods,
+            embedded,
+        }])
     }
 
     fn parse_destructure_pattern(&mut self) -> Result<DestructurePattern, String> {

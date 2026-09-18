@@ -632,6 +632,10 @@ impl CodeGen {
                     struct_name: struct_name.clone(),
                     offset: off,
                 },
+                VarType::Interface { interface_name, .. } => VarType::Interface {
+                    interface_name: interface_name.clone(),
+                    offset: off,
+                },
                 VarType::StringLabel(s) => VarType::StringLabel(s.clone()),
             }
         };
@@ -641,7 +645,8 @@ impl CodeGen {
                 VarType::Number(offset)
                 | VarType::Float(offset)
                 | VarType::StringOffset(offset)
-                | VarType::Struct { offset, .. },
+                | VarType::Struct { offset, .. }
+                | VarType::Interface { offset, .. },
             ) => {
                 let off = *offset;
                 let vt = set_var_offset(&var_type_for_primary, off);
