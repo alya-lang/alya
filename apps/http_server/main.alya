@@ -143,8 +143,9 @@ function handle_client(client_sock, start_time, quiet, html_content)
             keep_alive = 0
         end
 
-        let now = clock_ms()
-        let uptime = now - start_time
+        let now_mono = clock_ms()
+        let uptime = now_mono - start_time
+        let epoch_ms = (time() * 1000) + (now_mono % 1000)
 
         let status = HttpStatus.Ok
         let ctype = "text/html; charset=utf-8"
@@ -165,11 +166,11 @@ function handle_client(client_sock, start_time, quiet, html_content)
                 body = "{\"message\":\"Hello, World!\"}"
             is "/api/status" then
                 ctype = m::content_type("status.json", "application/json")
-                body = "{\"status\": \"ok\", \"server\": \"Alya-Native-Server\", \"version\": \"0.1.0\", \"uptime_ms\": " + str(uptime) + ", \"timestamp\": " + str(now) + "}"
+                body = "{\"status\": \"ok\", \"server\": \"Alya-Native-Server\", \"version\": \"0.1.0\", \"uptime_ms\": " + str(uptime) + ", \"timestamp\": " + str(epoch_ms) + "}"
             else
                 if starts_with(req_path, "/api/echo")
                     ctype = m::content_type("echo.json", "application/json")
-                    body = "{\"method\": \"" + req_method + "\", \"path\": \"" + req_path + "\", \"server_time_ms\": " + str(now) + ", \"engine\": \"Alya Native Compiler\"}"
+                    body = "{\"method\": \"" + req_method + "\", \"path\": \"" + req_path + "\", \"server_time_ms\": " + str(epoch_ms) + ", \"engine\": \"Alya Native Compiler\"}"
                 else
                     # Check for static file in public directory
                     let pub_path = "public" + req_path
