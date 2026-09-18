@@ -169,6 +169,10 @@ pub fn build_c_objects(
                 gcc_args.push("-m32".to_string());
             }
 
+            // Enable section-level dead code elimination for C sources
+            gcc_args.push("-ffunction-sections".to_string());
+            gcc_args.push("-fdata-sections".to_string());
+
             for inc in &plan.include_dirs {
                 gcc_args.push(format!("-I{}", path_to_gcc_arg(inc)));
             }

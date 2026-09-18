@@ -83,6 +83,12 @@ pub fn run_alya_code_with_input_and_args(
         gcc.arg("-lws2_32");
     }
 
+    if matches!(os, OperatingSystem::MacOS) {
+        gcc.arg("-Wl,-dead_strip");
+    } else {
+        gcc.arg("-Wl,--gc-sections");
+    }
+
     gcc.arg("-L.");
     for lib in codegen::collect_extern_libraries(&ast) {
         gcc.arg(format!("-l{}", lib));

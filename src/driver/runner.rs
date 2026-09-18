@@ -29,6 +29,13 @@ pub fn compile_with_gcc(
         gcc_args.push("-lws2_32".to_string());
     }
 
+    // Dead Code Elimination at linker level: discard unused sections
+    if matches!(os, OperatingSystem::MacOS) {
+        gcc_args.push("-Wl,-dead_strip".to_string());
+    } else {
+        gcc_args.push("-Wl,--gc-sections".to_string());
+    }
+
     gcc_args.push("-L.".to_string());
     for lib in extra_libs {
         gcc_args.push(format!("-l{}", lib));

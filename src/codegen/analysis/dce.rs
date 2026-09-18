@@ -119,11 +119,14 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
         }
     }
 
+    let mut all_reachable_refs: HashSet<String> = HashSet::new();
+
     // 2. All top-level statements are roots
     let mut initial_refs = HashSet::new();
     for stmt in &top_level {
         collect_references_in_stmt(stmt, &mut initial_refs);
     }
+    all_reachable_refs.extend(initial_refs.iter().cloned());
     for r in &initial_refs {
         resolve_symbol(
             r,
@@ -220,6 +223,7 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
             }
         }
 
+        all_reachable_refs.extend(item_refs.iter().cloned());
         for r in &item_refs {
             resolve_symbol(
                 r,
@@ -246,6 +250,41 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
             Stmt::StructDef { name, .. } => {
                 if reachable_structs.contains(name) {
                     pruned_statements.push(stmt.clone());
+                }
+            }
+            Stmt::ExternBlock {
+                abi,
+                lib,
+                functions,
+            } => {
+                // In library context without main(), preserve all pub extern blocks
+                if !has_main && stmt.is_pub() {
+                    pruned_statements.push(stmt.clone());
+                    continue;
+                }
+
+                let reachable_extern_fns: Vec<ExternFnDecl> = functions
+                    .iter()
+                    .filter(|f| {
+                        let bare = bare_name(&f.name);
+                        all_reachable_refs.contains(&f.name)
+                            || all_reachable_refs.contains(bare)
+                            || all_reachable_refs.iter().any(|r| bare_name(r) == bare)
+                    })
+                    .cloned()
+                    .collect();
+
+                if !reachable_extern_fns.is_empty() {
+                    let filtered = Stmt::ExternBlock {
+                        abi: abi.clone(),
+                        lib: lib.clone(),
+                        functions: reachable_extern_fns,
+                    };
+                    if stmt.is_pub() {
+                        pruned_statements.push(Stmt::Pub(Box::new(filtered)));
+                    } else {
+                        pruned_statements.push(filtered);
+                    }
                 }
             }
             _ => {
@@ -756,5 +795,97 @@ mod tests {
         assert!(fn_names.contains(&"internal_used_helper".to_string()));
         assert!(fn_names.contains(&"test_feature".to_string()));
         assert!(!fn_names.contains(&"internal_dead_helper".to_string()));
+    }
+
+    #[test]
+    fn test_dce_prunes_unreferenced_extern_functions_in_block() {
+        let program = Program {
+            statements: vec![
+                Stmt::ExternBlock {
+                    abi: "C".into(),
+                    lib: Some("sqlite3".into()),
+                    functions: vec![
+                        ExternFnDecl {
+                            name: "sqlite3_open".into(),
+                            params: vec![],
+                            return_type: Some("i32".into()),
+                        },
+                        ExternFnDecl {
+                            name: "sqlite3_blob_read".into(),
+                            params: vec![],
+                            return_type: Some("i32".into()),
+                        },
+                    ],
+                },
+                Stmt::Function {
+                    name: "main".into(),
+                    type_params: vec![],
+                    params: vec![],
+                    param_types: vec![],
+                    return_type: None,
+                    defaults: vec![],
+                    body: vec![Stmt::Expr(Expr::Call {
+                        name: "sqlite3_open".into(),
+                        args: vec![],
+                    })],
+                },
+            ],
+        };
+
+        let pruned = eliminate_dead_code(&program);
+        let mut extern_fns = Vec::new();
+        for s in &pruned.statements {
+            if let Stmt::ExternBlock { functions, .. } = s.inner_stmt() {
+                for f in functions {
+                    extern_fns.push(f.name.clone());
+                }
+            }
+        }
+
+        assert_eq!(extern_fns, vec!["sqlite3_open"]);
+    }
+
+    #[test]
+    fn test_dce_prunes_entire_unreferenced_extern_block() {
+        let program = Program {
+            statements: vec![
+                Stmt::ExternBlock {
+                    abi: "C".into(),
+                    lib: Some("unused_lib".into()),
+                    functions: vec![
+                        ExternFnDecl {
+                            name: "unused_func1".into(),
+                            params: vec![],
+                            return_type: None,
+                        },
+                        ExternFnDecl {
+                            name: "unused_func2".into(),
+                            params: vec![],
+                            return_type: None,
+                        },
+                    ],
+                },
+                Stmt::Function {
+                    name: "main".into(),
+                    type_params: vec![],
+                    params: vec![],
+                    param_types: vec![],
+                    return_type: None,
+                    defaults: vec![],
+                    body: vec![Stmt::Say(Expr::Number(42.0))],
+                },
+            ],
+        };
+
+        let pruned = eliminate_dead_code(&program);
+        let has_extern = pruned
+            .statements
+            .iter()
+            .any(|s| matches!(s.inner_stmt(), Stmt::ExternBlock { .. }));
+
+        assert!(
+            !has_extern,
+            "Unused ExternBlock should be completely eliminated"
+        );
     }
 }

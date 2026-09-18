@@ -179,6 +179,11 @@ fn test_all_examples_execute_with_gcc() {
         if matches!(os, OperatingSystem::Windows) {
             gcc.arg("-lws2_32");
         }
+        if matches!(os, OperatingSystem::MacOS) {
+            gcc.arg("-Wl,-dead_strip");
+        } else {
+            gcc.arg("-Wl,--gc-sections");
+        }
         gcc.arg("-L.");
         for lib in codegen::collect_extern_libraries(&ast) {
             gcc.arg(format!("-l{}", lib));
