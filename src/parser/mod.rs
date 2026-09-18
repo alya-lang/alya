@@ -306,9 +306,21 @@ pub fn resolve_imports_with_sources_ext(
     });
 
     validate_unique_functions(&resolved_stmts)?;
-
     program.statements = resolved_stmts;
-    expand_default_args(program);
+
+    let mut module_stems = std::collections::HashSet::new();
+    for std_mod in ["math", "time", "fs", "os", "path", "net", "sync", "color", "env", "process", "io", "crypto", "json", "random"] {
+        module_stems.insert(std_mod.to_string());
+    }
+    for (path, alias) in &visited {
+        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+            module_stems.insert(stem.to_string());
+        }
+        if let Some(ref a) = alias {
+            module_stems.insert(a.clone());
+        }
+    }
+    expand_default_args_with_modules(program, &module_stems);
     enums::resolve_enums(program);
     constants::resolve_and_validate_constants(program)?;
 
@@ -994,13 +1006,24 @@ pub(crate) fn resolve_stmt_imports_ext(
 }
 
 pub fn expand_default_args(program: &mut Program) {
+    let mut module_stems = std::collections::HashSet::new();
+    for std_mod in ["math", "time", "fs", "os", "path", "net", "sync", "color", "env", "process", "io", "crypto", "json", "random"] {
+        module_stems.insert(std_mod.to_string());
+    }
+    expand_default_args_with_modules(program, &module_stems);
+}
+
+pub fn expand_default_args_with_modules(
+    program: &mut Program,
+    module_stems: &std::collections::HashSet<String>,
+) {
     let mut fn_defs: std::collections::HashMap<String, (usize, Vec<Option<Expr>>, bool)> =
         std::collections::HashMap::new();
 
     collect_fn_defaults(&program.statements, &mut fn_defs);
 
     for stmt in &mut program.statements {
-        expand_defaults_in_stmt(stmt, &fn_defs);
+        expand_defaults_in_stmt(stmt, &fn_defs, module_stems);
     }
 }
 
@@ -1065,75 +1088,76 @@ fn collect_fn_defaults(
 fn expand_defaults_in_stmt(
     stmt: &mut Stmt,
     fn_defs: &std::collections::HashMap<String, (usize, Vec<Option<Expr>>, bool)>,
+    module_stems: &std::collections::HashSet<String>,
 ) {
     match stmt {
         Stmt::Function { body, .. } => {
             for s in body {
-                expand_defaults_in_stmt(s, fn_defs);
+                expand_defaults_in_stmt(s, fn_defs, module_stems);
             }
         }
         Stmt::Say(expr)
         | Stmt::Expr(expr)
         | Stmt::Let { value: expr, .. }
         | Stmt::Assign { value: expr, .. } => {
-            expand_defaults_in_expr(expr, fn_defs);
+            expand_defaults_in_expr(expr, fn_defs, module_stems);
         }
         Stmt::IndexAssign {
             array,
             index,
             value,
         } => {
-            expand_defaults_in_expr(array, fn_defs);
-            expand_defaults_in_expr(index, fn_defs);
-            expand_defaults_in_expr(value, fn_defs);
+            expand_defaults_in_expr(array, fn_defs, module_stems);
+            expand_defaults_in_expr(index, fn_defs, module_stems);
+            expand_defaults_in_expr(value, fn_defs, module_stems);
         }
         Stmt::FieldAssign { object, value, .. } => {
-            expand_defaults_in_expr(object, fn_defs);
-            expand_defaults_in_expr(value, fn_defs);
+            expand_defaults_in_expr(object, fn_defs, module_stems);
+            expand_defaults_in_expr(value, fn_defs, module_stems);
         }
         Stmt::If {
             condition,
             then_block,
             else_block,
         } => {
-            expand_defaults_in_expr(condition, fn_defs);
+            expand_defaults_in_expr(condition, fn_defs, module_stems);
             for s in then_block {
-                expand_defaults_in_stmt(s, fn_defs);
+                expand_defaults_in_stmt(s, fn_defs, module_stems);
             }
             if let Some(eb) = else_block {
                 for s in eb {
-                    expand_defaults_in_stmt(s, fn_defs);
+                    expand_defaults_in_stmt(s, fn_defs, module_stems);
                 }
             }
         }
         Stmt::While { condition, body } => {
-            expand_defaults_in_expr(condition, fn_defs);
+            expand_defaults_in_expr(condition, fn_defs, module_stems);
             for s in body {
-                expand_defaults_in_stmt(s, fn_defs);
+                expand_defaults_in_stmt(s, fn_defs, module_stems);
             }
         }
         Stmt::Repeat { body } => {
             for s in body {
-                expand_defaults_in_stmt(s, fn_defs);
+                expand_defaults_in_stmt(s, fn_defs, module_stems);
             }
         }
         Stmt::For {
             start, end, body, ..
         } => {
-            expand_defaults_in_expr(start, fn_defs);
-            expand_defaults_in_expr(end, fn_defs);
+            expand_defaults_in_expr(start, fn_defs, module_stems);
+            expand_defaults_in_expr(end, fn_defs, module_stems);
             for s in body {
-                expand_defaults_in_stmt(s, fn_defs);
+                expand_defaults_in_stmt(s, fn_defs, module_stems);
             }
         }
         Stmt::ForEach { iterable, body, .. } => {
-            expand_defaults_in_expr(iterable, fn_defs);
+            expand_defaults_in_expr(iterable, fn_defs, module_stems);
             for s in body {
-                expand_defaults_in_stmt(s, fn_defs);
+                expand_defaults_in_stmt(s, fn_defs, module_stems);
             }
         }
         Stmt::Return(Some(expr)) | Stmt::Throw(Some(expr)) => {
-            expand_defaults_in_expr(expr, fn_defs);
+            expand_defaults_in_expr(expr, fn_defs, module_stems);
         }
         Stmt::TryCatch {
             try_block,
@@ -1142,19 +1166,19 @@ fn expand_defaults_in_stmt(
             ..
         } => {
             for s in try_block {
-                expand_defaults_in_stmt(s, fn_defs);
+                expand_defaults_in_stmt(s, fn_defs, module_stems);
             }
             for s in catch_block {
-                expand_defaults_in_stmt(s, fn_defs);
+                expand_defaults_in_stmt(s, fn_defs, module_stems);
             }
             if let Some(fb) = finally_block {
                 for s in fb {
-                    expand_defaults_in_stmt(s, fn_defs);
+                    expand_defaults_in_stmt(s, fn_defs, module_stems);
                 }
             }
         }
         Stmt::Pub(inner) | Stmt::Defer(inner) => {
-            expand_defaults_in_stmt(inner, fn_defs);
+            expand_defaults_in_stmt(inner, fn_defs, module_stems);
         }
         _ => {}
     }
@@ -1163,11 +1187,12 @@ fn expand_defaults_in_stmt(
 fn expand_defaults_in_expr(
     expr: &mut Expr,
     fn_defs: &std::collections::HashMap<String, (usize, Vec<Option<Expr>>, bool)>,
+    module_stems: &std::collections::HashSet<String>,
 ) {
     match expr {
         Expr::Call { name, args } => {
             for arg in args.iter_mut() {
-                expand_defaults_in_expr(arg, fn_defs);
+                expand_defaults_in_expr(arg, fn_defs, module_stems);
             }
             if let Some(Expr::Identifier(prefix)) = args.first().cloned() {
                 let cand_double = format!("{}__{}", prefix, name);
@@ -1177,6 +1202,8 @@ fn expand_defaults_in_expr(
                     args.remove(0);
                 } else if fn_defs.contains_key(&cand_colon) {
                     *name = cand_colon;
+                    args.remove(0);
+                } else if module_stems.contains(&prefix) && fn_defs.contains_key(name) {
                     args.remove(0);
                 }
             }
@@ -1214,55 +1241,55 @@ fn expand_defaults_in_expr(
             }
         }
         Expr::Binary { left, right, .. } => {
-            expand_defaults_in_expr(left, fn_defs);
-            expand_defaults_in_expr(right, fn_defs);
+            expand_defaults_in_expr(left, fn_defs, module_stems);
+            expand_defaults_in_expr(right, fn_defs, module_stems);
         }
         Expr::Unary { expr, .. } => {
-            expand_defaults_in_expr(expr, fn_defs);
+            expand_defaults_in_expr(expr, fn_defs, module_stems);
         }
         Expr::Ternary {
             condition,
             then_branch,
             else_branch,
         } => {
-            expand_defaults_in_expr(condition, fn_defs);
-            expand_defaults_in_expr(then_branch, fn_defs);
-            expand_defaults_in_expr(else_branch, fn_defs);
+            expand_defaults_in_expr(condition, fn_defs, module_stems);
+            expand_defaults_in_expr(then_branch, fn_defs, module_stems);
+            expand_defaults_in_expr(else_branch, fn_defs, module_stems);
         }
         Expr::NullCoalesce { value, default } => {
-            expand_defaults_in_expr(value, fn_defs);
-            expand_defaults_in_expr(default, fn_defs);
+            expand_defaults_in_expr(value, fn_defs, module_stems);
+            expand_defaults_in_expr(default, fn_defs, module_stems);
         }
         Expr::Array(elems) => {
             for elem in elems {
-                expand_defaults_in_expr(elem, fn_defs);
+                expand_defaults_in_expr(elem, fn_defs, module_stems);
             }
         }
         Expr::Index { array, index } => {
-            expand_defaults_in_expr(array, fn_defs);
-            expand_defaults_in_expr(index, fn_defs);
+            expand_defaults_in_expr(array, fn_defs, module_stems);
+            expand_defaults_in_expr(index, fn_defs, module_stems);
         }
         Expr::FieldAccess { object, .. } => {
-            expand_defaults_in_expr(object, fn_defs);
+            expand_defaults_in_expr(object, fn_defs, module_stems);
         }
         Expr::StructInit { fields, .. } => {
             for (_, val) in fields {
-                expand_defaults_in_expr(val, fn_defs);
+                expand_defaults_in_expr(val, fn_defs, module_stems);
             }
         }
         Expr::Map(entries) => {
             for (k, v) in entries {
-                expand_defaults_in_expr(k, fn_defs);
-                expand_defaults_in_expr(v, fn_defs);
+                expand_defaults_in_expr(k, fn_defs, module_stems);
+                expand_defaults_in_expr(v, fn_defs, module_stems);
             }
         }
         Expr::InterpolatedString(parts) => {
             for part in parts {
-                expand_defaults_in_expr(part, fn_defs);
+                expand_defaults_in_expr(part, fn_defs, module_stems);
             }
         }
         Expr::TypeCheck { expr, .. } | Expr::Cast { expr, .. } => {
-            expand_defaults_in_expr(expr, fn_defs);
+            expand_defaults_in_expr(expr, fn_defs, module_stems);
         }
         _ => {}
     }
