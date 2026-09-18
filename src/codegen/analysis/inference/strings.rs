@@ -140,6 +140,11 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
             }
             known_strings.contains(&format!("fn_ret_str:{}", name))
                 || known_strings.contains(&format!("fn_ret_str:{}", bare))
+                || known_strings.iter().any(|k| {
+                    k.starts_with("fn_ret_str:")
+                        && (k.ends_with(&format!("__{}", bare))
+                            || k.ends_with(&format!("::{}", bare)))
+                })
         }
         Expr::Identifier(name) => known_strings.contains(name),
         Expr::Binary {

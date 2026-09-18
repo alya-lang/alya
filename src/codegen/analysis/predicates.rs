@@ -152,8 +152,14 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     let bare_s = bare_s.rsplit("__").next().unwrap_or(bare_s);
                     let c1 = format!("{}__{}", sname, name);
                     let c2 = format!("{}__{}", bare_s, name);
+                    let suffix1 = format!("__{}", c1);
+                    let suffix2 = format!("__{}", c2);
                     if vars.contains_key(&format!("fn_ret_str:{}", c1))
                         || vars.contains_key(&format!("fn_ret_str:{}", c2))
+                        || vars.keys().any(|k| {
+                            k.starts_with("fn_ret_str:")
+                                && (k.ends_with(&suffix1) || k.ends_with(&suffix2))
+                        })
                     {
                         return true;
                     }
@@ -186,6 +192,11 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             }
             vars.contains_key(&format!("fn_ret_str:{}", name))
                 || vars.contains_key(&format!("fn_ret_str:{}", bare))
+                || vars.keys().any(|k| {
+                    k.starts_with("fn_ret_str:")
+                        && (k.ends_with(&format!("__{}", bare))
+                            || k.ends_with(&format!("::{}", bare)))
+                })
         }
         Expr::Identifier(name) => {
             if let Some(var_type) = vars.get(name) {
