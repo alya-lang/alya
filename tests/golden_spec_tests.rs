@@ -88,6 +88,72 @@ fn test_golden_spec_conformance_matrix() {
 }
 
 #[test]
+fn test_golden_spec_execution_matrix() {
+    let syntax_dir = get_spec_syntax_dir();
+    let mut entries: Vec<_> = fs::read_dir(&syntax_dir)
+        .expect("Failed to read spec syntax dir")
+        .flatten()
+        .filter(|e| e.path().extension().map_or(false, |ext| ext == "alya"))
+        .collect();
+
+    entries.sort_by_key(|e| e.file_name());
+
+    let mut exec_passed = 0;
+    let total = entries.len();
+
+    println!("\n=== ALYA SPEC v1.0 EXECUTION MATRIX ===");
+    for entry in &entries {
+        let filename = entry.file_name().to_string_lossy().to_string();
+        let source = fs::read_to_string(entry.path()).unwrap();
+
+        // Skip files known to require external files or specific environment if any
+        let result = std::panic::catch_unwind(|| {
+            run_alya_code_full(&source)
+        });
+
+        match result {
+            Ok(Some((code, _output))) if code == 0 => {
+                exec_passed += 1;
+                println!("  [EXEC OK]   {:<25}", filename);
+            }
+            Ok(Some((code, output))) => {
+                let first_line = output.lines().next().unwrap_or("").to_string();
+                println!("  [EXEC FAIL] {:<25} (code={}): {}", filename, code, first_line);
+            }
+            Ok(None) => {
+                println!("  [NO GCC]    {:<25}", filename);
+            }
+            Err(_) => {
+                println!("  [PANIC]     {:<25}", filename);
+            }
+        }
+    }
+    println!("=========================================");
+    println!("Summary: Exec: {}/{} passed\n", exec_passed, total);
+}
+
+#[test]
+fn test_golden_spec_variables_execution() {
+    let var_file = get_spec_syntax_dir().join("variables.alya");
+    let source = fs::read_to_string(&var_file).expect("Failed to read variables.alya");
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from variables.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("Initialized linearly: 1000"));
+        assert!(output.contains("Status code after exhaustive branches: 200"));
+        assert!(output.contains("Mutated score: 5, Bitflags: 1"));
+        assert!(output.contains("Resolution: 1920x1080, Swapped: Second, First"));
+        assert!(output.contains("Destructured: x=100, y=200, z=300, host=127.0.0.1:8080"));
+        assert!(output.contains("System: Alya-Kernel, Timeout: 5000ms, PI: 3.14159"));
+        assert!(output.contains("Inside before shadow: Global Level"));
+        assert!(output.contains("Inside after shadow: Block Level"));
+        assert!(output.contains("Deep inner: Deep Inner Level"));
+        assert!(output.contains("Back to block: Block Level"));
+        assert!(output.contains("Back to global: Global Level"));
+    }
+}
+
+#[test]
 fn test_golden_spec_memory_execution() {
     let memory_file = get_spec_syntax_dir().join("memory.alya");
     let source = fs::read_to_string(&memory_file)

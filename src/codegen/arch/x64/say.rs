@@ -133,24 +133,61 @@ pub fn emit_say_interpolated_pop_and_call(
 ) {
     let count = is_floats.len();
     if matches!(os, OperatingSystem::Windows) {
-        for i in (0..count).rev() {
-            let reg = match i {
-                0 => "%rdx",
-                1 => "%r8",
-                2 => "%r9",
-                _ => "%rdx",
-            };
-            out.push_str(&format!("    pop {}\n", reg));
-            match i {
-                0 => out.push_str("    movq %rdx, %xmm1\n"),
-                1 => out.push_str("    movq %r8, %xmm2\n"),
-                2 => out.push_str("    movq %r9, %xmm3\n"),
-                _ => {}
+        if count <= 3 {
+            for i in (0..count).rev() {
+                let reg = match i {
+                    0 => "%rdx",
+                    1 => "%r8",
+                    2 => "%r9",
+                    _ => unreachable!(),
+                };
+                out.push_str(&format!("    pop {}\n", reg));
+                match i {
+                    0 => out.push_str("    movq %rdx, %xmm1\n"),
+                    1 => out.push_str("    movq %r8, %xmm2\n"),
+                    2 => out.push_str("    movq %r9, %xmm3\n"),
+                    _ => {}
+                }
             }
+            out.push_str(&format!("    lea {}(%rip), %rcx\n", fmt_label));
+            out.push_str("    xor %rax, %rax\n");
+            emit_call_printf(out, stack_offset, os);
+        } else {
+            let extra_args = count - 3;
+            let needed = 32 + extra_args as i32 * 8;
+            let total_alloc = if (stack_offset + (count as i32 * 8) + needed) % 16 == 0 {
+                needed
+            } else {
+                needed + 8
+            };
+
+            // Read register arguments from the pushed values on stack
+            out.push_str(&format!("    mov {}(%rsp), %rdx\n", (count - 1) * 8));
+            out.push_str("    movq %rdx, %xmm1\n");
+
+            out.push_str(&format!("    mov {}(%rsp), %r8\n", (count - 2) * 8));
+            out.push_str("    movq %r8, %xmm2\n");
+
+            out.push_str(&format!("    mov {}(%rsp), %r9\n", (count - 3) * 8));
+            out.push_str("    movq %r9, %xmm3\n");
+
+            out.push_str(&format!("    lea {}(%rip), %rcx\n", fmt_label));
+            out.push_str(&format!("    sub ${}, %rsp\n", total_alloc));
+
+            for k in 3..count {
+                let src_off = total_alloc + ((count - 1 - k) * 8) as i32;
+                let dst_off = 32 + ((k - 3) * 8) as i32;
+                out.push_str(&format!("    mov {}(%rsp), %rax\n", src_off));
+                out.push_str(&format!("    mov %rax, {}(%rsp)\n", dst_off));
+            }
+
+            out.push_str("    xor %rax, %rax\n");
+            out.push_str("    call printf\n");
+            out.push_str(&format!(
+                "    add ${}, %rsp\n",
+                total_alloc + (count as i32 * 8)
+            ));
         }
-        out.push_str(&format!("    lea {}(%rip), %rcx\n", fmt_label));
-        out.push_str("    xor %rax, %rax\n");
-        emit_call_printf(out, stack_offset, os);
     } else {
         let mut int_reg_indices = Vec::with_capacity(count);
         let mut sse_reg_indices = Vec::with_capacity(count);

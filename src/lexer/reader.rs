@@ -2,33 +2,135 @@ use super::Lexer;
 
 impl Lexer {
     pub(crate) fn read_number(&mut self) -> Result<(f64, bool), String> {
-        let start_pos = self.position;
         let start_line = self.line;
         let start_col = self.column;
+
+        // Check for 0x (hex), 0b (binary), 0o (octal)
+        if self.current_char() == Some('0') {
+            if let Some(p) = self.peek_char() {
+                if p == 'x' || p == 'X' {
+                    self.advance(); // skip '0'
+                    self.advance(); // skip 'x'
+                    let mut s = String::new();
+                    while let Some(ch) = self.current_char() {
+                        if ch.is_ascii_hexdigit() {
+                            s.push(ch);
+                            self.advance();
+                        } else if ch == '_' {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                    if s.is_empty() {
+                        return Err(format!(
+                            "Expected hex digits after '0x' at line {}, column {}",
+                            start_line, start_col
+                        ));
+                    }
+                    let val = u64::from_str_radix(&s, 16).map_err(|_| {
+                        format!(
+                            "Invalid hexadecimal number '0x{}' at line {}, column {}",
+                            s, start_line, start_col
+                        )
+                    })?;
+                    return Ok((val as f64, false));
+                } else if p == 'b' || p == 'B' {
+                    self.advance(); // skip '0'
+                    self.advance(); // skip 'b'
+                    let mut s = String::new();
+                    while let Some(ch) = self.current_char() {
+                        if ch == '0' || ch == '1' {
+                            s.push(ch);
+                            self.advance();
+                        } else if ch == '_' {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                    if s.is_empty() {
+                        return Err(format!(
+                            "Expected binary digits after '0b' at line {}, column {}",
+                            start_line, start_col
+                        ));
+                    }
+                    let val = u64::from_str_radix(&s, 2).map_err(|_| {
+                        format!(
+                            "Invalid binary number '0b{}' at line {}, column {}",
+                            s, start_line, start_col
+                        )
+                    })?;
+                    return Ok((val as f64, false));
+                } else if p == 'o' || p == 'O' {
+                    self.advance(); // skip '0'
+                    self.advance(); // skip 'o'
+                    let mut s = String::new();
+                    while let Some(ch) = self.current_char() {
+                        if matches!(ch, '0'..='7') {
+                            s.push(ch);
+                            self.advance();
+                        } else if ch == '_' {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                    if s.is_empty() {
+                        return Err(format!(
+                            "Expected octal digits after '0o' at line {}, column {}",
+                            start_line, start_col
+                        ));
+                    }
+                    let val = u64::from_str_radix(&s, 8).map_err(|_| {
+                        format!(
+                            "Invalid octal number '0o{}' at line {}, column {}",
+                            s, start_line, start_col
+                        )
+                    })?;
+                    return Ok((val as f64, false));
+                }
+            }
+        }
+
         let mut has_dot = false;
+        let mut s = String::new();
 
         if self.current_char() == Some('.') {
             has_dot = true;
+            s.push('.');
             self.advance();
         }
 
         while let Some(ch) = self.current_char() {
             if ch.is_ascii_digit() {
+                s.push(ch);
                 self.advance();
-            } else if ch == '.' && !has_dot && self.peek_char().is_some_and(|c| c.is_ascii_digit())
-            {
+            } else if ch == '_' {
+                self.advance();
+            } else if ch == '.' && !has_dot && self.peek_char().is_some_and(|c| c.is_ascii_digit()) {
                 has_dot = true;
+                s.push('.');
                 self.advance();
+            } else if (ch == 'e' || ch == 'E') && !s.is_empty() {
+                has_dot = true;
+                s.push(ch);
+                self.advance();
+                if let Some(sign) = self.current_char() {
+                    if sign == '+' || sign == '-' {
+                        s.push(sign);
+                        self.advance();
+                    }
+                }
             } else {
                 break;
             }
         }
 
-        let num_str: String = self.input[start_pos..self.position].iter().collect();
-        let val = num_str.parse::<f64>().map_err(|_| {
+        let val = s.parse::<f64>().map_err(|_| {
             format!(
                 "Invalid number '{}' at line {}, column {}",
-                num_str, start_line, start_col
+                s, start_line, start_col
             )
         })?;
         Ok((val, has_dot))

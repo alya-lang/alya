@@ -293,6 +293,7 @@ impl CodeGen {
             self.generate_statement(s);
         }
 
+        let then_variables = self.ctx.variables.clone();
         let then_delta = self.ctx.stack_offset - initial_stack_offset;
         if then_delta > 0 {
             arch::emit_stack_restore(&mut self.output, self.arch, then_delta);
@@ -315,9 +316,18 @@ impl CodeGen {
             }
         }
 
+        let mut final_variables = initial_variables;
+        for (var_name, var_type) in &then_variables {
+            if let Some(orig_type) = final_variables.get(var_name) {
+                if matches!(orig_type, VarType::Null(_)) && !matches!(var_type, VarType::Null(_)) {
+                    final_variables.insert(var_name.clone(), var_type.clone());
+                }
+            }
+        }
+
         self.output.push_str(&format!("{}:\n", end_label));
         self.ctx.stack_offset = initial_stack_offset;
-        self.ctx.variables = initial_variables;
+        self.ctx.variables = final_variables;
     }
 
     pub(super) fn generate_while(&mut self, condition: &Expr, body: &[Stmt]) {
