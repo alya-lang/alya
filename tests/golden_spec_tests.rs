@@ -85,6 +85,8 @@ fn test_golden_spec_conformance_matrix() {
         "Summary: Lex: {}/{} passed, Parse: {}/{} passed\n",
         lex_passed, total, parse_passed, total
     );
+    assert_eq!(lex_passed, total, "All 25 golden spec files must pass lexing");
+    assert_eq!(parse_passed, total, "All 25 golden spec files must pass parsing");
 }
 
 #[test]
@@ -131,6 +133,7 @@ fn test_golden_spec_execution_matrix() {
     }
     println!("=========================================");
     println!("Summary: Exec: {}/{} passed\n", exec_passed, total);
+    assert_eq!(exec_passed, total, "All 25 golden spec files must pass execution with exit code 0");
 }
 
 #[test]
