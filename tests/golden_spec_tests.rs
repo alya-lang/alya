@@ -339,3 +339,14 @@ fn test_golden_spec_strings_unicode_execution() {
     }
 }
 
+#[test]
+fn test_golden_spec_testing_execution() {
+    let file = get_spec_syntax_dir().join("testing.alya");
+    let source = fs::read_to_string(&file).expect("Failed to read testing.alya");
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from testing.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("Calculated valid discount: 85"));
+    }
+}
+

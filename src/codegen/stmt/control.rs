@@ -882,7 +882,7 @@ impl CodeGen {
         self.ctx.pop_loop();
     }
 
-    pub(super) fn generate_throw(&mut self, opt_expr: Option<&Expr>) {
+    pub(crate) fn generate_throw(&mut self, opt_expr: Option<&Expr>) {
         if let Some(expr) = opt_expr {
             if is_string_expr(expr, &self.ctx.variables) {
                 self.generate_expression(expr);

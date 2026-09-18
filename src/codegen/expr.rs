@@ -617,6 +617,58 @@ impl CodeGen {
                     return;
                 }
 
+                if name == "assert_eq" && (args.len() == 2 || args.len() == 3) {
+                    let eq_expr = Expr::Binary {
+                        left: Box::new(args[0].clone()),
+                        op: BinaryOp::Equal,
+                        right: Box::new(args[1].clone()),
+                    };
+                    self.generate_expression(&eq_expr);
+                    let ok_label = self.ctx.next_label();
+                    arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+                    arch::emit_cond_jump(
+                        &mut self.output,
+                        self.arch,
+                        BinaryOp::NotEqual,
+                        false,
+                        &ok_label,
+                    );
+                    let default_msg =
+                        Expr::String("Assertion failed: values are not equal".to_string());
+                    let msg_expr = if args.len() == 3 {
+                        &args[2]
+                    } else {
+                        &default_msg
+                    };
+                    self.generate_throw(Some(msg_expr));
+                    self.output.push_str(&format!("{}:\n", ok_label));
+                    arch::emit_load_num(&mut self.output, self.arch, 1);
+                    return;
+                }
+
+                if name == "assert" && (args.len() == 1 || args.len() == 2) {
+                    self.generate_expression(&args[0]);
+                    let ok_label = self.ctx.next_label();
+                    arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+                    arch::emit_cond_jump(
+                        &mut self.output,
+                        self.arch,
+                        BinaryOp::NotEqual,
+                        false,
+                        &ok_label,
+                    );
+                    let default_msg = Expr::String("Assertion failed".to_string());
+                    let msg_expr = if args.len() == 2 {
+                        &args[1]
+                    } else {
+                        &default_msg
+                    };
+                    self.generate_throw(Some(msg_expr));
+                    self.output.push_str(&format!("{}:\n", ok_label));
+                    arch::emit_load_num(&mut self.output, self.arch, 1);
+                    return;
+                }
+
                 let is_struct_receiver = args.first().and_then(|a| self.get_expr_struct_name(a)).is_some_and(|sname| {
                     let bare = sname.rsplit("::").next().unwrap_or(&sname);
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
