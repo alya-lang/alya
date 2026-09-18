@@ -15,6 +15,7 @@ pub struct Parser {
     pub(super) lambda_functions: Vec<Stmt>,
     pub(super) lambda_counter: usize,
     pub(super) fn_depth: usize,
+    pub(crate) struct_defs: std::collections::HashMap<String, Vec<String>>,
 }
 
 impl Parser {
@@ -25,6 +26,7 @@ impl Parser {
             lambda_functions: Vec::new(),
             lambda_counter: 0,
             fn_depth: 0,
+            struct_defs: std::collections::HashMap::new(),
         }
     }
 
@@ -1090,7 +1092,10 @@ fn collect_fn_defaults(
                 body,
                 ..
             } => {
-                let has_rest = param_types.last().and_then(|t| t.as_deref()) == Some("...");
+                let has_rest = param_types
+                    .last()
+                    .and_then(|t| t.as_deref())
+                    .map_or(false, |t| t == "..." || t.starts_with("..."));
                 fn_defs.insert(name.clone(), (params.len(), defaults.clone(), has_rest));
                 let bare = name.rsplit("::").next().unwrap_or(name.as_str());
                 if bare != name {

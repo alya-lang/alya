@@ -427,6 +427,9 @@ fn test_golden_spec_attributes_execution() {
         assert!(output.contains("Size of CCompatibleHeader: 8 bytes"));
         assert!(output.contains("Alignment of CCompatibleHeader: 4 bytes"));
         assert!(output.contains("Type of sample_text: string"));
+        assert!(output.contains("Comptime computed packet limit: 65536 bytes"));
+        assert!(output.contains("Comptime seconds in a day: 86400s"));
+        assert!(output.contains("Comptime banner: ALYA_NATIVE"));
     }
 }
 
@@ -498,3 +501,52 @@ fn test_golden_spec_ffi_execution() {
         assert!(output.contains("Scratchpad memory allocated successfully."));
     }
 }
+
+#[test]
+fn test_golden_spec_error_handling_execution() {
+    let file = get_spec_syntax_dir().join("error_handling.alya");
+    let source = fs::read_to_string(&file).expect("Failed to read error_handling.alya");
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!(
+            "Output from error_handling.alya (code={}):\n{}",
+            code, output
+        );
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
+        assert!(output.contains(
+            "Network failed (503) at offline.service.internal: Target gateway unreachable"
+        ));
+        assert!(output.contains("Caught write error: Disk I/O failure mid-write"));
+        assert!(output.contains("Finally guarantee executed: Handle closed (open=0)"));
+        assert!(output.contains("Step 3: Caught simulation error: Simulation failure"));
+    }
+}
+
+#[test]
+fn test_golden_spec_when_execution() {
+    let file = get_spec_syntax_dir().join("when.alya");
+    let source = fs::read_to_string(&file).expect("Failed to read when.alya");
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from when.alya (code={}):\n{}", code, output);
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {}\nOutput:\n{}",
+            code, output
+        );
+        assert!(output.contains("Wednesday"));
+        assert!(output.contains("4xx Client Error"));
+        assert!(output.contains("Working Adult"));
+        assert!(output.contains("Generating standalone binary"));
+        assert!(output.contains("Assigned title: Apprentice"));
+        assert!(output.contains("Final student verdict: Distinction"));
+        assert!(output.contains("Large integer packet: 150"));
+        assert!(output.contains("Signal action: Prepare to stop"));
+        assert!(output.contains("Cartesian point: x=10, y=25"));
+        assert!(output.contains("HTTP request succeeded with status 200"));
+        assert!(output.contains("HTTP request failed: Service Unavailable"));
+    }
+}
+

@@ -1025,7 +1025,32 @@ impl Parser {
             }
             TokenType::Comptime => {
                 self.advance();
-                Ok(Expr::Identifier("comptime".to_string()))
+                self.skip_newlines();
+                let inner = if matches!(self.current_token().token_type, TokenType::LeftBrace) {
+                    self.advance();
+                    self.skip_newlines();
+                    let mut last = self.parse_expression()?;
+                    self.skip_newlines();
+                    while !matches!(
+                        self.current_token().token_type,
+                        TokenType::RightBrace | TokenType::Eof
+                    ) {
+                        last = self.parse_expression()?;
+                        self.skip_newlines();
+                    }
+                    self.expect(TokenType::RightBrace)?;
+                    last
+                } else if matches!(self.current_token().token_type, TokenType::LeftParen) {
+                    self.advance();
+                    self.skip_newlines();
+                    let expr = self.parse_expression()?;
+                    self.skip_newlines();
+                    self.expect(TokenType::RightParen)?;
+                    expr
+                } else {
+                    self.parse_primary()?
+                };
+                Ok(crate::parser::constants::eval_comptime_expr(&inner))
             }
             TokenType::Sizeof | TokenType::Alignof | TokenType::Typeof => {
                 let name = match self.current_token().token_type {
@@ -1763,6 +1788,86 @@ impl Parser {
                             self.advance(); // skip '..' or '..='
                             let pattern_end = self.parse_expression()?;
                             patterns.push(WhenPattern::Range(pattern_start, pattern_end));
+                        } else if let Expr::Array(elements) = pattern_start {
+                            let mut bindings = Vec::new();
+                            let mut literal_checks = Vec::new();
+                            let min_len = elements.len();
+                            for (i, elem) in elements.into_iter().enumerate() {
+                                match elem {
+                                    Expr::Identifier(id) => {
+                                        if id == "_" {
+                                            bindings.push(None);
+                                        } else {
+                                            bindings.push(Some(id));
+                                        }
+                                    }
+                                    lit => {
+                                        bindings.push(None);
+                                        literal_checks.push((i, lit));
+                                    }
+                                }
+                            }
+                            patterns.push(WhenPattern::TupleDestructure {
+                                bindings,
+                                literal_checks,
+                                min_len,
+                            });
+                        } else if let Expr::Call { name, args } = pattern_start {
+                            if name.chars().next().map_or(false, |c| c.is_uppercase())
+                                || name.contains('.')
+                            {
+                                let bare = name.rsplit("::").next().unwrap_or(&name);
+                                let bare = bare.rsplit('.').next().unwrap_or(bare);
+                                let known_fields = self
+                                    .struct_defs
+                                    .get(&name)
+                                    .or_else(|| self.struct_defs.get(bare))
+                                    .cloned();
+                                let mut bindings = Vec::new();
+                                for (i, arg) in args.into_iter().enumerate() {
+                                    if let Expr::Identifier(var_name) = arg {
+                                        if var_name != "_" {
+                                            let field_name = if let Some(ref f) = known_fields {
+                                                f.get(i).cloned().unwrap_or_else(|| {
+                                                    if i == 0 {
+                                                        "value".to_string()
+                                                    } else {
+                                                        format!("f{}", i)
+                                                    }
+                                                })
+                                            } else if bare == "Err" || bare == "Error" {
+                                                "message".to_string()
+                                            } else if bare == "Ok" || bare == "Some" {
+                                                "value".to_string()
+                                            } else if i == 0 {
+                                                "value".to_string()
+                                            } else {
+                                                format!("f{}", i)
+                                            };
+                                            bindings.push((field_name, var_name));
+                                        }
+                                    }
+                                }
+                                patterns.push(WhenPattern::VariantDestructure {
+                                    type_name: name,
+                                    bindings,
+                                });
+                            } else {
+                                patterns.push(WhenPattern::Exact(Expr::Call { name, args }));
+                            }
+                        } else if let Expr::StructInit { name, fields } = pattern_start {
+                            let mut bindings = Vec::new();
+                            for (f_name, f_val) in fields {
+                                let var_name = match f_val {
+                                    Expr::Identifier(v) if v != "_" => v,
+                                    _ => f_name.clone(),
+                                };
+                                bindings.push((f_name, var_name));
+                            }
+                            patterns.push(WhenPattern::VariantDestructure {
+                                type_name: name,
+                                bindings,
+                            });
                         } else if let Expr::Identifier(ref id) = pattern_start {
                             if id.chars().next().map_or(false, |c| c.is_uppercase())
                                 || matches!(
@@ -1847,7 +1952,15 @@ impl Parser {
         let default_else = else_expr.unwrap_or(Expr::Null);
         let mut current_else = default_else;
 
-        for (patterns, guard, expr) in arms.into_iter().rev() {
+        for (patterns, guard, mut expr) in arms.into_iter().rev() {
+            let mut all_bindings = Vec::new();
+            for pat in &patterns {
+                let bindings =
+                    crate::parser::stmt::control::get_pattern_bindings(&raw_subject, pat);
+                all_bindings.extend(bindings);
+            }
+            expr = crate::parser::stmt::control::substitute_bindings(&expr, &all_bindings);
+            let guard = guard.map(|g| crate::parser::stmt::control::substitute_bindings(&g, &all_bindings));
             let mut condition = build_when_condition(&raw_subject, patterns);
             if let Some(g) = guard {
                 condition = Expr::Binary {

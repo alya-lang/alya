@@ -629,7 +629,11 @@ impl Parser {
                 } else {
                     ty
                 };
-                Some(resolved_ty)
+                if is_rest {
+                    Some(format!("...{}", resolved_ty))
+                } else {
+                    Some(resolved_ty)
+                }
             } else if is_rest {
                 Some("...".to_string())
             } else {
@@ -797,6 +801,10 @@ impl Parser {
         }
 
         self.expect(TokenType::End)?;
+
+        self.struct_defs.insert(name.clone(), fields.clone());
+        let bare = name.rsplit("::").next().unwrap_or(&name);
+        self.struct_defs.insert(bare.to_string(), fields.clone());
 
         Ok(Stmt::StructDef {
             name,

@@ -2,11 +2,21 @@ use crate::ast::*;
 use crate::lexer::TokenType;
 use crate::parser::Parser;
 
+#[derive(Debug, Clone)]
 pub(crate) enum WhenPattern {
     Exact(Expr),
     Range(Expr, Expr),
     Relational(BinaryOp, Expr),
     Type(String),
+    TupleDestructure {
+        bindings: Vec<Option<String>>,
+        literal_checks: Vec<(usize, Expr)>,
+        min_len: usize,
+    },
+    VariantDestructure {
+        type_name: String,
+        bindings: Vec<(String, String)>,
+    },
 }
 
 pub(crate) fn build_pattern_condition(subject: &Expr, pattern: WhenPattern) -> Expr {
@@ -43,6 +53,148 @@ pub(crate) fn build_pattern_condition(subject: &Expr, pattern: WhenPattern) -> E
             op,
             right: Box::new(expr),
         },
+        WhenPattern::TupleDestructure {
+            literal_checks,
+            min_len,
+            ..
+        } => {
+            let mut cond = Expr::Binary {
+                left: Box::new(Expr::Call {
+                    name: "arr_len".to_string(),
+                    args: vec![subject.clone()],
+                }),
+                op: BinaryOp::Equal,
+                right: Box::new(Expr::Number(min_len as f64)),
+            };
+            for (idx, lit) in literal_checks {
+                let eq = Expr::Binary {
+                    left: Box::new(Expr::Index {
+                        array: Box::new(subject.clone()),
+                        index: Box::new(Expr::Number(idx as f64)),
+                    }),
+                    op: BinaryOp::Equal,
+                    right: Box::new(lit),
+                };
+                cond = Expr::Binary {
+                    left: Box::new(cond),
+                    op: BinaryOp::And,
+                    right: Box::new(eq),
+                };
+            }
+            cond
+        }
+        WhenPattern::VariantDestructure { type_name, .. } => Expr::TypeCheck {
+            expr: Box::new(subject.clone()),
+            target: type_name,
+            negated: false,
+        },
+    }
+}
+
+pub(crate) fn get_pattern_bindings(subject: &Expr, pattern: &WhenPattern) -> Vec<(String, Expr)> {
+    match pattern {
+        WhenPattern::TupleDestructure { bindings, .. } => {
+            let mut res = Vec::new();
+            for (i, opt_name) in bindings.iter().enumerate() {
+                if let Some(name) = opt_name {
+                    res.push((
+                        name.clone(),
+                        Expr::Index {
+                            array: Box::new(subject.clone()),
+                            index: Box::new(Expr::Number(i as f64)),
+                        },
+                    ));
+                }
+            }
+            res
+        }
+        WhenPattern::VariantDestructure { bindings, .. } => {
+            let mut res = Vec::new();
+            for (field, var_name) in bindings {
+                res.push((
+                    var_name.clone(),
+                    Expr::FieldAccess {
+                        object: Box::new(subject.clone()),
+                        field: field.clone(),
+                    },
+                ));
+            }
+            res
+        }
+        _ => Vec::new(),
+    }
+}
+
+pub(crate) fn substitute_bindings(expr: &Expr, bindings: &[(String, Expr)]) -> Expr {
+    if bindings.is_empty() {
+        return expr.clone();
+    }
+    match expr {
+        Expr::Identifier(name) => {
+            for (var_name, repl) in bindings {
+                if name == var_name {
+                    return repl.clone();
+                }
+            }
+            Expr::Identifier(name.clone())
+        }
+        Expr::Binary { left, op, right } => Expr::Binary {
+            left: Box::new(substitute_bindings(left, bindings)),
+            op: *op,
+            right: Box::new(substitute_bindings(right, bindings)),
+        },
+        Expr::Unary { op, expr: inner } => Expr::Unary {
+            op: *op,
+            expr: Box::new(substitute_bindings(inner, bindings)),
+        },
+        Expr::Call { name, args } => Expr::Call {
+            name: name.clone(),
+            args: args
+                .iter()
+                .map(|a| substitute_bindings(a, bindings))
+                .collect(),
+        },
+        Expr::InterpolatedString(parts) => Expr::InterpolatedString(
+            parts
+                .iter()
+                .map(|p| substitute_bindings(p, bindings))
+                .collect(),
+        ),
+        Expr::Array(items) => Expr::Array(
+            items
+                .iter()
+                .map(|i| substitute_bindings(i, bindings))
+                .collect(),
+        ),
+        Expr::Index { array, index } => Expr::Index {
+            array: Box::new(substitute_bindings(array, bindings)),
+            index: Box::new(substitute_bindings(index, bindings)),
+        },
+        Expr::FieldAccess { object, field } => Expr::FieldAccess {
+            object: Box::new(substitute_bindings(object, bindings)),
+            field: field.clone(),
+        },
+        Expr::OptionalFieldAccess { object, field } => Expr::OptionalFieldAccess {
+            object: Box::new(substitute_bindings(object, bindings)),
+            field: field.clone(),
+        },
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => Expr::Ternary {
+            condition: Box::new(substitute_bindings(condition, bindings)),
+            then_branch: Box::new(substitute_bindings(then_branch, bindings)),
+            else_branch: Box::new(substitute_bindings(else_branch, bindings)),
+        },
+        Expr::StructInit { name, fields } => Expr::StructInit {
+            name: name.clone(),
+            fields: fields
+                .iter()
+                .map(|(f, v)| (f.clone(), substitute_bindings(v, bindings)))
+                .collect(),
+        },
+        other => other.clone(),
     }
 }
 
@@ -337,6 +489,86 @@ impl Parser {
                             self.advance(); // skip '..' or '..='
                             let pattern_end = self.parse_expression()?;
                             patterns.push(WhenPattern::Range(pattern_start, pattern_end));
+                        } else if let Expr::Array(elements) = pattern_start {
+                            let mut bindings = Vec::new();
+                            let mut literal_checks = Vec::new();
+                            let min_len = elements.len();
+                            for (i, elem) in elements.into_iter().enumerate() {
+                                match elem {
+                                    Expr::Identifier(id) => {
+                                        if id == "_" {
+                                            bindings.push(None);
+                                        } else {
+                                            bindings.push(Some(id));
+                                        }
+                                    }
+                                    lit => {
+                                        bindings.push(None);
+                                        literal_checks.push((i, lit));
+                                    }
+                                }
+                            }
+                            patterns.push(WhenPattern::TupleDestructure {
+                                bindings,
+                                literal_checks,
+                                min_len,
+                            });
+                        } else if let Expr::Call { name, args } = pattern_start {
+                            if name.chars().next().map_or(false, |c| c.is_uppercase())
+                                || name.contains('.')
+                            {
+                                let bare = name.rsplit("::").next().unwrap_or(&name);
+                                let bare = bare.rsplit('.').next().unwrap_or(bare);
+                                let known_fields = self
+                                    .struct_defs
+                                    .get(&name)
+                                    .or_else(|| self.struct_defs.get(bare))
+                                    .cloned();
+                                let mut bindings = Vec::new();
+                                for (i, arg) in args.into_iter().enumerate() {
+                                    if let Expr::Identifier(var_name) = arg {
+                                        if var_name != "_" {
+                                            let field_name = if let Some(ref f) = known_fields {
+                                                f.get(i).cloned().unwrap_or_else(|| {
+                                                    if i == 0 {
+                                                        "value".to_string()
+                                                    } else {
+                                                        format!("f{}", i)
+                                                    }
+                                                })
+                                            } else if bare == "Err" || bare == "Error" {
+                                                "message".to_string()
+                                            } else if bare == "Ok" || bare == "Some" {
+                                                "value".to_string()
+                                            } else if i == 0 {
+                                                "value".to_string()
+                                            } else {
+                                                format!("f{}", i)
+                                            };
+                                            bindings.push((field_name, var_name));
+                                        }
+                                    }
+                                }
+                                patterns.push(WhenPattern::VariantDestructure {
+                                    type_name: name,
+                                    bindings,
+                                });
+                            } else {
+                                patterns.push(WhenPattern::Exact(Expr::Call { name, args }));
+                            }
+                        } else if let Expr::StructInit { name, fields } = pattern_start {
+                            let mut bindings = Vec::new();
+                            for (f_name, f_val) in fields {
+                                let var_name = match f_val {
+                                    Expr::Identifier(v) if v != "_" => v,
+                                    _ => f_name.clone(),
+                                };
+                                bindings.push((f_name, var_name));
+                            }
+                            patterns.push(WhenPattern::VariantDestructure {
+                                type_name: name,
+                                bindings,
+                            });
                         } else if let Expr::Identifier(ref id) = pattern_start {
                             if id.chars().next().map_or(false, |c| c.is_uppercase())
                                 || matches!(
@@ -425,13 +657,29 @@ impl Parser {
 
         // Desugar when into nested If statements
         let mut current_else = else_block;
-        for (patterns, guard, stmts) in arms.into_iter().rev() {
+        for (patterns, guard, mut stmts) in arms.into_iter().rev() {
+            let mut all_bindings = Vec::new();
+            for pat in &patterns {
+                all_bindings.extend(get_pattern_bindings(&subject, pat));
+            }
+            // Prepend bindings for any Destructure or Variant patterns in the arm
+            for (var_name, val_expr) in all_bindings.iter().rev() {
+                stmts.insert(
+                    0,
+                    Stmt::Let {
+                        name: var_name.clone(),
+                        type_ann: None,
+                        value: val_expr.clone(),
+                    },
+                );
+            }
             let mut condition = build_when_condition(&subject, patterns);
             if let Some(g) = guard {
+                let substituted_guard = substitute_bindings(&g, &all_bindings);
                 condition = Expr::Binary {
                     left: Box::new(condition),
                     op: BinaryOp::And,
-                    right: Box::new(g),
+                    right: Box::new(substituted_guard),
                 };
             }
             let if_stmt = Stmt::If {

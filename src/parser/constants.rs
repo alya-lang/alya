@@ -329,27 +329,101 @@ fn resolve_expr(expr: &mut Expr, stack: &ScopeStack) {
     }
 }
 
-/// Constant folding for basic compile-time constant arithmetic.
-fn fold_expr(expr: &mut Expr) {
-    if let Expr::Binary { op, left, right } = expr {
-        if let (Expr::Number(l), Expr::Number(r)) = (&**left, &**right) {
-            let folded = match op {
-                BinaryOp::Add => Some(l + r),
-                BinaryOp::Subtract => Some(l - r),
-                BinaryOp::Multiply => Some(l * r),
-                BinaryOp::Divide if *r != 0.0 => Some(l / r),
-                BinaryOp::Modulo if *r != 0.0 => Some(l % r),
-                _ => None,
-            };
-            if let Some(val) = folded {
-                *expr = Expr::Number(val);
+/// Constant folding for compile-time constant arithmetic and comptime expressions.
+pub fn eval_comptime_expr(expr: &Expr) -> Expr {
+    match expr {
+        Expr::Binary { left, op, right } => {
+            let folded_left = eval_comptime_expr(left);
+            let folded_right = eval_comptime_expr(right);
+            match (&folded_left, *op, &folded_right) {
+                (Expr::Number(l), BinaryOp::Add, Expr::Number(r)) => Expr::Number(l + r),
+                (Expr::Number(l), BinaryOp::Subtract, Expr::Number(r)) => Expr::Number(l - r),
+                (Expr::Number(l), BinaryOp::Multiply, Expr::Number(r)) => Expr::Number(l * r),
+                (Expr::Number(l), BinaryOp::Divide, Expr::Number(r)) if *r != 0.0 => {
+                    Expr::Number(l / r)
+                }
+                (Expr::Number(l), BinaryOp::Modulo, Expr::Number(r)) if *r != 0.0 => {
+                    Expr::Number(l % r)
+                }
+                (Expr::Number(l), BinaryOp::BitAnd, Expr::Number(r)) => {
+                    Expr::Number((*l as i64 & *r as i64) as f64)
+                }
+                (Expr::Number(l), BinaryOp::BitOr, Expr::Number(r)) => {
+                    Expr::Number((*l as i64 | *r as i64) as f64)
+                }
+                (Expr::Number(l), BinaryOp::BitXor, Expr::Number(r)) => {
+                    Expr::Number((*l as i64 ^ *r as i64) as f64)
+                }
+                (Expr::Number(l), BinaryOp::Shl, Expr::Number(r)) => {
+                    Expr::Number(((*l as i64) << (*r as i64)) as f64)
+                }
+                (Expr::Number(l), BinaryOp::Shr, Expr::Number(r)) => {
+                    Expr::Number(((*l as i64) >> (*r as i64)) as f64)
+                }
+                (Expr::Number(l), BinaryOp::Equal, Expr::Number(r)) => {
+                    Expr::Number(if l == r { 1.0 } else { 0.0 })
+                }
+                (Expr::Number(l), BinaryOp::NotEqual, Expr::Number(r)) => {
+                    Expr::Number(if l != r { 1.0 } else { 0.0 })
+                }
+                (Expr::Number(l), BinaryOp::Less, Expr::Number(r)) => {
+                    Expr::Number(if l < r { 1.0 } else { 0.0 })
+                }
+                (Expr::Number(l), BinaryOp::LessEqual, Expr::Number(r)) => {
+                    Expr::Number(if l <= r { 1.0 } else { 0.0 })
+                }
+                (Expr::Number(l), BinaryOp::Greater, Expr::Number(r)) => {
+                    Expr::Number(if l > r { 1.0 } else { 0.0 })
+                }
+                (Expr::Number(l), BinaryOp::GreaterEqual, Expr::Number(r)) => {
+                    Expr::Number(if l >= r { 1.0 } else { 0.0 })
+                }
+                (Expr::Number(l), BinaryOp::And, Expr::Number(r)) => {
+                    Expr::Number(if *l != 0.0 && *r != 0.0 { 1.0 } else { 0.0 })
+                }
+                (Expr::Number(l), BinaryOp::Or, Expr::Number(r)) => {
+                    Expr::Number(if *l != 0.0 || *r != 0.0 { 1.0 } else { 0.0 })
+                }
+
+                (Expr::Float(l), BinaryOp::Add, Expr::Float(r)) => Expr::Float(l + r),
+                (Expr::Float(l), BinaryOp::Subtract, Expr::Float(r)) => Expr::Float(l - r),
+                (Expr::Float(l), BinaryOp::Multiply, Expr::Float(r)) => Expr::Float(l * r),
+                (Expr::Float(l), BinaryOp::Divide, Expr::Float(r)) if *r != 0.0 => {
+                    Expr::Float(l / r)
+                }
+
+                (Expr::String(l), BinaryOp::Add, Expr::String(r)) => {
+                    Expr::String(format!("{}{}", l, r))
+                }
+                _ => Expr::Binary {
+                    left: Box::new(folded_left),
+                    op: *op,
+                    right: Box::new(folded_right),
+                },
             }
         }
-    } else if let Expr::Unary { op, expr: inner } = expr {
-        if let Expr::Number(n) = &**inner {
-            if matches!(op, crate::ast::UnaryOp::Negate) {
-                *expr = Expr::Number(-n);
+        Expr::Unary { op, expr: inner } => {
+            let folded_inner = eval_comptime_expr(inner);
+            match (*op, &folded_inner) {
+                (crate::ast::UnaryOp::Negate, Expr::Number(n)) => Expr::Number(-n),
+                (crate::ast::UnaryOp::Negate, Expr::Float(n)) => Expr::Float(-n),
+                (crate::ast::UnaryOp::Not, Expr::Number(n)) => {
+                    Expr::Number(if *n == 0.0 { 1.0 } else { 0.0 })
+                }
+                (crate::ast::UnaryOp::BitNot, Expr::Number(n)) => {
+                    Expr::Number((!(*n as i64)) as f64)
+                }
+                _ => Expr::Unary {
+                    op: *op,
+                    expr: Box::new(folded_inner),
+                },
             }
         }
+        Expr::Array(items) => Expr::Array(items.iter().map(eval_comptime_expr).collect()),
+        other => other.clone(),
     }
+}
+
+pub fn fold_expr(expr: &mut Expr) {
+    *expr = eval_comptime_expr(expr);
 }

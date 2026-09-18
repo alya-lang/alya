@@ -13,6 +13,7 @@ pub struct StructInference {
     pub field_types: HashMap<(String, String), String>,
     /// Tracks (function_name, param_idx) that received multiple conflicting struct types (polymorphic)
     pub conflicted_params: HashSet<(String, usize)>,
+    pub conflicted_returns: HashSet<String>,
     pub struct_names: HashSet<String>,
     pub fn_names: HashSet<String>,
 }
@@ -190,7 +191,12 @@ impl StructInference {
 
                     if let Some(ref rt) = return_type {
                         let rt_bare = resolve_func_bare(rt, struct_names);
-                        if struct_names.contains(rt) {
+                        if rt == "any" || rt == "void" {
+                            self.conflicted_returns.insert(name.to_string());
+                            if bare != name {
+                                self.conflicted_returns.insert(bare.to_string());
+                            }
+                        } else if struct_names.contains(rt) {
                             self.fn_returns.insert(name.to_string(), rt.clone());
                             if bare != name {
                                 self.fn_returns.insert(bare.to_string(), rt.clone());
@@ -265,11 +271,24 @@ impl StructInference {
                 Stmt::Return(Some(expr)) => {
                     self.scan_expr(expr, current_fn, struct_names, fn_names);
                     if let Some(fn_name) = current_fn {
-                        if let Some(st) = self.expr_struct_type(expr, current_fn, struct_names) {
-                            self.fn_returns.insert(fn_name.to_string(), st.clone());
-                            let bare = resolve_func_bare(fn_name, struct_names);
-                            if bare != fn_name {
-                                self.fn_returns.insert(bare.to_string(), st);
+                        if !self.conflicted_returns.contains(fn_name) {
+                            if let Some(st) = self.expr_struct_type(expr, current_fn, struct_names) {
+                                let bare = resolve_func_bare(fn_name, struct_names);
+                                if let Some(existing) = self.fn_returns.get(fn_name) {
+                                    if existing != &st {
+                                        self.fn_returns.remove(fn_name);
+                                        self.fn_returns.remove(bare);
+                                        self.conflicted_returns.insert(fn_name.to_string());
+                                        if bare != fn_name {
+                                            self.conflicted_returns.insert(bare.to_string());
+                                        }
+                                    }
+                                } else {
+                                    self.fn_returns.insert(fn_name.to_string(), st.clone());
+                                    if bare != fn_name {
+                                        self.fn_returns.insert(bare.to_string(), st);
+                                    }
+                                }
                             }
                         }
                     }

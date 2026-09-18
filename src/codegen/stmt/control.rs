@@ -355,6 +355,65 @@ impl CodeGen {
         let initial_stack_offset = self.ctx.stack_offset;
         let initial_variables = self.ctx.variables.clone();
 
+        // Flow-sensitive type narrowing for Expr::TypeCheck in if condition (e.g. when is StructType)
+        let mut type_checks = Vec::new();
+        fn extract_type_checks(expr: &Expr, checks: &mut Vec<(String, String)>) {
+            match expr {
+                Expr::TypeCheck {
+                    expr,
+                    target,
+                    negated: false,
+                } => {
+                    if let Expr::Identifier(var_name) = expr.as_ref() {
+                        checks.push((var_name.clone(), target.clone()));
+                    }
+                }
+                Expr::Binary {
+                    left,
+                    op: BinaryOp::And,
+                    right,
+                } => {
+                    extract_type_checks(left, checks);
+                    extract_type_checks(right, checks);
+                }
+                _ => {}
+            }
+        }
+        extract_type_checks(condition, &mut type_checks);
+        for (var_name, target) in type_checks {
+            if let Some(var_type) = self.ctx.variables.get(&var_name) {
+                let offset = match var_type {
+                    VarType::Number(o)
+                    | VarType::Float(o)
+                    | VarType::StringOffset(o)
+                    | VarType::Array(o)
+                    | VarType::Map(o)
+                    | VarType::Null(o) => *o,
+                    VarType::Struct { offset, .. } | VarType::Interface { offset, .. } => *offset,
+                    VarType::StringLabel(_) => 0,
+                };
+                let matched_struct = self
+                    .ctx
+                    .structs
+                    .keys()
+                    .find(|k| {
+                        let bare = k.rsplit("::").next().unwrap_or(k);
+                        let bare = bare.rsplit("__").next().unwrap_or(bare);
+                        *k == &target || bare == target.as_str()
+                    })
+                    .cloned();
+                if let Some(sname) = matched_struct {
+                    self.ctx.variables.insert(
+                        var_name.clone(),
+                        VarType::Struct {
+                            struct_name: sname,
+                            offset,
+                        },
+                    );
+                }
+            }
+        }
+
         for s in then_block {
             self.generate_statement(s);
         }
@@ -907,7 +966,19 @@ impl CodeGen {
 
     pub(crate) fn generate_throw(&mut self, opt_expr: Option<&Expr>) {
         if let Some(expr) = opt_expr {
-            if is_string_expr(expr, &self.ctx.variables) {
+            let is_struct = self.get_expr_struct_name(expr).is_some()
+                || match expr {
+                    Expr::StructInit { .. } => true,
+                    Expr::Identifier(id) => {
+                        matches!(self.ctx.variables.get(id), Some(VarType::Struct { .. }))
+                            || self
+                                .ctx
+                                .variables
+                                .contains_key(&format!("is_catch_var:{}", id))
+                    }
+                    _ => false,
+                };
+            if is_string_expr(expr, &self.ctx.variables) || is_struct {
                 self.generate_expression(expr);
                 arch::emit_push_temp(&mut self.output, self.arch);
             } else {
@@ -993,6 +1064,9 @@ impl CodeGen {
                     self.ctx
                         .variables
                         .insert(name.clone(), VarType::StringOffset(self.ctx.stack_offset));
+                    self.ctx
+                        .variables
+                        .insert(format!("is_catch_var:{}", name), VarType::Number(0));
                 }
 
                 for s in catch_block {
@@ -1079,6 +1153,9 @@ impl CodeGen {
                 self.ctx
                     .variables
                     .insert(name.clone(), VarType::StringOffset(self.ctx.stack_offset));
+                self.ctx
+                    .variables
+                    .insert(format!("is_catch_var:{}", name), VarType::Number(0));
             }
 
             for s in catch_block {

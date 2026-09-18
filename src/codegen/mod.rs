@@ -427,7 +427,10 @@ impl CodeGen {
 
         for stmt in &program.statements {
             if let Stmt::Function {
-                name, param_types, ..
+                name,
+                param_types,
+                return_type,
+                ..
             } = stmt.inner_stmt()
             {
                 self.ctx.functions.insert(name.clone());
@@ -475,22 +478,24 @@ impl CodeGen {
                     }
                 }
 
-                if let Some(sname) = inference.infer_function_return_struct_type(name) {
-                    self.ctx.variables.insert(
-                        format!("fn_ret_struct:{}", name),
-                        VarType::Struct {
-                            struct_name: sname.clone(),
-                            offset: 0,
-                        },
-                    );
-                    if bare != name {
+                if return_type.as_deref() != Some("any") {
+                    if let Some(sname) = inference.infer_function_return_struct_type(name) {
                         self.ctx.variables.insert(
-                            format!("fn_ret_struct:{}", bare),
+                            format!("fn_ret_struct:{}", name),
                             VarType::Struct {
-                                struct_name: sname,
+                                struct_name: sname.clone(),
                                 offset: 0,
                             },
                         );
+                        if bare != name {
+                            self.ctx.variables.insert(
+                                format!("fn_ret_struct:{}", bare),
+                                VarType::Struct {
+                                    struct_name: sname,
+                                    offset: 0,
+                                },
+                            );
+                        }
                     }
                 }
             }
@@ -813,7 +818,10 @@ impl CodeGen {
             let is_str = inference.infer_param_is_string(name, i, program);
             let is_flt = inference.infer_param_is_float(name, i, program);
             let is_arr = inference.infer_param_is_array(name, i, program)
-                || param_types.get(i).and_then(|t| t.as_deref()) == Some("...");
+                || param_types
+                    .get(i)
+                    .and_then(|t| t.as_deref())
+                    .map_or(false, |t| t == "..." || t.starts_with("...") || t.ends_with("[]"));
             let is_str_arr = inference.infer_param_is_string_array(name, i, program);
             let is_flt_arr = inference.infer_param_is_float_array(name, i, program);
             let is_map = inference.infer_param_is_map(name, i, program);
