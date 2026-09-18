@@ -1896,6 +1896,31 @@ fn parse_interpolated_string(s: &str) -> Option<Vec<Expr>> {
                 }
             }
 
+            if parsed_expr.is_none() && found_close && !expr_str.trim().is_empty() {
+                if let Some(colon_idx) = expr_str.rfind(':') {
+                    if colon_idx > 0 && colon_idx < expr_str.len() - 1 {
+                        let prev_ch = expr_str.as_bytes()[colon_idx - 1];
+                        let next_ch = expr_str.as_bytes()[colon_idx + 1];
+                        if prev_ch != b':' && next_ch != b':' {
+                            let raw_expr = &expr_str[..colon_idx];
+                            let raw_spec = &expr_str[colon_idx + 1..];
+                            let mut sub_lexer = crate::lexer::Lexer::new(raw_expr);
+                            if let Ok(sub_tokens) = sub_lexer.tokenize() {
+                                let mut sub_parser = Parser::new(sub_tokens);
+                                if let Ok(expr) = sub_parser.parse_expression() {
+                                    if sub_parser.current_token().token_type == TokenType::Eof {
+                                        parsed_expr = Some(Expr::Call {
+                                            name: format!("__alya_format:{}", raw_spec.trim()),
+                                            args: vec![expr],
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if let Some(expr) = parsed_expr {
                 has_interpolation = true;
                 if !current_lit.is_empty() {

@@ -748,4 +748,78 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov %ebp, %esp\n");
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
+
+    // fn_char_count
+    out.push_str(".global fn_char_count\n");
+    out.push_str("fn_char_count:\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    xor %eax, %eax\n");
+    out.push_str("    mov 8(%ebp), %esi\n");
+    out.push_str("    test %esi, %esi\n");
+    out.push_str("    jz .L_x86_char_count_done\n");
+    out.push_str(".L_x86_char_count_loop:\n");
+    out.push_str("    movzbl (%esi), %edx\n");
+    out.push_str("    test %edx, %edx\n");
+    out.push_str("    jz .L_x86_char_count_done\n");
+    out.push_str("    inc %esi\n");
+    out.push_str("    and $0xC0, %edx\n");
+    out.push_str("    cmp $0x80, %edx\n");
+    out.push_str("    je .L_x86_char_count_loop\n");
+    out.push_str("    inc %eax\n");
+    out.push_str("    jmp .L_x86_char_count_loop\n");
+    out.push_str(".L_x86_char_count_done:\n");
+    out.push_str("    pop %ebp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_bytes
+    out.push_str(".global fn_bytes\n");
+    out.push_str("fn_bytes:\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    mov 8(%ebp), %esi\n");
+    out.push_str("    xor %ebx, %ebx\n");
+    out.push_str("    test %esi, %esi\n");
+    out.push_str("    jz .L_x86_bytes_alloc\n");
+    out.push_str(".L_x86_bytes_len_loop:\n");
+    out.push_str("    cmpb $0, (%esi, %ebx)\n");
+    out.push_str("    je .L_x86_bytes_alloc\n");
+    out.push_str("    inc %ebx\n");
+    out.push_str("    jmp .L_x86_bytes_len_loop\n");
+    out.push_str(".L_x86_bytes_alloc:\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    call alya_array_new\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    mov %eax, %edi\n");
+    out.push_str("    mov 8(%eax), %edx\n"); // elements buffer
+    out.push_str("    xor %ecx, %ecx\n");
+    out.push_str(".L_x86_bytes_copy_loop:\n");
+    out.push_str("    cmp %ebx, %ecx\n");
+    out.push_str("    jge .L_x86_bytes_done\n");
+    out.push_str("    movzbl (%esi, %ecx), %eax\n");
+    out.push_str("    mov %eax, (%edx, %ecx, 4)\n");
+    out.push_str("    inc %ecx\n");
+    out.push_str("    jmp .L_x86_bytes_copy_loop\n");
+    out.push_str(".L_x86_bytes_done:\n");
+    out.push_str("    mov %edi, %eax\n");
+    out.push_str("    pop %edi\n");
+    out.push_str("    pop %esi\n");
+    out.push_str("    pop %ebx\n");
+    out.push_str("    pop %ebp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_format_binary stub
+    out.push_str(".global fn_format_binary\n");
+    out.push_str("fn_format_binary:\n");
+    out.push_str("    mov 4(%esp), %eax\n");
+    out.push_str("    ret\n\n");
+
+    // fn_runes stub
+    out.push_str(".global fn_runes\n");
+    out.push_str("fn_runes:\n");
+    out.push_str("    mov 4(%esp), %eax\n");
+    out.push_str("    ret\n\n");
 }

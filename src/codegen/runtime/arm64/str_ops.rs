@@ -737,4 +737,70 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_arm_s2f_zero:\n");
     out.push_str("    mov x0, #0\n");
     out.push_str("    ret\n\n");
+
+    // fn_char_count
+    out.push_str(".global fn_char_count\n");
+    out.push_str(".align 2\n");
+    out.push_str("fn_char_count:\n");
+    out.push_str("    mov x1, x0\n");
+    out.push_str("    mov x0, #0\n");
+    out.push_str("    cbz x1, .L_arm64_char_count_done\n");
+    out.push_str(".L_arm64_char_count_loop:\n");
+    out.push_str("    ldrb w2, [x1], #1\n");
+    out.push_str("    cbz w2, .L_arm64_char_count_done\n");
+    out.push_str("    and w3, w2, #0xC0\n");
+    out.push_str("    cmp w3, #0x80\n");
+    out.push_str("    b.eq .L_arm64_char_count_loop\n");
+    out.push_str("    add x0, x0, #1\n");
+    out.push_str("    b .L_arm64_char_count_loop\n");
+    out.push_str(".L_arm64_char_count_done:\n");
+    out.push_str("    ret\n\n");
+
+    // fn_bytes
+    out.push_str(".global fn_bytes\n");
+    out.push_str(".align 2\n");
+    out.push_str("fn_bytes:\n");
+    out.push_str("    stp x29, x30, [sp, #-48]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    stp x19, x20, [sp, #16]\n");
+    out.push_str("    stp x21, x22, [sp, #32]\n");
+    out.push_str("    mov x19, x0\n"); // str
+    out.push_str("    mov x20, #0\n"); // len
+    out.push_str("    cbz x19, .L_arm64_bytes_alloc\n");
+    out.push_str(".L_arm64_bytes_len_loop:\n");
+    out.push_str("    ldrb w1, [x19, x20]\n");
+    out.push_str("    cbz w1, .L_arm64_bytes_alloc\n");
+    out.push_str("    add x20, x20, #1\n");
+    out.push_str("    b .L_arm64_bytes_len_loop\n");
+    out.push_str(".L_arm64_bytes_alloc:\n");
+    out.push_str("    mov x0, x20\n");
+    out.push_str("    bl alya_array_new\n");
+    out.push_str("    mov x21, x0\n"); // arr
+    out.push_str("    ldr x22, [x21, #16]\n"); // elements buffer
+    out.push_str("    mov x1, #0\n");
+    out.push_str(".L_arm64_bytes_copy_loop:\n");
+    out.push_str("    cmp x1, x20\n");
+    out.push_str("    b.ge .L_arm64_bytes_done\n");
+    out.push_str("    ldrb w2, [x19, x1]\n");
+    out.push_str("    str x2, [x22, x1, lsl #3]\n");
+    out.push_str("    add x1, x1, #1\n");
+    out.push_str("    b .L_arm64_bytes_copy_loop\n");
+    out.push_str(".L_arm64_bytes_done:\n");
+    out.push_str("    mov x0, x21\n");
+    out.push_str("    ldp x19, x20, [sp, #16]\n");
+    out.push_str("    ldp x21, x22, [sp, #32]\n");
+    out.push_str("    ldp x29, x30, [sp], #48\n");
+    out.push_str("    ret\n\n");
+
+    // fn_format_binary stub
+    out.push_str(".global fn_format_binary\n");
+    out.push_str(".align 2\n");
+    out.push_str("fn_format_binary:\n");
+    out.push_str("    ret\n\n");
+
+    // fn_runes stub
+    out.push_str(".global fn_runes\n");
+    out.push_str(".align 2\n");
+    out.push_str("fn_runes:\n");
+    out.push_str("    ret\n\n");
 }

@@ -526,7 +526,22 @@ impl CodeGen {
         body: &[Stmt],
     ) {
         let var = var.to_string();
-        self.generate_expression(iterable);
+        let is_str_iter = is_string_expr(iterable, &self.ctx.variables);
+        if is_str_iter {
+            let initial_stack_offset = self.ctx.stack_offset;
+            self.generate_expression(iterable);
+            arch::emit_push_temp(&mut self.output, self.arch);
+            arch::emit_function_call(
+                &mut self.output,
+                self.arch,
+                "runes",
+                1,
+                initial_stack_offset,
+                self.os,
+            );
+        } else {
+            self.generate_expression(iterable);
+        }
         arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
         let arr_offset = self.ctx.stack_offset;
 
@@ -534,8 +549,8 @@ impl CodeGen {
         arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
         let idx_offset = self.ctx.stack_offset;
 
-        let is_str = is_string_array(iterable, &self.ctx.variables);
-        let is_flt = is_float_array(iterable, &self.ctx.variables);
+        let is_str = is_str_iter || is_string_array(iterable, &self.ctx.variables);
+        let is_flt = !is_str_iter && is_float_array(iterable, &self.ctx.variables);
 
         let inferred_struct_type = match iterable {
             Expr::Identifier(arr_name) => {

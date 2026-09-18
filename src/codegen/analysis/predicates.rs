@@ -110,8 +110,9 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "console_prompt"
                     | "http_status_text"
                     | "basic_auth"
+                    | "format_binary"
                     | "to_string"
-            ) {
+            ) || bare.starts_with("__alya_format:") {
                 return true;
             }
             if matches!(
@@ -252,7 +253,12 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             vars,
         ),
         Expr::Cast { expr: inner, target } => {
-            target == "string" || target == "str" || is_string_expr(inner, vars)
+            let t = target.to_lowercase();
+            if t == "int" || t == "i64" || t == "float" || t == "f64" || t == "bool" || t == "rune" {
+                false
+            } else {
+                t == "string" || t == "str" || is_string_expr(inner, vars)
+            }
         }
         _ => false,
     }

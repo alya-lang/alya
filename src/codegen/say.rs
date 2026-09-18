@@ -52,6 +52,44 @@ impl CodeGen {
                         Expr::String(s) => {
                             format_str.push_str(&escape_string(s).replace('%', "%%"));
                         }
+                        Expr::Call { name, args } if name.starts_with("__alya_format:") => {
+                            let spec = &name["__alya_format:".len()..];
+                            let arg = &args[0];
+                            if spec.ends_with('f') && spec.starts_with('.') {
+                                format_str.push_str(&format!("%{}", spec));
+                                exprs.push(arg.clone());
+                                is_floats.push(true);
+                            } else if spec.starts_with('0') && spec.chars().skip(1).all(|c| c.is_ascii_digit()) {
+                                format_str.push_str(&format!("%{}lld", spec));
+                                exprs.push(arg.clone());
+                                is_floats.push(false);
+                            } else if spec == "#x" || spec == "x" {
+                                format_str.push_str("%#llx");
+                                exprs.push(arg.clone());
+                                is_floats.push(false);
+                            } else if spec == "#b" || spec == "b" {
+                                format_str.push_str("%s");
+                                exprs.push(Expr::Call {
+                                    name: "format_binary".into(),
+                                    args: vec![arg.clone()],
+                                });
+                                is_floats.push(false);
+                            } else if spec.starts_with('>') {
+                                let width = &spec[1..];
+                                format_str.push_str(&format!("%{}s", width));
+                                exprs.push(arg.clone());
+                                is_floats.push(false);
+                            } else if spec.starts_with('<') {
+                                let width = &spec[1..];
+                                format_str.push_str(&format!("%-{}s", width));
+                                exprs.push(arg.clone());
+                                is_floats.push(false);
+                            } else {
+                                format_str.push_str("%lld");
+                                exprs.push(arg.clone());
+                                is_floats.push(false);
+                            }
+                        }
                         _ => {
                             if is_null_expr(part, &self.ctx.variables) {
                                 format_str.push_str("null");

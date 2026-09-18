@@ -1736,6 +1736,63 @@ impl CodeGen {
                         self.os,
                     );
                 } else if is_string_expr(array, &self.ctx.variables) {
+                    if let Expr::Binary { left, op, right } = &**index {
+                        if matches!(op, BinaryOp::Range | BinaryOp::RangeInclusive) {
+                            let len_expr = match op {
+                                BinaryOp::Range => Expr::Binary {
+                                    left: right.clone(),
+                                    op: BinaryOp::Subtract,
+                                    right: left.clone(),
+                                },
+                                BinaryOp::RangeInclusive => Expr::Binary {
+                                    left: Box::new(Expr::Binary {
+                                        left: right.clone(),
+                                        op: BinaryOp::Subtract,
+                                        right: left.clone(),
+                                    }),
+                                    op: BinaryOp::Add,
+                                    right: Box::new(Expr::Number(1.0)),
+                                },
+                                _ => unreachable!(),
+                            };
+                            let actual_args = [array.as_ref(), left.as_ref(), &len_expr];
+                            let initial_stack_offset = self.ctx.stack_offset;
+                            let word_size: i32 = match self.arch {
+                                Architecture::ARM64 => 16,
+                                Architecture::X86 => 4,
+                                _ => 8,
+                            };
+                            match self.arch {
+                                Architecture::X86 => {
+                                    for (idx, arg) in actual_args.iter().rev().enumerate() {
+                                        self.ctx.stack_offset =
+                                            initial_stack_offset + (idx as i32 * word_size);
+                                        self.generate_expression(arg);
+                                        arch::emit_push_temp(&mut self.output, self.arch);
+                                    }
+                                }
+                                _ => {
+                                    for (idx, arg) in actual_args.iter().enumerate() {
+                                        self.ctx.stack_offset =
+                                            initial_stack_offset + (idx as i32 * word_size);
+                                        self.generate_expression(arg);
+                                        arch::emit_push_temp(&mut self.output, self.arch);
+                                    }
+                                }
+                            }
+                            self.ctx.stack_offset = initial_stack_offset;
+                            arch::emit_function_call(
+                                &mut self.output,
+                                self.arch,
+                                "substring",
+                                3,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                            return;
+                        }
+                    }
+
                     let actual_args = [array.as_ref(), index.as_ref()];
                     let initial_stack_offset = self.ctx.stack_offset;
                     let word_size: i32 = match self.arch {
@@ -1967,8 +2024,69 @@ impl CodeGen {
             } => {
                 self.generate_type_check(expr, target, *negated);
             }
-            Expr::Cast { expr, .. } => {
+            Expr::Cast { expr, target } => {
                 self.generate_expression(expr);
+                let t = target.to_lowercase();
+                if (t == "int" || t == "i64" || t == "rune") && is_string_expr(expr, &self.ctx.variables) {
+                    match self.arch {
+                        Architecture::X64 => {
+                            let end_lbl = self.ctx.next_label();
+                            let multi_lbl = self.ctx.next_label();
+                            let chk3_lbl = self.ctx.next_label();
+                            let chk4_lbl = self.ctx.next_label();
+                            self.output.push_str("    movzbq (%rax), %rcx\n");
+                            self.output.push_str("    cmp $0x80, %rcx\n");
+                            self.output.push_str(&format!("    jae {}\n", multi_lbl));
+                            self.output.push_str("    mov %rcx, %rax\n");
+                            self.output.push_str(&format!("    jmp {}\n", end_lbl));
+                            self.output.push_str(&format!("{}:\n", multi_lbl));
+                            self.output.push_str("    mov %rcx, %rdx\n");
+                            self.output.push_str("    and $0xE0, %rdx\n");
+                            self.output.push_str("    cmp $0xC0, %rdx\n");
+                            self.output.push_str(&format!("    jne {}\n", chk3_lbl));
+                            self.output.push_str("    and $0x1F, %rcx\n");
+                            self.output.push_str("    shl $6, %rcx\n");
+                            self.output.push_str("    movzbq 1(%rax), %rdx\n");
+                            self.output.push_str("    and $0x3F, %rdx\n");
+                            self.output.push_str("    or %rdx, %rcx\n");
+                            self.output.push_str("    mov %rcx, %rax\n");
+                            self.output.push_str(&format!("    jmp {}\n", end_lbl));
+                            self.output.push_str(&format!("{}:\n", chk3_lbl));
+                            self.output.push_str("    mov %rcx, %rdx\n");
+                            self.output.push_str("    and $0xF0, %rdx\n");
+                            self.output.push_str("    cmp $0xE0, %rdx\n");
+                            self.output.push_str(&format!("    jne {}\n", chk4_lbl));
+                            self.output.push_str("    and $0x0F, %rcx\n");
+                            self.output.push_str("    shl $12, %rcx\n");
+                            self.output.push_str("    movzbq 1(%rax), %rdx\n");
+                            self.output.push_str("    and $0x3F, %rdx\n");
+                            self.output.push_str("    shl $6, %rdx\n");
+                            self.output.push_str("    or %rdx, %rcx\n");
+                            self.output.push_str("    movzbq 2(%rax), %rdx\n");
+                            self.output.push_str("    and $0x3F, %rdx\n");
+                            self.output.push_str("    or %rdx, %rcx\n");
+                            self.output.push_str("    mov %rcx, %rax\n");
+                            self.output.push_str(&format!("    jmp {}\n", end_lbl));
+                            self.output.push_str(&format!("{}:\n", chk4_lbl));
+                            self.output.push_str("    and $0x07, %rcx\n");
+                            self.output.push_str("    shl $18, %rcx\n");
+                            self.output.push_str("    movzbq 1(%rax), %rdx\n");
+                            self.output.push_str("    and $0x3F, %rdx\n");
+                            self.output.push_str("    shl $12, %rdx\n");
+                            self.output.push_str("    or %rdx, %rcx\n");
+                            self.output.push_str("    movzbq 2(%rax), %rdx\n");
+                            self.output.push_str("    and $0x3F, %rdx\n");
+                            self.output.push_str("    shl $6, %rdx\n");
+                            self.output.push_str("    or %rdx, %rcx\n");
+                            self.output.push_str("    movzbq 3(%rax), %rdx\n");
+                            self.output.push_str("    and $0x3F, %rdx\n");
+                            self.output.push_str("    or %rdx, %rcx\n");
+                            self.output.push_str("    mov %rcx, %rax\n");
+                            self.output.push_str(&format!("{}:\n", end_lbl));
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
     }

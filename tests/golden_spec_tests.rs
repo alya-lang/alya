@@ -310,3 +310,32 @@ fn test_golden_spec_if_execution() {
     }
 }
 
+#[test]
+fn test_golden_spec_strings_unicode_execution() {
+    let file = get_spec_syntax_dir().join("strings_unicode.alya");
+    let source = fs::read_to_string(&file).expect("Failed to read strings_unicode.alya");
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from strings_unicode.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("Greeting: Merhaba, Dünya! 🚀"));
+        assert!(output.contains("Byte length: 21"));
+        assert!(output.contains("Rune count: 17"));
+        assert!(output.contains("Rocket codepoint (numeric): 128640"));
+        assert!(output.contains("Iterating by codepoints (runes):"));
+        assert!(output.contains("Rune: 'A' (Codepoint: 65)"));
+        assert!(output.contains("Rune: 'Ç' (Codepoint: 199)"));
+        assert!(output.contains("Rune: 'ç' (Codepoint: 231)"));
+        assert!(output.contains("Iterating by raw UTF-8 bytes:"));
+        assert!(output.contains("Byte: 65"));
+        assert!(output.contains("Byte: 195"));
+        assert!(output.contains("Byte: 135"));
+        assert!(output.contains("Extracted substring: 'Merhaba'"));
+        assert!(output.contains("Precision 2 decimals: 3.14"));
+        assert!(output.contains("Padded ID: 00042"));
+        assert!(output.contains("Hexadecimal: 0xff"));
+        assert!(output.contains("Binary: 0b101010"));
+        assert!(output.contains("Right aligned: [      Alya]"));
+        assert!(output.contains("Left aligned:  [Alya      ]"));
+    }
+}
+

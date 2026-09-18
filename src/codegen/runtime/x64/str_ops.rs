@@ -937,4 +937,245 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov %rbp, %rsp\n");
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
+
+    // fn_char_count
+    out.push_str(".global fn_char_count\n");
+    out.push_str("fn_char_count:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    xor %rax, %rax\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %rcx, %rsi\n");
+    } else {
+        out.push_str("    mov %rdi, %rsi\n");
+    }
+    out.push_str("    test %rsi, %rsi\n");
+    out.push_str("    jz .L_x64_char_count_done\n");
+    out.push_str(".L_x64_char_count_loop:\n");
+    out.push_str("    movzbq (%rsi), %rdx\n");
+    out.push_str("    test %rdx, %rdx\n");
+    out.push_str("    jz .L_x64_char_count_done\n");
+    out.push_str("    inc %rsi\n");
+    out.push_str("    and $0xC0, %rdx\n");
+    out.push_str("    cmp $0x80, %rdx\n");
+    out.push_str("    je .L_x64_char_count_loop\n");
+    out.push_str("    inc %rax\n");
+    out.push_str("    jmp .L_x64_char_count_loop\n");
+    out.push_str(".L_x64_char_count_done:\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_bytes
+    out.push_str(".global fn_bytes\n");
+    out.push_str("fn_bytes:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %rbx\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    out.push_str("    push %r14\n");
+    out.push_str("    push %r15\n");
+    out.push_str("    sub $40, %rsp\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %rcx, %r12\n");
+    } else {
+        out.push_str("    mov %rdi, %r12\n");
+    }
+    out.push_str("    xor %r13, %r13\n");
+    out.push_str("    test %r12, %r12\n");
+    out.push_str("    jz .L_x64_bytes_alloc\n");
+    out.push_str(".L_x64_bytes_len_loop:\n");
+    out.push_str("    cmpb $0, (%r12, %r13)\n");
+    out.push_str("    je .L_x64_bytes_alloc\n");
+    out.push_str("    inc %r13\n");
+    out.push_str("    jmp .L_x64_bytes_len_loop\n");
+    out.push_str(".L_x64_bytes_alloc:\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r13, %rcx\n");
+        out.push_str("    call alya_array_new\n");
+    } else {
+        out.push_str("    mov %r13, %rdi\n");
+        out.push_str("    call alya_array_new\n");
+    }
+    out.push_str("    mov %rax, %r14\n");
+    out.push_str("    mov 16(%rax), %r15\n");
+    out.push_str("    xor %rbx, %rbx\n");
+    out.push_str(".L_x64_bytes_copy_loop:\n");
+    out.push_str("    cmp %r13, %rbx\n");
+    out.push_str("    jge .L_x64_bytes_done\n");
+    out.push_str("    movzbq (%r12, %rbx), %rax\n");
+    out.push_str("    movq %rax, (%r15, %rbx, 8)\n");
+    out.push_str("    inc %rbx\n");
+    out.push_str("    jmp .L_x64_bytes_copy_loop\n");
+    out.push_str(".L_x64_bytes_done:\n");
+    out.push_str("    mov %r14, %rax\n");
+    out.push_str("    add $40, %rsp\n");
+    out.push_str("    pop %r15\n");
+    out.push_str("    pop %r14\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    pop %rbx\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_format_binary
+    out.push_str(".global fn_format_binary\n");
+    out.push_str("fn_format_binary:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %rbx\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    out.push_str("    push %r14\n");
+    out.push_str("    push %r15\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %rcx, %r12\n");
+    } else {
+        out.push_str("    mov %rdi, %r12\n");
+    }
+    super::emit_str_buf_ctx(out, os);
+    out.push_str("    movq (%r9), %rbx\n");
+    out.push_str("    cmpq $950000, %rbx\n");
+    out.push_str("    jb .L_x64_bin_buf_ok\n");
+    out.push_str("    xorq %rbx, %rbx\n");
+    out.push_str(".L_x64_bin_buf_ok:\n");
+    out.push_str("    lea (%r8, %rbx), %r13\n");
+    out.push_str("    movb $'0', (%r13)\n");
+    out.push_str("    movb $'b', 1(%r13)\n");
+    out.push_str("    mov $2, %r14\n");
+    out.push_str("    test %r12, %r12\n");
+    out.push_str("    jnz .L_x64_bin_nonzero\n");
+    out.push_str("    movb $'0', 2(%r13)\n");
+    out.push_str("    movb $0, 3(%r13)\n");
+    out.push_str("    add $4, %rbx\n");
+    out.push_str("    add $7, %rbx\n");
+    out.push_str("    and $-8, %rbx\n");
+    out.push_str("    movq %rbx, (%r9)\n");
+    out.push_str("    mov %r13, %rax\n");
+    out.push_str("    jmp .L_x64_bin_done\n");
+    out.push_str(".L_x64_bin_nonzero:\n");
+    out.push_str("    bsrq %r12, %rcx\n");
+    out.push_str(".L_x64_bin_loop:\n");
+    out.push_str("    btq %rcx, %r12\n");
+    out.push_str("    jc .L_x64_bin_bit1\n");
+    out.push_str("    movb $'0', (%r13, %r14)\n");
+    out.push_str("    jmp .L_x64_bin_bit_next\n");
+    out.push_str(".L_x64_bin_bit1:\n");
+    out.push_str("    movb $'1', (%r13, %r14)\n");
+    out.push_str(".L_x64_bin_bit_next:\n");
+    out.push_str("    inc %r14\n");
+    out.push_str("    dec %rcx\n");
+    out.push_str("    cmp $0, %rcx\n");
+    out.push_str("    jge .L_x64_bin_loop\n");
+    out.push_str("    movb $0, (%r13, %r14)\n");
+    out.push_str("    inc %r14\n");
+    out.push_str("    add %r14, %rbx\n");
+    out.push_str("    add $7, %rbx\n");
+    out.push_str("    and $-8, %rbx\n");
+    out.push_str("    movq %rbx, (%r9)\n");
+    out.push_str("    mov %r13, %rax\n");
+    out.push_str(".L_x64_bin_done:\n");
+    out.push_str("    pop %r15\n");
+    out.push_str("    pop %r14\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    pop %rbx\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_runes
+    out.push_str(".global fn_runes\n");
+    out.push_str("fn_runes:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %rbx\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    out.push_str("    push %r14\n");
+    out.push_str("    push %r15\n");
+    out.push_str("    sub $40, %rsp\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %rcx, %r12\n");
+        out.push_str("    call fn_char_count\n");
+    } else {
+        out.push_str("    mov %rdi, %r12\n");
+        out.push_str("    call fn_char_count\n");
+    }
+    out.push_str("    mov %rax, %r13\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r13, %rcx\n");
+        out.push_str("    call alya_array_new\n");
+    } else {
+        out.push_str("    mov %r13, %rdi\n");
+        out.push_str("    call alya_array_new\n");
+    }
+    out.push_str("    mov %rax, %r14\n");
+    out.push_str("    mov 16(%rax), %r15\n");
+    out.push_str("    xor %rbx, %rbx\n");
+    out.push_str(".L_x64_runes_loop:\n");
+    out.push_str("    cmp %r13, %rbx\n");
+    out.push_str("    jge .L_x64_runes_done\n");
+    out.push_str("    movzbq (%r12), %rax\n");
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jz .L_x64_runes_done\n");
+    out.push_str("    mov $1, %rcx\n");
+    out.push_str("    cmp $0x80, %rax\n");
+    out.push_str("    jb .L_x64_runes_len_ok\n");
+    out.push_str("    mov %rax, %rdx\n");
+    out.push_str("    and $0xE0, %rdx\n");
+    out.push_str("    cmp $0xC0, %rdx\n");
+    out.push_str("    jne .L_x64_runes_chk3\n");
+    out.push_str("    mov $2, %rcx\n");
+    out.push_str("    jmp .L_x64_runes_len_ok\n");
+    out.push_str(".L_x64_runes_chk3:\n");
+    out.push_str("    mov %rax, %rdx\n");
+    out.push_str("    and $0xF0, %rdx\n");
+    out.push_str("    cmp $0xE0, %rdx\n");
+    out.push_str("    jne .L_x64_runes_chk4\n");
+    out.push_str("    mov $3, %rcx\n");
+    out.push_str("    jmp .L_x64_runes_len_ok\n");
+    out.push_str(".L_x64_runes_chk4:\n");
+    out.push_str("    mov %rax, %rdx\n");
+    out.push_str("    and $0xF8, %rdx\n");
+    out.push_str("    cmp $0xF0, %rdx\n");
+    out.push_str("    jne .L_x64_runes_len_ok\n");
+    out.push_str("    mov $4, %rcx\n");
+    out.push_str(".L_x64_runes_len_ok:\n");
+    super::emit_str_buf_ctx(out, os);
+    out.push_str("    movq (%r9), %rdx\n");
+    out.push_str("    cmpq $950000, %rdx\n");
+    out.push_str("    jb .L_x64_runes_buf_ok\n");
+    out.push_str("    xorq %rdx, %rdx\n");
+    out.push_str(".L_x64_runes_buf_ok:\n");
+    out.push_str("    lea (%r8, %rdx), %r10\n");
+    out.push_str("    xor %rax, %rax\n");
+    out.push_str(".L_x64_runes_copy_byte:\n");
+    out.push_str("    cmp %rcx, %rax\n");
+    out.push_str("    jge .L_x64_runes_copy_done\n");
+    out.push_str("    movb (%r12, %rax), %sil\n");
+    out.push_str("    movb %sil, (%r10, %rax)\n");
+    out.push_str("    inc %rax\n");
+    out.push_str("    jmp .L_x64_runes_copy_byte\n");
+    out.push_str(".L_x64_runes_copy_done:\n");
+    out.push_str("    movb $0, (%r10, %rcx)\n");
+    out.push_str("    inc %rcx\n");
+    out.push_str("    add %rcx, %rdx\n");
+    out.push_str("    add $7, %rdx\n");
+    out.push_str("    and $-8, %rdx\n");
+    out.push_str("    movq %rdx, (%r9)\n");
+    out.push_str("    movq %r10, (%r15, %rbx, 8)\n");
+    out.push_str("    dec %rcx\n");
+    out.push_str("    add %rcx, %r12\n");
+    out.push_str("    inc %rbx\n");
+    out.push_str("    jmp .L_x64_runes_loop\n");
+    out.push_str(".L_x64_runes_done:\n");
+    out.push_str("    mov %r14, %rax\n");
+    out.push_str("    add $40, %rsp\n");
+    out.push_str("    pop %r15\n");
+    out.push_str("    pop %r14\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    pop %rbx\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
 }

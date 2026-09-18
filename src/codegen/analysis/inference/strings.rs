@@ -110,7 +110,9 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
                     | "console_prompt"
                     | "http_status_text"
                     | "basic_auth"
-            ) {
+                    | "format_binary"
+                    | "to_string"
+            ) || bare.starts_with("__alya_format:") {
                 return true;
             }
             if matches!(
