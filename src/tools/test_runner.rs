@@ -14,6 +14,48 @@ use std::time::Instant;
 
 static TEST_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
+fn is_ignored_test_dir(name: &str) -> bool {
+    name.starts_with('.')
+        || matches!(
+            name,
+            "target"
+                | "build"
+                | "fixtures"
+                | "fixture"
+                | "testdata"
+                | "common"
+                | "helpers"
+                | "mock"
+                | "mocks"
+                | "node_modules"
+                | "vendor"
+        )
+}
+
+fn is_test_file(name: &str) -> bool {
+    if !name.ends_with(".alya") {
+        return false;
+    }
+    name.starts_with("test_") || name.ends_with("_test.alya") || name.ends_with(".test.alya")
+}
+
+fn collect_test_files_recursive(dir: &Path, tests: &mut Vec<PathBuf>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            let file_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            if is_ignored_test_dir(file_name) {
+                continue;
+            }
+            if p.is_dir() {
+                collect_test_files_recursive(&p, tests);
+            } else if is_test_file(file_name) {
+                tests.push(p);
+            }
+        }
+    }
+}
+
 /// Discovers test files in the specified path.
 pub fn discover_test_files(path: &Path) -> Vec<PathBuf> {
     let mut tests = Vec::new();
@@ -33,20 +75,7 @@ pub fn discover_test_files(path: &Path) -> Vec<PathBuf> {
         path
     };
 
-    if let Ok(entries) = fs::read_dir(target_dir) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            let file_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            if file_name.starts_with('.') || file_name == "target" || file_name == "build" {
-                continue;
-            }
-            if p.is_dir() {
-                tests.extend(discover_test_files(&p));
-            } else if p.extension().and_then(|e| e.to_str()) == Some("alya") {
-                tests.push(p);
-            }
-        }
-    }
+    collect_test_files_recursive(target_dir, &mut tests);
 
     tests.sort();
     tests
@@ -325,5 +354,31 @@ pub fn run_tests(
         );
         println!("----------------------------------------\n");
         Err(format!("Test suite completed with {} failure(s).", failed))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_ignored_test_dir() {
+        assert!(is_ignored_test_dir(".git"));
+        assert!(is_ignored_test_dir("fixtures"));
+        assert!(is_ignored_test_dir("testdata"));
+        assert!(is_ignored_test_dir("common"));
+        assert!(is_ignored_test_dir("target"));
+        assert!(!is_ignored_test_dir("subfolder"));
+        assert!(!is_ignored_test_dir("integration"));
+    }
+
+    #[test]
+    fn test_is_test_file() {
+        assert!(is_test_file("test_suite.alya"));
+        assert!(is_test_file("app_test.alya"));
+        assert!(is_test_file("feature.test.alya"));
+        assert!(!is_test_file("module1.alya"));
+        assert!(!is_test_file("helper.alya"));
+        assert!(!is_test_file("test_suite.rs"));
     }
 }
