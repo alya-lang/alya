@@ -474,66 +474,81 @@ aside {
   background: rgba(10, 15, 28, 0.85);
   backdrop-filter: blur(12px);
   border-right: 1px solid var(--border);
-  padding: 24px 18px;
   position: sticky;
   top: 64px;
   height: calc(100vh - 64px);
-  overflow-y: auto;
   flex-shrink: 0;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(56, 189, 248, 0.25) transparent;
+  display: flex;
+  flex-direction: column;
 }
 
-aside::-webkit-scrollbar {
-  width: 6px;
-}
-
-aside::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-aside::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 9999px;
-}
-
-aside::-webkit-scrollbar-thumb:hover {
-  background: rgba(56, 189, 248, 0.4);
+.aside-header {
+  padding: 20px 18px 14px;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .back-link {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  width: 100%;
+  gap: 8px;
   color: var(--text-muted);
   text-decoration: none;
   font-size: 0.85rem;
   font-weight: 600;
-  margin-bottom: 20px;
-  padding: 6px 10px;
-  border-radius: 6px;
+  margin-bottom: 14px;
+  padding: 8px 12px;
+  border-radius: 8px;
   transition: all 0.15s ease;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border);
+  box-sizing: border-box;
 }
 
 .back-link:hover {
   color: var(--accent);
-  border-color: rgba(56, 189, 248, 0.3);
+  border-color: rgba(56, 189, 248, 0.35);
   background: rgba(56, 189, 248, 0.08);
 }
 
-aside h2 {
+.aside-header h2 {
   font-size: 1.15rem;
   color: #fff;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
   font-weight: 700;
 }
 
-aside ul { list-style: none; }
-aside li { margin: 4px 0; }
+.aside-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px 24px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(56, 189, 248, 0.25) transparent;
+}
 
-aside a {
+.aside-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.aside-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.aside-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+
+.aside-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.4);
+}
+
+.aside-content ul { list-style: none; }
+.aside-content li { margin: 4px 0; }
+
+.aside-content a {
   color: var(--text-muted);
   text-decoration: none;
   font-size: 0.9rem;
@@ -545,7 +560,7 @@ aside a {
   transition: all 0.15s ease;
 }
 
-aside a:hover {
+.aside-content a:hover {
   background: rgba(56, 189, 248, 0.1);
   color: var(--accent);
 }
@@ -640,6 +655,7 @@ main {
 @media (max-width: 860px) {
   .module-layout { flex-direction: column; }
   aside { width: 100%; height: auto; position: static; }
+  .aside-content { overflow-y: visible; height: auto; }
   .main-wrapper { padding: 0 20px; }
   main { padding: 24px 0 60px; }
 }
@@ -661,21 +677,26 @@ main {
     ));
     html.push_str("  </a>\n");
     html.push_str("  <nav class=\"nav-links\">\n");
-    html.push_str("    <a href=\"index.html\" class=\"nav-link active\">← All Modules</a>\n");
     html.push_str("    <a href=\"https://github.com/alya-lang/alya\" target=\"_blank\" class=\"nav-link\">GitHub ↗</a>\n");
     html.push_str("  </nav>\n");
     html.push_str("</header>\n\n");
 
-    html.push_str("<div class=\"module-layout\">\n");
+    html.push_str("<div class=\"module-layout\">\n\n");
 
     // Sidebar
     html.push_str("<aside>\n");
-    html.push_str("  <a href=\"index.html\" class=\"back-link\">← Back to All Modules</a>\n");
-    html.push_str(&format!("  <h2>{}</h2>\n", escape_html(&module.name)));
-    html.push_str("  <div class=\"search-wrapper\" style=\"margin-bottom: 20px;\">\n");
-    html.push_str("    <span class=\"search-icon\">🔍</span>\n");
-    html.push_str("    <input type=\"text\" id=\"search\" class=\"search-input\" placeholder=\"Filter symbols...\" oninput=\"filterSymbols()\">\n");
+    html.push_str("  <div class=\"aside-header\">\n");
+    html.push_str("    <a href=\"index.html\" class=\"back-link\">← Back to All Modules</a>\n");
+    html.push_str(&format!(
+        "    <h2>{}</h2>\n",
+        escape_html(&module.name)
+    ));
+    html.push_str("    <div class=\"search-wrapper\">\n");
+    html.push_str("      <span class=\"search-icon\">🔍</span>\n");
+    html.push_str("      <input type=\"text\" id=\"search\" class=\"search-input\" placeholder=\"Filter symbols...\" oninput=\"filterSymbols()\">\n");
+    html.push_str("    </div>\n");
     html.push_str("  </div>\n");
+    html.push_str("  <div class=\"aside-content\">\n");
 
     if !module.constants.is_empty() {
         html.push_str(
@@ -746,6 +767,7 @@ main {
         }
         html.push_str("  </ul></div>\n");
     }
+    html.push_str("  </div>\n"); // close aside-content
     html.push_str("</aside>\n\n");
 
     // Main content
