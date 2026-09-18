@@ -675,7 +675,11 @@ fn collapse_empty_declarations(source: &str) -> String {
         i += 1;
     }
 
-    let eol = if source.contains("\r\n") { "\r\n" } else { "\n" };
+    let eol = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     result_lines.join(eol)
 }
 
