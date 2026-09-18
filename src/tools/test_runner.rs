@@ -208,6 +208,16 @@ pub fn execute_test_file(
     Ok((success, full_out, elapsed))
 }
 
+fn format_test_path(path: &Path, root: &Path) -> String {
+    let rel = path.strip_prefix(root).unwrap_or(path);
+    let s = rel.to_string_lossy().replace('\\', "/");
+    if let Some(stripped) = s.strip_prefix("./") {
+        stripped.to_string()
+    } else {
+        s
+    }
+}
+
 struct TestResultItem {
     display_name: String,
     outcome: Result<(bool, String, u128), String>,
@@ -216,32 +226,78 @@ struct TestResultItem {
 fn handle_test_result(
     display_name: &str,
     outcome: Result<(bool, String, u128), String>,
+    name_width: usize,
     passed: &mut usize,
     failed: &mut usize,
+    assert_passes: &mut usize,
+    assert_fails: &mut usize,
 ) {
     match outcome {
-        Ok((true, _out, ms)) => {
+        Ok((true, out, ms)) => {
             *passed += 1;
-            println!("  \x1b[1;32m✓\x1b[0m {:<40} ({:>4} ms)", display_name, ms);
+            let p_count = out.matches("[PASS]").count();
+            let f_count = out.matches("[FAIL]").count();
+            *assert_passes += p_count;
+            *assert_fails += f_count;
+
+            if p_count > 0 {
+                println!(
+                    "  \x1b[1;32m✓\x1b[0m  {:<width$}  \x1b[90m({} asserts | {:>4} ms)\x1b[0m",
+                    display_name,
+                    p_count,
+                    ms,
+                    width = name_width
+                );
+            } else {
+                println!(
+                    "  \x1b[1;32m✓\x1b[0m  {:<width$}  \x1b[90m({:>4} ms)\x1b[0m",
+                    display_name,
+                    ms,
+                    width = name_width
+                );
+            }
         }
         Ok((false, out, ms)) => {
             *failed += 1;
+            let p_count = out.matches("[PASS]").count();
+            let f_count = out.matches("[FAIL]").count();
+            *assert_passes += p_count;
+            *assert_fails += f_count;
+
             println!(
-                "  \x1b[1;31m✗\x1b[0m {:<40} ({:>4} ms) - FAILED",
-                display_name, ms
+                "  \x1b[1;31m✗\x1b[0m  {:<width$}  \x1b[90m({:>4} ms)\x1b[0m - \x1b[1;31mFAILED\x1b[0m",
+                display_name,
+                ms,
+                width = name_width
+            );
+            println!(
+                "    \x1b[90m┌────────────────────────────────────────────────────────────\x1b[0m"
             );
             if out.trim().is_empty() {
-                println!("      \x1b[91m| (Process terminated abnormally with no output)\x1b[0m");
+                println!("    \x1b[90m│\x1b[0m \x1b[91m(Process terminated abnormally with no output)\x1b[0m");
             } else {
-                for line in out.lines().take(100) {
-                    println!("      \x1b[90m|\x1b[0m {}", line);
+                for line in out.lines().take(50) {
+                    println!("    \x1b[90m│\x1b[0m {}", line);
                 }
             }
+            println!(
+                "    \x1b[90m└────────────────────────────────────────────────────────────\x1b[0m"
+            );
         }
         Err(err) => {
             *failed += 1;
-            println!("  \x1b[1;31m✗\x1b[0m {:<40} - ERROR", display_name);
-            println!("      \x1b[91m{}\x1b[0m", err);
+            println!(
+                "  \x1b[1;31m✗\x1b[0m  {:<width$} - \x1b[1;31mERROR\x1b[0m",
+                display_name,
+                width = name_width
+            );
+            println!(
+                "    \x1b[90m┌────────────────────────────────────────────────────────────\x1b[0m"
+            );
+            println!("    \x1b[90m│\x1b[0m \x1b[91m{}\x1b[0m", err);
+            println!(
+                "    \x1b[90m└────────────────────────────────────────────────────────────\x1b[0m"
+            );
         }
     }
 }
@@ -270,31 +326,61 @@ pub fn run_tests(
         .max(1)
         .min(test_files.len());
 
-    println!("\n=== Running Alya Test Suite ===");
-    if num_workers == 1 {
-        println!(
-            "Discovered {} test file(s) in '{}' (sequential)\n",
-            test_files.len(),
-            path_str
-        );
+    let arch_str = match arch {
+        Architecture::X64 => "x64",
+        Architecture::ARM64 => "arm64",
+        Architecture::X86 => "x86",
+    };
+    let os_str = match os {
+        OperatingSystem::Windows => "windows",
+        OperatingSystem::Linux => "linux",
+        OperatingSystem::MacOS => "macos",
+    };
+    let alya_ver = env!("CARGO_PKG_VERSION");
+    let mode_str = if num_workers == 1 {
+        "sequential".to_string()
     } else {
-        println!(
-            "Discovered {} test file(s) in '{}' (parallel, {} workers)\n",
-            test_files.len(),
-            path_str,
-            num_workers
-        );
-    }
+        format!("parallel, {} workers", num_workers)
+    };
+
+    let root_arc = Arc::new(root.to_path_buf());
+    let name_width = test_files
+        .iter()
+        .map(|p| format_test_path(p, root).len())
+        .max()
+        .unwrap_or(30)
+        .max(32);
+
+    println!("\n=== Alya Test Suite v{} ===", alya_ver);
+    println!(
+        "Target : {}-{} | Concurrency: {}",
+        arch_str, os_str, mode_str
+    );
+    println!(
+        "Discovered {} test suite(s) in '{}'\n",
+        test_files.len(),
+        path_str
+    );
 
     let mut passed = 0;
     let mut failed = 0;
+    let mut assert_passes = 0;
+    let mut assert_fails = 0;
     let total_start = Instant::now();
 
     if num_workers == 1 {
         for file in &test_files {
-            let display_name = file.display().to_string();
+            let display_name = format_test_path(file, root);
             let outcome = execute_test_file(file, arch, os);
-            handle_test_result(&display_name, outcome, &mut passed, &mut failed);
+            handle_test_result(
+                &display_name,
+                outcome,
+                name_width,
+                &mut passed,
+                &mut failed,
+                &mut assert_passes,
+                &mut assert_fails,
+            );
         }
     } else {
         let (tx, rx) = mpsc::channel();
@@ -303,6 +389,7 @@ pub fn run_tests(
         let mut handles = Vec::new();
         for _ in 0..num_workers {
             let q = Arc::clone(&queue);
+            let r_root = Arc::clone(&root_arc);
             let sender = tx.clone();
             handles.push(thread::spawn(move || loop {
                 let file = {
@@ -311,7 +398,7 @@ pub fn run_tests(
                 };
                 match file {
                     Some(path) => {
-                        let display_name = path.display().to_string();
+                        let display_name = format_test_path(&path, &r_root);
                         let outcome = execute_test_file(&path, arch, os);
                         let _ = sender.send(TestResultItem {
                             display_name,
@@ -325,7 +412,15 @@ pub fn run_tests(
         drop(tx);
 
         while let Ok(item) = rx.recv() {
-            handle_test_result(&item.display_name, item.outcome, &mut passed, &mut failed);
+            handle_test_result(
+                &item.display_name,
+                item.outcome,
+                name_width,
+                &mut passed,
+                &mut failed,
+                &mut assert_passes,
+                &mut assert_fails,
+            );
         }
 
         for h in handles {
@@ -334,25 +429,36 @@ pub fn run_tests(
     }
 
     let total_time = total_start.elapsed().as_millis();
-    println!("\n----------------------------------------");
-    let mode_str = if num_workers == 1 {
-        "sequential".to_string()
-    } else {
-        format!("parallel, {} workers", num_workers)
-    };
+    println!("\n------------------------------------------------------------------------");
     if failed == 0 {
         println!(
-            "\x1b[1;32m✓ Test Results: {} passed, 0 failed in {} ms ({})\x1b[0m",
-            passed, total_time, mode_str
+            "  \x1b[1;32m✓ Test Suites : {} passed, {} total\x1b[0m",
+            passed,
+            passed + failed
         );
-        println!("----------------------------------------\n");
+        if assert_passes > 0 {
+            println!("    Assertions  : {} passed, 0 failed", assert_passes);
+        }
+        println!("    Duration    : {} ms ({})", total_time, mode_str);
+        println!("    Status      : \x1b[1;32mPASSED\x1b[0m");
+        println!("------------------------------------------------------------------------\n");
         Ok(())
     } else {
         println!(
-            "\x1b[1;31m✗ Test Results: {} passed, {} failed in {} ms ({})\x1b[0m",
-            passed, failed, total_time, mode_str
+            "  \x1b[1;31m✗ Test Suites : {} passed, {} failed, {} total\x1b[0m",
+            passed,
+            failed,
+            passed + failed
         );
-        println!("----------------------------------------\n");
+        if assert_passes > 0 || assert_fails > 0 {
+            println!(
+                "    Assertions  : {} passed, {} failed",
+                assert_passes, assert_fails
+            );
+        }
+        println!("    Duration    : {} ms ({})", total_time, mode_str);
+        println!("    Status      : \x1b[1;31mFAILED\x1b[0m");
+        println!("------------------------------------------------------------------------\n");
         Err(format!("Test suite completed with {} failure(s).", failed))
     }
 }

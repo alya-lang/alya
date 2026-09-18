@@ -492,21 +492,25 @@ pub function bench_summary(b: BenchRunner)
     let num_records: int = b.total_runs
     if num_records > 0
         say "\n// * Summary *\n"
-        say "Benchmark Suite: " + str_from_ptr(b.suite_name)
-        say "Measurements   : " + str(num_records) + " methods\n"
+        say "Benchmark Suite : " + str_from_ptr(b.suite_name)
+        say "Target Runtime  : Alya Native (Spec v1.0)"
+        say "Workload        : " + str(num_records) + " methods\n"
 
         let baseline_rec = b.records[0]
         let baseline_ns: int = baseline_rec.op_ns
         if baseline_ns <= 0
             baseline_ns = 1
         end
+        let baseline_alloc: int = baseline_rec.op_alloc
 
         # Minimum column widths for headers
         let w_method: int = 6       # "Method"
+        let w_iters: int = 6        # "Iters"
         let w_mean: int = 12        # "Mean (ns/op)"
         let w_time: int = 10        # "Total Time"
         let w_ratio: int = 5        # "Ratio"
         let w_alloc: int = 9        # "Allocated"
+        let w_alloc_ratio: int = 11 # "Alloc Ratio"
         let w_tp: int = 10          # "Throughput"
 
         # Calculate max widths dynamically based on all row values
@@ -516,6 +520,11 @@ pub function bench_summary(b: BenchRunner)
             let nlen: int = len(str_from_ptr(r_k.op_name))
             if nlen > w_method
                 w_method = nlen
+            end
+
+            let ilen: int = len(_bench_format_thousands(r_k.op_iters))
+            if ilen > w_iters
+                w_iters = ilen
             end
 
             let mlen: int = len(_bench_format_ns(r_k.op_ns))
@@ -546,6 +555,30 @@ pub function bench_summary(b: BenchRunner)
                 w_alloc = alen
             end
 
+            let a_ratio_str: string = "-"
+            if baseline_alloc > 0
+                if r_k.op_alloc <= 0
+                    a_ratio_str = "-"
+                else
+                    let a_val: int = (r_k.op_alloc * 100) / baseline_alloc
+                    let a_int: int = a_val / 100
+                    let a_dec: int = a_val % 100
+                    a_ratio_str = str(a_int) + "."
+                    if a_dec < 10
+                        a_ratio_str = a_ratio_str + "0"
+                    end
+                    a_ratio_str = a_ratio_str + str(a_dec)
+                end
+            else
+                if r_k.op_alloc > 0
+                    a_ratio_str = "NA"
+                end
+            end
+            let arlen: int = len(a_ratio_str)
+            if arlen > w_alloc_ratio
+                w_alloc_ratio = arlen
+            end
+
             let tplen: int = len(_bench_format_throughput(r_k.op_throughput))
             if tplen > w_tp
                 w_tp = tplen
@@ -556,28 +589,34 @@ pub function bench_summary(b: BenchRunner)
 
         # Render Header
         let col_name_hdr: string = _bench_pad_right("Method", w_method)
+        let col_iters_hdr: string = _bench_pad_left("Iters", w_iters)
         let col_mean_hdr: string = _bench_pad_left("Mean (ns/op)", w_mean)
         let col_time_hdr: string = _bench_pad_left("Total Time", w_time)
         let col_ratio_hdr: string = _bench_pad_left("Ratio", w_ratio)
         let col_alloc_hdr: string = _bench_pad_left("Allocated", w_alloc)
+        let col_ar_hdr: string = _bench_pad_left("Alloc Ratio", w_alloc_ratio)
         let col_tp_hdr: string = _bench_pad_left("Throughput", w_tp)
 
-        say "| " + col_name_hdr + " | " + col_mean_hdr + " | " + col_time_hdr + " | " + col_ratio_hdr + " | " + col_alloc_hdr + " | " + col_tp_hdr + " |"
+        say "| " + col_name_hdr + " | " + col_iters_hdr + " | " + col_mean_hdr + " | " + col_time_hdr + " | " + col_ratio_hdr + " | " + col_alloc_hdr + " | " + col_ar_hdr + " | " + col_tp_hdr + " |"
 
         # Render Separator (each column has width W, so between pipes it is W + 2 chars)
         let sep_name: string = ":" + _bench_repeat("-", w_method + 1)
+        let sep_iters: string = _bench_repeat("-", w_iters + 1) + ":"
         let sep_mean: string = _bench_repeat("-", w_mean + 1) + ":"
         let sep_time: string = _bench_repeat("-", w_time + 1) + ":"
         let sep_ratio: string = _bench_repeat("-", w_ratio + 1) + ":"
         let sep_alloc: string = _bench_repeat("-", w_alloc + 1) + ":"
+        let sep_ar: string = _bench_repeat("-", w_alloc_ratio + 1) + ":"
         let sep_tp: string = _bench_repeat("-", w_tp + 1) + ":"
 
-        say "|" + sep_name + "|" + sep_mean + "|" + sep_time + "|" + sep_ratio + "|" + sep_alloc + "|" + sep_tp + "|"
+        say "|" + sep_name + "|" + sep_iters + "|" + sep_mean + "|" + sep_time + "|" + sep_ratio + "|" + sep_alloc + "|" + sep_ar + "|" + sep_tp + "|"
 
         # Render Data Rows
         let i: int = 0
         while i < num_records
             let r = b.records[i]
+
+            let iters_str: string = _bench_format_thousands(r.op_iters)
 
             let ratio_val: int = (r.op_ns * 100) / baseline_ns
             let ratio_int: int = ratio_val / 100
@@ -588,23 +627,46 @@ pub function bench_summary(b: BenchRunner)
             end
             ratio_str = ratio_str + str(ratio_dec)
 
+            let a_ratio_str: string = "-"
+            if baseline_alloc > 0
+                if r.op_alloc <= 0
+                    a_ratio_str = "-"
+                else
+                    let a_val: int = (r.op_alloc * 100) / baseline_alloc
+                    let a_int: int = a_val / 100
+                    let a_dec: int = a_val % 100
+                    a_ratio_str = str(a_int) + "."
+                    if a_dec < 10
+                        a_ratio_str = a_ratio_str + "0"
+                    end
+                    a_ratio_str = a_ratio_str + str(a_dec)
+                end
+            else
+                if r.op_alloc > 0
+                    a_ratio_str = "NA"
+                end
+            end
+
             let name_str: string = str_from_ptr(r.op_name)
             let col_name: string = _bench_pad_right(name_str, w_method)
+            let col_iters: string = _bench_pad_left(iters_str, w_iters)
             let col_mean: string = _bench_pad_left(_bench_format_ns(r.op_ns), w_mean)
             let col_time: string = _bench_pad_left(str(r.op_elapsed) + " ms", w_time)
             let col_ratio: string = _bench_pad_left(ratio_str, w_ratio)
             let col_alloc: string = _bench_pad_left(_bench_format_alloc(r.op_alloc), w_alloc)
+            let col_ar: string = _bench_pad_left(a_ratio_str, w_alloc_ratio)
             let col_tp: string = _bench_pad_left(_bench_format_throughput(r.op_throughput), w_tp)
 
-            say "| " + col_name + " | " + col_mean + " | " + col_time + " | " + col_ratio + " | " + col_alloc + " | " + col_tp + " |"
+            say "| " + col_name + " | " + col_iters + " | " + col_mean + " | " + col_time + " | " + col_ratio + " | " + col_alloc + " | " + col_ar + " | " + col_tp + " |"
             i += 1
         end
 
         say "\n// * Legends *"
         say "  Mean (ns/op) : Average elapsed time per single operation"
         say "  Total Time   : Total elapsed time across all iterations"
-        say "  Ratio        : Time ratio relative to baseline (" + str_from_ptr(baseline_rec.op_name) + ")"
+        say "  Ratio        : Mean time ratio relative to baseline (" + str_from_ptr(baseline_rec.op_name) + ")"
         say "  Allocated    : Allocated heap memory per single operation"
+        say "  Alloc Ratio  : Allocated memory ratio relative to baseline"
         say "  Throughput   : Operations executed per second\n"
     end
 
