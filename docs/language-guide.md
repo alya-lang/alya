@@ -781,17 +781,16 @@ say is_space(" ")           # 1
 
 ---
 
-### 18. Self-Hosting Prototype (Compiler in Alya)
+### 18. Real-World Applications & Showcases
 
-Check out `examples/mini_compiler.alya` for a working compiler prototype written in Alya that compiles a subset of the language to native assembly:
+Check out the [`apps/`](../apps/README.md) directory for production-grade applications written in Alya, including a high-concurrency HTTP Server, Port Scanner, Benchmark Tool, and interactive terminal applications:
 
 ```bash
-# Compile and run the mini-compiler
-alyac run examples/mini_compiler.alya
+# Run the native multi-threaded HTTP server
+alya run apps/http_server/main.alya
 
-# Link the generated assembly
-gcc mini_output.s -o mini_program.exe
-./mini_program.exe
+# Run the terminal port scanner
+alya run apps/port_scanner/main.alya
 ```
 
 ---

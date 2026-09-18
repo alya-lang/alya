@@ -61,3 +61,22 @@ for i in 0..1000
     list.push(i)
 end
 end
+
+bench "mandelbrot complex float grid iteration"
+let max_iter = 50
+let iters = 0
+let cr = -0.75
+let ci = 0.1
+let zr = 0.0
+let zi = 0.0
+while iters < max_iter
+    let zr2 = zr * zr
+    let zi2 = zi * zi
+    if zr2 + zi2 > 4.0
+        break
+    end
+    zi = 2.0 * zr * zi + ci
+    zr = zr2 - zi2 + cr
+    iters += 1
+end
+end

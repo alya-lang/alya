@@ -92,22 +92,22 @@ cargo install --path .
 
 ```bash
 # Compile and run immediately in one step
-alyac run examples/hello.alya
+alya run spec/syntax/toolchain_example.alya
 
 # Run with microsecond execution and compiler stage profiling
-alyac run examples/hello.alya --time
+alya run spec/syntax/toolchain_example.alya --time
 
 # Compile directly to a standalone binary
-alyac build examples/calculator.alya -o calculator
+alya build spec/syntax/when.alya -o calculator
 
 # Format source files across project in-place (or --check in CI)
-alyac fmt .
+alya fmt .
 
 # Discover and run test suites across the project
-alyac test
+alya test
 
 # Check syntax only without code generation
-alyac check examples/calculator.alya
+alya check spec/syntax/when.alya
 ```
 
 ---
@@ -154,8 +154,7 @@ Alya is engineered for rapid compilation and high-performance native execution a
 - 📚 **[Alya Documentation Wiki](docs/README.md)**: Structured 8-chapter guide progressing from beginner concepts to advanced compiler architectures.
 - 📖 **[Single-Page Language Guide](docs/language-guide.md)**: Quick full-language reference and syntax cheat-sheet.
 - 📱 **[Applications Showcase](apps/README.md)**: Real-world apps (HTTP server, benchmark tool, port scanner, Conway's Game of Life, Snake, TicTacToe) and macOS `.app` bundling guide.
-- 🗺️ **[Project Roadmap](ROADMAP.md)**: Architectural vision, completed milestones, and the 4 future pillars (Package Manager, C FFI, LSP, Cycle Collector).
-- 🧪 **[Code Examples](examples/)**: 50+ practical programs, algorithms, interactive terminal apps, and self-hosting compiler prototypes.
+- 📐 **[Language Specification](spec/)**: 25 canonical grammar and syntax test suites (Chapters 00–24) defining all language behaviors.
 - ⚡ **[Benchmark Suite](https://github.com/alya-lang/benchmarks)**: Cross-language performance benchmark suite and automated runner.
 
 ---

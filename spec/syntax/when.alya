@@ -197,3 +197,24 @@ when fail_res
     else =>
         say "Unknown response state"
 end
+
+# ------------------------------------------------------------------------------
+# 11. Practical Expression Matching: Arithmetic Calculator Evaluator
+# ------------------------------------------------------------------------------
+function evaluate_op(op: string, a: int, b: int) -> int
+    return when op
+        is "+" => a + b
+        is "-" => a - b
+        is "*" => a * b
+        is "/" => if b != 0 then a / b else 0
+        is "%" => if b != 0 then a % b else 0
+        else => 0
+    end
+end
+
+let calc_add = evaluate_op("+", 15, 7)
+let calc_sub = evaluate_op("-", 15, 7)
+let calc_mul = evaluate_op("*", 15, 7)
+let calc_div = evaluate_op("/", 15, 7)
+let calc_mod = evaluate_op("%", 15, 7)
+say f"Calculator evaluator: 15 + 7 = {calc_add}, 15 - 7 = {calc_sub}, 15 * 7 = {calc_mul}, 15 / 7 = {calc_div}, 15 % 7 = {calc_mod}"

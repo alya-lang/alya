@@ -82,7 +82,7 @@ fn test_run_with_double_dash_args() {
     let args = to_args(&[
         "alyac",
         "run",
-        "examples/cli_args.alya",
+        "spec/syntax/variables.alya",
         "--",
         "foo",
         "bar",
@@ -90,7 +90,7 @@ fn test_run_with_double_dash_args() {
     ]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(parsed.command, CommandKind::Run);
-    assert_eq!(parsed.input_file, "examples/cli_args.alya");
+    assert_eq!(parsed.input_file, "spec/syntax/variables.alya");
     assert_eq!(parsed.run_args, vec!["foo", "bar", "baz"]);
 }
 
@@ -99,14 +99,14 @@ fn test_run_with_trailing_args_without_dash() {
     let args = to_args(&[
         "alyac",
         "run",
-        "examples/cli_args.alya",
+        "spec/syntax/variables.alya",
         "foo",
         "bar",
         "baz",
     ]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(parsed.command, CommandKind::Run);
-    assert_eq!(parsed.input_file, "examples/cli_args.alya");
+    assert_eq!(parsed.input_file, "spec/syntax/variables.alya");
     assert_eq!(parsed.run_args, vec!["foo", "bar", "baz"]);
 }
 

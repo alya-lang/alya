@@ -1,6 +1,0 @@
-# Resolving the naming conflict using module aliases:
-import "module1.alya" as m1
-import "module2.alya" as m2
-
-say m1::abc()
-say m2::abc()

@@ -89,14 +89,14 @@ cargo build --release
 
 ```bash
 # Run source code directly
-cargo run -- run examples/hello.alya
+cargo run -- run spec/syntax/toolchain_example.alya
 
 # Build an executable
-cargo run -- build examples/calculator.alya -o calc
+cargo run -- build spec/syntax/when.alya -o calc
 
 # Inspect AST or Tokens
-cargo run -- ast examples/loops.alya
-cargo run -- tokens examples/variables.alya
+cargo run -- ast spec/syntax/loops.alya
+cargo run -- tokens spec/syntax/variables.alya
 ```
 
 ### Testing
@@ -110,8 +110,8 @@ cargo test
 # Run end-to-end compiler execution tests specifically
 cargo test --test e2e_execution
 
-# Verify that all examples compile cleanly
-cargo test --test examples_compilation
+# Verify canonical language specification tests and execution
+cargo test --test golden_spec_tests
 ```
 
 ### Linting and Formatting
@@ -140,7 +140,7 @@ When adding a new syntax or feature:
 3. **Code Generator**: Emit assembly for each target architecture in `src/codegen/`.
 4. **Unit Tests**: Add unit tests in `src/lexer/tests.rs` and `src/parser/tests.rs`.
 5. **E2E Tests**: Add an executable test case in `tests/e2e_execution.rs`.
-6. **Example**: Add a showcase script in `examples/`.
+6. **Specification**: Add or update canonical test fixtures in `spec/syntax/` and documentation in `spec/chapters/`.
 7. **Documentation**: Document the feature in `README.md`.
 
 ---

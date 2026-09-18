@@ -1,4 +1,4 @@
 # Module 1: abc function returns 1
-function abc()
+function abc() -> int
     return 1
 end

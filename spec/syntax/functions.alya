@@ -150,3 +150,34 @@ process_resource("RES_9081")
 #     end
 #     return 0
 # end
+
+# ------------------------------------------------------------------------------
+# 9. Recursive and Iterative Functions: Fibonacci Sequence
+# ------------------------------------------------------------------------------
+function fibonacci_recursive(n: int) -> int
+    if n <= 1
+        return n
+    end
+    return fibonacci_recursive(n - 1) + fibonacci_recursive(n - 2)
+end
+
+function fibonacci_iterative(n: int) -> int
+    if n <= 1
+        return n
+    end
+    let a = 0
+    let b = 1
+    let temp = 0
+    let i = 2
+    while i <= n
+        temp = a + b
+        a = b
+        b = temp
+        i += 1
+    end
+    return b
+end
+
+let fib_rec = fibonacci_recursive(10)
+let fib_iter = fibonacci_iterative(10)
+say f"Fibonacci(10) recursive: {fib_rec}, iterative: {fib_iter}"

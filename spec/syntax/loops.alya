@@ -120,3 +120,40 @@ for row_idx, row in grid
         break
     end
 end
+
+# ------------------------------------------------------------------------------
+# 8. Algorithmic Iteration: Sieve of Eratosthenes
+# ------------------------------------------------------------------------------
+function count_primes(limit: int) -> int
+    let flags: int[] = []
+    let i = 0
+    while i <= limit
+        flags.push(1)
+        i += 1
+    end
+
+    let p = 2
+    while p * p <= limit
+        if flags[p] == 1
+            let multiple = p * p
+            while multiple <= limit
+                flags[multiple] = 0
+                multiple += p
+            end
+        end
+        p += 1
+    end
+
+    let count = 0
+    let j = 2
+    while j <= limit
+        if flags[j] == 1
+            count += 1
+        end
+        j += 1
+    end
+    return count
+end
+
+let primes_under_50 = count_primes(50)
+say f"Primes under 50: {primes_under_50}"

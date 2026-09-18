@@ -663,8 +663,8 @@ say normalize_slashes("foo\\bar\\baz")
 #[test]
 fn test_e2e_module_alias_and_conflict_resolution() {
     let code = r#"
-import "examples/modules/conflict/module1.alya" as m1
-import "examples/modules/conflict/module2.alya" as m2
+import "tests/fixtures/modules/conflict/module1.alya" as m1
+import "tests/fixtures/modules/conflict/module2.alya" as m2
 import "std/math" as m
 
 say m1::abc()

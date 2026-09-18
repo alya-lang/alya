@@ -552,5 +552,113 @@ fn test_golden_spec_when_execution() {
         assert!(output.contains("Cartesian point: x=10, y=25"));
         assert!(output.contains("HTTP request succeeded with status 200"));
         assert!(output.contains("HTTP request failed: Service Unavailable"));
+        assert!(output.contains("Calculator evaluator: 15 + 7 = 22, 15 - 7 = 8, 15 * 7 = 105, 15 / 7 = 2, 15 % 7 = 1"));
+    }
+}
+
+#[test]
+fn test_golden_spec_loops_execution() {
+    let file = get_spec_syntax_dir().join("loops.alya");
+    let source = fs::read_to_string(&file).expect("Failed to read loops.alya");
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from loops.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0);
+        assert!(output.contains("Countdown finished!"));
+        assert!(output.contains("Sum of 0..5 (exclusive): 15"));
+        assert!(output.contains("Product of 1..=5 (factorial 5): 120"));
+        assert!(output.contains("Technology: Alya"));
+        assert!(output.contains("Step #1: Lexer"));
+        assert!(output.contains("HTTP Header: Content-Type: application/json"));
+        assert!(output.contains("Even tick processed: 2"));
+        assert!(output.contains("Target 5 located at grid[1][1]"));
+        assert!(output.contains("Primes under 50: 15"));
+    }
+}
+
+#[test]
+fn test_golden_spec_functions_execution() {
+    let file = get_spec_syntax_dir().join("functions.alya");
+    let source = fs::read_to_string(&file).expect("Failed to read functions.alya");
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from functions.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0);
+        assert!(output.contains("H1: Introduction"));
+        assert!(output.contains("H2: SYSTEM ARCHITECTURE"));
+        assert!(output.contains("Average value: 30"));
+        assert!(output.contains("Min: 19, Max: 42"));
+        assert!(output.contains("Method style: 25"));
+        assert!(output.contains("Square of 5: 25"));
+        assert!(output.contains("Counter after steps: 15"));
+        assert!(output.contains("Doubled via callback: 42"));
+        assert!(output.contains("Fibonacci(10) recursive: 55, iterative: 55"));
+    }
+}
+
+#[test]
+fn test_all_spec_syntax_compile_to_assembly() {
+    let syntax_dir = get_spec_syntax_dir();
+    let mut entries: Vec<_> = fs::read_dir(&syntax_dir)
+        .expect("Failed to read spec syntax dir")
+        .flatten()
+        .filter(|e| e.path().extension().map_or(false, |ext| ext == "alya"))
+        .collect();
+    entries.sort_by_key(|e| e.file_name());
+
+    for entry in entries {
+        let filename = entry.file_name().to_string_lossy().to_string();
+        let source = fs::read_to_string(entry.path()).unwrap();
+        let mut lexer = Lexer::new(&source);
+        let tokens = lexer
+            .tokenize()
+            .unwrap_or_else(|e| panic!("Lexer failed for '{}': {}", filename, e));
+        let mut parser = Parser::new(tokens);
+        let mut ast = parser
+            .parse()
+            .unwrap_or_else(|e| panic!("Parser failed for '{}': {}", filename, e));
+
+        let entry_path = entry.path();
+        let base_dir = entry_path.parent().unwrap();
+        alya::parser::resolve_imports(&mut ast, base_dir)
+            .unwrap_or_else(|e| panic!("Import resolution failed for '{}': {}", filename, e));
+
+        // 1. Codegen for x64 Windows
+        let x64_win = alya::codegen::generate(
+            &ast,
+            alya::codegen::Architecture::X64,
+            alya::codegen::OperatingSystem::Windows,
+        );
+        assert!(!x64_win.is_empty(), "Empty x64 Windows assembly for '{}'", filename);
+
+        // 2. Codegen for x64 Linux
+        let x64_linux = alya::codegen::generate(
+            &ast,
+            alya::codegen::Architecture::X64,
+            alya::codegen::OperatingSystem::Linux,
+        );
+        assert!(!x64_linux.is_empty(), "Empty x64 Linux assembly for '{}'", filename);
+
+        // 3. Codegen for x86 Linux
+        let x86_linux = alya::codegen::generate(
+            &ast,
+            alya::codegen::Architecture::X86,
+            alya::codegen::OperatingSystem::Linux,
+        );
+        assert!(!x86_linux.is_empty(), "Empty x86 Linux assembly for '{}'", filename);
+
+        // 4. Codegen for ARM64 Linux
+        let arm64_linux = alya::codegen::generate(
+            &ast,
+            alya::codegen::Architecture::ARM64,
+            alya::codegen::OperatingSystem::Linux,
+        );
+        assert!(!arm64_linux.is_empty(), "Empty arm64 Linux assembly for '{}'", filename);
+
+        // 5. Codegen for macOS ARM64
+        let macos_arm64 = alya::codegen::generate(
+            &ast,
+            alya::codegen::Architecture::ARM64,
+            alya::codegen::OperatingSystem::MacOS,
+        );
+        assert!(!macos_arm64.is_empty(), "Empty macOS ARM64 assembly for '{}'", filename);
     }
 }
