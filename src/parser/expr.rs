@@ -480,6 +480,15 @@ impl Parser {
                 }
             } else if matches!(self.current_token().token_type, TokenType::Dot) {
                 self.advance();
+                if let TokenType::Number(n) = self.current_token().token_type {
+                    let idx = n as usize;
+                    self.advance();
+                    expr = Expr::Index {
+                        array: Box::new(expr),
+                        index: Box::new(Expr::Number(idx as f64)),
+                    };
+                    continue;
+                }
                 let field = match &self.current_token().token_type {
                     TokenType::Identifier(f) => f.clone(),
                     tok => {

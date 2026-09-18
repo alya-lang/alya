@@ -26,6 +26,7 @@ impl Lexer {
 
     pub fn tokenize(&mut self) -> Result<Vec<Token>, String> {
         let mut tokens = Vec::new();
+        let mut had_whitespace = true;
 
         while let Some(ch) = self.current_char() {
             let line = self.line;
@@ -34,6 +35,8 @@ impl Lexer {
             match ch {
                 ' ' | '\t' | '\r' => {
                     self.skip_whitespace();
+                    had_whitespace = true;
+                    continue;
                 }
                 '\n' => {
                     tokens.push(Token {
@@ -41,11 +44,23 @@ impl Lexer {
                         line,
                         column,
                     });
+                    had_whitespace = true;
                     self.advance();
+                    continue;
                 }
                 '#' => {
                     self.skip_comment();
+                    had_whitespace = true;
+                    continue;
                 }
+                _ => {}
+            }
+
+            let prev_had_whitespace = had_whitespace;
+            had_whitespace = false;
+
+            match ch {
+                ' ' | '\t' | '\r' | '\n' | '#' => unreachable!(),
                 '"' => {
                     let s =
                         if self.peek_char_at(1) == Some('"') && self.peek_char_at(2) == Some('"') {
@@ -145,9 +160,13 @@ impl Lexer {
                     self.advance();
                     if self.current_char() == Some('/') {
                         self.skip_comment();
+                        had_whitespace = true;
+                        continue;
                     } else if self.current_char() == Some('*') {
                         self.advance();
                         self.skip_multiline_comment()?;
+                        had_whitespace = true;
+                        continue;
                     } else if self.current_char() == Some('=') {
                         self.advance();
                         tokens.push(Token {
@@ -304,7 +323,17 @@ impl Lexer {
                                 column,
                             });
                         }
-                    } else if self.peek_char().is_some_and(|c| c.is_ascii_digit()) {
+                    } else if self.peek_char().is_some_and(|c| c.is_ascii_digit())
+                        && (prev_had_whitespace
+                            || tokens.is_empty()
+                            || !matches!(
+                                tokens.last().unwrap().token_type,
+                                TokenType::Identifier(_)
+                                    | TokenType::RightParen
+                                    | TokenType::RightBracket
+                                    | TokenType::RightBrace
+                            ))
+                    {
                         let (num, _) = self.read_number()?;
                         tokens.push(Token {
                             token_type: TokenType::Float(num),

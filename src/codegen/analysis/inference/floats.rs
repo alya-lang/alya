@@ -92,12 +92,19 @@ fn expr_is_definitely_float(expr: &Expr, known_floats: &HashSet<String>) -> bool
             ) || known_floats.contains(&format!("fn_ret_flt:{}", name))
                 || known_floats.contains(&format!("fn_ret_flt:{}", bare))
         }
-        Expr::Index { array, .. } => match &**array {
-            Expr::Identifier(arr_name) => {
-                known_floats.contains(&format!("arr_is_flt:{}", arr_name))
+        Expr::Index { array, index } => {
+            if let (Expr::Identifier(arr_name), Expr::Number(idx)) = (&**array, &**index) {
+                if known_floats.contains(&format!("tuple_elem_flt:{}:{}", arr_name, *idx as usize)) {
+                    return true;
+                }
             }
-            _ => false,
-        },
+            match &**array {
+                Expr::Identifier(arr_name) => {
+                    known_floats.contains(&format!("arr_is_flt:{}", arr_name))
+                }
+                _ => false,
+            }
+        }
         _ => false,
     }
 }
@@ -181,6 +188,30 @@ fn collect_float_vars_from_stmts(
                     scope.insert(format!("arr_is_flt:{}", name));
                     if is_top_level {
                         known_floats.insert(format!("arr_is_flt:{}", name));
+                    }
+                }
+                if let Expr::Array(elems) = value {
+                    for (i, elem) in elems.iter().enumerate() {
+                        if expr_is_definitely_float(elem, scope) {
+                            scope.insert(format!("tuple_elem_flt:{}:{}", name, i));
+                            if is_top_level {
+                                known_floats.insert(format!("tuple_elem_flt:{}:{}", name, i));
+                            }
+                        }
+                    }
+                }
+                if let Some(ann) = type_ann {
+                    let ann = ann.trim();
+                    if ann.starts_with('(') && ann.ends_with(')') {
+                        for (i, ty) in ann[1..ann.len() - 1].split(',').enumerate() {
+                            let ty = ty.trim();
+                            if ty == "float" || ty == "f64" || ty == "f32" {
+                                scope.insert(format!("tuple_elem_flt:{}:{}", name, i));
+                                if is_top_level {
+                                    known_floats.insert(format!("tuple_elem_flt:{}:{}", name, i));
+                                }
+                            }
+                        }
                     }
                 }
             }

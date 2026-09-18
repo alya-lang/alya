@@ -49,6 +49,10 @@ pub fn emit_array_set_imm(out: &mut String, index: usize) {
 pub fn emit_array_get(out: &mut String) {
     out.push_str("    mov %eax, %ecx\n");
     out.push_str("    pop %edx\n");
+    out.push_str("    test %ecx, %ecx\n");
+    out.push_str("    jns 1f\n");
+    out.push_str("    add (%edx), %ecx\n");
+    out.push_str("1:\n");
     out.push_str("    cmp (%edx), %ecx\n");
     out.push_str("    jae alya_error_index_out_of_bounds\n");
     out.push_str("    mov 8(%edx), %edx\n");
@@ -59,6 +63,10 @@ pub fn emit_array_set(out: &mut String) {
     out.push_str("    mov %eax, %ebx\n");
     out.push_str("    pop %eax\n");
     out.push_str("    pop %edx\n");
+    out.push_str("    test %eax, %eax\n");
+    out.push_str("    jns 1f\n");
+    out.push_str("    add (%edx), %eax\n");
+    out.push_str("1:\n");
     out.push_str("    cmp (%edx), %eax\n");
     out.push_str("    jae alya_error_index_out_of_bounds\n");
     out.push_str("    mov 8(%edx), %edx\n");

@@ -566,6 +566,16 @@ impl CodeGen {
                         || self.ctx.functions.iter().any(|f| f.ends_with(&format!("{}__{}", bare, name)))
                 });
 
+                if name == "get" && args.len() == 2 && !is_struct_receiver {
+                    let mut three_args = args.clone();
+                    three_args.push(Expr::Number(0.0));
+                    self.generate_expression(&Expr::Call {
+                        name: name.clone(),
+                        args: three_args,
+                    });
+                    return;
+                }
+
                 if name == "push" && args.len() == 2 && !is_struct_receiver {
                     if is_string_expr(&args[1], &self.ctx.variables) {
                         if let Expr::Identifier(arr_name) = &args[0] {
@@ -1584,7 +1594,8 @@ impl CodeGen {
                     || is_string_expr(index, &self.ctx.variables)
                     || matches!(**index, Expr::String(_))
                 {
-                    let actual_args = [array.as_ref(), index.as_ref()];
+                    let default_val = Expr::Number(0.0);
+                    let actual_args = [array.as_ref(), index.as_ref(), &default_val];
                     let initial_stack_offset = self.ctx.stack_offset;
                     let word_size: i32 = match self.arch {
                         Architecture::ARM64 => 16,
@@ -1614,7 +1625,7 @@ impl CodeGen {
                         &mut self.output,
                         self.arch,
                         "get",
-                        2,
+                        3,
                         self.ctx.stack_offset,
                         self.os,
                     );

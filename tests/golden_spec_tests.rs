@@ -154,6 +154,29 @@ fn test_golden_spec_variables_execution() {
 }
 
 #[test]
+fn test_golden_spec_collections_execution() {
+    let col_file = get_spec_syntax_dir().join("collections.alya");
+    let source = fs::read_to_string(&col_file).expect("Failed to read collections.alya");
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from collections.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("Length: 5, First: 10"));
+        assert!(output.contains("Negative index [-1] (last element): 50"));
+        assert!(output.contains("Negative index [-2] (second to last): 40"));
+        assert!(output.contains("Middle slice items: 3"));
+        assert!(output.contains("Popped: 70, New first: 99"));
+        assert!(output.contains("Direct lookup: Alice"));
+        assert!(output.contains("Missing lookup fallback: Guest User"));
+        assert!(output.contains("user_2 is present in cache."));
+        assert!(output.contains("Tx ID: 1001, Currency: USD, Amount: 450.75"));
+        assert!(output.contains("Transaction #1001 cleared for 450.75 USD"));
+        assert!(output.contains("Comprehension result: 20"));
+        assert!(output.contains("Comprehension result: 100"));
+        assert!(output.contains("Fruit 'apple' has length 5"));
+    }
+}
+
+#[test]
 fn test_golden_spec_memory_execution() {
     let memory_file = get_spec_syntax_dir().join("memory.alya");
     let source = fs::read_to_string(&memory_file)

@@ -400,7 +400,10 @@ impl CodeGen {
         }
 
         for s in &inference.known_floats {
-            if s.starts_with("fn_ret_flt:") || s.starts_with("struct_field_flt:") {
+            if s.starts_with("fn_ret_flt:")
+                || s.starts_with("struct_field_flt:")
+                || s.starts_with("tuple_elem_flt:")
+            {
                 self.ctx.variables.insert(s.clone(), VarType::Float(0));
             }
         }

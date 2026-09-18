@@ -358,15 +358,16 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov %rcx, %r12\n");
         out.push_str("    mov %rdx, %r13\n");
+        out.push_str("    mov %r8, %r15\n");
     } else {
         out.push_str("    mov %rdi, %r12\n");
         out.push_str("    mov %rsi, %r13\n");
+        out.push_str("    mov %rdx, %r15\n");
     }
-    out.push_str("    xor %rax, %rax\n");
     out.push_str("    test %r12, %r12\n");
-    out.push_str("    jz .L_x64_get_ret\n");
+    out.push_str("    jz .L_x64_get_not_found\n");
     out.push_str("    cmp $65536, %r12\n");
-    out.push_str("    jb .L_x64_get_ret\n");
+    out.push_str("    jb .L_x64_get_not_found\n");
     out.push_str("    movq -16(%r12), %rax\n");
     out.push_str("    cmp $0x5A110001, %rax\n");
     out.push_str("    je .L_x64_get_array\n");
@@ -425,7 +426,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movq (%rax, %r13, 8), %rax\n");
     out.push_str("    jmp .L_x64_get_ret\n");
     out.push_str(".L_x64_get_not_found:\n");
-    out.push_str("    xor %rax, %rax\n");
+    out.push_str("    mov %r15, %rax\n");
     out.push_str(".L_x64_get_ret:\n");
     out.push_str("    add $56, %rsp\n");
     out.push_str("    pop %r15\n");

@@ -53,6 +53,41 @@ impl CodeGen {
                     }
                 }
             }
+            if let Expr::Array(elems) = value {
+                for (i, elem) in elems.iter().enumerate() {
+                    if is_string_expr(elem, &self.ctx.variables) {
+                        self.ctx.variables.insert(
+                            format!("tuple_elem_str:{}:{}", name, i),
+                            VarType::StringOffset(0),
+                        );
+                    }
+                    if is_float_expr(elem, &self.ctx.variables) {
+                        self.ctx.variables.insert(
+                            format!("tuple_elem_flt:{}:{}", name, i),
+                            VarType::Float(0),
+                        );
+                    }
+                }
+            }
+            if let Some(ann) = type_ann {
+                let ann = ann.trim();
+                if ann.starts_with('(') && ann.ends_with(')') {
+                    for (i, ty) in ann[1..ann.len() - 1].split(',').enumerate() {
+                        let ty = ty.trim();
+                        if ty == "string" || ty == "str" {
+                            self.ctx.variables.insert(
+                                format!("tuple_elem_str:{}:{}", name, i),
+                                VarType::StringOffset(0),
+                            );
+                        } else if ty == "float" || ty == "f64" || ty == "f32" {
+                            self.ctx.variables.insert(
+                                format!("tuple_elem_flt:{}:{}", name, i),
+                                VarType::Float(0),
+                            );
+                        }
+                    }
+                }
+            }
             return;
         }
     }
@@ -131,6 +166,39 @@ impl CodeGen {
                     self.ctx
                         .variables
                         .insert(format!("arr_is_flt:{}", name), VarType::Number(0));
+                }
+                for (i, elem) in elements.iter().enumerate() {
+                    if is_string_expr(elem, &self.ctx.variables) {
+                        self.ctx.variables.insert(
+                            format!("tuple_elem_str:{}:{}", name, i),
+                            VarType::StringOffset(0),
+                        );
+                    }
+                    if is_float_expr(elem, &self.ctx.variables) {
+                        self.ctx.variables.insert(
+                            format!("tuple_elem_flt:{}:{}", name, i),
+                            VarType::Float(0),
+                        );
+                    }
+                }
+                if let Some(ann) = type_ann {
+                    let ann = ann.trim();
+                    if ann.starts_with('(') && ann.ends_with(')') {
+                        for (i, ty) in ann[1..ann.len() - 1].split(',').enumerate() {
+                            let ty = ty.trim();
+                            if ty == "string" || ty == "str" {
+                                self.ctx.variables.insert(
+                                    format!("tuple_elem_str:{}:{}", name, i),
+                                    VarType::StringOffset(0),
+                                );
+                            } else if ty == "float" || ty == "f64" || ty == "f32" {
+                                self.ctx.variables.insert(
+                                    format!("tuple_elem_flt:{}:{}", name, i),
+                                    VarType::Float(0),
+                                );
+                            }
+                        }
+                    }
                 }
             }
             Expr::StructInit {
@@ -447,6 +515,35 @@ impl CodeGen {
                                 .insert(format!("{}{}", ret_prefix, name), vt);
                         }
                     }
+                    let prefix_str = format!("tuple_elem_str:{}:", target_fn);
+                    let prefix_flt = format!("tuple_elem_flt:{}:", target_fn);
+                    let matching: Vec<(bool, String)> = self
+                        .ctx
+                        .variables
+                        .keys()
+                        .filter_map(|k| {
+                            if let Some(idx_str) = k.strip_prefix(&prefix_str) {
+                                Some((true, idx_str.to_string()))
+                            } else if let Some(idx_str) = k.strip_prefix(&prefix_flt) {
+                                Some((false, idx_str.to_string()))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    for (is_str, idx_str) in matching {
+                        if is_str {
+                            self.ctx.variables.insert(
+                                format!("tuple_elem_str:{}:{}", name, idx_str),
+                                VarType::StringOffset(0),
+                            );
+                        } else {
+                            self.ctx.variables.insert(
+                                format!("tuple_elem_flt:{}:{}", name, idx_str),
+                                VarType::Float(0),
+                            );
+                        }
+                    }
                 }
 
                 if let Expr::Call { name: cname, args: cargs } = value {
@@ -487,6 +584,31 @@ impl CodeGen {
                                 format!("tuple_elem_str:{}:{}", name, i),
                                 VarType::StringOffset(0),
                             );
+                        }
+                        if is_float_expr(elem, &self.ctx.variables) {
+                            self.ctx.variables.insert(
+                                format!("tuple_elem_flt:{}:{}", name, i),
+                                VarType::Float(0),
+                            );
+                        }
+                    }
+                }
+                if let Some(ann) = type_ann {
+                    let ann = ann.trim();
+                    if ann.starts_with('(') && ann.ends_with(')') {
+                        for (i, ty) in ann[1..ann.len() - 1].split(',').enumerate() {
+                            let ty = ty.trim();
+                            if ty == "string" || ty == "str" {
+                                self.ctx.variables.insert(
+                                    format!("tuple_elem_str:{}:{}", name, i),
+                                    VarType::StringOffset(0),
+                                );
+                            } else if ty == "float" || ty == "f64" || ty == "f32" {
+                                self.ctx.variables.insert(
+                                    format!("tuple_elem_flt:{}:{}", name, i),
+                                    VarType::Float(0),
+                                );
+                            }
                         }
                     }
                 }

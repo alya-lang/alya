@@ -57,7 +57,8 @@ impl CodeGen {
                                 format_str.push_str("null");
                             } else {
                                 let is_flt = is_float_expr(part, &self.ctx.variables);
-                                if is_string_expr(part, &self.ctx.variables) {
+                                let is_str = is_string_expr(part, &self.ctx.variables);
+                                if is_str {
                                     format_str.push_str("%s");
                                 } else if is_flt {
                                     format_str.push_str("%g");

@@ -126,6 +126,11 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
             if bare == "slice" {
                 return !args.is_empty() && expr_is_definitely_string(&args[0], known_strings);
             }
+            if bare == "get" {
+                if args.len() >= 3 && expr_is_definitely_string(&args[2], known_strings) {
+                    return true;
+                }
+            }
             known_strings.contains(&format!("fn_ret_str:{}", name))
                 || known_strings.contains(&format!("fn_ret_str:{}", bare))
         }
@@ -559,6 +564,17 @@ fn collect_string_vars_from_stmts(
                     for (i, elem) in elems.iter().enumerate() {
                         if expr_is_definitely_string(elem, known_strings) {
                             known_strings.insert(format!("tuple_elem_str:{}:{}", name, i));
+                        }
+                    }
+                }
+                if let Some(ann) = type_ann {
+                    let ann = ann.trim();
+                    if ann.starts_with('(') && ann.ends_with(')') {
+                        for (i, ty) in ann[1..ann.len() - 1].split(',').enumerate() {
+                            let ty = ty.trim();
+                            if ty == "string" || ty == "str" {
+                                known_strings.insert(format!("tuple_elem_str:{}:{}", name, i));
+                            }
                         }
                     }
                 }

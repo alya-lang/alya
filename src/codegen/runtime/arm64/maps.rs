@@ -260,6 +260,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    stp x19, x20, [sp, #16]\n");
     out.push_str("    stp x21, x22, [sp, #32]\n");
     out.push_str("    stp x23, x24, [sp, #48]\n");
+    out.push_str("    mov x24, x2\n");
     out.push_str("    cbz x0, .L_arm64_get_not_found\n");
     out.push_str("    cmp x0, #65536\n");
     out.push_str("    b.lo .L_arm64_get_not_found\n");
@@ -312,7 +313,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldr x0, [x10, x1, lsl #3]\n");
     out.push_str("    b .L_arm64_get_ret\n");
     out.push_str(".L_arm64_get_not_found:\n");
-    out.push_str("    mov x0, #0\n");
+    out.push_str("    mov x0, x24\n");
     out.push_str(".L_arm64_get_ret:\n");
     out.push_str("    ldp x23, x24, [sp, #48]\n");
     out.push_str("    ldp x21, x22, [sp, #32]\n");

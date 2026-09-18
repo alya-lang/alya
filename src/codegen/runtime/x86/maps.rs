@@ -299,9 +299,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov 8(%ebp), %esi\n"); // esi = map
     out.push_str("    xor %eax, %eax\n");
     out.push_str("    test %esi, %esi\n");
-    out.push_str("    jz .L_x86_get_ret\n");
+    out.push_str("    jz .L_x86_get_not_found\n");
     out.push_str("    cmp $65536, %esi\n");
-    out.push_str("    jb .L_x86_get_ret\n");
+    out.push_str("    jb .L_x86_get_not_found\n");
     out.push_str("    movl -8(%esi), %eax\n");
     out.push_str("    cmpl $0x5A110001, %eax\n");
     out.push_str("    je .L_x86_get_array\n");
@@ -350,7 +350,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov (%eax, %edx, 4), %eax\n");
     out.push_str("    jmp .L_x86_get_ret\n");
     out.push_str(".L_x86_get_not_found:\n");
-    out.push_str("    xor %eax, %eax\n");
+    out.push_str("    mov 16(%ebp), %eax\n");
     out.push_str(".L_x86_get_ret:\n");
     out.push_str("    pop %edi\n");
     out.push_str("    pop %esi\n");
