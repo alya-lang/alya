@@ -2369,13 +2369,61 @@ impl CodeGen {
                     },
                     _ => None,
                 };
+                let is_known_target_iface = self.ctx.interfaces.contains_key(target)
+                    || self.ctx.interfaces.values().any(|i| {
+                        let bare = i.name.rsplit("::").next().unwrap_or(&i.name);
+                        bare == target
+                    });
                 let is_known_target_struct = self.ctx.structs.contains_key(target)
                     || self.ctx.structs.values().any(|s| {
                         let bare = s.name.rsplit("::").next().unwrap_or(&s.name);
                         bare == target
                     });
 
-                if let Some(sname) = known_struct {
+                if is_known_target_iface {
+                    let bare_target = target.rsplit("::").next().unwrap_or(target);
+                    let bare_target = bare_target.rsplit("__").next().unwrap_or(bare_target);
+
+                    if let Some(sname) = known_struct {
+                        let bare_s = sname.rsplit("::").next().unwrap_or(&sname);
+                        let bare_s = bare_s.rsplit("__").next().unwrap_or(bare_s);
+                        let satisfies = self
+                            .ctx
+                            .vtables
+                            .contains_key(&(bare_s.to_string(), bare_target.to_string()))
+                            || self
+                                .ctx
+                                .vtables
+                                .contains_key(&(sname.clone(), target.to_string()))
+                            || self.ctx.vtables.keys().any(|(s, i)| {
+                                let bs = s.rsplit("::").next().unwrap_or(s);
+                                let bs = bs.rsplit("__").next().unwrap_or(bs);
+                                let bi = i.rsplit("::").next().unwrap_or(i);
+                                let bi = bi.rsplit("__").next().unwrap_or(bi);
+                                bs == bare_s && bi == bare_target
+                            });
+                        let res = if satisfies {
+                            if negated { 0 } else { 1 }
+                        } else {
+                            if negated { 1 } else { 0 }
+                        };
+                        arch::emit_load_num(&mut self.output, self.arch, res);
+                    } else {
+                        let is_literal_non = matches!(
+                            expr,
+                            Expr::Number(_) | Expr::Float(_) | Expr::String(_) | Expr::Null
+                        );
+                        if is_literal_non {
+                            arch::emit_load_num(
+                                &mut self.output,
+                                self.arch,
+                                if negated { 1 } else { 0 },
+                            );
+                        } else {
+                            self.emit_interface_type_check(expr, target, negated);
+                        }
+                    }
+                } else if let Some(sname) = known_struct {
                     let matches = sname == target || sname.ends_with(&format!("::{}", target));
                     let res = if matches {
                         if negated { 0 } else { 1 }
@@ -2384,13 +2432,11 @@ impl CodeGen {
                     };
                     arch::emit_load_num(&mut self.output, self.arch, res);
                 } else if is_known_target_struct {
-                    let is_def_non = is_string_expr(expr, &self.ctx.variables)
-                        || is_array_expr(expr, &self.ctx.variables)
-                        || is_map_expr(expr, &self.ctx.variables)
-                        || is_float_expr(expr, &self.ctx.variables)
-                        || is_null_expr(expr, &self.ctx.variables)
-                        || is_number_expr(expr, &self.ctx.variables);
-                    if is_def_non {
+                    let is_literal_non = matches!(
+                        expr,
+                        Expr::Number(_) | Expr::Float(_) | Expr::String(_) | Expr::Null
+                    );
+                    if is_literal_non {
                         arch::emit_load_num(
                             &mut self.output,
                             self.arch,
@@ -2524,6 +2570,185 @@ impl CodeGen {
                 crate::codegen::arch::arm64::emit_adrp_add(&mut self.output, "x3", &desc_label, self.os);
                 self.output.push_str("    cmp x2, x3\n");
                 self.output.push_str(&format!("    b.ne {}\n", false_label));
+                self.output.push_str(&format!(
+                    "    mov x0, #{}\n",
+                    if negated { 0 } else { 1 }
+                ));
+                self.output.push_str(&format!("    b {}\n", end_label));
+                self.output.push_str(&format!("{}:\n", false_label));
+                self.output.push_str(&format!(
+                    "    mov x0, #{}\n",
+                    if negated { 1 } else { 0 }
+                ));
+                self.output.push_str(&format!("{}:\n", end_label));
+            }
+        }
+    }
+
+    fn emit_interface_type_check(&mut self, expr: &Expr, target: &str, negated: bool) {
+        let bare_target = target.rsplit("::").next().unwrap_or(target);
+        let bare_target = bare_target.rsplit("__").next().unwrap_or(bare_target);
+
+        let matching_structs: Vec<String> = self
+            .ctx
+            .vtables
+            .keys()
+            .filter_map(|(s, i)| {
+                let bi = i.rsplit("::").next().unwrap_or(i);
+                let bi = bi.rsplit("__").next().unwrap_or(bi);
+                if bi == bare_target {
+                    let bs = s.rsplit("::").next().unwrap_or(s);
+                    let bs = bs.rsplit("__").next().unwrap_or(bs);
+                    Some(bs.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        eprintln!("IN emit_interface_type_check: target={}, matching_structs={:?}", target, matching_structs);
+
+        let mut unique_structs = Vec::new();
+        for s in matching_structs {
+            if !unique_structs.contains(&s) {
+                unique_structs.push(s);
+            }
+        }
+
+        if unique_structs.is_empty() {
+            arch::emit_load_num(&mut self.output, self.arch, if negated { 1 } else { 0 });
+            return;
+        }
+
+        self.generate_expression(expr);
+        let false_label = self.ctx.next_label();
+        let true_label = self.ctx.next_label();
+        let end_label = self.ctx.next_label();
+        let concrete_label = self.ctx.next_label();
+        let check_desc_label = self.ctx.next_label();
+
+        match self.arch {
+            Architecture::X64 => {
+                self.output.push_str("    test %rax, %rax\n");
+                self.output.push_str(&format!("    jz {}\n", false_label));
+                self.output.push_str("    test $7, %rax\n");
+                self.output.push_str(&format!("    jnz {}\n", false_label));
+                self.output.push_str("    cmp $65536, %rax\n");
+                self.output.push_str(&format!("    jb {}\n", false_label));
+                self.output.push_str("    movq -16(%rax), %rdx\n");
+                self.output.push_str("    cmp $0x5A110003, %rdx\n");
+                self.output.push_str(&format!("    je {}\n", concrete_label));
+                self.output.push_str("    cmp $0x5A110004, %rdx\n");
+                self.output.push_str(&format!("    jne {}\n", false_label));
+                // Fat pointer: load vtable at 8(%rax), then load descriptor from 0(%r11)
+                self.output.push_str("    movq 8(%rax), %r11\n");
+                self.output.push_str("    test %r11, %r11\n");
+                self.output.push_str(&format!("    jz {}\n", false_label));
+                self.output.push_str("    movq (%r11), %r11\n");
+                self.output.push_str(&format!("    jmp {}\n", check_desc_label));
+                // Concrete struct: load descriptor from 0(%rax)
+                self.output.push_str(&format!("{}:\n", concrete_label));
+                self.output.push_str("    movq (%rax), %r11\n");
+                // Check descriptor against target descriptor
+                self.output.push_str(&format!("{}:\n", check_desc_label));
+                for s in &unique_structs {
+                    let desc_label = format!("alya_struct_desc_{}", s);
+                    self.output.push_str(&format!("    lea {}(%rip), %rdx\n", desc_label));
+                    self.output.push_str("    cmp %rdx, %r11\n");
+                    self.output.push_str(&format!("    je {}\n", true_label));
+                }
+                self.output.push_str(&format!("    jmp {}\n", false_label));
+                self.output.push_str(&format!("{}:\n", true_label));
+                self.output.push_str(&format!(
+                    "    movq ${}, %rax\n",
+                    if negated { 0 } else { 1 }
+                ));
+                self.output.push_str(&format!("    jmp {}\n", end_label));
+                self.output.push_str(&format!("{}:\n", false_label));
+                self.output.push_str(&format!(
+                    "    movq ${}, %rax\n",
+                    if negated { 1 } else { 0 }
+                ));
+                self.output.push_str(&format!("{}:\n", end_label));
+            }
+            Architecture::X86 => {
+                self.output.push_str("    test %eax, %eax\n");
+                self.output.push_str(&format!("    jz {}\n", false_label));
+                self.output.push_str("    test $3, %eax\n");
+                self.output.push_str(&format!("    jnz {}\n", false_label));
+                self.output.push_str("    cmp $65536, %eax\n");
+                self.output.push_str(&format!("    jb {}\n", false_label));
+                self.output.push_str("    movl -8(%eax), %edx\n");
+                self.output.push_str("    cmp $0x5A110003, %edx\n");
+                self.output.push_str(&format!("    je {}\n", concrete_label));
+                self.output.push_str("    cmp $0x5A110004, %edx\n");
+                self.output.push_str(&format!("    jne {}\n", false_label));
+                // Fat pointer
+                self.output.push_str("    movl 4(%eax), %ecx\n");
+                self.output.push_str("    test %ecx, %ecx\n");
+                self.output.push_str(&format!("    jz {}\n", false_label));
+                self.output.push_str("    movl (%ecx), %ecx\n");
+                self.output.push_str(&format!("    jmp {}\n", check_desc_label));
+                // Concrete
+                self.output.push_str(&format!("{}:\n", concrete_label));
+                self.output.push_str("    movl (%eax), %ecx\n");
+                // Check desc
+                self.output.push_str(&format!("{}:\n", check_desc_label));
+                for s in &unique_structs {
+                    let desc_label = format!("alya_struct_desc_{}", s);
+                    self.output.push_str(&format!("    cmp ${}, %ecx\n", desc_label));
+                    self.output.push_str(&format!("    je {}\n", true_label));
+                }
+                self.output.push_str(&format!("    jmp {}\n", false_label));
+                self.output.push_str(&format!("{}:\n", true_label));
+                self.output.push_str(&format!(
+                    "    movl ${}, %eax\n",
+                    if negated { 0 } else { 1 }
+                ));
+                self.output.push_str(&format!("    jmp {}\n", end_label));
+                self.output.push_str(&format!("{}:\n", false_label));
+                self.output.push_str(&format!(
+                    "    movl ${}, %eax\n",
+                    if negated { 1 } else { 0 }
+                ));
+                self.output.push_str(&format!("{}:\n", end_label));
+            }
+            Architecture::ARM64 => {
+                self.output.push_str("    cbz x0, ");
+                self.output.push_str(&format!("{}\n", false_label));
+                self.output.push_str("    tst x0, #7\n");
+                self.output.push_str(&format!("    b.ne {}\n", false_label));
+                self.output.push_str("    cmp x0, #65536\n");
+                self.output.push_str(&format!("    b.lo {}\n", false_label));
+                self.output.push_str("    lsr x1, x0, #47\n");
+                self.output.push_str(&format!("    cbnz x1, {}\n", false_label));
+                self.output.push_str("    ldur x1, [x0, #-16]\n");
+                self.output.push_str("    movz x2, #0x0003\n");
+                self.output.push_str("    movk x2, #0x5A11, lsl #16\n");
+                self.output.push_str("    cmp x1, x2\n");
+                self.output.push_str(&format!("    b.eq {}\n", concrete_label));
+                self.output.push_str("    movz x2, #0x0004\n");
+                self.output.push_str("    movk x2, #0x5A11, lsl #16\n");
+                self.output.push_str("    cmp x1, x2\n");
+                self.output.push_str(&format!("    b.ne {}\n", false_label));
+                // Fat pointer
+                self.output.push_str("    ldr x2, [x0, #8]\n");
+                self.output.push_str(&format!("    cbz x2, {}\n", false_label));
+                self.output.push_str("    ldr x2, [x2]\n");
+                self.output.push_str(&format!("    b {}\n", check_desc_label));
+                // Concrete
+                self.output.push_str(&format!("{}:\n", concrete_label));
+                self.output.push_str("    ldr x2, [x0]\n");
+                // Check desc
+                self.output.push_str(&format!("{}:\n", check_desc_label));
+                for s in &unique_structs {
+                    let desc_label = format!("alya_struct_desc_{}", s);
+                    crate::codegen::arch::arm64::emit_adrp_add(&mut self.output, "x3", &desc_label, self.os);
+                    self.output.push_str("    cmp x2, x3\n");
+                    self.output.push_str(&format!("    b.eq {}\n", true_label));
+                }
+                self.output.push_str(&format!("    b {}\n", false_label));
+                self.output.push_str(&format!("{}:\n", true_label));
                 self.output.push_str(&format!(
                     "    mov x0, #{}\n",
                     if negated { 0 } else { 1 }

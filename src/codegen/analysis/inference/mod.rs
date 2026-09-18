@@ -115,6 +115,11 @@ impl ProgramInference {
     #[inline]
     pub fn infer_param_struct_type(&self, func_name: &str, param_idx: usize) -> Option<String> {
         let bare = resolve_func_bare(func_name, &self.struct_inf.struct_names);
+        if self.struct_inf.conflicted_params.contains(&(func_name.to_string(), param_idx))
+            || self.struct_inf.conflicted_params.contains(&(bare.to_string(), param_idx))
+        {
+            return None;
+        }
         self.struct_inf
             .fn_params
             .get(&(func_name.to_string(), param_idx))

@@ -2050,3 +2050,168 @@ fn test_e2e_phase2_no_std_mode() {
     assert!(asm_std.contains("fn_ask:"), "Standard codegen should include fn_ask runtime");
     assert!(!asm_no_std.contains("fn_ask:"), "Bare-metal codegen must not include fn_ask runtime");
 }
+
+#[test]
+fn test_e2e_phase4_bounded_channel_blocking() {
+    let code = r#"
+import "std/sync"
+
+let ch = Channel.new(2)
+say "cap: " + str(ch.capacity())
+say "is_rendezvous: " + str(ch.is_rendezvous())
+
+# Send up to capacity
+let ok1 = ch.send(10)
+let ok2 = ch.send(20)
+say "send1: " + str(ok1) + " send2: " + str(ok2)
+say "sz_full: " + str(ch.size())
+
+# try_send on full channel must fail immediately
+let ok_try = ch.try_send(30)
+say "try_send_full: " + str(ok_try)
+
+# Spawn worker to consume one item after 30ms delay to unblock the sender
+spawn(|| =>
+    sleep(30)
+    let item = ch.recv()
+    say "worker_drained: " + str(item)
+)
+
+# This send will block until worker unblocks a slot
+let ok3 = ch.send(30)
+say "send3_unblocked: " + str(ok3)
+say "sz_after: " + str(ch.size())
+
+let r2 = ch.recv()
+let r3 = ch.recv()
+say "drained: " + str(r2) + " and " + str(r3)
+ch.close()
+say "closed: " + str(ch.is_closed())
+ch.free()
+"#;
+
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("cap: 2"), "Got: {}", output);
+        assert!(output.contains("is_rendezvous: 0"), "Got: {}", output);
+        assert!(output.contains("send1: 1 send2: 1"), "Got: {}", output);
+        assert!(output.contains("sz_full: 2"), "Got: {}", output);
+        assert!(output.contains("try_send_full: 0"), "Got: {}", output);
+        assert!(output.contains("worker_drained: 10"), "Got: {}", output);
+        assert!(output.contains("send3_unblocked: 1"), "Got: {}", output);
+        assert!(output.contains("drained: 20 and 30"), "Got: {}", output);
+        assert!(output.contains("closed: 1"), "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_phase4_rendezvous_channel_semantics() {
+    let code = r#"
+import "std/sync"
+
+let ch = Channel.rendezvous()
+say "ch_is_rendezvous: " + str(ch.is_rendezvous())
+
+# Non-blocking try_send on rendezvous without active receiver returns 0
+let try_res = ch.try_send(100)
+say "rendezvous_try_send: " + str(try_res)
+
+# Spawn worker to receive value after a short delay
+spawn(|| =>
+    sleep(40)
+    let rec = ch.recv()
+    say "rendezvous_recv_val: " + str(rec)
+)
+
+# Synchronous rendezvous handoff: send blocks until worker receives it
+let ok = ch.send(999)
+say "rendezvous_send_completed: " + str(ok)
+
+ch.close()
+ch.free()
+"#;
+
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("ch_is_rendezvous: 1"), "Got: {}", output);
+        assert!(output.contains("rendezvous_try_send: 0"), "Got: {}", output);
+        assert!(output.contains("rendezvous_recv_val: 999"), "Got: {}", output);
+        assert!(output.contains("rendezvous_send_completed: 1"), "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_phase4_dynamic_interface_querying() {
+    let code = r#"
+interface Shape
+    function area(self) -> int
+end
+
+interface Describable
+    function describe(self) -> string
+end
+
+struct Circle
+    radius: int
+end
+
+function Circle.area(self) -> int
+    return 3 * self.radius * self.radius
+end
+
+function Circle.describe(self) -> string
+    return "Circle with radius " + str(self.radius)
+end
+
+struct PlainPoint
+    x: int
+    y: int
+end
+
+function inspect_dynamic(obj)
+    if obj is Shape
+        say "dynamic: is Shape"
+    else
+        say "dynamic: not Shape"
+    end
+
+    if obj is Describable
+        say "dynamic: is Describable"
+    else
+        say "dynamic: not Describable"
+    end
+end
+
+let c = Circle(5)
+let p = PlainPoint(10, 20)
+
+say "c is Shape: " + str(c is Shape)
+say "c is Describable: " + str(c is Describable)
+say "c is not Shape: " + str(c is not Shape)
+
+say "p is Shape: " + str(p is Shape)
+say "p is Describable: " + str(p is Describable)
+say "p is not Shape: " + str(p is not Shape)
+
+say "--- dynamic inspect c ---"
+inspect_dynamic(c)
+
+say "--- dynamic inspect p ---"
+inspect_dynamic(p)
+"#;
+
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("c is Shape: 1"), "Got: {}", output);
+        assert!(output.contains("c is Describable: 1"), "Got: {}", output);
+        assert!(output.contains("c is not Shape: 0"), "Got: {}", output);
+        assert!(output.contains("p is Shape: 0"), "Got: {}", output);
+        assert!(output.contains("p is Describable: 0"), "Got: {}", output);
+        assert!(output.contains("p is not Shape: 1"), "Got: {}", output);
+        assert!(output.contains("dynamic: is Shape"), "Got: {}", output);
+        assert!(output.contains("dynamic: is Describable"), "Got: {}", output);
+        assert!(output.contains("dynamic: not Shape"), "Got: {}", output);
+        assert!(output.contains("dynamic: not Describable"), "Got: {}", output);
+    }
+}
+

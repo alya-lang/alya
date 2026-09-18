@@ -50,17 +50,106 @@ pub struct Channel
     q
     lock: int
     closed: int
+    capacity: int
+    rendezvous: int
 end
 
 # Creates a new thread-safe FIFO channel.
-pub function channel_new() -> Channel
-    return Channel([1], mutex_new(), 0)
+# If capacity > 0, the channel is bounded (sends block when queue size >= capacity).
+# If capacity <= 0, the channel is unbounded.
+pub function channel_new(capacity: int = 0) -> Channel
+    return Channel([1], mutex_new(), 0, capacity, 0)
+end
+
+# Creates an unbuffered rendezvous channel where sends block until consumed by a receiver.
+pub function channel_rendezvous() -> Channel
+    return Channel([1], mutex_new(), 0, 0, 1)
 end
 
 # Sends a value into the channel. Returns 1 on success, 0 if closed.
+# Blocks if capacity > 0 and queue is full, or if unbuffered rendezvous.
 pub function channel_send(ch: Channel, val) -> int
+    if ch.rendezvous == 1
+        while 1
+            mutex_lock(ch.lock)
+            if ch.closed == 1
+                mutex_unlock(ch.lock)
+                return 0
+            end
+            let head: int = ch.q[0]
+            let total: int = arr_len(ch.q)
+            let sz: int = total - head
+            if sz <= 0
+                ch.q.push(val)
+                while 1
+                    let cur_head: int = ch.q[0]
+                    let cur_total: int = arr_len(ch.q)
+                    let cur_sz: int = cur_total - cur_head
+                    if cur_sz <= 0 or ch.closed == 1
+                        break
+                    end
+                    mutex_unlock(ch.lock)
+                    sleep(1)
+                    mutex_lock(ch.lock)
+                end
+                let was_closed: int = ch.closed
+                let final_head: int = ch.q[0]
+                let final_total: int = arr_len(ch.q)
+                let rem: int = final_total - final_head
+                mutex_unlock(ch.lock)
+                if was_closed == 1 and rem > 0
+                    return 0
+                end
+                return 1
+            end
+            mutex_unlock(ch.lock)
+            sleep(1)
+        end
+    end
+
+    while 1
+        mutex_lock(ch.lock)
+        if ch.closed == 1
+            mutex_unlock(ch.lock)
+            return 0
+        end
+        let head: int = ch.q[0]
+        let total: int = arr_len(ch.q)
+        let sz: int = total - head
+        if sz < 0
+            sz = 0
+        end
+        if ch.capacity > 0 and sz >= ch.capacity
+            mutex_unlock(ch.lock)
+            sleep(1)
+        else
+            ch.q.push(val)
+            mutex_unlock(ch.lock)
+            return 1
+        end
+    end
+    return 0
+end
+
+# Tries to send a value without blocking.
+# Returns 1 on success, 0 if channel is full, unbuffered rendezvous, or closed.
+pub function channel_try_send(ch: Channel, val) -> int
     mutex_lock(ch.lock)
     if ch.closed == 1
+        mutex_unlock(ch.lock)
+        return 0
+    end
+    if ch.rendezvous == 1
+        mutex_unlock(ch.lock)
+        return 0
+    end
+    let head: int = ch.q[0]
+    let total: int = arr_len(ch.q)
+    let sz: int = total - head
+    if sz < 0
+        sz = 0
+    end
+    if ch.capacity > 0 and sz >= ch.capacity
         mutex_unlock(ch.lock)
         return 0
     end
@@ -132,6 +221,24 @@ pub function channel_size(ch: Channel) -> int
     end
     mutex_unlock(ch.lock)
     return sz
+end
+
+# Returns the configured capacity of the channel (0 if unbounded).
+pub function channel_capacity(ch: Channel) -> int
+    return ch.capacity
+end
+
+# Returns 1 if the channel is closed, 0 otherwise.
+pub function channel_is_closed(ch: Channel) -> int
+    mutex_lock(ch.lock)
+    let c: int = ch.closed
+    mutex_unlock(ch.lock)
+    return c
+end
+
+# Returns 1 if the channel is unbuffered rendezvous, 0 otherwise.
+pub function channel_is_rendezvous(ch: Channel) -> int
+    return ch.rendezvous
 end
 
 # Closes the channel. No more items can be sent.
@@ -305,11 +412,19 @@ end
 # --- Struct Methods for Synchronization Primitives ---
 
 pub function Channel.new(capacity: int = 0) -> Channel
-    return channel_new()
+    return channel_new(capacity)
+end
+
+pub function Channel.rendezvous() -> Channel
+    return channel_rendezvous()
 end
 
 pub function Channel.send(self: Channel, val) -> int
     return channel_send(self, val)
+end
+
+pub function Channel.try_send(self: Channel, val) -> int
+    return channel_try_send(self, val)
 end
 
 pub function Channel.recv(self: Channel, timeout_ms: int = 5000)
@@ -322,6 +437,18 @@ end
 
 pub function Channel.size(self: Channel) -> int
     return channel_size(self)
+end
+
+pub function Channel.capacity(self: Channel) -> int
+    return channel_capacity(self)
+end
+
+pub function Channel.is_closed(self: Channel) -> int
+    return channel_is_closed(self)
+end
+
+pub function Channel.is_rendezvous(self: Channel) -> int
+    return channel_is_rendezvous(self)
 end
 
 pub function Channel.close(self: Channel) -> int

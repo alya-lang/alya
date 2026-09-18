@@ -11,6 +11,8 @@ pub struct StructInference {
     pub var_types: HashMap<String, String>,
     /// Maps (struct_name, field_name) -> struct type
     pub field_types: HashMap<(String, String), String>,
+    /// Tracks (function_name, param_idx) that received multiple conflicting struct types (polymorphic)
+    pub conflicted_params: HashSet<(String, usize)>,
     pub struct_names: HashSet<String>,
     pub fn_names: HashSet<String>,
 }
@@ -462,10 +464,22 @@ impl StructInference {
                 let bare = resolve_func_bare(effective_name, struct_names);
                 for (i, arg) in args.iter().enumerate() {
                     if let Some(st) = self.expr_struct_type(arg, current_fn, struct_names) {
-                        self.fn_params
-                            .insert((effective_name.to_string(), i), st.clone());
-                        if bare != effective_name {
-                            self.fn_params.insert((bare.to_string(), i), st);
+                        let key1 = (effective_name.to_string(), i);
+                        let key2 = (bare.to_string(), i);
+                        if self.conflicted_params.contains(&key1) || self.conflicted_params.contains(&key2) {
+                            // Already marked ambiguous, do not assign
+                        } else if let Some(existing) = self.fn_params.get(&key1).cloned() {
+                            if existing != st {
+                                self.conflicted_params.insert(key1.clone());
+                                self.conflicted_params.insert(key2.clone());
+                                self.fn_params.remove(&key1);
+                                self.fn_params.remove(&key2);
+                            }
+                        } else {
+                            self.fn_params.insert(key1, st.clone());
+                            if bare != effective_name {
+                                self.fn_params.insert(key2, st);
+                            }
                         }
                     }
                     self.scan_expr(arg, current_fn, struct_names, fn_names);
@@ -540,6 +554,11 @@ pub fn infer_param_struct_type(
 ) -> Option<String> {
     let inf = StructInference::analyze(program);
     let bare = resolve_func_bare(func_name, &inf.struct_names);
+    if inf.conflicted_params.contains(&(func_name.to_string(), param_idx))
+        || inf.conflicted_params.contains(&(bare.to_string(), param_idx))
+    {
+        return None;
+    }
     inf.fn_params
         .get(&(func_name.to_string(), param_idx))
         .or_else(|| inf.fn_params.get(&(bare.to_string(), param_idx)))
