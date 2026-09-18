@@ -27,8 +27,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    csel x0, x0, x1, ge\n");
     out.push_str("    ret\n\n");
 
-    // fn_sqrt
-    out.push_str("fn_sqrt:\n");
+    // fn_isqrt
+    out.push_str("fn_isqrt:\n");
     out.push_str("    cmp x0, #0\n");
     out.push_str("    b.le .L_arm64_sqrt_zero\n");
     out.push_str("    cmp x0, #4\n");

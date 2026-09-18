@@ -9,6 +9,10 @@ pub function now_ms() -> int
     return clock_ms()
 end
 
+pub function now_millis() -> int
+    return clock_ms()
+end
+
 pub function delay(ms: int)
     return sleep(ms)
 end

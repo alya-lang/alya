@@ -1123,6 +1123,7 @@ impl CodeGen {
                             || self.ctx.functions.contains(&mangled_single)
                             || self.ctx.functions.contains(&mangled2)
                             || self.ctx.functions.contains(&mangled3)
+                            || self.ctx.functions.contains(name)
                             || self.ctx.functions.iter().any(|f| f.ends_with(&format!("__{}", mangled1)) || f.ends_with(&format!("::{}", mangled1))))
                             && !is_var
                     };
@@ -1141,6 +1142,8 @@ impl CodeGen {
                             f.ends_with(&format!("__{}", mangled1)) || f.ends_with(&format!("::{}", mangled1))
                         }) {
                             resolved_name = matched.clone();
+                        } else if self.ctx.functions.contains(name) {
+                            resolved_name = name.clone();
                         } else {
                             resolved_name = mangled1;
                         }

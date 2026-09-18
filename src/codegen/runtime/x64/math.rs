@@ -63,8 +63,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
-    // fn_sqrt
-    out.push_str("fn_sqrt:\n");
+    // fn_isqrt
+    out.push_str("fn_isqrt:\n");
     out.push_str("    push %rbp\n");
     out.push_str("    mov %rsp, %rbp\n");
     if matches!(os, OperatingSystem::Windows) {

@@ -383,4 +383,29 @@ fn test_golden_spec_lexical_execution() {
     }
 }
 
+#[test]
+fn test_golden_spec_modules_execution() {
+    let file = get_spec_syntax_dir().join("modules.alya");
+    let source = fs::read_to_string(&file).expect("Failed to read modules.alya");
+    let mut lexer = Lexer::new(&source);
+    let tokens = lexer.tokenize().expect("Lexer error");
+    let mut parser = Parser::new(tokens);
+    let mut ast = parser.parse().expect("Parser error");
+    alya::parser::resolve_imports(&mut ast, std::path::Path::new(".")).expect("import error");
+    let os = if cfg!(target_os = "windows") {
+        alya::codegen::OperatingSystem::Windows
+    } else {
+        alya::codegen::OperatingSystem::Linux
+    };
+    let arch = alya::codegen::Architecture::X64;
+    let asm = alya::codegen::generate(&ast, arch, os);
+    for line in asm.lines().take(60) {
+        println!("{}", line);
+    }
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from modules.alya (code={}):\n{}", code, output);
+    }
+}
+
+
 
