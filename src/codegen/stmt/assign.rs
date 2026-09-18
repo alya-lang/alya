@@ -917,6 +917,27 @@ impl CodeGen {
     }
 
     pub(super) fn generate_index_assign(&mut self, array: &Expr, index: &Expr, value: &Expr) {
+        if let Some(sname) = self.get_expr_struct_name(array) {
+            let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+            let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+            let cand1 = format!("{}__{}", sname, "operator[]=");
+            let cand2 = format!("{}__{}", bare_sname, "operator[]=");
+            let matched = if self.ctx.functions.contains(&cand1) {
+                Some(cand1)
+            } else if self.ctx.functions.contains(&cand2) {
+                Some(cand2)
+            } else {
+                self.ctx.functions.iter().find(|f| f.ends_with("__operator[]=")).cloned()
+            };
+            if let Some(call_name) = matched {
+                self.generate_expression(&Expr::Call {
+                    name: call_name,
+                    args: vec![array.clone(), index.clone(), value.clone()],
+                });
+                return;
+            }
+        }
+
         if is_map_expr(array, &self.ctx.variables)
             || is_string_expr(index, &self.ctx.variables)
             || matches!(index, Expr::String(_))

@@ -108,6 +108,7 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "console_prompt"
                     | "http_status_text"
                     | "basic_auth"
+                    | "to_string"
             ) {
                 return true;
             }

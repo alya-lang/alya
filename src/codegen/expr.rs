@@ -233,6 +233,43 @@ impl CodeGen {
                 let left_is_num = matches!(**left, Expr::Number(_) | Expr::Float(_));
                 let right_is_num = matches!(**right, Expr::Number(_) | Expr::Float(_));
 
+                if let Some(sname) = self.get_expr_struct_name(left) {
+                    let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+                    let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                    let op_str = match op {
+                        BinaryOp::Add => Some("+"),
+                        BinaryOp::Subtract => Some("-"),
+                        BinaryOp::Multiply => Some("*"),
+                        BinaryOp::Divide => Some("/"),
+                        BinaryOp::Modulo => Some("%"),
+                        BinaryOp::Equal => Some("=="),
+                        BinaryOp::NotEqual => Some("!="),
+                        BinaryOp::Less => Some("<"),
+                        BinaryOp::Greater => Some(">"),
+                        BinaryOp::LessEqual => Some("<="),
+                        BinaryOp::GreaterEqual => Some(">="),
+                        _ => None,
+                    };
+                    if let Some(op_sym) = op_str {
+                        let cand1 = format!("{}__{}{}", sname, "operator", op_sym);
+                        let cand2 = format!("{}__{}{}", bare_sname, "operator", op_sym);
+                        let matched = if self.ctx.functions.contains(&cand1) {
+                            Some(cand1.clone())
+                        } else if self.ctx.functions.contains(&cand2) {
+                            Some(cand2.clone())
+                        } else {
+                            self.ctx.functions.iter().find(|f| f.ends_with(&format!("__{}{}", "operator", op_sym))).cloned()
+                        };
+                        if let Some(call_name) = matched {
+                            self.generate_expression(&Expr::Call {
+                                name: call_name,
+                                args: vec![(**left).clone(), (**right).clone()],
+                            });
+                            return;
+                        }
+                    }
+                }
+
                 if matches!(
                     op,
                     BinaryOp::Equal
@@ -369,6 +406,28 @@ impl CodeGen {
                 }
             }
             Expr::Unary { op, expr } => {
+                if *op == crate::ast::UnaryOp::Negate {
+                    if let Some(sname) = self.get_expr_struct_name(expr) {
+                        let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+                        let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                        let cand1 = format!("{}__{}", sname, "operator-neg");
+                        let cand2 = format!("{}__{}", bare_sname, "operator-neg");
+                        let matched = if self.ctx.functions.contains(&cand1) {
+                            Some(cand1)
+                        } else if self.ctx.functions.contains(&cand2) {
+                            Some(cand2)
+                        } else {
+                            self.ctx.functions.iter().find(|f| f.ends_with("__operator-neg")).cloned()
+                        };
+                        if let Some(call_name) = matched {
+                            self.generate_expression(&Expr::Call {
+                                name: call_name,
+                                args: vec![(**expr).clone()],
+                            });
+                            return;
+                        }
+                    }
+                }
                 let is_float = is_float_expr(expr, &self.ctx.variables);
                 self.generate_expression(expr);
                 if is_float {
@@ -662,6 +721,26 @@ impl CodeGen {
                     if is_null_expr(&args[0], &self.ctx.variables) {
                         self.generate_expression(&Expr::String("null".into()));
                         return;
+                    }
+                    if let Some(sname) = self.get_expr_struct_name(&args[0]) {
+                        let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+                        let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                        let cand1 = format!("{}__{}", sname, "to_string");
+                        let cand2 = format!("{}__{}", bare_sname, "to_string");
+                        let matched = if self.ctx.functions.contains(&cand1) {
+                            Some(cand1)
+                        } else if self.ctx.functions.contains(&cand2) {
+                            Some(cand2)
+                        } else {
+                            self.ctx.functions.iter().find(|f| f.ends_with("__to_string")).cloned()
+                        };
+                        if let Some(call_name) = matched {
+                            self.generate_expression(&Expr::Call {
+                                name: call_name,
+                                args: vec![args[0].clone()],
+                            });
+                            return;
+                        }
                     }
                     if is_float_expr(&args[0], &self.ctx.variables) {
                         let initial_stack_offset = self.ctx.stack_offset;
@@ -1022,28 +1101,30 @@ impl CodeGen {
                 }
 
                 // 2. Struct instance method call via UFCS: p.distance(...) -> Point__distance(p, ...)
-                if let Some(first_arg) = actual_args.first() {
-                    let struct_name_opt = self.get_expr_struct_name(first_arg);
-                    if let Some(sname) = struct_name_opt {
-                        let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
-                        let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
-                        let candidate1 = format!("{}__{}", sname, name);
-                        let candidate2 = format!("{}__{}", bare_sname, name);
-                        let suffix1 = format!("__{}", candidate1);
-                        let suffix2 = format!("__{}", candidate2);
-                        let suffix3 = format!("::{}", candidate1);
-                        let suffix4 = format!("::{}", candidate2);
-                        if self.ctx.functions.contains(&candidate1) {
-                            resolved_name = candidate1;
-                        } else if self.ctx.functions.contains(&candidate2) {
-                            resolved_name = candidate2;
-                        } else if let Some(matched) = self.ctx.functions.iter().find(|f| {
-                            f.ends_with(&suffix1)
-                                || f.ends_with(&suffix2)
-                                || f.ends_with(&suffix3)
-                                || f.ends_with(&suffix4)
-                        }) {
-                            resolved_name = matched.clone();
+                if !self.ctx.functions.contains(&resolved_name) {
+                    if let Some(first_arg) = actual_args.first() {
+                        let struct_name_opt = self.get_expr_struct_name(first_arg);
+                        if let Some(sname) = struct_name_opt {
+                            let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+                            let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                            let candidate1 = format!("{}__{}", sname, name);
+                            let candidate2 = format!("{}__{}", bare_sname, name);
+                            let suffix1 = format!("__{}", candidate1);
+                            let suffix2 = format!("__{}", candidate2);
+                            let suffix3 = format!("::{}", candidate1);
+                            let suffix4 = format!("::{}", candidate2);
+                            if self.ctx.functions.contains(&candidate1) {
+                                resolved_name = candidate1;
+                            } else if self.ctx.functions.contains(&candidate2) {
+                                resolved_name = candidate2;
+                            } else if let Some(matched) = self.ctx.functions.iter().find(|f| {
+                                f.ends_with(&suffix1)
+                                    || f.ends_with(&suffix2)
+                                    || f.ends_with(&suffix3)
+                                    || f.ends_with(&suffix4)
+                            }) {
+                                resolved_name = matched.clone();
+                            }
                         }
                     }
                 }
@@ -1590,6 +1671,27 @@ impl CodeGen {
                 }
             }
             Expr::Index { array, index } => {
+                if let Some(sname) = self.get_expr_struct_name(array) {
+                    let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+                    let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                    let cand1 = format!("{}__{}", sname, "operator[]");
+                    let cand2 = format!("{}__{}", bare_sname, "operator[]");
+                    let matched = if self.ctx.functions.contains(&cand1) {
+                        Some(cand1)
+                    } else if self.ctx.functions.contains(&cand2) {
+                        Some(cand2)
+                    } else {
+                        self.ctx.functions.iter().find(|f| f.ends_with("__operator[]")).cloned()
+                    };
+                    if let Some(call_name) = matched {
+                        self.generate_expression(&Expr::Call {
+                            name: call_name,
+                            args: vec![(**array).clone(), (**index).clone()],
+                        });
+                        return;
+                    }
+                }
+
                 if is_map_expr(array, &self.ctx.variables)
                     || is_string_expr(index, &self.ctx.variables)
                     || matches!(**index, Expr::String(_))

@@ -267,3 +267,25 @@ fn test_golden_spec_enums_execution() {
         assert!(output.contains("Response verdict: Client correction required"));
     }
 }
+
+#[test]
+fn test_golden_spec_operators_overloading_execution() {
+    let file = get_spec_syntax_dir().join("operators_overloading.alya");
+    let source = fs::read_to_string(&file)
+        .expect("Failed to read spec/syntax/operators_overloading.alya");
+
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from operators_overloading.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("v1: Vector2D(3, 4)"));
+        assert!(output.contains("v2: Vector2D(1, 2)"));
+        assert!(output.contains("v1 + v2: Vector2D(4, 6)"));
+        assert!(output.contains("v1 - v2: Vector2D(2, 2)"));
+        assert!(output.contains("v1 * 2: Vector2D(6, 8)"));
+        assert!(output.contains("-v1: Vector2D(-3, -4)"));
+        assert!(output.contains("Vector equality verified successfully"));
+        assert!(output.contains("v2 has smaller magnitude than v1"));
+        assert!(output.contains("Element at ring[0] (actual offset 1): 200"));
+        assert!(output.contains("Updated element at ring[0]: 999"));
+    }
+}

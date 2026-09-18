@@ -1190,6 +1190,69 @@ impl CodeGen {
             Expr::NullCoalesce { value, default } => self
                 .get_expr_struct_name(value)
                 .or_else(|| self.get_expr_struct_name(default)),
+            Expr::Binary { left, op, .. } => {
+                if let Some(sname) = self.get_expr_struct_name(left) {
+                    let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+                    let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                    let op_str = match op {
+                        BinaryOp::Add => Some("+"),
+                        BinaryOp::Subtract => Some("-"),
+                        BinaryOp::Multiply => Some("*"),
+                        BinaryOp::Divide => Some("/"),
+                        BinaryOp::Modulo => Some("%"),
+                        _ => None,
+                    };
+                    if let Some(op_sym) = op_str {
+                        let cand1 = format!("{}__{}{}", sname, "operator", op_sym);
+                        let cand2 = format!("{}__{}{}", bare_sname, "operator", op_sym);
+                        if let Some(VarType::Struct { struct_name, .. }) = self
+                            .ctx
+                            .variables
+                            .get(&format!("fn_ret_struct:{}", cand1))
+                            .or_else(|| self.ctx.variables.get(&format!("fn_ret_struct:{}", cand2)))
+                        {
+                            return Some(struct_name.clone());
+                        }
+                    }
+                }
+                None
+            }
+            Expr::Unary { op, expr } => {
+                if *op == crate::ast::UnaryOp::Negate {
+                    if let Some(sname) = self.get_expr_struct_name(expr) {
+                        let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+                        let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                        let cand1 = format!("{}__{}", sname, "operator-neg");
+                        let cand2 = format!("{}__{}", bare_sname, "operator-neg");
+                        if let Some(VarType::Struct { struct_name, .. }) = self
+                            .ctx
+                            .variables
+                            .get(&format!("fn_ret_struct:{}", cand1))
+                            .or_else(|| self.ctx.variables.get(&format!("fn_ret_struct:{}", cand2)))
+                        {
+                            return Some(struct_name.clone());
+                        }
+                    }
+                }
+                None
+            }
+            Expr::Index { array, .. } => {
+                if let Some(sname) = self.get_expr_struct_name(array) {
+                    let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+                    let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                    let cand1 = format!("{}__{}", sname, "operator[]");
+                    let cand2 = format!("{}__{}", bare_sname, "operator[]");
+                    if let Some(VarType::Struct { struct_name, .. }) = self
+                        .ctx
+                        .variables
+                        .get(&format!("fn_ret_struct:{}", cand1))
+                        .or_else(|| self.ctx.variables.get(&format!("fn_ret_struct:{}", cand2)))
+                    {
+                        return Some(struct_name.clone());
+                    }
+                }
+                None
+            }
             _ => None,
         }
     }

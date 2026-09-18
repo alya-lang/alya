@@ -37,7 +37,36 @@ impl CodeGen {
                     | BinaryOp::Greater
                     | BinaryOp::GreaterEqual
             );
+            let has_overloaded_op = if is_cmp {
+                if let Some(sname) = self.get_expr_struct_name(left) {
+                    let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+                    let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                    let op_str = match op {
+                        BinaryOp::Equal => Some("=="),
+                        BinaryOp::NotEqual => Some("!="),
+                        BinaryOp::Less => Some("<"),
+                        BinaryOp::Greater => Some(">"),
+                        BinaryOp::LessEqual => Some("<="),
+                        BinaryOp::GreaterEqual => Some(">="),
+                        _ => None,
+                    };
+                    if let Some(op_sym) = op_str {
+                        let cand1 = format!("{}__{}{}", sname, "operator", op_sym);
+                        let cand2 = format!("{}__{}{}", bare_sname, "operator", op_sym);
+                        self.ctx.functions.contains(&cand1)
+                            || self.ctx.functions.contains(&cand2)
+                            || self.ctx.functions.iter().any(|f| f.ends_with(&format!("__{}{}", "operator", op_sym)))
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
             if is_cmp
+                && !has_overloaded_op
                 && !is_string_expr(left, &self.ctx.variables)
                 && !is_string_expr(right, &self.ctx.variables)
             {
@@ -166,7 +195,36 @@ impl CodeGen {
                     | BinaryOp::Greater
                     | BinaryOp::GreaterEqual
             );
+            let has_overloaded_op = if is_cmp {
+                if let Some(sname) = self.get_expr_struct_name(left) {
+                    let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+                    let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                    let op_str = match op {
+                        BinaryOp::Equal => Some("=="),
+                        BinaryOp::NotEqual => Some("!="),
+                        BinaryOp::Less => Some("<"),
+                        BinaryOp::Greater => Some(">"),
+                        BinaryOp::LessEqual => Some("<="),
+                        BinaryOp::GreaterEqual => Some(">="),
+                        _ => None,
+                    };
+                    if let Some(op_sym) = op_str {
+                        let cand1 = format!("{}__{}{}", sname, "operator", op_sym);
+                        let cand2 = format!("{}__{}{}", bare_sname, "operator", op_sym);
+                        self.ctx.functions.contains(&cand1)
+                            || self.ctx.functions.contains(&cand2)
+                            || self.ctx.functions.iter().any(|f| f.ends_with(&format!("__{}{}", "operator", op_sym)))
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
             if is_cmp
+                && !has_overloaded_op
                 && !is_string_expr(left, &self.ctx.variables)
                 && !is_string_expr(right, &self.ctx.variables)
             {

@@ -158,8 +158,26 @@ pub fn emit_increment_var(
     }
 }
 
+pub fn mangle_symbol_name(name: &str) -> String {
+    let s = name.replace("::", "__");
+    s.replace("operator[]=", "operator_index_assign_")
+        .replace("operator[]", "operator_index_")
+        .replace("operator-neg", "operator_neg_")
+        .replace("operator==", "operator_eq_")
+        .replace("operator!=", "operator_ne_")
+        .replace("operator<=", "operator_le_")
+        .replace("operator>=", "operator_ge_")
+        .replace("operator<", "operator_lt_")
+        .replace("operator>", "operator_gt_")
+        .replace("operator+", "operator_add_")
+        .replace("operator-", "operator_sub_")
+        .replace("operator*", "operator_mul_")
+        .replace("operator/", "operator_div_")
+        .replace("operator%", "operator_mod_")
+}
+
 pub fn emit_function_prologue(out: &mut String, arch: Architecture, name: &str) {
-    let mangled = name.replace("::", "__");
+    let mangled = mangle_symbol_name(name);
     match arch {
         Architecture::ARM64 => arm64::emit_function_prologue(out, &mangled),
         Architecture::X64 => x64::emit_function_prologue(out, &mangled),
@@ -197,7 +215,7 @@ pub fn emit_function_call(
     stack_offset: i32,
     os: OperatingSystem,
 ) {
-    let mangled = name.replace("::", "__");
+    let mangled = mangle_symbol_name(name);
     match arch {
         Architecture::ARM64 => arm64::emit_function_call(out, &mangled, args_count),
         Architecture::X64 => x64::emit_function_call(out, &mangled, args_count, stack_offset, os),
@@ -213,7 +231,7 @@ pub fn emit_c_function_call(
     stack_offset: i32,
     os: OperatingSystem,
 ) {
-    let mangled = name.replace("::", "__");
+    let mangled = mangle_symbol_name(name);
     match arch {
         Architecture::ARM64 => arm64::emit_c_function_call(out, &mangled, args_count, os),
         Architecture::X64 => x64::emit_c_function_call(out, &mangled, args_count, stack_offset, os),

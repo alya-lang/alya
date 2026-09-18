@@ -44,7 +44,7 @@ impl CodeGen {
             }
             Expr::InterpolatedString(parts) => {
                 let mut format_str = String::new();
-                let mut exprs = Vec::new();
+                let mut exprs: Vec<Expr> = Vec::new();
                 let mut is_floats = Vec::new();
 
                 for part in parts {
@@ -56,17 +56,41 @@ impl CodeGen {
                             if is_null_expr(part, &self.ctx.variables) {
                                 format_str.push_str("null");
                             } else {
-                                let is_flt = is_float_expr(part, &self.ctx.variables);
-                                let is_str = is_string_expr(part, &self.ctx.variables);
-                                if is_str {
-                                    format_str.push_str("%s");
-                                } else if is_flt {
-                                    format_str.push_str("%g");
+                                let struct_to_string = if let Some(sname) = self.get_expr_struct_name(part) {
+                                    let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+                                    let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                                    let cand1 = format!("{}__{}", sname, "to_string");
+                                    let cand2 = format!("{}__{}", bare_sname, "to_string");
+                                    if self.ctx.functions.contains(&cand1) {
+                                        Some(cand1)
+                                    } else if self.ctx.functions.contains(&cand2) {
+                                        Some(cand2)
+                                    } else {
+                                        self.ctx.functions.iter().find(|f| f.ends_with("__to_string")).cloned()
+                                    }
                                 } else {
-                                    format_str.push_str("%lld");
+                                    None
+                                };
+                                if let Some(ts_func) = struct_to_string {
+                                    format_str.push_str("%s");
+                                    exprs.push(Expr::Call {
+                                        name: ts_func,
+                                        args: vec![part.clone()],
+                                    });
+                                    is_floats.push(false);
+                                } else {
+                                    let is_flt = is_float_expr(part, &self.ctx.variables);
+                                    let is_str = is_string_expr(part, &self.ctx.variables);
+                                    if is_str {
+                                        format_str.push_str("%s");
+                                    } else if is_flt {
+                                        format_str.push_str("%g");
+                                    } else {
+                                        format_str.push_str("%lld");
+                                    }
+                                    exprs.push(part.clone());
+                                    is_floats.push(is_flt);
                                 }
-                                exprs.push(part);
-                                is_floats.push(is_flt);
                             }
                         }
                     }
@@ -407,6 +431,27 @@ impl CodeGen {
                 }
             }
             _ => {
+                if let Some(sname) = self.get_expr_struct_name(expr) {
+                    let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
+                    let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+                    let cand1 = format!("{}__{}", sname, "to_string");
+                    let cand2 = format!("{}__{}", bare_sname, "to_string");
+                    let matched = if self.ctx.functions.contains(&cand1) {
+                        Some(cand1)
+                    } else if self.ctx.functions.contains(&cand2) {
+                        Some(cand2)
+                    } else {
+                        self.ctx.functions.iter().find(|f| f.ends_with("__to_string")).cloned()
+                    };
+                    if let Some(call_name) = matched {
+                        self.generate_say(&Expr::Call {
+                            name: call_name,
+                            args: vec![expr.clone()],
+                        });
+                        return;
+                    }
+                }
+
                 if is_null_expr(expr, &self.ctx.variables) {
                     let label = self.ctx.next_string_label();
                     self.emit_rodata_section();
