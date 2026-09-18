@@ -442,6 +442,7 @@ mod tests {
             statements: vec![
                 Stmt::Function {
                     name: "used_fn".into(),
+                    type_params: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -450,6 +451,7 @@ mod tests {
                 },
                 Stmt::Function {
                     name: "dead_fn".into(),
+                    type_params: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -485,6 +487,7 @@ mod tests {
             statements: vec![
                 Stmt::Function {
                     name: "entry_fn".into(),
+                    type_params: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -496,6 +499,7 @@ mod tests {
                 },
                 Stmt::Function {
                     name: "helper_fn".into(),
+                    type_params: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -504,6 +508,7 @@ mod tests {
                 },
                 Stmt::Function {
                     name: "unreachable_fn".into(),
+                    type_params: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -541,6 +546,7 @@ mod tests {
             statements: vec![
                 Stmt::Function {
                     name: "on_event".into(),
+                    type_params: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -549,6 +555,7 @@ mod tests {
                 },
                 Stmt::Function {
                     name: "register_cb".into(),
+                    type_params: vec![],
                     params: vec!["cb".into()],
                     param_types: vec![],
                     return_type: None,
@@ -627,6 +634,7 @@ mod tests {
             statements: vec![
                 Stmt::Function {
                     name: "lib_a".into(),
+                    type_params: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -635,6 +643,7 @@ mod tests {
                 },
                 Stmt::Function {
                     name: "lib_b".into(),
+                    type_params: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -654,6 +663,7 @@ mod tests {
             statements: vec![
                 Stmt::Pub(Box::new(Stmt::Function {
                     name: "exported_api".into(),
+                    type_params: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -665,6 +675,7 @@ mod tests {
                 })),
                 Stmt::Function {
                     name: "internal_used_helper".into(),
+                    type_params: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -673,6 +684,7 @@ mod tests {
                 },
                 Stmt::Function {
                     name: "internal_dead_helper".into(),
+                    type_params: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -681,6 +693,7 @@ mod tests {
                 },
                 Stmt::Function {
                     name: "test_feature".into(),
+                    type_params: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,

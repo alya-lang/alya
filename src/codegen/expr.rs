@@ -558,7 +558,15 @@ impl CodeGen {
                     return;
                 }
 
-                if name == "push" && args.len() == 2 {
+                let is_struct_receiver = args.first().and_then(|a| self.get_expr_struct_name(a)).is_some_and(|sname| {
+                    let bare = sname.rsplit("::").next().unwrap_or(&sname);
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    self.ctx.functions.contains(&format!("{}__{}", sname, name))
+                        || self.ctx.functions.contains(&format!("{}__{}", bare, name))
+                        || self.ctx.functions.iter().any(|f| f.ends_with(&format!("{}__{}", bare, name)))
+                });
+
+                if name == "push" && args.len() == 2 && !is_struct_receiver {
                     if is_string_expr(&args[1], &self.ctx.variables) {
                         if let Expr::Identifier(arr_name) = &args[0] {
                             self.ctx
@@ -593,7 +601,7 @@ impl CodeGen {
                     return;
                 }
 
-                if name == "pop" && args.len() == 1 {
+                if name == "pop" && args.len() == 1 && !is_struct_receiver {
                     self.generate_expression(&args[0]);
                     arch::emit_array_pop(
                         &mut self.output,

@@ -567,6 +567,7 @@ impl Parser {
             return_type: None,
             defaults: vec![],
             body,
+            type_params: vec![],
         };
         Ok(vec![fn_stmt])
     }
@@ -645,6 +646,7 @@ impl Parser {
                             name,
                             args: thunk_args,
                         })],
+                        type_params: vec![],
                     };
                     self.lambda_functions.push(thunk_fn);
                     Ok(vec![Stmt::Expr(Expr::Call {

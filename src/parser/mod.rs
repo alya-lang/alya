@@ -1,6 +1,7 @@
 pub mod constants;
 pub mod enums;
 pub mod expr;
+pub mod generics;
 pub mod stmt;
 #[cfg(test)]
 mod tests;
@@ -894,6 +895,7 @@ pub(crate) fn resolve_stmt_imports_ext(
                                     return_type,
                                     defaults,
                                     body,
+                                    type_params,
                                 } if name == &sym.name => {
                                     additional_stmts.push(Stmt::Function {
                                         name: alias_name.clone(),
@@ -902,6 +904,7 @@ pub(crate) fn resolve_stmt_imports_ext(
                                         return_type: return_type.clone(),
                                         defaults: defaults.clone(),
                                         body: body.clone(),
+                                        type_params: type_params.clone(),
                                     });
                                 }
                                 Stmt::StructDef {

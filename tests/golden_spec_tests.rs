@@ -142,3 +142,21 @@ fn test_golden_spec_interfaces_execution() {
     }
 }
 
+#[test]
+fn test_golden_spec_generics_execution() {
+    let gen_file = get_spec_syntax_dir().join("generics.alya");
+    let source = fs::read_to_string(&gen_file)
+        .expect("Failed to read spec/syntax/generics.alya");
+
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from generics.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("Swapped integers: 200, 100"));
+        assert!(output.contains("Swapped strings: Right, Left"));
+        assert!(output.contains("Stack size: 3"));
+        assert!(output.contains("Popped top element: 30"));
+        assert!(output.contains("Entry pair: HTTP_STATUS = 200"));
+        assert!(output.contains("[LOG] 'The Pragmatic Programmer' by Hunt & Thomas"));
+    }
+}
+

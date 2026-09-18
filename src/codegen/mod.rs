@@ -234,19 +234,11 @@ impl CodeGen {
     }
 
     pub fn generate_program(&mut self, program: &Program) {
-        let mut resolved_prog;
-        let program = if program
-            .statements
-            .iter()
-            .any(|s| matches!(s, Stmt::EnumDef { .. } | Stmt::Const { .. }))
-        {
-            resolved_prog = program.clone();
-            crate::parser::enums::resolve_enums(&mut resolved_prog);
-            let _ = crate::parser::constants::resolve_and_validate_constants(&mut resolved_prog);
-            &resolved_prog
-        } else {
-            program
-        };
+        let mut resolved_prog = program.clone();
+        crate::parser::enums::resolve_enums(&mut resolved_prog);
+        let _ = crate::parser::constants::resolve_and_validate_constants(&mut resolved_prog);
+        crate::parser::generics::resolve_generics(&mut resolved_prog);
+        let program = &resolved_prog;
 
         let original_stmts = program.statements.len();
         let t_dce = std::time::Instant::now();

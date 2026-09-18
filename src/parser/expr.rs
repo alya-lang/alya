@@ -651,6 +651,41 @@ impl Parser {
                         name: callee_name,
                         args,
                     };
+                } else if let Expr::Index { array, index } = &expr {
+                    let callee_opt = match (&**array, &**index) {
+                        (Expr::Identifier(name), Expr::Identifier(type_arg)) => {
+                            Some((name.clone(), type_arg.clone()))
+                        }
+                        (Expr::Identifier(name), Expr::Array(type_args)) => {
+                            let parts: Vec<String> = type_args.iter().filter_map(|e| match e {
+                                Expr::Identifier(id) => Some(id.clone()),
+                                _ => None,
+                            }).collect();
+                            if parts.len() == type_args.len() && !parts.is_empty() {
+                                Some((name.clone(), parts.join("_")))
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+                    if let Some((callee_name, type_arg)) = callee_opt {
+                        self.advance();
+                        let mut args = Vec::new();
+                        while !matches!(self.current_token().token_type, TokenType::RightParen) {
+                            args.push(self.parse_call_argument()?);
+                            if matches!(self.current_token().token_type, TokenType::Comma) {
+                                self.advance();
+                            }
+                        }
+                        self.expect(TokenType::RightParen)?;
+                        expr = Expr::Call {
+                            name: format!("{}__{}", callee_name, type_arg),
+                            args,
+                        };
+                    } else {
+                        break;
+                    }
                 } else {
                     break;
                 }
@@ -846,6 +881,7 @@ impl Parser {
             return_type,
             defaults,
             body,
+            type_params: vec![],
         });
 
         Ok(Expr::Identifier(lambda_name))
@@ -908,6 +944,7 @@ impl Parser {
             return_type,
             defaults,
             body,
+            type_params: vec![],
         });
 
         Ok(Expr::Identifier(lambda_name))
@@ -1231,6 +1268,7 @@ impl Parser {
                                 return_type: None,
                                 defaults: vec![],
                                 body,
+                                type_params: vec![],
                             });
                             return Ok(Expr::Call {
                                 name: lambda_name,
@@ -1323,6 +1361,7 @@ impl Parser {
                         return_type: None,
                         defaults,
                         body,
+                        type_params: vec![],
                     });
 
                     Ok(Expr::Call {
@@ -1469,6 +1508,7 @@ impl Parser {
                         return_type: None,
                         defaults: vec![],
                         body,
+                        type_params: vec![],
                     });
                     return Ok(Expr::Call {
                         name: lambda_name,
@@ -1568,6 +1608,7 @@ impl Parser {
                 return_type: None,
                 defaults,
                 body,
+                type_params: vec![],
             });
 
             Ok(Expr::Call {

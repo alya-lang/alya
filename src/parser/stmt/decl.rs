@@ -424,19 +424,37 @@ impl Parser {
         };
         self.advance();
 
-        // Optional generic type parameter on base type: Stack[T].push(...)
+        let mut base_type_params = Vec::new();
+        let mut type_bounds = std::collections::HashMap::new();
+        // Optional generic type parameter on base type: Stack[T].push(...) or function: swap[T](...)
         if matches!(self.current_token().token_type, TokenType::LeftBracket) {
             self.advance();
             while !matches!(self.current_token().token_type, TokenType::RightBracket | TokenType::Eof) {
-                self.advance();
+                if let TokenType::Identifier(type_param) = &self.current_token().token_type {
+                    let tp = type_param.clone();
+                    self.advance();
+                    if matches!(self.current_token().token_type, TokenType::Colon) {
+                        self.advance();
+                        if let TokenType::Identifier(bound) = &self.current_token().token_type {
+                            type_bounds.insert(tp.clone(), bound.clone());
+                            self.advance();
+                        }
+                    } else {
+                        base_type_params.push(tp);
+                    }
+                } else {
+                    self.advance();
+                }
             }
             self.expect(TokenType::RightBracket)?;
         }
 
+        let mut has_member = false;
         while matches!(
             self.current_token().token_type,
             TokenType::ColonColon | TokenType::Dot
         ) {
+            has_member = true;
             self.advance();
             match &self.current_token().token_type {
                 TokenType::Identifier(member) => {
@@ -503,11 +521,33 @@ impl Parser {
             }
         }
 
-        // Optional generic type parameter on function: swap[T](...)
+        let mut type_params = if !base_type_params.is_empty() && !has_member {
+            base_type_params
+        } else {
+            Vec::new()
+        };
+        // Optional generic type parameter on function: swap[T](...), log_printable[T: Printable](...)
         if matches!(self.current_token().token_type, TokenType::LeftBracket) {
             self.advance();
-            while !matches!(self.current_token().token_type, TokenType::RightBracket | TokenType::Eof) {
-                self.advance();
+            while !matches!(
+                self.current_token().token_type,
+                TokenType::RightBracket | TokenType::Eof
+            ) {
+                if let TokenType::Identifier(type_param) = &self.current_token().token_type {
+                    let tp = type_param.clone();
+                    self.advance();
+                    if matches!(self.current_token().token_type, TokenType::Colon) {
+                        self.advance();
+                        if let TokenType::Identifier(bound) = &self.current_token().token_type {
+                            type_bounds.insert(tp.clone(), bound.clone());
+                            self.advance();
+                        }
+                    } else {
+                        type_params.push(tp);
+                    }
+                } else {
+                    self.advance();
+                }
             }
             self.expect(TokenType::RightBracket)?;
         }
@@ -549,7 +589,13 @@ impl Parser {
 
             let param_type = if matches!(self.current_token().token_type, TokenType::Colon) {
                 self.advance();
-                Some(self.parse_type_annotation()?)
+                let ty = self.parse_type_annotation()?;
+                let resolved_ty = if let Some(bound) = type_bounds.get(&ty) {
+                    bound.clone()
+                } else {
+                    ty
+                };
+                Some(resolved_ty)
             } else if is_rest {
                 Some("...".to_string())
             } else {
@@ -612,6 +658,7 @@ impl Parser {
             return_type,
             defaults,
             body,
+            type_params,
         })
     }
 

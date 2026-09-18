@@ -96,6 +96,7 @@ pub enum Stmt {
         return_type: Option<String>,
         defaults: Vec<Option<Expr>>,
         body: Vec<Stmt>,
+        type_params: Vec<String>,
     },
     Return(Option<Expr>),
     Break,
