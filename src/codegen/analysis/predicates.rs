@@ -16,6 +16,8 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "trim"
                     | "upper"
                     | "lower"
+                    | "to_upper"
+                    | "to_lower"
                     | "substring"
                     | "substr"
                     | "join"

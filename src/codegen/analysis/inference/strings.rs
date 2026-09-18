@@ -16,6 +16,8 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
                     | "trim"
                     | "upper"
                     | "lower"
+                    | "to_upper"
+                    | "to_lower"
                     | "substring"
                     | "substr"
                     | "join"

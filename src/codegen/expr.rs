@@ -1144,8 +1144,12 @@ impl CodeGen {
                     "substring".to_string()
                 } else if resolved_name == "substr" {
                     "substring".to_string()
-                } else if resolved_name == "length" {
+                } else if resolved_name == "length" || resolved_name == "byte_length" {
                     "len".to_string()
+                } else if resolved_name == "to_upper" {
+                    "upper".to_string()
+                } else if resolved_name == "to_lower" {
+                    "lower".to_string()
                 } else if (resolved_name == "contains" || resolved_name == "has")
                     && actual_args.len() == 2
                     && is_map_expr(&actual_args[0], &self.ctx.variables)

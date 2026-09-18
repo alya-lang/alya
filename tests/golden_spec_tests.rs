@@ -289,3 +289,24 @@ fn test_golden_spec_operators_overloading_execution() {
         assert!(output.contains("Updated element at ring[0]: 999"));
     }
 }
+
+#[test]
+fn test_golden_spec_if_execution() {
+    let file = get_spec_syntax_dir().join("if.alya");
+    let source = fs::read_to_string(&file).expect("Failed to read if.alya");
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        println!("Output from if.alya (code={}):\n{}", code, output);
+        assert_eq!(code, 0, "Execution failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("Warning: High temperature threshold exceeded."));
+        assert!(output.contains("Access denied: Redirecting to authentication service."));
+        assert!(output.contains("Grade: B (High Pass)"));
+        assert!(output.contains("Calculated discount: 20%"));
+        assert!(output.contains("Status badge: Honors"));
+        assert!(output.contains("[DEBUG] Subsystem initialized at high resolution"));
+        assert!(output.contains("Worker thread pool idle"));
+        assert!(output.contains("Authorized for repository write access."));
+        assert!(output.contains("Hello, ALYA DEVELOPER!"));
+        assert!(output.contains("System operating normally (45 GB free). Status: Diagnostic OK"));
+    }
+}
+
