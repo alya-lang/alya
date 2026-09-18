@@ -425,4 +425,3 @@ fn test_codegen_macos_arm64_mem_trace_stack_passing() {
     assert!(asm_macos.contains("bl _printf"));
     assert!(asm_macos.contains("add sp, sp, #32"));
 }
-
