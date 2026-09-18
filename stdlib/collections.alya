@@ -2,8 +2,7 @@
 # Provides common data structures: Stack, Queue, and Set.
 
 # 1. Stack (LIFO)
-pub struct Stack
-end
+pub struct Stack end
 
 pub function Stack.new()
     return []
@@ -41,8 +40,7 @@ pub function stack_is_empty(s) -> int
 end
 
 # 2. Queue (FIFO) - O(1) amortized queue using head pointer and compaction
-pub struct Queue
-end
+pub struct Queue end
 
 pub function Queue.new()
     return queue_new()
@@ -123,8 +121,7 @@ pub function queue_to_array(q)
 end
 
 # 3. Set (Unique items)
-pub struct Set
-end
+pub struct Set end
 
 pub function Set.new()
     return set_new()

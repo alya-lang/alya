@@ -601,9 +601,88 @@ fn determine_comment_indent(
     }
 }
 
+fn collapse_empty_declarations(source: &str) -> String {
+    let raw_lines: Vec<&str> = source.lines().collect();
+    let mut result_lines: Vec<String> = Vec::new();
+    let mut i = 0;
+
+    while i < raw_lines.len() {
+        let line = raw_lines[i];
+        let trimmed = line.trim();
+        let code = strip_line_comment(trimmed);
+
+        let code_after_pub = if let Some(stripped) = code.strip_prefix("pub ") {
+            stripped.trim_start()
+        } else {
+            code
+        };
+
+        let first_word = code_after_pub.split_whitespace().next().unwrap_or("");
+        let is_target_block = matches!(first_word, "struct" | "interface");
+
+        if is_target_block && !ends_with_word_outside_quotes(code, "end") {
+            // Look ahead to see if the next non-blank line is strictly "end"
+            let mut j = i + 1;
+            let mut all_blank = true;
+            let mut found_end = false;
+            let mut end_comment = "";
+
+            while j < raw_lines.len() {
+                let next_trimmed = raw_lines[j].trim();
+                if next_trimmed.is_empty() {
+                    j += 1;
+                    continue;
+                }
+                let next_code = strip_line_comment(next_trimmed);
+                if next_code == "end" {
+                    found_end = true;
+                    if next_trimmed.len() > next_code.len() {
+                        end_comment = next_trimmed[next_code.len()..].trim();
+                    }
+                    break;
+                } else {
+                    all_blank = false;
+                    break;
+                }
+            }
+
+            if found_end && all_blank {
+                let leading_ws_len = line.len() - line.trim_start().len();
+                let leading_ws = &line[..leading_ws_len];
+
+                let starter_comment = if trimmed.len() > code.len() {
+                    trimmed[code.len()..].trim()
+                } else {
+                    ""
+                };
+
+                let mut collapsed = format!("{}{} end", leading_ws, code);
+                if !starter_comment.is_empty() {
+                    collapsed.push(' ');
+                    collapsed.push_str(starter_comment);
+                } else if !end_comment.is_empty() {
+                    collapsed.push(' ');
+                    collapsed.push_str(end_comment);
+                }
+
+                result_lines.push(collapsed);
+                i = j + 1;
+                continue;
+            }
+        }
+
+        result_lines.push(line.to_string());
+        i += 1;
+    }
+
+    let eol = if source.contains("\r\n") { "\r\n" } else { "\n" };
+    result_lines.join(eol)
+}
+
 /// Formats the given Alya source code string.
 pub fn format_source(source: &str) -> Result<String, String> {
-    let lines: Vec<&str> = source.lines().collect();
+    let preprocessed = collapse_empty_declarations(source);
+    let lines: Vec<&str> = preprocessed.lines().collect();
     let mut formatted_lines: Vec<String> = Vec::new();
     let mut block_stack: Vec<BlockKind> = Vec::new();
     let mut multiline_state: Option<MultilineLiteralState> = None;
@@ -1373,6 +1452,39 @@ end
 
 interface Greeter
     function greet(name: string) -> string
+end
+"#;
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_collapse_empty_struct_and_interface() {
+        let input = r#"pub struct Stack
+end
+
+pub struct Queue
+end
+
+struct Empty
+end
+
+interface Marker
+end
+
+pub struct WithComment
+    # Not empty because of this comment
+end
+"#;
+        let expected = r#"pub struct Stack end
+
+pub struct Queue end
+
+struct Empty end
+
+interface Marker end
+
+pub struct WithComment
+    # Not empty because of this comment
 end
 "#;
         assert_eq!(format_source(input).unwrap(), expected);
