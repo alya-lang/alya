@@ -85,11 +85,12 @@ pub fn execute_test_file(
     // 5. Compile with GCC to temp executable
     let pid = std::process::id();
     let test_id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let temp_asm = format!("temp_test_{}_{}.s", pid, test_id);
+    let temp_dir = std::env::temp_dir();
+    let temp_asm = temp_dir.join(format!("temp_test_{}_{}.s", pid, test_id));
     let temp_exe = if matches!(os, OperatingSystem::Windows) {
-        format!("temp_test_{}_{}.exe", pid, test_id)
+        temp_dir.join(format!("temp_test_{}_{}.exe", pid, test_id))
     } else {
-        format!("temp_test_{}_{}", pid, test_id)
+        temp_dir.join(format!("temp_test_{}_{}", pid, test_id))
     };
 
     fs::write(&temp_asm, &asm_code)
@@ -100,7 +101,9 @@ pub fn execute_test_file(
     let mut extra_libs = codegen::collect_extern_libraries(&ast);
     extra_libs.retain(|lib| !c_plan.provided_libs.contains(lib));
 
-    let gcc_res = runner::compile_with_gcc(&temp_asm, &temp_exe, arch, os, &extra_libs, &c_objects);
+    let asm_str = temp_asm.to_string_lossy().to_string();
+    let exe_str = temp_exe.to_string_lossy().to_string();
+    let gcc_res = runner::compile_with_gcc(&asm_str, &exe_str, arch, os, &extra_libs, &c_objects);
     let _ = fs::remove_file(&temp_asm);
     if let Err(err) = gcc_res {
         return Err(format!(
@@ -111,17 +114,11 @@ pub fn execute_test_file(
     }
 
     // 6. Execute binary with timeout
-    let exe_path = if matches!(os, OperatingSystem::Windows) {
-        format!(".\\{}", temp_exe)
-    } else {
-        format!("./{}", temp_exe)
-    };
-
-    let mut child = Command::new(&exe_path)
+    let mut child = Command::new(&temp_exe)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to execute test binary '{}': {}", exe_path, e))?;
+        .map_err(|e| format!("Failed to execute test binary '{}': {}", exe_str, e))?;
 
     let start_wait = Instant::now();
     let timeout_limit = std::time::Duration::from_secs(60);
@@ -131,7 +128,7 @@ pub fn execute_test_file(
     while start_wait.elapsed() < timeout_limit {
         if let Some(status) = child
             .try_wait()
-            .map_err(|e| format!("Failed to check status of '{}': {}", exe_path, e))?
+            .map_err(|e| format!("Failed to check status of '{}': {}", exe_str, e))?
         {
             exit_status = Some(status);
             exited = true;
@@ -143,7 +140,7 @@ pub fn execute_test_file(
     let (stdout_bytes, stderr_bytes, is_timeout) = if exited {
         let output = child
             .wait_with_output()
-            .map_err(|e| format!("Failed to read output of '{}': {}", exe_path, e))?;
+            .map_err(|e| format!("Failed to read output of '{}': {}", exe_str, e))?;
         (output.stdout, output.stderr, false)
     } else {
         let _ = child.kill();
