@@ -202,6 +202,7 @@ end
    - High-throughput reactor event loop powering lightweight green fibers over native OS thread pools.
 
 > 🚀 **Compiler Implementation Master Plan:** Consult [`ROADMAP.md`](ROADMAP.md) for the 6-phase engineering checklist (Phases 0 through 5), tracking every compiler task from foundation and CallIndex $O(N)$ inference to stdlib consolidation and LSP.
+> 🛠️ **Toolchain & Distribution Roadmap:** Consult [`TOOLCHAIN_ROADMAP.md`](TOOLCHAIN_ROADMAP.md) for the zero-setup compilation toolchain, automated provisioning, standalone packaging, and pure native linker architecture.
 
 ---
 
