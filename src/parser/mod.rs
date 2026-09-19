@@ -1358,8 +1358,45 @@ pub fn expand_default_args_with_modules(
 
     collect_fn_defaults(&program.statements, &mut fn_defs);
 
+    let mut top_level_globals = std::collections::HashSet::new();
+    collect_global_names(&program.statements, &mut top_level_globals);
+
+    let mut locals = std::collections::HashSet::new();
     for stmt in &mut program.statements {
-        expand_defaults_in_stmt(stmt, &fn_defs, module_stems);
+        expand_defaults_in_stmt(
+            stmt,
+            &fn_defs,
+            module_stems,
+            &mut locals,
+            &top_level_globals,
+        );
+    }
+}
+
+fn collect_global_names(stmts: &[Stmt], globals: &mut std::collections::HashSet<String>) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { name, .. }
+            | Stmt::Const { name, .. }
+            | Stmt::EnumDef { name, .. } => {
+                globals.insert(name.clone());
+                let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                globals.insert(bare.to_string());
+            }
+            Stmt::Pub(inner) => match &**inner {
+                Stmt::Let { name, .. }
+                | Stmt::Const { name, .. }
+                | Stmt::EnumDef { name, .. } => {
+                    globals.insert(name.clone());
+                    let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    globals.insert(bare.to_string());
+                }
+                _ => {}
+            },
+            _ => {}
+        }
     }
 }
 
@@ -1428,17 +1465,30 @@ fn expand_defaults_in_stmt(
     stmt: &mut Stmt,
     fn_defs: &std::collections::HashMap<String, (usize, Vec<Option<Expr>>, bool)>,
     module_stems: &std::collections::HashSet<String>,
+    locals: &mut std::collections::HashSet<String>,
+    top_level_globals: &std::collections::HashSet<String>,
 ) {
     match stmt {
-        Stmt::Function { body, .. } => {
+        Stmt::Function { params, body, .. } => {
+            let mut inner_locals = locals.clone();
+            for p in params {
+                inner_locals.insert(p.clone());
+            }
             for s in body {
-                expand_defaults_in_stmt(s, fn_defs, module_stems);
+                expand_defaults_in_stmt(
+                    s,
+                    fn_defs,
+                    module_stems,
+                    &mut inner_locals,
+                    top_level_globals,
+                );
             }
         }
         Stmt::Say(expr) | Stmt::Expr(expr) | Stmt::Assign { value: expr, .. } => {
-            expand_defaults_in_expr(expr, fn_defs, module_stems);
+            expand_defaults_in_expr(expr, fn_defs, module_stems, locals, top_level_globals);
         }
         Stmt::Let {
+            name,
             type_ann,
             value: expr,
             ..
@@ -1460,85 +1510,174 @@ fn expand_defaults_in_stmt(
                     }
                 }
             }
-            expand_defaults_in_expr(expr, fn_defs, module_stems);
+            expand_defaults_in_expr(expr, fn_defs, module_stems, locals, top_level_globals);
+            locals.insert(name.clone());
         }
         Stmt::IndexAssign {
             array,
             index,
             value,
         } => {
-            expand_defaults_in_expr(array, fn_defs, module_stems);
-            expand_defaults_in_expr(index, fn_defs, module_stems);
-            expand_defaults_in_expr(value, fn_defs, module_stems);
+            expand_defaults_in_expr(array, fn_defs, module_stems, locals, top_level_globals);
+            expand_defaults_in_expr(index, fn_defs, module_stems, locals, top_level_globals);
+            expand_defaults_in_expr(value, fn_defs, module_stems, locals, top_level_globals);
         }
         Stmt::FieldAssign { object, value, .. } => {
-            expand_defaults_in_expr(object, fn_defs, module_stems);
-            expand_defaults_in_expr(value, fn_defs, module_stems);
+            expand_defaults_in_expr(object, fn_defs, module_stems, locals, top_level_globals);
+            expand_defaults_in_expr(value, fn_defs, module_stems, locals, top_level_globals);
         }
         Stmt::If {
             condition,
             then_block,
             else_block,
         } => {
-            expand_defaults_in_expr(condition, fn_defs, module_stems);
+            expand_defaults_in_expr(condition, fn_defs, module_stems, locals, top_level_globals);
+            let mut then_locals = locals.clone();
             for s in then_block {
-                expand_defaults_in_stmt(s, fn_defs, module_stems);
+                expand_defaults_in_stmt(
+                    s,
+                    fn_defs,
+                    module_stems,
+                    &mut then_locals,
+                    top_level_globals,
+                );
             }
             if let Some(eb) = else_block {
+                let mut else_locals = locals.clone();
                 for s in eb {
-                    expand_defaults_in_stmt(s, fn_defs, module_stems);
+                    expand_defaults_in_stmt(
+                        s,
+                        fn_defs,
+                        module_stems,
+                        &mut else_locals,
+                        top_level_globals,
+                    );
                 }
             }
         }
         Stmt::While { condition, body } => {
-            expand_defaults_in_expr(condition, fn_defs, module_stems);
+            expand_defaults_in_expr(condition, fn_defs, module_stems, locals, top_level_globals);
+            let mut inner_locals = locals.clone();
             for s in body {
-                expand_defaults_in_stmt(s, fn_defs, module_stems);
+                expand_defaults_in_stmt(
+                    s,
+                    fn_defs,
+                    module_stems,
+                    &mut inner_locals,
+                    top_level_globals,
+                );
             }
         }
         Stmt::Repeat { body } => {
+            let mut inner_locals = locals.clone();
             for s in body {
-                expand_defaults_in_stmt(s, fn_defs, module_stems);
+                expand_defaults_in_stmt(
+                    s,
+                    fn_defs,
+                    module_stems,
+                    &mut inner_locals,
+                    top_level_globals,
+                );
             }
         }
         Stmt::For {
-            start, end, body, ..
+            var,
+            start,
+            end,
+            body,
+            ..
         } => {
-            expand_defaults_in_expr(start, fn_defs, module_stems);
-            expand_defaults_in_expr(end, fn_defs, module_stems);
+            expand_defaults_in_expr(start, fn_defs, module_stems, locals, top_level_globals);
+            expand_defaults_in_expr(end, fn_defs, module_stems, locals, top_level_globals);
+            let mut inner_locals = locals.clone();
+            inner_locals.insert(var.clone());
             for s in body {
-                expand_defaults_in_stmt(s, fn_defs, module_stems);
+                expand_defaults_in_stmt(
+                    s,
+                    fn_defs,
+                    module_stems,
+                    &mut inner_locals,
+                    top_level_globals,
+                );
             }
         }
-        Stmt::ForEach { iterable, body, .. } => {
-            expand_defaults_in_expr(iterable, fn_defs, module_stems);
+        Stmt::ForEach {
+            var,
+            value_var,
+            iterable,
+            body,
+            ..
+        } => {
+            expand_defaults_in_expr(iterable, fn_defs, module_stems, locals, top_level_globals);
+            let mut inner_locals = locals.clone();
+            inner_locals.insert(var.clone());
+            if let Some(vv) = value_var {
+                inner_locals.insert(vv.clone());
+            }
             for s in body {
-                expand_defaults_in_stmt(s, fn_defs, module_stems);
+                expand_defaults_in_stmt(
+                    s,
+                    fn_defs,
+                    module_stems,
+                    &mut inner_locals,
+                    top_level_globals,
+                );
             }
         }
         Stmt::Return(Some(expr)) | Stmt::Throw(Some(expr)) => {
-            expand_defaults_in_expr(expr, fn_defs, module_stems);
+            expand_defaults_in_expr(expr, fn_defs, module_stems, locals, top_level_globals);
         }
         Stmt::TryCatch {
             try_block,
+            catch_var,
             catch_block,
             finally_block,
             ..
         } => {
+            let mut try_locals = locals.clone();
             for s in try_block {
-                expand_defaults_in_stmt(s, fn_defs, module_stems);
+                expand_defaults_in_stmt(
+                    s,
+                    fn_defs,
+                    module_stems,
+                    &mut try_locals,
+                    top_level_globals,
+                );
+            }
+            let mut catch_locals = locals.clone();
+            if let Some(cv) = catch_var {
+                catch_locals.insert(cv.clone());
             }
             for s in catch_block {
-                expand_defaults_in_stmt(s, fn_defs, module_stems);
+                expand_defaults_in_stmt(
+                    s,
+                    fn_defs,
+                    module_stems,
+                    &mut catch_locals,
+                    top_level_globals,
+                );
             }
             if let Some(fb) = finally_block {
+                let mut fin_locals = locals.clone();
                 for s in fb {
-                    expand_defaults_in_stmt(s, fn_defs, module_stems);
+                    expand_defaults_in_stmt(
+                        s,
+                        fn_defs,
+                        module_stems,
+                        &mut fin_locals,
+                        top_level_globals,
+                    );
                 }
             }
         }
         Stmt::Pub(inner) | Stmt::Defer(inner) => {
-            expand_defaults_in_stmt(inner, fn_defs, module_stems);
+            expand_defaults_in_stmt(
+                inner,
+                fn_defs,
+                module_stems,
+                locals,
+                top_level_globals,
+            );
         }
         _ => {}
     }
@@ -1548,11 +1687,13 @@ fn expand_defaults_in_expr(
     expr: &mut Expr,
     fn_defs: &std::collections::HashMap<String, (usize, Vec<Option<Expr>>, bool)>,
     module_stems: &std::collections::HashSet<String>,
+    locals: &std::collections::HashSet<String>,
+    top_level_globals: &std::collections::HashSet<String>,
 ) {
     match expr {
         Expr::Call { name, args } => {
             for arg in args.iter_mut() {
-                expand_defaults_in_expr(arg, fn_defs, module_stems);
+                expand_defaults_in_expr(arg, fn_defs, module_stems, locals, top_level_globals);
             }
             let prefix_id = match args.first() {
                 Some(Expr::Identifier(prefix)) => Some(prefix.clone()),
@@ -1613,60 +1754,63 @@ fn expand_defaults_in_expr(
             }
         }
         Expr::Binary { left, right, .. } => {
-            expand_defaults_in_expr(left, fn_defs, module_stems);
-            expand_defaults_in_expr(right, fn_defs, module_stems);
+            expand_defaults_in_expr(left, fn_defs, module_stems, locals, top_level_globals);
+            expand_defaults_in_expr(right, fn_defs, module_stems, locals, top_level_globals);
         }
         Expr::Unary { expr, .. } => {
-            expand_defaults_in_expr(expr, fn_defs, module_stems);
+            expand_defaults_in_expr(expr, fn_defs, module_stems, locals, top_level_globals);
         }
         Expr::Ternary {
             condition,
             then_branch,
             else_branch,
         } => {
-            expand_defaults_in_expr(condition, fn_defs, module_stems);
-            expand_defaults_in_expr(then_branch, fn_defs, module_stems);
-            expand_defaults_in_expr(else_branch, fn_defs, module_stems);
+            expand_defaults_in_expr(condition, fn_defs, module_stems, locals, top_level_globals);
+            expand_defaults_in_expr(then_branch, fn_defs, module_stems, locals, top_level_globals);
+            expand_defaults_in_expr(else_branch, fn_defs, module_stems, locals, top_level_globals);
         }
         Expr::NullCoalesce { value, default } => {
-            expand_defaults_in_expr(value, fn_defs, module_stems);
-            expand_defaults_in_expr(default, fn_defs, module_stems);
+            expand_defaults_in_expr(value, fn_defs, module_stems, locals, top_level_globals);
+            expand_defaults_in_expr(default, fn_defs, module_stems, locals, top_level_globals);
         }
         Expr::Array(elems) => {
             for elem in elems {
-                expand_defaults_in_expr(elem, fn_defs, module_stems);
+                expand_defaults_in_expr(elem, fn_defs, module_stems, locals, top_level_globals);
             }
         }
         Expr::Index { array, index } => {
-            expand_defaults_in_expr(array, fn_defs, module_stems);
-            expand_defaults_in_expr(index, fn_defs, module_stems);
+            expand_defaults_in_expr(array, fn_defs, module_stems, locals, top_level_globals);
+            expand_defaults_in_expr(index, fn_defs, module_stems, locals, top_level_globals);
         }
         Expr::FieldAccess { object, field } => {
-            expand_defaults_in_expr(object, fn_defs, module_stems);
+            expand_defaults_in_expr(object, fn_defs, module_stems, locals, top_level_globals);
             if let Expr::Identifier(mod_name) = &**object {
-                if module_stems.contains(mod_name) {
+                if module_stems.contains(mod_name)
+                    && !locals.contains(mod_name)
+                    && top_level_globals.contains(field)
+                {
                     *expr = Expr::Identifier(field.clone());
                 }
             }
         }
         Expr::StructInit { fields, .. } => {
             for (_, val) in fields {
-                expand_defaults_in_expr(val, fn_defs, module_stems);
+                expand_defaults_in_expr(val, fn_defs, module_stems, locals, top_level_globals);
             }
         }
         Expr::Map(entries) => {
             for (k, v) in entries {
-                expand_defaults_in_expr(k, fn_defs, module_stems);
-                expand_defaults_in_expr(v, fn_defs, module_stems);
+                expand_defaults_in_expr(k, fn_defs, module_stems, locals, top_level_globals);
+                expand_defaults_in_expr(v, fn_defs, module_stems, locals, top_level_globals);
             }
         }
         Expr::InterpolatedString(parts) => {
             for part in parts {
-                expand_defaults_in_expr(part, fn_defs, module_stems);
+                expand_defaults_in_expr(part, fn_defs, module_stems, locals, top_level_globals);
             }
         }
         Expr::TypeCheck { expr, .. } | Expr::Cast { expr, .. } => {
-            expand_defaults_in_expr(expr, fn_defs, module_stems);
+            expand_defaults_in_expr(expr, fn_defs, module_stems, locals, top_level_globals);
         }
         _ => {}
     }

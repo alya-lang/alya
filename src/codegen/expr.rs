@@ -1742,6 +1742,22 @@ impl CodeGen {
                     }
                     return;
                 }
+                if let Expr::Identifier(obj_name) = &**object {
+                    if !self.ctx.variables.contains_key(obj_name) {
+                        let cand_double = format!("{}__{}", obj_name, field);
+                        let cand_colon = format!("{}::{}", obj_name, field);
+                        if let Some((symbol, _)) = self
+                            .ctx
+                            .globals
+                            .get(field)
+                            .or_else(|| self.ctx.globals.get(&cand_double))
+                            .or_else(|| self.ctx.globals.get(&cand_colon))
+                        {
+                            arch::emit_load_global(&mut self.output, self.arch, symbol, self.os);
+                            return;
+                        }
+                    }
+                }
                 let field_idx = self.resolve_struct_field_index(object, field);
 
                 let is_weak = self.is_struct_field_weak(object, field);
@@ -2150,6 +2166,22 @@ impl CodeGen {
                 let null_label = self.ctx.next_label();
                 let end_label = self.ctx.next_label();
 
+                if let Expr::Identifier(obj_name) = &**object {
+                    if !self.ctx.variables.contains_key(obj_name) {
+                        let cand_double = format!("{}__{}", obj_name, field);
+                        let cand_colon = format!("{}::{}", obj_name, field);
+                        if let Some((symbol, _)) = self
+                            .ctx
+                            .globals
+                            .get(field)
+                            .or_else(|| self.ctx.globals.get(&cand_double))
+                            .or_else(|| self.ctx.globals.get(&cand_colon))
+                        {
+                            arch::emit_load_global(&mut self.output, self.arch, symbol, self.os);
+                            return;
+                        }
+                    }
+                }
                 let field_idx = self.resolve_struct_field_index(object, field);
 
                 let is_weak = self.is_struct_field_weak(object, field);

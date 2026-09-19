@@ -45,19 +45,15 @@ pub function tcp_close(sock: int) -> int
     return net_close(sock)
 end
 
-pub function net__tcp_connect(host: string, port: int) -> int
-    return tcp_connect(host, port)
-end
-
-pub function net__send(sock: int, data: string) -> int
+pub function send(sock: int, data: string) -> int
     return tcp_send(sock, data)
 end
 
-pub function net__recv(sock: int, max_bytes: int = 4096) -> string
+pub function recv(sock: int, max_bytes: int = 4096) -> string
     return tcp_recv(sock, max_bytes)
 end
 
-pub function net__close(sock: int) -> int
+pub function close(sock: int) -> int
     return tcp_close(sock)
 end
 
