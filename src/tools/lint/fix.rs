@@ -13,12 +13,10 @@ pub fn line_col_to_byte_offset(source: &str, line: usize, col: usize) -> Option<
             // Found line, advance by (col - 1) bytes or characters
             // Let's count characters in this line
             let line_slice = &source[offset..];
-            let mut char_count = 1;
-            for (byte_idx, _) in line_slice.char_indices() {
+            for (char_count, (byte_idx, _)) in (1..).zip(line_slice.char_indices()) {
                 if char_count == col {
                     return Some(offset + byte_idx);
                 }
-                char_count += 1;
             }
             return Some(offset + line_slice.len());
         }
@@ -30,12 +28,10 @@ pub fn line_col_to_byte_offset(source: &str, line: usize, col: usize) -> Option<
 
     if current_line == line {
         let line_slice = &source[offset..];
-        let mut char_count = 1;
-        for (byte_idx, _) in line_slice.char_indices() {
+        for (char_count, (byte_idx, _)) in (1..).zip(line_slice.char_indices()) {
             if char_count == col {
                 return Some(offset + byte_idx);
             }
-            char_count += 1;
         }
         return Some(offset + line_slice.len());
     }
@@ -66,7 +62,7 @@ pub fn apply_fixes_to_source(source: &str, diagnostics: &[LintDiagnostic]) -> (S
     }
 
     // Sort by start descending so edits don't invalidate earlier offsets
-    byte_fixes.sort_by(|a, b| b.0.cmp(&a.0));
+    byte_fixes.sort_by_key(|b| std::cmp::Reverse(b.0));
 
     let mut result = source.to_string();
     let mut applied_count = 0;

@@ -482,7 +482,7 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                         raw_path = Some(path.clone());
                         let base = path
                             .split('/')
-                            .last()
+                            .next_back()
                             .unwrap_or(path)
                             .trim_end_matches(".alya");
                         imported_name = Some(base.to_string());

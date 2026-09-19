@@ -32,14 +32,14 @@ fn find_next_stmt_token_after(tokens: &[Token], after_line: usize) -> Option<Tok
 /// Finds the line of a jump token in tokens.
 fn find_jump_token_line(tokens: &[Token], jump_kind: &str) -> Option<usize> {
     for tok in tokens {
-        let matches = match (jump_kind, &tok.token_type) {
-            ("return", TokenType::Return) => true,
-            ("throw", TokenType::Throw) => true,
-            ("break", TokenType::Break) => true,
-            ("continue", TokenType::Continue) => true,
-            _ => false,
-        };
-        if matches {
+        let is_match = matches!(
+            (jump_kind, &tok.token_type),
+            ("return", TokenType::Return)
+                | ("throw", TokenType::Throw)
+                | ("break", TokenType::Break)
+                | ("continue", TokenType::Continue)
+        );
+        if is_match {
             return Some(tok.line);
         }
     }
