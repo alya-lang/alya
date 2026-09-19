@@ -45,6 +45,11 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         return Ok(());
     }
 
+    if args.command == CommandKind::Dap {
+        crate::tools::dap::run_dap()?;
+        return Ok(());
+    }
+
     if let CommandKind::Doc {
         ref input,
         ref output_dir,

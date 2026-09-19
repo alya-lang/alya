@@ -1254,3 +1254,320 @@ end
         "Semantic token integer stream must be multiples of 5"
     );
 }
+
+#[test]
+fn test_dap_server_lifecycle() {
+    use alya::tools::dap::DapServerState;
+
+    let mut dap = DapServerState::new();
+
+    // 1. Initialize
+    let mut init_req = BTreeMap::new();
+    init_req.insert("seq".to_string(), JsonValue::Number(1.0));
+    init_req.insert("type".to_string(), JsonValue::String("request".to_string()));
+    init_req.insert(
+        "command".to_string(),
+        JsonValue::String("initialize".to_string()),
+    );
+
+    let init_resps = dap.handle_message(&JsonValue::Object(init_req));
+    assert_eq!(
+        init_resps.len(),
+        2,
+        "Initialize should return response and initialized event"
+    );
+    assert_eq!(
+        init_resps[0].get("command").and_then(|c| c.as_str()),
+        Some("initialize")
+    );
+    assert_eq!(
+        init_resps[0].get("success").and_then(|s| s.as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        init_resps[1].get("event").and_then(|e| e.as_str()),
+        Some("initialized")
+    );
+
+    // 2. Set Breakpoints
+    let sample_source = r#"const PI = 3.14159
+
+function compute_total(price: float, tax: float) -> float
+    let factor = 1.2
+    let subtotal = price * factor
+    return subtotal + tax
+end
+
+function main()
+    let initial_price = 100.0
+    let tax_rate = 18.0
+    let total = compute_total(initial_price, tax_rate)
+    say total
+end
+"#;
+
+    let test_file = "test_app.alya";
+    dap.load_source(sample_source);
+    dap.program_path = test_file.to_string();
+
+    let mut bp_args = BTreeMap::new();
+    let mut src_map = BTreeMap::new();
+    src_map.insert("path".to_string(), JsonValue::String(test_file.to_string()));
+    bp_args.insert("source".to_string(), JsonValue::Object(src_map));
+    bp_args.insert(
+        "lines".to_string(),
+        JsonValue::Array(vec![JsonValue::Number(10.0), JsonValue::Number(12.0)]),
+    );
+
+    let mut bp_req = BTreeMap::new();
+    bp_req.insert("seq".to_string(), JsonValue::Number(2.0));
+    bp_req.insert("type".to_string(), JsonValue::String("request".to_string()));
+    bp_req.insert(
+        "command".to_string(),
+        JsonValue::String("setBreakPoints".to_string()),
+    );
+    bp_req.insert("arguments".to_string(), JsonValue::Object(bp_args));
+
+    let bp_resps = dap.handle_message(&JsonValue::Object(bp_req));
+    assert_eq!(bp_resps.len(), 1);
+    let bps = bp_resps[0]
+        .get("body")
+        .and_then(|b| b.get("breakpoints"))
+        .and_then(|arr| arr.as_array())
+        .expect("breakpoints");
+    assert_eq!(bps.len(), 2);
+    assert_eq!(bps[0].get("verified").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(bps[0].get("line").and_then(|l| l.as_i64()), Some(10));
+
+    // 3. Launch & configurationDone
+    let mut launch_args = BTreeMap::new();
+    launch_args.insert(
+        "program".to_string(),
+        JsonValue::String(test_file.to_string()),
+    );
+    launch_args.insert("stopOnEntry".to_string(), JsonValue::Bool(false));
+    launch_args.insert("memTrace".to_string(), JsonValue::Bool(true));
+
+    let mut launch_req = BTreeMap::new();
+    launch_req.insert("seq".to_string(), JsonValue::Number(3.0));
+    launch_req.insert("type".to_string(), JsonValue::String("request".to_string()));
+    launch_req.insert(
+        "command".to_string(),
+        JsonValue::String("launch".to_string()),
+    );
+    launch_req.insert("arguments".to_string(), JsonValue::Object(launch_args));
+
+    let launch_resps = dap.handle_message(&JsonValue::Object(launch_req));
+    assert_eq!(launch_resps.len(), 1);
+    assert_eq!(
+        launch_resps[0].get("success").and_then(|s| s.as_bool()),
+        Some(true)
+    );
+
+    let mut conf_req = BTreeMap::new();
+    conf_req.insert("seq".to_string(), JsonValue::Number(4.0));
+    conf_req.insert("type".to_string(), JsonValue::String("request".to_string()));
+    conf_req.insert(
+        "command".to_string(),
+        JsonValue::String("configurationDone".to_string()),
+    );
+
+    let conf_resps = dap.handle_message(&JsonValue::Object(conf_req));
+    assert_eq!(
+        conf_resps.len(),
+        2,
+        "configurationDone should return response and stopped event"
+    );
+    assert_eq!(
+        conf_resps[1].get("event").and_then(|e| e.as_str()),
+        Some("stopped")
+    );
+    assert_eq!(
+        conf_resps[1]
+            .get("body")
+            .and_then(|b| b.get("reason"))
+            .and_then(|r| r.as_str()),
+        Some("breakpoint")
+    );
+    assert_eq!(
+        dap.current_line, 10,
+        "Should be paused at first breakpoint line 10"
+    );
+
+    // 4. Threads & StackTrace
+    let mut threads_req = BTreeMap::new();
+    threads_req.insert("seq".to_string(), JsonValue::Number(5.0));
+    threads_req.insert("type".to_string(), JsonValue::String("request".to_string()));
+    threads_req.insert(
+        "command".to_string(),
+        JsonValue::String("threads".to_string()),
+    );
+
+    let thread_resps = dap.handle_message(&JsonValue::Object(threads_req));
+    let threads = thread_resps[0]
+        .get("body")
+        .and_then(|b| b.get("threads"))
+        .and_then(|t| t.as_array())
+        .unwrap();
+    assert_eq!(threads.len(), 1);
+    assert_eq!(
+        threads[0].get("name").and_then(|n| n.as_str()),
+        Some("Main Fiber (Thread 1)")
+    );
+
+    let mut stack_req = BTreeMap::new();
+    stack_req.insert("seq".to_string(), JsonValue::Number(6.0));
+    stack_req.insert("type".to_string(), JsonValue::String("request".to_string()));
+    stack_req.insert(
+        "command".to_string(),
+        JsonValue::String("stackTrace".to_string()),
+    );
+
+    let stack_resps = dap.handle_message(&JsonValue::Object(stack_req));
+    let frames = stack_resps[0]
+        .get("body")
+        .and_then(|b| b.get("stackFrames"))
+        .and_then(|f| f.as_array())
+        .unwrap();
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].get("line").and_then(|l| l.as_i64()), Some(10));
+    assert_eq!(
+        frames[0].get("name").and_then(|n| n.as_str()),
+        Some("main()")
+    );
+
+    // 5. Scopes & Variables
+    let mut scopes_req = BTreeMap::new();
+    scopes_req.insert("seq".to_string(), JsonValue::Number(7.0));
+    scopes_req.insert("type".to_string(), JsonValue::String("request".to_string()));
+    scopes_req.insert(
+        "command".to_string(),
+        JsonValue::String("scopes".to_string()),
+    );
+
+    let scopes_resps = dap.handle_message(&JsonValue::Object(scopes_req));
+    let scopes = scopes_resps[0]
+        .get("body")
+        .and_then(|b| b.get("scopes"))
+        .and_then(|s| s.as_array())
+        .unwrap();
+    assert_eq!(scopes.len(), 3);
+
+    // Read Locals (variablesReference: 1001)
+    let mut vars_args = BTreeMap::new();
+    vars_args.insert("variablesReference".to_string(), JsonValue::Number(1001.0));
+    let mut vars_req = BTreeMap::new();
+    vars_req.insert("seq".to_string(), JsonValue::Number(8.0));
+    vars_req.insert("type".to_string(), JsonValue::String("request".to_string()));
+    vars_req.insert(
+        "command".to_string(),
+        JsonValue::String("variables".to_string()),
+    );
+    vars_req.insert("arguments".to_string(), JsonValue::Object(vars_args));
+
+    let vars_resps = dap.handle_message(&JsonValue::Object(vars_req));
+    let vars = vars_resps[0]
+        .get("body")
+        .and_then(|b| b.get("variables"))
+        .and_then(|v| v.as_array())
+        .unwrap();
+    let var_names: Vec<&str> = vars
+        .iter()
+        .filter_map(|v| v.get("name").and_then(|n| n.as_str()))
+        .collect();
+    assert!(
+        var_names.contains(&"initial_price"),
+        "Locals must contain initial_price"
+    );
+
+    // 6. Variable Evaluation
+    let mut eval_args = BTreeMap::new();
+    eval_args.insert(
+        "expression".to_string(),
+        JsonValue::String("initial_price * 2".to_string()),
+    );
+    let mut eval_req = BTreeMap::new();
+    eval_req.insert("seq".to_string(), JsonValue::Number(9.0));
+    eval_req.insert("type".to_string(), JsonValue::String("request".to_string()));
+    eval_req.insert(
+        "command".to_string(),
+        JsonValue::String("evaluate".to_string()),
+    );
+    eval_req.insert("arguments".to_string(), JsonValue::Object(eval_args));
+
+    let eval_resps = dap.handle_message(&JsonValue::Object(eval_req));
+    let eval_body = eval_resps[0].get("body").unwrap();
+    assert_eq!(
+        eval_body.get("result").and_then(|r| r.as_str()),
+        Some("200.00")
+    );
+    assert_eq!(
+        eval_body.get("type").and_then(|t| t.as_str()),
+        Some("float")
+    );
+
+    // 7. Step Over & Continue
+    let mut next_req = BTreeMap::new();
+    next_req.insert("seq".to_string(), JsonValue::Number(10.0));
+    next_req.insert("type".to_string(), JsonValue::String("request".to_string()));
+    next_req.insert("command".to_string(), JsonValue::String("next".to_string()));
+
+    let next_resps = dap.handle_message(&JsonValue::Object(next_req));
+    assert_eq!(
+        next_resps[1].get("event").and_then(|e| e.as_str()),
+        Some("stopped")
+    );
+    assert_eq!(
+        next_resps[1]
+            .get("body")
+            .and_then(|b| b.get("reason"))
+            .and_then(|r| r.as_str()),
+        Some("step")
+    );
+    assert_eq!(dap.current_line, 11);
+
+    // Continue to next breakpoint at line 12
+    let mut cont_req = BTreeMap::new();
+    cont_req.insert("seq".to_string(), JsonValue::Number(11.0));
+    cont_req.insert("type".to_string(), JsonValue::String("request".to_string()));
+    cont_req.insert(
+        "command".to_string(),
+        JsonValue::String("continue".to_string()),
+    );
+
+    let cont_resps = dap.handle_message(&JsonValue::Object(cont_req.clone()));
+    assert_eq!(
+        cont_resps[1].get("event").and_then(|e| e.as_str()),
+        Some("stopped")
+    );
+    assert_eq!(
+        dap.current_line, 12,
+        "Should hit second breakpoint at line 12"
+    );
+
+    // Continue to termination
+    let cont_resps2 = dap.handle_message(&JsonValue::Object(cont_req));
+    let events: Vec<&str> = cont_resps2
+        .iter()
+        .filter_map(|m| m.get("event").and_then(|e| e.as_str()))
+        .collect();
+    assert!(events.contains(&"output"));
+    assert!(events.contains(&"terminated"));
+    assert!(events.contains(&"exited"));
+
+    // 8. Disconnect
+    let mut disc_req = BTreeMap::new();
+    disc_req.insert("seq".to_string(), JsonValue::Number(12.0));
+    disc_req.insert("type".to_string(), JsonValue::String("request".to_string()));
+    disc_req.insert(
+        "command".to_string(),
+        JsonValue::String("disconnect".to_string()),
+    );
+
+    let disc_resps = dap.handle_message(&JsonValue::Object(disc_req));
+    assert_eq!(
+        disc_resps[0].get("success").and_then(|s| s.as_bool()),
+        Some(true)
+    );
+    assert!(dap.is_shutdown);
+}

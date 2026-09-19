@@ -17,6 +17,7 @@ pub enum CommandKind {
     Pkg(PkgCommand),
     Toolchain(ToolchainCommand),
     Lsp,
+    Dap,
     Doc {
         input: String,
         output_dir: Option<String>,
@@ -172,6 +173,10 @@ impl CliArgs {
 
         if first == "lsp" {
             return Ok(Some(Self::create_simple_args(CommandKind::Lsp)));
+        }
+
+        if first == "dap" {
+            return Ok(Some(Self::create_simple_args(CommandKind::Dap)));
         }
 
         if first == "doc" {
