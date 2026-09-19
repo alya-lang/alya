@@ -77,6 +77,27 @@ end
 }
 
 #[test]
+fn test_lint_unused_import_exported_symbols_and_keywords() {
+    let source = r#"
+import "std/hash"
+import "std/test"
+import "std/os"
+
+function main()
+    let h = murmur3("hello")
+    test.assert_eq(h, h, "deterministic")
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let import_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-import").collect();
+    assert_eq!(import_diags.len(), 1);
+    assert_eq!(
+        import_diags[0].message,
+        "imported module 'os' is never used"
+    );
+}
+
+#[test]
 fn test_lint_dead_code_following_return() {
     let source = r#"
 function run()

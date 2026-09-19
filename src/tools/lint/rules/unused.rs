@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::ast::{Expr, Program, Stmt};
-use crate::lexer::{Token, TokenType};
+use crate::lexer::{Lexer, Token, TokenType};
 use crate::tools::lint::types::{LintDiagnostic, LintFix, LintSeverity};
 
 /// Collects all read identifiers from an expression.
@@ -374,13 +374,90 @@ pub fn check_unused_parameters(
     diags
 }
 
-/// Checks for unused import statements and symbols (`unused-import`).
+/// Extracts all `pub` symbol names declared in source code.
+fn extract_pub_symbols(src: &str) -> HashSet<String> {
+    let mut symbols = HashSet::new();
+    let mut lexer = Lexer::new(src);
+    if let Ok(tokens) = lexer.tokenize() {
+        let mut idx = 0;
+        while idx < tokens.len() {
+            if matches!(tokens[idx].token_type, TokenType::Pub) {
+                idx += 1;
+                if idx < tokens.len()
+                    && matches!(
+                        tokens[idx].token_type,
+                        TokenType::Function
+                            | TokenType::Struct
+                            | TokenType::Enum
+                            | TokenType::Interface
+                            | TokenType::Const
+                            | TokenType::Let
+                    )
+                {
+                    idx += 1;
+                }
+                if idx < tokens.len() {
+                    if let TokenType::Identifier(name) = &tokens[idx].token_type {
+                        symbols.insert(name.clone());
+                    }
+                }
+            }
+            idx += 1;
+        }
+    }
+    symbols
+}
+
+/// Discovers exported symbols for a given imported module path.
+fn get_exported_symbols_from_module(
+    module_path: &str,
+    current_file: &Path,
+) -> Option<HashSet<String>> {
+    // 1. Embedded standard library check
+    if module_path.starts_with("std/") || module_path.starts_with("std::") {
+        let clean = module_path
+            .strip_prefix("std/")
+            .or_else(|| module_path.strip_prefix("std::"))
+            .unwrap_or(module_path);
+        let clean = clean.strip_suffix(".alya").unwrap_or(clean);
+        if let Some(src) = crate::parser::get_embedded_stdlib(clean) {
+            return Some(extract_pub_symbols(src));
+        }
+    }
+
+    // 2. Relative file on disk
+    if let Some(parent) = current_file.parent() {
+        let p = parent.join(module_path);
+        if p.exists() {
+            if let Ok(src) = std::fs::read_to_string(&p) {
+                return Some(extract_pub_symbols(&src));
+            }
+        }
+        let p_alya = p.with_extension("alya");
+        if p_alya.exists() {
+            if let Ok(src) = std::fs::read_to_string(&p_alya) {
+                return Some(extract_pub_symbols(&src));
+            }
+        }
+    }
+
+    // 3. Fallback: direct standard library module name (e.g. "hash")
+    if let Some(src) = crate::parser::get_embedded_stdlib(module_path) {
+        return Some(extract_pub_symbols(src));
+    }
+
+    None
+}
+
+/// Checks for unused import statements or symbols.
 pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagnostic> {
     let mut diags = Vec::new();
 
     // 1. Identify all import declarations and their tokens
     struct ImportInfo {
         name_to_check: String,
+        raw_path: Option<String>,
+        has_alias: bool,
         line: usize,
         col: usize,
         is_full_line: bool,
@@ -398,9 +475,11 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
             i += 1;
 
             let mut imported_name = None;
+            let mut raw_path = None;
             if i < tokens.len() {
                 match &tokens[i].token_type {
                     TokenType::String(path) => {
+                        raw_path = Some(path.clone());
                         let base = path
                             .split('/')
                             .last()
@@ -410,6 +489,7 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                         i += 1;
                     }
                     TokenType::Identifier(id) => {
+                        raw_path = Some(id.clone());
                         imported_name = Some(id.clone());
                         i += 1;
                     }
@@ -417,11 +497,13 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                 }
             }
 
+            let mut has_alias = false;
             if i < tokens.len() && matches!(tokens[i].token_type, TokenType::As) {
                 i += 1;
                 if i < tokens.len() {
                     if let TokenType::Identifier(alias) = &tokens[i].token_type {
                         imported_name = Some(alias.clone());
+                        has_alias = true;
                         i += 1;
                     }
                 }
@@ -430,6 +512,8 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
             if let Some(name) = imported_name {
                 imports.push(ImportInfo {
                     name_to_check: name,
+                    raw_path,
+                    has_alias,
                     line: import_line,
                     col: import_col,
                     is_full_line: true,
@@ -443,14 +527,16 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
             let start_idx = i;
             i += 1;
 
+            let mut raw_path = None;
             // Skip module path
-            if i < tokens.len()
-                && matches!(
-                    tokens[i].token_type,
-                    TokenType::String(_) | TokenType::Identifier(_)
-                )
-            {
-                i += 1;
+            if i < tokens.len() {
+                match &tokens[i].token_type {
+                    TokenType::String(p) | TokenType::Identifier(p) => {
+                        raw_path = Some(p.clone());
+                        i += 1;
+                    }
+                    _ => {}
+                }
             }
 
             if i < tokens.len() && matches!(tokens[i].token_type, TokenType::Import) {
@@ -462,18 +548,22 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                         let sym_line = tokens[i].line;
                         let sym_col = tokens[i].column;
                         let mut name = sym.clone();
+                        let mut has_alias = false;
                         i += 1;
                         if i < tokens.len() && matches!(tokens[i].token_type, TokenType::As) {
                             i += 1;
                             if i < tokens.len() {
                                 if let TokenType::Identifier(alias) = &tokens[i].token_type {
                                     name = alias.clone();
+                                    has_alias = true;
                                     i += 1;
                                 }
                             }
                         }
                         imports.push(ImportInfo {
                             name_to_check: name,
+                            raw_path: raw_path.clone(),
+                            has_alias,
                             line: sym_line,
                             col: sym_col,
                             is_full_line: false,
@@ -501,22 +591,47 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
             .iter()
             .any(|&(start, end)| idx >= start && idx < end);
         if !inside_import {
-            if let TokenType::Identifier(id) = &tok.token_type {
-                if let Some((ns, _)) = id.split_once("::") {
-                    code_idents.insert(ns.to_string());
+            match &tok.token_type {
+                TokenType::Identifier(id) => {
+                    if let Some((ns, _)) = id.split_once("::") {
+                        code_idents.insert(ns.to_string());
+                    }
+                    code_idents.insert(id.clone());
                 }
-                code_idents.insert(id.clone());
+                TokenType::Test => {
+                    code_idents.insert("test".to_string());
+                }
+                TokenType::Assert => {
+                    code_idents.insert("assert".to_string());
+                }
+                TokenType::Bench => {
+                    code_idents.insert("bench".to_string());
+                }
+                _ => {}
             }
         }
     }
 
     for imp in imports {
-        let is_used = code_idents.contains(&imp.name_to_check)
+        let mut is_used = code_idents.contains(&imp.name_to_check)
             || code_idents.iter().any(|id| {
                 id.starts_with(&format!("{}_", imp.name_to_check))
                     || id.starts_with(&format!("{}::", imp.name_to_check))
                     || id.starts_with(&format!("{}.", imp.name_to_check))
             });
+
+        // If it's a full-line import without an alias (e.g. `import "std/hash"`),
+        // check if any of the symbols exported by the module are used directly.
+        if !is_used && !imp.has_alias && imp.is_full_line {
+            if let Some(path) = &imp.raw_path {
+                if let Some(exported) = get_exported_symbols_from_module(path, file_path) {
+                    if exported.iter().any(|sym| code_idents.contains(sym)) {
+                        is_used = true;
+                    }
+                }
+            }
+        }
+
         if !is_used {
             let len = imp.name_to_check.len();
             let fix = if imp.is_full_line {

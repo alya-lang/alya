@@ -855,7 +855,7 @@ pub(crate) fn canonical_stdlib_module(clean: &str) -> &str {
     }
 }
 
-fn get_embedded_stdlib(module: &str) -> Option<&'static str> {
+pub(crate) fn get_embedded_stdlib(module: &str) -> Option<&'static str> {
     let clean = module
         .strip_prefix("std/")
         .or_else(|| module.strip_prefix("std::"))
