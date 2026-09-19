@@ -2682,8 +2682,15 @@ say "stress_100k_status: [OK] 100000 fibers scheduled successfully"
 
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
-        assert!(output.contains("stress_100k_total: 200000"), "Got:\n{}", output);
-        assert!(output.contains("stress_100k_status: [OK] 100000 fibers scheduled successfully"), "Got:\n{}", output);
+        assert!(
+            output.contains("stress_100k_total: 200000"),
+            "Got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("stress_100k_status: [OK] 100000 fibers scheduled successfully"),
+            "Got:\n{}",
+            output
+        );
     }
 }
-

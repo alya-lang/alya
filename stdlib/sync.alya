@@ -259,8 +259,6 @@ pub function channel_free(ch: Channel)
     mutex_free(ch.lock)
 end
 
-
-
 # --- WaitGroup (Thread-Safe Counter Synchronization) ---
 
 pub struct WaitGroup
