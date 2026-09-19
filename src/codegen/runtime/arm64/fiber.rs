@@ -29,6 +29,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    str xzr, [x9, #56]\n");        // result
     out.push_str("    str xzr, [x9, #64]\n");        // parent
     out.push_str("    str xzr, [x9, #72]\n");        // next
+    out.push_str("    str xzr, [x9, #80]\n");        // wait_data
     out.push_str("    str x9, [x8]\n");              // alya_fiber_current = &alya_fiber_main
     emit_adrp_add(out, "x8", "alya_fiber_active_count", os);
     out.push_str("    str x10, [x8]\n");             // active_count = 1
@@ -68,6 +69,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".align 2\n");
     out.push_str(".global fn_alya_fiber_trampoline\n");
     out.push_str("fn_alya_fiber_trampoline:\n");
+    out.push_str("    stp x29, x30, [sp, #-16]!\n");
+    out.push_str("    mov x29, sp\n");
     emit_adrp_add(out, "x8", "alya_fiber_current", os);
     out.push_str("    ldr x19, [x8]\n");
     out.push_str("    mov x10, #1\n");
@@ -75,10 +78,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldr x8, [x19, #40]\n");        // fn_ptr
     out.push_str("    ldr x0, [x19, #48]\n");        // arg
     out.push_str("    blr x8\n");                    // call func(arg)
+    emit_adrp_add(out, "x8", "alya_fiber_current", os);
+    out.push_str("    ldr x19, [x8]\n");
     out.push_str("    str x0, [x19, #56]\n");        // result
     out.push_str("    mov x10, #3\n");
     out.push_str("    str x10, [x19, #8]\n");        // state = COMPLETED (3)
     out.push_str("    bl fn_alya_fiber_exit\n");
+    out.push_str("    ldp x29, x30, [sp], #16\n");
     out.push_str("    ret\n\n");
 
     // =========================================================================
@@ -87,6 +93,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".align 2\n");
     out.push_str(".global fn_alya_fiber_exit\n");
     out.push_str("fn_alya_fiber_exit:\n");
+    out.push_str("    stp x29, x30, [sp, #-16]!\n");
+    out.push_str("    mov x29, sp\n");
     emit_adrp_add(out, "x8", "alya_fiber_active_count", os);
     out.push_str("    ldr x9, [x8]\n");
     out.push_str("    sub x9, x9, #1\n");
@@ -109,6 +117,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldr x0, [x8]\n");
     out.push_str("    str x1, [x8]\n");
     out.push_str("    bl fn_alya_fiber_switch\n");
+    out.push_str("    ldp x29, x30, [sp], #16\n");
     out.push_str("    ret\n");
 
     out.push_str(".L_arm64_fib_exit_to_main:\n");
@@ -120,6 +129,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    str x1, [x8]\n");
     out.push_str("    bl fn_alya_fiber_switch\n");
     out.push_str(".L_arm64_fib_exit_done:\n");
+    out.push_str("    ldp x29, x30, [sp], #16\n");
     out.push_str("    ret\n\n");
 
     // =========================================================================
@@ -157,13 +167,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     // Stack top setup: top = stack_base + 16384
     out.push_str("    add x9, x21, #16384\n");
     out.push_str("    and x9, x9, #-16\n");         // 16-byte align
+    out.push_str("    stp xzr, xzr, [x9, #-16]!\n"); // top - 16: x19, x20
+    out.push_str("    stp xzr, xzr, [x9, #-16]!\n"); // top - 32: x21, x22
+    out.push_str("    stp xzr, xzr, [x9, #-16]!\n"); // top - 48: x23, x24
+    out.push_str("    stp xzr, xzr, [x9, #-16]!\n"); // top - 64: x25, x26
+    out.push_str("    stp xzr, xzr, [x9, #-16]!\n"); // top - 80: x27, x28
     emit_adrp_add(out, "x10", "fn_alya_fiber_trampoline", os);
-    out.push_str("    stp xzr, x10, [x9, #-16]!\n"); // x29=0, x30=trampoline
-    out.push_str("    stp xzr, xzr, [x9, #-16]!\n"); // x27, x28
-    out.push_str("    stp xzr, xzr, [x9, #-16]!\n"); // x25, x26
-    out.push_str("    stp xzr, xzr, [x9, #-16]!\n"); // x23, x24
-    out.push_str("    stp xzr, xzr, [x9, #-16]!\n"); // x21, x22
-    out.push_str("    stp xzr, xzr, [x9, #-16]!\n"); // x19, x20
+    out.push_str("    stp xzr, x10, [x9, #-16]!\n"); // top - 96: x29=0, x30=trampoline
 
     // Struct field setup
     emit_adrp_add(out, "x8", "alya_fiber_seq", os);
@@ -250,6 +260,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    str x0, [x10]\n");
 
     out.push_str(".L_arm64_fib_yd_no_reenq:\n");
+    emit_adrp_add(out, "x8", "alya_fiber_current", os);
     out.push_str("    str x1, [x8]\n");              // current = next
     out.push_str("    bl fn_alya_fiber_switch\n");
     emit_adrp_add(out, "x8", "alya_fiber_current", os);
