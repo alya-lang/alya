@@ -4,8 +4,11 @@
 
 ### 1.1 Variable Declaration (`let`)
 - Variables declared with `let` are **mutable**.
-- Type annotations on initialized variables are **optional**. The type is inferred deterministically from the right-hand side expression.
-- When an initial value is omitted, an explicit type annotation is **mandatory**.
+- Type annotations on initialized variables are **optional** (`let x = 42` or `let x: int = 42`).
+- When a type annotation is present, the initial expression is statically validated at compile time; assigning an incompatible type causes a compile-time `TypeError`.
+- Re-assigning a statically typed variable to an incompatible type is a **compile-time error** (`x = "bad"` when `x: int`).
+- Unannotated variables default to dynamic `any` semantics, preserving rapid scripting ergonomics and 100% backward compatibility.
+- When an initial value is omitted, an explicit type annotation is **mandatory** (e.g. `let x: int`).
 - **Definite Assignment Rule**: Reading a variable before it has been assigned a value is a **compile-time error**.
 
 ### 1.2 Constants (`const`)

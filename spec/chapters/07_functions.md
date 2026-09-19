@@ -9,9 +9,14 @@ function add(a: int, b: int) -> int
     return a + b
 end
 ```
-- Parameters require explicit type annotations at the signature boundary.
+- Parameters can specify explicit type annotations at the signature boundary (`function add(a: int, b: int) -> int`). Parameters without annotations default to dynamic `any`.
 - The return type is specified with `-> <Type>`. If a function does not return a value, `-> void` may be specified or omitted.
-- When an execution path reaches `end` in a void function, it returns implicitly. In non-void functions, missing a return statement on any control path is a **compile-time error**.
+- **Static Return & Call Validation**:
+  - Returning a value from a `-> void` function is a **compile-time error**.
+  - Omitting a return expression in a non-void function (`return` without a value) is a **compile-time error**.
+  - Returning an expression whose static type is incompatible with the declared return type is a **compile-time error** (`TypeError`).
+  - Passing arguments with static types incompatible with declared parameter types at call sites is a **compile-time error**.
+  - When an execution path reaches `end` in a void function, it returns implicitly. In non-void functions, missing a return statement on any control path is a **compile-time error**.
 
 ### 1.2 Default Parameter Values
 Parameters may specify optional default values. Defaulted parameters must follow all required parameters in the signature:

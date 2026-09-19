@@ -61,6 +61,34 @@ For low-level systems programming, memory-constrained buffers, and C interop, ex
 
 ---
 
+### 1.5 Gradual Typing Semantics & Compile-Time Type Checking
+
+Alya features an ergonomic **gradual typing system** designed to combine the velocity of rapid dynamic prototyping with the reliability of static industrial verification.
+
+#### 1. Dynamic Typing by Default (`any`)
+- Variable declarations without explicit annotations (e.g. `let x = 42`) and unannotated function parameters default to dynamic typing (`any`).
+- The `any` type acts as a universal bridge: it is **bidirectionally assignable** with all concrete static types. An untyped variable can be passed into a statically typed function, and a statically typed result can be stored into an untyped variable without ceremonial casting. This guarantees 100% backward compatibility for dynamic codebases.
+
+#### 2. Static Compile-Time Enforcement
+When types are explicitly annotated, the compiler activates strict static analysis during Pass 3.5:
+- **Variable Declarations & Re-assignments**:
+  ```alya
+  let count: int = 10         # Statically verified as int
+  count = 20                  # Statically verified
+  count = "twenty"            # Compile-time TypeError: Type mismatch: expected int, got string
+  ```
+- **Function Boundaries**:
+  Arguments passed at call sites must be statically compatible with parameter types. Values returned by `return` expressions must match the declared return type (`-> T`). Returning a value from a `void` function or returning nothing from a non-void function triggers a compile-time `TypeError`.
+- **Struct Field Invariants**:
+  Struct fields declared with types (`struct Point x: int, y: int end`) are statically validated during instantiation (`Point { x: 1, y: 2 }` or `Point(1, 2)`) and field mutations (`p.x = "invalid"` is rejected at compile time).
+- **Subtyping & Interoperability Rules**:
+  - Sized integers (e.g. `i32`, `u8`) are safely assignable to canonical `int`.
+  - Floating-point `f32` is assignable to `float` / `f64`.
+  - Literals `null` are assignable to nullable optionals (`T?`) or raw pointers (`ptr`).
+  - Tuple literals `(T1, T2)` are checked component-by-component against target tuple signatures.
+
+---
+
 ## 2. Memory Layout & Stack vs Heap Semantics
 
 | Type | Allocation | Lifecycle | Reference Counted? |

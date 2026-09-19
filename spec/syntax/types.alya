@@ -104,3 +104,23 @@ end
 if query_val not is string
     say "query_val is confirmed not to be a string"
 end
+
+# ------------------------------------------------------------------------------
+# 10. Static Gradual Typing & Interoperability
+# ------------------------------------------------------------------------------
+# Statically typed scalar assignment and reassignment
+let typed_score: int = 100
+typed_score = 150
+
+# Bidirectional interoperability between 'any' and static types
+let dynamic_holder: any = typed_score
+let recovered_typed: int = dynamic_holder
+
+# Statically validated typed function
+function compute_typed_hash(id: int, label: string) -> int
+    let hash_val: int = id * 31
+    return hash_val
+end
+
+let hash_result: int = compute_typed_hash(typed_score, "spec_test")
+say f"Gradual typing OK: score={typed_score}, recovered={recovered_typed}, hash={hash_result}"

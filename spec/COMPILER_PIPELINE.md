@@ -20,6 +20,9 @@ Source Code (.alya files)
    [Pass 3: O(N) Call-Graph & CallIndex Indexing]
         │ Single linear sweep indexing all call sites: HashMap[Symbol, List[CallArgs]]
         ▼
+   [Pass 3.5: Static Gradual Type Checking]
+        │ Validates annotated bindings, param/return signatures, struct fields; rejects TypeErrors
+        ▼
    [Pass 4: Root Reachability & Tree-Shaking (DCE)]
         │ Prunes unreferenced functions/types starting from roots: main(), @test, @export
         ▼
