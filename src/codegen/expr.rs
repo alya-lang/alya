@@ -1308,7 +1308,11 @@ impl CodeGen {
 
                 // 3. Direct namespace / mangled name: Point::create -> Point__create
                 if resolved_name.contains("::") {
-                    let mangled = resolved_name.replace("::", "__");
+                    let mangled = if resolved_name.starts_with("_Alya_") {
+                        resolved_name.replace("::", "_")
+                    } else {
+                        resolved_name.replace("::", "__")
+                    };
                     if self.ctx.functions.contains(&mangled) {
                         resolved_name = mangled;
                     }

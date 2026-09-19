@@ -8,9 +8,9 @@ use super::hash::{compute_cache_key, compute_package_checksum};
 use super::lock::{format_git_source, parse_git_source_rev, parse_lockfile, serialize_lockfile};
 use super::manifest::{check_compiler_compatibility, parse_manifest, serialize_manifest};
 use super::resolver::{
-    compare_semver, copy_dir_all, fetch_git_or_archive_dependency, find_latest_semver_tag,
-    query_remote_branch_head, query_remote_tags, resolve_package_spec, resolve_registry_url,
-    update_git_dependency,
+    coalesce_semver_versions, compare_semver, copy_dir_all, fetch_git_or_archive_dependency,
+    find_latest_semver_tag, query_remote_branch_head, query_remote_tags, resolve_package_spec,
+    resolve_registry_url, semver_major,
 };
 use super::types::{
     DependencySource, LockedPackage, PackageInfo, PackageLock, PackageManifest, PkgCommand,
@@ -98,6 +98,7 @@ pub fn run_init(path: Option<&str>, name: Option<&str>, is_lib: bool) -> Result<
             name: pkg_name.clone(),
             version: "0.1.0".to_string(),
             alya_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            links: None,
             authors: Vec::new(),
             description: Some(format!("Alya package {}", pkg_name)),
             entry: entry_file.to_string(),
@@ -267,6 +268,221 @@ pub fn run_install() -> Result<(), String> {
     run_install_in(&manifest_dir)
 }
 
+fn get_dep_major(dep: &DependencySource, from_dir: &Path) -> Option<u64> {
+    match dep {
+        DependencySource::Version(v) => semver_major(v),
+        DependencySource::Git { tag: Some(t), .. } => semver_major(t),
+        DependencySource::Path { path } => {
+            let p = Path::new(path);
+            let full = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                from_dir.join(p)
+            };
+            if let Ok(c) = fs::read_to_string(full.join("alya.toml")) {
+                if let Ok(m) = parse_manifest(&c) {
+                    return semver_major(&m.package.version);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn ensure_dep_cached(
+    name: &str,
+    dep: &DependencySource,
+    from_manifest_dir: &Path,
+    existing_lock: Option<&PackageLock>,
+) -> Result<PathBuf, String> {
+    match dep {
+        DependencySource::Path { path } => {
+            let p = Path::new(path);
+            let full_path = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                from_manifest_dir.join(p)
+            };
+            if !full_path.exists() {
+                return Err(format!(
+                    "Path dependency '{}' does not exist at '{}'",
+                    name,
+                    full_path.display()
+                ));
+            }
+            Ok(full_path)
+        }
+        DependencySource::Git {
+            url,
+            tag,
+            branch,
+            rev,
+        } => {
+            let locked_rev = existing_lock
+                .as_ref()
+                .and_then(|l| l.packages.iter().find(|p| p.name == name))
+                .and_then(|p| parse_git_source_rev(&p.source));
+            let effective_rev = rev.clone().or(locked_rev);
+
+            let tag_or_branch = tag
+                .as_deref()
+                .or(branch.as_deref())
+                .or(effective_rev.as_deref())
+                .unwrap_or("head");
+
+            let cache_dir = get_global_cache_dir()
+                .unwrap_or_else(|| from_manifest_dir.join(".alya").join("cache"));
+            let cache_key = compute_cache_key(name, tag_or_branch, url);
+            let cached_pkg_dir = cache_dir.join(&cache_key);
+
+            let cache_hit = cached_pkg_dir.exists()
+                && cached_pkg_dir.join("alya.toml").exists()
+                && (effective_rev.is_none()
+                    || fs::read_to_string(cached_pkg_dir.join(".alya-rev"))
+                        .ok()
+                        .map(|s| s.trim().to_string())
+                        == effective_rev);
+
+            if cache_hit {
+                println!(
+                    "  Using cached package '{}' ({}) from global cache",
+                    name, tag_or_branch
+                );
+            } else {
+                let _ = fs::create_dir_all(&cache_dir);
+                if cached_pkg_dir.exists() {
+                    let _ = fs::remove_dir_all(&cached_pkg_dir);
+                }
+                fetch_git_or_archive_dependency(
+                    name,
+                    url,
+                    tag.as_deref(),
+                    branch.as_deref(),
+                    effective_rev.as_deref(),
+                    &cached_pkg_dir,
+                )?;
+                let commit_sha = fs::read_to_string(cached_pkg_dir.join(".alya-rev"))
+                    .ok()
+                    .map(|s| s.trim().to_string())
+                    .or_else(|| effective_rev.clone());
+                let locked_source = format_git_source(
+                    url,
+                    branch.as_deref(),
+                    tag.as_deref(),
+                    rev.as_deref(),
+                    commit_sha.as_deref(),
+                );
+                let _ = fs::write(cached_pkg_dir.join(".alya-source"), &locked_source);
+            }
+            Ok(cached_pkg_dir)
+        }
+        DependencySource::Version(v) => {
+            let url = resolve_registry_url(name);
+            let tag_cand = if v != "*" && !v.is_empty() {
+                Some(if v.starts_with('v') || v.starts_with('V') {
+                    v.clone()
+                } else {
+                    format!("v{}", v)
+                })
+            } else {
+                None
+            };
+            let tag_or_branch = tag_cand.as_deref().unwrap_or("head");
+            let source = format!("registry+{}#{}", url, tag_or_branch);
+
+            let cache_dir = get_global_cache_dir()
+                .unwrap_or_else(|| from_manifest_dir.join(".alya").join("cache"));
+            let cache_key = compute_cache_key(name, tag_or_branch, &url);
+            let cached_pkg_dir = cache_dir.join(&cache_key);
+
+            let cache_hit = cached_pkg_dir.exists() && cached_pkg_dir.join("alya.toml").exists();
+
+            let head_cache_key = compute_cache_key(name, "head", &url);
+            let head_cached_dir = cache_dir.join(&head_cache_key);
+            let head_hit = if !cache_hit
+                && head_cached_dir.exists()
+                && head_cached_dir.join("alya.toml").exists()
+            {
+                if let Ok(manifest_src) = fs::read_to_string(head_cached_dir.join("alya.toml")) {
+                    if let Ok(parsed) = parse_manifest(&manifest_src) {
+                        parsed.package.version == *v || v == "*"
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if cache_hit {
+                println!(
+                    "  Using cached package '{}' ({}) from global cache",
+                    name, v
+                );
+            } else if head_hit {
+                let _ = copy_dir_all(&head_cached_dir, &cached_pkg_dir, true);
+                let _ = fs::write(cached_pkg_dir.join(".alya-source"), &source);
+                println!("  Using package '{}' (v{}) from global cache", name, v);
+            } else {
+                let _ = fs::create_dir_all(&cache_dir);
+                if cached_pkg_dir.exists() {
+                    let _ = fs::remove_dir_all(&cached_pkg_dir);
+                }
+                let mut fetch_res = fetch_git_or_archive_dependency(
+                    name,
+                    &url,
+                    tag_cand.as_deref(),
+                    None,
+                    None,
+                    &cached_pkg_dir,
+                );
+                if fetch_res.is_err() {
+                    if head_cached_dir.exists() && head_cached_dir.join("alya.toml").exists() {
+                        if let Ok(manifest_src) =
+                            fs::read_to_string(head_cached_dir.join("alya.toml"))
+                        {
+                            if let Ok(parsed) = parse_manifest(&manifest_src) {
+                                if parsed.package.version == *v || v == "*" {
+                                    let _ = copy_dir_all(&head_cached_dir, &cached_pkg_dir, true);
+                                    fetch_res = Ok(());
+                                }
+                            }
+                        }
+                    }
+                    if fetch_res.is_err() {
+                        if let Ok(()) = fetch_git_or_archive_dependency(
+                            name,
+                            &url,
+                            None,
+                            None,
+                            None,
+                            &cached_pkg_dir,
+                        ) {
+                            if let Ok(manifest_src) =
+                                fs::read_to_string(cached_pkg_dir.join("alya.toml"))
+                            {
+                                if let Ok(parsed) = parse_manifest(&manifest_src) {
+                                    if parsed.package.version == *v || v == "*" {
+                                        fetch_res = Ok(());
+                                    } else {
+                                        let _ = fs::remove_dir_all(&cached_pkg_dir);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                fetch_res?;
+                let _ = fs::write(cached_pkg_dir.join(".alya-source"), &source);
+            }
+            Ok(cached_pkg_dir)
+        }
+    }
+}
+
 pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
     let manifest_path = manifest_dir.join("alya.toml");
     let content = fs::read_to_string(&manifest_path)
@@ -288,455 +504,181 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
         None
     };
 
-    let mut locked_packages = Vec::new();
-    let mut visited: HashSet<String> = HashSet::new();
-    let mut to_process: VecDeque<(String, DependencySource, PathBuf)> = VecDeque::new();
+    // Stage 1: Dependency Graph Discovery & SemVer Coalescing
+    let mut resolved_requests: BTreeMap<(String, Option<u64>), (DependencySource, PathBuf)> =
+        BTreeMap::new();
+    let mut to_scan: VecDeque<(String, DependencySource, PathBuf)> = VecDeque::new();
 
     for (name, dep) in &manifest.dependencies {
-        to_process.push_back((name.clone(), dep.clone(), manifest_dir.to_path_buf()));
+        to_scan.push_back((name.clone(), dep.clone(), manifest_dir.to_path_buf()));
     }
 
-    while let Some((name, dep, from_manifest_dir)) = to_process.pop_front() {
-        if visited.contains(&name) {
+    while let Some((name, dep, from_manifest_dir)) = to_scan.pop_front() {
+        let maj = get_dep_major(&dep, &from_manifest_dir);
+        let key = (name.clone(), maj);
+
+        if let Some((existing_dep, _)) = resolved_requests.get_mut(&key) {
+            if let (DependencySource::Version(v1), DependencySource::Version(v2)) =
+                (&existing_dep, &dep)
+            {
+                let coalesced = coalesce_semver_versions(v1, v2)?;
+                if coalesced != v1.as_str() {
+                    *existing_dep = DependencySource::Version(coalesced.to_string());
+                }
+            }
             continue;
         }
-        visited.insert(name.clone());
 
-        let resolved_pkg_dir = match dep {
-            DependencySource::Path { path } => {
-                let dep_path = Path::new(&path);
-                let full_path = if dep_path.is_absolute() {
-                    dep_path.to_path_buf()
-                } else {
-                    from_manifest_dir.join(dep_path)
-                };
+        resolved_requests.insert(key, (dep.clone(), from_manifest_dir.clone()));
 
-                if !full_path.exists() {
-                    return Err(format!(
-                        "Path dependency '{}' does not exist at '{}'",
-                        name,
-                        full_path.display()
-                    ));
-                }
-
-                let entry = find_package_entry(&full_path, &name)?;
-                let rel_entry = entry
-                    .strip_prefix(manifest_dir)
-                    .unwrap_or(&entry)
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                let checksum = compute_package_checksum(&full_path)?;
-
-                locked_packages.push(LockedPackage {
-                    name: name.clone(),
-                    version: "0.1.0".to_string(),
-                    source: format!("path:{}", path.replace('\\', "/")),
-                    entry: rel_entry,
-                    checksum,
-                    dependencies: Vec::new(),
-                });
-
-                Some(full_path)
-            }
-            DependencySource::Git {
-                url,
-                tag,
-                branch,
-                rev,
-            } => {
-                fs::create_dir_all(&packages_dir)
-                    .map_err(|e| format!("Failed to create .alya/packages directory: {}", e))?;
-                let target_dir = packages_dir.join(&name);
-
-                let locked_rev = existing_lock
-                    .as_ref()
-                    .and_then(|l| l.packages.iter().find(|p| p.name == name))
-                    .and_then(|p| parse_git_source_rev(&p.source));
-                let effective_rev = rev.clone().or(locked_rev);
-
-                let tag_or_branch = tag
-                    .as_deref()
-                    .or(branch.as_deref())
-                    .or(effective_rev.as_deref())
-                    .unwrap_or("head");
-
-                if let Some(global_cache_dir) = get_global_cache_dir() {
-                    let cache_key = compute_cache_key(&name, tag_or_branch, &url);
-                    let cached_pkg_dir = global_cache_dir.join(&cache_key);
-
-                    let cache_hit = cached_pkg_dir.exists()
-                        && cached_pkg_dir.join("alya.toml").exists()
-                        && (effective_rev.is_none()
-                            || fs::read_to_string(cached_pkg_dir.join(".alya-rev"))
-                                .ok()
-                                .map(|s| s.trim().to_string())
-                                == effective_rev);
-
-                    if cache_hit {
-                        println!(
-                            "  Using cached package '{}' ({}) from global cache",
-                            name, tag_or_branch
-                        );
-                        if !target_dir.exists() || !target_dir.join("alya.toml").exists() {
-                            if target_dir.exists() {
-                                let _ = fs::remove_dir_all(&target_dir);
-                            }
-                            copy_dir_all(&cached_pkg_dir, &target_dir, true)?;
-                        }
-                    } else {
-                        let _ = fs::create_dir_all(&global_cache_dir);
-                        if cached_pkg_dir.exists() {
-                            let _ = fs::remove_dir_all(&cached_pkg_dir);
-                        }
-                        fetch_git_or_archive_dependency(
-                            &name,
-                            &url,
-                            tag.as_deref(),
-                            branch.as_deref(),
-                            effective_rev.as_deref(),
-                            &cached_pkg_dir,
-                        )?;
-                        let commit_sha = fs::read_to_string(cached_pkg_dir.join(".alya-rev"))
-                            .ok()
-                            .map(|s| s.trim().to_string())
-                            .or_else(|| effective_rev.clone());
-                        let locked_source = format_git_source(
-                            &url,
-                            branch.as_deref(),
-                            tag.as_deref(),
-                            rev.as_deref(),
-                            commit_sha.as_deref(),
-                        );
-                        let _ = fs::write(cached_pkg_dir.join(".alya-source"), &locked_source);
-
-                        if target_dir.exists() {
-                            let _ = fs::remove_dir_all(&target_dir);
-                        }
-                        copy_dir_all(&cached_pkg_dir, &target_dir, true)?;
-                    }
-                } else if !target_dir.exists() {
-                    fetch_git_or_archive_dependency(
-                        &name,
-                        &url,
-                        tag.as_deref(),
-                        branch.as_deref(),
-                        effective_rev.as_deref(),
-                        &target_dir,
-                    )?;
-                } else {
-                    update_git_dependency(tag.as_deref(), branch.as_deref(), &target_dir);
-                }
-
-                // Ensure local project dependency directory never contains a .git folder
-                let local_git_dir = target_dir.join(".git");
-                if local_git_dir.exists() {
-                    let _ = fs::remove_dir_all(&local_git_dir);
-                }
-
-                let entry = find_package_entry(&target_dir, &name)?;
-                let rel_entry = entry
-                    .strip_prefix(manifest_dir)
-                    .unwrap_or(&entry)
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                let checksum = compute_package_checksum(&target_dir)?;
-
-                let commit_sha = fs::read_to_string(target_dir.join(".alya-rev"))
-                    .ok()
-                    .or_else(|| {
-                        get_global_cache_dir().and_then(|c| {
-                            fs::read_to_string(
-                                c.join(compute_cache_key(&name, tag_or_branch, &url))
-                                    .join(".alya-rev"),
-                            )
-                            .ok()
-                        })
-                    })
-                    .map(|s| s.trim().to_string())
-                    .or_else(|| effective_rev.clone());
-
-                if let Some(ref sha) = commit_sha {
-                    if !target_dir.join(".alya-rev").exists() {
-                        let _ = fs::write(target_dir.join(".alya-rev"), sha);
-                    }
-                }
-
-                let source = format_git_source(
-                    &url,
-                    branch.as_deref(),
-                    tag.as_deref(),
-                    rev.as_deref(),
-                    commit_sha.as_deref(),
-                );
-
-                let actual_version =
-                    if let Ok(content) = fs::read_to_string(target_dir.join("alya.toml")) {
-                        if let Ok(pkg_m) = parse_manifest(&content) {
-                            if !pkg_m.package.version.is_empty() {
-                                pkg_m.package.version
-                            } else {
-                                tag_or_branch.to_string()
-                            }
-                        } else {
-                            tag_or_branch.to_string()
-                        }
-                    } else {
-                        tag_or_branch.to_string()
-                    };
-
-                locked_packages.push(LockedPackage {
-                    name: name.clone(),
-                    version: actual_version,
-                    source,
-                    entry: rel_entry,
-                    checksum,
-                    dependencies: Vec::new(),
-                });
-
-                Some(target_dir)
-            }
-            DependencySource::Version(v) => {
-                fs::create_dir_all(&packages_dir)
-                    .map_err(|e| format!("Failed to create .alya/packages directory: {}", e))?;
-                let target_dir = packages_dir.join(&name);
-
-                let url = resolve_registry_url(&name);
-                let tag_cand = if v != "*" && !v.is_empty() {
-                    Some(if v.starts_with('v') || v.starts_with('V') {
-                        v.clone()
-                    } else {
-                        format!("v{}", v)
-                    })
-                } else {
-                    None
-                };
-
-                let tag_or_branch = tag_cand.as_deref().unwrap_or("head");
-                let source = format!("registry+{}#{}", url, v);
-
-                if let Some(global_cache_dir) = get_global_cache_dir() {
-                    let cache_key = compute_cache_key(&name, tag_or_branch, &url);
-                    let cached_pkg_dir = global_cache_dir.join(&cache_key);
-
-                    let cache_hit =
-                        cached_pkg_dir.exists() && cached_pkg_dir.join("alya.toml").exists();
-
-                    let head_cache_key = compute_cache_key(&name, "head", &url);
-                    let head_cached_dir = global_cache_dir.join(&head_cache_key);
-                    let head_hit = if !cache_hit
-                        && head_cached_dir.exists()
-                        && head_cached_dir.join("alya.toml").exists()
-                    {
-                        if let Ok(manifest_src) =
-                            fs::read_to_string(head_cached_dir.join("alya.toml"))
-                        {
-                            if let Ok(parsed) = parse_manifest(&manifest_src) {
-                                parsed.package.version == *v || v == "*"
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    };
-
-                    if cache_hit {
-                        println!(
-                            "  Using cached package '{}' ({}) from global cache",
-                            name, v
-                        );
-                        if !target_dir.exists() || !target_dir.join("alya.toml").exists() {
-                            if target_dir.exists() {
-                                let _ = fs::remove_dir_all(&target_dir);
-                            }
-                            copy_dir_all(&cached_pkg_dir, &target_dir, true)?;
-                        }
-                    } else if head_hit {
-                        let _ = copy_dir_all(&head_cached_dir, &cached_pkg_dir, true);
-                        let _ = fs::write(cached_pkg_dir.join(".alya-source"), &source);
-                        println!("  Using package '{}' (v{}) from global cache", name, v);
-                        if target_dir.exists() {
-                            let _ = fs::remove_dir_all(&target_dir);
-                        }
-                        copy_dir_all(&cached_pkg_dir, &target_dir, true)?;
-                    } else {
-                        let _ = fs::create_dir_all(&global_cache_dir);
-                        if cached_pkg_dir.exists() {
-                            let _ = fs::remove_dir_all(&cached_pkg_dir);
-                        }
-                        let mut fetch_res = fetch_git_or_archive_dependency(
-                            &name,
-                            &url,
-                            tag_cand.as_deref(),
-                            None,
-                            None,
-                            &cached_pkg_dir,
-                        );
-                        if fetch_res.is_err() {
-                            // Fallback 1: Check if 'head' in global cache matches the requested version
-                            let head_cache_key = compute_cache_key(&name, "head", &url);
-                            let head_cached_dir = global_cache_dir.join(&head_cache_key);
-                            if head_cached_dir.exists()
-                                && head_cached_dir.join("alya.toml").exists()
-                            {
-                                if let Ok(manifest_src) =
-                                    fs::read_to_string(head_cached_dir.join("alya.toml"))
-                                {
-                                    if let Ok(parsed) = parse_manifest(&manifest_src) {
-                                        if parsed.package.version == *v || v == "*" {
-                                            println!(
-                                                "  Notice: Tag '{}' not found on remote; using matching head version '{}'",
-                                                tag_or_branch, parsed.package.version
-                                            );
-                                            let _ = copy_dir_all(
-                                                &head_cached_dir,
-                                                &cached_pkg_dir,
-                                                true,
-                                            );
-                                            fetch_res = Ok(());
-                                        }
-                                    }
-                                }
-                            }
-                            // Fallback 2: Try fetching default branch (head) directly
-                            if fetch_res.is_err() {
-                                if let Ok(()) = fetch_git_or_archive_dependency(
-                                    &name,
-                                    &url,
-                                    None,
-                                    None,
-                                    None,
-                                    &cached_pkg_dir,
-                                ) {
-                                    if let Ok(manifest_src) =
-                                        fs::read_to_string(cached_pkg_dir.join("alya.toml"))
-                                    {
-                                        if let Ok(parsed) = parse_manifest(&manifest_src) {
-                                            if parsed.package.version == *v || v == "*" {
-                                                println!(
-                                                    "  Notice: Tag '{}' not found on remote; using matching head version '{}'",
-                                                    tag_or_branch, parsed.package.version
-                                                );
-                                                fetch_res = Ok(());
-                                            } else {
-                                                let _ = fs::remove_dir_all(&cached_pkg_dir);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if let Err(e) = fetch_res {
-                            if !target_dir.exists() || !target_dir.join("alya.toml").exists() {
-                                return Err(e);
-                            }
-                        } else {
-                            let _ = fs::write(cached_pkg_dir.join(".alya-source"), &source);
-                            if target_dir.exists() {
-                                let _ = fs::remove_dir_all(&target_dir);
-                            }
-                            copy_dir_all(&cached_pkg_dir, &target_dir, true)?;
-                        }
-                    }
-                } else if !target_dir.exists() || !target_dir.join("alya.toml").exists() {
-                    let mut fetch_res = fetch_git_or_archive_dependency(
-                        &name,
-                        &url,
-                        tag_cand.as_deref(),
-                        None,
-                        None,
-                        &target_dir,
-                    );
-                    if fetch_res.is_err() {
-                        if let Ok(()) = fetch_git_or_archive_dependency(
-                            &name,
-                            &url,
-                            None,
-                            None,
-                            None,
-                            &target_dir,
-                        ) {
-                            if let Ok(manifest_src) =
-                                fs::read_to_string(target_dir.join("alya.toml"))
-                            {
-                                if let Ok(parsed) = parse_manifest(&manifest_src) {
-                                    if parsed.package.version == *v || v == "*" {
-                                        fetch_res = Ok(());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    fetch_res?;
-                } else {
-                    update_git_dependency(tag_cand.as_deref(), None, &target_dir);
-                }
-
-                // Ensure local project dependency directory never contains a .git folder
-                let local_git_dir = target_dir.join(".git");
-                if local_git_dir.exists() {
-                    let _ = fs::remove_dir_all(&local_git_dir);
-                }
-
-                let entry = find_package_entry(&target_dir, &name)?;
-                let rel_entry = entry
-                    .strip_prefix(manifest_dir)
-                    .unwrap_or(&entry)
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                let checksum = compute_package_checksum(&target_dir)?;
-
-                let actual_version = if v == "*" || v.is_empty() {
-                    if let Ok(content) = fs::read_to_string(target_dir.join("alya.toml")) {
-                        if let Ok(pkg_m) = parse_manifest(&content) {
-                            pkg_m.package.version
-                        } else {
-                            v.clone()
-                        }
-                    } else {
-                        v.clone()
-                    }
-                } else {
-                    v.clone()
-                };
-
-                locked_packages.push(LockedPackage {
-                    name: name.clone(),
-                    version: actual_version.clone(),
-                    source: format!("registry+{}#v{}", url, actual_version),
-                    entry: rel_entry,
-                    checksum,
-                    dependencies: Vec::new(),
-                });
-
-                Some(target_dir)
-            }
-        };
-
-        // Recursively inspect the resolved package for its own dependencies in alya.toml
-        let mut sub_deps = Vec::new();
-        if let Some(pkg_dir) = resolved_pkg_dir {
-            let sub_manifest_path = pkg_dir.join("alya.toml");
+        // Inspect sub-dependencies
+        if let Ok(source_dir) =
+            ensure_dep_cached(&name, &dep, &from_manifest_dir, existing_lock.as_ref())
+        {
+            let sub_manifest_path = source_dir.join("alya.toml");
             if sub_manifest_path.exists() {
                 if let Ok(sub_content) = fs::read_to_string(&sub_manifest_path) {
                     if let Ok(sub_manifest) = parse_manifest(&sub_content) {
                         for (sub_name, sub_dep) in sub_manifest.dependencies {
-                            sub_deps.push(sub_name.clone());
-                            if !visited.contains(&sub_name) {
-                                to_process.push_back((sub_name, sub_dep, pkg_dir.clone()));
-                            }
+                            to_scan.push_back((sub_name, sub_dep, source_dir.clone()));
                         }
                     }
                 }
             }
         }
-        sub_deps.sort();
-        sub_deps.dedup();
-        if let Some(pkg) = locked_packages.last_mut() {
-            pkg.dependencies = sub_deps;
-        }
+    }
+
+    // Stage 2: Major Segregation Analysis
+    let mut major_counts: BTreeMap<String, HashSet<Option<u64>>> = BTreeMap::new();
+    for (name, maj) in resolved_requests.keys() {
+        major_counts.entry(name.clone()).or_default().insert(*maj);
+    }
+    let multi_major_pkgs: HashSet<String> = major_counts
+        .into_iter()
+        .filter(|(_, set)| set.len() > 1)
+        .map(|(name, _)| name)
+        .collect();
+
+    // Stage 3: Installation & Native C-FFI Safety Validation
+    fs::create_dir_all(&packages_dir)
+        .map_err(|e| format!("Failed to create .alya/packages directory: {}", e))?;
+
+    let mut locked_packages = Vec::new();
+    let mut links_tracker: BTreeMap<String, String> = BTreeMap::new();
+
+    for ((name, maj), (dep, from_manifest_dir)) in resolved_requests {
+        let is_multi = multi_major_pkgs.contains(&name);
+        let folder_name = if is_multi {
+            format!("{}-v{}", name, maj.unwrap_or(1))
+        } else {
+            name.clone()
+        };
+
+        let cached_source_dir =
+            ensure_dep_cached(&name, &dep, &from_manifest_dir, existing_lock.as_ref())?;
+        let is_path_dep = matches!(dep, DependencySource::Path { .. });
+
+        let (target_dir, actual_source_str) = if is_path_dep && !is_multi {
+            let path_str = match &dep {
+                DependencySource::Path { path } => path.replace('\\', "/"),
+                _ => "".to_string(),
+            };
+            (cached_source_dir.clone(), format!("path:{}", path_str))
+        } else {
+            let dest_dir = packages_dir.join(&folder_name);
+            if dest_dir.exists() {
+                let _ = fs::remove_dir_all(&dest_dir);
+            }
+            copy_dir_all(&cached_source_dir, &dest_dir, true)?;
+
+            let local_git_dir = dest_dir.join(".git");
+            if local_git_dir.exists() {
+                let _ = fs::remove_dir_all(&local_git_dir);
+            }
+
+            let source_str = match &dep {
+                DependencySource::Version(v) => {
+                    let url = resolve_registry_url(&name);
+                    let v_tag = if v.starts_with('v') || v.starts_with('V') {
+                        v.clone()
+                    } else {
+                        format!("v{}", v)
+                    };
+                    format!("registry+{}#{}", url, v_tag)
+                }
+                DependencySource::Path { path } => {
+                    format!("path:{}", path.replace('\\', "/"))
+                }
+                DependencySource::Git {
+                    url,
+                    branch,
+                    tag,
+                    rev,
+                } => fs::read_to_string(cached_source_dir.join(".alya-source"))
+                    .ok()
+                    .unwrap_or_else(|| {
+                        format_git_source(
+                            url,
+                            branch.as_deref(),
+                            tag.as_deref(),
+                            rev.as_deref(),
+                            None,
+                        )
+                    }),
+            };
+
+            (dest_dir, source_str)
+        };
+
+        // Parse manifest to check Native C-FFI links and extract metadata
+        let sub_manifest_path = target_dir.join("alya.toml");
+        let (actual_version, sub_deps) = if sub_manifest_path.exists() {
+            let sub_content = fs::read_to_string(&sub_manifest_path).map_err(|e| {
+                format!(
+                    "Failed to read manifest in '{}': {}",
+                    target_dir.display(),
+                    e
+                )
+            })?;
+            let sub_manifest = parse_manifest(&sub_content)?;
+
+            // Native C-FFI link conflict detection
+            if let Some(links_id) = sub_manifest.links() {
+                if let Some(prev) = links_tracker.get(links_id) {
+                    if prev != &folder_name {
+                        return Err(format!(
+                            "Error: Duplicate native C library link '{}' required by both '{}' and '{}'. Align dependency versions to resolve.",
+                            links_id, prev, folder_name
+                        ));
+                    }
+                } else {
+                    links_tracker.insert(links_id.to_string(), folder_name.clone());
+                }
+            }
+
+            let mut deps: Vec<String> = sub_manifest.dependencies.keys().cloned().collect();
+            deps.sort();
+            (sub_manifest.package.version, deps)
+        } else {
+            ("0.1.0".to_string(), Vec::new())
+        };
+
+        let entry = find_package_entry(&target_dir, &name)?;
+        let rel_entry = entry
+            .strip_prefix(manifest_dir)
+            .unwrap_or(&entry)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let checksum = compute_package_checksum(&target_dir)?;
+
+        locked_packages.push(LockedPackage {
+            name: folder_name,
+            version: actual_version,
+            source: actual_source_str,
+            entry: rel_entry,
+            checksum,
+            dependencies: sub_deps,
+        });
     }
 
     let lock = PackageLock {

@@ -639,3 +639,43 @@ pub fn find_latest_semver_tag<'a>(tags: &'a [String]) -> Option<&'a str> {
     semver_tags.sort_by(|a, b| compare_semver(a, b));
     semver_tags.last().copied()
 }
+
+pub fn semver_major(v: &str) -> Option<u64> {
+    let clean = v.trim().trim_start_matches(['^', '~', '=', 'v', 'V', '>']);
+    parse_semver(clean).map(|(maj, _, _, _)| maj)
+}
+
+pub fn is_semver_compatible(v1: &str, v2: &str) -> bool {
+    let c1 = v1.trim().trim_start_matches(['^', '~', '=', 'v', 'V', '>']);
+    let c2 = v2.trim().trim_start_matches(['^', '~', '=', 'v', 'V', '>']);
+    match (parse_semver(c1), parse_semver(c2)) {
+        (Some((maj1, min1, _, _)), Some((maj2, min2, _, _))) => {
+            if maj1 != maj2 {
+                return false;
+            }
+            if maj1 == 0 {
+                min1 == min2
+            } else {
+                true
+            }
+        }
+        _ => c1 == c2,
+    }
+}
+
+pub fn coalesce_semver_versions<'a>(v1: &'a str, v2: &'a str) -> Result<&'a str, String> {
+    if !is_semver_compatible(v1, v2) {
+        return Err(format!(
+            "Incompatible SemVer versions '{}' and '{}' cannot be coalesced",
+            v1, v2
+        ));
+    }
+    let c1 = v1.trim().trim_start_matches(['^', '~', '=', 'v', 'V', '>']);
+    let c2 = v2.trim().trim_start_matches(['^', '~', '=', 'v', 'V', '>']);
+    if compare_semver(c1, c2).is_ge() {
+        Ok(v1)
+    } else {
+        Ok(v2)
+    }
+}
+

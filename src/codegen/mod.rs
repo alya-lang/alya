@@ -436,6 +436,8 @@ impl CodeGen {
             } = stmt.inner_stmt()
             {
                 self.ctx.functions.insert(name.clone());
+                let mangled_fn = crate::codegen::arch::control::mangle_symbol_name(name);
+                self.ctx.functions.insert(mangled_fn);
                 let ns_bare = name.rsplit("::").next().unwrap_or(name);
                 let bare = if let Some((prefix, _)) = ns_bare.split_once("__") {
                     if self.ctx.structs.contains_key(prefix) || self.ctx.enums.contains(prefix) {

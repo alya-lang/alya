@@ -159,7 +159,11 @@ pub fn emit_increment_var(
 }
 
 pub fn mangle_symbol_name(name: &str) -> String {
-    let s = name.replace("::", "__");
+    let s = if name.starts_with("_Alya_") {
+        name.replace("::", "_")
+    } else {
+        name.replace("::", "__")
+    };
     s.replace("operator[]=", "operator_index_assign_")
         .replace("operator[]", "operator_index_")
         .replace("operator-neg", "operator_neg_")

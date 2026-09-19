@@ -6,6 +6,8 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
     let mut name = String::new();
     let mut version = "0.1.0".to_string();
     let mut alya_version = None;
+    let mut links = None;
+    let mut build_links = None;
     let mut authors = Vec::new();
     let mut description = None;
     let mut entry = "src/main.alya".to_string();
@@ -43,6 +45,7 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                     "name" => name = unquote(val),
                     "version" => version = unquote(val),
                     "alya-version" => alya_version = Some(unquote(val)),
+                    "links" => links = Some(unquote(val)),
                     "authors" => authors = parse_string_array(val),
                     "description" => description = Some(unquote(val)),
                     "entry" => entry = unquote(val),
@@ -55,6 +58,7 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                     }
                 },
                 "build" => match key {
+                    "links" => build_links = Some(unquote(val)),
                     "c-sources" | "c_sources" => c_sources = parse_string_array(val),
                     "c-flags" | "c_flags" => c_flags = parse_string_array(val),
                     "c-include-dirs" | "c_include_dirs" => c_include_dirs = parse_string_array(val),
@@ -103,8 +107,13 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
         return Err("Missing required field 'name' under [package] in alya.toml".to_string());
     }
 
-    let build = if !c_sources.is_empty() || !c_flags.is_empty() || !c_include_dirs.is_empty() {
+    let build = if !c_sources.is_empty()
+        || !c_flags.is_empty()
+        || !c_include_dirs.is_empty()
+        || build_links.is_some()
+    {
         Some(BuildConfig {
+            links: build_links,
             c_sources,
             c_flags,
             c_include_dirs,
@@ -118,6 +127,7 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
             name,
             version,
             alya_version,
+            links,
             authors,
             description,
             entry,
@@ -139,6 +149,9 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
     out.push_str(&format!("version = \"{}\"\n", manifest.package.version));
     if let Some(av) = &manifest.package.alya_version {
         out.push_str(&format!("alya-version = \"{}\"\n", av));
+    }
+    if let Some(l) = &manifest.package.links {
+        out.push_str(&format!("links = \"{}\"\n", l));
     }
     out.push_str(&format!("entry = \"{}\"\n", manifest.package.entry));
     if let Some(desc) = &manifest.package.description {
@@ -213,6 +226,9 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
 
     if let Some(b) = &manifest.build {
         out.push_str("\n[build]\n");
+        if let Some(l) = &b.links {
+            out.push_str(&format!("links = \"{}\"\n", l));
+        }
         if !b.c_sources.is_empty() {
             let sources_str = b
                 .c_sources

@@ -303,9 +303,21 @@ pub fn resolve_imports_with_sources_ext(
 ) -> Result<std::collections::HashSet<std::path::PathBuf>, String> {
     let mut visited = std::collections::HashSet::new();
     let mut resolved_stmts = Vec::new();
+    let mut root_rewrites = std::collections::HashMap::new();
 
     for stmt in std::mem::take(&mut program.statements) {
-        resolve_stmt_imports_ext(stmt, base_dir, &mut visited, &mut resolved_stmts, no_std)?;
+        let (_, rewrites) = resolve_stmt_imports_ext_with_rewrites(
+            stmt,
+            base_dir,
+            &mut visited,
+            &mut resolved_stmts,
+            no_std,
+        )?;
+        root_rewrites.extend(rewrites);
+    }
+
+    if !root_rewrites.is_empty() {
+        rewrite_calls_in_stmts(&mut resolved_stmts, &root_rewrites);
     }
 
     // Deduplicate private module functions (__priv_*) that were imported via multiple paths
@@ -420,6 +432,212 @@ fn collect_local_vars(stmts: &[Stmt], vars: &mut std::collections::HashSet<Strin
             }
             _ => {}
         }
+    }
+}
+
+pub fn extract_segregated_pkg_major(path: &std::path::Path) -> Option<(String, u64)> {
+    for ancestor in path.ancestors() {
+        if let Some(parent) = ancestor.parent() {
+            if parent.file_name().and_then(|s| s.to_str()) == Some("packages") {
+                if let Some(grandparent) = parent.parent() {
+                    if grandparent.file_name().and_then(|s| s.to_str()) == Some(".alya") {
+                        if let Some(dir_name) = ancestor.file_name().and_then(|s| s.to_str()) {
+                            if let Some((pkg, ver_str)) = dir_name.rsplit_once("-v") {
+                                if let Ok(maj) = ver_str.parse::<u64>() {
+                                    return Some((pkg.to_string(), maj));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn rewrite_calls_in_stmts(
+    stmts: &mut [Stmt],
+    rewrites: &std::collections::HashMap<String, String>,
+) {
+    if rewrites.is_empty() {
+        return;
+    }
+    for stmt in stmts {
+        rewrite_calls_in_stmt(stmt, rewrites);
+    }
+}
+
+pub fn rewrite_calls_in_stmt(
+    stmt: &mut Stmt,
+    rewrites: &std::collections::HashMap<String, String>,
+) {
+    match stmt {
+        Stmt::Function { defaults, body, .. } => {
+            for def in defaults.iter_mut().flatten() {
+                rewrite_calls_in_expr(def, rewrites);
+            }
+            for s in body {
+                rewrite_calls_in_stmt(s, rewrites);
+            }
+        }
+        Stmt::Say(expr) => rewrite_calls_in_expr(expr, rewrites),
+        Stmt::Expr(expr) => rewrite_calls_in_expr(expr, rewrites),
+        Stmt::Let { value, .. } => rewrite_calls_in_expr(value, rewrites),
+        Stmt::Assign { value, .. } => rewrite_calls_in_expr(value, rewrites),
+        Stmt::If {
+            condition,
+            then_block,
+            else_block,
+        } => {
+            rewrite_calls_in_expr(condition, rewrites);
+            for s in then_block {
+                rewrite_calls_in_stmt(s, rewrites);
+            }
+            if let Some(eb) = else_block {
+                for s in eb {
+                    rewrite_calls_in_stmt(s, rewrites);
+                }
+            }
+        }
+        Stmt::While { condition, body } => {
+            rewrite_calls_in_expr(condition, rewrites);
+            for s in body {
+                rewrite_calls_in_stmt(s, rewrites);
+            }
+        }
+        Stmt::For {
+            start,
+            end,
+            body,
+            ..
+        } => {
+            rewrite_calls_in_expr(start, rewrites);
+            rewrite_calls_in_expr(end, rewrites);
+            for s in body {
+                rewrite_calls_in_stmt(s, rewrites);
+            }
+        }
+        Stmt::ForEach {
+            iterable,
+            body,
+            ..
+        } => {
+            rewrite_calls_in_expr(iterable, rewrites);
+            for s in body {
+                rewrite_calls_in_stmt(s, rewrites);
+            }
+        }
+        Stmt::Repeat { body } => {
+            for s in body {
+                rewrite_calls_in_stmt(s, rewrites);
+            }
+        }
+        Stmt::Return(Some(e)) => rewrite_calls_in_expr(e, rewrites),
+        Stmt::IndexAssign {
+            array,
+            index,
+            value,
+        } => {
+            rewrite_calls_in_expr(array, rewrites);
+            rewrite_calls_in_expr(index, rewrites);
+            rewrite_calls_in_expr(value, rewrites);
+        }
+        Stmt::FieldAssign { object, value, .. } => {
+            rewrite_calls_in_expr(object, rewrites);
+            rewrite_calls_in_expr(value, rewrites);
+        }
+        Stmt::TryCatch {
+            try_block,
+            catch_block,
+            finally_block,
+            ..
+        } => {
+            for s in try_block {
+                rewrite_calls_in_stmt(s, rewrites);
+            }
+            for s in catch_block {
+                rewrite_calls_in_stmt(s, rewrites);
+            }
+            if let Some(fb) = finally_block {
+                for s in fb {
+                    rewrite_calls_in_stmt(s, rewrites);
+                }
+            }
+        }
+        Stmt::Throw(Some(e)) => rewrite_calls_in_expr(e, rewrites),
+        Stmt::Const { value, .. } => rewrite_calls_in_expr(value, rewrites),
+        Stmt::Pub(inner) => rewrite_calls_in_stmt(inner, rewrites),
+        _ => {}
+    }
+}
+
+pub fn rewrite_calls_in_expr(
+    expr: &mut Expr,
+    rewrites: &std::collections::HashMap<String, String>,
+) {
+    match expr {
+        Expr::Call { name, args } => {
+            if let Some(new_name) = rewrites.get(name) {
+                *name = new_name.clone();
+            }
+            for arg in args {
+                rewrite_calls_in_expr(arg, rewrites);
+            }
+        }
+        Expr::OptionalCall { callee, args } => {
+            if let Some(new_name) = rewrites.get(callee) {
+                *callee = new_name.clone();
+            }
+            for arg in args {
+                rewrite_calls_in_expr(arg, rewrites);
+            }
+        }
+        Expr::Binary { left, right, .. } => {
+            rewrite_calls_in_expr(left, rewrites);
+            rewrite_calls_in_expr(right, rewrites);
+        }
+        Expr::Unary { expr, .. } => rewrite_calls_in_expr(expr, rewrites),
+        Expr::Array(items) => {
+            for item in items {
+                rewrite_calls_in_expr(item, rewrites);
+            }
+        }
+        Expr::Index { array, index } => {
+            rewrite_calls_in_expr(array, rewrites);
+            rewrite_calls_in_expr(index, rewrites);
+        }
+        Expr::FieldAccess { object, .. } => rewrite_calls_in_expr(object, rewrites),
+        Expr::StructInit { fields, .. } => {
+            for (_, f_expr) in fields {
+                rewrite_calls_in_expr(f_expr, rewrites);
+            }
+        }
+        Expr::Map(entries) => {
+            for (k, v) in entries {
+                rewrite_calls_in_expr(k, rewrites);
+                rewrite_calls_in_expr(v, rewrites);
+            }
+        }
+        Expr::InterpolatedString(parts) => {
+            for part in parts {
+                rewrite_calls_in_expr(part, rewrites);
+            }
+        }
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            rewrite_calls_in_expr(condition, rewrites);
+            rewrite_calls_in_expr(then_branch, rewrites);
+            rewrite_calls_in_expr(else_branch, rewrites);
+        }
+        Expr::NullCoalesce { value, default } => {
+            rewrite_calls_in_expr(value, rewrites);
+            rewrite_calls_in_expr(default, rewrites);
+        }
+        _ => {}
     }
 }
 
@@ -691,6 +909,18 @@ pub(crate) fn resolve_stmt_imports_ext(
     out: &mut Vec<Stmt>,
     no_std: bool,
 ) -> Result<std::collections::HashSet<String>, String> {
+    let (fns, _) =
+        resolve_stmt_imports_ext_with_rewrites(stmt, current_dir, visited, out, no_std)?;
+    Ok(fns)
+}
+
+pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
+    stmt: Stmt,
+    current_dir: &std::path::Path,
+    visited: &mut std::collections::HashSet<(std::path::PathBuf, Option<String>)>,
+    out: &mut Vec<Stmt>,
+    no_std: bool,
+) -> Result<(std::collections::HashSet<String>, std::collections::HashMap<String, String>), String> {
     match stmt {
         Stmt::Import {
             path: import_path_str,
@@ -746,7 +976,7 @@ pub(crate) fn resolve_stmt_imports_ext(
                 let canon = std::fs::canonicalize(&cand)
                     .map_err(|e| format!("Failed to resolve path '{}': {}", cand.display(), e))?;
                 if visited.contains(&(canon.clone(), alias.clone())) {
-                    return Ok(std::collections::HashSet::new());
+                    return Ok((std::collections::HashSet::new(), std::collections::HashMap::new()));
                 }
                 let src = std::fs::read_to_string(&canon).map_err(|e| {
                     format!(
@@ -767,7 +997,7 @@ pub(crate) fn resolve_stmt_imports_ext(
                     let synthetic =
                         std::path::PathBuf::from(format!("<embedded:std/{}>", canonical_name));
                     if visited.contains(&(synthetic.clone(), alias.clone())) {
-                        return Ok(std::collections::HashSet::new());
+                        return Ok((std::collections::HashSet::new(), std::collections::HashMap::new()));
                     }
                     (synthetic, src.to_string())
                 } else {
@@ -853,18 +1083,23 @@ pub(crate) fn resolve_stmt_imports_ext(
 
             let sub_dir = canonical.parent().unwrap_or(current_dir);
             let mut sub_resolved = Vec::new();
+            let mut sub_rewrites = std::collections::HashMap::new();
             for sub_stmt in sub_program.statements {
                 let is_unaliased_import = matches!(&sub_stmt, Stmt::Import { alias: None, .. });
-                let child_fns = resolve_stmt_imports_ext(
+                let (child_fns, rewrites) = resolve_stmt_imports_ext_with_rewrites(
                     sub_stmt,
                     sub_dir,
                     visited,
                     &mut sub_resolved,
                     no_std,
                 )?;
+                sub_rewrites.extend(rewrites);
                 if is_unaliased_import && (!is_embedded_stdlib || alias.is_some()) {
                     local_fns.extend(child_fns);
                 }
+            }
+            if !sub_rewrites.is_empty() {
+                rewrite_calls_in_stmts(&mut sub_resolved, &sub_rewrites);
             }
 
             if let Some(ref syms) = symbols {
@@ -915,6 +1150,40 @@ pub(crate) fn resolve_stmt_imports_ext(
                 canonical.hash(&mut hasher);
                 let priv_alias = format!("__priv_{}_{:x}", clean_stem, hasher.finish());
                 apply_module_alias(&mut sub_resolved, &priv_alias, &private_fns);
+            }
+
+            let segregated_pkg = extract_segregated_pkg_major(&canonical);
+            let mut exported_rewrites = std::collections::HashMap::new();
+
+            if let Some((ref pkg_name, major)) = segregated_pkg {
+                let mangled_prefix = format!("_Alya_{}_v{}", pkg_name, major);
+                apply_module_alias(&mut sub_resolved, &mangled_prefix, &local_fns);
+
+                if let Some(ref syms) = symbols {
+                    for sym in syms {
+                        if sym.name != "*" {
+                            let call_name = sym.alias.as_deref().unwrap_or(&sym.name);
+                            exported_rewrites.insert(
+                                call_name.to_string(),
+                                format!("{}::{}", mangled_prefix, sym.name),
+                            );
+                        }
+                    }
+                } else if let Some(ref alias_str) = alias {
+                    for f in &local_fns {
+                        exported_rewrites.insert(
+                            format!("{}::{}", alias_str, f),
+                            format!("{}::{}", mangled_prefix, f),
+                        );
+                    }
+                } else {
+                    for f in &local_fns {
+                        exported_rewrites.insert(
+                            f.clone(),
+                            format!("{}::{}", mangled_prefix, f),
+                        );
+                    }
+                }
             }
 
             if let Some(ref syms) = symbols {
@@ -1004,7 +1273,19 @@ pub(crate) fn resolve_stmt_imports_ext(
                         exposed_fns.insert(final_name.clone());
                     }
                 }
-                Ok(exposed_fns)
+                Ok((exposed_fns, exported_rewrites))
+            } else if segregated_pkg.is_some() {
+                let unwrapped_resolved: Vec<Stmt> = sub_resolved
+                    .into_iter()
+                    .map(|s| s.inner_stmt().clone())
+                    .collect();
+                out.extend(unwrapped_resolved);
+                let exposed_fns = if alias.is_some() {
+                    std::collections::HashSet::new()
+                } else {
+                    local_fns
+                };
+                Ok((exposed_fns, exported_rewrites))
             } else if let Some(ref alias_str) = alias {
                 let mut final_sub: Vec<Stmt> = sub_resolved
                     .into_iter()
@@ -1012,19 +1293,19 @@ pub(crate) fn resolve_stmt_imports_ext(
                     .collect();
                 apply_module_alias(&mut final_sub, alias_str, &local_fns);
                 out.extend(final_sub);
-                Ok(std::collections::HashSet::new())
+                Ok((std::collections::HashSet::new(), exported_rewrites))
             } else {
                 let unwrapped_resolved: Vec<Stmt> = sub_resolved
                     .into_iter()
                     .map(|s| s.inner_stmt().clone())
                     .collect();
                 out.extend(unwrapped_resolved);
-                Ok(local_fns)
+                Ok((local_fns, exported_rewrites))
             }
         }
         other => {
             out.push(other);
-            Ok(std::collections::HashSet::new())
+            Ok((std::collections::HashSet::new(), std::collections::HashMap::new()))
         }
     }
 }

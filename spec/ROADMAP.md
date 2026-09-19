@@ -247,7 +247,7 @@ This roadmap defines the sequenced implementation phases, actionable engineering
     `alya-lang/http`, `alya-lang/crypto`, `alya-lang/sqlite`, `alya-lang/cli`, `alya-lang/logger`, `alya-lang/json`.
   - Verification: Packages install cleanly via `alya add alya-lang/http` and verify with SHA-256 in `alya.lock`.
 
-- [ ] **5.4 Package Dependency Engine: Multi-Major Isolation & Diamond Dependency Resolution**
+- [x] **5.4 Package Dependency Engine: Multi-Major Isolation & Diamond Dependency Resolution**
   - Implement Semantic Versioning coalescing for minor/patch dependencies (`^1.1.0` + `^1.4.0` -> `1.4.0`).
   - Major-segregated disk storage (`.alya/packages/<name>-v<major>/`) enabling side-by-side coexistence of distinct major versions (`z-v1` and `z-v2`).
   - Compiler symbol name mangling (`_Alya_<pkg>_v<major>_<symbol>`) preventing duplicate symbol collisions at link time.

@@ -36,6 +36,7 @@ pub struct PackageInfo {
     pub name: String,
     pub version: String,
     pub alya_version: Option<String>,
+    pub links: Option<String>,
     pub authors: Vec<String>,
     pub description: Option<String>,
     pub entry: String,
@@ -62,6 +63,7 @@ pub enum DependencySource {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BuildConfig {
+    pub links: Option<String>,
     pub c_sources: Vec<String>,
     pub c_flags: Vec<String>,
     pub c_include_dirs: Vec<String>,
@@ -72,6 +74,15 @@ pub struct PackageManifest {
     pub package: PackageInfo,
     pub dependencies: BTreeMap<String, DependencySource>,
     pub build: Option<BuildConfig>,
+}
+
+impl PackageManifest {
+    pub fn links(&self) -> Option<&str> {
+        self.build
+            .as_ref()
+            .and_then(|b| b.links.as_deref())
+            .or(self.package.links.as_deref())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

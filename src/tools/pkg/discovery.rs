@@ -1,4 +1,5 @@
 use super::manifest::{check_compiler_compatibility, parse_manifest};
+use super::resolver::semver_major;
 use super::types::DependencySource;
 use std::env;
 use std::fs;
@@ -20,6 +21,97 @@ pub fn find_manifest_dir_from(start: &Path) -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn check_packages_dir_for_package(
+    pkgs_dir: &Path,
+    pkg_name: &str,
+    requested_major: Option<u64>,
+) -> Option<PathBuf> {
+    if !pkgs_dir.is_dir() {
+        return None;
+    }
+    if let Some(maj) = requested_major {
+        let segregated = pkgs_dir.join(format!("{}-v{}", pkg_name, maj));
+        if segregated.exists() {
+            return Some(segregated);
+        }
+    }
+    let unsegregated = pkgs_dir.join(pkg_name);
+    if unsegregated.exists() {
+        return Some(unsegregated);
+    }
+    None
+}
+
+pub fn find_package_dir(
+    manifest_dir: &Path,
+    pkg_name: &str,
+    requested_major: Option<u64>,
+) -> Option<PathBuf> {
+    let local_pkgs = manifest_dir.join(".alya").join("packages");
+    if let Some(found) = check_packages_dir_for_package(&local_pkgs, pkg_name, requested_major) {
+        return Some(found);
+    }
+
+    let mut curr = manifest_dir.parent();
+    while let Some(p) = curr {
+        let pkgs = p.join(".alya").join("packages");
+        if let Some(found) = check_packages_dir_for_package(&pkgs, pkg_name, requested_major) {
+            return Some(found);
+        }
+        curr = p.parent();
+    }
+
+    if let Some(root) = find_manifest_dir() {
+        let pkgs = root.join(".alya").join("packages");
+        if let Some(found) = check_packages_dir_for_package(&pkgs, pkg_name, requested_major) {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
+fn is_package_installed_in_packages_dir(pkgs_dir: &Path, pkg_name: &str) -> bool {
+    if !pkgs_dir.is_dir() {
+        return false;
+    }
+    if pkgs_dir.join(pkg_name).exists() {
+        return true;
+    }
+    let prefix = format!("{}-v", pkg_name);
+    if let Ok(entries) = fs::read_dir(pkgs_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name == pkg_name || name.starts_with(&prefix) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+pub fn is_transitive_installed(start_dir: &Path, pkg_name: &str) -> bool {
+    let local_pkgs = start_dir.join(".alya").join("packages");
+    if is_package_installed_in_packages_dir(&local_pkgs, pkg_name) {
+        return true;
+    }
+    let mut curr = start_dir.parent();
+    while let Some(p) = curr {
+        let pkgs = p.join(".alya").join("packages");
+        if is_package_installed_in_packages_dir(&pkgs, pkg_name) {
+            return true;
+        }
+        curr = p.parent();
+    }
+    if let Some(root) = find_manifest_dir() {
+        let pkgs = root.join(".alya").join("packages");
+        if is_package_installed_in_packages_dir(&pkgs, pkg_name) {
+            return true;
+        }
+    }
+    false
 }
 
 pub fn detect_package_entry() -> Option<String> {
@@ -148,32 +240,15 @@ pub fn resolve_package_import(
                     manifest_dir.join(p)
                 }
             }
-            DependencySource::Git { .. } | DependencySource::Version(_) => {
-                let local_pkg_dir = manifest_dir.join(".alya").join("packages").join(pkg_name);
-                if local_pkg_dir.exists() {
-                    local_pkg_dir
-                } else {
-                    let mut found = None;
-                    let mut curr = manifest_dir.parent();
-                    while let Some(p) = curr {
-                        let candidate = p.join(".alya").join("packages").join(pkg_name);
-                        if candidate.exists() {
-                            found = Some(candidate);
-                            break;
-                        }
-                        curr = p.parent();
-                    }
-                    if found.is_none() {
-                        if let Some(root_manifest) = find_manifest_dir() {
-                            let candidate =
-                                root_manifest.join(".alya").join("packages").join(pkg_name);
-                            if candidate.exists() {
-                                found = Some(candidate);
-                            }
-                        }
-                    }
-                    found.unwrap_or(local_pkg_dir)
-                }
+            DependencySource::Git { tag, .. } => {
+                let req_maj = tag.as_deref().and_then(semver_major);
+                find_package_dir(&manifest_dir, pkg_name, req_maj)
+                    .unwrap_or_else(|| manifest_dir.join(".alya").join("packages").join(pkg_name))
+            }
+            DependencySource::Version(v) => {
+                let req_maj = semver_major(v);
+                find_package_dir(&manifest_dir, pkg_name, req_maj)
+                    .unwrap_or_else(|| manifest_dir.join(".alya").join("packages").join(pkg_name))
             }
         };
 
@@ -209,6 +284,13 @@ pub fn resolve_package_import(
             let entry = find_package_entry(&pkg_dir, pkg_name)?;
             return Ok(Some(entry));
         }
+    }
+
+    if is_transitive_installed(&manifest_dir, pkg_name) {
+        return Err(format!(
+            "Package '{}' is installed as a transitive dependency, but is not declared in 'alya.toml' of this module. Direct dependency isolation requires explicitly declaring '{}' in 'alya.toml' to import it.",
+            pkg_name, pkg_name
+        ));
     }
 
     Ok(None)

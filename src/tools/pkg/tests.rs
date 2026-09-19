@@ -658,3 +658,204 @@ fn test_version_dependency_resolution_and_locking() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_semver_coalescing_and_compatibility() {
+    assert_eq!(semver_major("1.2.3"), Some(1));
+    assert_eq!(semver_major("^1.4.0"), Some(1));
+    assert_eq!(semver_major("~2.5.0"), Some(2));
+    assert_eq!(semver_major(">=3.0.0"), Some(3));
+    assert_eq!(semver_major("foo"), None);
+
+    assert!(is_semver_compatible("^1.1.0", "^1.4.0"));
+    assert!(is_semver_compatible("1.2.0", "1.5.0"));
+    assert!(!is_semver_compatible("1.0.0", "2.0.0"));
+    assert!(!is_semver_compatible("^1.0.0", "^2.0.0"));
+
+    assert_eq!(
+        coalesce_semver_versions("^1.1.0", "^1.4.0").unwrap(),
+        "^1.4.0"
+    );
+    assert_eq!(
+        coalesce_semver_versions("1.5.0", "1.2.0").unwrap(),
+        "1.5.0"
+    );
+    assert!(coalesce_semver_versions("1.0.0", "2.0.0").is_err());
+}
+
+#[test]
+fn test_duplicate_native_links_rejection() {
+    let temp_dir = std::env::temp_dir().join(format!("alya_test_links_dup_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+
+    let app_dir = temp_dir.join("app");
+    let lib_a = temp_dir.join("lib_a");
+    let lib_b = temp_dir.join("lib_b");
+
+    fs::create_dir_all(lib_a.join("src")).unwrap();
+    fs::create_dir_all(lib_b.join("src")).unwrap();
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+
+    fs::write(
+        lib_a.join("alya.toml"),
+        "[package]\nname = \"lib_a\"\nversion = \"0.1.0\"\nentry = \"src/lib.alya\"\nlinks = \"sqlite3\"\n",
+    )
+    .unwrap();
+    fs::write(lib_a.join("src").join("lib.alya"), "function a() {}\n").unwrap();
+
+    fs::write(
+        lib_b.join("alya.toml"),
+        "[package]\nname = \"lib_b\"\nversion = \"0.1.0\"\nentry = \"src/lib.alya\"\nlinks = \"sqlite3\"\n",
+    )
+    .unwrap();
+    fs::write(lib_b.join("src").join("lib.alya"), "function b() {}\n").unwrap();
+
+    fs::write(
+        app_dir.join("alya.toml"),
+        format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\nentry = \"src/main.alya\"\n\n[dependencies]\nlib_a = {{ path = \"{}\" }}\nlib_b = {{ path = \"{}\" }}\n",
+            lib_a.display().to_string().replace('\\', "/"),
+            lib_b.display().to_string().replace('\\', "/")
+        ),
+    )
+    .unwrap();
+
+    let res = run_install_in(&app_dir);
+    assert!(res.is_err());
+    let err_msg = res.err().unwrap();
+    assert!(
+        err_msg.contains("Duplicate native C library link 'sqlite3' required by both"),
+        "Unexpected error: {}",
+        err_msg
+    );
+    assert!(
+        err_msg.contains("Align dependency versions to resolve"),
+        "Unexpected error: {}",
+        err_msg
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_strict_direct_dependency_isolation_diagnostic() {
+    let temp_dir = std::env::temp_dir().join(format!("alya_test_direct_iso_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+
+    let app_dir = temp_dir.join("app");
+    let pkg_dir = app_dir.join(".alya").join("packages").join("transitive_pkg");
+    fs::create_dir_all(pkg_dir.join("src")).unwrap();
+    fs::write(
+        pkg_dir.join("alya.toml"),
+        "[package]\nname = \"transitive_pkg\"\nversion = \"1.0.0\"\nentry = \"src/lib.alya\"\n",
+    )
+    .unwrap();
+    fs::write(pkg_dir.join("src").join("lib.alya"), "pub function util() {}\n").unwrap();
+
+    // App manifest only depends on "direct_pkg", NOT "transitive_pkg"
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+    fs::write(
+        app_dir.join("alya.toml"),
+        "[package]\nname = \"app\"\nversion = \"1.0.0\"\nentry = \"src/main.alya\"\n\n[dependencies]\ndirect_pkg = { path = \"../dummy\" }\n",
+    )
+    .unwrap();
+
+    let res = resolve_package_import("transitive_pkg", &app_dir.join("src").join("main.alya"));
+    assert!(res.is_err());
+    let err = res.err().unwrap();
+    assert_eq!(
+        err,
+        "Package 'transitive_pkg' is installed as a transitive dependency, but is not declared in 'alya.toml' of this module. Direct dependency isolation requires explicitly declaring 'transitive_pkg' in 'alya.toml' to import it."
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_major_version_segregation_installation() {
+    let temp_dir = std::env::temp_dir().join(format!("alya_test_major_seg_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+
+    let app_dir = temp_dir.join("app");
+    let dep1_dir = temp_dir.join("dep1");
+    let dep2_dir = temp_dir.join("dep2");
+    let z1_dir = temp_dir.join("z1");
+    let z2_dir = temp_dir.join("z2");
+
+    fs::create_dir_all(z1_dir.join("src")).unwrap();
+    fs::write(
+        z1_dir.join("alya.toml"),
+        "[package]\nname = \"z\"\nversion = \"1.0.0\"\nentry = \"src/lib.alya\"\n",
+    )
+    .unwrap();
+    fs::write(z1_dir.join("src").join("lib.alya"), "pub function add(a, b) { return a + b }\n").unwrap();
+
+    fs::create_dir_all(z2_dir.join("src")).unwrap();
+    fs::write(
+        z2_dir.join("alya.toml"),
+        "[package]\nname = \"z\"\nversion = \"2.0.0\"\nentry = \"src/lib.alya\"\n",
+    )
+    .unwrap();
+    fs::write(z2_dir.join("src").join("lib.alya"), "pub function add(a, b) { return a + b + 10 }\n").unwrap();
+
+    fs::create_dir_all(dep1_dir.join("src")).unwrap();
+    fs::write(
+        dep1_dir.join("alya.toml"),
+        format!(
+            "[package]\nname = \"dep1\"\nversion = \"1.0.0\"\nentry = \"src/lib.alya\"\n\n[dependencies]\nz = {{ path = \"{}\" }}\n",
+            z1_dir.display().to_string().replace('\\', "/")
+        ),
+    )
+    .unwrap();
+    fs::write(dep1_dir.join("src").join("lib.alya"), "import z\npub function run1() { return z::add(1, 2) }\n").unwrap();
+
+    fs::create_dir_all(dep2_dir.join("src")).unwrap();
+    fs::write(
+        dep2_dir.join("alya.toml"),
+        format!(
+            "[package]\nname = \"dep2\"\nversion = \"1.0.0\"\nentry = \"src/lib.alya\"\n\n[dependencies]\nz = {{ path = \"{}\" }}\n",
+            z2_dir.display().to_string().replace('\\', "/")
+        ),
+    )
+    .unwrap();
+    fs::write(dep2_dir.join("src").join("lib.alya"), "import z\npub function run2() { return z::add(1, 2) }\n").unwrap();
+
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+    fs::write(
+        app_dir.join("alya.toml"),
+        format!(
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\nentry = \"src/main.alya\"\n\n[dependencies]\ndep1 = {{ path = \"{}\" }}\ndep2 = {{ path = \"{}\" }}\n",
+            dep1_dir.display().to_string().replace('\\', "/")
+            , dep2_dir.display().to_string().replace('\\', "/")
+        ),
+    )
+    .unwrap();
+
+    let res = run_install_in(&app_dir);
+    assert!(res.is_ok(), "run_install_in failed: {:?}", res.err());
+
+    let packages_dir = app_dir.join(".alya").join("packages");
+    assert!(packages_dir.join("z-v1").exists(), "z-v1 must exist");
+    assert!(packages_dir.join("z-v2").exists(), "z-v2 must exist");
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_mangled_symbol_name_preservation() {
+    use crate::codegen::arch::control::mangle_symbol_name;
+
+    assert_eq!(
+        mangle_symbol_name("_Alya_z_v1::foo"),
+        "_Alya_z_v1_foo"
+    );
+    assert_eq!(
+        mangle_symbol_name("_Alya_z_v2::calc"),
+        "_Alya_z_v2_calc"
+    );
+    assert_eq!(
+        mangle_symbol_name("std::io::print"),
+        "std__io__print"
+    );
+}
+
