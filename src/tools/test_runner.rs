@@ -81,12 +81,71 @@ pub fn discover_test_files(path: &Path) -> Vec<PathBuf> {
     tests
 }
 
-/// Compiles and runs an Alya test file, returning (success, stdout, duration_ms).
+#[derive(Debug, Clone)]
+pub struct TestExecution {
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+    pub elapsed_ms: u128,
+    pub exit_status: Option<std::process::ExitStatus>,
+    pub is_timeout: bool,
+}
+
+fn describe_exit_status(status: &std::process::ExitStatus) -> (bool, Option<i32>, String, bool) {
+    let is_success = status.success();
+    let code = status.code();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(sig) = status.signal() {
+            let (name, is_crash) = match sig {
+                11 => ("SIGSEGV (Segmentation fault - invalid memory access)", true),
+                6 => ("SIGABRT (Aborted)", true),
+                4 => ("SIGILL (Illegal instruction)", true),
+                8 => ("SIGFPE (Floating point exception)", true),
+                9 => ("SIGKILL (Killed)", false),
+                15 => ("SIGTERM (Terminated)", false),
+                _ => ("Unknown signal", true),
+            };
+            return (
+                false,
+                None,
+                format!("Terminated by signal: {}", name),
+                is_crash,
+            );
+        }
+    }
+
+    if let Some(c) = code {
+        let ucode = c as u32;
+        let (desc, is_crash) = match ucode {
+            0 => ("Success (code 0)".to_string(), false),
+            0xC0000005 => (
+                "Access Violation (0xC0000005 - Segmentation fault / invalid memory pointer dereference)".to_string(),
+                true,
+            ),
+            0xC00000FD => ("Stack Overflow (0xC00000FD)".to_string(), true),
+            0xC000001D => ("Illegal Instruction (0xC000001D)".to_string(), true),
+            0xC0000094 => ("Integer Division by Zero (0xC0000094)".to_string(), true),
+            0xC0000409 => ("Stack Buffer Overrun / Fast Fail (0xC0000409)".to_string(), true),
+            0x80000003 => ("Breakpoint Trap (0x80000003)".to_string(), true),
+            0xC000000D => ("Invalid Parameter (0xC000000D)".to_string(), true),
+            c if c >= 0x80000000 => (format!("Abnormal OS exception (NTSTATUS: 0x{:08X})", c), true),
+            c => (format!("Exited with code {}", c), false),
+        };
+        (is_success, Some(c), desc, is_crash)
+    } else {
+        (is_success, None, "Terminated abnormally".to_string(), true)
+    }
+}
+
+/// Compiles and runs an Alya test file, returning a structured TestExecution.
 pub fn execute_test_file(
     path: &Path,
     arch: Architecture,
     os: OperatingSystem,
-) -> Result<(bool, String, u128), String> {
+) -> Result<TestExecution, String> {
     let start_time = Instant::now();
     let source = fs::read_to_string(path)
         .map_err(|e| format!("Cannot read file '{}': {}", path.display(), e))?;
@@ -166,11 +225,11 @@ pub fn execute_test_file(
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 
-    let (stdout_bytes, stderr_bytes, is_timeout) = if exited {
+    let (stdout_bytes, stderr_bytes, is_timeout, final_status) = if exited {
         let output = child
             .wait_with_output()
             .map_err(|e| format!("Failed to read output of '{}': {}", exe_str, e))?;
-        (output.stdout, output.stderr, false)
+        (output.stdout, output.stderr, false, Some(output.status))
     } else {
         let _ = child.kill();
         let output = child
@@ -180,63 +239,64 @@ pub fn execute_test_file(
                 stdout: Vec::new(),
                 stderr: Vec::new(),
             });
-        (output.stdout, output.stderr, true)
+        (output.stdout, output.stderr, true, Some(output.status))
     };
 
     let _ = fs::remove_file(&temp_exe);
     let elapsed = start_time.elapsed().as_millis();
 
-    if is_timeout {
-        return Ok((
-            false,
-            format!(
-                "Test timed out after 60 seconds.\nStdout:\n{}\nStderr:\n{}",
-                String::from_utf8_lossy(&stdout_bytes),
-                String::from_utf8_lossy(&stderr_bytes)
-            ),
-            elapsed,
-        ));
-    }
-
     let stdout = String::from_utf8_lossy(&stdout_bytes).to_string();
     let stderr = String::from_utf8_lossy(&stderr_bytes).to_string();
-    let full_out = format!("{}{}", stdout, stderr);
 
-    let success = exit_status.map(|s| s.success()).unwrap_or(false)
-        && !full_out.contains("[FAIL]")
-        && !full_out.contains("Runtime error:");
-    Ok((success, full_out, elapsed))
+    let is_clean_exit = final_status.as_ref().map(|s| s.success()).unwrap_or(false);
+    let has_fail = stdout.contains("[FAIL]") || stderr.contains("[FAIL]");
+    let has_runtime_err = stdout.contains("Runtime error:") || stderr.contains("Runtime error:");
+    let success = is_clean_exit && !has_fail && !has_runtime_err && !is_timeout;
+
+    Ok(TestExecution {
+        success,
+        stdout,
+        stderr,
+        elapsed_ms: elapsed,
+        exit_status: final_status,
+        is_timeout,
+    })
 }
 
 fn format_test_path(path: &Path, root: &Path) -> String {
     let rel = path.strip_prefix(root).unwrap_or(path);
-    let s = rel.to_string_lossy().replace('\\', "/");
+    let mut s = rel.to_string_lossy().replace('\\', "/");
     if let Some(stripped) = s.strip_prefix("./") {
-        stripped.to_string()
-    } else {
-        s
+        s = stripped.to_string();
     }
+    if s.is_empty() {
+        if let Some(name) = path.file_name() {
+            return name.to_string_lossy().to_string();
+        }
+    }
+    s
 }
 
 struct TestResultItem {
     display_name: String,
-    outcome: Result<(bool, String, u128), String>,
+    outcome: Result<TestExecution, String>,
 }
 
 fn handle_test_result(
     display_name: &str,
-    outcome: Result<(bool, String, u128), String>,
+    outcome: Result<TestExecution, String>,
     name_width: usize,
     passed: &mut usize,
     failed: &mut usize,
     assert_passes: &mut usize,
     assert_fails: &mut usize,
+    failed_suites: &mut Vec<(String, String)>,
 ) {
     match outcome {
-        Ok((true, out, ms)) => {
+        Ok(exec) if exec.success => {
             *passed += 1;
-            let p_count = out.matches("[PASS]").count();
-            let f_count = out.matches("[FAIL]").count();
+            let p_count = exec.stdout.matches("[PASS]").count();
+            let f_count = exec.stdout.matches("[FAIL]").count();
             *assert_passes += p_count;
             *assert_fails += f_count;
 
@@ -245,47 +305,200 @@ fn handle_test_result(
                     "  \x1b[1;32m✓\x1b[0m  {:<width$}  \x1b[90m({} asserts | {:>4} ms)\x1b[0m",
                     display_name,
                     p_count,
-                    ms,
+                    exec.elapsed_ms,
                     width = name_width
                 );
             } else {
                 println!(
                     "  \x1b[1;32m✓\x1b[0m  {:<width$}  \x1b[90m({:>4} ms)\x1b[0m",
                     display_name,
-                    ms,
+                    exec.elapsed_ms,
                     width = name_width
                 );
             }
         }
-        Ok((false, out, ms)) => {
+        Ok(exec) => {
             *failed += 1;
-            let p_count = out.matches("[PASS]").count();
-            let f_count = out.matches("[FAIL]").count();
+            let p_count = exec.stdout.matches("[PASS]").count();
+            let f_count = exec.stdout.matches("[FAIL]").count();
             *assert_passes += p_count;
             *assert_fails += f_count;
 
+            let (is_clean_exit, _code, exit_desc, is_crash) = match exec.exit_status {
+                Some(ref st) => describe_exit_status(st),
+                None => (false, None, "Unknown exit status".to_string(), true),
+            };
+
+            // Extract all failed assertion lines from stdout and stderr
+            let failed_assertions: Vec<&str> = exec
+                .stdout
+                .lines()
+                .chain(exec.stderr.lines())
+                .filter(|l| l.contains("[FAIL]") || l.contains("Runtime error:"))
+                .map(|s| s.trim())
+                .collect();
+
+            // Find the last test that passed before failure or crash
+            let last_pass: Option<String> = exec.stdout.lines().rev().find_map(|line| {
+                if let Some(idx) = line.find("[PASS]") {
+                    Some(line[idx..].trim().to_string())
+                } else {
+                    None
+                }
+            });
+
+            let status_label = if exec.is_timeout {
+                "TIMEOUT (60s limit exceeded)".to_string()
+            } else if is_crash {
+                format!("CRASHED ({})", exit_desc)
+            } else if !failed_assertions.is_empty() {
+                format!(
+                    "FAILED ({} assertion failure{})",
+                    failed_assertions.len(),
+                    if failed_assertions.len() == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
+                )
+            } else if !is_clean_exit {
+                format!("FAILED ({})", exit_desc)
+            } else {
+                "FAILED".to_string()
+            };
+
             println!(
-                "  \x1b[1;31m✗\x1b[0m  {:<width$}  \x1b[90m({:>4} ms)\x1b[0m - \x1b[1;31mFAILED\x1b[0m",
+                "  \x1b[1;31m✗\x1b[0m  {:<width$}  \x1b[90m({:>4} ms)\x1b[0m - \x1b[1;31m{}\x1b[0m",
                 display_name,
-                ms,
+                exec.elapsed_ms,
+                status_label,
                 width = name_width
             );
+
+            // Record summary detail for the bottom list
+            let detail = if exec.is_timeout {
+                "Timed out after 60 seconds".to_string()
+            } else if is_crash {
+                if let Some(ref lp) = last_pass {
+                    format!("{} (crashed after '{}')", exit_desc, lp)
+                } else {
+                    exit_desc.clone()
+                }
+            } else if !failed_assertions.is_empty() {
+                format!("{} assertion failure(s)", failed_assertions.len())
+            } else {
+                exit_desc.clone()
+            };
+            failed_suites.push((display_name.to_string(), detail));
+
             println!(
                 "    \x1b[90m┌────────────────────────────────────────────────────────────\x1b[0m"
             );
-            if out.trim().is_empty() {
-                println!("    \x1b[90m│\x1b[0m \x1b[91m(Process terminated abnormally with no output)\x1b[0m");
+
+            // Section 1: Explicit Failed Assertions Callout
+            if !failed_assertions.is_empty() {
+                println!(
+                    "    \x1b[90m│\x1b[0m \x1b[1;31m✗ Failed Assertions ({} total):\x1b[0m",
+                    failed_assertions.len()
+                );
+                for fail_line in failed_assertions.iter().take(10) {
+                    println!("    \x1b[90m│\x1b[0m   \x1b[1;31m• {}\x1b[0m", fail_line);
+                }
+                if failed_assertions.len() > 10 {
+                    println!(
+                        "    \x1b[90m│\x1b[0m   \x1b[90m... and {} more failed assertion(s)\x1b[0m",
+                        failed_assertions.len() - 10
+                    );
+                }
+                println!("    \x1b[90m├────────────────────────────────────────────────────────────\x1b[0m");
+            }
+
+            // Section 2: Premature Termination / Crash Callout
+            if is_crash || (!is_clean_exit && failed_assertions.is_empty()) {
+                println!("    \x1b[90m│\x1b[0m \x1b[1;31m💥 Process terminated abnormally before suite completed!\x1b[0m");
+                println!(
+                    "    \x1b[90m│\x1b[0m   \x1b[1mReason\x1b[0m    : \x1b[91m{}\x1b[0m",
+                    exit_desc
+                );
+                if let Some(ref lp) = last_pass {
+                    println!(
+                        "    \x1b[90m│\x1b[0m   \x1b[1mLast Test\x1b[0m : \x1b[32m{}\x1b[0m",
+                        lp
+                    );
+                    println!("    \x1b[90m│\x1b[0m   \x1b[1mLocation\x1b[0m  : \x1b[93mCrashed immediately after this test.\x1b[0m");
+                }
+                if p_count > 0 {
+                    println!(
+                        "    \x1b[90m│\x1b[0m   \x1b[1mProgress\x1b[0m  : {} assertion(s) passed before termination.",
+                        p_count
+                    );
+                }
+                println!("    \x1b[90m├────────────────────────────────────────────────────────────\x1b[0m");
+            }
+
+            // Section 3: Standard Error (stderr)
+            if !exec.stderr.trim().is_empty() {
+                println!("    \x1b[90m│\x1b[0m \x1b[1;33mStandard Error (stderr):\x1b[0m");
+                for line in exec.stderr.lines().take(25) {
+                    println!("    \x1b[90m│\x1b[0m   \x1b[91m{}\x1b[0m", line);
+                }
+                println!("    \x1b[90m├────────────────────────────────────────────────────────────\x1b[0m");
+            }
+
+            // Section 4: Formatted Test Log
+            let stdout_trimmed = exec.stdout.trim();
+            if stdout_trimmed.is_empty() {
+                if exec.stderr.trim().is_empty() {
+                    println!(
+                        "    \x1b[90m│\x1b[0m \x1b[90m(Process produced no standard output)\x1b[0m"
+                    );
+                }
             } else {
-                for line in out.lines().take(50) {
-                    println!("    \x1b[90m│\x1b[0m {}", line);
+                let lines: Vec<&str> = exec.stdout.lines().collect();
+                if lines.len() <= 60 {
+                    for line in lines {
+                        if line.contains("[FAIL]") || line.contains("Runtime error:") {
+                            println!("    \x1b[90m│\x1b[0m \x1b[1;31m{}\x1b[0m", line);
+                        } else if line.contains("[PASS]") {
+                            println!("    \x1b[90m│\x1b[0m \x1b[32m{}\x1b[0m", line);
+                        } else {
+                            println!("    \x1b[90m│\x1b[0m {}", line);
+                        }
+                    }
+                } else {
+                    for line in &lines[..15] {
+                        if line.contains("[FAIL]") || line.contains("Runtime error:") {
+                            println!("    \x1b[90m│\x1b[0m \x1b[1;31m{}\x1b[0m", line);
+                        } else if line.contains("[PASS]") {
+                            println!("    \x1b[90m│\x1b[0m \x1b[32m{}\x1b[0m", line);
+                        } else {
+                            println!("    \x1b[90m│\x1b[0m {}", line);
+                        }
+                    }
+                    let omitted = lines.len() - 45;
+                    println!("    \x1b[90m│   ... [{} lines omitted] ...\x1b[0m", omitted);
+                    for line in &lines[lines.len() - 30..] {
+                        if line.contains("[FAIL]") || line.contains("Runtime error:") {
+                            println!("    \x1b[90m│\x1b[0m \x1b[1;31m{}\x1b[0m", line);
+                        } else if line.contains("[PASS]") {
+                            println!("    \x1b[90m│\x1b[0m \x1b[32m{}\x1b[0m", line);
+                        } else {
+                            println!("    \x1b[90m│\x1b[0m {}", line);
+                        }
+                    }
                 }
             }
+
             println!(
                 "    \x1b[90m└────────────────────────────────────────────────────────────\x1b[0m"
             );
         }
         Err(err) => {
             *failed += 1;
+            failed_suites.push((
+                display_name.to_string(),
+                "Compilation / Parser Error".to_string(),
+            ));
             println!(
                 "  \x1b[1;31m✗\x1b[0m  {:<width$} - \x1b[1;31mERROR\x1b[0m",
                 display_name,
@@ -366,6 +579,7 @@ pub fn run_tests(
     let mut failed = 0;
     let mut assert_passes = 0;
     let mut assert_fails = 0;
+    let mut failed_suites: Vec<(String, String)> = Vec::new();
     let total_start = Instant::now();
 
     if num_workers == 1 {
@@ -380,6 +594,7 @@ pub fn run_tests(
                 &mut failed,
                 &mut assert_passes,
                 &mut assert_fails,
+                &mut failed_suites,
             );
         }
     } else {
@@ -420,6 +635,7 @@ pub fn run_tests(
                 &mut failed,
                 &mut assert_passes,
                 &mut assert_fails,
+                &mut failed_suites,
             );
         }
 
@@ -450,7 +666,12 @@ pub fn run_tests(
             failed,
             passed + failed
         );
-        if assert_passes > 0 || assert_fails > 0 {
+        if assert_fails == 0 && failed > 0 {
+            println!(
+                "    Assertions  : {} passed, 0 failed \x1b[91m({} suite(s) aborted/crashed prematurely)\x1b[0m",
+                assert_passes, failed
+            );
+        } else if assert_passes > 0 || assert_fails > 0 {
             println!(
                 "    Assertions  : {} passed, {} failed",
                 assert_passes, assert_fails
@@ -458,6 +679,17 @@ pub fn run_tests(
         }
         println!("    Duration    : {} ms ({})", total_time, mode_str);
         println!("    Status      : \x1b[1;31mFAILED\x1b[0m");
+
+        if !failed_suites.is_empty() {
+            println!("\n  \x1b[1;31mFailed Suites Summary:\x1b[0m");
+            for (suite_name, reason) in &failed_suites {
+                println!(
+                    "    \x1b[1;31m✗\x1b[0m \x1b[1m{}\x1b[0m: {}",
+                    suite_name, reason
+                );
+            }
+        }
+
         println!("------------------------------------------------------------------------\n");
         Err(format!("Test suite completed with {} failure(s).", failed))
     }
