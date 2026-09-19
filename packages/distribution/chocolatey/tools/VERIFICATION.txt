@@ -6,7 +6,7 @@ in verifying that this package's contents are trustworthy.
    https://github.com/alya-lang/alya/releases/download/v0.0.18/alya-v0.0.18-x86_64-windows.zip
 
 2. Checksum (SHA-256):
-   8ba3ad83c00de8bba78d4482fd93bbf2b809371a1c7f8cd9ec8322cf748a13cf upon GitHub Release asset generation)
+   11cffc205cb2caca48de716de73f48c98c33917b2da1f3da8b8585422290667e upon GitHub Release asset generation)
 
 3. Release verification:
    The official release, release notes, and SHA-256 checksums are published at:
