@@ -471,6 +471,19 @@ pub function rc_dec(obj)
     return rc_release(obj)
 end
 
+# --- Cycle Garbage Collector (Bacon-Rajan Algorithm) ---
+
+# Triggers a cycle collection cycle to identify and sweep cyclic reference islands.
+# Returns the number of cyclic objects collected and deallocated.
+pub function gc_collect()
+    return _gc_collect()
+end
+
+# Returns the cumulative number of cyclic objects collected since program start.
+pub function gc_collected_count()
+    return _gc_collected_count()
+end
+
 # --- Struct Methods for Memory Types ---
 
 # Arena Methods

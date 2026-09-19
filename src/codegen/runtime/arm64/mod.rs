@@ -3,6 +3,7 @@ pub mod arena;
 pub mod arrays;
 pub mod errors;
 pub mod fs;
+pub mod gc;
 pub mod heap;
 pub mod io;
 pub mod maps;
@@ -58,6 +59,7 @@ pub fn emit_arm64_runtime(out: &mut String, os: OperatingSystem) {
     maps::emit(out, os);
     structs::emit(out, os);
     heap::emit(out, os);
+    gc::emit(out, os);
     arena::emit(out, os);
     net::emit(out, os);
     thread::emit(out, os);

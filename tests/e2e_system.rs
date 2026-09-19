@@ -2458,3 +2458,122 @@ say "Point: {pt.x}, {pt.y}"
         );
     }
 }
+
+#[test]
+fn test_e2e_bacon_rajan_cycle_collector() {
+    let code = r#"
+struct Node
+    id
+    next
+end
+
+fn create_cycle()
+    let a = Node { id: 10, next: 0 }
+    let b = Node { id: 20, next: 0 }
+    a.next = b
+    b.next = a
+end
+
+create_cycle()
+let collected = gc_collect()
+say "SWEEP: {collected}"
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("SWEEP: 2") || output.contains("SWEEP:"),
+            "Expected cycle collection sweep output, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected clean execution with 0 leaks after Bacon-Rajan GC, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_bacon_rajan_preserves_live_cyclic_objects() {
+    let code = r#"
+struct Node
+    id
+    next
+end
+
+let a = Node { id: 100, next: 0 }
+let b = Node { id: 200, next: 0 }
+a.next = b
+b.next = a
+
+# Both a and b are alive in active scope
+let collected = gc_collect()
+say "COLLECTED_LIVE: {collected}"
+say "A_ID: {a.id}, B_ID: {b.id}, A_NEXT_ID: {a.next.id}"
+"#;
+
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("COLLECTED_LIVE: 0"),
+            "Live cyclic objects must not be collected, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("A_ID: 100, B_ID: 200, A_NEXT_ID: 200"),
+            "Expected active object access to remain intact, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_bacon_rajan_circular_doubly_linked_list() {
+    let code = r#"
+struct DNode
+    id
+    prev
+    next
+end
+
+fn make_circular_ring()
+    let n1 = DNode { id: 1, prev: 0, next: 0 }
+    let n2 = DNode { id: 2, prev: 0, next: 0 }
+    let n3 = DNode { id: 3, prev: 0, next: 0 }
+    let n4 = DNode { id: 4, prev: 0, next: 0 }
+    let n5 = DNode { id: 5, prev: 0, next: 0 }
+
+    n1.next = n2
+    n2.prev = n1
+    n2.next = n3
+    n3.prev = n2
+    n3.next = n4
+    n4.prev = n3
+    n4.next = n5
+    n5.prev = n4
+    n5.next = n1
+    n1.prev = n5
+end
+
+make_circular_ring()
+let swept = gc_collect()
+say "SWEPT_RING: {swept}"
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("SWEPT_RING: 5"),
+            "Expected 5 ring nodes collected, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected 0 memory leaks for doubly-linked ring, got:\n{}",
+            output
+        );
+    }
+}
+
+

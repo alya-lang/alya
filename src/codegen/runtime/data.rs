@@ -76,6 +76,14 @@ pub fn emit_data_sections(
             out.push_str("    .quad 0\n");
             out.push_str("alya_mem_live_raw:\n");
             out.push_str("    .quad 0\n");
+            out.push_str("alya_gc_roots:\n");
+            out.push_str("    .space 524288\n");
+            out.push_str("alya_gc_roots_count:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_gc_collected_cycles:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_gc_in_progress:\n");
+            out.push_str("    .quad 0\n");
         }
         Architecture::X86 => {
             out.push_str("alya_str_idx:\n");
@@ -127,6 +135,14 @@ pub fn emit_data_sections(
             out.push_str("alya_mem_live_strings:\n");
             out.push_str("    .long 0\n");
             out.push_str("alya_mem_live_raw:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_gc_roots:\n");
+            out.push_str("    .space 262144\n");
+            out.push_str("alya_gc_roots_count:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_gc_collected_cycles:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_gc_in_progress:\n");
             out.push_str("    .long 0\n");
         }
     }
