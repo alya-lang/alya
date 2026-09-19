@@ -2575,5 +2575,3 @@ say "SWEPT_RING: {swept}"
         );
     }
 }
-
-
