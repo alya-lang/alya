@@ -118,7 +118,7 @@ let recovered_typed: int = dynamic_holder
 
 # Statically validated typed function
 function compute_typed_hash(id: int, label: string) -> int
-    let hash_val: int = id * 31
+    let hash_val: int = id * 31 + label.length()
     return hash_val
 end
 
