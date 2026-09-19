@@ -364,4 +364,539 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    pop %rbp\n");
         out.push_str("    ret\n\n");
     }
+
+    emit_simd_primitives(out, os);
+}
+
+fn emit_simd_primitives(out: &mut String, os: OperatingSystem) {
+    let is_win = matches!(os, OperatingSystem::Windows);
+
+    // 1. fn_simd_f64x4_new(a, b, c, d) -> ptr (32 bytes)
+    out.push_str(".global fn_simd_f64x4_new\n");
+    out.push_str("fn_simd_f64x4_new:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    sub $64, %rsp\n");
+    if is_win {
+        out.push_str("    movq %rcx, 0(%rsp)\n");
+        out.push_str("    movq %rdx, 8(%rsp)\n");
+        out.push_str("    movq %r8, 16(%rsp)\n");
+        out.push_str("    movq %r9, 24(%rsp)\n");
+        out.push_str("    mov $32, %rcx\n");
+    } else {
+        out.push_str("    movq %rdi, 0(%rsp)\n");
+        out.push_str("    movq %rsi, 8(%rsp)\n");
+        out.push_str("    movq %rdx, 16(%rsp)\n");
+        out.push_str("    movq %rcx, 24(%rsp)\n");
+        out.push_str("    mov $32, %rdi\n");
+    }
+    out.push_str("    call fn_alloc\n");
+    out.push_str("    movq 0(%rsp), %r10\n");
+    out.push_str("    movq %r10, 0(%rax)\n");
+    out.push_str("    movq 8(%rsp), %r10\n");
+    out.push_str("    movq %r10, 8(%rax)\n");
+    out.push_str("    movq 16(%rsp), %r10\n");
+    out.push_str("    movq %r10, 16(%rax)\n");
+    out.push_str("    movq 24(%rsp), %r10\n");
+    out.push_str("    movq %r10, 24(%rax)\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 2. fn_simd_f64x4_splat(val) -> ptr
+    out.push_str(".global fn_simd_f64x4_splat\n");
+    out.push_str("fn_simd_f64x4_splat:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    sub $48, %rsp\n");
+    if is_win {
+        out.push_str("    movq %rcx, 0(%rsp)\n");
+        out.push_str("    mov $32, %rcx\n");
+    } else {
+        out.push_str("    movq %rdi, 0(%rsp)\n");
+        out.push_str("    mov $32, %rdi\n");
+    }
+    out.push_str("    call fn_alloc\n");
+    out.push_str("    movq 0(%rsp), %r10\n");
+    out.push_str("    movq %r10, 0(%rax)\n");
+    out.push_str("    movq %r10, 8(%rax)\n");
+    out.push_str("    movq %r10, 16(%rax)\n");
+    out.push_str("    movq %r10, 24(%rax)\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 3. fn_simd_f64x4_add(a, b) -> ptr
+    out.push_str(".global fn_simd_f64x4_add\n");
+    out.push_str("fn_simd_f64x4_add:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    sub $64, %rsp\n");
+    if is_win {
+        out.push_str("    vmovupd (%rcx), %ymm0\n");
+        out.push_str("    vmovupd (%rdx), %ymm1\n");
+    } else {
+        out.push_str("    vmovupd (%rdi), %ymm0\n");
+        out.push_str("    vmovupd (%rsi), %ymm1\n");
+    }
+    out.push_str("    vaddpd %ymm1, %ymm0, %ymm0\n");
+    out.push_str("    vmovupd %ymm0, 0(%rsp)\n");
+    if is_win {
+        out.push_str("    mov $32, %rcx\n");
+    } else {
+        out.push_str("    mov $32, %rdi\n");
+    }
+    out.push_str("    call fn_alloc\n");
+    out.push_str("    vmovupd 0(%rsp), %ymm0\n");
+    out.push_str("    vmovupd %ymm0, (%rax)\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 4. fn_simd_f64x4_sub(a, b) -> ptr
+    out.push_str(".global fn_simd_f64x4_sub\n");
+    out.push_str("fn_simd_f64x4_sub:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    sub $64, %rsp\n");
+    if is_win {
+        out.push_str("    vmovupd (%rcx), %ymm0\n");
+        out.push_str("    vmovupd (%rdx), %ymm1\n");
+    } else {
+        out.push_str("    vmovupd (%rdi), %ymm0\n");
+        out.push_str("    vmovupd (%rsi), %ymm1\n");
+    }
+    out.push_str("    vsubpd %ymm1, %ymm0, %ymm0\n");
+    out.push_str("    vmovupd %ymm0, 0(%rsp)\n");
+    if is_win {
+        out.push_str("    mov $32, %rcx\n");
+    } else {
+        out.push_str("    mov $32, %rdi\n");
+    }
+    out.push_str("    call fn_alloc\n");
+    out.push_str("    vmovupd 0(%rsp), %ymm0\n");
+    out.push_str("    vmovupd %ymm0, (%rax)\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 5. fn_simd_f64x4_mul(a, b) -> ptr
+    out.push_str(".global fn_simd_f64x4_mul\n");
+    out.push_str("fn_simd_f64x4_mul:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    sub $64, %rsp\n");
+    if is_win {
+        out.push_str("    vmovupd (%rcx), %ymm0\n");
+        out.push_str("    vmovupd (%rdx), %ymm1\n");
+    } else {
+        out.push_str("    vmovupd (%rdi), %ymm0\n");
+        out.push_str("    vmovupd (%rsi), %ymm1\n");
+    }
+    out.push_str("    vmulpd %ymm1, %ymm0, %ymm0\n");
+    out.push_str("    vmovupd %ymm0, 0(%rsp)\n");
+    if is_win {
+        out.push_str("    mov $32, %rcx\n");
+    } else {
+        out.push_str("    mov $32, %rdi\n");
+    }
+    out.push_str("    call fn_alloc\n");
+    out.push_str("    vmovupd 0(%rsp), %ymm0\n");
+    out.push_str("    vmovupd %ymm0, (%rax)\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 6. fn_simd_f64x4_div(a, b) -> ptr
+    out.push_str(".global fn_simd_f64x4_div\n");
+    out.push_str("fn_simd_f64x4_div:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    sub $64, %rsp\n");
+    if is_win {
+        out.push_str("    vmovupd (%rcx), %ymm0\n");
+        out.push_str("    vmovupd (%rdx), %ymm1\n");
+    } else {
+        out.push_str("    vmovupd (%rdi), %ymm0\n");
+        out.push_str("    vmovupd (%rsi), %ymm1\n");
+    }
+    out.push_str("    vdivpd %ymm1, %ymm0, %ymm0\n");
+    out.push_str("    vmovupd %ymm0, 0(%rsp)\n");
+    if is_win {
+        out.push_str("    mov $32, %rcx\n");
+    } else {
+        out.push_str("    mov $32, %rdi\n");
+    }
+    out.push_str("    call fn_alloc\n");
+    out.push_str("    vmovupd 0(%rsp), %ymm0\n");
+    out.push_str("    vmovupd %ymm0, (%rax)\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 7. fn_simd_f64x4_fma(a, b, c) -> ptr: (a * b) + c
+    out.push_str(".global fn_simd_f64x4_fma\n");
+    out.push_str("fn_simd_f64x4_fma:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    sub $64, %rsp\n");
+    if is_win {
+        out.push_str("    vmovupd (%rcx), %ymm0\n");
+        out.push_str("    vmovupd (%rdx), %ymm1\n");
+        out.push_str("    vmovupd (%r8), %ymm2\n");
+    } else {
+        out.push_str("    vmovupd (%rdi), %ymm0\n");
+        out.push_str("    vmovupd (%rsi), %ymm1\n");
+        out.push_str("    vmovupd (%rdx), %ymm2\n");
+    }
+    out.push_str("    vfmadd213pd %ymm2, %ymm1, %ymm0\n");
+    out.push_str("    vmovupd %ymm0, 0(%rsp)\n");
+    if is_win {
+        out.push_str("    mov $32, %rcx\n");
+    } else {
+        out.push_str("    mov $32, %rdi\n");
+    }
+    out.push_str("    call fn_alloc\n");
+    out.push_str("    vmovupd 0(%rsp), %ymm0\n");
+    out.push_str("    vmovupd %ymm0, (%rax)\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 8. fn_simd_f64x4_sum(a) -> float (horizontal sum)
+    out.push_str(".global fn_simd_f64x4_sum\n");
+    out.push_str("fn_simd_f64x4_sum:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    vmovupd (%rcx), %ymm0\n");
+    } else {
+        out.push_str("    vmovupd (%rdi), %ymm0\n");
+    }
+    out.push_str("    vextractf128 $1, %ymm0, %xmm1\n");
+    out.push_str("    vaddpd %xmm1, %xmm0, %xmm0\n");
+    out.push_str("    vhaddpd %xmm0, %xmm0, %xmm0\n");
+    out.push_str("    movq %xmm0, %rax\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 9. fn_simd_f64x4_min(a) -> float
+    out.push_str(".global fn_simd_f64x4_min\n");
+    out.push_str("fn_simd_f64x4_min:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    vmovupd (%rcx), %ymm0\n");
+    } else {
+        out.push_str("    vmovupd (%rdi), %ymm0\n");
+    }
+    out.push_str("    vextractf128 $1, %ymm0, %xmm1\n");
+    out.push_str("    vminpd %xmm1, %xmm0, %xmm0\n");
+    out.push_str("    vpermilpd $1, %xmm0, %xmm1\n");
+    out.push_str("    vminpd %xmm1, %xmm0, %xmm0\n");
+    out.push_str("    movq %xmm0, %rax\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 10. fn_simd_f64x4_max(a) -> float
+    out.push_str(".global fn_simd_f64x4_max\n");
+    out.push_str("fn_simd_f64x4_max:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    vmovupd (%rcx), %ymm0\n");
+    } else {
+        out.push_str("    vmovupd (%rdi), %ymm0\n");
+    }
+    out.push_str("    vextractf128 $1, %ymm0, %xmm1\n");
+    out.push_str("    vmaxpd %xmm1, %xmm0, %xmm0\n");
+    out.push_str("    vpermilpd $1, %xmm0, %xmm1\n");
+    out.push_str("    vmaxpd %xmm1, %xmm0, %xmm0\n");
+    out.push_str("    movq %xmm0, %rax\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 11. fn_simd_f64x4_get(a, idx) -> float
+    out.push_str(".global fn_simd_f64x4_get\n");
+    out.push_str("fn_simd_f64x4_get:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    movq (%rcx, %rdx, 8), %rax\n");
+    } else {
+        out.push_str("    movq (%rdi, %rsi, 8), %rax\n");
+    }
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 12. fn_simd_f64x4_set(a, idx, val) -> ptr
+    out.push_str(".global fn_simd_f64x4_set\n");
+    out.push_str("fn_simd_f64x4_set:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    movq %r8, (%rcx, %rdx, 8)\n");
+        out.push_str("    mov %rcx, %rax\n");
+    } else {
+        out.push_str("    movq %rdx, (%rdi, %rsi, 8)\n");
+        out.push_str("    mov %rdi, %rax\n");
+    }
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 13. fn_simd_f64x4_load(ptr, offset) -> ptr
+    out.push_str(".global fn_simd_f64x4_load\n");
+    out.push_str("fn_simd_f64x4_load:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    sub $64, %rsp\n");
+    if is_win {
+        out.push_str("    lea (%rcx, %rdx), %r10\n");
+    } else {
+        out.push_str("    lea (%rdi, %rsi), %r10\n");
+    }
+    out.push_str("    vmovupd (%r10), %ymm0\n");
+    out.push_str("    vmovupd %ymm0, 0(%rsp)\n");
+    if is_win {
+        out.push_str("    mov $32, %rcx\n");
+    } else {
+        out.push_str("    mov $32, %rdi\n");
+    }
+    out.push_str("    call fn_alloc\n");
+    out.push_str("    vmovupd 0(%rsp), %ymm0\n");
+    out.push_str("    vmovupd %ymm0, (%rax)\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 14. fn_simd_f64x4_store(ptr, offset, vec) -> void
+    out.push_str(".global fn_simd_f64x4_store\n");
+    out.push_str("fn_simd_f64x4_store:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    lea (%rcx, %rdx), %r10\n");
+        out.push_str("    vmovupd (%r8), %ymm0\n");
+    } else {
+        out.push_str("    lea (%rdi, %rsi), %r10\n");
+        out.push_str("    vmovupd (%rdx), %ymm0\n");
+    }
+    out.push_str("    vmovupd %ymm0, (%r10)\n");
+    out.push_str("    xor %eax, %eax\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // --- f32x8 Primitives ---
+    // 15. fn_simd_f32x8_splat(val)
+    out.push_str(".global fn_simd_f32x8_splat\n");
+    out.push_str("fn_simd_f32x8_splat:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    sub $48, %rsp\n");
+    if is_win {
+        out.push_str("    movq %rcx, 0(%rsp)\n");
+        out.push_str("    mov $32, %rcx\n");
+    } else {
+        out.push_str("    movq %rdi, 0(%rsp)\n");
+        out.push_str("    mov $32, %rdi\n");
+    }
+    out.push_str("    call fn_alloc\n");
+    out.push_str("    movq 0(%rsp), %r10\n");
+    out.push_str("    mov %r10d, 0(%rax)\n");
+    out.push_str("    mov %r10d, 4(%rax)\n");
+    out.push_str("    mov %r10d, 8(%rax)\n");
+    out.push_str("    mov %r10d, 12(%rax)\n");
+    out.push_str("    mov %r10d, 16(%rax)\n");
+    out.push_str("    mov %r10d, 20(%rax)\n");
+    out.push_str("    mov %r10d, 24(%rax)\n");
+    out.push_str("    mov %r10d, 28(%rax)\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 16. fn_simd_f32x8_add(a, b) -> vaddps
+    out.push_str(".global fn_simd_f32x8_add\n");
+    out.push_str("fn_simd_f32x8_add:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    sub $64, %rsp\n");
+    if is_win {
+        out.push_str("    vmovups (%rcx), %ymm0\n");
+        out.push_str("    vmovups (%rdx), %ymm1\n");
+    } else {
+        out.push_str("    vmovups (%rdi), %ymm0\n");
+        out.push_str("    vmovups (%rsi), %ymm1\n");
+    }
+    out.push_str("    vaddps %ymm1, %ymm0, %ymm0\n");
+    out.push_str("    vmovups %ymm0, 0(%rsp)\n");
+    if is_win {
+        out.push_str("    mov $32, %rcx\n");
+    } else {
+        out.push_str("    mov $32, %rdi\n");
+    }
+    out.push_str("    call fn_alloc\n");
+    out.push_str("    vmovups 0(%rsp), %ymm0\n");
+    out.push_str("    vmovups %ymm0, (%rax)\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 17. fn_simd_f32x8_mul(a, b) -> vmulps
+    out.push_str(".global fn_simd_f32x8_mul\n");
+    out.push_str("fn_simd_f32x8_mul:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    sub $64, %rsp\n");
+    if is_win {
+        out.push_str("    vmovups (%rcx), %ymm0\n");
+        out.push_str("    vmovups (%rdx), %ymm1\n");
+    } else {
+        out.push_str("    vmovups (%rdi), %ymm0\n");
+        out.push_str("    vmovups (%rsi), %ymm1\n");
+    }
+    out.push_str("    vmulps %ymm1, %ymm0, %ymm0\n");
+    out.push_str("    vmovups %ymm0, 0(%rsp)\n");
+    if is_win {
+        out.push_str("    mov $32, %rcx\n");
+    } else {
+        out.push_str("    mov $32, %rdi\n");
+    }
+    out.push_str("    call fn_alloc\n");
+    out.push_str("    vmovups 0(%rsp), %ymm0\n");
+    out.push_str("    vmovups %ymm0, (%rax)\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 18. fn_simd_f32x8_sum(a) -> float
+    out.push_str(".global fn_simd_f32x8_sum\n");
+    out.push_str("fn_simd_f32x8_sum:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    vmovups (%rcx), %ymm0\n");
+    } else {
+        out.push_str("    vmovups (%rdi), %ymm0\n");
+    }
+    out.push_str("    vextractf128 $1, %ymm0, %xmm1\n");
+    out.push_str("    vaddps %xmm1, %xmm0, %xmm0\n");
+    out.push_str("    vhaddps %xmm0, %xmm0, %xmm0\n");
+    out.push_str("    vhaddps %xmm0, %xmm0, %xmm0\n");
+    out.push_str("    cvtss2sd %xmm0, %xmm0\n");
+    out.push_str("    movq %xmm0, %rax\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // --- i32x8 Primitives ---
+    // 19. fn_simd_i32x8_splat(val)
+    out.push_str(".global fn_simd_i32x8_splat\n");
+    out.push_str("fn_simd_i32x8_splat:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    sub $48, %rsp\n");
+    if is_win {
+        out.push_str("    movq %rcx, 0(%rsp)\n");
+        out.push_str("    mov $32, %rcx\n");
+    } else {
+        out.push_str("    movq %rdi, 0(%rsp)\n");
+        out.push_str("    mov $32, %rdi\n");
+    }
+    out.push_str("    call fn_alloc\n");
+    out.push_str("    movq 0(%rsp), %r10\n");
+    out.push_str("    mov %r10d, 0(%rax)\n");
+    out.push_str("    mov %r10d, 4(%rax)\n");
+    out.push_str("    mov %r10d, 8(%rax)\n");
+    out.push_str("    mov %r10d, 12(%rax)\n");
+    out.push_str("    mov %r10d, 16(%rax)\n");
+    out.push_str("    mov %r10d, 20(%rax)\n");
+    out.push_str("    mov %r10d, 24(%rax)\n");
+    out.push_str("    mov %r10d, 28(%rax)\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 20. fn_simd_i32x8_add(a, b) -> vpaddd
+    out.push_str(".global fn_simd_i32x8_add\n");
+    out.push_str("fn_simd_i32x8_add:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    sub $64, %rsp\n");
+    if is_win {
+        out.push_str("    vmovdqu (%rcx), %ymm0\n");
+        out.push_str("    vmovdqu (%rdx), %ymm1\n");
+    } else {
+        out.push_str("    vmovdqu (%rdi), %ymm0\n");
+        out.push_str("    vmovdqu (%rsi), %ymm1\n");
+    }
+    out.push_str("    vpaddd %ymm1, %ymm0, %ymm0\n");
+    out.push_str("    vmovdqu %ymm0, 0(%rsp)\n");
+    if is_win {
+        out.push_str("    mov $32, %rcx\n");
+    } else {
+        out.push_str("    mov $32, %rdi\n");
+    }
+    out.push_str("    call fn_alloc\n");
+    out.push_str("    vmovdqu 0(%rsp), %ymm0\n");
+    out.push_str("    vmovdqu %ymm0, (%rax)\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // --- i64x4 Primitives ---
+    // 21. fn_simd_i64x4_splat(val)
+    out.push_str(".global fn_simd_i64x4_splat\n");
+    out.push_str("fn_simd_i64x4_splat:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    sub $48, %rsp\n");
+    if is_win {
+        out.push_str("    movq %rcx, 0(%rsp)\n");
+        out.push_str("    mov $32, %rcx\n");
+    } else {
+        out.push_str("    movq %rdi, 0(%rsp)\n");
+        out.push_str("    mov $32, %rdi\n");
+    }
+    out.push_str("    call fn_alloc\n");
+    out.push_str("    movq 0(%rsp), %r10\n");
+    out.push_str("    movq %r10, 0(%rax)\n");
+    out.push_str("    movq %r10, 8(%rax)\n");
+    out.push_str("    movq %r10, 16(%rax)\n");
+    out.push_str("    movq %r10, 24(%rax)\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // 22. fn_simd_i64x4_add(a, b) -> vpaddq
+    out.push_str(".global fn_simd_i64x4_add\n");
+    out.push_str("fn_simd_i64x4_add:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    sub $64, %rsp\n");
+    if is_win {
+        out.push_str("    vmovdqu (%rcx), %ymm0\n");
+        out.push_str("    vmovdqu (%rdx), %ymm1\n");
+    } else {
+        out.push_str("    vmovdqu (%rdi), %ymm0\n");
+        out.push_str("    vmovdqu (%rsi), %ymm1\n");
+    }
+    out.push_str("    vpaddq %ymm1, %ymm0, %ymm0\n");
+    out.push_str("    vmovdqu %ymm0, 0(%rsp)\n");
+    if is_win {
+        out.push_str("    mov $32, %rcx\n");
+    } else {
+        out.push_str("    mov $32, %rdi\n");
+    }
+    out.push_str("    call fn_alloc\n");
+    out.push_str("    vmovdqu 0(%rsp), %ymm0\n");
+    out.push_str("    vmovdqu %ymm0, (%rax)\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
 }

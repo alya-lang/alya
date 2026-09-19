@@ -51,6 +51,33 @@ pub function free_mem(ptr)
     free(ptr)
 end
 
+# Allocates 'size' bytes aligned to 'alignment' boundary (default 32 bytes for AVX2 / SIMD).
+# Stores the raw pointer in the header word immediately preceding the aligned address.
+pub function aligned_alloc(size, alignment = 32)
+    let align = alignment
+    if align < 8
+        align = 8
+    end
+    let total = size + align + 8
+    let raw = alloc(total)
+    if raw == 0
+        return 0
+    end
+    let offset = raw + 8 + align - 1
+    let mask = 0 - align
+    let aligned = offset & mask
+    poke_int(aligned - 8, 0, raw)
+    return aligned
+end
+
+# Frees aligned memory previously allocated by aligned_alloc().
+pub function aligned_free(p)
+    if p != 0
+        let raw = peek_int(p - 8, 0)
+        free(raw)
+    end
+end
+
 # Resizes an existing heap allocation.
 pub function realloc_mem(ptr, size)
     return realloc(ptr, size)
@@ -123,6 +150,14 @@ pub function read_int(ptr, offset)
 end
 
 pub function write_int(ptr, offset, val)
+    poke_int(ptr, offset, val)
+end
+
+pub function read_float(ptr, offset) -> float
+    return peek_int(ptr, offset)
+end
+
+pub function write_float(ptr, offset, val: float)
     poke_int(ptr, offset, val)
 end
 

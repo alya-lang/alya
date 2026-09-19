@@ -284,6 +284,8 @@ end
         labels.contains(&"calculate_area"),
         "Must contain AST function calculate_area"
     );
+    assert!(labels.contains(&"std/simd"), "Must contain std/simd module");
+    assert!(labels.contains(&"f64x4"), "Must contain f64x4 SIMD type");
 
     // 2. Hover Test
     let mut hover_params = BTreeMap::new();

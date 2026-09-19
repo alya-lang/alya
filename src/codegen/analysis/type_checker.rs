@@ -22,6 +22,10 @@ pub enum Type {
     Null,
     Void,
     Ptr,
+    F64x4,
+    F32x8,
+    I32x8,
+    I64x4,
     Array(Box<Type>),
     Map(Box<Type>, Box<Type>),
     Tuple(Vec<Type>),
@@ -50,6 +54,10 @@ impl fmt::Display for Type {
             Type::Null => write!(f, "null"),
             Type::Void => write!(f, "void"),
             Type::Ptr => write!(f, "ptr"),
+            Type::F64x4 => write!(f, "f64x4"),
+            Type::F32x8 => write!(f, "f32x8"),
+            Type::I32x8 => write!(f, "i32x8"),
+            Type::I64x4 => write!(f, "i64x4"),
             Type::Array(elem) => write!(f, "{}[]", elem),
             Type::Map(k, v) => write!(f, "map[{}, {}]", k, v),
             Type::Tuple(elems) => {
@@ -88,6 +96,10 @@ impl Type {
         matches!(self, Type::Float | Type::F32)
     }
 
+    pub fn is_vector(&self) -> bool {
+        matches!(self, Type::F64x4 | Type::F32x8 | Type::I32x8 | Type::I64x4)
+    }
+
     /// Determines whether a value of type `self` can be assigned to a location expecting `target`.
     /// Under gradual typing principles:
     /// - `Type::Any` is bidirectionally compatible with all types.
@@ -118,6 +130,23 @@ impl Type {
         // Float subtyping
         if self.is_float() && target.is_float() {
             return true;
+        }
+
+        // Vector subtyping and struct equivalence
+        match (self, target) {
+            (Type::F64x4, Type::Struct(s)) | (Type::Struct(s), Type::F64x4) if s == "f64x4" => {
+                return true
+            }
+            (Type::F32x8, Type::Struct(s)) | (Type::Struct(s), Type::F32x8) if s == "f32x8" => {
+                return true
+            }
+            (Type::I32x8, Type::Struct(s)) | (Type::Struct(s), Type::I32x8) if s == "i32x8" => {
+                return true
+            }
+            (Type::I64x4, Type::Struct(s)) | (Type::Struct(s), Type::I64x4) if s == "i64x4" => {
+                return true
+            }
+            _ => {}
         }
 
         // String subtyping
@@ -315,6 +344,10 @@ pub fn parse_type_str(raw: &str) -> Type {
         "null" => Type::Null,
         "void" => Type::Void,
         "ptr" => Type::Ptr,
+        "f64x4" => Type::F64x4,
+        "f32x8" => Type::F32x8,
+        "i32x8" => Type::I32x8,
+        "i64x4" => Type::I64x4,
         "array" => Type::Array(Box::new(Type::Any)),
         "map" => Type::Map(Box::new(Type::Any), Box::new(Type::Any)),
         other => Type::Struct(other.to_string()),
@@ -414,6 +447,120 @@ impl TypeChecker {
                 return_type: Type::Float,
             },
         );
+
+        // --- SIMD Vector Built-in Functions ---
+        self.functions.insert(
+            "simd_f64x4_new".to_string(),
+            FnSig {
+                name: "simd_f64x4_new".to_string(),
+                param_types: vec![Type::Float, Type::Float, Type::Float, Type::Float],
+                return_type: Type::Ptr,
+            },
+        );
+        self.functions.insert(
+            "simd_f64x4_splat".to_string(),
+            FnSig {
+                name: "simd_f64x4_splat".to_string(),
+                param_types: vec![Type::Float],
+                return_type: Type::Ptr,
+            },
+        );
+        self.functions.insert(
+            "simd_f64x4_add".to_string(),
+            FnSig {
+                name: "simd_f64x4_add".to_string(),
+                param_types: vec![Type::Ptr, Type::Ptr],
+                return_type: Type::Ptr,
+            },
+        );
+        self.functions.insert(
+            "simd_f64x4_sub".to_string(),
+            FnSig {
+                name: "simd_f64x4_sub".to_string(),
+                param_types: vec![Type::Ptr, Type::Ptr],
+                return_type: Type::Ptr,
+            },
+        );
+        self.functions.insert(
+            "simd_f64x4_mul".to_string(),
+            FnSig {
+                name: "simd_f64x4_mul".to_string(),
+                param_types: vec![Type::Ptr, Type::Ptr],
+                return_type: Type::Ptr,
+            },
+        );
+        self.functions.insert(
+            "simd_f64x4_div".to_string(),
+            FnSig {
+                name: "simd_f64x4_div".to_string(),
+                param_types: vec![Type::Ptr, Type::Ptr],
+                return_type: Type::Ptr,
+            },
+        );
+        self.functions.insert(
+            "simd_f64x4_fma".to_string(),
+            FnSig {
+                name: "simd_f64x4_fma".to_string(),
+                param_types: vec![Type::Ptr, Type::Ptr, Type::Ptr],
+                return_type: Type::Ptr,
+            },
+        );
+        self.functions.insert(
+            "simd_f64x4_sum".to_string(),
+            FnSig {
+                name: "simd_f64x4_sum".to_string(),
+                param_types: vec![Type::Ptr],
+                return_type: Type::Float,
+            },
+        );
+        self.functions.insert(
+            "simd_f64x4_min".to_string(),
+            FnSig {
+                name: "simd_f64x4_min".to_string(),
+                param_types: vec![Type::Ptr],
+                return_type: Type::Float,
+            },
+        );
+        self.functions.insert(
+            "simd_f64x4_max".to_string(),
+            FnSig {
+                name: "simd_f64x4_max".to_string(),
+                param_types: vec![Type::Ptr],
+                return_type: Type::Float,
+            },
+        );
+        self.functions.insert(
+            "simd_f64x4_get".to_string(),
+            FnSig {
+                name: "simd_f64x4_get".to_string(),
+                param_types: vec![Type::Ptr, Type::Int],
+                return_type: Type::Float,
+            },
+        );
+        self.functions.insert(
+            "simd_f64x4_set".to_string(),
+            FnSig {
+                name: "simd_f64x4_set".to_string(),
+                param_types: vec![Type::Ptr, Type::Int, Type::Float],
+                return_type: Type::Ptr,
+            },
+        );
+        self.functions.insert(
+            "simd_f64x4_load".to_string(),
+            FnSig {
+                name: "simd_f64x4_load".to_string(),
+                param_types: vec![Type::Ptr, Type::Int],
+                return_type: Type::Ptr,
+            },
+        );
+        self.functions.insert(
+            "simd_f64x4_store".to_string(),
+            FnSig {
+                name: "simd_f64x4_store".to_string(),
+                param_types: vec![Type::Ptr, Type::Int, Type::Ptr],
+                return_type: Type::Void,
+            },
+        );
     }
 
     fn push_scope(&mut self) {
@@ -450,6 +597,40 @@ impl TypeChecker {
     }
 
     fn lookup_fn(&self, name: &str, first_arg_type: Option<&Type>) -> Option<FnSig> {
+        // Method lookup via UFCS: receiver.method(...) -> Struct__method(receiver, ...)
+        if let Some(fat) = first_arg_type {
+            let sname_opt = match fat {
+                Type::Struct(s) => Some(s.as_str()),
+                Type::F64x4 => Some("f64x4"),
+                Type::F32x8 => Some("f32x8"),
+                Type::I32x8 => Some("i32x8"),
+                Type::I64x4 => Some("i64x4"),
+                _ => None,
+            };
+            if let Some(sname) = sname_opt {
+                let bare_struct = sname.rsplit("::").next().unwrap_or(sname);
+                let bare_struct = bare_struct.rsplit("__").next().unwrap_or(bare_struct);
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+
+                let candidates = [
+                    format!("{}__{}", sname, name),
+                    format!("{}__{}", bare_struct, name),
+                    format!("{}__{}", sname, bare),
+                    format!("{}__{}", bare_struct, bare),
+                    format!("{}.{}", sname, name),
+                    format!("{}.{}", bare_struct, name),
+                    format!("{}.{}", sname, bare),
+                    format!("{}.{}", bare_struct, bare),
+                ];
+                for cand in &candidates {
+                    if let Some(sig) = self.functions.get(cand) {
+                        return Some(sig.clone());
+                    }
+                }
+            }
+        }
+
         if let Some(sig) = self.functions.get(name) {
             return Some(sig.clone());
         }
@@ -458,29 +639,6 @@ impl TypeChecker {
         let bare = bare.rsplit("__").next().unwrap_or(bare);
         if let Some(sig) = self.functions.get(bare) {
             return Some(sig.clone());
-        }
-
-        // Method lookup via UFCS: receiver.method(...) -> Struct__method(receiver, ...)
-        if let Some(Type::Struct(sname)) = first_arg_type {
-            let bare_struct = sname.rsplit("::").next().unwrap_or(sname);
-            let bare_struct = bare_struct.rsplit("__").next().unwrap_or(bare_struct);
-
-            let candidates = [
-                format!("{}__{}", sname, name),
-                format!("{}__{}", bare_struct, name),
-                format!("{}__{}", sname, bare),
-                format!("{}__{}", bare_struct, bare),
-            ];
-            for cand in &candidates {
-                if let Some(sig) = self.functions.get(cand) {
-                    return Some(sig.clone());
-                }
-            }
-
-            let suffix = format!("__{}", name);
-            if let Some((_, sig)) = self.functions.iter().find(|(k, _)| k.ends_with(&suffix)) {
-                return Some(sig.clone());
-            }
         }
 
         None

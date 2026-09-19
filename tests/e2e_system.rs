@@ -355,6 +355,140 @@ buffer_free(buf)
 }
 
 #[test]
+fn test_e2e_aligned_memory_allocation() {
+    let code = r#"
+import "std/mem"
+
+# 1. Test 32-byte alignment (AVX2 requirement)
+let p32 = aligned_alloc(128, 32)
+say is_valid(p32)
+say p32 % 32 == 0
+
+# 2. Test 64-byte alignment (AVX-512 requirement)
+let p64 = aligned_alloc(256, 64)
+say is_valid(p64)
+say p64 % 64 == 0
+
+# 3. Write and read to ensure memory is writable and intact
+write_int(p32, 0, 42)
+write_int(p32, 32, 84)
+say read_int(p32, 0)
+say read_int(p32, 32)
+
+aligned_free(p32)
+aligned_free(p64)
+say 1
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(
+            output,
+            concat!("1\n", "1\n", "1\n", "1\n", "42\n", "84\n", "1\n",)
+        );
+    }
+}
+
+#[test]
+fn test_e2e_vector_and_ai_math_primitives() {
+    let code = r#"
+import "std/math"
+
+# 1. lerp test
+say lerp(10.0, 20.0, 0.5)
+
+# 2. dot_product test: [1.0, 2.0, 3.0, 4.0, 5.0] . [2.0, 3.0, 4.0, 5.0, 6.0]
+# = 1*2 + 2*3 + 3*4 + 4*5 + 5*6 = 2 + 6 + 12 + 20 + 30 = 70.0
+let v1 = [1.0, 2.0, 3.0, 4.0, 5.0]
+let v2 = [2.0, 3.0, 4.0, 5.0, 6.0]
+say dot_product(v1, v2)
+
+# 3. vector_norm: [3.0, 4.0] -> sqrt(9 + 16) = 5.0
+let v3 = [3.0, 4.0]
+say vector_norm(v3)
+
+# 4. cosine_similarity: identical vectors -> 1.0, orthogonal vectors -> 0.0
+let va = [1.0, 0.0]
+let vb = [0.0, 1.0]
+say cosine_similarity(va, va)
+say cosine_similarity(va, vb)
+
+# 5. sum_f64: sum of 10 floats
+let numbers = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+say sum_f64(numbers)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(
+            output,
+            concat!("15\n", "70\n", "5\n", "1\n", "0\n", "55\n",)
+        );
+    }
+}
+
+#[test]
+fn test_e2e_simd_vector_primitives() {
+    let code = r#"
+import "std/simd"
+
+let v1 = f64x4_new(1.0, 2.0, 3.0, 4.0)
+let v2 = f64x4_splat(2.0)
+
+# 1. Component get
+say v1.get(0)
+say v1.get(3)
+
+# 2. Operator + (v1 + v2: [3.0, 4.0, 5.0, 6.0])
+let v_add = v1 + v2
+say v_add.get(0)
+say v_add.get(3)
+
+# 3. Operator * (v1 * v2: [2.0, 4.0, 6.0, 8.0])
+let v_mul = v1 * v2
+say v_mul.get(0)
+say v_mul.get(3)
+
+# 4. Horizontal reduction sum (1 + 2 + 3 + 4 = 10)
+say v1.sum_horizontal()
+
+# 5. Horizontal min & max
+say v1.min()
+say v1.max()
+
+# 6. FMA: (v1 * v2) + v_add = [2, 4, 6, 8] + [3, 4, 5, 6] = [5, 8, 11, 14]
+let v_fma = v1.fma(v2, v_add)
+say v_fma.get(0)
+say v_fma.get(2)
+
+# 7. Shuffle / Swizzle
+let v_rev = v1.shuffle(3, 2, 1, 0)
+say v_rev.get(0)
+say v_rev.get(3)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(
+            output,
+            concat!(
+                "1\n", "4\n", "3\n", "6\n", "2\n", "8\n", "10\n", "1\n", "4\n", "5\n", "11\n",
+                "4\n", "1\n",
+            )
+        );
+    }
+}
+
+#[test]
 fn test_e2e_time_and_test_stdlib() {
     let code = r#"
 import "std/time"

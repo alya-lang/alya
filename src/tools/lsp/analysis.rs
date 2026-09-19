@@ -238,6 +238,8 @@ pub fn get_completions(source: &str, _pos: &Position) -> Vec<CompletionItem> {
     // 2. Standard Library Modules (Kind 9)
     let std_modules = [
         "std/math",
+        "std/simd",
+        "std/mem",
         "std/fs",
         "std/os",
         "std/sync",
@@ -259,6 +261,36 @@ pub fn get_completions(source: &str, _pos: &Position) -> Vec<CompletionItem> {
             Some("module"),
             Some("Alya Standard Library Module"),
         ));
+    }
+
+    // 3. Primitive & SIMD Vector Types (Kind 7)
+    let types = [
+        ("int", "64-bit signed integer"),
+        ("float", "64-bit IEEE 754 floating-point number"),
+        ("string", "UTF-8 encoded dynamic string"),
+        ("bool", "Boolean value (`true` or `false`)"),
+        ("ptr", "Raw native pointer"),
+        ("any", "Dynamic type container with gradual typing"),
+        ("void", "Absence of a return value"),
+        (
+            "f64x4",
+            "256-bit SIMD vector of 4x 64-bit floats (`std/simd`)",
+        ),
+        (
+            "f32x8",
+            "256-bit SIMD vector of 8x 32-bit single-precision floats (`std/simd`)",
+        ),
+        (
+            "i32x8",
+            "256-bit SIMD vector of 8x 32-bit integers (`std/simd`)",
+        ),
+        (
+            "i64x4",
+            "256-bit SIMD vector of 4x 64-bit integers (`std/simd`)",
+        ),
+    ];
+    for (t, doc) in types {
+        items.push(CompletionItem::new(t, 7, Some("type"), Some(doc)));
     }
 
     // 3. User Definitions from AST (Functions: 3, Structs: 22, Interfaces: 8)
@@ -319,6 +351,11 @@ pub fn get_hover(source: &str, pos: &Position) -> Option<String> {
         "Channel" => Some("**struct Channel[T]**: Thread-safe CSP communication channel with bounded & rendezvous semantics."),
         "Mutex" => Some("**struct Mutex**: Mutual exclusion primitive from `std/sync`."),
         "WaitGroup" => Some("**struct WaitGroup**: Thread synchronization counter from `std/sync`."),
+        "f64x4" => Some("**struct f64x4**: 256-bit hardware SIMD vector containing 4x 64-bit IEEE 754 floating-point numbers (`std/simd`).\n\nSupports single-cycle parallel arithmetic (`+`, `-`, `*`, `/`), fused multiply-add (`.fma()`), and horizontal reductions (`.sum_horizontal()`, `.min()`, `.max()`)."),
+        "f32x8" => Some("**struct f32x8**: 256-bit hardware SIMD vector containing 8x 32-bit single-precision floating-point numbers (`std/simd`).\n\nSupports parallel arithmetic and horizontal sum reduction."),
+        "i32x8" => Some("**struct i32x8**: 256-bit hardware SIMD vector containing 8x 32-bit signed integers (`std/simd`).\n\nSupports 8-lane parallel integer addition."),
+        "i64x4" => Some("**struct i64x4**: 256-bit hardware SIMD vector containing 4x 64-bit signed integers (`std/simd`).\n\nSupports 4-lane parallel 64-bit integer addition."),
+        "Tensor" => Some("**struct Tensor**: Multi-dimensional contiguous numeric tensor with SIMD acceleration support (`alya-lang/tensor`)."),
         _ => None,
     };
     if let Some(doc) = kw_doc {

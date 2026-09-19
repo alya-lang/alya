@@ -864,6 +864,7 @@ pub(crate) fn get_embedded_stdlib(module: &str) -> Option<&'static str> {
     let canonical = canonical_stdlib_module(clean);
     match canonical {
         "math" => Some(include_str!("../../stdlib/math.alya")),
+        "simd" => Some(include_str!("../../stdlib/simd.alya")),
         "time" => Some(include_str!("../../stdlib/time.alya")),
         "os" => Some(include_str!("../../stdlib/os.alya")),
         "process" => Some(include_str!("../../stdlib/process.alya")),

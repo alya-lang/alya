@@ -306,7 +306,7 @@ This roadmap defines the sequenced implementation phases, actionable engineering
   - Target files: `Lib/gui/`, `src/tools/bundle.rs`.
   - Verification: Cross-platform hello-world window example with event dispatch loop.
 
-- [ ] **6.4 Explicit SIMD Vectorization Primitives & High-Performance Tensor Engine**
+- [x] **6.4 Explicit SIMD Vectorization Primitives & High-Performance Tensor Engine**
   - **First-Class Vector Types**: Native `f64x4`, `f32x8`, `i32x8`, `i64x4` with operator overloading (`+`, `-`, `*`, `/`).
   - **Hardware Instruction & FMA3 Mapping**:
     - x64: AVX2 / AVX-512 with FMA3 (`vfmadd213pd`: single-cycle `(a * b) + c` doubling matrix multiplication throughput).
