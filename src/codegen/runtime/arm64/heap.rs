@@ -224,6 +224,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lsr x1, x0, #47\n");
     out.push_str("    cbnz x1, .L_arm64_rc_retain_done\n");
     out.push_str("    ldur x1, [x0, #-16]\n");
+    out.push_str("    uxtw x1, w1\n");
     out.push_str("    movz x2, #0x0001\n");
     out.push_str("    movk x2, #0x5A11, lsl #16\n");
     out.push_str("    cmp x1, x2\n");
@@ -235,6 +236,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movz x2, #0x0003\n");
     out.push_str("    movk x2, #0x5A11, lsl #16\n");
     out.push_str("    cmp x1, x2\n");
+    out.push_str("    b.eq .L_arm64_rc_retain_ok\n");
+    out.push_str("    movz x2, #0x0004\n");
+    out.push_str("    movk x2, #0x5A11, lsl #16\n");
+    out.push_str("    cmp x1, x2\n");
     out.push_str("    b.ne .L_arm64_rc_retain_done\n");
     out.push_str(".L_arm64_rc_retain_ok:\n");
     out.push_str("    sub x3, x0, #8\n");
@@ -243,6 +248,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x4, x4, #1\n");
     out.push_str("    stxr w5, x4, [x3]\n");
     out.push_str("    cbnz w5, .L_arm64_rc_retain_loop\n");
+    out.push_str("    stur wzr, [x0, #-12]\n");
     out.push_str(".L_arm64_rc_retain_done:\n");
     out.push_str("    ret\n\n");
 
@@ -261,6 +267,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lsr x1, x19, #47\n");
     out.push_str("    cbnz x1, .L_arm64_rc_rel_done\n");
     out.push_str("    ldur x20, [x19, #-16]\n");
+    out.push_str("    uxtw x20, w20\n");
     out.push_str("    movz x2, #0x0001\n");
     out.push_str("    movk x2, #0x5A11, lsl #16\n");
     out.push_str("    cmp x20, x2\n");
@@ -272,6 +279,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movz x2, #0x0003\n");
     out.push_str("    movk x2, #0x5A11, lsl #16\n");
     out.push_str("    cmp x20, x2\n");
+    out.push_str("    b.eq .L_arm64_rc_rel_ok\n");
+    out.push_str("    movz x2, #0x0004\n");
+    out.push_str("    movk x2, #0x5A11, lsl #16\n");
+    out.push_str("    cmp x20, x2\n");
     out.push_str("    b.ne .L_arm64_rc_rel_done\n");
     out.push_str(".L_arm64_rc_rel_ok:\n");
     out.push_str("    sub x3, x19, #8\n");
@@ -280,7 +291,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    sub x4, x4, #1\n");
     out.push_str("    stxr w5, x4, [x3]\n");
     out.push_str("    cbnz w5, .L_arm64_rc_rel_loop\n");
-    out.push_str("    cbnz x4, .L_arm64_rc_rel_done\n");
+    out.push_str("    cbnz x4, .L_arm64_rc_rel_purple\n");
+    out.push_str("    stur wzr, [x19, #-12]\n");
     out.push_str("    movz x2, #0x0001\n");
     out.push_str("    movk x2, #0x5A11, lsl #16\n");
     out.push_str("    cmp x20, x2\n");
@@ -299,6 +311,14 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    bl alya_mem_track_free\n");
     out.push_str("    sub x0, x19, #16\n");
     out.push_str(&format!("    bl {}free\n", p));
+    out.push_str("    b .L_arm64_rc_rel_done\n");
+    out.push_str(".L_arm64_rc_rel_purple:\n");
+    out.push_str("    movz x2, #0x0004\n");
+    out.push_str("    movk x2, #0x5A11, lsl #16\n");
+    out.push_str("    cmp x20, x2\n");
+    out.push_str("    b.eq .L_arm64_rc_rel_done\n");
+    out.push_str("    mov x0, x19\n");
+    out.push_str("    bl fn_gc_add_purple\n");
     out.push_str(".L_arm64_rc_rel_done:\n");
     out.push_str("    mov x0, #0\n");
     out.push_str("    ldp x19, x20, [sp, #16]\n");
@@ -316,6 +336,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lsr x1, x0, #47\n");
     out.push_str("    cbnz x1, .L_arm64_rcc_zero\n");
     out.push_str("    ldur x1, [x0, #-16]\n");
+    out.push_str("    uxtw x1, w1\n");
     out.push_str("    movz x2, #0x0001\n");
     out.push_str("    movk x2, #0x5A11, lsl #16\n");
     out.push_str("    cmp x1, x2\n");
@@ -325,6 +346,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    cmp x1, x2\n");
     out.push_str("    b.eq .L_arm64_rcc_ok\n");
     out.push_str("    movz x2, #0x0003\n");
+    out.push_str("    movk x2, #0x5A11, lsl #16\n");
+    out.push_str("    cmp x1, x2\n");
+    out.push_str("    b.eq .L_arm64_rcc_ok\n");
+    out.push_str("    movz x2, #0x0004\n");
     out.push_str("    movk x2, #0x5A11, lsl #16\n");
     out.push_str("    cmp x1, x2\n");
     out.push_str("    b.eq .L_arm64_rcc_ok\n");
