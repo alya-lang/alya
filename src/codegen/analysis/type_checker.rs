@@ -636,7 +636,6 @@ impl TypeChecker {
         }
 
         let bare = name.rsplit("::").next().unwrap_or(name);
-        let bare = bare.rsplit("__").next().unwrap_or(bare);
         if let Some(sig) = self.functions.get(bare) {
             return Some(sig.clone());
         }
@@ -1334,11 +1333,11 @@ impl TypeChecker {
                     return_type: r_type,
                 };
 
-                let bare = name.rsplit("::").next().unwrap_or(name);
-                let bare = bare.rsplit("__").next().unwrap_or(bare);
                 self.functions.insert(name.clone(), sig.clone());
-                if bare != name {
-                    self.functions.insert(bare.to_string(), sig);
+
+                let bare_mod = name.rsplit("::").next().unwrap_or(name);
+                if bare_mod != name && !self.functions.contains_key(bare_mod) {
+                    self.functions.insert(bare_mod.to_string(), sig);
                 }
             }
         }
