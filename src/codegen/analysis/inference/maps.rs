@@ -191,6 +191,7 @@ fn collect_map_vars_from_stmts(
     }
 }
 
+#[allow(dead_code)]
 fn expr_is_definitely_non_map(expr: &Expr) -> bool {
     match expr {
         Expr::Number(_) | Expr::Float(_) | Expr::String(_) | Expr::Array(_) => true,
@@ -249,17 +250,13 @@ pub fn collect_known_map_vars_with_index(
                 }
                 let mut call_args = Vec::new();
                 call_index.collect_all_call_args_scoped(name, bare, idx, &mut call_args);
-                if !call_args.is_empty() {
-                    let has_def_map = call_args.iter().any(|(caller_scope, arg)| {
+                if !call_args.is_empty()
+                    && call_args.iter().all(|(caller_scope, arg)| {
                         expr_is_definitely_map(arg, *caller_scope, &known_maps)
-                    });
-                    let has_conflict = call_args
-                        .iter()
-                        .any(|(_, arg)| expr_is_definitely_non_map(arg));
-                    if has_def_map && !has_conflict {
-                        known_maps.insert(format!("fn_param_map:{}:{}", name, idx));
-                        known_maps.insert(format!("fn_param_map:{}:{}", bare, idx));
-                    }
+                    })
+                {
+                    known_maps.insert(format!("fn_param_map:{}:{}", name, idx));
+                    known_maps.insert(format!("fn_param_map:{}:{}", bare, idx));
                 }
             }
         }
