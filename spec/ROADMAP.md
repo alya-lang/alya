@@ -262,12 +262,12 @@ This roadmap defines the sequenced implementation phases, actionable engineering
   - Target files: `Lib/template/`.
   - Verification: Package generation via `create-package.ps1` produces starter packages matching the modern v1.0 spec standard.
 
-- [x] **5.6 Ecosystem Standalone Packages Modernization & Clean v0.1.0 Baseline**
+- [ ] **5.6 Ecosystem Standalone Packages Modernization & Clean v0.1.0 Baseline**
   - Modernized all 22 standalone packages (`Lib/*`) to match `Lib/template` v0.1.0 baseline archetype and v1.0 syntax standards.
   - **Version Reset to 0.1.0**: Set `version = "0.1.0"` across all 22 package manifests (`alya.toml`).
   - **Comprehensive Verification**: 100% test suite pass rate across all 22 packages (23 test suites, 2,000+ assertions passed).
-  - Target files: `Lib/*/alya.toml`, `Lib/*/src/`, `Lib/*/tests/`.
-  - Remote Tag & Release Purge: Legacy remote tag purge prepared for repository synchronization.
+  - Target files: `Lib/*/alya.toml`, `Lib/*/src/`, `Lib/*/tests/`, GitHub repository tags & releases.
+  - **Pending Remote Actions**: Remote tag & GitHub release purge across `alya-lang/*` repositories and fresh `v0.1.0` baseline release tagging.
 
 - [x] **5.7 Static Analysis & Linter Engine (`alya lint` & LSP/VS Code Integration)**
   - Implement standalone static code analysis linter (`src/tools/lint/`):
@@ -322,5 +322,5 @@ This roadmap defines the sequenced implementation phases, actionable engineering
 | **2** | **Standard Library Consolidation & Modern Syntax (14 Modules)** | 🟡 High | ✅ Complete |
 | **3** | **Grammar, Lexer & Parser Conformance (Rune, Pratt, Main)** | 🟡 High | ✅ Complete |
 | **4** | **Advanced Systems Runtime (Weak ARC, Fibers, Cycle Collector, Event)** | 🔵 Normal | ✅ Complete |
-| **5** | **Developer Tooling & Ecosystem (Linter, LSP, Resolution, Packages)** | 🟢 Future | ✅ Complete |
+| **5** | **Developer Tooling & Ecosystem (Linter, LSP, Resolution, Packages)** | 🟢 Future | 🟡 In Progress |
 | **6** | **Future Explorations & Targets (WASM, GUI, SIMD, Gradual Typing)** | 💡 Research | 📋 Planned |
