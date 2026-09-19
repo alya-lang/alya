@@ -306,11 +306,27 @@ This roadmap defines the sequenced implementation phases, actionable engineering
   - Target files: `Lib/gui/`, `src/tools/bundle.rs`.
   - Verification: Cross-platform hello-world window example with event dispatch loop.
 
-- [ ] **6.4 Explicit SIMD Vectorization Primitives**
-  - First-class vector data types (`f64x4`, `f32x8`, `i32x8`, `i64x4`) with native operator overloading (`+`, `-`, `*`, `/`).
-  - Direct machine instruction mapping to AVX2/AVX-512 on x64 and Neon on ARM64.
-  - Target files: `src/codegen/arch/x64/ops.rs`, `src/codegen/arch/arm64/ops.rs`.
-  - Verification: High-throughput Mandelbrot and matrix multiplication benchmarks achieving $> 4\times$ throughput speedup.
+- [ ] **6.4 Explicit SIMD Vectorization Primitives & High-Performance Tensor Engine**
+  - **First-Class Vector Types**: Native `f64x4`, `f32x8`, `i32x8`, `i64x4` with operator overloading (`+`, `-`, `*`, `/`).
+  - **Hardware Instruction & FMA3 Mapping**:
+    - x64: AVX2 / AVX-512 with FMA3 (`vfmadd213pd`: single-cycle `(a * b) + c` doubling matrix multiplication throughput).
+    - ARM64: 128-bit Neon vector pipelines (`fadd`, `fmla`, `fmul`).
+  - **Vector Swizzle, Shuffle & Horizontal Reduction**:
+    - Cross-lane component manipulation (`v.shuffle(...)`, `v.swizzle(...)`) for graphics, physics, and matrix transpose.
+    - Horizontal reduction primitives (`v.sum_horizontal()`, `v.min()`, `v.max()`) for single-cycle vector-to-scalar folding.
+  - **Aligned Memory Allocation (`std/mem`)**:
+    - 32-byte and 64-byte cache-line aligned heap allocations (`std/mem.aligned_alloc`) enabling zero-penalty `vmovapd` streaming loads.
+  - **Accelerated Standard Math (`std/math`)**:
+    - Hardware-accelerated `dot_product`, `vector_norm`, `sum_f64`, `lerp`.
+    - Native `cosine_similarity` primitive for high-throughput AI embeddings and local vector search / RAG.
+  - **Official Ecosystem Package (`alya-lang/tensor`)**:
+    - Multi-dimensional N-D Tensors (`shape`, `strides`, zero-copy views, and contiguous buffers).
+    - SIMD-accelerated GEMM (General Matrix Multiply) and element-wise broadcasting engine.
+  - **Cross-Language Benchmark Modernization (`Src/benchmarks/cross_lang/numeric/`)**:
+    - Modernize `mandelbrot.alya` and `matrix_mult.alya` to exploit explicit SIMD lanes and FMA instructions.
+    - Execute `cross_lang/runner.ts` to directly measure and publish real-world speedup against C (`gcc -O3`), Node.js (V8), and Python.
+  - **Target files**: `src/codegen/arch/x64/ops.rs`, `src/codegen/arch/arm64/ops.rs`, `Lib/tensor/`, `src/codegen/runtime/alloc.rs`, `Src/benchmarks/cross_lang/numeric/`.
+  - **Verification**: Mandelbrot, Matrix Multiplication (GEMM), and Cosine Similarity benchmarks achieving $> 4\times$ to $8\times$ speedup over scalar execution.
 
 ---
 

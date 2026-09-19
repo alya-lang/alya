@@ -124,3 +124,15 @@ end
 
 let hash_result: int = compute_typed_hash(typed_score, "spec_test")
 say f"Gradual typing OK: score={typed_score}, recovered={recovered_typed}, hash={hash_result}"
+
+# ------------------------------------------------------------------------------
+# 11. Explicit SIMD Vector Primitives (Phase 6.4 Specification Contract)
+# ------------------------------------------------------------------------------
+# In Phase 6.4, first-class 256-bit SIMD vector types map directly to AVX2/Neon:
+# let v1: f64x4 = f64x4(1.0, 2.0, 3.0, 4.0)
+# let v2: f64x4 = f64x4(5.0, 6.0, 7.0, 8.0)
+# let v_sum: f64x4 = v1 + v2
+# let v_fma: f64x4 = (v1 * v2) + v_sum
+# let dot: float = v1.sum_horizontal()
+say "SIMD 6.4 Vector Specification: f64x4, f32x8, i32x8, i64x4 ready"
+

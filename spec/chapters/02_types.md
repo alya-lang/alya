@@ -89,11 +89,36 @@ When types are explicitly annotated, the compiler activates strict static analys
 
 ---
 
+### 1.6 Explicit SIMD Vector Primitives & Tensor Engine (Roadmap Phase 6.4 Specification)
+
+For numerical computing, 3D graphics, digital signal processing (DSP), and machine learning tensor operations, Alya specifies first-class **Explicit SIMD (Single Instruction, Multiple Data) vector types**:
+
+#### 1. Hardware-Mapped Vector Types
+- **`f64x4`**: 256-bit vector holding four 64-bit IEEE 754 floats (maps directly to AVX2/AVX-512 `%ymm` / `%zmm` registers on x64, Neon pairs on ARM64).
+- **`f32x8`**: 256-bit vector holding eight 32-bit single-precision floats.
+- **`i32x8`**: 256-bit vector holding eight 32-bit signed integers.
+- **`i64x4`**: 256-bit vector holding four 64-bit signed integers.
+
+#### 2. Vector Arithmetic & FMA3
+- **Operator Overloading**: Native operators `+`, `-`, `*`, `/` perform single-cycle element-wise parallel execution across all lanes without scalar loop overhead.
+- **Fused Multiply-Add (FMA)**: `v1.fma(v2, v3)` or `(v1 * v2) + v3` compiles directly to hardware FMA3 (`vfmadd213pd`) executing a simultaneous multiply-accumulate in a single clock cycle with zero intermediate rounding error.
+
+#### 3. Swizzle, Shuffle & Horizontal Reduction
+- **Cross-Lane Shuffling**: `v.shuffle(indices)` and swizzle operations rearrange lane data in-register without round-tripping through stack memory.
+- **Horizontal Reduction**: `v.sum_horizontal()`, `v.min()`, and `v.max()` collapse all vector lanes into a single scalar value using hardware reduction tree instructions (`vhaddpd`).
+
+#### 4. Memory Layout & Alignment
+- SIMD vector types occupy 256 bits (32 bytes) in CPU vector registers or 32-byte aligned stack slots.
+- Heap buffers backing vectors or N-D tensors utilize `std/mem.aligned_alloc(size, 32)` enabling zero-penalty `vmovapd` streaming loads.
+
+---
+
 ## 2. Memory Layout & Stack vs Heap Semantics
 
 | Type | Allocation | Lifecycle | Reference Counted? |
 | :--- | :--- | :--- | :--- |
 | `int`, `i8`..`i64`, `u8`..`u64`, `float`, `bool` | Stack / Register | Copy-by-value | ❌ No |
+| `f64x4`, `f32x8`, `i32x8`, `i64x4` | Stack / Vector Register (%ymm) | Copy-by-value | ❌ No |
 | `string` | Heap | ARC (`retain` / `release`) | ✅ Yes |
 | `array`, `map` | Heap | ARC (`retain` / `release`) | ✅ Yes |
 | `struct` | Heap | ARC (`retain` / `release`) | ✅ Yes |

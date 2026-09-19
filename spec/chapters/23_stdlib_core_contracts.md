@@ -165,10 +165,12 @@ end
 
 function mem.copy(dst: ptr, src: ptr, bytes: int)
 function mem.set(dst: ptr, byte_val: u8, count: int)
+function mem.aligned_alloc(bytes: int, alignment: int = 32) -> ptr
+function mem.aligned_free(p: ptr)
 ```
 
-#### 10. `std/math` (Math & Randomness)
-Mathematical calculations combined with hardware-seeded SplitMix64 pseudo-randomness:
+#### 10. `std/math` (Math, Randomness & SIMD Primitives)
+Mathematical calculations, hardware-seeded pseudo-randomness, and SIMD-accelerated vector primitives:
 ```alya
 const math.PI = 3.141592653589793
 const math.E  = 2.718281828459045
@@ -182,6 +184,13 @@ function math.ceil(x: float) -> float
 function math.abs(x: float) -> float
 function math.random() -> float                      # Monotonic 0.0 to 1.0 float
 function math.rand_int(min: int, max: int) -> int   # Inclusive random integer
+
+# SIMD-Accelerated Vector & AI Primitives
+function math.dot_product(a: float[], b: float[]) -> float
+function math.cosine_similarity(a: float[], b: float[]) -> float
+function math.vector_norm(v: float[]) -> float
+function math.sum_f64(arr: float[]) -> float
+function math.lerp(a: float, b: float, t: float) -> float
 ```
 
 #### 11. `std/str` (String Algorithms & Encodings)
