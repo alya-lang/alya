@@ -383,22 +383,82 @@ fn extract_pub_symbols(src: &str) -> HashSet<String> {
         while idx < tokens.len() {
             if matches!(tokens[idx].token_type, TokenType::Pub) {
                 idx += 1;
-                if idx < tokens.len()
-                    && matches!(
-                        tokens[idx].token_type,
+                let mut is_enum = false;
+                if idx < tokens.len() {
+                    match tokens[idx].token_type {
                         TokenType::Function
-                            | TokenType::Struct
-                            | TokenType::Enum
-                            | TokenType::Interface
-                            | TokenType::Const
-                            | TokenType::Let
-                    )
-                {
-                    idx += 1;
+                        | TokenType::Struct
+                        | TokenType::Interface
+                        | TokenType::Const
+                        | TokenType::Let => {
+                            idx += 1;
+                        }
+                        TokenType::Enum => {
+                            is_enum = true;
+                            idx += 1;
+                        }
+                        _ => {}
+                    }
                 }
                 if idx < tokens.len() {
-                    if let TokenType::Identifier(name) = &tokens[idx].token_type {
-                        symbols.insert(name.clone());
+                    match &tokens[idx].token_type {
+                        TokenType::Identifier(name) => {
+                            symbols.insert(name.clone());
+                        }
+                        TokenType::Assert => {
+                            symbols.insert("assert".to_string());
+                        }
+                        TokenType::Test => {
+                            symbols.insert("test".to_string());
+                        }
+                        TokenType::Bench => {
+                            symbols.insert("bench".to_string());
+                        }
+                        _ => {}
+                    }
+
+                    // Also check for methods: `Tensor.zeros` or `Tensor::zeros`
+                    let mut lookahead = idx;
+                    while lookahead + 1 < tokens.len()
+                        && matches!(
+                            tokens[lookahead + 1].token_type,
+                            TokenType::Dot | TokenType::ColonColon
+                        )
+                    {
+                        lookahead += 2;
+                        if lookahead < tokens.len() {
+                            match &tokens[lookahead].token_type {
+                                TokenType::Identifier(member) => {
+                                    symbols.insert(member.clone());
+                                }
+                                TokenType::Assert => {
+                                    symbols.insert("assert".to_string());
+                                }
+                                TokenType::Test => {
+                                    symbols.insert("test".to_string());
+                                }
+                                TokenType::Bench => {
+                                    symbols.insert("bench".to_string());
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+
+                    // If pub enum, also extract variants until 'end' or next 'pub'
+                    if is_enum {
+                        let mut enum_idx = idx + 1;
+                        while enum_idx < tokens.len()
+                            && !matches!(
+                                tokens[enum_idx].token_type,
+                                TokenType::End | TokenType::Pub
+                            )
+                        {
+                            if let TokenType::Identifier(variant) = &tokens[enum_idx].token_type {
+                                symbols.insert(variant.clone());
+                            }
+                            enum_idx += 1;
+                        }
                     }
                 }
             }
@@ -426,18 +486,31 @@ fn get_exported_symbols_from_module(
     }
 
     // 2. Relative file on disk
-    if let Some(parent) = current_file.parent() {
-        let p = parent.join(module_path);
-        if p.exists() {
-            if let Ok(src) = std::fs::read_to_string(&p) {
-                return Some(extract_pub_symbols(&src));
-            }
+    let parent = current_file.parent().unwrap_or_else(|| Path::new(""));
+    let parent_dir = if parent.as_os_str().is_empty() {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+    } else {
+        parent.to_path_buf()
+    };
+
+    let p = parent_dir.join(module_path);
+    if p.exists() {
+        if let Ok(src) = std::fs::read_to_string(&p) {
+            return Some(extract_pub_symbols(&src));
         }
-        let p_alya = p.with_extension("alya");
-        if p_alya.exists() {
-            if let Ok(src) = std::fs::read_to_string(&p_alya) {
-                return Some(extract_pub_symbols(&src));
-            }
+    }
+    let p_alya = p.with_extension("alya");
+    if p_alya.exists() {
+        if let Ok(src) = std::fs::read_to_string(&p_alya) {
+            return Some(extract_pub_symbols(&src));
+        }
+    }
+
+    // Package resolution fallback (e.g. import "tensor", import "term")
+    if let Ok(Some(pkg_path)) = crate::tools::pkg::resolve_package_import(module_path, &parent_dir)
+    {
+        if let Ok(src) = std::fs::read_to_string(&pkg_path) {
+            return Some(extract_pub_symbols(&src));
         }
     }
 
@@ -457,7 +530,6 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
     struct ImportInfo {
         name_to_check: String,
         raw_path: Option<String>,
-        has_alias: bool,
         line: usize,
         col: usize,
         is_full_line: bool,
@@ -497,13 +569,11 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                 }
             }
 
-            let mut has_alias = false;
             if i < tokens.len() && matches!(tokens[i].token_type, TokenType::As) {
                 i += 1;
                 if i < tokens.len() {
                     if let TokenType::Identifier(alias) = &tokens[i].token_type {
                         imported_name = Some(alias.clone());
-                        has_alias = true;
                         i += 1;
                     }
                 }
@@ -513,7 +583,6 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                 imports.push(ImportInfo {
                     name_to_check: name,
                     raw_path,
-                    has_alias,
                     line: import_line,
                     col: import_col,
                     is_full_line: true,
@@ -548,14 +617,12 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                         let sym_line = tokens[i].line;
                         let sym_col = tokens[i].column;
                         let mut name = sym.clone();
-                        let mut has_alias = false;
                         i += 1;
                         if i < tokens.len() && matches!(tokens[i].token_type, TokenType::As) {
                             i += 1;
                             if i < tokens.len() {
                                 if let TokenType::Identifier(alias) = &tokens[i].token_type {
                                     name = alias.clone();
-                                    has_alias = true;
                                     i += 1;
                                 }
                             }
@@ -563,7 +630,6 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                         imports.push(ImportInfo {
                             name_to_check: name,
                             raw_path: raw_path.clone(),
-                            has_alias,
                             line: sym_line,
                             col: sym_col,
                             is_full_line: false,
@@ -593,9 +659,6 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
         if !inside_import {
             match &tok.token_type {
                 TokenType::Identifier(id) => {
-                    if let Some((ns, _)) = id.split_once("::") {
-                        code_idents.insert(ns.to_string());
-                    }
                     code_idents.insert(id.clone());
                 }
                 TokenType::Test => {
@@ -614,15 +677,13 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
 
     for imp in imports {
         let mut is_used = code_idents.contains(&imp.name_to_check)
-            || code_idents.iter().any(|id| {
-                id.starts_with(&format!("{}_", imp.name_to_check))
-                    || id.starts_with(&format!("{}::", imp.name_to_check))
-                    || id.starts_with(&format!("{}.", imp.name_to_check))
-            });
+            || code_idents
+                .iter()
+                .any(|id| id.starts_with(&format!("{}_", imp.name_to_check)));
 
-        // If it's a full-line import without an alias (e.g. `import "std/hash"`),
+        // If it's a full-line import without direct alias match (e.g. `import "std/hash"`, `import "../src/lib.alya"`),
         // check if any of the symbols exported by the module are used directly.
-        if !is_used && !imp.has_alias && imp.is_full_line {
+        if !is_used && imp.is_full_line {
             if let Some(path) = &imp.raw_path {
                 if let Some(exported) = get_exported_symbols_from_module(path, file_path) {
                     if exported.iter().any(|sym| code_idents.contains(sym)) {

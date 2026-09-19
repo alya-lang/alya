@@ -206,6 +206,80 @@ fn test_lsp_linter_diagnostics_and_code_action() {
 }
 
 #[test]
+fn test_lsp_uri_to_path_decoding() {
+    use alya::tools::lsp::protocol::uri_to_path;
+
+    // Windows standard URI
+    let p1 = uri_to_path("file:///C:/project/foo.alya");
+    assert_eq!(p1, std::path::PathBuf::from("C:/project/foo.alya"));
+
+    // Windows percent-encoded drive & spaces
+    let p2 = uri_to_path("file:///c%3A/my%20dir/test.alya");
+    assert_eq!(p2, std::path::PathBuf::from("c:/my dir/test.alya"));
+
+    // Linux URI
+    let p3 = uri_to_path("file:///home/user/project/test.alya");
+    assert_eq!(p3, std::path::PathBuf::from("/home/user/project/test.alya"));
+}
+
+#[test]
+fn test_lsp_unused_import_relative_resolution() {
+    let tmp = std::env::temp_dir().join(format!("alya_lsp_import_test_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp);
+    let helper_path = tmp.join("helper.alya");
+    std::fs::write(
+        &helper_path,
+        "pub function do_work() -> int\n    return 42\nend\n",
+    )
+    .unwrap();
+
+    let caller_path = tmp.join("caller.alya");
+    let caller_source =
+        "import \"./helper.alya\"\nfunction main()\n    let res = do_work()\n    say res\nend\n";
+
+    let mut server = ServerState::new();
+    let uri = format!(
+        "file:///{}",
+        caller_path.to_string_lossy().replace('\\', "/")
+    );
+
+    let mut did_open_params = BTreeMap::new();
+    let mut doc_info = BTreeMap::new();
+    doc_info.insert("uri".to_string(), JsonValue::String(uri.clone()));
+    doc_info.insert(
+        "text".to_string(),
+        JsonValue::String(caller_source.to_string()),
+    );
+    did_open_params.insert("textDocument".to_string(), JsonValue::Object(doc_info));
+
+    let mut did_open = BTreeMap::new();
+    did_open.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    did_open.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/didOpen".to_string()),
+    );
+    did_open.insert("params".to_string(), JsonValue::Object(did_open_params));
+
+    let notif = server
+        .handle_message(&JsonValue::Object(did_open))
+        .expect("Expected publishDiagnostics notif");
+    let diags = notif
+        .get("params")
+        .and_then(|p| p.get("diagnostics"))
+        .and_then(|d| d.as_array())
+        .unwrap();
+
+    // With proper path resolution, import "./helper.alya" must NOT be flagged as unused!
+    let unused_imports: Vec<_> = diags
+        .iter()
+        .filter(|d| d.get("code").and_then(|c| c.as_str()) == Some("unused-import"))
+        .collect();
+    assert_eq!(unused_imports.len(), 0);
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn test_lsp_completion_and_hover_and_definition() {
     let mut server = ServerState::new();
     let uri = "file:///app.alya";

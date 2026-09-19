@@ -238,3 +238,46 @@ pub fn make_notification(method: &str, params: JsonValue) -> JsonValue {
     map.insert("params".to_string(), params);
     JsonValue::Object(map)
 }
+
+/// Converts an LSP URI (e.g. `file:///C:/foo/bar.alya`, `file:///c%3A/foo/bar.alya`, or `file:///home/user/bar.alya`)
+/// to a normalized, percent-decoded `std::path::PathBuf`.
+pub fn uri_to_path(uri: &str) -> std::path::PathBuf {
+    let mut s = uri;
+    if let Some(stripped) = s.strip_prefix("file://localhost") {
+        s = stripped;
+    } else if let Some(stripped) = s.strip_prefix("file://") {
+        s = stripped;
+    }
+
+    // Percent-decode (%20 -> ' ', %3A -> ':', etc.)
+    let mut decoded = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(hex_str) = std::str::from_utf8(&bytes[i + 1..i + 3]) {
+                if let Ok(byte_val) = u8::from_str_radix(hex_str, 16) {
+                    decoded.push(byte_val as char);
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        decoded.push(bytes[i] as char);
+        i += 1;
+    }
+
+    // On Windows, file URIs usually start with `/` before the drive letter (e.g. `/C:/path` or `/c:/path`).
+    // Strip leading slash if followed by an ASCII alphabetic drive letter and colon.
+    let path_str = if decoded.starts_with('/')
+        && decoded.len() > 2
+        && decoded.as_bytes()[1].is_ascii_alphabetic()
+        && decoded.as_bytes()[2] == b':'
+    {
+        &decoded[1..]
+    } else {
+        &decoded
+    };
+
+    std::path::PathBuf::from(path_str)
+}

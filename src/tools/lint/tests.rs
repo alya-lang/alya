@@ -77,6 +77,47 @@ end
 }
 
 #[test]
+fn test_lint_unused_import_keyword_assert() {
+    let source = r#"
+import "std/test"
+
+function main()
+    assert(1 == 1, "passing")
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let import_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-import").collect();
+    assert_eq!(import_diags.len(), 0);
+}
+
+#[test]
+fn test_lint_unused_import_relative_file_and_struct_methods() {
+    let tmp = std::env::temp_dir().join(format!("alya_lint_test_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp);
+    let mod_file = tmp.join("math.alya");
+    std::fs::write(
+        &mod_file,
+        "pub struct MyMath\nend\npub function MyMath.compute(x) -> int\n    return x * 2\nend\n",
+    )
+    .unwrap();
+
+    let caller_file = tmp.join("caller.alya");
+    let source = r#"
+import "./math.alya"
+
+function main()
+    let x = MyMath.compute(10)
+    say x
+end
+"#;
+    let diags = lint_source(source, &caller_file).unwrap();
+    let import_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-import").collect();
+    assert_eq!(import_diags.len(), 0);
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn test_lint_unused_import_exported_symbols_and_keywords() {
     let source = r#"
 import "std/hash"

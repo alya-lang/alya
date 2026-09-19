@@ -183,7 +183,8 @@ impl ServerState {
     }
 
     pub fn publish_diagnostics(&self, uri: &str, source: &str) -> JsonValue {
-        let diags = check_document(source);
+        let path = super::protocol::uri_to_path(uri);
+        let diags = check_document(source, Some(&path));
         let mut params = BTreeMap::new();
         params.insert("uri".to_string(), JsonValue::String(uri.to_string()));
         let diags_json = diags.into_iter().map(|d| d.to_json()).collect();
@@ -263,11 +264,11 @@ impl ServerState {
             None => return Vec::new(),
         };
 
-        let diags =
-            match crate::tools::lint::lint_source(source, std::path::Path::new("document.alya")) {
-                Ok(d) => d,
-                Err(_) => return Vec::new(),
-            };
+        let path = super::protocol::uri_to_path(uri);
+        let diags = match crate::tools::lint::lint_source(source, &path) {
+            Ok(d) => d,
+            Err(_) => return Vec::new(),
+        };
 
         let mut actions = Vec::new();
         for d in diags {

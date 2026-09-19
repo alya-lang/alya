@@ -4,7 +4,7 @@ use crate::lexer::Lexer;
 use crate::parser::Parser;
 use std::collections::HashSet;
 
-pub fn check_document(source: &str) -> Vec<Diagnostic> {
+pub fn check_document(source: &str, file_path: Option<&std::path::Path>) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     let mut lexer = Lexer::new(source);
@@ -15,6 +15,9 @@ pub fn check_document(source: &str) -> Vec<Diagnostic> {
             return diagnostics;
         }
     };
+
+    let default_path = std::path::Path::new("document.alya");
+    let target_path = file_path.unwrap_or(default_path);
 
     let mut parser = Parser::new(tokens.clone());
     match parser.parse() {
@@ -31,11 +34,7 @@ pub fn check_document(source: &str) -> Vec<Diagnostic> {
             }
 
             // 2. Linter Analysis Rules
-            let lint_diags = crate::tools::lint::run_all_rules(
-                &program,
-                &tokens,
-                std::path::Path::new("document.alya"),
-            );
+            let lint_diags = crate::tools::lint::run_all_rules(&program, &tokens, target_path);
             for d in lint_diags {
                 let start_line = if d.line > 0 { (d.line - 1) as u32 } else { 0 };
                 let start_col = if d.col > 0 { (d.col - 1) as u32 } else { 0 };
