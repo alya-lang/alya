@@ -1,6 +1,7 @@
 #[rustfmt::skip]
 pub mod arm64;
 pub mod data;
+pub mod fiber;
 #[rustfmt::skip]
 pub mod x64;
 #[rustfmt::skip]

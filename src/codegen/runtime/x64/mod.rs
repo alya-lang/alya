@@ -13,6 +13,7 @@ pub mod str_ops;
 pub mod str_split;
 pub mod structs;
 pub mod thread;
+pub mod fiber;
 
 use crate::codegen::target::OperatingSystem;
 
@@ -31,6 +32,7 @@ pub fn emit_x64_runtime(out: &mut String, os: OperatingSystem) {
     arena::emit(out, os);
     net::emit(out, os);
     thread::emit(out, os);
+    fiber::emit(out, os);
     errors::emit(out, os);
 }
 

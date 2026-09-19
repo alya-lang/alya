@@ -89,6 +89,7 @@ pub function channel_send(ch: Channel, val) -> int
                         break
                     end
                     mutex_unlock(ch.lock)
+                    __native_fiber_yield()
                     sleep(1)
                     mutex_lock(ch.lock)
                 end
@@ -103,6 +104,7 @@ pub function channel_send(ch: Channel, val) -> int
                 return 1
             end
             mutex_unlock(ch.lock)
+            __native_fiber_yield()
             sleep(1)
         end
     end
@@ -121,6 +123,7 @@ pub function channel_send(ch: Channel, val) -> int
         end
         if ch.capacity > 0 and sz >= ch.capacity
             mutex_unlock(ch.lock)
+            __native_fiber_yield()
             sleep(1)
         else
             ch.q.push(val)
@@ -205,7 +208,8 @@ pub function channel_recv(ch: Channel, timeout_ms: int = 5000)
         if timeout_ms > 0 and (clock_ms() - start) >= timeout_ms
             return null
         end
-        sleep(2)
+        __native_fiber_yield()
+        sleep(1)
     end
     return null
 end
@@ -254,6 +258,8 @@ pub function channel_free(ch: Channel)
     channel_close(ch)
     mutex_free(ch.lock)
 end
+
+
 
 # --- WaitGroup (Thread-Safe Counter Synchronization) ---
 
@@ -427,7 +433,11 @@ pub function Channel.try_send(self: Channel, val) -> int
     return channel_try_send(self, val)
 end
 
-pub function Channel.recv(self: Channel, timeout_ms: int = 5000)
+pub function Channel.recv(self: Channel)
+    return channel_recv(self, 5000)
+end
+
+pub function Channel.recv_timeout(self: Channel, timeout_ms: int)
     return channel_recv(self, timeout_ms)
 end
 
@@ -548,4 +558,39 @@ end
 
 pub function thread_sleep(ms: int)
     sync_sleep(ms)
+end
+
+# --- M:N Lightweight Green Fibers ("Colorless Concurrency") ---
+
+pub function fiber_spawn(func, arg = null) -> int
+    return __native_fiber_spawn(func, arg)
+end
+
+pub function fiber_yield() -> int
+    return __native_fiber_yield()
+end
+
+pub function fiber_join(h: int) -> int
+    return __native_fiber_join(h)
+end
+
+pub function fiber_id() -> int
+    return __native_fiber_id()
+end
+
+pub function fiber_count() -> int
+    return __native_fiber_count()
+end
+
+pub function fiber_drain()
+    __native_fiber_drain()
+end
+
+pub function fiber_sleep(ms: int)
+    __native_fiber_sleep(ms)
+end
+
+# Cooperative Yield Keyword Alias for Colorless Concurrency:
+pub function yield() -> int
+    return __native_fiber_yield()
 end

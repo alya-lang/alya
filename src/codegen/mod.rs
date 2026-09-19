@@ -819,6 +819,22 @@ impl CodeGen {
             }
         }
 
+        if !self.no_std {
+            match self.arch {
+                Architecture::ARM64 => self.output.push_str("    bl fn___native_fiber_drain\n"),
+                Architecture::X64 => {
+                    if matches!(self.os, OperatingSystem::Windows) {
+                        self.output.push_str("    sub $32, %rsp\n");
+                        self.output.push_str("    call fn___native_fiber_drain\n");
+                        self.output.push_str("    add $32, %rsp\n");
+                    } else {
+                        self.output.push_str("    call fn___native_fiber_drain\n");
+                    }
+                }
+                Architecture::X86 => self.output.push_str("    call fn___native_fiber_drain\n"),
+            }
+        }
+
         arch::emit_footer(&mut self.output, self.arch);
 
         for func in functions {

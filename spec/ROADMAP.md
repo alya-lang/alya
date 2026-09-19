@@ -218,7 +218,7 @@ This roadmap defines the sequenced implementation phases, actionable engineering
   - Target files: `src/codegen/runtime/alloc.rs`, `src/cli/mod.rs`.
   - Verification: `alya run test_alloc.alya --mem-trace` outputs formatted live reference summary and detects deliberate leaks.
 
-- [ ] **4.8 M:N Cooperative Fiber Scheduler & Growable Stacks ("Colorless Concurrency")**
+- [x] **4.8 M:N Cooperative Fiber Scheduler & Growable Stacks ("Colorless Concurrency")**
   - Architectural realization of Alya's Colorless Concurrency model (rejecting `async/await` function coloring):
     - Lightweight user-space green fibers with segmented/growable stacks.
     - M:N cooperative scheduler multiplexing thousands of fibers across native OS worker thread pools.

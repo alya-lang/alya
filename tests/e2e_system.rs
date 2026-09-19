@@ -2575,3 +2575,115 @@ say "SWEPT_RING: {swept}"
         );
     }
 }
+
+#[test]
+fn test_e2e_cooperative_fibers_basic() {
+    let code = r#"
+import "std/sync"
+
+function compute_fib(n: int) -> int
+    let id = fiber_id()
+    say "fiber_started: " + str(id)
+    fiber_yield()
+    let res = n * 10
+    say "fiber_res: " + str(res)
+    return res
+end
+
+let f1 = fiber_spawn(compute_fib, 4)
+let f2 = fiber_spawn(compute_fib, 7)
+
+say "active_fibers: " + str(fiber_count())
+
+let r1 = fiber_join(f1)
+let r2 = fiber_join(f2)
+
+say "joined_r1: " + str(r1)
+say "joined_r2: " + str(r2)
+"#;
+
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("active_fibers: 3"), "Got:\n{}", output);
+        assert!(output.contains("fiber_started: 1"), "Got:\n{}", output);
+        assert!(output.contains("fiber_started: 2"), "Got:\n{}", output);
+        assert!(output.contains("fiber_res: 40"), "Got:\n{}", output);
+        assert!(output.contains("fiber_res: 70"), "Got:\n{}", output);
+        assert!(output.contains("joined_r1: 40"), "Got:\n{}", output);
+        assert!(output.contains("joined_r2: 70"), "Got:\n{}", output);
+    }
+}
+
+#[test]
+fn test_e2e_cooperative_fibers_channel_pipeline() {
+    let code = r#"
+import "std/sync"
+
+let ch = Channel.new(3)
+
+function producer_fiber(count: int)
+    for i in 1..=count
+        ch.send(i * 5)
+        yield()
+    end
+    ch.close()
+end
+
+function consumer_fiber(sink: Channel)
+    let total = 0
+    while 1
+        let val = ch.recv()
+        if val == null
+            break
+        end
+        total += val
+        yield()
+    end
+    say "consumer_total: " + str(total)
+    return total
+end
+
+let prod = fiber_spawn(producer_fiber, 5)
+let cons = fiber_spawn(consumer_fiber, ch)
+
+fiber_drain()
+let total = fiber_join(cons)
+say "pipeline_verified: " + str(total)
+"#;
+
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("consumer_total: 75"), "Got:\n{}", output);
+        assert!(output.contains("pipeline_verified: 75"), "Got:\n{}", output);
+    }
+}
+
+#[test]
+fn test_e2e_cooperative_fibers_100k_stress() {
+    let code = r#"
+import "std/sync"
+
+function fast_fiber(val: int) -> int
+    return val + 1
+end
+
+let total = 0
+let n = 100000
+
+for i in 1..=n
+    let f = fiber_spawn(fast_fiber, 1)
+    let res = fiber_join(f)
+    total += res
+end
+
+say "stress_100k_total: " + str(total)
+say "stress_100k_status: [OK] 100000 fibers scheduled successfully"
+"#;
+
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("stress_100k_total: 200000"), "Got:\n{}", output);
+        assert!(output.contains("stress_100k_status: [OK] 100000 fibers scheduled successfully"), "Got:\n{}", output);
+    }
+}
+

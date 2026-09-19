@@ -84,6 +84,26 @@ pub fn emit_data_sections(
             out.push_str("    .quad 0\n");
             out.push_str("alya_gc_in_progress:\n");
             out.push_str("    .quad 0\n");
+            out.push_str("alya_fiber_count:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_fiber_active_count:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_fiber_runqueue_head:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_fiber_runqueue_tail:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_fiber_current:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_fiber_sched_ctx:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_fiber_main:\n");
+            out.push_str("    .space 128\n");
+            out.push_str("alya_fiber_lock:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_fiber_seq:\n");
+            out.push_str("    .quad 0\n");
+            out.push_str("alya_fiber_pool_head:\n");
+            out.push_str("    .quad 0\n");
         }
         Architecture::X86 => {
             out.push_str("alya_str_idx:\n");
@@ -143,6 +163,26 @@ pub fn emit_data_sections(
             out.push_str("alya_gc_collected_cycles:\n");
             out.push_str("    .long 0\n");
             out.push_str("alya_gc_in_progress:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_fiber_count:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_fiber_active_count:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_fiber_runqueue_head:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_fiber_runqueue_tail:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_fiber_current:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_fiber_sched_ctx:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_fiber_main:\n");
+            out.push_str("    .space 64\n");
+            out.push_str("alya_fiber_lock:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_fiber_seq:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_fiber_pool_head:\n");
             out.push_str("    .long 0\n");
         }
     }
