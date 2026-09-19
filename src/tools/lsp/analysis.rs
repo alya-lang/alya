@@ -19,6 +19,18 @@ pub fn check_document(source: &str) -> Vec<Diagnostic> {
     let mut parser = Parser::new(tokens.clone());
     match parser.parse() {
         Ok(program) => {
+            // 1. Static Gradual Type Checking Pass
+            let mut resolved_ast = program.clone();
+            crate::parser::enums::resolve_enums(&mut resolved_ast);
+            let _ = crate::parser::constants::resolve_and_validate_constants(&mut resolved_ast);
+            crate::parser::generics::resolve_generics(&mut resolved_ast);
+            if let Err(type_err) =
+                crate::codegen::analysis::type_checker::validate_types(&resolved_ast)
+            {
+                diagnostics.push(type_error_to_diagnostic(&type_err, source));
+            }
+
+            // 2. Linter Analysis Rules
             let lint_diags = crate::tools::lint::run_all_rules(
                 &program,
                 &tokens,
@@ -104,6 +116,89 @@ fn parse_error_to_diagnostic(err: &str, source: &str) -> Diagnostic {
     };
 
     Diagnostic::error(Range::single_line(l_idx, c_idx, end_col), err.to_string())
+}
+
+fn type_error_to_diagnostic(err: &str, source: &str) -> Diagnostic {
+    let mut target_word = None;
+    if let Some(idx) = err.find("in 'let ") {
+        let remainder = &err[idx + 8..];
+        if let Some(end) = remainder.find('\'') {
+            target_word = Some(remainder[..end].trim());
+        }
+    } else if let Some(idx) = err.find("of 'let ") {
+        let remainder = &err[idx + 8..];
+        if let Some(end) = remainder.find('\'') {
+            target_word = Some(remainder[..end].trim());
+        }
+    } else if let Some(idx) = err.find("to variable '") {
+        let remainder = &err[idx + 13..];
+        if let Some(end) = remainder.find('\'') {
+            target_word = Some(remainder[..end].trim());
+        }
+    } else if let Some(idx) = err.find("function '") {
+        let remainder = &err[idx + 10..];
+        if let Some(end) = remainder.find('\'') {
+            target_word = Some(remainder[..end].trim());
+        }
+    } else if let Some(idx) = err.find("field '") {
+        let remainder = &err[idx + 7..];
+        if let Some(end) = remainder.find('\'') {
+            let field_part = remainder[..end].trim();
+            if let Some((_, field)) = field_part.split_once('.') {
+                target_word = Some(field);
+            } else {
+                target_word = Some(field_part);
+            }
+        }
+    } else if let Some(idx) = err.find("struct '") {
+        let remainder = &err[idx + 8..];
+        if let Some(end) = remainder.find('\'') {
+            target_word = Some(remainder[..end].trim());
+        }
+    }
+
+    let mut line_idx = 0;
+    let mut col_idx = 0;
+    let mut end_col = 10;
+
+    if let Some(word) = target_word {
+        let let_pattern = format!("let {}", word);
+        for (l, line_str) in source.lines().enumerate() {
+            if let Some(c) = line_str.find(&let_pattern) {
+                line_idx = l as u32;
+                col_idx = c as u32;
+                end_col = (c + let_pattern.len()) as u32;
+                break;
+            } else if let Some(c) = line_str.find(word) {
+                line_idx = l as u32;
+                col_idx = c as u32;
+                end_col = (c + word.len()) as u32;
+                break;
+            }
+        }
+    } else if err.contains("Return") || err.contains("return") {
+        for (l, line_str) in source.lines().enumerate() {
+            if let Some(c) = line_str.find("return") {
+                line_idx = l as u32;
+                col_idx = c as u32;
+                end_col = (c + 6) as u32;
+                break;
+            }
+        }
+    }
+
+    let range = Range::new(
+        Position::new(line_idx, col_idx),
+        Position::new(line_idx, end_col),
+    );
+
+    Diagnostic {
+        range,
+        severity: 1, // Error
+        code: Some("type-error".to_string()),
+        message: err.to_string(),
+        source: "alya-typecheck".to_string(),
+    }
 }
 
 pub fn get_completions(source: &str, _pos: &Position) -> Vec<CompletionItem> {

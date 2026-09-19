@@ -620,3 +620,52 @@ fn test_lockfile_serialization_with_checksum() {
     assert_eq!(parsed.packages[0].checksum, pkg.checksum);
     assert_eq!(parsed.packages[0].dependencies, vec!["std/net"]);
 }
+
+#[test]
+fn test_lsp_type_checker_diagnostics() {
+    let mut server = ServerState::new();
+    let uri = "file:///type_test.alya";
+
+    // Open document with type mismatch
+    let type_error_source = "let count: int = \"not an int\"\ncount = 42\n";
+    let mut did_open_params = BTreeMap::new();
+    let mut doc_info = BTreeMap::new();
+    doc_info.insert("uri".to_string(), JsonValue::String(uri.to_string()));
+    doc_info.insert(
+        "text".to_string(),
+        JsonValue::String(type_error_source.to_string()),
+    );
+    did_open_params.insert("textDocument".to_string(), JsonValue::Object(doc_info));
+
+    let mut did_open = BTreeMap::new();
+    did_open.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    did_open.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/didOpen".to_string()),
+    );
+    did_open.insert("params".to_string(), JsonValue::Object(did_open_params));
+
+    let notif = server
+        .handle_message(&JsonValue::Object(did_open))
+        .expect("Expected notification");
+    let diags = notif
+        .get("params")
+        .and_then(|p| p.get("diagnostics"))
+        .and_then(|d| d.as_array())
+        .expect("Expected diagnostics array");
+
+    assert!(!diags.is_empty(), "Should report type error diagnostic");
+    let type_diag = diags
+        .iter()
+        .find(|d| d.get("source").and_then(|s| s.as_str()) == Some("alya-typecheck"));
+    assert!(
+        type_diag.is_some(),
+        "Should find diagnostic from alya-typecheck"
+    );
+    let msg = type_diag
+        .unwrap()
+        .get("message")
+        .and_then(|m| m.as_str())
+        .unwrap();
+    assert!(msg.contains("Type mismatch in 'let count'"));
+}
