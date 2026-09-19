@@ -676,10 +676,7 @@ fn test_semver_coalescing_and_compatibility() {
         coalesce_semver_versions("^1.1.0", "^1.4.0").unwrap(),
         "^1.4.0"
     );
-    assert_eq!(
-        coalesce_semver_versions("1.5.0", "1.2.0").unwrap(),
-        "1.5.0"
-    );
+    assert_eq!(coalesce_semver_versions("1.5.0", "1.2.0").unwrap(), "1.5.0");
     assert!(coalesce_semver_versions("1.0.0", "2.0.0").is_err());
 }
 
@@ -739,18 +736,26 @@ fn test_duplicate_native_links_rejection() {
 
 #[test]
 fn test_strict_direct_dependency_isolation_diagnostic() {
-    let temp_dir = std::env::temp_dir().join(format!("alya_test_direct_iso_{}", std::process::id()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("alya_test_direct_iso_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
 
     let app_dir = temp_dir.join("app");
-    let pkg_dir = app_dir.join(".alya").join("packages").join("transitive_pkg");
+    let pkg_dir = app_dir
+        .join(".alya")
+        .join("packages")
+        .join("transitive_pkg");
     fs::create_dir_all(pkg_dir.join("src")).unwrap();
     fs::write(
         pkg_dir.join("alya.toml"),
         "[package]\nname = \"transitive_pkg\"\nversion = \"1.0.0\"\nentry = \"src/lib.alya\"\n",
     )
     .unwrap();
-    fs::write(pkg_dir.join("src").join("lib.alya"), "pub function util() {}\n").unwrap();
+    fs::write(
+        pkg_dir.join("src").join("lib.alya"),
+        "pub function util() {}\n",
+    )
+    .unwrap();
 
     // App manifest only depends on "direct_pkg", NOT "transitive_pkg"
     fs::create_dir_all(app_dir.join("src")).unwrap();
@@ -788,7 +793,11 @@ fn test_major_version_segregation_installation() {
         "[package]\nname = \"z\"\nversion = \"1.0.0\"\nentry = \"src/lib.alya\"\n",
     )
     .unwrap();
-    fs::write(z1_dir.join("src").join("lib.alya"), "pub function add(a, b) { return a + b }\n").unwrap();
+    fs::write(
+        z1_dir.join("src").join("lib.alya"),
+        "pub function add(a, b) { return a + b }\n",
+    )
+    .unwrap();
 
     fs::create_dir_all(z2_dir.join("src")).unwrap();
     fs::write(
@@ -796,7 +805,11 @@ fn test_major_version_segregation_installation() {
         "[package]\nname = \"z\"\nversion = \"2.0.0\"\nentry = \"src/lib.alya\"\n",
     )
     .unwrap();
-    fs::write(z2_dir.join("src").join("lib.alya"), "pub function add(a, b) { return a + b + 10 }\n").unwrap();
+    fs::write(
+        z2_dir.join("src").join("lib.alya"),
+        "pub function add(a, b) { return a + b + 10 }\n",
+    )
+    .unwrap();
 
     fs::create_dir_all(dep1_dir.join("src")).unwrap();
     fs::write(
@@ -807,7 +820,11 @@ fn test_major_version_segregation_installation() {
         ),
     )
     .unwrap();
-    fs::write(dep1_dir.join("src").join("lib.alya"), "import z\npub function run1() { return z::add(1, 2) }\n").unwrap();
+    fs::write(
+        dep1_dir.join("src").join("lib.alya"),
+        "import z\npub function run1() { return z::add(1, 2) }\n",
+    )
+    .unwrap();
 
     fs::create_dir_all(dep2_dir.join("src")).unwrap();
     fs::write(
@@ -818,7 +835,11 @@ fn test_major_version_segregation_installation() {
         ),
     )
     .unwrap();
-    fs::write(dep2_dir.join("src").join("lib.alya"), "import z\npub function run2() { return z::add(1, 2) }\n").unwrap();
+    fs::write(
+        dep2_dir.join("src").join("lib.alya"),
+        "import z\npub function run2() { return z::add(1, 2) }\n",
+    )
+    .unwrap();
 
     fs::create_dir_all(app_dir.join("src")).unwrap();
     fs::write(
@@ -845,17 +866,7 @@ fn test_major_version_segregation_installation() {
 fn test_mangled_symbol_name_preservation() {
     use crate::codegen::arch::control::mangle_symbol_name;
 
-    assert_eq!(
-        mangle_symbol_name("_Alya_z_v1::foo"),
-        "_Alya_z_v1_foo"
-    );
-    assert_eq!(
-        mangle_symbol_name("_Alya_z_v2::calc"),
-        "_Alya_z_v2_calc"
-    );
-    assert_eq!(
-        mangle_symbol_name("std::io::print"),
-        "std__io__print"
-    );
+    assert_eq!(mangle_symbol_name("_Alya_z_v1::foo"), "_Alya_z_v1_foo");
+    assert_eq!(mangle_symbol_name("_Alya_z_v2::calc"), "_Alya_z_v2_calc");
+    assert_eq!(mangle_symbol_name("std::io::print"), "std__io__print");
 }
-

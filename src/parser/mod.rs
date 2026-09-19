@@ -507,10 +507,7 @@ pub fn rewrite_calls_in_stmt(
             }
         }
         Stmt::For {
-            start,
-            end,
-            body,
-            ..
+            start, end, body, ..
         } => {
             rewrite_calls_in_expr(start, rewrites);
             rewrite_calls_in_expr(end, rewrites);
@@ -518,11 +515,7 @@ pub fn rewrite_calls_in_stmt(
                 rewrite_calls_in_stmt(s, rewrites);
             }
         }
-        Stmt::ForEach {
-            iterable,
-            body,
-            ..
-        } => {
+        Stmt::ForEach { iterable, body, .. } => {
             rewrite_calls_in_expr(iterable, rewrites);
             for s in body {
                 rewrite_calls_in_stmt(s, rewrites);
@@ -909,8 +902,7 @@ pub(crate) fn resolve_stmt_imports_ext(
     out: &mut Vec<Stmt>,
     no_std: bool,
 ) -> Result<std::collections::HashSet<String>, String> {
-    let (fns, _) =
-        resolve_stmt_imports_ext_with_rewrites(stmt, current_dir, visited, out, no_std)?;
+    let (fns, _) = resolve_stmt_imports_ext_with_rewrites(stmt, current_dir, visited, out, no_std)?;
     Ok(fns)
 }
 
@@ -920,7 +912,13 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
     visited: &mut std::collections::HashSet<(std::path::PathBuf, Option<String>)>,
     out: &mut Vec<Stmt>,
     no_std: bool,
-) -> Result<(std::collections::HashSet<String>, std::collections::HashMap<String, String>), String> {
+) -> Result<
+    (
+        std::collections::HashSet<String>,
+        std::collections::HashMap<String, String>,
+    ),
+    String,
+> {
     match stmt {
         Stmt::Import {
             path: import_path_str,
@@ -976,7 +974,10 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                 let canon = std::fs::canonicalize(&cand)
                     .map_err(|e| format!("Failed to resolve path '{}': {}", cand.display(), e))?;
                 if visited.contains(&(canon.clone(), alias.clone())) {
-                    return Ok((std::collections::HashSet::new(), std::collections::HashMap::new()));
+                    return Ok((
+                        std::collections::HashSet::new(),
+                        std::collections::HashMap::new(),
+                    ));
                 }
                 let src = std::fs::read_to_string(&canon).map_err(|e| {
                     format!(
@@ -997,7 +998,10 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                     let synthetic =
                         std::path::PathBuf::from(format!("<embedded:std/{}>", canonical_name));
                     if visited.contains(&(synthetic.clone(), alias.clone())) {
-                        return Ok((std::collections::HashSet::new(), std::collections::HashMap::new()));
+                        return Ok((
+                            std::collections::HashSet::new(),
+                            std::collections::HashMap::new(),
+                        ));
                     }
                     (synthetic, src.to_string())
                 } else {
@@ -1178,10 +1182,7 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                     }
                 } else {
                     for f in &local_fns {
-                        exported_rewrites.insert(
-                            f.clone(),
-                            format!("{}::{}", mangled_prefix, f),
-                        );
+                        exported_rewrites.insert(f.clone(), format!("{}::{}", mangled_prefix, f));
                     }
                 }
             }
@@ -1305,7 +1306,10 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
         }
         other => {
             out.push(other);
-            Ok((std::collections::HashSet::new(), std::collections::HashMap::new()))
+            Ok((
+                std::collections::HashSet::new(),
+                std::collections::HashMap::new(),
+            ))
         }
     }
 }

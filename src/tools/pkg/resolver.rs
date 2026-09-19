@@ -678,4 +678,3 @@ pub fn coalesce_semver_versions<'a>(v1: &'a str, v2: &'a str) -> Result<&'a str,
         Ok(v2)
     }
 }
-
