@@ -107,16 +107,17 @@ pub function logger_log(l: Logger, level: int, message: string) -> int
 
     let colored_badge: string = badge
     if l.log_colored == 1
-        if level == 1
-            colored_badge = color_cyan(badge)
-        elif level == 2
-            colored_badge = color_green(badge)
-        elif level == 3
-            colored_badge = color_yellow(badge)
-        elif level == 4
-            colored_badge = color_red(badge)
-        elif level == 5
-            colored_badge = style_bold(color_bright_red(badge))
+        when level
+            is 1
+                colored_badge = color_cyan(badge)
+            is 2
+                colored_badge = color_green(badge)
+            is 3
+                colored_badge = color_yellow(badge)
+            is 4
+                colored_badge = color_red(badge)
+            is 5
+                colored_badge = style_bold(color_bright_red(badge))
         end
     end
 

@@ -230,14 +230,11 @@ pub function path_join(a: string, b: string) -> string
     let first_b: string = char_at(b, 0)
     let b_slash: int = (first_b == "/" or first_b == "\\")
 
-    if a_slash and b_slash
-        return substring(a, 0, alen - 1) + "/" + substring(b, 1, blen - 1)
-    elif a_slash
-        return substring(a, 0, alen - 1) + "/" + b
-    elif b_slash
-        return a + "/" + substring(b, 1, blen - 1)
-    else
-        return a + "/" + b
+    return when
+        a_slash and b_slash => substring(a, 0, alen - 1) + "/" + substring(b, 1, blen - 1)
+        a_slash => substring(a, 0, alen - 1) + "/" + b
+        b_slash => a + "/" + substring(b, 1, blen - 1)
+        else => a + "/" + b
     end
 end
 
@@ -428,40 +425,41 @@ function _glob_match_path_rec(p: string, p_idx: int, s: string, s_idx: int) -> i
 
         let sch: string = char_at(s, s_idx)
 
-        if pch == "?"
-            if sch == "/"
-                return 0
-            end
-            p_idx += 1
-            s_idx += 1
-        elif pch == "["
-            let close_bracket: int = _glob_find(p, "]", p_idx + 1)
-            if close_bracket < 0
+        when pch
+            is "?"
+                if sch == "/"
+                    return 0
+                end
+                p_idx += 1
+                s_idx += 1
+            is "["
+                let close_bracket: int = _glob_find(p, "]", p_idx + 1)
+                if close_bracket < 0
+                    if pch != sch return 0 end
+                    p_idx += 1
+                    s_idx += 1
+                else
+                    let class_content: string = substring(p, p_idx + 1, close_bracket - (p_idx + 1))
+                    let matched_class: int = _glob_match_class(class_content, sch)
+                    if matched_class == 0
+                        return 0
+                    end
+                    p_idx = close_bracket + 1
+                    s_idx += 1
+                end
+            is "\\"
+                p_idx += 1
+                if p_idx >= plen return 0 end
+                pch = char_at(p, p_idx)
                 if pch != sch return 0 end
                 p_idx += 1
                 s_idx += 1
             else
-                let class_content: string = substring(p, p_idx + 1, close_bracket - (p_idx + 1))
-                let matched_class: int = _glob_match_class(class_content, sch)
-                if matched_class == 0
+                if pch != sch
                     return 0
                 end
-                p_idx = close_bracket + 1
+                p_idx += 1
                 s_idx += 1
-            end
-        elif pch == "\\"
-            p_idx += 1
-            if p_idx >= plen return 0 end
-            pch = char_at(p, p_idx)
-            if pch != sch return 0 end
-            p_idx += 1
-            s_idx += 1
-        else
-            if pch != sch
-                return 0
-            end
-            p_idx += 1
-            s_idx += 1
         end
     end
 
@@ -496,37 +494,38 @@ function _glob_match_simple_rec(p: string, p_idx: int, s: string, s_idx: int) ->
 
         let sch: string = char_at(s, s_idx)
 
-        if pch == "?"
-            p_idx += 1
-            s_idx += 1
-        elif pch == "["
-            let close_bracket: int = _glob_find(p, "]", p_idx + 1)
-            if close_bracket < 0
+        when pch
+            is "?"
+                p_idx += 1
+                s_idx += 1
+            is "["
+                let close_bracket: int = _glob_find(p, "]", p_idx + 1)
+                if close_bracket < 0
+                    if pch != sch return 0 end
+                    p_idx += 1
+                    s_idx += 1
+                else
+                    let class_content: string = substring(p, p_idx + 1, close_bracket - (p_idx + 1))
+                    let matched_class: int = _glob_match_class(class_content, sch)
+                    if matched_class == 0
+                        return 0
+                    end
+                    p_idx = close_bracket + 1
+                    s_idx += 1
+                end
+            is "\\"
+                p_idx += 1
+                if p_idx >= plen return 0 end
+                pch = char_at(p, p_idx)
                 if pch != sch return 0 end
                 p_idx += 1
                 s_idx += 1
             else
-                let class_content: string = substring(p, p_idx + 1, close_bracket - (p_idx + 1))
-                let matched_class: int = _glob_match_class(class_content, sch)
-                if matched_class == 0
+                if pch != sch
                     return 0
                 end
-                p_idx = close_bracket + 1
+                p_idx += 1
                 s_idx += 1
-            end
-        elif pch == "\\"
-            p_idx += 1
-            if p_idx >= plen return 0 end
-            pch = char_at(p, p_idx)
-            if pch != sch return 0 end
-            p_idx += 1
-            s_idx += 1
-        else
-            if pch != sch
-                return 0
-            end
-            p_idx += 1
-            s_idx += 1
         end
     end
 

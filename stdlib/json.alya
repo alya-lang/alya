@@ -115,14 +115,16 @@ end
 
 function _json_hex_val(ch: string) -> int
     let c: int = ord(ch)
-    if c >= 48 and c <= 57
-        return c - 48
-    elif c >= 65 and c <= 70
-        return c - 55
-    elif c >= 97 and c <= 102
-        return c - 87
+    when c
+        is 48..57
+            return c - 48
+        is 65..70
+            return c - 55
+        is 97..102
+            return c - 87
+        else
+            return 0
     end
-    return 0
 end
 
 function _json_skip_ws(s: string, pos: int[], slen: int)
@@ -273,23 +275,24 @@ function _json_parse_val(s: string, pos: int[], slen: int)
         return null
     end
     let ch: string = char_at(s, pos[0])
-    if ch == "{"
-        return _json_parse_object(s, pos, slen)
-    elif ch == "["
-        return _json_parse_array(s, pos, slen)
-    elif ch == "\""
-        return _json_parse_string(s, pos, slen)
-    elif ch == "t"
-        pos[0] = pos[0] + 4
-        return 1
-    elif ch == "f"
-        pos[0] = pos[0] + 5
-        return 0
-    elif ch == "n"
-        pos[0] = pos[0] + 4
-        return null
-    else
-        return _json_parse_number(s, pos, slen)
+    when ch
+        is "{"
+            return _json_parse_object(s, pos, slen)
+        is "["
+            return _json_parse_array(s, pos, slen)
+        is "\""
+            return _json_parse_string(s, pos, slen)
+        is "t"
+            pos[0] = pos[0] + 4
+            return 1
+        is "f"
+            pos[0] = pos[0] + 5
+            return 0
+        is "n"
+            pos[0] = pos[0] + 4
+            return null
+        else
+            return _json_parse_number(s, pos, slen)
     end
 end
 
