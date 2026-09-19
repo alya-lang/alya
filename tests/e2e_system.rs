@@ -2132,17 +2132,21 @@ say "sz_full: " + str(ch.size())
 let ok_try = ch.try_send(30)
 say "try_send_full: " + str(ok_try)
 
-# Spawn worker to consume one item after 30ms delay to unblock the sender
-spawn(|| =>
+# Worker function to consume one item after 30ms delay to unblock the sender
+function worker_drain_fn(ch: Channel)
     sleep(30)
     let item = ch.recv()
     say "worker_drained: " + str(item)
-)
+end
+
+let worker = thread_spawn(worker_drain_fn, ch)
 
 # This send will block until worker unblocks a slot
 let ok3 = ch.send(30)
 say "send3_unblocked: " + str(ok3)
 say "sz_after: " + str(ch.size())
+
+thread_join(worker)
 
 let r2 = ch.recv()
 let r3 = ch.recv()
@@ -2178,17 +2182,19 @@ say "ch_is_rendezvous: " + str(ch.is_rendezvous())
 let try_res = ch.try_send(100)
 say "rendezvous_try_send: " + str(try_res)
 
-# Spawn worker to receive value after a short delay
-spawn(|| =>
+# Worker to receive value after a short delay
+function rendezvous_recv_fn(ch: Channel)
     sleep(40)
     let rec = ch.recv()
     say "rendezvous_recv_val: " + str(rec)
-)
+end
+
+let worker = thread_spawn(rendezvous_recv_fn, ch)
 
 # Synchronous rendezvous handoff: send blocks until worker receives it
 let ok = ch.send(999)
 say "rendezvous_send_completed: " + str(ok)
-sleep(50)
+thread_join(worker)
 
 ch.close()
 ch.free()
