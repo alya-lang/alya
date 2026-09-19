@@ -1,6 +1,7 @@
 pub mod bundle;
 pub mod doc;
 pub mod fmt;
+pub mod lint;
 pub mod lsp;
 pub mod pkg;
 pub mod repl;

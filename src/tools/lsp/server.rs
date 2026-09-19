@@ -68,6 +68,7 @@ impl ServerState {
 
                 capabilities.insert("hoverProvider".to_string(), JsonValue::Bool(true));
                 capabilities.insert("definitionProvider".to_string(), JsonValue::Bool(true));
+                capabilities.insert("codeActionProvider".to_string(), JsonValue::Bool(true));
 
                 let mut server_info = BTreeMap::new();
                 server_info.insert(
@@ -126,6 +127,13 @@ impl ServerState {
                 } else {
                     make_response(id, JsonValue::Null)
                 }
+            }
+            "textDocument/codeAction" => {
+                let actions = self.handle_code_action(params);
+                make_response(
+                    id,
+                    JsonValue::Array(actions.into_iter().map(|a| a.to_json()).collect()),
+                )
             }
             _ => make_error(id, -32601, &format!("Method not found: {}", method)),
         }
@@ -233,6 +241,62 @@ impl ServerState {
         let source = self.documents.get(uri)?;
         let def_pos = get_definition_pos(source, &pos)?;
         Some((uri.to_string(), def_pos))
+    }
+
+    fn handle_code_action(
+        &self,
+        params: Option<&JsonValue>,
+    ) -> Vec<super::protocol::CodeAction> {
+        let params = match params {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+
+        let uri = match params
+            .get("textDocument")
+            .and_then(|doc| doc.get("uri"))
+            .and_then(|u| u.as_str())
+        {
+            Some(u) => u,
+            None => return Vec::new(),
+        };
+
+        let source = match self.documents.get(uri) {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        let diags = match crate::tools::lint::lint_source(source, std::path::Path::new("document.alya")) {
+            Ok(d) => d,
+            Err(_) => return Vec::new(),
+        };
+
+        let mut actions = Vec::new();
+        for d in diags {
+            if let Some(fix) = d.fix {
+                let start_line = if fix.start_line > 0 { (fix.start_line - 1) as u32 } else { 0 };
+                let start_col = if fix.start_col > 0 { (fix.start_col - 1) as u32 } else { 0 };
+                let end_line = if fix.end_line > 0 { (fix.end_line - 1) as u32 } else { start_line };
+                let end_col = if fix.end_col > 0 { (fix.end_col - 1) as u32 } else { start_col + 1 };
+
+                let text_edit = super::protocol::TextEdit {
+                    range: super::protocol::Range::new(
+                        super::protocol::Position::new(start_line, start_col),
+                        super::protocol::Position::new(end_line, end_col),
+                    ),
+                    new_text: fix.replacement,
+                };
+
+                actions.push(super::protocol::CodeAction {
+                    title: fix.description,
+                    kind: "quickfix".to_string(),
+                    is_preferred: true,
+                    edits: vec![(uri.to_string(), text_edit)],
+                });
+            }
+        }
+
+        actions
     }
 }
 

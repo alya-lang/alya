@@ -58,7 +58,8 @@ impl Range {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub range: Range,
-    pub severity: u32, // 1 = Error, 2 = Warning
+    pub severity: u32, // 1 = Error, 2 = Warning, 3 = Info
+    pub code: Option<String>,
     pub message: String,
     pub source: String,
 }
@@ -68,8 +69,29 @@ impl Diagnostic {
         Self {
             range,
             severity: 1,
+            code: None,
             message,
             source: "alya".to_string(),
+        }
+    }
+
+    pub fn warning(range: Range, code: Option<String>, message: String) -> Self {
+        Self {
+            range,
+            severity: 2,
+            code,
+            message,
+            source: "alya-lint".to_string(),
+        }
+    }
+
+    pub fn info(range: Range, code: Option<String>, message: String) -> Self {
+        Self {
+            range,
+            severity: 3,
+            code,
+            message,
+            source: "alya-lint".to_string(),
         }
     }
 
@@ -80,11 +102,65 @@ impl Diagnostic {
             "severity".to_string(),
             JsonValue::Number(self.severity as f64),
         );
+        if let Some(code) = &self.code {
+            map.insert("code".to_string(), JsonValue::String(code.clone()));
+        }
         map.insert(
             "message".to_string(),
             JsonValue::String(self.message.clone()),
         );
         map.insert("source".to_string(), JsonValue::String(self.source.clone()));
+        JsonValue::Object(map)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextEdit {
+    pub range: Range,
+    pub new_text: String,
+}
+
+impl TextEdit {
+    pub fn to_json(&self) -> JsonValue {
+        let mut map = BTreeMap::new();
+        map.insert("range".to_string(), self.range.to_json());
+        map.insert("newText".to_string(), JsonValue::String(self.new_text.clone()));
+        JsonValue::Object(map)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeAction {
+    pub title: String,
+    pub kind: String,
+    pub is_preferred: bool,
+    pub edits: Vec<(String, TextEdit)>,
+}
+
+impl CodeAction {
+    pub fn to_json(&self) -> JsonValue {
+        let mut map = BTreeMap::new();
+        map.insert("title".to_string(), JsonValue::String(self.title.clone()));
+        map.insert("kind".to_string(), JsonValue::String(self.kind.clone()));
+        map.insert("isPreferred".to_string(), JsonValue::Bool(self.is_preferred));
+
+        let mut changes = BTreeMap::new();
+        for (uri, edit) in &self.edits {
+            changes
+                .entry(uri.clone())
+                .or_insert_with(Vec::new)
+                .push(edit.to_json());
+        }
+
+        let mut changes_obj = BTreeMap::new();
+        for (uri, list) in changes {
+            changes_obj.insert(uri, JsonValue::Array(list));
+        }
+
+        let mut edit_obj = BTreeMap::new();
+        edit_obj.insert("changes".to_string(), JsonValue::Object(changes_obj));
+        map.insert("edit".to_string(), JsonValue::Object(edit_obj));
+
         JsonValue::Object(map)
     }
 }

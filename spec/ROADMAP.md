@@ -269,7 +269,7 @@ This roadmap defines the sequenced implementation phases, actionable engineering
   - Target files: `Lib/*/alya.toml`, `Lib/*/src/`, GitHub repository tags & releases.
   - Verification: All packages compile under modern syntax, install cleanly via `alya add`, and pass automated test suites.
 
-- [ ] **5.7 Static Analysis & Linter Engine (`alya lint` & LSP/VS Code Integration)**
+- [x] **5.7 Static Analysis & Linter Engine (`alya lint` & LSP/VS Code Integration)**
   - Implement standalone static code analysis linter (`src/tools/lint/`):
     - Dead/unreachable code detection following unconditional jumps, `return`, and `throw`.
     - Unused local variables, unreferenced function parameters, and redundant imports.

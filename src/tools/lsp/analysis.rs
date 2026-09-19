@@ -16,9 +16,53 @@ pub fn check_document(source: &str) -> Vec<Diagnostic> {
         }
     };
 
-    let mut parser = Parser::new(tokens);
-    if let Err(err) = parser.parse() {
-        diagnostics.push(parse_error_to_diagnostic(&err, source));
+    let mut parser = Parser::new(tokens.clone());
+    match parser.parse() {
+        Ok(program) => {
+            let lint_diags = crate::tools::lint::run_all_rules(
+                &program,
+                &tokens,
+                std::path::Path::new("document.alya"),
+            );
+            for d in lint_diags {
+                let start_line = if d.line > 0 { (d.line - 1) as u32 } else { 0 };
+                let start_col = if d.col > 0 { (d.col - 1) as u32 } else { 0 };
+                let end_line = if d.end_line > 0 {
+                    (d.end_line - 1) as u32
+                } else {
+                    start_line
+                };
+                let end_col = if d.end_col > 0 {
+                    (d.end_col - 1) as u32
+                } else {
+                    start_col + 1
+                };
+                let range = Range::new(
+                    Position::new(start_line, start_col),
+                    Position::new(end_line, end_col),
+                );
+                let message = if let Some(help) = &d.help {
+                    format!("{}\nhelp: {}", d.message, help)
+                } else {
+                    d.message.clone()
+                };
+                let severity = match d.severity {
+                    crate::tools::lint::LintSeverity::Warning => 2,
+                    crate::tools::lint::LintSeverity::Info => 3,
+                    crate::tools::lint::LintSeverity::Error => 1,
+                };
+                diagnostics.push(Diagnostic {
+                    range,
+                    severity,
+                    code: Some(d.rule),
+                    message,
+                    source: "alya-lint".to_string(),
+                });
+            }
+        }
+        Err(err) => {
+            diagnostics.push(parse_error_to_diagnostic(&err, source));
+        }
     }
 
     diagnostics

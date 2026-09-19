@@ -56,6 +56,16 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         return Ok(());
     }
 
+    if let CommandKind::Lint {
+        ref path,
+        fix,
+        check,
+    } = args.command
+    {
+        crate::tools::lint::run_lint_cli(path.as_deref(), fix, check)?;
+        return Ok(());
+    }
+
     let total_start = Instant::now();
 
     let source = fs::read_to_string(&args.input_file)

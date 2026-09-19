@@ -40,6 +40,7 @@ pub fn print_usage() {
     println!("  toolchain <cmd>       Manage C/Assembly build toolchains (status, install, clean)");
     println!("  lsp                   Start Language Server Protocol (LSP) over stdio");
     println!("  doc [path]            Generate HTML and Markdown API documentation");
+    println!("  lint [path]           Run static code linter (--fix to auto-refactor, --check for CI)");
     println!("  help                  Display help information");
     println!("  version               Display version information\n");
     println!("OPTIONS:");
@@ -50,7 +51,8 @@ pub fn print_usage() {
     println!("  --bundle, --app       Package output into a macOS .app Application Bundle");
     println!("  --bundle-id <id>      Set CFBundleIdentifier (default: com.alya.<name>)");
     println!("  --icon <path>         Set custom application icon (.icns) for macOS bundle");
-    println!("  --check               Check formatting without modifying (with fmt)");
+    println!("  --fix                 Automatically apply quick fixes (with lint)");
+    println!("  --check               Check without modifying (with fmt or lint)");
     println!("  -u, --upgrade         Rewrite alya.toml with latest versions (with update)");
     println!(
         "  --arch <arch>         Target architecture: x86, x64, arm64 (default: auto-detected)"

@@ -23,6 +23,11 @@ pub enum CommandKind {
         html: bool,
         markdown: bool,
     },
+    Lint {
+        path: Option<String>,
+        fix: bool,
+        check: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,6 +177,11 @@ impl CliArgs {
         if first == "doc" {
             let doc_cmd = parse_doc_args(&args[2..])?;
             return Ok(Some(Self::create_simple_args(doc_cmd)));
+        }
+
+        if first == "lint" {
+            let lint_cmd = parse_lint_args(&args[2..])?;
+            return Ok(Some(Self::create_simple_args(lint_cmd)));
         }
 
         let mut command = CommandKind::Build;
@@ -637,6 +647,48 @@ fn parse_doc_args(args: &[String]) -> Result<CommandKind, String> {
         html,
         markdown,
     })
+}
+
+fn parse_lint_args(args: &[String]) -> Result<CommandKind, String> {
+    let mut path = None;
+    let mut fix = false;
+    let mut check = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-h" | "--help" => {
+                println!("Usage: alya lint [path] [options]");
+                println!();
+                println!("Performs static semantic analysis and code smell detection.");
+                println!();
+                println!("Options:");
+                println!("  --fix      Automatically refactor and clean up safe warnings in-place");
+                println!("  --check    Exit with non-zero status if warnings are detected (CI quality gate)");
+                println!("  -h, --help Show help");
+                process::exit(0);
+            }
+            "--fix" => {
+                fix = true;
+            }
+            "--check" => {
+                check = true;
+            }
+            other if !other.starts_with('-') => {
+                if path.is_none() {
+                    path = Some(other.to_string());
+                } else {
+                    return Err(format!("Error: Unexpected argument '{}'", other));
+                }
+            }
+            other => {
+                return Err(format!("Error: Unknown lint option '{}'", other));
+            }
+        }
+        i += 1;
+    }
+
+    Ok(CommandKind::Lint { path, fix, check })
 }
 
 fn parse_pkg_init_args(args: &[String]) -> Result<PkgCommand, String> {
