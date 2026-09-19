@@ -433,6 +433,265 @@ end
     assert!(server.is_shutdown);
 }
 
+#[test]
+fn test_lsp_milestone1_features() {
+    let mut server = ServerState::new();
+    let uri = "file:///workspace/milestone1.alya";
+    let source = r#"# Block comment header
+# Line 2 of comment
+import "std/math"
+import "std/io"
+
+const MAX_LIMIT: int = 500
+
+struct Vector2
+    x: float
+    y: float
+end
+
+enum Direction
+    North
+    South
+end
+
+interface Renderable
+    function draw(self)
+end
+
+pub function compute_length(v: Vector2) -> float
+    if true
+        return 1.0
+    end
+    return 0.0
+end
+"#;
+
+    // 1. Open document
+    let mut did_open_params = BTreeMap::new();
+    let mut doc_info = BTreeMap::new();
+    doc_info.insert("uri".to_string(), JsonValue::String(uri.to_string()));
+    doc_info.insert("text".to_string(), JsonValue::String(source.to_string()));
+    did_open_params.insert("textDocument".to_string(), JsonValue::Object(doc_info));
+
+    let mut did_open = BTreeMap::new();
+    did_open.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    did_open.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/didOpen".to_string()),
+    );
+    did_open.insert("params".to_string(), JsonValue::Object(did_open_params));
+    server.handle_message(&JsonValue::Object(did_open));
+
+    // 2. Test textDocument/documentSymbol
+    let mut sym_params = BTreeMap::new();
+    let mut sym_doc = BTreeMap::new();
+    sym_doc.insert("uri".to_string(), JsonValue::String(uri.to_string()));
+    sym_params.insert("textDocument".to_string(), JsonValue::Object(sym_doc));
+
+    let mut sym_req = BTreeMap::new();
+    sym_req.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    sym_req.insert("id".to_string(), JsonValue::Number(101.0));
+    sym_req.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/documentSymbol".to_string()),
+    );
+    sym_req.insert("params".to_string(), JsonValue::Object(sym_params));
+
+    let sym_resp = server
+        .handle_message(&JsonValue::Object(sym_req))
+        .expect("Expected documentSymbol response");
+    let symbols = sym_resp
+        .get("result")
+        .and_then(|r| r.as_array())
+        .expect("Expected symbols array");
+
+    let symbol_names: Vec<&str> = symbols
+        .iter()
+        .filter_map(|s| s.get("name").and_then(|n| n.as_str()))
+        .collect();
+    assert!(
+        symbol_names.contains(&"MAX_LIMIT"),
+        "Must contain constant MAX_LIMIT"
+    );
+    assert!(
+        symbol_names.contains(&"Vector2"),
+        "Must contain struct Vector2"
+    );
+    assert!(
+        symbol_names.contains(&"Direction"),
+        "Must contain enum Direction"
+    );
+    assert!(
+        symbol_names.contains(&"Renderable"),
+        "Must contain interface Renderable"
+    );
+    assert!(
+        symbol_names.contains(&"compute_length"),
+        "Must contain function compute_length"
+    );
+
+    // Check hierarchical children of Vector2
+    let vector2_sym = symbols
+        .iter()
+        .find(|s| s.get("name").and_then(|n| n.as_str()) == Some("Vector2"))
+        .expect("Vector2 symbol");
+    let vec_children = vector2_sym
+        .get("children")
+        .and_then(|c| c.as_array())
+        .expect("Vector2 children");
+    let vec_child_names: Vec<&str> = vec_children
+        .iter()
+        .filter_map(|s| s.get("name").and_then(|n| n.as_str()))
+        .collect();
+    assert!(
+        vec_child_names.contains(&"x"),
+        "Vector2 must have child field 'x'"
+    );
+    assert!(
+        vec_child_names.contains(&"y"),
+        "Vector2 must have child field 'y'"
+    );
+
+    // Check hierarchical children of Direction enum
+    let dir_sym = symbols
+        .iter()
+        .find(|s| s.get("name").and_then(|n| n.as_str()) == Some("Direction"))
+        .expect("Direction symbol");
+    let dir_children = dir_sym
+        .get("children")
+        .and_then(|c| c.as_array())
+        .expect("Direction children");
+    let dir_child_names: Vec<&str> = dir_children
+        .iter()
+        .filter_map(|s| s.get("name").and_then(|n| n.as_str()))
+        .collect();
+    assert!(
+        dir_child_names.contains(&"North"),
+        "Direction must have variant North"
+    );
+    assert!(
+        dir_child_names.contains(&"South"),
+        "Direction must have variant South"
+    );
+
+    // 3. Test textDocument/formatting
+    let unformatted_source = "function calc(a: int, b: int) -> int\nreturn a + b\nend\n";
+    let fmt_uri = "file:///workspace/fmt_test.alya";
+    let mut fmt_open_params = BTreeMap::new();
+    let mut fmt_open_doc = BTreeMap::new();
+    fmt_open_doc.insert("uri".to_string(), JsonValue::String(fmt_uri.to_string()));
+    fmt_open_doc.insert(
+        "text".to_string(),
+        JsonValue::String(unformatted_source.to_string()),
+    );
+    fmt_open_params.insert("textDocument".to_string(), JsonValue::Object(fmt_open_doc));
+
+    let mut fmt_open = BTreeMap::new();
+    fmt_open.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    fmt_open.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/didOpen".to_string()),
+    );
+    fmt_open.insert("params".to_string(), JsonValue::Object(fmt_open_params));
+    server.handle_message(&JsonValue::Object(fmt_open));
+
+    let mut fmt_params = BTreeMap::new();
+    let mut fmt_doc = BTreeMap::new();
+    fmt_doc.insert("uri".to_string(), JsonValue::String(fmt_uri.to_string()));
+    fmt_params.insert("textDocument".to_string(), JsonValue::Object(fmt_doc));
+
+    let mut fmt_req = BTreeMap::new();
+    fmt_req.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    fmt_req.insert("id".to_string(), JsonValue::Number(102.0));
+    fmt_req.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/formatting".to_string()),
+    );
+    fmt_req.insert("params".to_string(), JsonValue::Object(fmt_params));
+
+    let fmt_resp = server
+        .handle_message(&JsonValue::Object(fmt_req))
+        .expect("Expected formatting response");
+    let edits = fmt_resp
+        .get("result")
+        .and_then(|r| r.as_array())
+        .expect("Expected edits array");
+    assert_eq!(edits.len(), 1, "Should return 1 whole-document text edit");
+    let new_text = edits[0]
+        .get("newText")
+        .and_then(|t| t.as_str())
+        .expect("newText");
+    assert_eq!(
+        new_text,
+        "function calc(a: int, b: int) -> int\n    return a + b\nend\n"
+    );
+
+    // 4. Test textDocument/references
+    // Find references for 'Vector2' (line 21: 'pub function compute_length(v: Vector2) -> float')
+    let mut ref_params = BTreeMap::new();
+    let mut ref_doc = BTreeMap::new();
+    ref_doc.insert("uri".to_string(), JsonValue::String(uri.to_string()));
+    ref_params.insert("textDocument".to_string(), JsonValue::Object(ref_doc));
+    // Line 21 is index 21 in source: "pub function compute_length(v: Vector2) -> float"
+    ref_params.insert("position".to_string(), Position::new(21, 33).to_json());
+
+    let mut ref_req = BTreeMap::new();
+    ref_req.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    ref_req.insert("id".to_string(), JsonValue::Number(103.0));
+    ref_req.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/references".to_string()),
+    );
+    ref_req.insert("params".to_string(), JsonValue::Object(ref_params));
+
+    let ref_resp = server
+        .handle_message(&JsonValue::Object(ref_req))
+        .expect("Expected references response");
+    let refs = ref_resp
+        .get("result")
+        .and_then(|r| r.as_array())
+        .expect("Expected locations array");
+    // Vector2 appears at declaration ("struct Vector2") and parameter usage ("v: Vector2")
+    assert_eq!(refs.len(), 2, "Expected 2 references to Vector2");
+
+    // 5. Test textDocument/foldingRange
+    let mut fold_params = BTreeMap::new();
+    let mut fold_doc = BTreeMap::new();
+    fold_doc.insert("uri".to_string(), JsonValue::String(uri.to_string()));
+    fold_params.insert("textDocument".to_string(), JsonValue::Object(fold_doc));
+
+    let mut fold_req = BTreeMap::new();
+    fold_req.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    fold_req.insert("id".to_string(), JsonValue::Number(104.0));
+    fold_req.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/foldingRange".to_string()),
+    );
+    fold_req.insert("params".to_string(), JsonValue::Object(fold_params));
+
+    let fold_resp = server
+        .handle_message(&JsonValue::Object(fold_req))
+        .expect("Expected foldingRange response");
+    let fold_ranges = fold_resp
+        .get("result")
+        .and_then(|r| r.as_array())
+        .expect("Expected folding ranges array");
+    assert!(
+        !fold_ranges.is_empty(),
+        "Should have detected folding ranges"
+    );
+
+    let has_comment_fold = fold_ranges
+        .iter()
+        .any(|r| r.get("kind").and_then(|k| k.as_str()) == Some("comment"));
+    assert!(has_comment_fold, "Should detect comment folding range");
+
+    let has_imports_fold = fold_ranges
+        .iter()
+        .any(|r| r.get("kind").and_then(|k| k.as_str()) == Some("imports"));
+    assert!(has_imports_fold, "Should detect imports folding range");
+}
+
 // ============================================================================
 // 2. AUTOMATED DOCUMENTATION GENERATOR TESTS
 // ============================================================================

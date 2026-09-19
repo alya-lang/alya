@@ -209,6 +209,113 @@ impl CompletionItem {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentSymbol {
+    pub name: String,
+    pub detail: Option<String>,
+    pub kind: u32,
+    pub range: Range,
+    pub selection_range: Range,
+    pub children: Vec<DocumentSymbol>,
+}
+
+impl DocumentSymbol {
+    pub fn new(
+        name: &str,
+        detail: Option<&str>,
+        kind: u32,
+        range: Range,
+        selection_range: Range,
+    ) -> Self {
+        Self {
+            name: name.to_string(),
+            detail: detail.map(|s| s.to_string()),
+            kind,
+            range,
+            selection_range,
+            children: Vec::new(),
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        let mut map = BTreeMap::new();
+        map.insert("name".to_string(), JsonValue::String(self.name.clone()));
+        if let Some(detail) = &self.detail {
+            map.insert("detail".to_string(), JsonValue::String(detail.clone()));
+        }
+        map.insert("kind".to_string(), JsonValue::Number(self.kind as f64));
+        map.insert("range".to_string(), self.range.to_json());
+        map.insert("selectionRange".to_string(), self.selection_range.to_json());
+        if !self.children.is_empty() {
+            let ch_json = self.children.iter().map(|c| c.to_json()).collect();
+            map.insert("children".to_string(), JsonValue::Array(ch_json));
+        }
+        JsonValue::Object(map)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Location {
+    pub uri: String,
+    pub range: Range,
+}
+
+impl Location {
+    pub fn new(uri: String, range: Range) -> Self {
+        Self { uri, range }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        let mut map = BTreeMap::new();
+        map.insert("uri".to_string(), JsonValue::String(self.uri.clone()));
+        map.insert("range".to_string(), self.range.to_json());
+        JsonValue::Object(map)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoldingRange {
+    pub start_line: u32,
+    pub start_character: Option<u32>,
+    pub end_line: u32,
+    pub end_character: Option<u32>,
+    pub kind: Option<String>,
+}
+
+impl FoldingRange {
+    pub fn new(start_line: u32, end_line: u32, kind: Option<&str>) -> Self {
+        Self {
+            start_line,
+            start_character: None,
+            end_line,
+            end_character: None,
+            kind: kind.map(|s| s.to_string()),
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        let mut map = BTreeMap::new();
+        map.insert(
+            "startLine".to_string(),
+            JsonValue::Number(self.start_line as f64),
+        );
+        if let Some(sc) = self.start_character {
+            map.insert("startCharacter".to_string(), JsonValue::Number(sc as f64));
+        }
+        map.insert(
+            "endLine".to_string(),
+            JsonValue::Number(self.end_line as f64),
+        );
+        if let Some(ec) = self.end_character {
+            map.insert("endCharacter".to_string(), JsonValue::Number(ec as f64));
+        }
+        if let Some(kind) = &self.kind {
+            map.insert("kind".to_string(), JsonValue::String(kind.clone()));
+        }
+        JsonValue::Object(map)
+    }
+}
+
 pub fn make_response(id: &JsonValue, result: JsonValue) -> JsonValue {
     let mut map = BTreeMap::new();
     map.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));

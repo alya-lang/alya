@@ -1,9 +1,12 @@
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufRead, Write};
 
-use super::analysis::{check_document, get_completions, get_definition_pos, get_hover};
+use super::analysis::{
+    check_document, find_references_for_word, format_document, get_completions, get_definition_pos,
+    get_document_symbols, get_folding_ranges, get_hover, get_word_at_pos,
+};
 use super::json::JsonValue;
-use super::protocol::{make_error, make_notification, make_response, Position};
+use super::protocol::{make_error, make_notification, make_response, Position, Range, TextEdit};
 
 pub struct ServerState {
     pub documents: HashMap<String, String>,
@@ -69,6 +72,13 @@ impl ServerState {
                 capabilities.insert("hoverProvider".to_string(), JsonValue::Bool(true));
                 capabilities.insert("definitionProvider".to_string(), JsonValue::Bool(true));
                 capabilities.insert("codeActionProvider".to_string(), JsonValue::Bool(true));
+                capabilities.insert("documentSymbolProvider".to_string(), JsonValue::Bool(true));
+                capabilities.insert(
+                    "documentFormattingProvider".to_string(),
+                    JsonValue::Bool(true),
+                );
+                capabilities.insert("referencesProvider".to_string(), JsonValue::Bool(true));
+                capabilities.insert("foldingRangeProvider".to_string(), JsonValue::Bool(true));
 
                 let mut server_info = BTreeMap::new();
                 server_info.insert(
@@ -133,6 +143,34 @@ impl ServerState {
                 make_response(
                     id,
                     JsonValue::Array(actions.into_iter().map(|a| a.to_json()).collect()),
+                )
+            }
+            "textDocument/documentSymbol" => {
+                let symbols = self.handle_document_symbols(params);
+                make_response(
+                    id,
+                    JsonValue::Array(symbols.into_iter().map(|s| s.to_json()).collect()),
+                )
+            }
+            "textDocument/formatting" => {
+                let edits = self.handle_formatting(params);
+                make_response(
+                    id,
+                    JsonValue::Array(edits.into_iter().map(|e| e.to_json()).collect()),
+                )
+            }
+            "textDocument/references" => {
+                let refs = self.handle_references(params);
+                make_response(
+                    id,
+                    JsonValue::Array(refs.into_iter().map(|r| r.to_json()).collect()),
+                )
+            }
+            "textDocument/foldingRange" => {
+                let ranges = self.handle_folding_ranges(params);
+                make_response(
+                    id,
+                    JsonValue::Array(ranges.into_iter().map(|r| r.to_json()).collect()),
                 )
             }
             _ => make_error(id, -32601, &format!("Method not found: {}", method)),
@@ -312,6 +350,128 @@ impl ServerState {
         }
 
         actions
+    }
+
+    fn handle_document_symbols(
+        &self,
+        params: Option<&JsonValue>,
+    ) -> Vec<super::protocol::DocumentSymbol> {
+        let params = match params {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+        let uri = match params
+            .get("textDocument")
+            .and_then(|td| td.get("uri"))
+            .and_then(|u| u.as_str())
+        {
+            Some(u) => u,
+            None => return Vec::new(),
+        };
+
+        if let Some(source) = self.documents.get(uri) {
+            get_document_symbols(source)
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn handle_formatting(&self, params: Option<&JsonValue>) -> Vec<TextEdit> {
+        let params = match params {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+        let uri = match params
+            .get("textDocument")
+            .and_then(|td| td.get("uri"))
+            .and_then(|u| u.as_str())
+        {
+            Some(u) => u,
+            None => return Vec::new(),
+        };
+
+        let source = match self.documents.get(uri) {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        if let Some(formatted) = format_document(source) {
+            let lines: Vec<&str> = source.lines().collect();
+            let (end_line, end_col) = if lines.is_empty() {
+                (0, 0)
+            } else if source.ends_with('\n') {
+                (lines.len() as u32, 0)
+            } else {
+                ((lines.len() - 1) as u32, lines.last().unwrap().len() as u32)
+            };
+
+            vec![TextEdit {
+                range: Range::new(Position::new(0, 0), Position::new(end_line, end_col)),
+                new_text: formatted,
+            }]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn handle_references(&self, params: Option<&JsonValue>) -> Vec<super::protocol::Location> {
+        let params = match params {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+        let uri = match params
+            .get("textDocument")
+            .and_then(|td| td.get("uri"))
+            .and_then(|u| u.as_str())
+        {
+            Some(u) => u,
+            None => return Vec::new(),
+        };
+        let pos = match params.get("position").and_then(Position::from_json) {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+
+        let source = match self.documents.get(uri) {
+            Some(s) => s,
+            None => return Vec::new(),
+        };
+
+        let word = match get_word_at_pos(source, &pos) {
+            Some(w) => w,
+            None => return Vec::new(),
+        };
+
+        let mut all_refs = Vec::new();
+        for (doc_uri, doc_source) in &self.documents {
+            let doc_refs = find_references_for_word(doc_source, &word, doc_uri);
+            all_refs.extend(doc_refs);
+        }
+        all_refs
+    }
+
+    fn handle_folding_ranges(
+        &self,
+        params: Option<&JsonValue>,
+    ) -> Vec<super::protocol::FoldingRange> {
+        let params = match params {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+        let uri = match params
+            .get("textDocument")
+            .and_then(|td| td.get("uri"))
+            .and_then(|u| u.as_str())
+        {
+            Some(u) => u,
+            None => return Vec::new(),
+        };
+
+        if let Some(source) = self.documents.get(uri) {
+            get_folding_ranges(source)
+        } else {
+            Vec::new()
+        }
     }
 }
 

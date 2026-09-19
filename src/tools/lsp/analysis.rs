@@ -1,6 +1,8 @@
-use super::protocol::{CompletionItem, Diagnostic, Position, Range};
+use super::protocol::{
+    CompletionItem, Diagnostic, DocumentSymbol, FoldingRange, Location, Position, Range,
+};
 use crate::ast::Stmt;
-use crate::lexer::Lexer;
+use crate::lexer::{Lexer, Token, TokenType};
 use crate::parser::Parser;
 use std::collections::HashSet;
 
@@ -483,7 +485,7 @@ pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
     None
 }
 
-fn get_word_at_pos(source: &str, pos: &Position) -> Option<String> {
+pub fn get_word_at_pos(source: &str, pos: &Position) -> Option<String> {
     let line = source.lines().nth(pos.line as usize)?;
     let col = pos.character as usize;
     if col >= line.len() && col > 0 {
@@ -520,4 +522,403 @@ fn get_word_at_pos(source: &str, pos: &Position) -> Option<String> {
 
 fn is_ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
+}
+
+/// Discovers hierarchical document symbols for the outline and breadcrumbs views.
+pub fn get_document_symbols(source: &str) -> Vec<DocumentSymbol> {
+    let mut symbols = Vec::new();
+
+    let mut lexer = Lexer::new(source);
+    let tokens = match lexer.tokenize() {
+        Ok(t) => t,
+        Err(_) => return symbols,
+    };
+
+    let mut parser = Parser::new(tokens.clone());
+    let ast = match parser.parse() {
+        Ok(a) => a,
+        Err(_) => return symbols,
+    };
+
+    for stmt in &ast.statements {
+        let is_pub = stmt.is_pub();
+        let inner = stmt.inner_stmt();
+        match inner {
+            Stmt::Function {
+                name,
+                params,
+                return_type,
+                ..
+            } => {
+                let kind = if name.contains('.') || name.contains("::") {
+                    6 // Method
+                } else {
+                    12 // Function
+                };
+                let ret = return_type.as_deref().unwrap_or("void");
+                let detail = format!("({}) -> {}", params.join(", "), ret);
+                if let Some((range, sel_range)) =
+                    find_symbol_range(&tokens, is_pub, TokenType::Function, name, true)
+                {
+                    symbols.push(DocumentSymbol::new(
+                        name,
+                        Some(&detail),
+                        kind,
+                        range,
+                        sel_range,
+                    ));
+                }
+            }
+            Stmt::StructDef { name, fields, .. } => {
+                let detail = format!("struct ({} fields)", fields.len());
+                if let Some((range, sel_range)) =
+                    find_symbol_range(&tokens, is_pub, TokenType::Struct, name, true)
+                {
+                    let mut sym = DocumentSymbol::new(
+                        name,
+                        Some(&detail),
+                        23, // Struct
+                        range.clone(),
+                        sel_range,
+                    );
+                    for field in fields {
+                        if let Some((f_range, f_sel)) =
+                            find_field_range(&tokens, range.clone(), field)
+                        {
+                            sym.children.push(DocumentSymbol::new(
+                                field, None, 8, // Field
+                                f_range, f_sel,
+                            ));
+                        }
+                    }
+                    symbols.push(sym);
+                }
+            }
+            Stmt::EnumDef { name, variants } => {
+                let detail = format!("enum ({} variants)", variants.len());
+                if let Some((range, sel_range)) =
+                    find_symbol_range(&tokens, is_pub, TokenType::Enum, name, true)
+                {
+                    let mut sym = DocumentSymbol::new(
+                        name,
+                        Some(&detail),
+                        10, // Enum
+                        range.clone(),
+                        sel_range,
+                    );
+                    for (variant, _) in variants {
+                        if let Some((v_range, v_sel)) =
+                            find_field_range(&tokens, range.clone(), variant)
+                        {
+                            sym.children.push(DocumentSymbol::new(
+                                variant, None, 22, // EnumMember
+                                v_range, v_sel,
+                            ));
+                        }
+                    }
+                    symbols.push(sym);
+                }
+            }
+            Stmt::InterfaceDef { name, methods, .. } => {
+                let detail = format!("interface ({} methods)", methods.len());
+                if let Some((range, sel_range)) =
+                    find_symbol_range(&tokens, is_pub, TokenType::Interface, name, true)
+                {
+                    let mut sym = DocumentSymbol::new(
+                        name,
+                        Some(&detail),
+                        11, // Interface
+                        range.clone(),
+                        sel_range,
+                    );
+                    for m in methods {
+                        let m_sig = format!(
+                            "({}) -> {}",
+                            m.params.join(", "),
+                            m.return_type.as_deref().unwrap_or("void")
+                        );
+                        if let Some((m_range, m_sel)) =
+                            find_field_range(&tokens, range.clone(), &m.name)
+                        {
+                            sym.children.push(DocumentSymbol::new(
+                                &m.name,
+                                Some(&m_sig),
+                                6, // Method
+                                m_range,
+                                m_sel,
+                            ));
+                        }
+                    }
+                    symbols.push(sym);
+                }
+            }
+            Stmt::Const { name, .. } => {
+                if let Some((range, sel_range)) =
+                    find_symbol_range(&tokens, is_pub, TokenType::Const, name, false)
+                {
+                    symbols.push(DocumentSymbol::new(
+                        name,
+                        Some("const"),
+                        14, // Constant
+                        range,
+                        sel_range,
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    symbols
+}
+
+fn find_symbol_range(
+    tokens: &[Token],
+    _is_pub: bool,
+    kw_type: TokenType,
+    name: &str,
+    has_end: bool,
+) -> Option<(Range, Range)> {
+    let simple_name = name.split('.').next_back().unwrap_or(name);
+    let mut i = 0;
+    while i < tokens.len() {
+        let pub_tok = if matches!(tokens[i].token_type, TokenType::Pub) {
+            let p = Some(&tokens[i]);
+            i += 1;
+            p
+        } else {
+            None
+        };
+
+        if i < tokens.len() && tokens[i].token_type == kw_type {
+            let kw_tok = &tokens[i];
+            let start_tok = pub_tok.unwrap_or(kw_tok);
+            let start_line = start_tok.line.saturating_sub(1) as u32;
+            let start_col = start_tok.column.saturating_sub(1) as u32;
+
+            let mut name_found = false;
+            let mut sel_start = Position::new(start_line, start_col);
+            let mut sel_end = Position::new(start_line, start_col);
+
+            let mut scan = i + 1;
+            while scan < tokens.len() && scan <= i + 6 {
+                if let TokenType::Identifier(ref id) = tokens[scan].token_type {
+                    let first_part = name.split('.').next().unwrap_or(name);
+                    if id == name || id == simple_name || id == first_part {
+                        let l = tokens[scan].line.saturating_sub(1) as u32;
+                        let c = tokens[scan].column.saturating_sub(1) as u32;
+                        sel_start = Position::new(l, c);
+                        sel_end = Position::new(l, c + name.len() as u32);
+                        name_found = true;
+                        break;
+                    }
+                }
+                scan += 1;
+            }
+
+            if name_found {
+                let end_pos = if has_end {
+                    let mut depth = 1;
+                    let mut end_p = sel_end.clone();
+                    let mut forward = scan + 1;
+                    while forward < tokens.len() {
+                        match &tokens[forward].token_type {
+                            TokenType::Function
+                            | TokenType::Struct
+                            | TokenType::Enum
+                            | TokenType::Interface
+                            | TokenType::If
+                            | TokenType::While
+                            | TokenType::For
+                            | TokenType::Repeat
+                            | TokenType::When
+                            | TokenType::Try
+                            | TokenType::Test
+                            | TokenType::Bench => {
+                                depth += 1;
+                            }
+                            TokenType::End => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    let el = tokens[forward].line.saturating_sub(1) as u32;
+                                    let ec = tokens[forward].column.saturating_sub(1) as u32 + 3;
+                                    end_p = Position::new(el, ec);
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                        forward += 1;
+                    }
+                    end_p
+                } else {
+                    let mut forward = scan + 1;
+                    let mut el = sel_end.line;
+                    let mut ec = sel_end.character;
+                    while forward < tokens.len() {
+                        if matches!(tokens[forward].token_type, TokenType::Newline) {
+                            el = tokens[forward].line.saturating_sub(1) as u32;
+                            ec = tokens[forward].column.saturating_sub(1) as u32;
+                            break;
+                        }
+                        forward += 1;
+                    }
+                    Position::new(el, ec)
+                };
+
+                let full_range = Range::new(Position::new(start_line, start_col), end_pos);
+                let sel_range = Range::new(sel_start, sel_end);
+                return Some((full_range, sel_range));
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn find_field_range(
+    tokens: &[Token],
+    parent_range: Range,
+    field_name: &str,
+) -> Option<(Range, Range)> {
+    for tok in tokens {
+        let line = tok.line.saturating_sub(1) as u32;
+        if line >= parent_range.start.line && line <= parent_range.end.line {
+            if let TokenType::Identifier(ref id) = tok.token_type {
+                if id == field_name {
+                    let col = tok.column.saturating_sub(1) as u32;
+                    let r = Range::new(
+                        Position::new(line, col),
+                        Position::new(line, col + id.len() as u32),
+                    );
+                    return Some((r.clone(), r));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Discovers AST-driven and comment/import folding ranges for editors.
+pub fn get_folding_ranges(source: &str) -> Vec<FoldingRange> {
+    let mut ranges = Vec::new();
+
+    let mut lexer = Lexer::new(source);
+    if let Ok(tokens) = lexer.tokenize() {
+        let mut block_stack = Vec::new();
+        for tok in &tokens {
+            match &tok.token_type {
+                TokenType::Function
+                | TokenType::Struct
+                | TokenType::Enum
+                | TokenType::Interface
+                | TokenType::If
+                | TokenType::While
+                | TokenType::For
+                | TokenType::Repeat
+                | TokenType::When
+                | TokenType::Try
+                | TokenType::Test
+                | TokenType::Bench => {
+                    let l = tok.line.saturating_sub(1) as u32;
+                    block_stack.push(l);
+                }
+                TokenType::End => {
+                    if let Some(start_line) = block_stack.pop() {
+                        let end_line = tok.line.saturating_sub(1) as u32;
+                        if end_line > start_line {
+                            ranges.push(FoldingRange::new(start_line, end_line, None));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Consecutive comment lines and import lines folding
+    let lines: Vec<&str> = source.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let trimmed = lines[i].trim();
+        // Comment block folding
+        if trimmed.starts_with('#') {
+            let start = i as u32;
+            while i < lines.len() && lines[i].trim().starts_with('#') {
+                i += 1;
+            }
+            let end = i.saturating_sub(1) as u32;
+            if end > start {
+                ranges.push(FoldingRange::new(start, end, Some("comment")));
+            }
+            continue;
+        }
+
+        // Import block folding
+        if trimmed.starts_with("import ") || trimmed.starts_with("from ") {
+            let start = i as u32;
+            while i < lines.len()
+                && (lines[i].trim().starts_with("import ") || lines[i].trim().starts_with("from "))
+            {
+                i += 1;
+            }
+            let end = i.saturating_sub(1) as u32;
+            if end > start {
+                ranges.push(FoldingRange::new(start, end, Some("imports")));
+            }
+            continue;
+        }
+
+        i += 1;
+    }
+
+    ranges
+}
+
+/// Discovers all reference locations of the given word within source.
+pub fn find_references_for_word(source: &str, word: &str, uri: &str) -> Vec<Location> {
+    let mut locs = Vec::new();
+    let mut lexer = Lexer::new(source);
+    let tokens = match lexer.tokenize() {
+        Ok(t) => t,
+        Err(_) => return locs,
+    };
+
+    for tok in &tokens {
+        let matches = match &tok.token_type {
+            TokenType::Identifier(id) => id == word,
+            TokenType::Assert => word == "assert",
+            TokenType::Test => word == "test",
+            TokenType::Bench => word == "bench",
+            TokenType::Say => word == "say",
+            _ => false,
+        };
+
+        if matches {
+            let start_line = tok.line.saturating_sub(1) as u32;
+            let start_col = tok.column.saturating_sub(1) as u32;
+            let end_col = start_col + word.len() as u32;
+            let range = Range::new(
+                Position::new(start_line, start_col),
+                Position::new(start_line, end_col),
+            );
+            locs.push(Location::new(uri.to_string(), range));
+        }
+    }
+
+    locs
+}
+
+/// Formats the document in-memory using the native Alya compiler formatter.
+pub fn format_document(source: &str) -> Option<String> {
+    match crate::tools::fmt::format_source(source) {
+        Ok(formatted) => {
+            if formatted != source {
+                Some(formatted)
+            } else {
+                None
+            }
+        }
+        Err(_) => None,
+    }
 }
