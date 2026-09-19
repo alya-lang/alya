@@ -1376,18 +1376,14 @@ pub fn expand_default_args_with_modules(
 fn collect_global_names(stmts: &[Stmt], globals: &mut std::collections::HashSet<String>) {
     for stmt in stmts {
         match stmt {
-            Stmt::Let { name, .. }
-            | Stmt::Const { name, .. }
-            | Stmt::EnumDef { name, .. } => {
+            Stmt::Let { name, .. } | Stmt::Const { name, .. } | Stmt::EnumDef { name, .. } => {
                 globals.insert(name.clone());
                 let bare = name.rsplit("::").next().unwrap_or(name.as_str());
                 let bare = bare.rsplit("__").next().unwrap_or(bare);
                 globals.insert(bare.to_string());
             }
             Stmt::Pub(inner) => match &**inner {
-                Stmt::Let { name, .. }
-                | Stmt::Const { name, .. }
-                | Stmt::EnumDef { name, .. } => {
+                Stmt::Let { name, .. } | Stmt::Const { name, .. } | Stmt::EnumDef { name, .. } => {
                     globals.insert(name.clone());
                     let bare = name.rsplit("::").next().unwrap_or(name.as_str());
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -1671,13 +1667,7 @@ fn expand_defaults_in_stmt(
             }
         }
         Stmt::Pub(inner) | Stmt::Defer(inner) => {
-            expand_defaults_in_stmt(
-                inner,
-                fn_defs,
-                module_stems,
-                locals,
-                top_level_globals,
-            );
+            expand_defaults_in_stmt(inner, fn_defs, module_stems, locals, top_level_globals);
         }
         _ => {}
     }
@@ -1766,8 +1756,20 @@ fn expand_defaults_in_expr(
             else_branch,
         } => {
             expand_defaults_in_expr(condition, fn_defs, module_stems, locals, top_level_globals);
-            expand_defaults_in_expr(then_branch, fn_defs, module_stems, locals, top_level_globals);
-            expand_defaults_in_expr(else_branch, fn_defs, module_stems, locals, top_level_globals);
+            expand_defaults_in_expr(
+                then_branch,
+                fn_defs,
+                module_stems,
+                locals,
+                top_level_globals,
+            );
+            expand_defaults_in_expr(
+                else_branch,
+                fn_defs,
+                module_stems,
+                locals,
+                top_level_globals,
+            );
         }
         Expr::NullCoalesce { value, default } => {
             expand_defaults_in_expr(value, fn_defs, module_stems, locals, top_level_globals);
