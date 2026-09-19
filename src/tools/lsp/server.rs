@@ -243,10 +243,7 @@ impl ServerState {
         Some((uri.to_string(), def_pos))
     }
 
-    fn handle_code_action(
-        &self,
-        params: Option<&JsonValue>,
-    ) -> Vec<super::protocol::CodeAction> {
+    fn handle_code_action(&self, params: Option<&JsonValue>) -> Vec<super::protocol::CodeAction> {
         let params = match params {
             Some(p) => p,
             None => return Vec::new(),
@@ -266,18 +263,35 @@ impl ServerState {
             None => return Vec::new(),
         };
 
-        let diags = match crate::tools::lint::lint_source(source, std::path::Path::new("document.alya")) {
-            Ok(d) => d,
-            Err(_) => return Vec::new(),
-        };
+        let diags =
+            match crate::tools::lint::lint_source(source, std::path::Path::new("document.alya")) {
+                Ok(d) => d,
+                Err(_) => return Vec::new(),
+            };
 
         let mut actions = Vec::new();
         for d in diags {
             if let Some(fix) = d.fix {
-                let start_line = if fix.start_line > 0 { (fix.start_line - 1) as u32 } else { 0 };
-                let start_col = if fix.start_col > 0 { (fix.start_col - 1) as u32 } else { 0 };
-                let end_line = if fix.end_line > 0 { (fix.end_line - 1) as u32 } else { start_line };
-                let end_col = if fix.end_col > 0 { (fix.end_col - 1) as u32 } else { start_col + 1 };
+                let start_line = if fix.start_line > 0 {
+                    (fix.start_line - 1) as u32
+                } else {
+                    0
+                };
+                let start_col = if fix.start_col > 0 {
+                    (fix.start_col - 1) as u32
+                } else {
+                    0
+                };
+                let end_line = if fix.end_line > 0 {
+                    (fix.end_line - 1) as u32
+                } else {
+                    start_line
+                };
+                let end_col = if fix.end_col > 0 {
+                    (fix.end_col - 1) as u32
+                } else {
+                    start_col + 1
+                };
 
                 let text_edit = super::protocol::TextEdit {
                     range: super::protocol::Range::new(

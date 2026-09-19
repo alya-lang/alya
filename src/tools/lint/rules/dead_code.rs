@@ -17,7 +17,12 @@ fn is_unconditional_jump(stmt: &Stmt) -> Option<&'static str> {
 /// Finds the line and column of the first token corresponding to a dead statement.
 fn find_next_stmt_token_after(tokens: &[Token], after_line: usize) -> Option<Token> {
     for tok in tokens {
-        if tok.line > after_line && !matches!(tok.token_type, TokenType::Newline | TokenType::End | TokenType::Eof) {
+        if tok.line > after_line
+            && !matches!(
+                tok.token_type,
+                TokenType::Newline | TokenType::End | TokenType::Eof
+            )
+        {
             return Some(tok.clone());
         }
     }

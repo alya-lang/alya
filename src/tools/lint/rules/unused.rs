@@ -375,10 +375,7 @@ pub fn check_unused_parameters(
 }
 
 /// Checks for unused import statements and symbols (`unused-import`).
-pub fn check_unused_imports(
-    tokens: &[Token],
-    file_path: &Path,
-) -> Vec<LintDiagnostic> {
+pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagnostic> {
     let mut diags = Vec::new();
 
     // 1. Identify all import declarations and their tokens
@@ -458,7 +455,9 @@ pub fn check_unused_imports(
 
             if i < tokens.len() && matches!(tokens[i].token_type, TokenType::Import) {
                 i += 1;
-                while i < tokens.len() && !matches!(tokens[i].token_type, TokenType::Newline | TokenType::Eof) {
+                while i < tokens.len()
+                    && !matches!(tokens[i].token_type, TokenType::Newline | TokenType::Eof)
+                {
                     if let TokenType::Identifier(sym) = &tokens[i].token_type {
                         let sym_line = tokens[i].line;
                         let sym_col = tokens[i].column;

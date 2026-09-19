@@ -14,8 +14,14 @@ end
     let diags = lint_source(source, Path::new("test.alya")).unwrap();
     let unused_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-var").collect();
     assert_eq!(unused_diags.len(), 1);
-    assert_eq!(unused_diags[0].message, "variable 'unused_val' is declared but never read");
-    assert_eq!(unused_diags[0].fix.as_ref().unwrap().replacement, "_unused_val");
+    assert_eq!(
+        unused_diags[0].message,
+        "variable 'unused_val' is declared but never read"
+    );
+    assert_eq!(
+        unused_diags[0].fix.as_ref().unwrap().replacement,
+        "_unused_val"
+    );
 }
 
 #[test]
@@ -28,7 +34,10 @@ end
 "#;
     let diags = lint_source(source, Path::new("test.alya")).unwrap();
     let unused_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-var").collect();
-    assert!(unused_diags.is_empty(), "Underscore variables should not be flagged");
+    assert!(
+        unused_diags.is_empty(),
+        "Underscore variables should not be flagged"
+    );
 }
 
 #[test]
@@ -41,7 +50,9 @@ end
     let diags = lint_source(source, Path::new("test.alya")).unwrap();
     let param_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-param").collect();
     assert_eq!(param_diags.len(), 1);
-    assert!(param_diags[0].message.contains("parameter 'z' is defined in function 'add' but never used"));
+    assert!(param_diags[0]
+        .message
+        .contains("parameter 'z' is defined in function 'add' but never used"));
     assert_eq!(param_diags[0].fix.as_ref().unwrap().replacement, "_z");
 }
 
@@ -59,7 +70,10 @@ end
     let diags = lint_source(source, Path::new("test.alya")).unwrap();
     let import_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-import").collect();
     assert_eq!(import_diags.len(), 1);
-    assert_eq!(import_diags[0].message, "imported module 'os' is never used");
+    assert_eq!(
+        import_diags[0].message,
+        "imported module 'os' is never used"
+    );
 }
 
 #[test]
@@ -73,7 +87,10 @@ end
     let diags = lint_source(source, Path::new("test.alya")).unwrap();
     let dead_diags: Vec<_> = diags.iter().filter(|d| d.rule == "dead-code").collect();
     assert_eq!(dead_diags.len(), 1);
-    assert_eq!(dead_diags[0].message, "unreachable statement following 'return'");
+    assert_eq!(
+        dead_diags[0].message,
+        "unreachable statement following 'return'"
+    );
 }
 
 #[test]
@@ -92,7 +109,10 @@ function check(x)
 end
 "#;
     let diags = lint_source(source, Path::new("test.alya")).unwrap();
-    let style_diags: Vec<_> = diags.iter().filter(|d| d.rule == "idiomatic-style").collect();
+    let style_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "idiomatic-style")
+        .collect();
     assert_eq!(style_diags.len(), 1);
     assert!(style_diags[0].message.contains("long 'if/elif' chain"));
     assert!(style_diags[0].help.as_ref().unwrap().contains("when"));

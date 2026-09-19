@@ -157,14 +157,29 @@ fn test_lsp_linter_diagnostics_and_code_action() {
 
     let mut did_open = BTreeMap::new();
     did_open.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
-    did_open.insert("method".to_string(), JsonValue::String("textDocument/didOpen".to_string()));
+    did_open.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/didOpen".to_string()),
+    );
     did_open.insert("params".to_string(), JsonValue::Object(did_open_params));
 
-    let notif = server.handle_message(&JsonValue::Object(did_open)).expect("Expected notif");
-    let diags = notif.get("params").and_then(|p| p.get("diagnostics")).and_then(|d| d.as_array()).unwrap();
+    let notif = server
+        .handle_message(&JsonValue::Object(did_open))
+        .expect("Expected notif");
+    let diags = notif
+        .get("params")
+        .and_then(|p| p.get("diagnostics"))
+        .and_then(|d| d.as_array())
+        .unwrap();
     assert_eq!(diags.len(), 1);
-    assert_eq!(diags[0].get("code").and_then(|c| c.as_str()), Some("unused-var"));
-    assert_eq!(diags[0].get("source").and_then(|s| s.as_str()), Some("alya-lint"));
+    assert_eq!(
+        diags[0].get("code").and_then(|c| c.as_str()),
+        Some("unused-var")
+    );
+    assert_eq!(
+        diags[0].get("source").and_then(|s| s.as_str()),
+        Some("alya-lint")
+    );
 
     // Request code action
     let mut ca_params = BTreeMap::new();
@@ -175,10 +190,15 @@ fn test_lsp_linter_diagnostics_and_code_action() {
     let mut code_action_req = BTreeMap::new();
     code_action_req.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
     code_action_req.insert("id".to_string(), JsonValue::Number(1.0));
-    code_action_req.insert("method".to_string(), JsonValue::String("textDocument/codeAction".to_string()));
+    code_action_req.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/codeAction".to_string()),
+    );
     code_action_req.insert("params".to_string(), JsonValue::Object(ca_params));
 
-    let resp = server.handle_message(&JsonValue::Object(code_action_req)).expect("Expected response");
+    let resp = server
+        .handle_message(&JsonValue::Object(code_action_req))
+        .expect("Expected response");
     let actions = resp.get("result").and_then(|r| r.as_array()).unwrap();
     assert_eq!(actions.len(), 1);
     let title = actions[0].get("title").and_then(|t| t.as_str()).unwrap();

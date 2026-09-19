@@ -40,7 +40,9 @@ pub fn print_usage() {
     println!("  toolchain <cmd>       Manage C/Assembly build toolchains (status, install, clean)");
     println!("  lsp                   Start Language Server Protocol (LSP) over stdio");
     println!("  doc [path]            Generate HTML and Markdown API documentation");
-    println!("  lint [path]           Run static code linter (--fix to auto-refactor, --check for CI)");
+    println!(
+        "  lint [path]           Run static code linter (--fix to auto-refactor, --check for CI)"
+    );
     println!("  help                  Display help information");
     println!("  version               Display version information\n");
     println!("OPTIONS:");

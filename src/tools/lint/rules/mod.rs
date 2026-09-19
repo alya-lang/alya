@@ -9,11 +9,7 @@ use crate::lexer::Token;
 use crate::tools::lint::types::LintDiagnostic;
 
 /// Runs all static analysis rules on a parsed program and its token stream.
-pub fn run_all_rules(
-    program: &Program,
-    tokens: &[Token],
-    file_path: &Path,
-) -> Vec<LintDiagnostic> {
+pub fn run_all_rules(program: &Program, tokens: &[Token], file_path: &Path) -> Vec<LintDiagnostic> {
     let mut diagnostics = Vec::new();
 
     // 1. Unused imports

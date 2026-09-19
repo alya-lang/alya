@@ -124,7 +124,10 @@ impl TextEdit {
     pub fn to_json(&self) -> JsonValue {
         let mut map = BTreeMap::new();
         map.insert("range".to_string(), self.range.to_json());
-        map.insert("newText".to_string(), JsonValue::String(self.new_text.clone()));
+        map.insert(
+            "newText".to_string(),
+            JsonValue::String(self.new_text.clone()),
+        );
         JsonValue::Object(map)
     }
 }
@@ -142,7 +145,10 @@ impl CodeAction {
         let mut map = BTreeMap::new();
         map.insert("title".to_string(), JsonValue::String(self.title.clone()));
         map.insert("kind".to_string(), JsonValue::String(self.kind.clone()));
-        map.insert("isPreferred".to_string(), JsonValue::Bool(self.is_preferred));
+        map.insert(
+            "isPreferred".to_string(),
+            JsonValue::Bool(self.is_preferred),
+        );
 
         let mut changes = BTreeMap::new();
         for (uri, edit) in &self.edits {
