@@ -63,15 +63,17 @@ bench "array allocation and sequential push"
 end
 
 bench "mandelbrot complex float grid iteration"
-    let max_iter = 50
-    let iters = 0
-    let cr = -0.75
-    let ci = 0.1
-    let zr = 0.0
-    let zi = 0.0
+    let max_iter: int = 50
+    let iters: int = 0
+    let cr: float = -0.75
+    let ci: float = 0.1
+    let zr: float = 0.0
+    let zi: float = 0.0
+    let zr2: float = 0.0
+    let zi2: float = 0.0
     while iters < max_iter
-        let zr2 = zr * zr
-        let zi2 = zi * zi
+        zr2 = zr * zr
+        zi2 = zi * zi
         if zr2 + zi2 > 4.0
             break
         end

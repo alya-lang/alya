@@ -165,10 +165,10 @@ function fibonacci_iterative(n: int) -> int
     if n <= 1
         return n
     end
-    let a = 0
-    let b = 1
-    let temp = 0
-    let i = 2
+    let a: int = 0
+    let b: int = 1
+    let temp: int = 0
+    let i: int = 2
     while i <= n
         temp = a + b
         a = b

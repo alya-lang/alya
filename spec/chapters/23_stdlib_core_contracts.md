@@ -15,17 +15,17 @@ The Alya Standard Library (`std/*`) is strictly limited to **low-level operating
 
 ---
 
-### 1.2 The 14 Core Standard Library Modules
+### 1.2 The 15 Core Standard Library Modules
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
-│                  THE 14 CANONICAL CORE MODULES (std/*)                 │
+│                  THE 15 CANONICAL CORE MODULES (std/*)                 │
 ├───────────────────┬───────────────────┬────────────────────────────────┤
 │ 1.  std/fs        │ 6.  std/net       │ 11. std/str                    │
 │ 2.  std/path      │ 7.  std/sync      │ 12. std/collections            │
 │ 3.  std/os        │ 8.  std/time      │ 13. std/console                │
 │ 4.  std/process   │ 9.  std/mem       │ 14. std/test                   │
-│ 5.  std/io        │ 10. std/math      │                                │
+│ 5.  std/io        │ 10. std/math      │ 15. std/simd                   │
 └───────────────────┴───────────────────┴────────────────────────────────┘
 ```
 
@@ -240,4 +240,44 @@ Unified test assertions, mock runners, and micro-benchmarking timers:
 function test.assert(condition: bool, message: string = "Assertion failed")
 function test.assert_eq[T](actual: T, expected: T, message: string = "")
 function test.run_bench(name: string, warmup: int, iterations: int, task: || -> void)
+```
+
+#### 15. `std/simd` (SIMD Vectorization Primitives)
+Hardware-accelerated 256-bit SIMD vector types, lane operations, and fused multiply-add:
+```alya
+struct f64x4
+    function f64x4_new(a: float, b: float, c: float, d: float) -> f64x4
+    function f64x4_splat(val: float) -> f64x4
+    function f64x4_load(base_ptr: ptr, byte_offset: int) -> f64x4
+    function f64x4.store(self: f64x4, base_ptr: ptr, byte_offset: int)
+    function f64x4.get(self: f64x4, idx: int) -> float
+    function f64x4.set(self: f64x4, idx: int, val: float)
+    function f64x4.operator+(self: f64x4, other: f64x4) -> f64x4
+    function f64x4.operator-(self: f64x4, other: f64x4) -> f64x4
+    function f64x4.operator*(self: f64x4, other: f64x4) -> f64x4
+    function f64x4.operator/(self: f64x4, other: f64x4) -> f64x4
+    function f64x4.fma(self: f64x4, b: f64x4, c: f64x4) -> f64x4
+    function f64x4.sum_horizontal(self: f64x4) -> float
+    function f64x4.min(self: f64x4) -> float
+    function f64x4.max(self: f64x4) -> float
+    function f64x4.shuffle(self: f64x4, i0: int, i1: int, i2: int, i3: int) -> f64x4
+    function f64x4.swizzle(self: f64x4, i0: int, i1: int, i2: int, i3: int) -> f64x4
+end
+
+struct f32x8
+    function f32x8_splat(val: float) -> f32x8
+    function f32x8.operator+(self: f32x8, other: f32x8) -> f32x8
+    function f32x8.operator*(self: f32x8, other: f32x8) -> f32x8
+    function f32x8.sum_horizontal(self: f32x8) -> float
+end
+
+struct i32x8
+    function i32x8_splat(val: int) -> i32x8
+    function i32x8.operator+(self: i32x8, other: i32x8) -> i32x8
+end
+
+struct i64x4
+    function i64x4_splat(val: int) -> i64x4
+    function i64x4.operator+(self: i64x4, other: i64x4) -> i64x4
+end
 ```

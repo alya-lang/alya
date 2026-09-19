@@ -220,9 +220,11 @@ impl Type {
             return b1 == b2;
         }
 
-        // Enums and integers are interoperable
-        if (matches!(self, Type::Int) && matches!(target, Type::Enum(_)))
-            || (matches!(self, Type::Enum(_)) && matches!(target, Type::Int))
+        // Enums and integers or strings are interoperable
+        if ((matches!(self, Type::Int) || matches!(self, Type::String))
+            && matches!(target, Type::Enum(_)))
+            || (matches!(self, Type::Enum(_))
+                && (matches!(target, Type::Int) || matches!(target, Type::String)))
         {
             return true;
         }
@@ -580,6 +582,27 @@ impl TypeChecker {
                 scope.insert(bare.to_string(), ty);
             }
         }
+    }
+
+    fn resolve_type(&self, ty: Type) -> Type {
+        match ty {
+            Type::Struct(ref name) => {
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if self.enums.contains(name) || self.enums.contains(bare) {
+                    Type::Enum(name.clone())
+                } else {
+                    ty
+                }
+            }
+            Type::Nullable(inner) => Type::Nullable(Box::new(self.resolve_type(*inner))),
+            Type::Array(inner) => Type::Array(Box::new(self.resolve_type(*inner))),
+            _ => ty,
+        }
+    }
+
+    fn resolve_type_str(&self, raw: &str) -> Type {
+        self.resolve_type(parse_type_str(raw))
     }
 
     fn lookup_var(&self, name: &str) -> Option<Type> {
@@ -957,7 +980,7 @@ impl TypeChecker {
                 let val_type = self.infer_expr(value)?;
 
                 if let Some(ann_str) = type_ann {
-                    let expected = parse_type_str(ann_str);
+                    let expected = self.resolve_type_str(ann_str);
                     if !val_type.is_assignable_to(&expected) {
                         return Err(format!(
                             "TypeError: Type mismatch in 'let {}': expected '{}', found '{}'",
@@ -1064,7 +1087,7 @@ impl TypeChecker {
             } => {
                 let declared_ret = return_type
                     .as_ref()
-                    .map(|s| parse_type_str(s))
+                    .map(|s| self.resolve_type_str(s))
                     .unwrap_or(Type::Any);
 
                 let prev_ret = self.current_fn_return_type.take();
@@ -1074,7 +1097,7 @@ impl TypeChecker {
                 for (pname, ptype_opt) in params.iter().zip(param_types.iter()) {
                     let pty = ptype_opt
                         .as_ref()
-                        .map(|s| parse_type_str(s))
+                        .map(|s| self.resolve_type_str(s))
                         .unwrap_or(Type::Any);
                     self.define_var(pname, pty);
                 }
@@ -1319,12 +1342,16 @@ impl TypeChecker {
             {
                 let p_types = param_types
                     .iter()
-                    .map(|pt| pt.as_ref().map(|s| parse_type_str(s)).unwrap_or(Type::Any))
+                    .map(|pt| {
+                        pt.as_ref()
+                            .map(|s| self.resolve_type_str(s))
+                            .unwrap_or(Type::Any)
+                    })
                     .collect();
 
                 let r_type = return_type
                     .as_ref()
-                    .map(|s| parse_type_str(s))
+                    .map(|s| self.resolve_type_str(s))
                     .unwrap_or(Type::Any);
 
                 let sig = FnSig {

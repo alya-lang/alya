@@ -65,14 +65,14 @@ io.stdout.write("Direct message via std/io stdout\n")
 # ------------------------------------------------------------------------------
 # 5. Raw Sockets & Networking (std/net)
 # ------------------------------------------------------------------------------
-import "std/net"
+import "std/net" as net
 
 # Client socket connection contract (exemplary)
 try
-    let sock = net.tcp_connect("127.0.0.1", 8080)
-    net.send(sock, "PING\n")
-    let response = net.recv(sock, 1024)
-    net.close(sock)
+    let sock = net::tcp_connect("127.0.0.1", 8080)
+    net::send(sock, "PING\n")
+    let response = net::recv(sock, 1024)
+    net::close(sock)
 catch err
     # Expected when server is not running locally
     say f"Network probe skipped: {err.message}"
@@ -124,6 +124,8 @@ import "std/mem"
 let arena = mem.Arena.new(1024 * 64) # 64 KB region
 let block = arena.alloc(256)
 say f"Allocated 256 bytes from bump arena at {block}"
+let aligned_p = mem.aligned_alloc(64, 32)
+mem.aligned_free(aligned_p)
 arena.reset()
 arena.destroy()
 
@@ -149,9 +151,9 @@ say f"Fruit items count: {fruits.length()}"
 say f"Rejoined: {str.join(fruits, " -> ")}"
 
 let secret = "Alya Native Language"
-let encoded = str.base64_encode(secret)
-let decoded = str.base64_decode(encoded)
-say f"Base64 roundtrip matches: {secret == decoded}"
+let upper = str.to_upper(secret)
+let lower = str.to_lower(secret)
+say f"Case conversions: upper='{upper}', lower='{lower}'"
 
 # ------------------------------------------------------------------------------
 # 11. Collections & Data Structures (std/collections)
@@ -174,11 +176,20 @@ say console.green("✓ Stdlib tests passed successfully!")
 say console.bold(console.blue("[INFO] System running at full performance"))
 
 # ------------------------------------------------------------------------------
-# 13. Unit Testing & Assertions (std/test)
+# 14. Unit Testing & Assertions (std/test)
 # ------------------------------------------------------------------------------
 import "std/test"
 
 test.assert(math.PI > 3.14, "Pi must be greater than 3.14")
 test.assert_eq(2 + 2, 4, "Arithmetic identity check")
+
+# ------------------------------------------------------------------------------
+# 15. SIMD Vectorization Primitives (std/simd)
+# ------------------------------------------------------------------------------
+import "std/simd"
+
+let simd_vec = f64x4_new(1.0, 2.0, 3.0, 4.0)
+let simd_sum = simd_vec.sum_horizontal()
+say f"SIMD contract f64x4 sum: {simd_sum}"
 
 say "All standard library core contracts verified."
