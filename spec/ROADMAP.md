@@ -265,9 +265,10 @@ This roadmap defines the sequenced implementation phases, actionable engineering
 - [ ] **5.6 Ecosystem Standalone Packages Modernization & Clean v0.1.0 Baseline**
   - **Manifest & CI Alignment (Completed)**: Synchronized all 22 standalone package manifests (`alya.toml` with `version = "0.1.0"`), repository templates, and GitHub Actions workflows with `Lib/template`.
   - **Test Verification (Completed)**: 100% test suite pass rate across all 22 packages (23 test suites, 2,000+ assertions passed).
+  - **Remote Tag & Release Purge (Completed)**: Purged all 80 legacy remote releases, 80 remote tags, and 80 local tags across all 22 repositories under `alya-lang/*`.
   - **Pending Syntax Modernization**: Refactoring package source code (`src/*.alya`) to adopt full v1.0 modern syntax features matching `Lib/template` archetype (strict `pub` visibility, `##` docstrings for `alya doc`, type annotations, argumentless `when` cascades, and string interpolation).
-  - **Pending Remote Actions**: Remote tag & GitHub release purge across `alya-lang/*` repositories and fresh `v0.1.0` baseline release tagging.
-  - Target files: `Lib/*/alya.toml`, `Lib/*/src/`, `Lib/*/tests/`, GitHub repository tags & releases.
+  - **Pending Final Baseline Release**: Tagging and publishing fresh `v0.1.0` releases after syntax modernization.
+  - Target files: `Lib/*/alya.toml`, `Lib/*/src/`, `Lib/*/tests/`.
 
 - [x] **5.7 Static Analysis & Linter Engine (`alya lint` & LSP/VS Code Integration)**
   - Implement standalone static code analysis linter (`src/tools/lint/`):
