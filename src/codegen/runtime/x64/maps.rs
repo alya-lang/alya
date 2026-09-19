@@ -385,8 +385,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    jz .L_x64_get_not_found\n");
     out.push_str("    cmp $65536, %r12\n");
     out.push_str("    jb .L_x64_get_not_found\n");
-    out.push_str("    movq -16(%r12), %rax\n");
-    out.push_str("    cmp $0x5A110001, %rax\n");
+    out.push_str("    movl -16(%r12), %eax\n");
+    out.push_str("    cmp $0x5A110001, %eax\n");
     out.push_str("    je .L_x64_get_array\n");
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov %r13, %rcx\n");
@@ -913,10 +913,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov $0x00007fffffffffff, %rax\n");
     out.push_str("    cmp %rax, %r12\n");
     out.push_str("    ja .L_x64_in_str\n");
-    out.push_str("    movq -16(%r12), %rax\n");
-    out.push_str("    cmp $0x5A110002, %rax\n");
+    out.push_str("    movl -16(%r12), %eax\n");
+    out.push_str("    cmp $0x5A110002, %eax\n");
     out.push_str("    je .L_x64_in_map\n");
-    out.push_str("    cmp $0x5A110001, %rax\n");
+    out.push_str("    cmp $0x5A110001, %eax\n");
     out.push_str("    je .L_x64_in_arr\n");
     out.push_str(".L_x64_in_str:\n");
     if is_win {

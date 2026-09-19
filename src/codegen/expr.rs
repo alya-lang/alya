@@ -2640,11 +2640,11 @@ impl CodeGen {
                 self.output.push_str(&format!("    jnz {}\n", false_label));
                 self.output.push_str("    cmp $65536, %rax\n");
                 self.output.push_str(&format!("    jb {}\n", false_label));
-                self.output.push_str("    movq -16(%rax), %rdx\n");
-                self.output.push_str("    cmp $0x5A110003, %rdx\n");
+                self.output.push_str("    movl -16(%rax), %edx\n");
+                self.output.push_str("    cmpl $0x5A110003, %edx\n");
                 self.output
                     .push_str(&format!("    je {}\n", concrete_label));
-                self.output.push_str("    cmp $0x5A110004, %rdx\n");
+                self.output.push_str("    cmpl $0x5A110004, %edx\n");
                 self.output.push_str(&format!("    jne {}\n", false_label));
                 // Fat pointer: load vtable at 8(%rax), then load descriptor from 0(%r11)
                 self.output.push_str("    movq 8(%rax), %r11\n");
@@ -2818,11 +2818,11 @@ impl CodeGen {
                 self.output.push_str(&format!("    jnz {}\n", false_label));
                 self.output.push_str("    cmp $65536, %rax\n");
                 self.output.push_str(&format!("    jb {}\n", false_label));
-                self.output.push_str("    movq -16(%rax), %rdx\n");
-                self.output.push_str("    cmp $0x5A110003, %rdx\n");
+                self.output.push_str("    movl -16(%rax), %edx\n");
+                self.output.push_str("    cmpl $0x5A110003, %edx\n");
                 self.output
                     .push_str(&format!("    je {}\n", concrete_label));
-                self.output.push_str("    cmp $0x5A110004, %rdx\n");
+                self.output.push_str("    cmpl $0x5A110004, %edx\n");
                 self.output.push_str(&format!("    jne {}\n", false_label));
                 // Fat pointer: load vtable at 8(%rax), then load descriptor from 0(%r11)
                 self.output.push_str("    movq 8(%rax), %r11\n");
@@ -2970,9 +2970,9 @@ impl CodeGen {
                 self.output.push_str(&format!("    jnz {}\n", false_label));
                 self.output.push_str("    cmp $65536, %rax\n");
                 self.output.push_str(&format!("    jb {}\n", false_label));
-                self.output.push_str("    movq -16(%rax), %rdx\n");
+                self.output.push_str("    movl -16(%rax), %edx\n");
                 self.output
-                    .push_str(&format!("    cmp $0x{:X}, %rdx\n", tag));
+                    .push_str(&format!("    cmpl $0x{:X}, %edx\n", tag as u32));
                 self.output.push_str(&format!("    jne {}\n", false_label));
                 self.output.push_str(&format!(
                     "    movq ${}, %rax\n",
@@ -3019,13 +3019,13 @@ impl CodeGen {
                 self.output.push_str("    lsr x1, x0, #47\n");
                 self.output
                     .push_str(&format!("    cbnz x1, {}\n", false_label));
-                self.output.push_str("    ldur x1, [x0, #-16]\n");
+                self.output.push_str("    ldur w1, [x0, #-16]\n");
                 let tag_lo = tag as u32;
                 self.output
-                    .push_str(&format!("    movz x2, #{}\n", tag_lo & 0xFFFF));
+                    .push_str(&format!("    movz w2, #{}\n", tag_lo & 0xFFFF));
                 self.output
-                    .push_str(&format!("    movk x2, #{}, lsl #16\n", tag_lo >> 16));
-                self.output.push_str("    cmp x1, x2\n");
+                    .push_str(&format!("    movk w2, #{}, lsl #16\n", tag_lo >> 16));
+                self.output.push_str("    cmp w1, w2\n");
                 self.output.push_str(&format!("    b.ne {}\n", false_label));
                 self.output
                     .push_str(&format!("    mov x0, #{}\n", if negated { 0 } else { 1 }));

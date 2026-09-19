@@ -366,8 +366,14 @@ pub fn is_array_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "json_parse_array"
                     | "parse_array"
             ) || (bare == "slice" && !args.is_empty() && is_array_expr(&args[0], vars))
+                || vars.contains_key(&format!("fn_ret_arr:{}", name))
+                || vars.contains_key(&format!("fn_ret_arr:{}", bare))
+                || vars.contains_key(&format!("fn_ret_arr:{}", name.replace("::", "__")))
+                || vars.contains_key(&format!("fn_ret_arr:{}", name.replace("__", "::")))
                 || vars.contains_key(&format!("fn_ret_str_arr:{}", name))
                 || vars.contains_key(&format!("fn_ret_str_arr:{}", bare))
+                || vars.contains_key(&format!("fn_ret_str_arr:{}", name.replace("::", "__")))
+                || vars.contains_key(&format!("fn_ret_str_arr:{}", name.replace("__", "::")))
         }
         Expr::FieldAccess { object, field } => {
             if let Expr::Identifier(obj_name) = &**object {

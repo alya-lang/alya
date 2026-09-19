@@ -45,7 +45,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movq %r11, (%rdx, %rax, 8)\n");
     out.push_str("    incq %rax\n");
     out.push_str("    movq %rax, alya_gc_roots_count(%rip)\n");
-    out.push_str("    cmpq $1024, %rax\n");
+    out.push_str("    cmpq $1000000, %rax\n");
     out.push_str("    jb .L_x64_gc_ap_done\n");
     out.push_str("    sub $32, %rsp\n");
     out.push_str("    call fn_gc_collect\n");

@@ -427,6 +427,15 @@ impl CodeGen {
             }
         }
 
+        for a in &inference.known_arrays {
+            if a.starts_with("fn_ret_arr:")
+                || a.starts_with("struct_field_arr:")
+                || a.starts_with("fn_param_arr:")
+            {
+                self.ctx.variables.insert(a.clone(), VarType::Array(0));
+            }
+        }
+
         for stmt in &program.statements {
             if let Stmt::Function {
                 name,
@@ -482,10 +491,40 @@ impl CodeGen {
                     }
                 }
 
+                let explicit_struct = return_type.as_deref().and_then(|rt| {
+                    let bare_rt = rt.rsplit("::").next().unwrap_or(rt);
+                    let bare_rt = bare_rt.rsplit("__").next().unwrap_or(bare_rt);
+                    if self.ctx.structs.contains_key(rt) {
+                        Some(rt.to_string())
+                    } else if self.ctx.structs.contains_key(bare_rt) {
+                        Some(bare_rt.to_string())
+                    } else {
+                        None
+                    }
+                });
+
                 if return_type.as_deref() != Some("any") {
-                    if let Some(sname) = inference.infer_function_return_struct_type(name) {
+                    if let Some(sname) = explicit_struct
+                        .or_else(|| inference.infer_function_return_struct_type(name))
+                    {
                         self.ctx.variables.insert(
                             format!("fn_ret_struct:{}", name),
+                            VarType::Struct {
+                                struct_name: sname.clone(),
+                                offset: 0,
+                            },
+                        );
+                        let colon_name = name.replace("__", "::");
+                        self.ctx.variables.insert(
+                            format!("fn_ret_struct:{}", colon_name),
+                            VarType::Struct {
+                                struct_name: sname.clone(),
+                                offset: 0,
+                            },
+                        );
+                        let mangled_name = name.replace("::", "__");
+                        self.ctx.variables.insert(
+                            format!("fn_ret_struct:{}", mangled_name),
                             VarType::Struct {
                                 struct_name: sname.clone(),
                                 offset: 0,
@@ -500,6 +539,25 @@ impl CodeGen {
                                 },
                             );
                         }
+                    }
+                }
+
+                if let Some(rt) = return_type.as_deref() {
+                    if rt == "array" || rt.ends_with("[]") {
+                        self.ctx
+                            .variables
+                            .insert(format!("fn_ret_arr:{}", name), VarType::Array(0));
+                        self.ctx
+                            .variables
+                            .insert(format!("fn_ret_arr:{}", bare), VarType::Array(0));
+                        let colon_name = name.replace("__", "::");
+                        self.ctx
+                            .variables
+                            .insert(format!("fn_ret_arr:{}", colon_name), VarType::Array(0));
+                        let mangled_name = name.replace("::", "__");
+                        self.ctx
+                            .variables
+                            .insert(format!("fn_ret_arr:{}", mangled_name), VarType::Array(0));
                     }
                 }
             }
@@ -1216,7 +1274,12 @@ impl CodeGen {
                 {
                     let bare = target.rsplit("::").next().unwrap_or(target);
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
-                    return Some(bare.to_string());
+                    if self.ctx.structs.contains_key(target) {
+                        return Some(target.to_string());
+                    }
+                    if self.ctx.structs.contains_key(bare) {
+                        return Some(bare.to_string());
+                    }
                 }
                 if let Some(first_arg) = args.first() {
                     if let Some(st) = self.get_expr_struct_name(first_arg) {
@@ -1256,6 +1319,16 @@ impl CodeGen {
                     .ctx
                     .variables
                     .get(&format!("fn_ret_struct:{}", name))
+                    .or_else(|| {
+                        let mangled = name.replace("::", "__");
+                        self.ctx
+                            .variables
+                            .get(&format!("fn_ret_struct:{}", mangled))
+                    })
+                    .or_else(|| {
+                        let colon = name.replace("__", "::");
+                        self.ctx.variables.get(&format!("fn_ret_struct:{}", colon))
+                    })
                     .or_else(|| self.ctx.variables.get(&format!("fn_ret_struct:{}", bare)))
                 {
                     Some(struct_name.clone())
@@ -1302,6 +1375,16 @@ impl CodeGen {
                     .ctx
                     .variables
                     .get(&format!("fn_ret_struct:{}", callee))
+                    .or_else(|| {
+                        let mangled = callee.replace("::", "__");
+                        self.ctx
+                            .variables
+                            .get(&format!("fn_ret_struct:{}", mangled))
+                    })
+                    .or_else(|| {
+                        let colon = callee.replace("__", "::");
+                        self.ctx.variables.get(&format!("fn_ret_struct:{}", colon))
+                    })
                     .or_else(|| self.ctx.variables.get(&format!("fn_ret_struct:{}", bare)))
                 {
                     Some(struct_name.clone())

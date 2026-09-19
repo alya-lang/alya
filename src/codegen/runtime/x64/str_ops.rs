@@ -71,10 +71,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    mov $0x00007fffffffffff, %rax\n");
         out.push_str("    cmp %rax, %rcx\n");
         out.push_str("    ja .L_x64_len_zero\n");
-        out.push_str("    movq -16(%rcx), %rax\n");
-        out.push_str("    cmp $0x5A110001, %rax\n");
+        out.push_str("    movl -16(%rcx), %eax\n");
+        out.push_str("    cmp $0x5A110001, %eax\n");
         out.push_str("    je .L_x64_len_obj_rcx\n");
-        out.push_str("    cmp $0x5A110002, %rax\n");
+        out.push_str("    cmp $0x5A110002, %eax\n");
         out.push_str("    je .L_x64_len_obj_rcx\n");
         out.push_str("    xor %rax, %rax\n");
         out.push_str(".L_x64_len_loop:\n");
@@ -91,10 +91,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    mov $0x00007fffffffffff, %rax\n");
         out.push_str("    cmp %rax, %rdi\n");
         out.push_str("    ja .L_x64_len_zero\n");
-        out.push_str("    movq -16(%rdi), %rax\n");
-        out.push_str("    cmp $0x5A110001, %rax\n");
+        out.push_str("    movl -16(%rdi), %eax\n");
+        out.push_str("    cmp $0x5A110001, %eax\n");
         out.push_str("    je .L_x64_len_obj_rdi\n");
-        out.push_str("    cmp $0x5A110002, %rax\n");
+        out.push_str("    cmp $0x5A110002, %eax\n");
         out.push_str("    je .L_x64_len_obj_rdi\n");
         out.push_str("    xor %rax, %rax\n");
         out.push_str(".L_x64_len_loop:\n");

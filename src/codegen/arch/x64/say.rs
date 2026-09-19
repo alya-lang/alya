@@ -11,6 +11,10 @@ pub fn emit_call_printf(out: &mut String, stack_offset: i32, os: OperatingSystem
         out.push_str(&format!("    sub ${}, %rsp\n", padding));
         out.push_str("    call printf\n");
         out.push_str(&format!("    add ${}, %rsp\n", padding));
+        out.push_str("    xor %rcx, %rcx\n");
+        out.push_str(&format!("    sub ${}, %rsp\n", padding));
+        out.push_str("    call fflush\n");
+        out.push_str(&format!("    add ${}, %rsp\n", padding));
     } else {
         let misaligned = stack_offset % 16 != 0;
         if misaligned {

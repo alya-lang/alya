@@ -285,8 +285,8 @@ pub fn emit_for_each_load_element(
     out.push_str(&format!("    movq -{}(%rbp), %rax\n", arr_offset));
     out.push_str("    test %rax, %rax\n");
     out.push_str(&format!("    jz {}\n", end_label));
-    out.push_str("    movq -16(%rax), %r11\n");
-    out.push_str("    cmpq $0x5A110002, %r11\n");
+    out.push_str("    movl -16(%rax), %r11d\n");
+    out.push_str("    cmpl $0x5A110002, %r11d\n");
     out.push_str(&format!("    je {}\n", map_label));
 
     // ARRAY

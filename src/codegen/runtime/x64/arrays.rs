@@ -396,8 +396,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    cmp %r10, %rcx\n");
         out.push_str("    jb .L_x64_fn_slice_str\n");
         out.push_str(".L_x64_fn_chk_tag:\n");
-        out.push_str("    movq -16(%rcx), %rax\n");
-        out.push_str("    cmp $0x5A110001, %rax\n");
+        out.push_str("    movl -16(%rcx), %eax\n");
+        out.push_str("    cmp $0x5A110001, %eax\n");
         out.push_str("    je alya_array_slice\n");
         out.push_str(".L_x64_fn_slice_str:\n");
         out.push_str("    cmp $0, %r8\n");
@@ -420,8 +420,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    cmp %r10, %rdi\n");
         out.push_str("    jb .L_x64_fn_slice_str\n");
         out.push_str(".L_x64_fn_chk_tag:\n");
-        out.push_str("    movq -16(%rdi), %rax\n");
-        out.push_str("    cmp $0x5A110001, %rax\n");
+        out.push_str("    movl -16(%rdi), %eax\n");
+        out.push_str("    cmp $0x5A110001, %eax\n");
         out.push_str("    je alya_array_slice\n");
         out.push_str(".L_x64_fn_slice_str:\n");
         out.push_str("    cmp $0, %rdx\n");
