@@ -295,6 +295,7 @@ fn ensure_dep_cached(
     dep: &DependencySource,
     from_manifest_dir: &Path,
     existing_lock: Option<&PackageLock>,
+    reported: &mut HashSet<String>,
 ) -> Result<PathBuf, String> {
     match dep {
         DependencySource::Path { path } => {
@@ -345,10 +346,12 @@ fn ensure_dep_cached(
                         == effective_rev);
 
             if cache_hit {
-                println!(
-                    "  Using cached package '{}' ({}) from global cache",
-                    name, tag_or_branch
-                );
+                if reported.insert(format!("{}:{}", name, tag_or_branch)) {
+                    println!(
+                        "  Using cached package '{}' ({}) from global cache",
+                        name, tag_or_branch
+                    );
+                }
             } else {
                 let _ = fs::create_dir_all(&cache_dir);
                 if cached_pkg_dir.exists() {
@@ -418,14 +421,18 @@ fn ensure_dep_cached(
             };
 
             if cache_hit {
-                println!(
-                    "  Using cached package '{}' ({}) from global cache",
-                    name, v
-                );
+                if reported.insert(format!("{}:{}", name, v)) {
+                    println!(
+                        "  Using cached package '{}' ({}) from global cache",
+                        name, v
+                    );
+                }
             } else if head_hit {
                 let _ = copy_dir_all(&head_cached_dir, &cached_pkg_dir, true);
                 let _ = fs::write(cached_pkg_dir.join(".alya-source"), &source);
-                println!("  Using package '{}' (v{}) from global cache", name, v);
+                if reported.insert(format!("{}:{}", name, v)) {
+                    println!("  Using package '{}' (v{}) from global cache", name, v);
+                }
             } else {
                 let _ = fs::create_dir_all(&cache_dir);
                 if cached_pkg_dir.exists() {
@@ -508,6 +515,7 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
     let mut resolved_requests: BTreeMap<(String, Option<u64>), (DependencySource, PathBuf)> =
         BTreeMap::new();
     let mut to_scan: VecDeque<(String, DependencySource, PathBuf)> = VecDeque::new();
+    let mut reported: HashSet<String> = HashSet::new();
 
     for (name, dep) in &manifest.dependencies {
         to_scan.push_back((name.clone(), dep.clone(), manifest_dir.to_path_buf()));
@@ -532,9 +540,13 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
         resolved_requests.insert(key, (dep.clone(), from_manifest_dir.clone()));
 
         // Inspect sub-dependencies
-        if let Ok(source_dir) =
-            ensure_dep_cached(&name, &dep, &from_manifest_dir, existing_lock.as_ref())
-        {
+        if let Ok(source_dir) = ensure_dep_cached(
+            &name,
+            &dep,
+            &from_manifest_dir,
+            existing_lock.as_ref(),
+            &mut reported,
+        ) {
             let sub_manifest_path = source_dir.join("alya.toml");
             if sub_manifest_path.exists() {
                 if let Ok(sub_content) = fs::read_to_string(&sub_manifest_path) {
@@ -574,8 +586,13 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
             name.clone()
         };
 
-        let cached_source_dir =
-            ensure_dep_cached(&name, &dep, &from_manifest_dir, existing_lock.as_ref())?;
+        let cached_source_dir = ensure_dep_cached(
+            &name,
+            &dep,
+            &from_manifest_dir,
+            existing_lock.as_ref(),
+            &mut reported,
+        )?;
         let is_path_dep = matches!(dep, DependencySource::Path { .. });
 
         let (target_dir, actual_source_str) = if is_path_dep && !is_multi {
