@@ -58,7 +58,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    str x19, [x7, x6, lsl #3]\n");
     out.push_str("    add x6, x6, #1\n");
     out.push_str("    str x6, [x5]\n");
-    out.push_str("    cmp x6, #1024\n");
+    out.push_str("    movz x8, #0x4240\n");
+    out.push_str("    movk x8, #0x000f, lsl #16\n");
+    out.push_str("    cmp x6, x8\n");
     out.push_str("    b.lo .L_arm64_gc_ap_done\n");
 
     out.push_str("    bl fn_gc_collect\n");

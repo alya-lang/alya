@@ -273,10 +273,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    cmp x0, x4\n");
     out.push_str("    b.lo .L_arm64_fn_slice_str\n");
     out.push_str(".L_arm64_fn_slice_chk_tag:\n");
-    out.push_str("    ldr x3, [x0, #-16]\n");
-    out.push_str("    movz x4, #0x0001\n");
-    out.push_str("    movk x4, #0x5A11, lsl #16\n");
-    out.push_str("    cmp x3, x4\n");
+    out.push_str("    ldur w3, [x0, #-16]\n");
+    out.push_str("    movz w4, #0x0001\n");
+    out.push_str("    movk w4, #0x5A11, lsl #16\n");
+    out.push_str("    cmp w3, w4\n");
     out.push_str("    b.eq alya_array_slice\n");
     out.push_str(".L_arm64_fn_slice_str:\n");
     out.push_str("    cmp x2, #0\n");

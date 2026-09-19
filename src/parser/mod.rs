@@ -1711,9 +1711,17 @@ fn expand_defaults_in_expr(
                 }
             }
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
-            if let Some((param_count, defaults, has_rest)) =
-                fn_defs.get(name).or_else(|| fn_defs.get(bare))
-            {
+            let target_def = fn_defs.get(name).or_else(|| fn_defs.get(bare)).or_else(|| {
+                let suffix = format!("__{}", name);
+                fn_defs
+                    .iter()
+                    .filter(|(k, (param_count, _, _))| {
+                        k.ends_with(&suffix) && args.len() <= *param_count
+                    })
+                    .map(|(_, v)| v)
+                    .next()
+            });
+            if let Some((param_count, defaults, has_rest)) = target_def {
                 if *has_rest {
                     let fixed_count = param_count.saturating_sub(1);
                     if args.len() < fixed_count {
