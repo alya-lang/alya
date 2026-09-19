@@ -282,23 +282,28 @@ struct TestResultItem {
     outcome: Result<TestExecution, String>,
 }
 
+#[derive(Default)]
+struct TestStats {
+    passed: usize,
+    failed: usize,
+    assert_passes: usize,
+    assert_fails: usize,
+    failed_suites: Vec<(String, String)>,
+}
+
 fn handle_test_result(
     display_name: &str,
     outcome: Result<TestExecution, String>,
     name_width: usize,
-    passed: &mut usize,
-    failed: &mut usize,
-    assert_passes: &mut usize,
-    assert_fails: &mut usize,
-    failed_suites: &mut Vec<(String, String)>,
+    stats: &mut TestStats,
 ) {
     match outcome {
         Ok(exec) if exec.success => {
-            *passed += 1;
+            stats.passed += 1;
             let p_count = exec.stdout.matches("[PASS]").count();
             let f_count = exec.stdout.matches("[FAIL]").count();
-            *assert_passes += p_count;
-            *assert_fails += f_count;
+            stats.assert_passes += p_count;
+            stats.assert_fails += f_count;
 
             if p_count > 0 {
                 println!(
@@ -318,11 +323,11 @@ fn handle_test_result(
             }
         }
         Ok(exec) => {
-            *failed += 1;
+            stats.failed += 1;
             let p_count = exec.stdout.matches("[PASS]").count();
             let f_count = exec.stdout.matches("[FAIL]").count();
-            *assert_passes += p_count;
-            *assert_fails += f_count;
+            stats.assert_passes += p_count;
+            stats.assert_fails += f_count;
 
             let (is_clean_exit, _code, exit_desc, is_crash) = match exec.exit_status {
                 Some(ref st) => describe_exit_status(st),
@@ -340,11 +345,8 @@ fn handle_test_result(
 
             // Find the last test that passed before failure or crash
             let last_pass: Option<String> = exec.stdout.lines().rev().find_map(|line| {
-                if let Some(idx) = line.find("[PASS]") {
-                    Some(line[idx..].trim().to_string())
-                } else {
-                    None
-                }
+                line.find("[PASS]")
+                    .map(|idx| line[idx..].trim().to_string())
             });
 
             let status_label = if exec.is_timeout {
@@ -389,7 +391,7 @@ fn handle_test_result(
             } else {
                 exit_desc.clone()
             };
-            failed_suites.push((display_name.to_string(), detail));
+            stats.failed_suites.push((display_name.to_string(), detail));
 
             println!(
                 "    \x1b[90m┌────────────────────────────────────────────────────────────\x1b[0m"
@@ -494,8 +496,8 @@ fn handle_test_result(
             );
         }
         Err(err) => {
-            *failed += 1;
-            failed_suites.push((
+            stats.failed += 1;
+            stats.failed_suites.push((
                 display_name.to_string(),
                 "Compilation / Parser Error".to_string(),
             ));
@@ -575,27 +577,14 @@ pub fn run_tests(
         path_str
     );
 
-    let mut passed = 0;
-    let mut failed = 0;
-    let mut assert_passes = 0;
-    let mut assert_fails = 0;
-    let mut failed_suites: Vec<(String, String)> = Vec::new();
+    let mut stats = TestStats::default();
     let total_start = Instant::now();
 
     if num_workers == 1 {
         for file in &test_files {
             let display_name = format_test_path(file, root);
             let outcome = execute_test_file(file, arch, os);
-            handle_test_result(
-                &display_name,
-                outcome,
-                name_width,
-                &mut passed,
-                &mut failed,
-                &mut assert_passes,
-                &mut assert_fails,
-                &mut failed_suites,
-            );
+            handle_test_result(&display_name, outcome, name_width, &mut stats);
         }
     } else {
         let (tx, rx) = mpsc::channel();
@@ -627,16 +616,7 @@ pub fn run_tests(
         drop(tx);
 
         while let Ok(item) = rx.recv() {
-            handle_test_result(
-                &item.display_name,
-                item.outcome,
-                name_width,
-                &mut passed,
-                &mut failed,
-                &mut assert_passes,
-                &mut assert_fails,
-                &mut failed_suites,
-            );
+            handle_test_result(&item.display_name, item.outcome, name_width, &mut stats);
         }
 
         for h in handles {
@@ -646,14 +626,14 @@ pub fn run_tests(
 
     let total_time = total_start.elapsed().as_millis();
     println!("\n------------------------------------------------------------------------");
-    if failed == 0 {
+    if stats.failed == 0 {
         println!(
             "  \x1b[1;32m✓ Test Suites : {} passed, {} total\x1b[0m",
-            passed,
-            passed + failed
+            stats.passed,
+            stats.passed + stats.failed
         );
-        if assert_passes > 0 {
-            println!("    Assertions  : {} passed, 0 failed", assert_passes);
+        if stats.assert_passes > 0 {
+            println!("    Assertions  : {} passed, 0 failed", stats.assert_passes);
         }
         println!("    Duration    : {} ms ({})", total_time, mode_str);
         println!("    Status      : \x1b[1;32mPASSED\x1b[0m");
@@ -662,27 +642,27 @@ pub fn run_tests(
     } else {
         println!(
             "  \x1b[1;31m✗ Test Suites : {} passed, {} failed, {} total\x1b[0m",
-            passed,
-            failed,
-            passed + failed
+            stats.passed,
+            stats.failed,
+            stats.passed + stats.failed
         );
-        if assert_fails == 0 && failed > 0 {
+        if stats.assert_fails == 0 && stats.failed > 0 {
             println!(
                 "    Assertions  : {} passed, 0 failed \x1b[91m({} suite(s) aborted/crashed prematurely)\x1b[0m",
-                assert_passes, failed
+                stats.assert_passes, stats.failed
             );
-        } else if assert_passes > 0 || assert_fails > 0 {
+        } else if stats.assert_passes > 0 || stats.assert_fails > 0 {
             println!(
                 "    Assertions  : {} passed, {} failed",
-                assert_passes, assert_fails
+                stats.assert_passes, stats.assert_fails
             );
         }
         println!("    Duration    : {} ms ({})", total_time, mode_str);
         println!("    Status      : \x1b[1;31mFAILED\x1b[0m");
 
-        if !failed_suites.is_empty() {
+        if !stats.failed_suites.is_empty() {
             println!("\n  \x1b[1;31mFailed Suites Summary:\x1b[0m");
-            for (suite_name, reason) in &failed_suites {
+            for (suite_name, reason) in &stats.failed_suites {
                 println!(
                     "    \x1b[1;31m✗\x1b[0m \x1b[1m{}\x1b[0m: {}",
                     suite_name, reason
@@ -691,7 +671,10 @@ pub fn run_tests(
         }
 
         println!("------------------------------------------------------------------------\n");
-        Err(format!("Test suite completed with {} failure(s).", failed))
+        Err(format!(
+            "Test suite completed with {} failure(s).",
+            stats.failed
+        ))
     }
 }
 
