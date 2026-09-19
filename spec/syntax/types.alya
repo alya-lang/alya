@@ -135,4 +135,3 @@ say f"Gradual typing OK: score={typed_score}, recovered={recovered_typed}, hash=
 # let v_fma: f64x4 = (v1 * v2) + v_sum
 # let dot: float = v1.sum_horizontal()
 say "SIMD 6.4 Vector Specification: f64x4, f32x8, i32x8, i64x4 ready"
-
