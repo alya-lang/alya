@@ -254,14 +254,14 @@ pub fn parse_type_str(raw: &str) -> Type {
     }
 
     // Nullable T?
-    if s.ends_with('?') {
-        let inner = parse_type_str(&s[..s.len() - 1]);
+    if let Some(stripped) = s.strip_suffix('?') {
+        let inner = parse_type_str(stripped);
         return Type::Nullable(Box::new(inner));
     }
 
     // Array T[]
-    if s.ends_with("[]") {
-        let inner = parse_type_str(&s[..s.len() - 2]);
+    if let Some(stripped) = s.strip_suffix("[]") {
+        let inner = parse_type_str(stripped);
         return Type::Array(Box::new(inner));
     }
 
