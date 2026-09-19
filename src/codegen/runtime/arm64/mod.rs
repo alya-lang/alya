@@ -34,15 +34,9 @@ pub(crate) fn emit_str_buf_ctx(
     temp_reg: &str,
     os: OperatingSystem,
 ) {
-    if matches!(os, OperatingSystem::MacOS) {
-        out.push_str(&format!("    mrs {}, tpidrro_el0\n", temp_reg));
-        out.push_str(&format!("    lsr {}, {}, #12\n", temp_reg, temp_reg));
-        out.push_str(&format!("    and {}, {}, #63\n", temp_reg, temp_reg));
-    } else {
-        out.push_str(&format!("    mrs {}, tpidr_el0\n", temp_reg));
-        out.push_str(&format!("    lsr {}, {}, #12\n", temp_reg, temp_reg));
-        out.push_str(&format!("    and {}, {}, #63\n", temp_reg, temp_reg));
-    }
+    out.push_str(&format!("    mrs {}, tpidr_el0\n", temp_reg));
+    out.push_str(&format!("    lsr {}, {}, #12\n", temp_reg, temp_reg));
+    out.push_str(&format!("    and {}, {}, #63\n", temp_reg, temp_reg));
     emit_adrp_add(out, idx_reg, "alya_str_idx", os);
     out.push_str(&format!("    add {}, {}, {}, lsl #3\n", idx_reg, idx_reg, temp_reg));
     emit_adrp_add(out, buf_reg, "alya_str_buf", os);

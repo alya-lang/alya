@@ -18,6 +18,8 @@ pub fn emit_data_sections(
         out.push_str(".align 16\n");
     }
 
+    out.push_str("alya_str_buf_guard:\n");
+    out.push_str("    .space 64\n");
     out.push_str("alya_str_buf:\n");
     out.push_str("    .space 67108864\n");
     if matches!(os, OperatingSystem::Windows) {

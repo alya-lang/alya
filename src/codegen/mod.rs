@@ -824,6 +824,8 @@ impl CodeGen {
         }
 
         self.emit_rodata_section();
+        self.output.push_str("alya_rodata_guard:\n");
+        self.output.push_str("    .space 64\n");
         self.output.push_str(".global alya_rodata_start\n");
         self.output.push_str("alya_rodata_start:\n");
         self.output.push_str("    .byte 0\n");

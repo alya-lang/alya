@@ -101,6 +101,11 @@ fn describe_exit_status(status: &std::process::ExitStatus) -> (bool, Option<i32>
         if let Some(sig) = status.signal() {
             let (name, is_crash) = match sig {
                 11 => ("SIGSEGV (Segmentation fault - invalid memory access)", true),
+                10 => (
+                    "SIGBUS (Bus error - unaligned or invalid memory access)",
+                    true,
+                ),
+                5 => ("SIGTRAP (Trace/breakpoint trap)", true),
                 6 => ("SIGABRT (Aborted)", true),
                 4 => ("SIGILL (Illegal instruction)", true),
                 8 => ("SIGFPE (Floating point exception)", true),
@@ -111,7 +116,7 @@ fn describe_exit_status(status: &std::process::ExitStatus) -> (bool, Option<i32>
             return (
                 false,
                 None,
-                format!("Terminated by signal: {}", name),
+                format!("Terminated by signal: {} (signal {})", name, sig),
                 is_crash,
             );
         }
