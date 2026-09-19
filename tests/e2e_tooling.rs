@@ -1004,3 +1004,253 @@ fn test_lsp_type_checker_diagnostics() {
         .unwrap();
     assert!(msg.contains("Type mismatch in 'let count'"));
 }
+
+#[test]
+fn test_lsp_milestone3_features() {
+    let mut server = ServerState::new();
+
+    // 1. Test initialize capabilities for Milestone 3
+    let mut init_req = BTreeMap::new();
+    init_req.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    init_req.insert("id".to_string(), JsonValue::Number(1.0));
+    init_req.insert(
+        "method".to_string(),
+        JsonValue::String("initialize".to_string()),
+    );
+    init_req.insert("params".to_string(), JsonValue::Object(BTreeMap::new()));
+
+    let init_resp = server
+        .handle_message(&JsonValue::Object(init_req))
+        .expect("Expected initialize response");
+    let caps = init_resp
+        .get("result")
+        .and_then(|r| r.get("capabilities"))
+        .expect("Expected capabilities");
+
+    assert!(
+        caps.get("signatureHelpProvider").is_some(),
+        "signatureHelpProvider must be registered"
+    );
+    assert!(
+        caps.get("renameProvider").is_some(),
+        "renameProvider must be registered"
+    );
+    assert_eq!(
+        caps.get("inlayHintProvider"),
+        Some(&JsonValue::Bool(true)),
+        "inlayHintProvider must be registered"
+    );
+    assert!(
+        caps.get("semanticTokensProvider").is_some(),
+        "semanticTokensProvider must be registered"
+    );
+
+    // 2. Open document with functions, calls, and variables
+    let uri = "file:///workspace/milestone3.alya";
+    let source = r#"# Scales vector components by factor
+pub function scale(factor: float, delta: int = 1) -> float
+    return factor * delta
+end
+
+function main()
+    let count = 42
+    let s = "hello"
+    let res = scale(2.5, 10)
+    say res
+end
+"#;
+
+    let mut did_open_params = BTreeMap::new();
+    let mut doc_info = BTreeMap::new();
+    doc_info.insert("uri".to_string(), JsonValue::String(uri.to_string()));
+    doc_info.insert("text".to_string(), JsonValue::String(source.to_string()));
+    did_open_params.insert("textDocument".to_string(), JsonValue::Object(doc_info));
+
+    let mut did_open = BTreeMap::new();
+    did_open.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    did_open.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/didOpen".to_string()),
+    );
+    did_open.insert("params".to_string(), JsonValue::Object(did_open_params));
+    server.handle_message(&JsonValue::Object(did_open));
+
+    // 3. Test textDocument/signatureHelp
+    // Line 8: "    let res = scale(2.5, 10)" -> position inside second argument (character 26)
+    let mut sig_params = BTreeMap::new();
+    let mut sig_doc = BTreeMap::new();
+    sig_doc.insert("uri".to_string(), JsonValue::String(uri.to_string()));
+    sig_params.insert("textDocument".to_string(), JsonValue::Object(sig_doc));
+    sig_params.insert("position".to_string(), Position::new(8, 26).to_json());
+
+    let mut sig_req = BTreeMap::new();
+    sig_req.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    sig_req.insert("id".to_string(), JsonValue::Number(2.0));
+    sig_req.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/signatureHelp".to_string()),
+    );
+    sig_req.insert("params".to_string(), JsonValue::Object(sig_params));
+
+    let sig_resp = server
+        .handle_message(&JsonValue::Object(sig_req))
+        .expect("Expected signatureHelp response");
+    let sig_res = sig_resp
+        .get("result")
+        .expect("Expected signatureHelp result");
+    let sigs = sig_res
+        .get("signatures")
+        .and_then(|s| s.as_array())
+        .expect("Expected signatures array");
+    assert_eq!(sigs.len(), 1);
+    let sig_label = sigs[0].get("label").and_then(|l| l.as_str()).unwrap();
+    assert!(sig_label.contains("scale(factor: float, delta: int = ...) -> float"));
+    assert_eq!(
+        sig_res.get("activeParameter"),
+        Some(&JsonValue::Number(1.0)),
+        "Active parameter should be 1 (delta)"
+    );
+
+    // 4. Test textDocument/prepareRename & textDocument/rename
+    let mut prep_params = BTreeMap::new();
+    let mut prep_doc = BTreeMap::new();
+    prep_doc.insert("uri".to_string(), JsonValue::String(uri.to_string()));
+    prep_params.insert("textDocument".to_string(), JsonValue::Object(prep_doc));
+    // Line 1: "pub function scale(factor: float..." -> on 'scale' at column 14
+    prep_params.insert("position".to_string(), Position::new(1, 14).to_json());
+
+    let mut prep_req = BTreeMap::new();
+    prep_req.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    prep_req.insert("id".to_string(), JsonValue::Number(3.0));
+    prep_req.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/prepareRename".to_string()),
+    );
+    prep_req.insert("params".to_string(), JsonValue::Object(prep_params));
+
+    let prep_resp = server
+        .handle_message(&JsonValue::Object(prep_req))
+        .expect("Expected prepareRename response");
+    let prep_res = prep_resp
+        .get("result")
+        .expect("Expected prepareRename result");
+    assert!(
+        prep_res.get("start").is_some(),
+        "prepareRename must return symbol range"
+    );
+
+    // Now execute textDocument/rename
+    let mut ren_params = BTreeMap::new();
+    let mut ren_doc = BTreeMap::new();
+    ren_doc.insert("uri".to_string(), JsonValue::String(uri.to_string()));
+    ren_params.insert("textDocument".to_string(), JsonValue::Object(ren_doc));
+    ren_params.insert("position".to_string(), Position::new(1, 14).to_json());
+    ren_params.insert(
+        "newName".to_string(),
+        JsonValue::String("scale_factor".to_string()),
+    );
+
+    let mut ren_req = BTreeMap::new();
+    ren_req.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    ren_req.insert("id".to_string(), JsonValue::Number(4.0));
+    ren_req.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/rename".to_string()),
+    );
+    ren_req.insert("params".to_string(), JsonValue::Object(ren_params));
+
+    let ren_resp = server
+        .handle_message(&JsonValue::Object(ren_req))
+        .expect("Expected rename response");
+    let ren_res = ren_resp.get("result").expect("Expected rename result");
+    let changes = ren_res
+        .get("changes")
+        .and_then(|c| c.as_object())
+        .expect("Expected changes map");
+    let edits = changes
+        .get(uri)
+        .and_then(|e| e.as_array())
+        .expect("Expected edits for uri");
+    assert_eq!(
+        edits.len(),
+        2,
+        "Both function declaration and call site should be renamed"
+    );
+
+    // 5. Test textDocument/inlayHint
+    let mut hint_params = BTreeMap::new();
+    let mut hint_doc = BTreeMap::new();
+    hint_doc.insert("uri".to_string(), JsonValue::String(uri.to_string()));
+    hint_params.insert("textDocument".to_string(), JsonValue::Object(hint_doc));
+
+    let mut hint_req = BTreeMap::new();
+    hint_req.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    hint_req.insert("id".to_string(), JsonValue::Number(5.0));
+    hint_req.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/inlayHint".to_string()),
+    );
+    hint_req.insert("params".to_string(), JsonValue::Object(hint_params));
+
+    let hint_resp = server
+        .handle_message(&JsonValue::Object(hint_req))
+        .expect("Expected inlayHint response");
+    let hints = hint_resp
+        .get("result")
+        .and_then(|r| r.as_array())
+        .expect("Expected hints array");
+    assert!(!hints.is_empty(), "Inlay hints should not be empty");
+
+    let has_int_hint = hints.iter().any(|h| {
+        h.get("label").and_then(|l| l.as_str()) == Some(": int")
+            && h.get("kind").and_then(|k| k.as_f64()) == Some(1.0)
+    });
+    assert!(
+        has_int_hint,
+        "Should generate ': int' type hint for 'let count = 42'"
+    );
+
+    let has_str_hint = hints.iter().any(|h| {
+        h.get("label").and_then(|l| l.as_str()) == Some(": string")
+            && h.get("kind").and_then(|k| k.as_f64()) == Some(1.0)
+    });
+    assert!(
+        has_str_hint,
+        "Should generate ': string' type hint for 'let s = \"hello\"'"
+    );
+
+    // 6. Test textDocument/semanticTokens/full
+    let mut sem_params = BTreeMap::new();
+    let mut sem_doc = BTreeMap::new();
+    sem_doc.insert("uri".to_string(), JsonValue::String(uri.to_string()));
+    sem_params.insert("textDocument".to_string(), JsonValue::Object(sem_doc));
+
+    let mut sem_req = BTreeMap::new();
+    sem_req.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    sem_req.insert("id".to_string(), JsonValue::Number(6.0));
+    sem_req.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/semanticTokens/full".to_string()),
+    );
+    sem_req.insert("params".to_string(), JsonValue::Object(sem_params));
+
+    let sem_resp = server
+        .handle_message(&JsonValue::Object(sem_req))
+        .expect("Expected semanticTokens response");
+    let sem_res = sem_resp
+        .get("result")
+        .expect("Expected semanticTokens result");
+    let sem_data = sem_res
+        .get("data")
+        .and_then(|d| d.as_array())
+        .expect("Expected semantic data array");
+    assert!(
+        !sem_data.is_empty(),
+        "Semantic tokens data must not be empty"
+    );
+    assert_eq!(
+        sem_data.len() % 5,
+        0,
+        "Semantic token integer stream must be multiples of 5"
+    );
+}

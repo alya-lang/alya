@@ -3,7 +3,8 @@ use std::io::{self, BufRead, Write};
 
 use super::analysis::{
     check_document, find_references_for_word, format_document, get_completions, get_definition_pos,
-    get_document_symbols, get_folding_ranges, get_hover, get_word_at_pos,
+    get_document_symbols, get_folding_ranges, get_hover, get_inlay_hints, get_semantic_tokens,
+    get_signature_help, get_word_at_pos, prepare_rename, rename_symbol,
 };
 use super::json::JsonValue;
 use super::protocol::{make_error, make_notification, make_response, Position, Range, TextEdit};
@@ -79,6 +80,49 @@ impl ServerState {
                 );
                 capabilities.insert("referencesProvider".to_string(), JsonValue::Bool(true));
                 capabilities.insert("foldingRangeProvider".to_string(), JsonValue::Bool(true));
+
+                // Milestone 3 capabilities
+                let mut sig_provider = BTreeMap::new();
+                sig_provider.insert(
+                    "triggerCharacters".to_string(),
+                    JsonValue::Array(vec![
+                        JsonValue::String("(".to_string()),
+                        JsonValue::String(",".to_string()),
+                    ]),
+                );
+                capabilities.insert(
+                    "signatureHelpProvider".to_string(),
+                    JsonValue::Object(sig_provider),
+                );
+
+                let mut rename_provider = BTreeMap::new();
+                rename_provider.insert("prepareProvider".to_string(), JsonValue::Bool(true));
+                capabilities.insert(
+                    "renameProvider".to_string(),
+                    JsonValue::Object(rename_provider),
+                );
+
+                capabilities.insert("inlayHintProvider".to_string(), JsonValue::Bool(true));
+
+                let mut legend = BTreeMap::new();
+                let types_json = super::protocol::SEMANTIC_TOKEN_TYPES
+                    .iter()
+                    .map(|s| JsonValue::String(s.to_string()))
+                    .collect();
+                legend.insert("tokenTypes".to_string(), JsonValue::Array(types_json));
+                let mods_json = super::protocol::SEMANTIC_TOKEN_MODIFIERS
+                    .iter()
+                    .map(|s| JsonValue::String(s.to_string()))
+                    .collect();
+                legend.insert("tokenModifiers".to_string(), JsonValue::Array(mods_json));
+
+                let mut sem_provider = BTreeMap::new();
+                sem_provider.insert("legend".to_string(), JsonValue::Object(legend));
+                sem_provider.insert("full".to_string(), JsonValue::Bool(true));
+                capabilities.insert(
+                    "semanticTokensProvider".to_string(),
+                    JsonValue::Object(sem_provider),
+                );
 
                 let mut server_info = BTreeMap::new();
                 server_info.insert(
@@ -172,6 +216,41 @@ impl ServerState {
                     id,
                     JsonValue::Array(ranges.into_iter().map(|r| r.to_json()).collect()),
                 )
+            }
+            "textDocument/signatureHelp" => {
+                let sig_opt = self.handle_signature_help(params);
+                if let Some(sig) = sig_opt {
+                    make_response(id, sig.to_json())
+                } else {
+                    make_response(id, JsonValue::Null)
+                }
+            }
+            "textDocument/prepareRename" => {
+                let range_opt = self.handle_prepare_rename(params);
+                if let Some(range) = range_opt {
+                    make_response(id, range.to_json())
+                } else {
+                    make_response(id, JsonValue::Null)
+                }
+            }
+            "textDocument/rename" => {
+                let edit_opt = self.handle_rename(params);
+                if let Some(edit) = edit_opt {
+                    make_response(id, edit.to_json())
+                } else {
+                    make_response(id, JsonValue::Null)
+                }
+            }
+            "textDocument/inlayHint" => {
+                let hints = self.handle_inlay_hint(params);
+                make_response(
+                    id,
+                    JsonValue::Array(hints.into_iter().map(|h| h.to_json()).collect()),
+                )
+            }
+            "textDocument/semanticTokens/full" => {
+                let tokens = self.handle_semantic_tokens_full(params);
+                make_response(id, tokens.to_json())
             }
             _ => make_error(id, -32601, &format!("Method not found: {}", method)),
         }
@@ -471,6 +550,77 @@ impl ServerState {
             get_folding_ranges(source)
         } else {
             Vec::new()
+        }
+    }
+
+    fn handle_signature_help(
+        &self,
+        params: Option<&JsonValue>,
+    ) -> Option<super::protocol::SignatureHelp> {
+        let params = params?;
+        let uri = params.get("textDocument")?.get("uri")?.as_str()?;
+        let pos = Position::from_json(params.get("position")?)?;
+        let source = self.documents.get(uri)?;
+        get_signature_help(source, &pos)
+    }
+
+    fn handle_prepare_rename(&self, params: Option<&JsonValue>) -> Option<Range> {
+        let params = params?;
+        let uri = params.get("textDocument")?.get("uri")?.as_str()?;
+        let pos = Position::from_json(params.get("position")?)?;
+        let source = self.documents.get(uri)?;
+        prepare_rename(source, &pos)
+    }
+
+    fn handle_rename(&self, params: Option<&JsonValue>) -> Option<super::protocol::WorkspaceEdit> {
+        let params = params?;
+        let uri = params.get("textDocument")?.get("uri")?.as_str()?;
+        let pos = Position::from_json(params.get("position")?)?;
+        let new_name = params.get("newName")?.as_str()?;
+        rename_symbol(&self.documents, uri, &pos, new_name)
+    }
+
+    fn handle_inlay_hint(&self, params: Option<&JsonValue>) -> Vec<super::protocol::InlayHint> {
+        let params = match params {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+        let uri = match params
+            .get("textDocument")
+            .and_then(|td| td.get("uri"))
+            .and_then(|u| u.as_str())
+        {
+            Some(u) => u,
+            None => return Vec::new(),
+        };
+        if let Some(source) = self.documents.get(uri) {
+            get_inlay_hints(source)
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn handle_semantic_tokens_full(
+        &self,
+        params: Option<&JsonValue>,
+    ) -> super::protocol::SemanticTokens {
+        let default_empty = super::protocol::SemanticTokens { data: Vec::new() };
+        let params = match params {
+            Some(p) => p,
+            None => return default_empty,
+        };
+        let uri = match params
+            .get("textDocument")
+            .and_then(|td| td.get("uri"))
+            .and_then(|u| u.as_str())
+        {
+            Some(u) => u,
+            None => return default_empty,
+        };
+        if let Some(source) = self.documents.get(uri) {
+            get_semantic_tokens(source)
+        } else {
+            default_empty
         }
     }
 }

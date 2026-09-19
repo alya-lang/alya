@@ -1,5 +1,5 @@
 use super::json::JsonValue;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Position {
@@ -312,6 +312,239 @@ impl FoldingRange {
         if let Some(kind) = &self.kind {
             map.insert("kind".to_string(), JsonValue::String(kind.clone()));
         }
+        JsonValue::Object(map)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParameterInformation {
+    pub label: String,
+    pub documentation: Option<String>,
+}
+
+impl ParameterInformation {
+    pub fn new(label: &str) -> Self {
+        Self {
+            label: label.to_string(),
+            documentation: None,
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        let mut map = BTreeMap::new();
+        map.insert("label".to_string(), JsonValue::String(self.label.clone()));
+        if let Some(doc) = &self.documentation {
+            map.insert("documentation".to_string(), JsonValue::String(doc.clone()));
+        }
+        JsonValue::Object(map)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureInformation {
+    pub label: String,
+    pub documentation: Option<String>,
+    pub parameters: Vec<ParameterInformation>,
+    pub active_parameter: Option<u32>,
+}
+
+impl SignatureInformation {
+    pub fn to_json(&self) -> JsonValue {
+        let mut map = BTreeMap::new();
+        map.insert("label".to_string(), JsonValue::String(self.label.clone()));
+        if let Some(doc) = &self.documentation {
+            let mut doc_map = BTreeMap::new();
+            doc_map.insert(
+                "kind".to_string(),
+                JsonValue::String("markdown".to_string()),
+            );
+            doc_map.insert("value".to_string(), JsonValue::String(doc.clone()));
+            map.insert("documentation".to_string(), JsonValue::Object(doc_map));
+        }
+        let params_json = self.parameters.iter().map(|p| p.to_json()).collect();
+        map.insert("parameters".to_string(), JsonValue::Array(params_json));
+        if let Some(ap) = self.active_parameter {
+            map.insert("activeParameter".to_string(), JsonValue::Number(ap as f64));
+        }
+        JsonValue::Object(map)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureHelp {
+    pub signatures: Vec<SignatureInformation>,
+    pub active_signature: u32,
+    pub active_parameter: u32,
+}
+
+impl SignatureHelp {
+    pub fn to_json(&self) -> JsonValue {
+        let mut map = BTreeMap::new();
+        let sigs_json = self.signatures.iter().map(|s| s.to_json()).collect();
+        map.insert("signatures".to_string(), JsonValue::Array(sigs_json));
+        map.insert(
+            "activeSignature".to_string(),
+            JsonValue::Number(self.active_signature as f64),
+        );
+        map.insert(
+            "activeParameter".to_string(),
+            JsonValue::Number(self.active_parameter as f64),
+        );
+        JsonValue::Object(map)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceEdit {
+    pub changes: HashMap<String, Vec<TextEdit>>,
+}
+
+impl Default for WorkspaceEdit {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WorkspaceEdit {
+    pub fn new() -> Self {
+        Self {
+            changes: HashMap::new(),
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        let mut map = BTreeMap::new();
+        let mut changes_obj = BTreeMap::new();
+        for (uri, edits) in &self.changes {
+            let edits_json = edits.iter().map(|e| e.to_json()).collect();
+            changes_obj.insert(uri.clone(), JsonValue::Array(edits_json));
+        }
+        map.insert("changes".to_string(), JsonValue::Object(changes_obj));
+        JsonValue::Object(map)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InlayHintKind {
+    Type = 1,
+    Parameter = 2,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlayHint {
+    pub position: Position,
+    pub label: String,
+    pub kind: Option<InlayHintKind>,
+    pub padding_left: bool,
+    pub padding_right: bool,
+}
+
+impl InlayHint {
+    pub fn to_json(&self) -> JsonValue {
+        let mut map = BTreeMap::new();
+        map.insert("position".to_string(), self.position.to_json());
+        map.insert("label".to_string(), JsonValue::String(self.label.clone()));
+        if let Some(kind) = &self.kind {
+            let k_num = match kind {
+                InlayHintKind::Type => 1.0,
+                InlayHintKind::Parameter => 2.0,
+            };
+            map.insert("kind".to_string(), JsonValue::Number(k_num));
+        }
+        if self.padding_left {
+            map.insert("paddingLeft".to_string(), JsonValue::Bool(true));
+        }
+        if self.padding_right {
+            map.insert("paddingRight".to_string(), JsonValue::Bool(true));
+        }
+        JsonValue::Object(map)
+    }
+}
+
+pub const SEMANTIC_TOKEN_TYPES: &[&str] = &[
+    "type",          // 0
+    "class",         // 1
+    "enum",          // 2
+    "interface",     // 3
+    "struct",        // 4
+    "typeParameter", // 5
+    "parameter",     // 6
+    "variable",      // 7
+    "property",      // 8
+    "enumMember",    // 9
+    "function",      // 10
+    "method",        // 11
+    "keyword",       // 12
+    "comment",       // 13
+    "string",        // 14
+    "number",        // 15
+    "operator",      // 16
+];
+
+pub const SEMANTIC_TOKEN_MODIFIERS: &[&str] = &[
+    "declaration",    // 1 << 0 = 1
+    "definition",     // 1 << 1 = 2
+    "readonly",       // 1 << 2 = 4
+    "defaultLibrary", // 1 << 3 = 8
+];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawSemanticToken {
+    pub line: u32,
+    pub start_col: u32,
+    pub length: u32,
+    pub token_type: u32,
+    pub token_modifiers: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticTokens {
+    pub data: Vec<u32>,
+}
+
+impl SemanticTokens {
+    pub fn from_raw_tokens(mut raw: Vec<RawSemanticToken>) -> Self {
+        raw.sort_by(|a, b| {
+            if a.line != b.line {
+                a.line.cmp(&b.line)
+            } else {
+                a.start_col.cmp(&b.start_col)
+            }
+        });
+
+        let mut data = Vec::with_capacity(raw.len() * 5);
+        let mut prev_line = 0;
+        let mut prev_col = 0;
+
+        for tok in raw {
+            let delta_line = tok.line - prev_line;
+            let delta_col = if delta_line == 0 {
+                tok.start_col.saturating_sub(prev_col)
+            } else {
+                tok.start_col
+            };
+
+            data.push(delta_line);
+            data.push(delta_col);
+            data.push(tok.length);
+            data.push(tok.token_type);
+            data.push(tok.token_modifiers);
+
+            prev_line = tok.line;
+            prev_col = tok.start_col;
+        }
+
+        Self { data }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        let mut map = BTreeMap::new();
+        let nums: Vec<JsonValue> = self
+            .data
+            .iter()
+            .map(|&n| JsonValue::Number(n as f64))
+            .collect();
+        map.insert("data".to_string(), JsonValue::Array(nums));
         JsonValue::Object(map)
     }
 }

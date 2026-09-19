@@ -1,10 +1,12 @@
 use super::protocol::{
-    CompletionItem, Diagnostic, DocumentSymbol, FoldingRange, Location, Position, Range,
+    CompletionItem, Diagnostic, DocumentSymbol, FoldingRange, InlayHint, InlayHintKind, Location,
+    ParameterInformation, Position, Range, RawSemanticToken, SemanticTokens, SignatureHelp,
+    SignatureInformation, TextEdit, WorkspaceEdit,
 };
 use crate::ast::Stmt;
 use crate::lexer::{Lexer, Token, TokenType};
 use crate::parser::Parser;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub fn check_document(source: &str, file_path: Option<&std::path::Path>) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
@@ -921,4 +923,791 @@ pub fn format_document(source: &str) -> Option<String> {
         }
         Err(_) => None,
     }
+}
+
+pub fn is_keyword(s: &str) -> bool {
+    matches!(
+        s,
+        "function"
+            | "fn"
+            | "struct"
+            | "enum"
+            | "interface"
+            | "let"
+            | "const"
+            | "if"
+            | "else"
+            | "elif"
+            | "while"
+            | "for"
+            | "repeat"
+            | "in"
+            | "when"
+            | "is"
+            | "as"
+            | "spawn"
+            | "select"
+            | "defer"
+            | "try"
+            | "catch"
+            | "finally"
+            | "throw"
+            | "return"
+            | "break"
+            | "continue"
+            | "say"
+            | "pub"
+            | "test"
+            | "bench"
+            | "import"
+            | "from"
+            | "weak"
+            | "true"
+            | "false"
+            | "null"
+            | "and"
+            | "or"
+            | "not"
+            | "end"
+    )
+}
+
+type FunctionSignatureMap =
+    HashMap<String, (Vec<ParameterInformation>, Option<String>, Option<String>)>;
+
+fn extract_functions(source: &str) -> FunctionSignatureMap {
+    let mut map = HashMap::new();
+
+    // 1. Built-in functions
+    map.insert(
+        "say".to_string(),
+        (
+            vec![ParameterInformation::new("value: any")],
+            Some("void".to_string()),
+            Some("Outputs formatted expression value to standard output.".to_string()),
+        ),
+    );
+    map.insert(
+        "assert".to_string(),
+        (
+            vec![
+                ParameterInformation::new("condition: bool"),
+                ParameterInformation::new("message: string = \"\""),
+            ],
+            Some("void".to_string()),
+            Some("Asserts that condition evaluates to true, aborting otherwise.".to_string()),
+        ),
+    );
+    map.insert(
+        "len".to_string(),
+        (
+            vec![ParameterInformation::new("collection: any")],
+            Some("int".to_string()),
+            Some("Returns number of elements in array, string, or map.".to_string()),
+        ),
+    );
+    map.insert(
+        "push".to_string(),
+        (
+            vec![
+                ParameterInformation::new("array: [any]"),
+                ParameterInformation::new("item: any"),
+            ],
+            Some("void".to_string()),
+            Some("Appends an element to the end of a dynamic array.".to_string()),
+        ),
+    );
+    map.insert(
+        "pop".to_string(),
+        (
+            vec![ParameterInformation::new("array: [any]")],
+            Some("any".to_string()),
+            Some("Removes and returns the last element of a dynamic array.".to_string()),
+        ),
+    );
+    map.insert(
+        "panic".to_string(),
+        (
+            vec![ParameterInformation::new("message: string")],
+            Some("void".to_string()),
+            Some("Terminates process execution immediately with an error message.".to_string()),
+        ),
+    );
+
+    // 2. Try parsing AST
+    let mut lexer = Lexer::new(source);
+    if let Ok(tokens) = lexer.tokenize() {
+        let mut parser = Parser::new(tokens);
+        if let Ok(ast) = parser.parse() {
+            for stmt in &ast.statements {
+                if let Stmt::Function {
+                    name,
+                    params,
+                    param_types,
+                    return_type,
+                    defaults,
+                    ..
+                } = stmt.inner_stmt()
+                {
+                    let mut p_infos = Vec::new();
+                    for (i, p_name) in params.iter().enumerate() {
+                        let mut label = p_name.clone();
+                        if let Some(Some(t)) = param_types.get(i) {
+                            label.push_str(": ");
+                            label.push_str(t);
+                        }
+                        if let Some(Some(_)) = defaults.get(i) {
+                            label.push_str(" = ...");
+                        }
+                        p_infos.push(ParameterInformation::new(&label));
+                    }
+                    map.insert(name.clone(), (p_infos, return_type.clone(), None));
+                }
+            }
+        }
+    }
+
+    // 3. Line scan fallback (for incomplete files during live typing)
+    let lines: Vec<&str> = source.lines().collect();
+    for (idx, line) in lines.iter().enumerate() {
+        let mut trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("pub ") {
+            trimmed = rest.trim_start();
+        }
+        if let Some(rest) = trimmed.strip_prefix("function ") {
+            let rest = rest.trim_start();
+            if let Some(paren_idx) = rest.find('(') {
+                let fn_name = rest[..paren_idx].trim().to_string();
+                if !fn_name.is_empty() && !map.contains_key(&fn_name) {
+                    let after_paren = &rest[paren_idx + 1..];
+                    let (args_str, ret_type) = if let Some(close_idx) = after_paren.find(')') {
+                        let a = &after_paren[..close_idx];
+                        let r = after_paren[close_idx + 1..].trim();
+                        let ret = r.strip_prefix("->").map(|arrow| arrow.trim().to_string());
+                        (a, ret)
+                    } else {
+                        (after_paren, None)
+                    };
+
+                    let p_infos = if args_str.trim().is_empty() {
+                        Vec::new()
+                    } else {
+                        args_str
+                            .split(',')
+                            .map(|part| ParameterInformation::new(part.trim()))
+                            .collect()
+                    };
+
+                    // Collect preceding doc comments
+                    let mut doc_lines = Vec::new();
+                    let mut back = idx;
+                    while back > 0 {
+                        back -= 1;
+                        let prev = lines[back].trim();
+                        if prev.starts_with('#') {
+                            let doc_text = prev.trim_start_matches('#').trim();
+                            doc_lines.push(doc_text);
+                        } else {
+                            break;
+                        }
+                    }
+                    doc_lines.reverse();
+                    let doc = if doc_lines.is_empty() {
+                        None
+                    } else {
+                        Some(doc_lines.join("\n"))
+                    };
+
+                    map.insert(fn_name, (p_infos, ret_type, doc));
+                }
+            }
+        }
+    }
+
+    map
+}
+
+/// Computes active function signature and parameter context for signature help.
+pub fn get_signature_help(source: &str, pos: &Position) -> Option<SignatureHelp> {
+    let lines: Vec<&str> = source.lines().collect();
+    let line_idx = pos.line as usize;
+    if line_idx >= lines.len() {
+        return None;
+    }
+
+    let mut text_up_to_pos = String::new();
+    for line in lines.iter().take(line_idx) {
+        text_up_to_pos.push_str(line);
+        text_up_to_pos.push('\n');
+    }
+    let cur_line = lines[line_idx];
+    let col = (pos.character as usize).min(cur_line.len());
+    text_up_to_pos.push_str(&cur_line[..col]);
+
+    let chars: Vec<char> = text_up_to_pos.chars().collect();
+    if chars.is_empty() {
+        return None;
+    }
+
+    let mut paren_depth = 0;
+    let mut comma_count = 0;
+    let mut open_paren_idx = None;
+
+    let mut i = chars.len();
+    while i > 0 {
+        i -= 1;
+        let c = chars[i];
+        match c {
+            ')' => paren_depth += 1,
+            '(' => {
+                if paren_depth > 0 {
+                    paren_depth -= 1;
+                } else {
+                    open_paren_idx = Some(i);
+                    break;
+                }
+            }
+            ',' if paren_depth == 0 => {
+                comma_count += 1;
+            }
+            _ => {}
+        }
+    }
+
+    let p_idx = open_paren_idx?;
+    let mut ident_end = p_idx;
+    while ident_end > 0 && chars[ident_end - 1].is_whitespace() {
+        ident_end -= 1;
+    }
+    if ident_end == 0 {
+        return None;
+    }
+
+    let mut ident_start = ident_end;
+    while ident_start > 0 {
+        let c = chars[ident_start - 1];
+        if c.is_alphanumeric() || c == '_' || c == '.' {
+            ident_start -= 1;
+        } else {
+            break;
+        }
+    }
+
+    if ident_start >= ident_end {
+        return None;
+    }
+
+    let callee: String = chars[ident_start..ident_end].iter().collect();
+    if is_keyword(&callee) {
+        return None;
+    }
+
+    let fn_map = extract_functions(source);
+    let (params, ret_type, doc) = fn_map.get(&callee).or_else(|| {
+        let simple_name = callee.split('.').next_back().unwrap_or(&callee);
+        fn_map.get(simple_name)
+    })?;
+
+    let param_labels: Vec<String> = params.iter().map(|p| p.label.clone()).collect();
+    let ret_str = ret_type.as_deref().unwrap_or("void");
+    let sig_label = format!("{}({}) -> {}", callee, param_labels.join(", "), ret_str);
+
+    let active_param = comma_count as u32;
+
+    let sig_info = SignatureInformation {
+        label: sig_label,
+        documentation: doc.clone(),
+        parameters: params.clone(),
+        active_parameter: Some(active_param),
+    };
+
+    Some(SignatureHelp {
+        signatures: vec![sig_info],
+        active_signature: 0,
+        active_parameter: active_param,
+    })
+}
+
+/// Prepares rename verification by returning symbol range at cursor.
+pub fn prepare_rename(source: &str, pos: &Position) -> Option<Range> {
+    let word = get_word_at_pos(source, pos)?;
+    if is_keyword(&word) || word.chars().next().map_or(true, |c| c.is_ascii_digit()) {
+        return None;
+    }
+
+    let line = source.lines().nth(pos.line as usize)?;
+    let col = (pos.character as usize).min(line.len());
+    let chars: Vec<char> = line.chars().collect();
+    if chars.is_empty() {
+        return None;
+    }
+
+    let target_idx = col.min(chars.len().saturating_sub(1));
+    if !is_ident_char(chars[target_idx]) {
+        return None;
+    }
+
+    let mut start = target_idx;
+    while start > 0 && is_ident_char(chars[start - 1]) {
+        start -= 1;
+    }
+    let mut end = target_idx;
+    while end < chars.len() && is_ident_char(chars[end]) {
+        end += 1;
+    }
+
+    Some(Range::new(
+        Position::new(pos.line, start as u32),
+        Position::new(pos.line, end as u32),
+    ))
+}
+
+/// Transactionally renames symbol across all open documents.
+pub fn rename_symbol(
+    documents: &HashMap<String, String>,
+    uri: &str,
+    pos: &Position,
+    new_name: &str,
+) -> Option<WorkspaceEdit> {
+    if new_name.is_empty()
+        || is_keyword(new_name)
+        || !new_name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_alphabetic() || c == '_')
+        || !new_name.chars().all(|c| c.is_alphanumeric() || c == '_')
+    {
+        return None;
+    }
+
+    let source = documents.get(uri)?;
+    let word = get_word_at_pos(source, pos)?;
+    if is_keyword(&word) {
+        return None;
+    }
+
+    let mut edit = WorkspaceEdit::new();
+    for (doc_uri, doc_source) in documents {
+        let refs = find_references_for_word(doc_source, &word, doc_uri);
+        if !refs.is_empty() {
+            let edits: Vec<TextEdit> = refs
+                .into_iter()
+                .map(|loc| TextEdit {
+                    range: loc.range,
+                    new_text: new_name.to_string(),
+                })
+                .collect();
+            edit.changes.insert(doc_uri.clone(), edits);
+        }
+    }
+
+    Some(edit)
+}
+
+/// Discovers inlay type hints and parameter name hints.
+pub fn get_inlay_hints(source: &str) -> Vec<InlayHint> {
+    let mut hints = Vec::new();
+    let mut lexer = Lexer::new(source);
+    let tokens = match lexer.tokenize() {
+        Ok(t) => t,
+        Err(_) => return hints,
+    };
+
+    let fn_map = extract_functions(source);
+
+    let mut i = 0;
+    while i < tokens.len() {
+        // 1. Inlay Type Hints: let x = 42 -> let x: int = 42
+        if matches!(tokens[i].token_type, TokenType::Let | TokenType::Const) && i + 2 < tokens.len()
+        {
+            if let TokenType::Identifier(ref var_name) = tokens[i + 1].token_type {
+                if !matches!(tokens[i + 2].token_type, TokenType::Colon)
+                    && matches!(tokens[i + 2].token_type, TokenType::Assign)
+                    && i + 3 < tokens.len()
+                {
+                    let inferred = match &tokens[i + 3].token_type {
+                        TokenType::Number(n) => {
+                            if n.fract() == 0.0 {
+                                Some(": int")
+                            } else {
+                                Some(": float")
+                            }
+                        }
+                        TokenType::Float(_) => Some(": float"),
+                        TokenType::String(_) => Some(": string"),
+                        TokenType::True | TokenType::False => Some(": bool"),
+                        TokenType::LeftBracket => Some(": [any]"),
+                        TokenType::Identifier(id) => {
+                            if i + 4 < tokens.len()
+                                && matches!(tokens[i + 4].token_type, TokenType::LeftBrace)
+                            {
+                                Some(id.as_str())
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(t_label) = inferred {
+                        let label_str = if t_label.starts_with(':') {
+                            t_label.to_string()
+                        } else {
+                            format!(": {}", t_label)
+                        };
+                        let line = tokens[i + 1].line.saturating_sub(1) as u32;
+                        let col =
+                            tokens[i + 1].column.saturating_sub(1) as u32 + var_name.len() as u32;
+
+                        hints.push(InlayHint {
+                            position: Position::new(line, col),
+                            label: label_str,
+                            kind: Some(InlayHintKind::Type),
+                            padding_left: false,
+                            padding_right: true,
+                        });
+                    }
+                }
+            }
+        }
+
+        // 2. Inlay Parameter Hints: call(factor: 2.5)
+        if let TokenType::Identifier(ref callee_name) = tokens[i].token_type {
+            if i + 1 < tokens.len() && matches!(tokens[i + 1].token_type, TokenType::LeftParen) {
+                if let Some((params, _, _)) = fn_map.get(callee_name) {
+                    if !params.is_empty() {
+                        let mut param_idx = 0;
+                        let mut scan = i + 2;
+                        let mut paren_nest = 1;
+                        let mut at_arg_start = true;
+
+                        while scan < tokens.len() && paren_nest > 0 {
+                            match &tokens[scan].token_type {
+                                TokenType::LeftParen
+                                | TokenType::LeftBracket
+                                | TokenType::LeftBrace => {
+                                    paren_nest += 1;
+                                    at_arg_start = false;
+                                }
+                                TokenType::RightParen => {
+                                    paren_nest -= 1;
+                                    at_arg_start = false;
+                                }
+                                TokenType::RightBracket | TokenType::RightBrace => {
+                                    paren_nest -= 1;
+                                    at_arg_start = false;
+                                }
+                                TokenType::Comma => {
+                                    if paren_nest == 1 {
+                                        param_idx += 1;
+                                        at_arg_start = true;
+                                    }
+                                }
+                                _ => {
+                                    if at_arg_start && paren_nest == 1 {
+                                        if let Some(p_info) = params.get(param_idx) {
+                                            let p_name = p_info
+                                                .label
+                                                .split(':')
+                                                .next()
+                                                .unwrap_or(&p_info.label)
+                                                .trim();
+
+                                            let is_same_name = match &tokens[scan].token_type {
+                                                TokenType::Identifier(id) => id == p_name,
+                                                _ => false,
+                                            };
+
+                                            if !is_same_name && !p_name.is_empty() {
+                                                let line =
+                                                    tokens[scan].line.saturating_sub(1) as u32;
+                                                let col =
+                                                    tokens[scan].column.saturating_sub(1) as u32;
+                                                hints.push(InlayHint {
+                                                    position: Position::new(line, col),
+                                                    label: format!("{}:", p_name),
+                                                    kind: Some(InlayHintKind::Parameter),
+                                                    padding_left: false,
+                                                    padding_right: true,
+                                                });
+                                            }
+                                        }
+                                        at_arg_start = false;
+                                    }
+                                }
+                            }
+                            scan += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        i += 1;
+    }
+
+    hints
+}
+
+fn token_length(tok: &Token, line_str: Option<&str>) -> usize {
+    match &tok.token_type {
+        TokenType::Identifier(id) => id.len(),
+        TokenType::String(s) => s.len() + 2,
+        TokenType::Rune(_) => 3,
+        TokenType::Function => 8,
+        TokenType::Struct => 6,
+        TokenType::Enum => 4,
+        TokenType::Interface => 9,
+        TokenType::If => 2,
+        TokenType::Else => 4,
+        TokenType::Elif => 4,
+        TokenType::While => 5,
+        TokenType::For => 3,
+        TokenType::Repeat => 6,
+        TokenType::When => 4,
+        TokenType::Try => 3,
+        TokenType::Catch => 5,
+        TokenType::Finally => 7,
+        TokenType::Throw => 5,
+        TokenType::Return => 6,
+        TokenType::Break => 5,
+        TokenType::Continue => 8,
+        TokenType::Say => 3,
+        TokenType::Let => 3,
+        TokenType::Const => 5,
+        TokenType::Pub => 3,
+        TokenType::Test => 4,
+        TokenType::Bench => 5,
+        TokenType::Import => 6,
+        TokenType::From => 4,
+        TokenType::Weak => 4,
+        TokenType::Spawn => 5,
+        TokenType::Select => 6,
+        TokenType::Defer => 5,
+        TokenType::End => 3,
+        TokenType::Is => 2,
+        TokenType::As => 2,
+        TokenType::In => 2,
+        TokenType::True => 4,
+        TokenType::False => 5,
+        TokenType::Null => 4,
+        TokenType::Arrow | TokenType::FatArrow => 2,
+        TokenType::Equal | TokenType::NotEqual | TokenType::LessEqual | TokenType::GreaterEqual => {
+            2
+        }
+        TokenType::PlusAssign
+        | TokenType::MinusAssign
+        | TokenType::MultiplyAssign
+        | TokenType::DivideAssign
+        | TokenType::ModuloAssign => 2,
+        TokenType::ColonColon
+        | TokenType::QuestionDot
+        | TokenType::NullCoalesce
+        | TokenType::DotDot => 2,
+        TokenType::DotDotDot => 3,
+        TokenType::Plus
+        | TokenType::Minus
+        | TokenType::Multiply
+        | TokenType::Divide
+        | TokenType::Modulo => 1,
+        TokenType::Assign | TokenType::Less | TokenType::Greater | TokenType::Not => 1,
+        TokenType::Colon | TokenType::Comma | TokenType::Dot | TokenType::Question => 1,
+        TokenType::Number(_) | TokenType::Float(_) => {
+            if let Some(l) = line_str {
+                let start = tok.column.saturating_sub(1);
+                if start < l.len() {
+                    let len = l[start..]
+                        .chars()
+                        .take_while(|c| {
+                            c.is_ascii_digit()
+                                || *c == '.'
+                                || *c == 'e'
+                                || *c == 'E'
+                                || *c == '_'
+                                || *c == 'x'
+                                || *c == 'o'
+                                || *c == 'b'
+                        })
+                        .count();
+                    if len > 0 {
+                        len
+                    } else {
+                        1
+                    }
+                } else {
+                    1
+                }
+            } else {
+                1
+            }
+        }
+        _ => 1,
+    }
+}
+
+/// Discovers AST-driven semantic token classification and delta encoding.
+pub fn get_semantic_tokens(source: &str) -> SemanticTokens {
+    let mut raw_tokens = Vec::new();
+    let mut lexer = Lexer::new(source);
+    let tokens = match lexer.tokenize() {
+        Ok(t) => t,
+        Err(_) => return SemanticTokens { data: Vec::new() },
+    };
+
+    let mut struct_names = HashSet::new();
+    let mut enum_names = HashSet::new();
+    let mut interface_names = HashSet::new();
+    let mut function_names = HashSet::new();
+    let mut variant_names = HashSet::new();
+    let mut field_names = HashSet::new();
+    let mut param_names = HashSet::new();
+    let mut const_names = HashSet::new();
+
+    let mut parser = Parser::new(tokens.clone());
+    if let Ok(ast) = parser.parse() {
+        for stmt in &ast.statements {
+            match stmt.inner_stmt() {
+                Stmt::StructDef { name, fields, .. } => {
+                    struct_names.insert(name.clone());
+                    for f in fields {
+                        field_names.insert(f.clone());
+                    }
+                }
+                Stmt::EnumDef { name, variants } => {
+                    enum_names.insert(name.clone());
+                    for (v, _) in variants {
+                        variant_names.insert(v.clone());
+                    }
+                }
+                Stmt::InterfaceDef { name, methods, .. } => {
+                    interface_names.insert(name.clone());
+                    for m in methods {
+                        function_names.insert(m.name.clone());
+                    }
+                }
+                Stmt::Function { name, params, .. } => {
+                    function_names.insert(name.clone());
+                    for p in params {
+                        param_names.insert(p.clone());
+                    }
+                }
+                Stmt::Const { name, .. } => {
+                    const_names.insert(name.clone());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let source_lines: Vec<&str> = source.lines().collect();
+
+    for i in 0..tokens.len() {
+        let tok = &tokens[i];
+        let line_0 = tok.line.saturating_sub(1) as u32;
+        let col_0 = tok.column.saturating_sub(1) as u32;
+        let cur_line = source_lines.get(line_0 as usize).copied();
+
+        let (token_type, token_modifiers, length) = match &tok.token_type {
+            TokenType::Function
+            | TokenType::Struct
+            | TokenType::Enum
+            | TokenType::Interface
+            | TokenType::If
+            | TokenType::Else
+            | TokenType::Elif
+            | TokenType::While
+            | TokenType::For
+            | TokenType::Repeat
+            | TokenType::When
+            | TokenType::Try
+            | TokenType::Catch
+            | TokenType::Finally
+            | TokenType::Throw
+            | TokenType::Return
+            | TokenType::Break
+            | TokenType::Continue
+            | TokenType::Say
+            | TokenType::Let
+            | TokenType::Const
+            | TokenType::Pub
+            | TokenType::Test
+            | TokenType::Bench
+            | TokenType::Import
+            | TokenType::From
+            | TokenType::Weak
+            | TokenType::Spawn
+            | TokenType::Select
+            | TokenType::Defer
+            | TokenType::End
+            | TokenType::Is
+            | TokenType::As
+            | TokenType::In
+            | TokenType::True
+            | TokenType::False
+            | TokenType::Null => (12, 0, token_length(tok, cur_line)),
+
+            TokenType::Number(_) | TokenType::Float(_) => (15, 0, token_length(tok, cur_line)),
+            TokenType::String(_) | TokenType::Rune(_) => (14, 0, token_length(tok, cur_line)),
+
+            TokenType::Plus
+            | TokenType::Minus
+            | TokenType::Multiply
+            | TokenType::Divide
+            | TokenType::Modulo
+            | TokenType::Assign
+            | TokenType::Equal
+            | TokenType::NotEqual
+            | TokenType::Less
+            | TokenType::LessEqual
+            | TokenType::Greater
+            | TokenType::GreaterEqual
+            | TokenType::Not
+            | TokenType::Arrow
+            | TokenType::FatArrow
+            | TokenType::PlusAssign
+            | TokenType::MinusAssign
+            | TokenType::MultiplyAssign
+            | TokenType::DivideAssign
+            | TokenType::ModuloAssign => (16, 0, token_length(tok, cur_line)),
+
+            TokenType::Identifier(name) => {
+                let prev_tok = if i > 0 { Some(&tokens[i - 1]) } else { None };
+                let (tt, mods) = match prev_tok.map(|p| &p.token_type) {
+                    Some(TokenType::Function) => (10, 1 | 2),
+                    Some(TokenType::Struct) => (4, 1 | 2),
+                    Some(TokenType::Enum) => (2, 1 | 2),
+                    Some(TokenType::Interface) => (3, 1 | 2),
+                    Some(TokenType::Const) => (7, 1 | 4),
+                    _ => match name.as_str() {
+                        "int" | "float" | "string" | "bool" | "void" | "any" | "byte" | "char"
+                        | "Fiber" | "Channel" | "Mutex" | "WaitGroup" | "f64x4" | "f32x8"
+                        | "i32x8" | "i64x4" | "Tensor" => (0, 8),
+                        _ if struct_names.contains(name) => (4, 0),
+                        _ if enum_names.contains(name) => (2, 0),
+                        _ if interface_names.contains(name) => (3, 0),
+                        _ if function_names.contains(name) => (10, 0),
+                        _ if variant_names.contains(name) => (9, 0),
+                        _ if field_names.contains(name) => (8, 0),
+                        _ if param_names.contains(name) => (6, 0),
+                        _ if const_names.contains(name) => (7, 4),
+                        _ => (7, 0),
+                    },
+                };
+                (tt, mods, name.len())
+            }
+            _ => continue,
+        };
+
+        if length > 0 {
+            raw_tokens.push(RawSemanticToken {
+                line: line_0,
+                start_col: col_0,
+                length: length as u32,
+                token_type,
+                token_modifiers,
+            });
+        }
+    }
+
+    SemanticTokens::from_raw_tokens(raw_tokens)
 }
