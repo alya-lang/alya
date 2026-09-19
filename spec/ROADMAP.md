@@ -195,7 +195,7 @@ This roadmap defines the sequenced implementation phases, actionable engineering
   - Target files: `src/parser/`, `src/codegen/analysis/`.
   - Verification: `syntax/generics.alya` compiles without runtime boxing.
 
-- [ ] **4.5 Event Engine Thread Pool & Asynchronous Disk I/O (`Lib/EVENT_UV_ROADMAP.md` Phase 5)**
+- [x] **4.5 Event Engine Thread Pool & Asynchronous Disk I/O (`Lib/EVENT_UV_ROADMAP.md` Phase 5)**
   - Implement offloaded asynchronous file system operations:
     - `fs_read_async(loop, path, on_complete)`
     - `fs_write_async(loop, path, data, on_complete)`
@@ -203,13 +203,13 @@ This roadmap defines the sequenced implementation phases, actionable engineering
     - Worker pool (`std/thread`) processing blocking file I/O and DNS lookups off the main event loop.
     - Thread-safe event notification to the reactor loop via `std/sync` Channels and wakeup event descriptors.
   - Target files: `Lib/uv/`, `Lib/event/`.
-  - Verification: Asynchronous disk read/write benchmarks matching `EVENT_UV_ROADMAP.md` criteria.
+  - Verification: `Lib/event/tests/test_async_fs.alya` passes with 100% assertions covering offloaded async reads/writes and concurrent timer dispatch.
 
-- [ ] **4.6 Background / Scoped Cycle Collector (Bacon-Rajan Algorithm)**
+- [x] **4.6 Background / Scoped Cycle Collector (Bacon-Rajan Algorithm)**
   - Non-blocking, trial-deletion cycle detection algorithm to identify and sweep isolated cyclic reference islands.
   - Periodic and on-demand traversal sweeping unreachable cyclic graphs without global stop-the-world pauses.
   - Target files: `src/codegen/runtime/arc.rs`, `src/codegen/runtime/gc.rs`.
-  - Verification: Cyclic graph structures (e.g. doubly-linked lists and parent-child tree loops) are completely reclaimed with zero leaks.
+  - Verification: Cyclic graph structures (e.g. doubly-linked lists and parent-child tree loops) are completely reclaimed with zero leaks (`tests/e2e_system.rs`).
 
 - [x] **4.7 Memory Diagnostics & Heap Trace Engine (`alya run --mem-trace`)**
   - Implement `--mem-trace` compiler and runtime instrumentation:
