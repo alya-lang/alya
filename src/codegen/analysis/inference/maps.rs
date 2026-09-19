@@ -251,8 +251,12 @@ pub fn collect_known_map_vars_with_index(
                 let mut call_args = Vec::new();
                 call_index.collect_all_call_args_scoped(name, bare, idx, &mut call_args);
                 if !call_args.is_empty()
-                    && call_args.iter().all(|(caller_scope, arg)| {
+                    && call_args.iter().any(|(caller_scope, arg)| {
                         expr_is_definitely_map(arg, *caller_scope, &known_maps)
+                    })
+                    && call_args.iter().all(|(caller_scope, arg)| {
+                        matches!(arg, Expr::Null)
+                            || expr_is_definitely_map(arg, *caller_scope, &known_maps)
                     })
                 {
                     known_maps.insert(format!("fn_param_map:{}:{}", name, idx));

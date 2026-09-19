@@ -741,14 +741,17 @@ impl CodeGen {
         }
 
         if let Some(old_offset) = old_heap_offset {
+            let temp_offset = self.temp_offset();
             arch::emit_push_temp(&mut self.output, self.arch);
+            self.ctx.stack_offset += temp_offset;
             arch::emit_rc_release_stack(
                 &mut self.output,
                 self.arch,
                 old_offset,
-                self.ctx.stack_offset + 8,
+                self.ctx.stack_offset,
                 self.os,
             );
+            self.ctx.stack_offset -= temp_offset;
             arch::emit_pop_temp(&mut self.output, self.arch);
             if is_flt {
                 match self.arch {
@@ -973,18 +976,16 @@ impl CodeGen {
         let field_idx = self.resolve_struct_field_index(object, field);
         let is_weak = self.is_struct_field_weak(object, field);
 
+        let temp_offset = self.temp_offset();
         self.generate_expression(object);
         arch::emit_push_temp(&mut self.output, self.arch);
+        self.ctx.stack_offset += temp_offset;
 
         self.generate_expression(value);
         if !is_weak && self.is_heap_expression(value) {
-            arch::emit_rc_retain(
-                &mut self.output,
-                self.arch,
-                self.ctx.stack_offset + 8,
-                self.os,
-            );
+            arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
         }
+        self.ctx.stack_offset -= temp_offset;
         arch::emit_struct_field_set(&mut self.output, self.arch, field_idx);
     }
 
@@ -1083,21 +1084,20 @@ impl CodeGen {
                 }
             }
         } else {
+            let temp_offset = self.temp_offset();
             self.generate_expression(array);
             arch::emit_push_temp(&mut self.output, self.arch);
+            self.ctx.stack_offset += temp_offset;
 
             self.generate_expression(index);
             arch::emit_push_temp(&mut self.output, self.arch);
+            self.ctx.stack_offset += temp_offset;
 
             self.generate_expression(value);
             if self.is_heap_expression(value) {
-                arch::emit_rc_retain(
-                    &mut self.output,
-                    self.arch,
-                    self.ctx.stack_offset + 16,
-                    self.os,
-                );
+                arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
             }
+            self.ctx.stack_offset -= temp_offset * 2;
             arch::emit_array_set(&mut self.output, self.arch);
         }
     }

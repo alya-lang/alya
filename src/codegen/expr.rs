@@ -207,10 +207,11 @@ impl CodeGen {
                 if matches!(op, BinaryOp::In | BinaryOp::NotIn) {
                     self.generate_expression(left);
                     arch::emit_push_temp(&mut self.output, self.arch);
-                    self.ctx.stack_offset += 8;
+                    let temp_offset = self.temp_offset();
+                    self.ctx.stack_offset += temp_offset;
 
                     self.generate_expression(right);
-                    self.ctx.stack_offset -= 8;
+                    self.ctx.stack_offset -= temp_offset;
 
                     arch::emit_in_call(
                         &mut self.output,
@@ -391,21 +392,26 @@ impl CodeGen {
                         arch::emit_push_temp(&mut self.output, self.arch);
                     }
 
-                    self.ctx.stack_offset += 8;
+                    let float_temp_offset = match self.arch {
+                        Architecture::ARM64 => 16,
+                        _ => 8,
+                    };
+                    self.ctx.stack_offset += float_temp_offset;
                     self.generate_expression(right);
                     if !right_is_float {
                         arch::emit_int_to_float(&mut self.output, self.arch);
                     }
-                    self.ctx.stack_offset -= 8;
+                    self.ctx.stack_offset -= float_temp_offset;
 
                     arch::emit_float_binary_op(&mut self.output, self.arch, *op);
                 } else {
                     self.generate_expression(left);
                     arch::emit_push_temp(&mut self.output, self.arch);
 
-                    self.ctx.stack_offset += 8;
+                    let temp_offset = self.temp_offset();
+                    self.ctx.stack_offset += temp_offset;
                     self.generate_expression(right);
-                    self.ctx.stack_offset -= 8;
+                    self.ctx.stack_offset -= temp_offset;
                     arch::emit_binary_op(&mut self.output, self.arch, *op);
                 }
             }
@@ -988,7 +994,10 @@ impl CodeGen {
                     }
                     self.generate_expression(&args[0]);
                     arch::emit_push_temp(&mut self.output, self.arch);
+                    let temp_offset = self.temp_offset();
+                    self.ctx.stack_offset += temp_offset;
                     self.generate_expression(&args[1]);
+                    self.ctx.stack_offset -= temp_offset;
                     let done_label = self.ctx.next_label();
                     arch::emit_char_code_at(&mut self.output, self.arch, &done_label);
                     return;
@@ -1041,7 +1050,10 @@ impl CodeGen {
                             }
                             self.generate_expression(&inner_args[0]);
                             arch::emit_push_temp(&mut self.output, self.arch);
+                            let temp_offset = self.temp_offset();
+                            self.ctx.stack_offset += temp_offset;
                             self.generate_expression(&inner_args[1]);
+                            self.ctx.stack_offset -= temp_offset;
                             let done_label = self.ctx.next_label();
                             arch::emit_char_code_at(&mut self.output, self.arch, &done_label);
                             return;
@@ -1086,7 +1098,10 @@ impl CodeGen {
                             }
                             self.generate_expression(array);
                             arch::emit_push_temp(&mut self.output, self.arch);
+                            let temp_offset = self.temp_offset();
+                            self.ctx.stack_offset += temp_offset;
                             self.generate_expression(index);
+                            self.ctx.stack_offset -= temp_offset;
                             let done_label = self.ctx.next_label();
                             arch::emit_char_code_at(&mut self.output, self.arch, &done_label);
                             return;
@@ -3048,7 +3063,8 @@ impl CodeGen {
             });
         }
         arch::emit_push_temp(&mut self.output, self.arch);
-        self.ctx.stack_offset += 8;
+        let temp_offset = self.temp_offset();
+        self.ctx.stack_offset += temp_offset;
 
         if is_string_expr(right, &self.ctx.variables) {
             self.generate_expression(right);
@@ -3058,17 +3074,18 @@ impl CodeGen {
                 args: vec![right.clone()],
             });
         }
-        self.ctx.stack_offset -= 8;
+        self.ctx.stack_offset -= temp_offset;
         arch::emit_string_concat_call(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
     }
 
     pub(crate) fn generate_string_equality(&mut self, left: &Expr, right: &Expr, op: BinaryOp) {
         self.generate_expression(left);
         arch::emit_push_temp(&mut self.output, self.arch);
-        self.ctx.stack_offset += 8;
+        let temp_offset = self.temp_offset();
+        self.ctx.stack_offset += temp_offset;
 
         self.generate_expression(right);
-        self.ctx.stack_offset -= 8;
+        self.ctx.stack_offset -= temp_offset;
         arch::emit_string_equality_call(
             &mut self.output,
             self.arch,

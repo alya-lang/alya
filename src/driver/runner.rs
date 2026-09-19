@@ -23,6 +23,7 @@ pub fn compile_with_gcc(
     if matches!(os, OperatingSystem::Linux) {
         gcc_args.push("-no-pie".to_string());
         gcc_args.push("-lm".to_string());
+        gcc_args.push("-lpthread".to_string());
     }
 
     if matches!(os, OperatingSystem::Windows) {

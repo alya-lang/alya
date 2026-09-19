@@ -232,6 +232,15 @@ impl CodeGen {
         }
     }
 
+    #[inline]
+    pub(crate) fn temp_offset(&self) -> i32 {
+        match self.arch {
+            crate::codegen::target::Architecture::ARM64 => 16,
+            crate::codegen::target::Architecture::X86 => 4,
+            _ => 8,
+        }
+    }
+
     pub fn generate_program(&mut self, program: &Program) {
         let mut resolved_prog = program.clone();
         crate::parser::enums::resolve_enums(&mut resolved_prog);
@@ -1522,6 +1531,14 @@ impl CodeGen {
                 self.get_expr_struct_name(expr).is_some()
                     || crate::codegen::analysis::is_array_expr(expr, &self.ctx.variables)
                     || crate::codegen::analysis::is_map_expr(expr, &self.ctx.variables)
+            }
+            Expr::Ternary {
+                then_branch,
+                else_branch,
+                ..
+            } => self.is_heap_expression(then_branch) || self.is_heap_expression(else_branch),
+            Expr::NullCoalesce { value, default } => {
+                self.is_heap_expression(value) || self.is_heap_expression(default)
             }
             _ => false,
         }
