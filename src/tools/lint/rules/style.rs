@@ -76,11 +76,7 @@ fn check_token_if_chains(tokens: &[Token], file_path: &Path, diags: &mut Vec<Lin
 }
 
 /// Checks AST for redundant boolean returns like `if cond return true else return false`.
-fn check_boolean_returns(
-    stmt: &Stmt,
-    file_path: &Path,
-    diags: &mut Vec<LintDiagnostic>,
-) {
+fn check_boolean_returns(stmt: &Stmt, file_path: &Path, diags: &mut Vec<LintDiagnostic>) {
     let inner = stmt.inner_stmt();
     if let Stmt::If {
         then_block,
