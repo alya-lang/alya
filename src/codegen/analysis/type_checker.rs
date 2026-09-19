@@ -805,7 +805,11 @@ impl TypeChecker {
 
             Expr::FieldAccess { object, field } | Expr::OptionalFieldAccess { object, field } => {
                 let obj_type = self.infer_expr(object)?;
-                if let Type::Struct(sname) = &obj_type {
+                let base_type = match &obj_type {
+                    Type::Nullable(inner) => inner.as_ref(),
+                    other => other,
+                };
+                if let Type::Struct(sname) = base_type {
                     let bare = sname.rsplit("::").next().unwrap_or(sname);
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
                     if let Some(sdef) = self.structs.get(sname).or_else(|| self.structs.get(bare)) {
