@@ -510,9 +510,14 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
         }
     }
 
-    // 3. Flag imports that are not present in code_idents
     for imp in imports {
-        if !code_idents.contains(&imp.name_to_check) {
+        let is_used = code_idents.contains(&imp.name_to_check)
+            || code_idents.iter().any(|id| {
+                id.starts_with(&format!("{}_", imp.name_to_check))
+                    || id.starts_with(&format!("{}::", imp.name_to_check))
+                    || id.starts_with(&format!("{}.", imp.name_to_check))
+            });
+        if !is_used {
             let len = imp.name_to_check.len();
             let fix = if imp.is_full_line {
                 Some(LintFix {

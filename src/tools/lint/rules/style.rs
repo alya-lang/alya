@@ -4,25 +4,80 @@ use crate::ast::{Expr, Program, Stmt};
 use crate::lexer::{Token, TokenType};
 use crate::tools::lint::types::{LintDiagnostic, LintSeverity};
 
-fn count_if_chain_branches(stmt: &Stmt) -> usize {
-    if let Stmt::If { else_block, .. } = stmt.inner_stmt() {
-        if let Some(eb) = else_block {
-            if eb.len() == 1 {
-                if let Stmt::If { .. } = eb[0].inner_stmt() {
-                    return 1 + count_if_chain_branches(&eb[0]);
+/// Scans the token stream for long if/elif chains at each exact 'if' token location.
+fn check_token_if_chains(tokens: &[Token], file_path: &Path, diags: &mut Vec<LintDiagnostic>) {
+    for (i, tok) in tokens.iter().enumerate() {
+        if matches!(tok.token_type, TokenType::If) {
+            // Skip 'else if' where 'else' immediately preceded it
+            if i > 0 && matches!(tokens[i - 1].token_type, TokenType::Else) {
+                continue;
+            }
+
+            let start_line = tok.line;
+            let start_col = tok.column;
+
+            let mut depth = 1;
+            let mut elif_count = 0;
+            let mut has_else = false;
+
+            for next_tok in &tokens[i + 1..] {
+                match next_tok.token_type {
+                    TokenType::If
+                    | TokenType::While
+                    | TokenType::For
+                    | TokenType::Repeat
+                    | TokenType::Try
+                    | TokenType::When
+                    | TokenType::Function
+                    | TokenType::Struct
+                    | TokenType::Enum
+                    | TokenType::Interface => {
+                        depth += 1;
+                    }
+                    TokenType::End => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    TokenType::Elif if depth == 1 => {
+                        elif_count += 1;
+                    }
+                    TokenType::Else if depth == 1 => {
+                        has_else = true;
+                    }
+                    TokenType::Eof => break,
+                    _ => {}
                 }
             }
-            return 2;
+
+            let total_branches = 1 + elif_count + if has_else { 1 } else { 0 };
+
+            // Recommend 'when' if there are 2 or more 'elif' branches
+            if elif_count >= 2 {
+                diags.push(LintDiagnostic {
+                    rule: "idiomatic-style".to_string(),
+                    severity: LintSeverity::Warning,
+                    message: format!(
+                        "long 'if/elif' chain ({} branches); consider using 'when' pattern matching for clearer branching",
+                        total_branches
+                    ),
+                    file_path: file_path.to_path_buf(),
+                    line: start_line,
+                    col: start_col,
+                    end_line: start_line,
+                    end_col: start_col + 2,
+                    help: Some("rewrite using 'when' pattern matching: 'when x is ... end'".to_string()),
+                    fix: None,
+                });
+            }
         }
-        return 1;
     }
-    0
 }
 
-fn check_stmt_style(
+/// Checks AST for redundant boolean returns like `if cond return true else return false`.
+fn check_boolean_returns(
     stmt: &Stmt,
-    is_elif_child: bool,
-    tokens: &[Token],
     file_path: &Path,
     diags: &mut Vec<LintDiagnostic>,
 ) {
@@ -33,33 +88,6 @@ fn check_stmt_style(
         ..
     } = inner
     {
-        let branches = count_if_chain_branches(stmt);
-        if !is_elif_child && branches >= 3 {
-            // Find the line of the first 'if' token
-            let if_tok = tokens
-                .iter()
-                .find(|t| matches!(t.token_type, TokenType::If));
-            let line = if_tok.map(|t| t.line).unwrap_or(1);
-            let col = if_tok.map(|t| t.column).unwrap_or(1);
-
-            diags.push(LintDiagnostic {
-                rule: "idiomatic-style".to_string(),
-                severity: LintSeverity::Warning,
-                message: format!(
-                    "long 'if/elif' chain ({} branches); consider using 'when' pattern matching for clearer branching",
-                    branches
-                ),
-                file_path: file_path.to_path_buf(),
-                line,
-                col,
-                end_line: line,
-                end_col: col + 2,
-                help: Some("rewrite using 'when' pattern matching: 'when x is ... end'".to_string()),
-                fix: None,
-            });
-        }
-
-        // Check redundant boolean return: if cond return true else return false
         if then_block.len() == 1 {
             if let Some(eb) = else_block {
                 if eb.len() == 1 {
@@ -69,21 +97,15 @@ fn check_stmt_style(
                     ) = (then_block[0].inner_stmt(), eb[0].inner_stmt())
                     {
                         if t_val == "true" && f_val == "false" {
-                            let if_tok = tokens
-                                .iter()
-                                .find(|t| matches!(t.token_type, TokenType::If));
-                            let line = if_tok.map(|t| t.line).unwrap_or(1);
-                            let col = if_tok.map(|t| t.column).unwrap_or(1);
-
                             diags.push(LintDiagnostic {
                                 rule: "idiomatic-style".to_string(),
                                 severity: LintSeverity::Info,
                                 message: "redundant 'if/else' returning boolean literals; consider returning the condition directly".to_string(),
                                 file_path: file_path.to_path_buf(),
-                                line,
-                                col,
-                                end_line: line,
-                                end_col: col + 2,
+                                line: 1,
+                                col: 1,
+                                end_line: 1,
+                                end_col: 3,
                                 help: Some("replace with 'return condition'".to_string()),
                                 fix: None,
                             });
@@ -94,12 +116,11 @@ fn check_stmt_style(
         }
 
         for s in then_block {
-            check_stmt_style(s, false, tokens, file_path, diags);
+            check_boolean_returns(s, file_path, diags);
         }
         if let Some(eb) = else_block {
             for s in eb {
-                let is_child_if = matches!(s.inner_stmt(), Stmt::If { .. });
-                check_stmt_style(s, is_child_if, tokens, file_path, diags);
+                check_boolean_returns(s, file_path, diags);
             }
         }
     } else {
@@ -110,7 +131,7 @@ fn check_stmt_style(
             | Stmt::ForEach { body, .. }
             | Stmt::Function { body, .. } => {
                 for s in body {
-                    check_stmt_style(s, false, tokens, file_path, diags);
+                    check_boolean_returns(s, file_path, diags);
                 }
             }
             Stmt::TryCatch {
@@ -120,14 +141,14 @@ fn check_stmt_style(
                 ..
             } => {
                 for s in try_block {
-                    check_stmt_style(s, false, tokens, file_path, diags);
+                    check_boolean_returns(s, file_path, diags);
                 }
                 for s in catch_block {
-                    check_stmt_style(s, false, tokens, file_path, diags);
+                    check_boolean_returns(s, file_path, diags);
                 }
                 if let Some(fb) = finally_block {
                     for s in fb {
-                        check_stmt_style(s, false, tokens, file_path, diags);
+                        check_boolean_returns(s, file_path, diags);
                     }
                 }
             }
@@ -143,8 +164,9 @@ pub fn check_idiomatic_style(
     file_path: &Path,
 ) -> Vec<LintDiagnostic> {
     let mut diags = Vec::new();
+    check_token_if_chains(tokens, file_path, &mut diags);
     for s in &program.statements {
-        check_stmt_style(s, false, tokens, file_path, &mut diags);
+        check_boolean_returns(s, file_path, &mut diags);
     }
     diags
 }
