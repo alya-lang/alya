@@ -117,9 +117,20 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         return Ok(());
     }
 
+    // 3.5 Static Type Checking (Gradual Typing)
+    let t_typecheck = Instant::now();
+    let mut resolved_ast = ast.clone();
+    crate::parser::enums::resolve_enums(&mut resolved_ast);
+    crate::parser::constants::resolve_and_validate_constants(&mut resolved_ast)
+        .map_err(|e| format!("Constant error in '{}': {}", args.input_file, e))?;
+    crate::parser::generics::resolve_generics(&mut resolved_ast);
+    crate::codegen::analysis::type_checker::validate_types(&resolved_ast)
+        .map_err(|e| format!("Type error in '{}': {}", args.input_file, e))?;
+    let d_typecheck = t_typecheck.elapsed();
+
     if args.command == CommandKind::Check {
         if !args.quiet {
-            println!("✓ Syntax OK: {}", args.input_file);
+            println!("✓ Syntax & Type Check OK: {}", args.input_file);
         }
         if args.time || args.stats {
             let total_dur = total_start.elapsed();
@@ -138,6 +149,10 @@ pub fn run(args: CliArgs) -> Result<(), String> {
                 "  [Pass 2] Module Resolution:  {:>8.2} ms ({} files)",
                 d_import.as_secs_f64() * 1000.0,
                 imported_files.len()
+            );
+            println!(
+                "  [Pass 3] Type Checking:      {:>8.2} ms",
+                d_typecheck.as_secs_f64() * 1000.0
             );
             println!("  ----------------------------------------");
             println!(

@@ -291,7 +291,7 @@ This roadmap defines the sequenced implementation phases, actionable engineering
   - Target files: `src/codegen/arch/wasm32/`, `src/driver/mod.rs`.
   - Verification: `alya build app.alya --target wasm32` executes under Node.js / Wasmtime.
 
-- [ ] **6.2 Optional Type Annotations & Static Gradual Typing**
+- [x] **6.2 Optional Type Annotations & Static Gradual Typing**
   - Gradual typing syntax: `let x: int = 42`, `function add(a: int, b: int) -> int`.
   - Type-checker validation pass verifying parameter and return type assignments at compile time.
   - Specialized JIT/AOT code generation leveraging explicit scalar types for zero-box register allocation.
@@ -324,4 +324,4 @@ This roadmap defines the sequenced implementation phases, actionable engineering
 | **3** | **Grammar, Lexer & Parser Conformance (Rune, Pratt, Main)** | 🟡 High | ✅ Complete |
 | **4** | **Advanced Systems Runtime (Weak ARC, Fibers, Cycle Collector, Event)** | 🔵 Normal | ✅ Complete |
 | **5** | **Developer Tooling & Ecosystem (Linter, LSP, Resolution, Packages)** | 🟢 Future | 🟡 In Progress |
-| **6** | **Future Explorations & Targets (WASM, GUI, SIMD, Gradual Typing)** | 💡 Research | 📋 Planned |
+| **6** | **Future Explorations & Targets (WASM, GUI, SIMD, Gradual Typing)** | 💡 Research | 🟡 In Progress |
