@@ -11,9 +11,21 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    push %rbp\n");
     out.push_str("    mov %rsp, %rbp\n");
     if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    push %rcx\n");
+        out.push_str("    xor %rcx, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call fflush\n");
+        out.push_str("    add $32, %rsp\n");
+        out.push_str("    pop %rcx\n");
         out.push_str("    sub $32, %rsp\n");
         out.push_str("    call exit\n");
     } else {
+        out.push_str("    push %rdi\n");
+        out.push_str("    xor %rdi, %rdi\n");
+        out.push_str("    sub $8, %rsp\n");
+        out.push_str(&format!("    call {}fflush\n", p));
+        out.push_str("    add $8, %rsp\n");
+        out.push_str("    pop %rdi\n");
         out.push_str("    sub $8, %rsp\n");
         out.push_str(&format!("    call {}exit\n", p));
     }
