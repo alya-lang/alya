@@ -1,4 +1,6 @@
+pub mod bugs;
 pub mod dead_code;
+pub mod naming;
 pub mod style;
 pub mod unused;
 
@@ -26,6 +28,12 @@ pub fn run_all_rules(program: &Program, tokens: &[Token], file_path: &Path) -> V
 
     // 5. Idiomatic style & anti-patterns
     diagnostics.extend(style::check_idiomatic_style(program, tokens, file_path));
+
+    // 6. Suspicious bugs (self-comparison, constant-condition, useless-expression)
+    diagnostics.extend(bugs::check_suspicious_bugs(program, tokens, file_path));
+
+    // 7. Naming conventions
+    diagnostics.extend(naming::check_naming_conventions(program, tokens, file_path));
 
     // Sort diagnostics by line and column
     diagnostics.sort_by(|a, b| a.line.cmp(&b.line).then_with(|| a.col.cmp(&b.col)));

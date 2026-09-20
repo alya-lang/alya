@@ -125,6 +125,9 @@ pub struct LintReport {
     pub files_scanned: usize,
     pub files_with_issues: usize,
     pub total_diagnostics: usize,
+    pub warning_count: usize,
+    pub error_count: usize,
+    pub info_count: usize,
     pub fixes_applied: usize,
     pub diagnostics: Vec<LintDiagnostic>,
 }

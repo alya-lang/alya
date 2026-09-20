@@ -285,4 +285,149 @@ end
     assert!(redundant_diags[0].message.contains("'shuf'"));
     assert_eq!(redundant_diags[1].line, 8);
     assert!(redundant_diags[1].message.contains("'res'"));
+
+    // Verify autofix works
+    let (fixed, count) = apply_fixes_to_source(source, &diags);
+    assert_eq!(count, 2);
+    assert!(fixed.contains("return sample_shuffled(rng, arr)"));
+    assert!(fixed.contains("return 10 + 20"));
+}
+
+#[test]
+fn test_lint_suppression_directives() {
+    let source = r#"
+function compute()
+    # alya-lint: disable-next-line unused-var
+    let intentional_unused = 123
+    let real_unused = 456
+    say 1
+end
+
+# alya-lint: disable unused-var
+function another()
+    let ignored1 = 1
+    let ignored2 = 2
+end
+# alya-lint: enable unused-var
+
+function third()
+    let trailing_ignored = 999 # alya-ignore
+    let not_ignored = 888
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let unused_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-var").collect();
+
+    let names: Vec<&str> = unused_diags
+        .iter()
+        .map(|d| {
+            let start = d.message.find('\'').unwrap() + 1;
+            let end = d.message[start..].find('\'').unwrap() + start;
+            &d.message[start..end]
+        })
+        .collect();
+
+    assert!(names.contains(&"real_unused"));
+    assert!(names.contains(&"not_ignored"));
+    assert!(!names.contains(&"intentional_unused"));
+    assert!(!names.contains(&"ignored1"));
+    assert!(!names.contains(&"ignored2"));
+    assert!(!names.contains(&"trailing_ignored"));
+}
+
+#[test]
+fn test_lint_suspicious_bugs_rules() {
+    let source = r#"
+function test_bugs(x)
+    if x == x
+        say "always true"
+    end
+    if true
+        say "constant true"
+    end
+    while false
+        say "dead loop"
+    end
+    x + 100
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let self_cmp = diags.iter().any(|d| d.rule == "self-comparison");
+    let const_cond = diags.iter().any(|d| d.rule == "constant-condition");
+    let useless_expr = diags.iter().any(|d| d.rule == "useless-expression");
+
+    assert!(self_cmp, "Should detect self-comparison 'x == x'");
+    assert!(const_cond, "Should detect constant-condition 'if true'");
+    assert!(useless_expr, "Should detect useless-expression 'x + 100'");
+}
+
+#[test]
+fn test_lint_naming_conventions() {
+    let source = r#"
+function badNamedFunction()
+    say 1
+end
+
+struct bad_struct_name
+    x: int
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let naming_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "naming-convention")
+        .collect();
+
+    assert_eq!(naming_diags.len(), 2);
+    assert!(naming_diags[0].message.contains("badNamedFunction"));
+    assert!(naming_diags[1].message.contains("bad_struct_name"));
+}
+
+#[test]
+fn test_lint_config_disabled_rules_and_exclude() {
+    let temp_dir = std::env::temp_dir().join(format!("alya_test_lint_cfg_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(temp_dir.join("vendor")).unwrap();
+
+    let toml_content = r#"
+[package]
+name = "test_pkg"
+version = "0.1.0"
+
+[lint]
+disabled_rules = ["naming-convention"]
+exclude = ["vendor"]
+"#;
+    fs::write(temp_dir.join("alya.toml"), toml_content).unwrap();
+
+    // Vendor file should be excluded
+    fs::write(
+        temp_dir.join("vendor/lib.alya"),
+        "function badName()\n    let unused = 1\nend\n",
+    )
+    .unwrap();
+
+    // Main file
+    fs::write(
+        temp_dir.join("main.alya"),
+        "function badName()\n    say 42\nend\n",
+    )
+    .unwrap();
+
+    let diags = lint_source(
+        "function badName()\n    say 42\nend\n",
+        &temp_dir.join("main.alya"),
+    )
+    .unwrap();
+    let naming_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "naming-convention")
+        .collect();
+    assert_eq!(
+        naming_diags.len(),
+        0,
+        "naming-convention should be disabled via alya.toml"
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
 }

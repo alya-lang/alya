@@ -1,5 +1,7 @@
+pub mod config;
 pub mod fix;
 pub mod rules;
+pub mod suppression;
 pub mod types;
 
 #[cfg(test)]
@@ -10,8 +12,10 @@ use std::path::{Path, PathBuf};
 
 use crate::lexer::Lexer;
 use crate::parser::Parser;
+pub use config::*;
 pub use fix::*;
 pub use rules::*;
+pub use suppression::*;
 pub use types::*;
 
 /// Analyzes Alya source code and returns a list of lint diagnostics.
@@ -30,7 +34,17 @@ pub fn lint_source(source: &str, file_path: &Path) -> Result<Vec<LintDiagnostic>
         }
     };
 
-    Ok(run_all_rules(&program, &tokens, file_path))
+    let raw_diags = run_all_rules(&program, &tokens, file_path);
+
+    // 1. Filter out inline comment suppressions
+    let suppression = SuppressionFilter::from_source(source);
+    let filtered_diags = suppression.filter_diagnostics(raw_diags);
+
+    // 2. Filter out project config rules & apply severity overrides
+    let config = LintConfig::discover(file_path);
+    let final_diags = config.apply_to_diagnostics(filtered_diags);
+
+    Ok(final_diags)
 }
 
 /// Discovers all Alya files to be linted.
@@ -46,7 +60,14 @@ pub fn run_lint_cli(path_opt: Option<&str>, fix: bool, check: bool) -> Result<()
         return Err(format!("Error: Path does not exist '{}'", target_str));
     }
 
-    let files = find_lint_files(target_path);
+    let config = LintConfig::discover(target_path);
+
+    let all_files = find_lint_files(target_path);
+    let files: Vec<PathBuf> = all_files
+        .into_iter()
+        .filter(|p| !config.is_path_excluded(p))
+        .collect();
+
     if files.is_empty() {
         println!("No .alya files found in '{}'.", target_str);
         return Ok(());
@@ -80,6 +101,11 @@ pub fn run_lint_cli(path_opt: Option<&str>, fix: bool, check: bool) -> Result<()
             report.total_diagnostics += diags.len();
 
             for d in &diags {
+                match d.severity {
+                    LintSeverity::Warning => report.warning_count += 1,
+                    LintSeverity::Error => report.error_count += 1,
+                    LintSeverity::Info => report.info_count += 1,
+                }
                 print!("{}", d.render(&content));
             }
 
@@ -117,16 +143,36 @@ pub fn run_lint_cli(path_opt: Option<&str>, fix: bool, check: bool) -> Result<()
         );
     }
 
+    let failure_count = report.warning_count + report.error_count;
     if check {
-        Err(format!(
-            "Lint check failed: {} warning(s) detected across {} file(s).",
-            report.total_diagnostics, report.files_with_issues
-        ))
+        if failure_count > 0 {
+            Err(format!(
+                "Lint check failed: {} warning(s)/error(s) detected across {} file(s).",
+                failure_count, report.files_with_issues
+            ))
+        } else {
+            if report.info_count > 0 {
+                println!(
+                    "\x1b[1;36m✓ Lint check passed with {} style suggestion(s) across {} file(s).\x1b[0m",
+                    report.info_count, report.files_with_issues
+                );
+            } else {
+                println!("\x1b[1;32m✓ Lint check passed.\x1b[0m");
+            }
+            Ok(())
+        }
     } else {
-        println!(
-            "\x1b[1;33mFound {} warning(s) across {} file(s).\x1b[0m",
-            report.total_diagnostics, report.files_with_issues
-        );
+        if failure_count > 0 {
+            println!(
+                "\x1b[1;33mFound {} issue(s) ({} warning(s), {} error(s), {} suggestion(s)) across {} file(s).\x1b[0m",
+                report.total_diagnostics, report.warning_count, report.error_count, report.info_count, report.files_with_issues
+            );
+        } else {
+            println!(
+                "\x1b[1;36mFound {} style suggestion(s) across {} file(s).\x1b[0m",
+                report.info_count, report.files_with_issues
+            );
+        }
         Ok(())
     }
 }

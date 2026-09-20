@@ -233,7 +233,115 @@ fn check_redundant_return_var(tokens: &[Token], file_path: &Path, diags: &mut Ve
 
                                     if is_terminated {
                                         let let_tok = &tokens[i];
+                                        let ret_tok = &tokens[next_stmt_idx];
                                         let len = var_name.len();
+
+                                        // Reconstruct expression tokens between '=' and statement newline
+                                        let mut expr_tokens = Vec::new();
+                                        let mut k = i + 2;
+                                        if k < tokens.len()
+                                            && matches!(tokens[k].token_type, TokenType::Colon)
+                                        {
+                                            k += 1;
+                                            while k < tokens.len()
+                                                && !matches!(
+                                                    tokens[k].token_type,
+                                                    TokenType::Assign
+                                                )
+                                            {
+                                                k += 1;
+                                            }
+                                        }
+                                        if k < tokens.len()
+                                            && matches!(tokens[k].token_type, TokenType::Assign)
+                                        {
+                                            k += 1;
+                                            while k < j {
+                                                expr_tokens.push(&tokens[k]);
+                                                k += 1;
+                                            }
+                                        }
+
+                                        let fix = if !expr_tokens.is_empty() {
+                                            let mut expr_str = String::new();
+                                            for (t_idx, tok) in expr_tokens.iter().enumerate() {
+                                                if t_idx > 0 {
+                                                    match tok.token_type {
+                                                        TokenType::Comma
+                                                        | TokenType::RightParen
+                                                        | TokenType::RightBracket
+                                                        | TokenType::LeftParen
+                                                        | TokenType::LeftBracket
+                                                        | TokenType::Dot => {}
+                                                        _ => {
+                                                            let prev = &expr_tokens[t_idx - 1];
+                                                            match prev.token_type {
+                                                                TokenType::LeftParen
+                                                                | TokenType::LeftBracket
+                                                                | TokenType::Dot => {}
+                                                                _ => expr_str.push(' '),
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                match &tok.token_type {
+                                                    TokenType::Identifier(s) => {
+                                                        expr_str.push_str(s)
+                                                    }
+                                                    TokenType::Number(n) => {
+                                                        expr_str.push_str(&n.to_string())
+                                                    }
+                                                    TokenType::Float(f) => {
+                                                        expr_str.push_str(&f.to_string())
+                                                    }
+                                                    TokenType::String(s) => {
+                                                        expr_str.push('"');
+                                                        expr_str.push_str(s);
+                                                        expr_str.push('"');
+                                                    }
+                                                    TokenType::Plus => expr_str.push('+'),
+                                                    TokenType::Minus => expr_str.push('-'),
+                                                    TokenType::Multiply => expr_str.push('*'),
+                                                    TokenType::Divide => expr_str.push('/'),
+                                                    TokenType::LeftParen => expr_str.push('('),
+                                                    TokenType::RightParen => expr_str.push(')'),
+                                                    TokenType::LeftBracket => expr_str.push('['),
+                                                    TokenType::RightBracket => expr_str.push(']'),
+                                                    TokenType::LeftBrace => expr_str.push('{'),
+                                                    TokenType::RightBrace => expr_str.push('}'),
+                                                    TokenType::Comma => expr_str.push(','),
+                                                    TokenType::Dot => expr_str.push('.'),
+                                                    TokenType::True => expr_str.push_str("true"),
+                                                    TokenType::False => expr_str.push_str("false"),
+                                                    TokenType::Null => expr_str.push_str("null"),
+                                                    _ => {}
+                                                }
+                                            }
+
+                                            if !expr_str.is_empty() {
+                                                let indent =
+                                                    " ".repeat(let_tok.column.saturating_sub(1));
+                                                Some(crate::tools::lint::types::LintFix {
+                                                    description: format!(
+                                                        "Return expression directly: 'return {}'",
+                                                        expr_str
+                                                    ),
+                                                    replacement: format!(
+                                                        "{}return {}\n",
+                                                        indent, expr_str
+                                                    ),
+                                                    start_line: let_tok.line,
+                                                    start_col: 1,
+                                                    end_line: ret_tok.line + 1,
+                                                    end_col: 1,
+                                                })
+                                            } else {
+                                                None
+                                            }
+                                        } else {
+                                            None
+                                        };
+
                                         diags.push(LintDiagnostic {
                                             rule: "idiomatic-style".to_string(),
                                             severity: LintSeverity::Info,
@@ -250,7 +358,7 @@ fn check_redundant_return_var(tokens: &[Token], file_path: &Path, diags: &mut Ve
                                                 "consider returning the expression directly: 'return ...'"
                                                     .to_string(),
                                             ),
-                                            fix: None,
+                                            fix,
                                         });
                                     }
                                 }
@@ -261,6 +369,129 @@ fn check_redundant_return_var(tokens: &[Token], file_path: &Path, diags: &mut Ve
             }
         }
         i += 1;
+    }
+}
+
+/// Checks expressions for redundant boolean comparisons (`== true`, `== false`, etc.).
+fn check_expr_boolean_comparisons(expr: &Expr, file_path: &Path, diags: &mut Vec<LintDiagnostic>) {
+    match expr {
+        Expr::Binary { left, op, right } => {
+            if matches!(
+                *op,
+                crate::ast::expr::BinaryOp::Equal | crate::ast::expr::BinaryOp::NotEqual
+            ) {
+                let left_is_bool = match **left {
+                    Expr::Identifier(ref s) => s == "true" || s == "false",
+                    _ => false,
+                };
+                let right_is_bool = match **right {
+                    Expr::Identifier(ref s) => s == "true" || s == "false",
+                    _ => false,
+                };
+
+                if left_is_bool || right_is_bool {
+                    let bool_val = if right_is_bool {
+                        match **right {
+                            Expr::Identifier(ref s) => s.as_str(),
+                            _ => "",
+                        }
+                    } else {
+                        match **left {
+                            Expr::Identifier(ref s) => s.as_str(),
+                            _ => "",
+                        }
+                    };
+
+                    let is_eq = *op == crate::ast::expr::BinaryOp::Equal;
+                    let (pattern_desc, suggestion) = match (is_eq, bool_val) {
+                        (true, "true") => ("'== true'", "use the condition directly"),
+                        (true, "false") => ("'== false'", "use negation '!condition'"),
+                        (false, "true") => ("'!= true'", "use negation '!condition'"),
+                        (false, "false") => ("'!= false'", "use the condition directly"),
+                        _ => ("", ""),
+                    };
+
+                    if !pattern_desc.is_empty() {
+                        diags.push(LintDiagnostic {
+                            rule: "idiomatic-style".to_string(),
+                            severity: LintSeverity::Info,
+                            message: format!(
+                                "redundant comparison with boolean literal ({}); consider simplifying",
+                                pattern_desc
+                            ),
+                            file_path: file_path.to_path_buf(),
+                            line: 1,
+                            col: 1,
+                            end_line: 1,
+                            end_col: 3,
+                            help: Some(suggestion.to_string()),
+                            fix: None,
+                        });
+                    }
+                }
+            }
+            check_expr_boolean_comparisons(left, file_path, diags);
+            check_expr_boolean_comparisons(right, file_path, diags);
+        }
+        Expr::Unary { expr: inner, .. } => {
+            check_expr_boolean_comparisons(inner, file_path, diags);
+        }
+        Expr::Call { args, .. } | Expr::OptionalCall { args, .. } => {
+            for a in args {
+                check_expr_boolean_comparisons(a, file_path, diags);
+            }
+        }
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            check_expr_boolean_comparisons(condition, file_path, diags);
+            check_expr_boolean_comparisons(then_branch, file_path, diags);
+            check_expr_boolean_comparisons(else_branch, file_path, diags);
+        }
+        _ => {}
+    }
+}
+
+fn check_stmt_boolean_comparisons(stmt: &Stmt, file_path: &Path, diags: &mut Vec<LintDiagnostic>) {
+    match stmt.inner_stmt() {
+        Stmt::If {
+            condition,
+            then_block,
+            else_block,
+        } => {
+            check_expr_boolean_comparisons(condition, file_path, diags);
+            for s in then_block {
+                check_stmt_boolean_comparisons(s, file_path, diags);
+            }
+            if let Some(eb) = else_block {
+                for s in eb {
+                    check_stmt_boolean_comparisons(s, file_path, diags);
+                }
+            }
+        }
+        Stmt::While { condition, body } => {
+            check_expr_boolean_comparisons(condition, file_path, diags);
+            for s in body {
+                check_stmt_boolean_comparisons(s, file_path, diags);
+            }
+        }
+        Stmt::Repeat { body }
+        | Stmt::For { body, .. }
+        | Stmt::ForEach { body, .. }
+        | Stmt::Function { body, .. } => {
+            for s in body {
+                check_stmt_boolean_comparisons(s, file_path, diags);
+            }
+        }
+        Stmt::Let { value, .. } | Stmt::Const { value, .. } | Stmt::Assign { value, .. } => {
+            check_expr_boolean_comparisons(value, file_path, diags);
+        }
+        Stmt::Say(expr) | Stmt::Return(Some(expr)) | Stmt::Throw(Some(expr)) | Stmt::Expr(expr) => {
+            check_expr_boolean_comparisons(expr, file_path, diags);
+        }
+        _ => {}
     }
 }
 
@@ -275,6 +506,7 @@ pub fn check_idiomatic_style(
     check_redundant_return_var(tokens, file_path, &mut diags);
     for s in &program.statements {
         check_boolean_returns(s, file_path, &mut diags);
+        check_stmt_boolean_comparisons(s, file_path, &mut diags);
     }
     diags
 }
