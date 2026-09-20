@@ -25,6 +25,30 @@ end
 }
 
 #[test]
+fn test_lint_unused_var_scoped_location_across_multiple_functions() {
+    let source = r#"
+function first_fn()
+    let res = 10
+    say res
+end
+
+function second_fn()
+    let res = 20
+    say 42
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let unused_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-var").collect();
+    assert_eq!(unused_diags.len(), 1);
+    assert_eq!(
+        unused_diags[0].message,
+        "variable 'res' is declared but never read"
+    );
+    // Crucial check: line must point to second_fn (line 8), NOT first_fn (line 3)
+    assert_eq!(unused_diags[0].line, 8, "Must point to second_fn, not first_fn");
+}
+
+#[test]
 fn test_lint_ignored_underscore_var() {
     let source = r#"
 function compute()

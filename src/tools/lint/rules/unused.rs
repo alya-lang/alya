@@ -191,20 +191,115 @@ fn find_var_declaration_token(tokens: &[Token], var_name: &str) -> Option<Token>
     None
 }
 
+/// Finds the token position of a variable declared with `let` or `const` specifically inside a given function.
+fn find_var_declaration_token_in_fn(tokens: &[Token], fn_name: &str, var_name: &str) -> Option<Token> {
+    let mut in_target_fn = false;
+    let mut depth = 0;
+
+    let mut i = 0;
+    while i < tokens.len() {
+        if !in_target_fn {
+            if matches!(tokens[i].token_type, TokenType::Function) {
+                let mut matched = false;
+                if let Some(Token {
+                    token_type: TokenType::Identifier(ref name),
+                    ..
+                }) = tokens.get(i + 1)
+                {
+                    if name == fn_name {
+                        matched = true;
+                    } else if let (
+                        Some(Token {
+                            token_type: TokenType::Dot,
+                            ..
+                        }),
+                        Some(Token {
+                            token_type: TokenType::Identifier(ref method),
+                            ..
+                        }),
+                    ) = (tokens.get(i + 2), tokens.get(i + 3))
+                    {
+                        let full_name = format!("{}.{}", name, method);
+                        if full_name == fn_name || method == fn_name {
+                            matched = true;
+                        }
+                    }
+                }
+                if matched {
+                    in_target_fn = true;
+                    depth = 1;
+                    i += 1;
+                    continue;
+                }
+            }
+        } else {
+            match tokens[i].token_type {
+                TokenType::If
+                | TokenType::While
+                | TokenType::For
+                | TokenType::Repeat
+                | TokenType::Try
+                | TokenType::When => {
+                    depth += 1;
+                }
+                TokenType::End => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                TokenType::Let | TokenType::Const => {
+                    if let Some(Token {
+                        token_type: TokenType::Identifier(ref name),
+                        ..
+                    }) = tokens.get(i + 1)
+                    {
+                        if name == var_name {
+                            return tokens.get(i + 1).cloned();
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
 /// Finds the token position of a parameter in a function declaration.
 fn find_param_token(tokens: &[Token], fn_name: &str, param_name: &str) -> Option<Token> {
     let mut in_fn = false;
     for i in 0..tokens.len() {
         if matches!(tokens[i].token_type, TokenType::Function) {
+            let mut matched = false;
             if let Some(Token {
                 token_type: TokenType::Identifier(ref name),
                 ..
             }) = tokens.get(i + 1)
             {
                 if name == fn_name {
-                    in_fn = true;
-                    continue;
+                    matched = true;
+                } else if let (
+                    Some(Token {
+                        token_type: TokenType::Dot,
+                        ..
+                    }),
+                    Some(Token {
+                        token_type: TokenType::Identifier(ref method),
+                        ..
+                    }),
+                ) = (tokens.get(i + 2), tokens.get(i + 3))
+                {
+                    let full_name = format!("{}.{}", name, method);
+                    if full_name == fn_name || method == fn_name {
+                        matched = true;
+                    }
                 }
+            }
+            if matched {
+                in_fn = true;
+                continue;
             }
         }
         if in_fn {
@@ -233,14 +328,16 @@ pub fn check_unused_variables(
     // Check variables inside functions
     for stmt in &program.statements {
         let actual_stmt = stmt.inner_stmt();
-        if let Stmt::Function { body, .. } = actual_stmt {
+        if let Stmt::Function { name: ref fn_name, body, .. } = actual_stmt {
             let mut used_idents = HashSet::new();
             collect_stmt_identifiers(body, &mut used_idents);
 
             for s in body {
                 if let Stmt::Let { name, .. } | Stmt::Const { name, .. } = s {
                     if !name.starts_with('_') && !used_idents.contains(name) {
-                        if let Some(tok) = find_var_declaration_token(tokens, name) {
+                        let decl_tok = find_var_declaration_token_in_fn(tokens, fn_name, name)
+                            .or_else(|| find_var_declaration_token(tokens, name));
+                        if let Some(tok) = decl_tok {
                             let len = name.len();
                             diags.push(LintDiagnostic {
                                 rule: "unused-var".to_string(),
