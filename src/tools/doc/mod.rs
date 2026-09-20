@@ -125,11 +125,35 @@ fn process_directory(
         modules.push(module);
     }
 
+    // Detect package name from alya.toml if available
+    let mut pkg_name = None;
+    let mut curr = dir_path.to_path_buf();
+    loop {
+        let manifest_path = curr.join("alya.toml");
+        if manifest_path.exists() {
+            if let Ok(manifest_src) = fs::read_to_string(&manifest_path) {
+                if let Ok(manifest) = crate::tools::pkg::manifest::parse_manifest(&manifest_src) {
+                    pkg_name = Some(manifest.package.name);
+                    break;
+                }
+            }
+        }
+        if !curr.pop() {
+            break;
+        }
+    }
+
     // Generate index.html and index.md
     if gen_markdown {
         let mut index_md = String::new();
-        index_md.push_str("# Alya Standard Library Documentation\n\n");
-        index_md.push_str("Official API reference index across all standard library modules.\n\n");
+        if let Some(ref name) = pkg_name {
+            index_md.push_str(&format!("# {} API Documentation\n\n", name));
+            index_md.push_str(&format!("Official API reference index for `{}`.\n\n", name));
+        } else {
+            index_md.push_str("# Alya Standard Library Documentation\n\n");
+            index_md
+                .push_str("Official API reference index across all standard library modules.\n\n");
+        }
         index_md.push_str("| Module | Description | API Link |\n");
         index_md.push_str("| :--- | :--- | :--- |\n");
         for m in &modules {
@@ -143,9 +167,14 @@ fn process_directory(
             } else {
                 "-".to_string()
             };
+            let mod_display = if pkg_name.is_some() {
+                m.name.clone()
+            } else {
+                format!("std/{}", m.name)
+            };
             index_md.push_str(&format!(
-                "| `std/{}` | {} | [{}.md]({}.md) |\n",
-                m.name, desc, m.name, target_file_name
+                "| `{}` | {} | [{}.md]({}.md) |\n",
+                mod_display, desc, m.name, target_file_name
             ));
         }
         let index_file = out_dir.join("index.md");
@@ -170,7 +199,15 @@ fn collect_alya_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> 
             if path.is_dir() {
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();
-                if name_str != ".git" && name_str != "target" && name_str != "node_modules" {
+                if name_str != ".git"
+                    && name_str != ".alya"
+                    && name_str != "target"
+                    && name_str != "docs"
+                    && name_str != "tests"
+                    && name_str != "benches"
+                    && name_str != "examples"
+                    && name_str != "node_modules"
+                {
                     collect_alya_files(&path, out)?;
                 }
             } else if path.is_file() {

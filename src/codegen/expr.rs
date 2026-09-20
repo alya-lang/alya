@@ -2537,21 +2537,25 @@ impl CodeGen {
                     },
                     _ => None,
                 };
+                let bare_target = target.rsplit("::").next().unwrap_or(target);
+                let bare_target = bare_target.rsplit("__").next().unwrap_or(bare_target);
+
                 let is_known_target_iface = self.ctx.interfaces.contains_key(target)
+                    || self.ctx.interfaces.contains_key(bare_target)
                     || self.ctx.interfaces.values().any(|i| {
                         let bare = i.name.rsplit("::").next().unwrap_or(&i.name);
-                        bare == target
+                        let bare = bare.rsplit("__").next().unwrap_or(bare);
+                        bare == bare_target
                     });
                 let is_known_target_struct = self.ctx.structs.contains_key(target)
+                    || self.ctx.structs.contains_key(bare_target)
                     || self.ctx.structs.values().any(|s| {
                         let bare = s.name.rsplit("::").next().unwrap_or(&s.name);
-                        bare == target
+                        let bare = bare.rsplit("__").next().unwrap_or(bare);
+                        bare == bare_target
                     });
 
                 if is_known_target_iface {
-                    let bare_target = target.rsplit("::").next().unwrap_or(target);
-                    let bare_target = bare_target.rsplit("__").next().unwrap_or(bare_target);
-
                     if let Some(sname) = known_struct {
                         let bare_s = sname.rsplit("::").next().unwrap_or(&sname);
                         let bare_s = bare_s.rsplit("__").next().unwrap_or(bare_s);

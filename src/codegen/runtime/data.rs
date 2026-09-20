@@ -9,6 +9,7 @@ pub fn emit_data_sections(
     structs: &HashMap<String, StructDefInfo>,
     interfaces: &HashMap<String, crate::codegen::context::InterfaceDefInfo>,
     vtables: &HashMap<(String, String), String>,
+    functions: &std::collections::HashSet<String>,
 ) {
     if matches!(os, OperatingSystem::MacOS) {
         out.push_str("\n.section __DATA,__bss\n");
@@ -414,7 +415,20 @@ pub fn emit_data_sections(
         out.push_str(&format!("{}:\n", vtable_label));
         out.push_str(&format!("    {} alya_struct_desc_{}\n", ptr_dir, bare_s));
         for m in &flattened {
-            out.push_str(&format!("    {} fn_{}__{}\n", ptr_dir, bare_s, m.name));
+            let fn_target = if functions.contains(&format!("{}__{}", sname, m.name)) {
+                format!("{}__{}", sname, m.name)
+            } else if functions.contains(&format!("{}__{}", bare_s, m.name)) {
+                format!("{}__{}", bare_s, m.name)
+            } else if let Some(matching) = functions.iter().find(|f| {
+                (f.ends_with(&format!("__{}", m.name)) || f.ends_with(&format!("::{}", m.name)))
+                    && f.contains(bare_s)
+            }) {
+                matching.clone()
+            } else {
+                format!("{}__{}", bare_s, m.name)
+            };
+            let mangled = crate::codegen::arch::control::mangle_symbol_name(&fn_target);
+            out.push_str(&format!("    {} fn_{}\n", ptr_dir, mangled));
         }
     }
 

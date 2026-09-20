@@ -586,7 +586,13 @@ impl CodeGen {
                 let satisfies = flattened.iter().all(|m| {
                     let c1 = format!("{}__{}", sdef.name, m.name);
                     let c2 = format!("{}__{}", bare_sdef, m.name);
-                    self.ctx.functions.contains(&c1) || self.ctx.functions.contains(&c2)
+                    self.ctx.functions.contains(&c1)
+                        || self.ctx.functions.contains(&c2)
+                        || self.ctx.functions.iter().any(|f| {
+                            (f.ends_with(&format!("__{}", m.name))
+                                || f.ends_with(&format!("::{}", m.name)))
+                                && f.contains(bare_sdef)
+                        })
                 });
                 if satisfies {
                     let vtable_label = format!("alya_vtable_{}_{}", bare_sdef, bare_idef);
@@ -927,6 +933,7 @@ impl CodeGen {
                 &self.ctx.structs,
                 &self.ctx.interfaces,
                 &self.ctx.vtables,
+                &self.ctx.functions,
                 self.mem_trace,
             );
         }
