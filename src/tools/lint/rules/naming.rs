@@ -82,7 +82,9 @@ fn check_stmt_naming(
     match stmt.inner_stmt() {
         Stmt::Function { name, body, .. } => {
             let bare = name.rsplit("::").next().unwrap_or(name);
-            if let Some((type_part, method_part)) = bare.split_once("__").or_else(|| bare.split_once('.')) {
+            if let Some((type_part, method_part)) =
+                bare.split_once("__").or_else(|| bare.split_once('.'))
+            {
                 if !type_part.starts_with('_') && !is_pascal_case(type_part) {
                     let tok = find_ident_token(tokens, type_part);
                     let line = tok.as_ref().map(|t| t.line).unwrap_or(1);
@@ -119,7 +121,10 @@ fn check_stmt_naming(
                         col,
                         end_line: line,
                         end_col: col + method_part.len(),
-                        help: Some(format!("consider renaming to '{}'", to_snake_case(method_part))),
+                        help: Some(format!(
+                            "consider renaming to '{}'",
+                            to_snake_case(method_part)
+                        )),
                         fix: None,
                     });
                 }
