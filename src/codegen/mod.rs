@@ -995,7 +995,9 @@ impl CodeGen {
                 || param_types
                     .get(i)
                     .and_then(|t| t.as_deref())
-                    .is_some_and(|t| t == "..." || t.starts_with("...") || t.ends_with("[]"));
+                    .is_some_and(|t| {
+                        t == "..." || t.starts_with("...") || t == "array" || t.ends_with("[]")
+                    });
             let is_str_arr = inference.infer_param_is_string_array(name, i, program);
             let is_flt_arr = inference.infer_param_is_float_array(name, i, program);
             let is_map = inference.infer_param_is_map(name, i, program);
@@ -1174,6 +1176,124 @@ impl CodeGen {
                 self.ctx.stack_offset,
                 self.os,
             );
+        }
+    }
+
+    pub(crate) fn emit_rc_release_scope_return(
+        &mut self,
+        heap_offsets: &[i32],
+        check_return_match: bool,
+    ) {
+        if !check_return_match || heap_offsets.is_empty() {
+            for &offset in heap_offsets {
+                arch::emit_rc_release_stack(
+                    &mut self.output,
+                    self.arch,
+                    offset,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+            }
+            return;
+        }
+
+        match self.arch {
+            Architecture::X64 => {
+                self.output.push_str("    pushq $0\n");
+                self.ctx.stack_offset += 8;
+                for &offset in heap_offsets {
+                    let uid = self.ctx.next_label();
+                    let clean_uid = uid.trim_start_matches('.');
+                    self.output.push_str("    cmpq $0, (%rsp)\n");
+                    self.output
+                        .push_str(&format!("    jne .L_rel_{}\n", clean_uid));
+                    self.output
+                        .push_str(&format!("    mov -{}(%rbp), %rax\n", offset));
+                    self.output.push_str("    cmp 8(%rsp), %rax\n");
+                    self.output
+                        .push_str(&format!("    jne .L_rel_{}\n", clean_uid));
+                    self.output.push_str("    test %rax, %rax\n");
+                    self.output
+                        .push_str(&format!("    jz .L_rel_{}\n", clean_uid));
+                    self.output.push_str("    movq $1, (%rsp)\n");
+                    self.output
+                        .push_str(&format!("    jmp .L_skip_{}\n", clean_uid));
+                    self.output.push_str(&format!(".L_rel_{}:\n", clean_uid));
+                    arch::emit_rc_release_stack(
+                        &mut self.output,
+                        self.arch,
+                        offset,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                    self.output.push_str(&format!(".L_skip_{}:\n", clean_uid));
+                }
+                self.output.push_str("    pop %r11\n");
+                self.ctx.stack_offset -= 8;
+            }
+            Architecture::ARM64 => {
+                self.output.push_str("    str xzr, [sp, #8]\n");
+                for &offset in heap_offsets {
+                    let uid = self.ctx.next_label();
+                    let clean_uid = uid.trim_start_matches('.');
+                    self.output.push_str("    ldr x9, [sp, #8]\n");
+                    self.output
+                        .push_str(&format!("    cbnz x9, .L_rel_{}\n", clean_uid));
+                    arch::arm64::emit_arm64_load_x29_offset(&mut self.output, "x1", offset, "x9");
+                    self.output.push_str("    ldr x2, [sp]\n");
+                    self.output.push_str("    cmp x1, x2\n");
+                    self.output
+                        .push_str(&format!("    bne .L_rel_{}\n", clean_uid));
+                    self.output
+                        .push_str(&format!("    cbz x1, .L_rel_{}\n", clean_uid));
+                    self.output.push_str("    mov x9, #1\n");
+                    self.output.push_str("    str x9, [sp, #8]\n");
+                    self.output
+                        .push_str(&format!("    b .L_skip_{}\n", clean_uid));
+                    self.output.push_str(&format!(".L_rel_{}:\n", clean_uid));
+                    arch::emit_rc_release_stack(
+                        &mut self.output,
+                        self.arch,
+                        offset,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                    self.output.push_str(&format!(".L_skip_{}:\n", clean_uid));
+                }
+            }
+            Architecture::X86 => {
+                self.output.push_str("    push $0\n");
+                self.ctx.stack_offset += 4;
+                for &offset in heap_offsets {
+                    let uid = self.ctx.next_label();
+                    let clean_uid = uid.trim_start_matches('.');
+                    self.output.push_str("    cmpl $0, (%esp)\n");
+                    self.output
+                        .push_str(&format!("    jne .L_rel_{}\n", clean_uid));
+                    self.output
+                        .push_str(&format!("    mov -{}(%ebp), %eax\n", offset));
+                    self.output.push_str("    cmp 4(%esp), %eax\n");
+                    self.output
+                        .push_str(&format!("    jne .L_rel_{}\n", clean_uid));
+                    self.output.push_str("    test %eax, %eax\n");
+                    self.output
+                        .push_str(&format!("    jz .L_rel_{}\n", clean_uid));
+                    self.output.push_str("    movl $1, (%esp)\n");
+                    self.output
+                        .push_str(&format!("    jmp .L_skip_{}\n", clean_uid));
+                    self.output.push_str(&format!(".L_rel_{}:\n", clean_uid));
+                    arch::emit_rc_release_stack(
+                        &mut self.output,
+                        self.arch,
+                        offset,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                    self.output.push_str(&format!(".L_skip_{}:\n", clean_uid));
+                }
+                self.output.push_str("    pop %ecx\n");
+                self.ctx.stack_offset -= 4;
+            }
         }
     }
 

@@ -99,15 +99,9 @@ impl CodeGen {
 
                     let heap_offsets = self.get_scope_heap_offsets(skip_offset);
                     if !heap_offsets.is_empty() {
-                        for offset in heap_offsets {
-                            arch::emit_rc_release_stack(
-                                &mut self.output,
-                                self.arch,
-                                offset,
-                                self.ctx.stack_offset,
-                                self.os,
-                            );
-                        }
+                        let check_match = skip_offset.is_none()
+                            && matches!(expr, Expr::Ternary { .. } | Expr::NullCoalesce { .. });
+                        self.emit_rc_release_scope_return(&heap_offsets, check_match);
                     }
                     self.ctx.stack_offset -= word_size;
                     arch::emit_pop_temp(&mut self.output, self.arch);

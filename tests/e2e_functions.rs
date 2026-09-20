@@ -578,3 +578,48 @@ say greet("World")
         assert_eq!(output, concat!("25\n", "310\n", "50\n", "Hello World!\n",));
     }
 }
+
+#[test]
+fn test_e2e_return_expression_retention() {
+    let code = r#"
+function in_place_swap(arr: array) -> array
+    let temp = arr[0]
+    arr[0] = arr[1]
+    arr[1] = temp
+    return arr
+end
+
+function copy_and_swap(arr: array) -> array
+    let copy = []
+    for item in arr
+        copy.push(item)
+    end
+    return in_place_swap(copy)
+end
+
+function ternary_return(c, a: array) -> array
+    return c ? a : [99]
+end
+
+let base = [10, 20]
+let swapped = copy_and_swap(base)
+say swapped[0]
+say swapped[1]
+say rc_count(swapped)
+
+let t1 = ternary_return(true, [42, 43])
+say t1[0]
+say rc_count(t1)
+
+let t2 = ternary_return(false, [42, 43])
+say t2[0]
+say rc_count(t2)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(
+            output,
+            concat!("20\n", "10\n", "1\n", "42\n", "2\n", "99\n", "1\n",)
+        );
+    }
+}
