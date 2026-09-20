@@ -275,7 +275,9 @@ end
     let diags = lint_source(source, Path::new("test.alya")).unwrap();
     let redundant_diags: Vec<_> = diags
         .iter()
-        .filter(|d| d.rule == "idiomatic-style" && d.message.contains("redundant variable assignment"))
+        .filter(|d| {
+            d.rule == "idiomatic-style" && d.message.contains("redundant variable assignment")
+        })
         .collect();
 
     assert_eq!(redundant_diags.len(), 2);
