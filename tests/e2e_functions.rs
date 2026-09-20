@@ -664,16 +664,7 @@ say sel_p2.y
         assert_eq!(code, 0, "Execution failed: {}", output);
         assert_eq!(
             output,
-            concat!(
-                "alice\n",
-                "100\n",
-                "bob\n",
-                "200\n",
-                "10\n",
-                "20\n",
-                "30\n",
-                "40\n",
-            )
+            concat!("alice\n", "100\n", "bob\n", "200\n", "10\n", "20\n", "30\n", "40\n",)
         );
     }
 }
