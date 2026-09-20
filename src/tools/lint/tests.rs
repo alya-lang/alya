@@ -45,7 +45,10 @@ end
         "variable 'res' is declared but never read"
     );
     // Crucial check: line must point to second_fn (line 8), NOT first_fn (line 3)
-    assert_eq!(unused_diags[0].line, 8, "Must point to second_fn, not first_fn");
+    assert_eq!(
+        unused_diags[0].line, 8,
+        "Must point to second_fn, not first_fn"
+    );
 }
 
 #[test]

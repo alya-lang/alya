@@ -192,7 +192,11 @@ fn find_var_declaration_token(tokens: &[Token], var_name: &str) -> Option<Token>
 }
 
 /// Finds the token position of a variable declared with `let` or `const` specifically inside a given function.
-fn find_var_declaration_token_in_fn(tokens: &[Token], fn_name: &str, var_name: &str) -> Option<Token> {
+fn find_var_declaration_token_in_fn(
+    tokens: &[Token],
+    fn_name: &str,
+    var_name: &str,
+) -> Option<Token> {
     let mut in_target_fn = false;
     let mut depth = 0;
 
@@ -328,7 +332,12 @@ pub fn check_unused_variables(
     // Check variables inside functions
     for stmt in &program.statements {
         let actual_stmt = stmt.inner_stmt();
-        if let Stmt::Function { name: ref fn_name, body, .. } = actual_stmt {
+        if let Stmt::Function {
+            name: ref fn_name,
+            body,
+            ..
+        } = actual_stmt
+        {
             let mut used_idents = HashSet::new();
             collect_stmt_identifiers(body, &mut used_idents);
 
