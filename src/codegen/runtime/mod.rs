@@ -12,6 +12,7 @@ use super::target::{Architecture, OperatingSystem};
 use crate::codegen::context::StructDefInfo;
 use std::collections::HashMap;
 
+#[allow(clippy::too_many_arguments)]
 pub fn emit_runtime(
     out: &mut String,
     arch: Architecture,
