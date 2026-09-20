@@ -153,6 +153,117 @@ fn check_boolean_returns(stmt: &Stmt, file_path: &Path, diags: &mut Vec<LintDiag
     }
 }
 
+/// Scans the token stream for redundant variable assignment immediately followed by returning that variable.
+/// Pattern: `let <var> = <expr>` immediately followed by `return <var>`.
+fn check_redundant_return_var(tokens: &[Token], file_path: &Path, diags: &mut Vec<LintDiagnostic>) {
+    let mut i = 0;
+    while i < tokens.len() {
+        if matches!(tokens[i].token_type, TokenType::Let | TokenType::Const) {
+            if let Some(Token {
+                token_type: TokenType::Identifier(ref var_name),
+                line: var_line,
+                column: var_col,
+            }) = tokens.get(i + 1)
+            {
+                if !var_name.starts_with('_') {
+                    let mut j = i + 2;
+                    let mut depth = 0;
+                    let mut found_stmt_end = false;
+
+                    while j < tokens.len() {
+                        match tokens[j].token_type {
+                            TokenType::LeftParen
+                            | TokenType::LeftBracket
+                            | TokenType::LeftBrace => {
+                                depth += 1;
+                            }
+                            TokenType::RightParen
+                            | TokenType::RightBracket
+                            | TokenType::RightBrace => {
+                                if depth > 0 {
+                                    depth -= 1;
+                                }
+                            }
+                            TokenType::Function
+                            | TokenType::If
+                            | TokenType::While
+                            | TokenType::For
+                            | TokenType::Repeat
+                            | TokenType::Try
+                            | TokenType::When => {
+                                depth += 1;
+                            }
+                            TokenType::End => {
+                                if depth > 0 {
+                                    depth -= 1;
+                                }
+                            }
+                            TokenType::Newline if depth == 0 => {
+                                found_stmt_end = true;
+                                break;
+                            }
+                            _ => {}
+                        }
+                        j += 1;
+                    }
+
+                    if found_stmt_end {
+                        let mut next_stmt_idx = j + 1;
+                        while next_stmt_idx < tokens.len()
+                            && matches!(tokens[next_stmt_idx].token_type, TokenType::Newline)
+                        {
+                            next_stmt_idx += 1;
+                        }
+
+                        if next_stmt_idx < tokens.len()
+                            && matches!(tokens[next_stmt_idx].token_type, TokenType::Return)
+                        {
+                            if let Some(Token {
+                                token_type: TokenType::Identifier(ref ret_name),
+                                ..
+                            }) = tokens.get(next_stmt_idx + 1)
+                            {
+                                if ret_name == var_name {
+                                    let term_idx = next_stmt_idx + 2;
+                                    let is_terminated = term_idx >= tokens.len()
+                                        || matches!(
+                                            tokens[term_idx].token_type,
+                                            TokenType::Newline | TokenType::End | TokenType::Eof
+                                        );
+
+                                    if is_terminated {
+                                        let let_tok = &tokens[i];
+                                        let len = var_name.len();
+                                        diags.push(LintDiagnostic {
+                                            rule: "idiomatic-style".to_string(),
+                                            severity: LintSeverity::Info,
+                                            message: format!(
+                                                "redundant variable assignment '{}' immediately before 'return'",
+                                                var_name
+                                            ),
+                                            file_path: file_path.to_path_buf(),
+                                            line: let_tok.line,
+                                            col: let_tok.column,
+                                            end_line: *var_line,
+                                            end_col: *var_col + len,
+                                            help: Some(
+                                                "consider returning the expression directly: 'return ...'"
+                                                    .to_string(),
+                                            ),
+                                            fix: None,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+}
+
 /// Checks for idiomatic style and anti-patterns (`idiomatic-style`).
 pub fn check_idiomatic_style(
     program: &Program,
@@ -161,6 +272,7 @@ pub fn check_idiomatic_style(
 ) -> Vec<LintDiagnostic> {
     let mut diags = Vec::new();
     check_token_if_chains(tokens, file_path, &mut diags);
+    check_redundant_return_var(tokens, file_path, &mut diags);
     for s in &program.statements {
         check_boolean_returns(s, file_path, &mut diags);
     }

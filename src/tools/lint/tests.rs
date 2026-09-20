@@ -252,3 +252,35 @@ fn test_lint_cli_check_gate() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_lint_redundant_return_variable() {
+    let source = r#"
+function get_shuffled(rng, arr)
+    let shuf = sample_shuffled(rng, arr)
+    return shuf
+end
+
+function compute()
+    let res = 10 + 20
+    return res
+end
+
+function not_redundant(arr)
+    let x = arr[0]
+    say x
+    return x
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let redundant_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "idiomatic-style" && d.message.contains("redundant variable assignment"))
+        .collect();
+
+    assert_eq!(redundant_diags.len(), 2);
+    assert_eq!(redundant_diags[0].line, 3);
+    assert!(redundant_diags[0].message.contains("'shuf'"));
+    assert_eq!(redundant_diags[1].line, 8);
+    assert!(redundant_diags[1].message.contains("'res'"));
+}
