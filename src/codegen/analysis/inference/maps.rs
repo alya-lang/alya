@@ -167,14 +167,32 @@ fn collect_map_vars_from_stmts(
                 collect_map_vars_from_stmts(body, fn_scope, known_maps);
             }
             Stmt::Function {
-                name, params, body, ..
+                name,
+                params,
+                param_types,
+                body,
+                ..
             } => {
                 let bare = name.rsplit("::").next().unwrap_or(name);
                 let bare = bare.rsplit("__").next().unwrap_or(bare);
                 for (idx, param) in params.iter().enumerate() {
-                    if known_maps.contains(&format!("fn_param_map:{}:{}", name, idx))
+                    let is_map_type =
+                        param_types
+                            .get(idx)
+                            .and_then(|t| t.as_deref())
+                            .is_some_and(|t| {
+                                t == "map"
+                                    || t.starts_with("map[")
+                                    || (t.starts_with('[') && t.contains(':') && t.ends_with(']'))
+                            });
+                    if is_map_type
+                        || known_maps.contains(&format!("fn_param_map:{}:{}", name, idx))
                         || known_maps.contains(&format!("fn_param_map:{}:{}", bare, idx))
                     {
+                        if is_map_type {
+                            known_maps.insert(format!("fn_param_map:{}:{}", name, idx));
+                            known_maps.insert(format!("fn_param_map:{}:{}", bare, idx));
+                        }
                         known_maps.insert(format!("{}:{}", name, param));
                         if bare != name {
                             known_maps.insert(format!("{}:{}", bare, param));
@@ -233,7 +251,7 @@ pub fn collect_known_map_vars_with_index(
     for _ in 0..5 {
         let prev_len = known_maps.len();
         collect_map_vars_from_stmts(&program.statements, None, &mut known_maps);
-        for (name, params, _, body) in &funcs {
+        for (name, params, param_types, body) in &funcs {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             if stmts_return_map(body, Some(name), &known_maps)
@@ -243,6 +261,16 @@ pub fn collect_known_map_vars_with_index(
                 known_maps.insert(format!("fn_ret_map:{}", bare));
             }
             for (idx, _param) in params.iter().enumerate() {
+                if let Some(t) = param_types.get(idx).and_then(|t| t.as_deref()) {
+                    if t == "map"
+                        || t.starts_with("map[")
+                        || (t.starts_with('[') && t.contains(':') && t.ends_with(']'))
+                    {
+                        known_maps.insert(format!("fn_param_map:{}:{}", name, idx));
+                        known_maps.insert(format!("fn_param_map:{}:{}", bare, idx));
+                        continue;
+                    }
+                }
                 if known_maps.contains(&format!("fn_param_map:{}:{}", name, idx))
                     || known_maps.contains(&format!("fn_param_map:{}:{}", bare, idx))
                 {

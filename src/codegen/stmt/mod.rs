@@ -80,7 +80,8 @@ impl CodeGen {
                         if let Some(
                             VarType::Array(off)
                             | VarType::Map(off)
-                            | VarType::Struct { offset: off, .. },
+                            | VarType::Struct { offset: off, .. }
+                            | VarType::Interface { offset: off, .. },
                         ) = self.ctx.variables.get(id)
                         {
                             skip_offset = Some(*off);

@@ -1000,7 +1000,15 @@ impl CodeGen {
                     });
             let is_str_arr = inference.infer_param_is_string_array(name, i, program);
             let is_flt_arr = inference.infer_param_is_float_array(name, i, program);
-            let is_map = inference.infer_param_is_map(name, i, program);
+            let is_map = inference.infer_param_is_map(name, i, program)
+                || param_types
+                    .get(i)
+                    .and_then(|t| t.as_deref())
+                    .is_some_and(|t| {
+                        t == "map"
+                            || t.starts_with("map[")
+                            || (t.starts_with('[') && t.contains(':') && t.ends_with(']'))
+                    });
             let struct_type = if let Some(Some(t)) = param_types.get(i) {
                 let bare_base = t.split('[').next().unwrap_or(t);
                 let b = bare_base.rsplit("::").next().unwrap_or(bare_base);
@@ -1151,7 +1159,10 @@ impl CodeGen {
             .iter()
             .filter(|(name, _)| !name.contains(':') && !name.contains('.'))
             .filter_map(|(_, vtype)| match vtype {
-                VarType::Array(off) | VarType::Map(off) | VarType::Struct { offset: off, .. } => {
+                VarType::Array(off)
+                | VarType::Map(off)
+                | VarType::Struct { offset: off, .. }
+                | VarType::Interface { offset: off, .. } => {
                     if *off > 0 && Some(*off) != skip_offset {
                         Some(*off)
                     } else {
