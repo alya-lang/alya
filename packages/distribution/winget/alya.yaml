@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
 PackageIdentifier: Alya.alya
-PackageVersion: 0.0.18
+PackageVersion: 0.0.19
 PackageLocale: en-US
 PackageName: Alya Programming Language Compiler
 Publisher: Alya Language
@@ -26,11 +26,11 @@ PackageUrl: https://github.com/alya-lang/alya
 Installers:
   - Architecture: x64
     InstallerType: zip
-    InstallerUrl: https://github.com/alya-lang/alya/releases/download/v0.0.18/alya-v0.0.18-x86_64-windows.zip
-    InstallerSha256: bf2a2e600f8ed5f49d6bfd9f469ad7c49922bf7dc162bd19f71ff5f38396e2ea
+    InstallerUrl: https://github.com/alya-lang/alya/releases/download/v0.0.19/alya-v0.0.19-x86_64-windows.zip
+    InstallerSha256: 45eaf5c09319cbb7dfaff970ca9dd3c21ddc3f789c1f162b76f62618a2ad869b
     NestedInstallerType: portable
     NestedInstallerFiles:
-      - RelativeFilePath: alya-v0.0.18-x86_64-windows/alya.exe
+      - RelativeFilePath: alya-v0.0.19-x86_64-windows/alya.exe
         PortableCommandAlias: alya
 ManifestType: singleton
 ManifestVersion: 1.6.0

@@ -1,13 +1,13 @@
 {
-  "version": "0.0.18",
+  "version": "0.0.19",
   "description": "A simple, intuitive, and modern multi-platform compiled programming language",
   "homepage": "https://github.com/alya-lang/alya",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/alya-lang/alya/releases/download/v0.0.18/alya-v0.0.18-x86_64-windows.zip",
-      "hash": "bf2a2e600f8ed5f49d6bfd9f469ad7c49922bf7dc162bd19f71ff5f38396e2ea",
-      "extract_dir": "alya-v0.0.18-x86_64-windows"
+      "url": "https://github.com/alya-lang/alya/releases/download/v0.0.19/alya-v0.0.19-x86_64-windows.zip",
+      "hash": "45eaf5c09319cbb7dfaff970ca9dd3c21ddc3f789c1f162b76f62618a2ad869b",
+      "extract_dir": "alya-v0.0.19-x86_64-windows"
     }
   },
   "bin": "alya.exe",

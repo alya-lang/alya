@@ -30,5 +30,5 @@ choco uninstall alya -y
 
 Once tested, push the package to Chocolatey:
 ```powershell
-choco push alya.0.0.18.nupkg --api-key <YOUR_CHOCO_API_KEY> --source https://push.chocolatey.org/
+choco push alya.0.0.19.nupkg --api-key <YOUR_CHOCO_API_KEY> --source https://push.chocolatey.org/
 ```

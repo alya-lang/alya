@@ -1,11 +1,11 @@
 $ErrorActionPreference = 'Stop'
 
 $packageName = 'alya'
-$version     = '0.0.18'
+$version     = '0.0.19'
 $toolsDir    = "$(Split-Path -parent $MyInvocation.MyCommand.Definition)"
 
 $url64        = "https://github.com/alya-lang/alya/releases/download/v$version/alya-v$version-x86_64-windows.zip"
-$checksum64   = 'bf2a2e600f8ed5f49d6bfd9f469ad7c49922bf7dc162bd19f71ff5f38396e2ea'
+$checksum64   = '45eaf5c09319cbb7dfaff970ca9dd3c21ddc3f789c1f162b76f62618a2ad869b'
 $checksumType = 'sha256'
 
 $packageArgs = @{

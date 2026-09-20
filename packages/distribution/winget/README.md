@@ -27,10 +27,10 @@ You can submit new releases to the official Windows Package Manager repository:
 
 ### Method A: Automated via `wingetcreate`
 ```powershell
-wingetcreate new https://github.com/alya-lang/alya/releases/download/v0.0.18/alya-v0.0.18-x86_64-windows.zip
+wingetcreate new https://github.com/alya-lang/alya/releases/download/v0.0.19/alya-v0.0.19-x86_64-windows.zip
 ```
 
 ### Method B: Manual PR
 Copy `alya.yaml` to the community repository under:
-`manifests/a/Alya/alya/0.0.18/Alya.alya.yaml`
+`manifests/a/Alya/alya/0.0.19/Alya.alya.yaml`
 and submit a Pull Request to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs).
