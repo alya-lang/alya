@@ -623,3 +623,57 @@ say rc_count(t2)
         );
     }
 }
+
+#[test]
+fn test_e2e_map_and_struct_return_expression_retention() {
+    let code = r#"
+struct Point
+    x: int
+    y: int
+end
+
+function choose_map(cond, m1: map, m2: map) -> map
+    return cond ? m1 : m2
+end
+
+function choose_point(cond, p1, p2)
+    return cond ? p1 : p2
+end
+
+let m1 = {"name": "alice", "score": 100}
+let m2 = {"name": "bob", "score": 200}
+let res_m1 = choose_map(true, m1, m2)
+say res_m1["name"]
+say res_m1["score"]
+
+let res_m2 = choose_map(false, m1, m2)
+say res_m2["name"]
+say res_m2["score"]
+
+let p1 = Point { x: 10, y: 20 }
+let p2 = Point { x: 30, y: 40 }
+let sel_p1 = choose_point(true, p1, p2)
+say sel_p1.x
+say sel_p1.y
+
+let sel_p2 = choose_point(false, p1, p2)
+say sel_p2.x
+say sel_p2.y
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(
+            output,
+            concat!(
+                "alice\n",
+                "100\n",
+                "bob\n",
+                "200\n",
+                "10\n",
+                "20\n",
+                "30\n",
+                "40\n",
+            )
+        );
+    }
+}
