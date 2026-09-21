@@ -32,10 +32,21 @@ fn is_pascal_case(s: &str) -> bool {
 }
 
 fn to_snake_case(s: &str) -> String {
+    // If the input is already SCREAMING_SNAKE_CASE (e.g. WORK_IO_READ),
+    // just lowercase it: work_io_read — don't insert extra underscores.
+    if is_screaming_snake_case(s) {
+        return s.to_ascii_lowercase();
+    }
+    // Otherwise handle camelCase / PascalCase → snake_case conversion:
+    // insert '_' before each uppercase letter that follows a lowercase letter or digit.
     let mut out = String::new();
-    for (i, ch) in s.chars().enumerate() {
+    let chars: Vec<char> = s.chars().collect();
+    for (i, &ch) in chars.iter().enumerate() {
         if ch.is_uppercase() {
-            if i > 0 && !out.ends_with('_') {
+            let prev_is_lower =
+                i > 0 && (chars[i - 1].is_lowercase() || chars[i - 1].is_ascii_digit());
+            let next_is_lower = i + 1 < chars.len() && chars[i + 1].is_lowercase();
+            if i > 0 && !out.ends_with('_') && (prev_is_lower || next_is_lower) {
                 out.push('_');
             }
             out.push(ch.to_ascii_lowercase());
@@ -128,7 +139,10 @@ fn check_stmt_naming(
                         fix: None,
                     });
                 }
-            } else if !bare.starts_with('_') && !is_snake_case(bare) {
+            } else if !bare.starts_with('_')
+                && !is_snake_case(bare)
+                && !is_screaming_snake_case(bare)
+            {
                 let tok = find_ident_token(tokens, bare);
                 let line = tok.as_ref().map(|t| t.line).unwrap_or(1);
                 let col = tok.as_ref().map(|t| t.column).unwrap_or(1);
