@@ -1559,6 +1559,25 @@ impl CodeGen {
                             }
                             Architecture::X86 => {}
                         }
+                    } else {
+                        let is_i32_ret = self
+                            .ctx
+                            .extern_functions
+                            .get(call_name)
+                            .or_else(|| self.ctx.extern_functions.get(extern_name))
+                            .and_then(|info| info.return_type.as_deref())
+                            .is_some_and(|rt| rt == "i32");
+                        if is_i32_ret {
+                            match self.arch {
+                                Architecture::X64 => {
+                                    self.output.push_str("    movslq %eax, %rax\n");
+                                }
+                                Architecture::ARM64 => {
+                                    self.output.push_str("    sxtw x0, w0\n");
+                                }
+                                Architecture::X86 => {}
+                            }
+                        }
                     }
                 } else {
                     arch::emit_function_call(
