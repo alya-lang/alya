@@ -139,10 +139,7 @@ fn check_stmt_naming(
                         fix: None,
                     });
                 }
-            } else if !bare.starts_with('_')
-                && !is_snake_case(bare)
-                && !is_screaming_snake_case(bare)
-            {
+            } else if !bare.starts_with('_') && !is_snake_case(bare) {
                 let tok = find_ident_token(tokens, bare);
                 let line = tok.as_ref().map(|t| t.line).unwrap_or(1);
                 let col = tok.as_ref().map(|t| t.column).unwrap_or(1);
