@@ -425,3 +425,172 @@ fn test_codegen_macos_arm64_mem_trace_stack_passing() {
     assert!(asm_macos.contains("bl _printf"));
     assert!(asm_macos.contains("add sp, sp, #32"));
 }
+
+// Regression: extern C functions returning i32 were not sign-extended on x64/ARM64.
+// The 32-bit return value in %eax / w0 is zero-extended to 64 bits by the hardware,
+// so -1 (0xFFFFFFFF) would become +4294967295 (0x00000000FFFFFFFF) without the fix.
+//
+// Fixed by emitting:
+//   x64:   movslq %eax, %rax   (sign-extend %eax → %rax)
+//   ARM64: sxtw x0, w0          (sign-extend w0   → x0)
+//   x86:   (nothing — 32-bit registers have no upper bits to fix)
+//
+// Root cause found while debugging the VPN pump disconnect bug where
+// alya_vpn_pump_server_vpn (returning i32 = -1) was read as +4294967295,
+// causing the disconnect check `res < 0` to never trigger.
+#[test]
+fn test_codegen_extern_c_i32_return_sign_extension_x64() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = r#"
+extern "C"
+    function alya_vpn_pump_server_vpn(sock: i32) -> i32
+end
+
+let res = alya_vpn_pump_server_vpn(3)
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    // x64 Linux: must emit movslq %eax, %rax after the call
+    let asm_x64_linux = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    assert!(
+        asm_x64_linux.contains("call alya_vpn_pump_server_vpn"),
+        "x64 Linux: call instruction missing"
+    );
+    assert!(
+        asm_x64_linux.contains("movslq %eax, %rax"),
+        "x64 Linux: missing sign-extension 'movslq %eax, %rax' after i32-returning extern call"
+    );
+
+    // x64 Windows: same sign-extension requirement
+    let asm_x64_win = generate(&ast, Architecture::X64, OperatingSystem::Windows);
+    assert!(
+        asm_x64_win.contains("call alya_vpn_pump_server_vpn"),
+        "x64 Windows: call instruction missing"
+    );
+    assert!(
+        asm_x64_win.contains("movslq %eax, %rax"),
+        "x64 Windows: missing sign-extension 'movslq %eax, %rax' after i32-returning extern call"
+    );
+
+    // x64 macOS: same sign-extension requirement
+    let asm_x64_mac = generate(&ast, Architecture::X64, OperatingSystem::MacOS);
+    assert!(
+        asm_x64_mac.contains("movslq %eax, %rax"),
+        "x64 macOS: missing sign-extension 'movslq %eax, %rax' after i32-returning extern call"
+    );
+}
+
+#[test]
+fn test_codegen_extern_c_i32_return_sign_extension_arm64() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = r#"
+extern "C"
+    function alya_vpn_pump_client_vpn(sock: i32) -> i32
+end
+
+let res = alya_vpn_pump_client_vpn(5)
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    // ARM64 Linux: must emit sxtw x0, w0 after the call
+    let asm_arm64_linux = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(
+        asm_arm64_linux.contains("bl alya_vpn_pump_client_vpn"),
+        "ARM64 Linux: bl instruction missing"
+    );
+    assert!(
+        asm_arm64_linux.contains("sxtw x0, w0"),
+        "ARM64 Linux: missing sign-extension 'sxtw x0, w0' after i32-returning extern call"
+    );
+
+    // ARM64 macOS: same requirement
+    let asm_arm64_mac = generate(&ast, Architecture::ARM64, OperatingSystem::MacOS);
+    assert!(
+        asm_arm64_mac.contains("sxtw x0, w0"),
+        "ARM64 macOS: missing sign-extension 'sxtw x0, w0' after i32-returning extern call"
+    );
+}
+
+#[test]
+fn test_codegen_extern_c_i32_return_no_sign_extension_x86() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = r#"
+extern "C"
+    function some_fn(x: i32) -> i32
+end
+
+let res = some_fn(1)
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    // x86: 32-bit register has no upper bits — no sign-extension instruction needed
+    let asm_x86 = generate(&ast, Architecture::X86, OperatingSystem::Linux);
+    assert!(
+        !asm_x86.contains("movslq"),
+        "x86: should NOT emit 'movslq' — 32-bit registers need no sign-extension"
+    );
+    assert!(!asm_x86.contains("sxtw"), "x86: should NOT emit 'sxtw'");
+}
+
+#[test]
+fn test_codegen_extern_c_i64_return_no_sign_extension() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // i64 return: already full-width, no sign-extension should be emitted for
+    // the extern call result. Note: the ARM64 runtime may emit sxtw in other
+    // helpers (maps, net), so we only verify the x64 path here where we can be
+    // certain that movslq is exclusively produced by the i32 sign-extension path.
+    let code = r#"
+extern "C"
+    function alya_vpn_pump_server_vpn(sock: i32) -> i64
+end
+
+let res = alya_vpn_pump_server_vpn(3)
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    // x64: movslq is only emitted by the i32 sign-extension path.
+    // An i64-returning extern fn must NOT trigger it.
+    let asm_x64 = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    assert!(
+        !asm_x64.contains("movslq %eax, %rax"),
+        "x64: i64-returning extern fn must NOT emit movslq sign-extension"
+    );
+
+    // ARM64: confirm the i32-specific sign-extension instruction is absent
+    // immediately after the extern call. We check by counting occurrences of
+    // "sxtw x0, w0" and verifying the count does not exceed what the ARM64
+    // runtime itself injects (e.g. from maps/net helpers). A simpler proxy:
+    // confirm the call is present and no additional sxtw follows it compared
+    // to an identical program without the call (not practical here). Instead,
+    // we document the known ARM64 limitation: runtime may emit sxtw independently.
+    // The functional guarantee is that the codegen path for i64 skips the
+    // is_i32_ret block — verified above via x64 and by code inspection.
+    let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(
+        asm_arm64.contains("bl alya_vpn_pump_server_vpn"),
+        "ARM64: bl instruction missing for extern call"
+    );
+    // The i32-specific path is guarded by `rt == \"i32\"` check in expr.rs.
+    // If return type is i64, sxtw is NOT emitted for this call — confirmed by
+    // x64 movslq absence and code-level inspection of the is_i32_ret guard.
+}

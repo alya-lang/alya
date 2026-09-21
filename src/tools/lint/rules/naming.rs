@@ -321,3 +321,272 @@ pub fn check_naming_conventions(
     }
     diags
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+    use std::path::PathBuf;
+
+    // ------------------------------------------------------------------ helpers
+
+    fn lint_code(src: &str) -> Vec<LintDiagnostic> {
+        let mut lexer = Lexer::new(src);
+        let tokens = lexer.tokenize().expect("tokenize failed");
+        let mut parser = Parser::new(tokens.clone());
+        let program = parser.parse().expect("parse failed");
+        check_naming_conventions(&program, &tokens, &PathBuf::from("test.alya"))
+    }
+
+    fn diag_messages(diags: &[LintDiagnostic]) -> Vec<String> {
+        diags.iter().map(|d| d.message.clone()).collect()
+    }
+
+    // ------------------------------------------------------------------ is_snake_case
+
+    #[test]
+    fn test_is_snake_case_valid() {
+        assert!(is_snake_case("foo"));
+        assert!(is_snake_case("foo_bar"));
+        assert!(is_snake_case("foo_bar_baz"));
+        assert!(is_snake_case("_foo"));
+        assert!(is_snake_case("__foo")); // leading underscores stripped, then "foo" is valid
+        assert!(is_snake_case(""));
+        assert!(is_snake_case("a1_b2"));
+    }
+
+    #[test]
+    fn test_is_snake_case_invalid() {
+        assert!(!is_snake_case("FooBar"));
+        assert!(!is_snake_case("fooBar"));
+        assert!(!is_snake_case("WORK_IO_READ"));
+        assert!(!is_snake_case("foo__bar")); // double underscore
+    }
+
+    // ------------------------------------------------------------------ is_screaming_snake_case
+
+    #[test]
+    fn test_is_screaming_snake_case_valid() {
+        assert!(is_screaming_snake_case("WORK_IO_READ"));
+        assert!(is_screaming_snake_case("WORK_IO_WRITE"));
+        assert!(is_screaming_snake_case("WORK_IO_ACCEPT"));
+        assert!(is_screaming_snake_case("WORK_CRYPTO_ENCRYPT"));
+        assert!(is_screaming_snake_case("FOO"));
+        assert!(is_screaming_snake_case("FOO_BAR_123"));
+        assert!(is_screaming_snake_case(""));
+    }
+
+    #[test]
+    fn test_is_screaming_snake_case_invalid() {
+        assert!(!is_screaming_snake_case("fooBar"));
+        assert!(!is_screaming_snake_case("foo_bar"));
+        assert!(!is_screaming_snake_case("FooBar"));
+        assert!(!is_screaming_snake_case("Work_IO"));
+    }
+
+    // ------------------------------------------------------------------ is_pascal_case
+
+    #[test]
+    fn test_is_pascal_case_valid() {
+        assert!(is_pascal_case("FooBar"));
+        assert!(is_pascal_case("Foo"));
+        assert!(is_pascal_case("MyStruct"));
+    }
+
+    #[test]
+    fn test_is_pascal_case_invalid() {
+        assert!(!is_pascal_case("fooBar"));
+        assert!(!is_pascal_case("foo_bar"));
+        assert!(!is_pascal_case("FOO_BAR"));
+        assert!(!is_pascal_case("Foo_Bar")); // underscore not allowed
+    }
+
+    // ------------------------------------------------------------------ to_snake_case
+
+    #[test]
+    fn test_to_snake_case_from_pascal() {
+        assert_eq!(to_snake_case("FooBar"), "foo_bar");
+        assert_eq!(to_snake_case("MyFunc"), "my_func");
+        assert_eq!(to_snake_case("Foo"), "foo");
+    }
+
+    #[test]
+    fn test_to_snake_case_from_camel() {
+        assert_eq!(to_snake_case("fooBar"), "foo_bar");
+        assert_eq!(to_snake_case("myFuncName"), "my_func_name");
+    }
+
+    // Regression: SCREAMING_SNAKE_CASE was producing "w_o_r_k_i_o_r_e_a_d"
+    // instead of "work_io_read". Fixed by detecting SCREAMING_SNAKE_CASE and
+    // simply lowercasing the entire string.
+    #[test]
+    fn test_to_snake_case_from_screaming_snake_regression() {
+        assert_eq!(to_snake_case("WORK_IO_READ"), "work_io_read");
+        assert_eq!(to_snake_case("WORK_IO_WRITE"), "work_io_write");
+        assert_eq!(to_snake_case("WORK_IO_ACCEPT"), "work_io_accept");
+        assert_eq!(to_snake_case("WORK_CRYPTO_ENCRYPT"), "work_crypto_encrypt");
+        assert_eq!(to_snake_case("WORK_CRYPTO_DECRYPT"), "work_crypto_decrypt");
+        assert_eq!(to_snake_case("FOO_BAR"), "foo_bar");
+        assert_eq!(to_snake_case("FOO"), "foo");
+    }
+
+    // ------------------------------------------------------------------ to_pascal_case
+
+    #[test]
+    fn test_to_pascal_case() {
+        assert_eq!(to_pascal_case("foo_bar"), "FooBar");
+        assert_eq!(to_pascal_case("my_struct"), "MyStruct");
+        assert_eq!(to_pascal_case("foo"), "Foo");
+    }
+
+    // ------------------------------------------------------------------ function naming diagnostic
+
+    // Regression: SCREAMING_SNAKE_CASE functions (e.g. WORK_IO_READ) used as
+    // enum-style constant getters must still emit a snake_case warning, but the
+    // suggestion in `help` must be the correctly lowercased form, not a garbled
+    // string with underscores between every character.
+    #[test]
+    fn test_function_screaming_snake_case_suggestion_regression() {
+        let diags = lint_code("function WORK_IO_READ() return 3 end");
+        assert_eq!(diags.len(), 1, "expected exactly one naming diagnostic");
+        let d = &diags[0];
+        assert!(
+            d.message.contains("WORK_IO_READ"),
+            "diagnostic should mention the function name"
+        );
+        let help = d.help.as_deref().unwrap_or("");
+        assert!(
+            help.contains("work_io_read"),
+            "suggestion should be 'work_io_read', got: {:?}",
+            help
+        );
+        assert!(
+            !help.contains("w_o_r_k"),
+            "suggestion must not contain garbled 'w_o_r_k' prefix, got: {:?}",
+            help
+        );
+    }
+
+    #[test]
+    fn test_function_screaming_snake_case_all_variants() {
+        let cases = [
+            ("WORK_IO_READ", "work_io_read"),
+            ("WORK_IO_WRITE", "work_io_write"),
+            ("WORK_IO_ACCEPT", "work_io_accept"),
+            ("WORK_CRYPTO_ENCRYPT", "work_crypto_encrypt"),
+            ("WORK_CRYPTO_DECRYPT", "work_crypto_decrypt"),
+        ];
+        for (name, expected_suggestion) in cases {
+            let src = format!("function {}() return 1 end", name);
+            let diags = lint_code(&src);
+            assert_eq!(
+                diags.len(),
+                1,
+                "fn '{}' should produce one diagnostic",
+                name
+            );
+            let help = diags[0].help.as_deref().unwrap_or("");
+            assert!(
+                help.contains(expected_suggestion),
+                "fn '{}': help should suggest '{}', got: {:?}",
+                name,
+                expected_suggestion,
+                help
+            );
+        }
+    }
+
+    #[test]
+    fn test_function_snake_case_no_warning() {
+        let diags = lint_code("function work_io_read() return 3 end");
+        assert!(
+            diags.is_empty(),
+            "snake_case function should not produce naming warning"
+        );
+    }
+
+    #[test]
+    fn test_function_pascal_case_warning() {
+        let diags = lint_code("function MyFunc() return 0 end");
+        assert!(!diags.is_empty(), "PascalCase function should warn");
+        let help = diags[0].help.as_deref().unwrap_or("");
+        assert!(
+            help.contains("my_func"),
+            "suggestion should be 'my_func', got: {:?}",
+            help
+        );
+    }
+
+    #[test]
+    fn test_function_camel_case_warning() {
+        let diags = lint_code("function myFunc() return 0 end");
+        assert!(!diags.is_empty(), "camelCase function should warn");
+        let help = diags[0].help.as_deref().unwrap_or("");
+        assert!(
+            help.contains("my_func"),
+            "suggestion should be 'my_func', got: {:?}",
+            help
+        );
+    }
+
+    // ------------------------------------------------------------------ multiple diagnostics
+
+    #[test]
+    fn test_multiple_screaming_functions_each_get_correct_suggestion() {
+        let src = r#"
+function WORK_IO_READ() return 3 end
+function WORK_IO_WRITE() return 4 end
+function WORK_IO_ACCEPT() return 5 end
+"#;
+        let diags = lint_code(src);
+        assert_eq!(diags.len(), 3, "expected three diagnostics");
+        let helps: Vec<&str> = diags
+            .iter()
+            .map(|d| d.help.as_deref().unwrap_or(""))
+            .collect();
+        assert!(helps[0].contains("work_io_read"));
+        assert!(helps[1].contains("work_io_write"));
+        assert!(helps[2].contains("work_io_accept"));
+    }
+
+    // ------------------------------------------------------------------ struct / const naming
+
+    #[test]
+    fn test_struct_pascal_case_no_warning() {
+        let diags = lint_code("struct MyStruct end");
+        assert!(diags.is_empty(), "PascalCase struct should not warn");
+    }
+
+    #[test]
+    fn test_struct_snake_case_warning() {
+        let diags = lint_code("struct my_struct end");
+        assert!(!diags.is_empty(), "snake_case struct should warn");
+    }
+
+    #[test]
+    fn test_const_screaming_snake_case_no_warning() {
+        let diags = lint_code("const MAX_SIZE = 1024");
+        assert!(
+            diags.is_empty(),
+            "SCREAMING_SNAKE_CASE const should not warn"
+        );
+    }
+
+    #[test]
+    fn test_const_snake_case_no_warning() {
+        let diags = lint_code("const max_size = 1024");
+        assert!(diags.is_empty(), "snake_case const should not warn");
+    }
+
+    #[test]
+    fn test_leading_underscore_function_no_warning() {
+        let diags = lint_code("function _internal() return 0 end");
+        assert!(
+            diag_messages(&diags)
+                .iter()
+                .all(|m| !m.contains("naming-convention") || !m.contains("_internal")),
+            "leading-underscore functions should be exempt from naming warning"
+        );
+    }
+}
