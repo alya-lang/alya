@@ -144,6 +144,9 @@ pub fn extract_module_docs(source: &str, file_path: &str) -> DocModule {
                 type_params,
                 ..
             } => {
+                if is_internal_name(name) {
+                    continue;
+                }
                 let doc = symbol_docs
                     .get(name)
                     .or_else(|| symbol_docs.get(&name.replace("__", ".")))
@@ -200,6 +203,9 @@ pub fn extract_module_docs(source: &str, file_path: &str) -> DocModule {
                 defaults,
                 ..
             } => {
+                if is_internal_name(name) {
+                    continue;
+                }
                 let doc = symbol_docs.get(name).cloned().unwrap_or_default();
                 let mut doc_fields = Vec::new();
                 for (i, f) in fields.iter().enumerate() {
@@ -225,6 +231,9 @@ pub fn extract_module_docs(source: &str, file_path: &str) -> DocModule {
                 methods,
                 embedded,
             } => {
+                if is_internal_name(name) {
+                    continue;
+                }
                 let doc = symbol_docs.get(name).cloned().unwrap_or_default();
                 let mut doc_methods = Vec::new();
                 for m in methods {
@@ -253,6 +262,9 @@ pub fn extract_module_docs(source: &str, file_path: &str) -> DocModule {
                 });
             }
             Stmt::EnumDef { name, variants } => {
+                if is_internal_name(name) {
+                    continue;
+                }
                 let doc = symbol_docs.get(name).cloned().unwrap_or_default();
                 let doc_variants = variants
                     .iter()
@@ -270,6 +282,9 @@ pub fn extract_module_docs(source: &str, file_path: &str) -> DocModule {
                 });
             }
             Stmt::Const { name, value } => {
+                if is_internal_name(name) {
+                    continue;
+                }
                 let doc = symbol_docs.get(name).cloned().unwrap_or_default();
                 module.constants.push(DocConstant {
                     name: name.clone(),
@@ -450,6 +465,21 @@ pub fn expr_to_string(expr: &Expr) -> String {
     }
 }
 
+/// Returns true for internal items (leading-underscore names, method-aware).
+/// `alya doc` renders the public API reference, so internal helpers such as
+/// `_cli_strip_dashes` or `Stack._helper` are skipped in module output.
+fn is_internal_name(name: &str) -> bool {
+    let short = name.rsplit('.').next().unwrap_or(name);
+    // Cut at the FIRST double underscore: the parser mangles `A._b` to
+    // `A___b` (separator plus the underscore), so only the first cut
+    // preserves a leading underscore on the short name.
+    let short = match short.find("__") {
+        Some(idx) => &short[idx + 2..],
+        None => short,
+    };
+    short.starts_with('_')
+}
+
 /// Returns true for section-banner comments (`# --- ... ---`), which are
 /// file layout rather than documentation. The extractor skips them
 /// transparently so they never leak into module or symbol docs.
@@ -509,5 +539,22 @@ mod tests {
         let module = extract_module_docs(source, "m.alya");
         assert!(module.functions[0].doc.contains("Behavior note."));
         assert!(module.functions[0].doc.contains("Summary line."));
+    }
+
+    #[test]
+    fn test_underscore_prefixed_items_hidden_from_docs() {
+        let source = "## Private helper.\nfunction _helper() -> int\n    return 1\nend\n\n## Public API.\npub function api() -> int\n    return 2\nend\n\n## Method user.\nfunction Widget._internal() -> int\n    return 3\nend\n\n## Widget type.\npub struct Widget\n    x: int\nend\n";
+        let module = extract_module_docs(source, "m.alya");
+        assert!(
+            module.functions.iter().all(|f| !f.name.starts_with('_')),
+            "private helper leaked: {:?}",
+            module.functions.iter().map(|f| &f.name).collect::<Vec<_>>()
+        );
+        assert!(module.functions.iter().any(|f| f.name == "api"));
+        let st = module.structs.iter().find(|s| s.name == "Widget").unwrap();
+        assert!(
+            st.methods.iter().all(|m| !m.name.starts_with('_')),
+            "private method leaked"
+        );
     }
 }

@@ -1,5 +1,30 @@
 use super::extractor::DocModule;
 
+/// Demotes raw `### ` headings inside item docs one level (`#### `), so they
+/// nest under the page's own `### Item` headings instead of competing with
+/// them in the heading tree. Fenced code blocks are left untouched.
+fn demote_doc_headings(doc: &str) -> String {
+    let mut out = String::new();
+    let mut in_fence = false;
+    for line in doc.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            in_fence = !in_fence;
+        }
+        if !in_fence && trimmed.starts_with("### ") {
+            out.push_str("#### ");
+            out.push_str(&trimmed["### ".len()..]);
+        } else {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    while out.ends_with('\n') {
+        out.pop();
+    }
+    out
+}
+
 pub fn generate_markdown(module: &DocModule) -> String {
     let mut md = String::new();
 
@@ -87,7 +112,7 @@ pub fn generate_markdown(module: &DocModule) -> String {
                 ));
             }
             if !iface.doc.is_empty() {
-                md.push_str(&iface.doc);
+                md.push_str(&demote_doc_headings(&iface.doc));
                 md.push_str("\n\n");
             }
 
@@ -127,7 +152,7 @@ pub fn generate_markdown(module: &DocModule) -> String {
                 md.push_str("**Visibility:** `pub`\n\n");
             }
             if !st.doc.is_empty() {
-                md.push_str(&st.doc);
+                md.push_str(&demote_doc_headings(&st.doc));
                 md.push_str("\n\n");
             }
 
@@ -148,7 +173,7 @@ pub fn generate_markdown(module: &DocModule) -> String {
                 for m in &st.methods {
                     md.push_str(&format!("##### `{}`\n\n", m.signature));
                     if !m.doc.is_empty() {
-                        md.push_str(&m.doc);
+                        md.push_str(&demote_doc_headings(&m.doc));
                         md.push_str("\n\n");
                     }
                 }
@@ -165,7 +190,7 @@ pub fn generate_markdown(module: &DocModule) -> String {
                 md.push_str("**Visibility:** `pub`\n\n");
             }
             if !e.doc.is_empty() {
-                md.push_str(&e.doc);
+                md.push_str(&demote_doc_headings(&e.doc));
                 md.push_str("\n\n");
             }
 
@@ -189,7 +214,7 @@ pub fn generate_markdown(module: &DocModule) -> String {
             md.push_str("\n```\n\n");
 
             if !f.doc.is_empty() {
-                md.push_str(&f.doc);
+                md.push_str(&demote_doc_headings(&f.doc));
                 md.push_str("\n\n");
             }
 
@@ -212,4 +237,26 @@ pub fn generate_markdown(module: &DocModule) -> String {
     }
 
     md
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_demote_doc_headings_nests_under_item() {
+        let doc = "Summary.\n\n### Parameters\n- `x`: thing.\n\n### Returns\nValue.\n";
+        let out = demote_doc_headings(doc);
+        assert!(out.contains("#### Parameters"));
+        assert!(out.contains("#### Returns"));
+        assert!(!out.lines().any(|l| l.trim_start().starts_with("### ")));
+    }
+
+    #[test]
+    fn test_demote_doc_headings_preserves_fences_and_deeper_levels() {
+        let doc = "```alya\n### not a heading\n```\n\n#### Already deep.\n";
+        let out = demote_doc_headings(doc);
+        assert!(out.contains("### not a heading"));
+        assert!(out.contains("#### Already deep."));
+    }
 }
