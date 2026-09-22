@@ -179,10 +179,10 @@ fn check_redundant_return_var(tokens: &[Token], file_path: &Path, diags: &mut Ve
                             }
                             TokenType::RightParen
                             | TokenType::RightBracket
-                            | TokenType::RightBrace => {
-                                if depth > 0 {
-                                    depth -= 1;
-                                }
+                            | TokenType::RightBrace
+                                if depth > 0 =>
+                            {
+                                depth -= 1;
                             }
                             TokenType::Function
                             | TokenType::If
@@ -193,10 +193,8 @@ fn check_redundant_return_var(tokens: &[Token], file_path: &Path, diags: &mut Ve
                             | TokenType::When => {
                                 depth += 1;
                             }
-                            TokenType::End => {
-                                if depth > 0 {
-                                    depth -= 1;
-                                }
+                            TokenType::End if depth > 0 => {
+                                depth -= 1;
                             }
                             TokenType::Newline if depth == 0 => {
                                 found_stmt_end = true;

@@ -999,15 +999,15 @@ impl TypeChecker {
     /// Recursively checks an expression and validates all sub-expressions.
     pub fn check_expr(&self, expr: &Expr) -> Result<(), String> {
         match expr {
-            Expr::Identifier(name) => {
+            Expr::Identifier(name)
+                if self.lookup_var(name).is_some() && !self.is_assigned(name) =>
+            {
                 // Definite-assignment read check (Chapter 01 §1.1). Unknown
                 // names stay lenient here; inference resolves them to `Any`.
-                if self.lookup_var(name).is_some() && !self.is_assigned(name) {
-                    return Err(format!(
-                        "TypeError: Variable '{}' is used before assignment",
-                        name
-                    ));
-                }
+                return Err(format!(
+                    "TypeError: Variable '{}' is used before assignment",
+                    name
+                ));
             }
             Expr::Binary { left, right, .. } => {
                 self.check_expr(left)?;

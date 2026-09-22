@@ -242,28 +242,28 @@ fn check_stmt_naming(
                 });
             }
         }
-        Stmt::Const { name, .. } => {
-            if !name.starts_with('_') && !is_screaming_snake_case(name) && !is_snake_case(name) {
-                let tok = find_ident_token(tokens, name);
-                let line = tok.as_ref().map(|t| t.line).unwrap_or(1);
-                let col = tok.as_ref().map(|t| t.column).unwrap_or(1);
+        Stmt::Const { name, .. }
+            if !name.starts_with('_') && !is_screaming_snake_case(name) && !is_snake_case(name) =>
+        {
+            let tok = find_ident_token(tokens, name);
+            let line = tok.as_ref().map(|t| t.line).unwrap_or(1);
+            let col = tok.as_ref().map(|t| t.column).unwrap_or(1);
 
-                diags.push(LintDiagnostic {
-                    rule: "naming-convention".to_string(),
-                    severity: LintSeverity::Info,
-                    message: format!(
-                        "constant '{}' should follow 'SCREAMING_SNAKE_CASE' naming convention",
-                        name
-                    ),
-                    file_path: file_path.to_path_buf(),
-                    line,
-                    col,
-                    end_line: line,
-                    end_col: col + name.len(),
-                    help: Some(format!("consider renaming to '{}'", name.to_uppercase())),
-                    fix: None,
-                });
-            }
+            diags.push(LintDiagnostic {
+                rule: "naming-convention".to_string(),
+                severity: LintSeverity::Info,
+                message: format!(
+                    "constant '{}' should follow 'SCREAMING_SNAKE_CASE' naming convention",
+                    name
+                ),
+                file_path: file_path.to_path_buf(),
+                line,
+                col,
+                end_line: line,
+                end_col: col + name.len(),
+                help: Some(format!("consider renaming to '{}'", name.to_uppercase())),
+                fix: None,
+            });
         }
         Stmt::If {
             then_block,

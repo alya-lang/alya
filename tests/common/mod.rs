@@ -13,6 +13,7 @@ static TEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 /// silently passing. NOTE: `e2e_*` tests intentionally do NOT consult this —
 /// they run wherever a C toolchain exists and act as a canary: if they ever
 /// go green on macOS, these skips are stale and must be removed.
+#[allow(dead_code)]
 pub fn execution_skip_reason() -> Option<&'static str> {
     if cfg!(target_os = "macos") {
         Some("Darwin ARM64 target pending full ABI alignment (native execution unverified)")

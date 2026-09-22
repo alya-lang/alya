@@ -190,7 +190,7 @@ end
             assert_eq!(var, "i");
             assert_eq!(*start, Expr::Number(1.0));
             assert_eq!(*end, Expr::Number(10.0));
-            assert_eq!(*inclusive, false);
+            assert!(!*inclusive);
             assert_eq!(body.len(), 1);
         }
         other => panic!("Expected For loop, got {:?}", other),
@@ -209,7 +209,7 @@ end
 
     match &program.statements[0] {
         Stmt::For { inclusive, .. } => {
-            assert_eq!(*inclusive, true);
+            assert!(*inclusive);
         }
         other => panic!("Expected For loop, got {:?}", other),
     }
