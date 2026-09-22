@@ -578,10 +578,10 @@ pub fn generate_html_with_nav(module: &DocModule, all_modules: &[DocModule]) -> 
         html.push_str("  </div>\n");
     }
     html.push_str(&render_badgerow(module));
-    if let Some(import_line) = module_import_line(module) {
+    if let Some(stem) = import_stem(module) {
         html.push_str(&format!(
-            "  <div class=\"codeblock\">{}<button class=\"copy\" aria-label=\"Copy import\">{}</button></div>\n",
-            escape_html(&import_line),
+            "  <div class=\"codeblock\"><span class=\"tok-k\">import</span> <span class=\"tok-s\">\"std/{}\"</span><button class=\"copy\" aria-label=\"Copy import\">{}</button></div>\n",
+            escape_html(&stem),
             COPY_SVG
         ));
     }
@@ -665,23 +665,56 @@ document.querySelectorAll('.copy').forEach((btn) => {
   });
 });
 const tocLinks = [...document.querySelectorAll('#toc a')];
-const spy = new IntersectionObserver((entries) => {
-  entries.forEach((en) => {
-    if (en.isIntersecting) {
-      tocLinks.forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + en.target.id));
-    }
-  });
-}, { rootMargin: '-20% 0px -70% 0px' });
-tocLinks.forEach((a) => {
-  const s = targetFor(a);
-  if (s) spy.observe(s);
-});
-// querySelector chokes on literal `/` and `.` inside IDs (e.g. `#g-i/o-…`,
-// `#fn-sync.spawn`); getElementById takes IDs verbatim.
-function targetFor(a) {
-  const href = a.getAttribute('href');
-  return href && href.charAt(0) === '#' ? document.getElementById(href.slice(1)) : null;
+// Deterministic scroll-spy: the active link is the last section whose top
+// sits above the 25%-height mark of the scroll container. Unlike the
+// viewport-band observer this also settles correctly right after anchor
+// jumps and on short trailing sections. IDs are resolved verbatim
+// (getElementById), so `/` and `.` inside anchors are harmless.
+const spySections = tocLinks
+  .map((a) => {
+    const href = a.getAttribute('href');
+    return href && href.charAt(0) === '#' ? document.getElementById(href.slice(1)) : null;
+  })
+  .filter(Boolean);
+const spyContent = document.querySelector('main.content');
+let spyTicking = false;
+let spyLock = null;
+let spyLockTimer = 0;
+function spyUpdate() {
+  spyTicking = false;
+  if (!spyContent || !spySections.length) return;
+  if (spyLock) {
+    tocLinks.forEach((a) => a.classList.toggle('on', a.getAttribute('href') === spyLock));
+    return;
+  }
+  const top = spyContent.getBoundingClientRect().top;
+  const line = top + spyContent.clientHeight * 0.25;
+  let current = spySections[0];
+  for (const s of spySections) {
+    if (s.getBoundingClientRect().top <= line) current = s;
+    else break;
+  }
+  tocLinks.forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + current.id));
 }
+function spyRequest() {
+  if (!spyTicking) { spyTicking = true; requestAnimationFrame(spyUpdate); }
+}
+if (spyContent) {
+  spyContent.addEventListener('scroll', spyRequest, { passive: true });
+  window.addEventListener('resize', spyRequest);
+  spyUpdate();
+}
+tocLinks.forEach((a) => {
+  a.addEventListener('click', () => {
+    // Authoritative during the smooth-scroll animation: the scroll-driven
+    // updates only flicker through intermediate sections mid-flight, so the
+    // clicked link wins until the lock expires after landing.
+    tocLinks.forEach((x) => x.classList.toggle('on', x === a));
+    spyLock = a.getAttribute('href');
+    clearTimeout(spyLockTimer);
+    spyLockTimer = setTimeout(() => { spyLock = null; spyUpdate(); }, 650);
+  });
+});
 function toggleDrawer(which) {
   const left = document.querySelector('.sidenav');
   const right = document.querySelector('.toc');
@@ -719,7 +752,10 @@ function fitLastSectionRoom() {
   const lastRect = last.getBoundingClientRect();
   const layoutOffset = lastRect.top - contentRect.top + content.scrollTop;
   const belowTitle = content.scrollHeight - layoutOffset;
-  const want = Math.round(content.clientHeight * 0.3 - belowTitle) + 32;
+  // Room so the title can rest just above the 25% spy line at max scroll:
+  // title offset then equals 25% minus slack. Tall trailing sections need
+  // almost nothing; short ones get exactly the missing room.
+  const want = Math.round(content.clientHeight * 0.75 - belowTitle) + 32;
   last.style.marginBottom = Math.max(24, want) + 'px';
 }
 fitLastSectionRoom();
@@ -743,15 +779,14 @@ fn module_title(name: &str, file_path: &str) -> String {
     }
 }
 
-/// Canonical import line for embedded stdlib modules; None for packages whose
+/// Import path stem for embedded stdlib modules; None for packages whose
 /// import path cannot be inferred (no guessing in generated output).
-fn module_import_line(module: &DocModule) -> Option<String> {
+fn import_stem(module: &DocModule) -> Option<String> {
     if !is_stdlib_path(&module.file_path) {
         return None;
     }
     let stem = module.name.rsplit('/').next().unwrap_or(&module.name);
-    let stem = stem.strip_prefix("std/").unwrap_or(stem);
-    Some(format!("import \"std/{}\"", stem))
+    Some(stem.strip_prefix("std/").unwrap_or(stem).to_string())
 }
 
 fn is_stdlib_path(file_path: &str) -> bool {
@@ -1313,23 +1348,56 @@ function filterModules() {
   });
 }
 const tocLinks = [...document.querySelectorAll('#toc a')];
-const spy = new IntersectionObserver((entries) => {
-  entries.forEach((en) => {
-    if (en.isIntersecting) {
-      tocLinks.forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + en.target.id));
-    }
-  });
-}, { rootMargin: '-20% 0px -70% 0px' });
-tocLinks.forEach((a) => {
-  const s = targetFor(a);
-  if (s) spy.observe(s);
-});
-// querySelector chokes on literal `/` and `.` inside IDs (e.g. `#g-i/o-…`,
-// `#fn-sync.spawn`); getElementById takes IDs verbatim.
-function targetFor(a) {
-  const href = a.getAttribute('href');
-  return href && href.charAt(0) === '#' ? document.getElementById(href.slice(1)) : null;
+// Deterministic scroll-spy: the active link is the last section whose top
+// sits above the 25%-height mark of the scroll container. Unlike the
+// viewport-band observer this also settles correctly right after anchor
+// jumps and on short trailing sections. IDs are resolved verbatim
+// (getElementById), so `/` and `.` inside anchors are harmless.
+const spySections = tocLinks
+  .map((a) => {
+    const href = a.getAttribute('href');
+    return href && href.charAt(0) === '#' ? document.getElementById(href.slice(1)) : null;
+  })
+  .filter(Boolean);
+const spyContent = document.querySelector('main.content');
+let spyTicking = false;
+let spyLock = null;
+let spyLockTimer = 0;
+function spyUpdate() {
+  spyTicking = false;
+  if (!spyContent || !spySections.length) return;
+  if (spyLock) {
+    tocLinks.forEach((a) => a.classList.toggle('on', a.getAttribute('href') === spyLock));
+    return;
+  }
+  const top = spyContent.getBoundingClientRect().top;
+  const line = top + spyContent.clientHeight * 0.25;
+  let current = spySections[0];
+  for (const s of spySections) {
+    if (s.getBoundingClientRect().top <= line) current = s;
+    else break;
+  }
+  tocLinks.forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + current.id));
 }
+function spyRequest() {
+  if (!spyTicking) { spyTicking = true; requestAnimationFrame(spyUpdate); }
+}
+if (spyContent) {
+  spyContent.addEventListener('scroll', spyRequest, { passive: true });
+  window.addEventListener('resize', spyRequest);
+  spyUpdate();
+}
+tocLinks.forEach((a) => {
+  a.addEventListener('click', () => {
+    // Authoritative during the smooth-scroll animation: the scroll-driven
+    // updates only flicker through intermediate sections mid-flight, so the
+    // clicked link wins until the lock expires after landing.
+    tocLinks.forEach((x) => x.classList.toggle('on', x === a));
+    spyLock = a.getAttribute('href');
+    clearTimeout(spyLockTimer);
+    spyLockTimer = setTimeout(() => { spyLock = null; spyUpdate(); }, 650);
+  });
+});
 function toggleDrawer(which) {
   const left = document.querySelector('.sidenav');
   const right = document.querySelector('.toc');
@@ -1367,7 +1435,10 @@ function fitLastSectionRoom() {
   const lastRect = last.getBoundingClientRect();
   const layoutOffset = lastRect.top - contentRect.top + content.scrollTop;
   const belowTitle = content.scrollHeight - layoutOffset;
-  const want = Math.round(content.clientHeight * 0.3 - belowTitle) + 32;
+  // Room so the title can rest just above the 25% spy line at max scroll:
+  // title offset then equals 25% minus slack. Tall trailing sections need
+  // almost nothing; short ones get exactly the missing room.
+  const want = Math.round(content.clientHeight * 0.75 - belowTitle) + 32;
   last.style.marginBottom = Math.max(24, want) + 'px';
 }
 fitLastSectionRoom();
