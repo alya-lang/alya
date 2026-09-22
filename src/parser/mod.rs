@@ -2,6 +2,7 @@ pub mod constants;
 pub mod enums;
 pub mod expr;
 pub mod generics;
+pub mod inline;
 pub mod stmt;
 #[cfg(test)]
 mod tests;

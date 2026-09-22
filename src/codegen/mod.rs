@@ -916,7 +916,13 @@ impl CodeGen {
 
         arch::emit_footer(&mut self.output, self.arch);
 
-        for func in functions {
+        // `@cold` functions emit last so hot code stays contiguous
+        // (Chapter 18 §1.2). Order is otherwise preserved; calls resolve by
+        // name and the C entry point is fixed, so this is layout-only.
+        let (hot, cold): (Vec<_>, Vec<_>) = functions.into_iter().partition(|func| {
+            !matches!(func, Stmt::Function { attributes, .. } if attributes.iter().any(|a| a.name == "cold"))
+        });
+        for func in hot.into_iter().chain(cold) {
             if let Stmt::Function {
                 name,
                 params,

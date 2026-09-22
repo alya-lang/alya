@@ -441,6 +441,10 @@ pub fn execute_test_file(
     // are not already called manually (Chapter 18 §1.4, Chapter 22 §1.3).
     synthesize_test_calls(&mut ast, &test_entries);
 
+    // 3c. Function inlining ahead of codegen (Chapter 18 §1.2), so DCE can
+    // prune fully-inlined callees.
+    crate::parser::inline::inline_functions(&mut ast);
+
     // 4. Codegen
     let asm_code = codegen::generate(&ast, arch, os);
 

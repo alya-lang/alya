@@ -68,6 +68,31 @@ end
 say f"Size of CCompatibleHeader: {sizeof(CCompatibleHeader)} bytes"
 say f"Alignment of CCompatibleHeader: {alignof(CCompatibleHeader)} bytes"
 
+# C-layout conformance (Chapter 18 §1.2, Chapter 02 §1.6): field padding
+# follows standard C ABI rules (align each field, pad tail to max align).
+struct PadU8U32
+    a: u8
+    b: u32
+end
+
+struct PadU32U8
+    a: u32
+    b: u8
+end
+
+struct PadMixed
+    a: u16
+    b: u16
+    c: u32
+end
+
+assert_eq(sizeof(PadU8U32), 8)
+assert_eq(alignof(PadU8U32), 4)
+assert_eq(sizeof(PadU32U8), 8)
+assert_eq(sizeof(PadMixed), 8)
+
+say "C-layout conformance OK"
+
 let sample_text = "Alya Programming Language"
 say f"Type of sample_text: {typeof(sample_text)}"
 
@@ -138,6 +163,29 @@ end
 
 say f"Arch tag: {arch_tag18()}"
 say f"Noinline add: {slow_add18(20, 22)}"
+
+# ------------------------------------------------------------------------------
+# 8b. Inline Expansion & Cold Grouping (Chapter 18 §1.2)
+# ------------------------------------------------------------------------------
+# `@inline` single-return functions with pure args are expanded at the call
+# site (no `fn_` symbol survives; see the inline-symbol tests). `@noinline`
+# always keeps its symbol. `@cold` functions emit after hot code.
+@inline
+function inline_double(n: int) -> int
+    return n * 2
+end
+
+assert_eq(inline_double(21), 42)
+assert_eq(inline_double(3) + inline_double(4), 14)
+
+@cold
+function cold_fallback(code: int) -> string
+    return "cold path"
+end
+
+assert_eq(cold_fallback(500), "cold path")
+
+say f"Inline double: {inline_double(21)}, cold: {cold_fallback(500)}"
 
 @bench
 function bench_addition18()

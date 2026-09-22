@@ -539,6 +539,97 @@ fn test_export_symbol_emitted() {
     }
 }
 
+fn compile_snippet_to_asm(
+    source: &str,
+    arch: alya::codegen::Architecture,
+    os: alya::codegen::OperatingSystem,
+) -> String {
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().expect("Lexer error");
+    let mut parser = Parser::new(tokens);
+    let mut ast = parser.parse().expect("Parser error");
+    alya::parser::resolve_imports(&mut ast, std::path::Path::new("."))
+        .expect("Import resolution failed");
+    alya::parser::inline::inline_functions(&mut ast);
+    alya::codegen::generate(&ast, arch, os)
+}
+
+#[test]
+fn test_inline_removes_symbol() {
+    // A single-return `@inline` function called with pure args is inlined and
+    // pruned: no `fn_` symbol remains (Chapter 18 §1.2).
+    let asm = compile_snippet_to_asm(
+        "@inline\nfunction tiny_add(a: int, b: int) -> int\n    return a + b\nend\n\nfunction main()\n    say tiny_add(20, 22)\nend\n\nmain()\n",
+        alya::codegen::Architecture::X64,
+        alya::codegen::OperatingSystem::Linux,
+    );
+    assert!(
+        !asm.contains("fn_tiny_add"),
+        "inlined callee must not be emitted"
+    );
+    assert!(asm.contains("fn_main"), "caller must survive");
+}
+
+#[test]
+fn test_noinline_keeps_symbol() {
+    // `@noinline` always wins, even for trivially inlinable bodies.
+    let asm = compile_snippet_to_asm(
+        "@noinline\nfunction tiny_guarded(a: int, b: int) -> int\n    return a + b\nend\n\nfunction main()\n    say tiny_guarded(1, 2)\nend\n\nmain()\n",
+        alya::codegen::Architecture::X64,
+        alya::codegen::OperatingSystem::Linux,
+    );
+    assert!(
+        asm.contains("fn_tiny_guarded"),
+        "@noinline callee must be emitted"
+    );
+}
+
+#[test]
+fn test_inline_skips_complex_bodies() {
+    // Multi-return bodies and impure call-site args are never inlined.
+    let asm = compile_snippet_to_asm(
+        "@inline\nfunction clampy(v: int) -> int\n    if v < 0 then return 0\n    if v > 9 then return 9\n    return v\nend\n\nfunction impure() -> int\n    return 1\nend\n\n@inline\nfunction ident(x: int) -> int\n    return x\nend\n\nfunction main()\n    say clampy(5)\n    say ident(impure())\nend\n\nmain()\n",
+        alya::codegen::Architecture::X64,
+        alya::codegen::OperatingSystem::Linux,
+    );
+    assert!(
+        asm.contains("fn_clampy"),
+        "multi-return bodies must not inline"
+    );
+    assert!(asm.contains("fn_ident"), "impure-arg calls must not inline");
+}
+
+#[test]
+fn test_cold_functions_emit_last() {
+    // `@cold` functions group after hot code (Chapter 18 §1.2), each group
+    // in source order.
+    let asm = compile_snippet_to_asm(
+        "@cold\nfunction frosty() -> int\n    return 1\nend\n\nfunction normal_a() -> int\n    return 2\nend\n\n@cold\nfunction frosty2() -> int\n    return 3\nend\n\nfunction normal_b() -> int\n    return 4\nend\n\nfunction main()\n    say normal_a()\n    say frosty()\n    say normal_b()\n    say frosty2()\nend\n\nmain()\n",
+        alya::codegen::Architecture::X64,
+        alya::codegen::OperatingSystem::Linux,
+    );
+    let pos = |sym: &str| {
+        asm.find(sym)
+            .unwrap_or_else(|| panic!("missing symbol {}", sym))
+    };
+    assert!(
+        pos("fn_normal_a") < pos("fn_frosty"),
+        "cold must follow hot"
+    );
+    assert!(
+        pos("fn_normal_b") < pos("fn_frosty2"),
+        "cold must follow hot"
+    );
+    assert!(
+        pos("fn_normal_a") < pos("fn_normal_b"),
+        "hot source order preserved"
+    );
+    assert!(
+        pos("fn_frosty") < pos("fn_frosty2"),
+        "cold source order preserved"
+    );
+}
+
 #[test]
 fn test_golden_spec_lexical_execution() {
     let file = get_spec_syntax_dir().join("lexical.alya");

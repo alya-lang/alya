@@ -254,7 +254,9 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         (asm_name, None)
     };
 
-    // 4. Code Generation
+    // 4. Code Generation (function inlining first, so DCE can prune
+    // fully-inlined callees; checking already ran on source above)
+    crate::parser::inline::inline_functions(&mut ast);
     let (code, pipeline_profile) =
         codegen::generate_full(&ast, args.arch, args.os, args.no_std, args.mem_trace);
     let asm_lines = code.lines().count();
