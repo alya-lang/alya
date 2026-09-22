@@ -13,7 +13,7 @@ import "std/os"
 
 function main()
     say "Alya Application Toolchain Entry Point"
-    say f"Command line arguments: {os.args()}"
+    say f"Command line arguments: [{os.args().join(", ")}]"
     say f"Process ID: {os.pid()}"
     assert os.pid() > 0
 end

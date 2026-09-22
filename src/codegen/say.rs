@@ -1,11 +1,31 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
-    escape_string, is_float_expr, is_map_expr, is_null_expr, is_string_expr,
+    escape_string, is_array_expr, is_float_expr, is_map_expr, is_null_expr, is_string_array,
+    is_string_expr,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
 use crate::codegen::target::Architecture;
+
+/// Display a string array as `[a, b]` via existing `join` + concat.
+/// Avoids printing the raw array pointer with `%lld` (e.g. `2355014589440`).
+fn string_array_display_expr(arr: Expr) -> Expr {
+    let join_call = Expr::Call {
+        name: "join".into(),
+        args: vec![arr, Expr::String(", ".into())],
+    };
+    let left = Expr::Binary {
+        left: Box::new(Expr::String("[".into())),
+        op: BinaryOp::Add,
+        right: Box::new(join_call),
+    };
+    Expr::Binary {
+        left: Box::new(left),
+        op: BinaryOp::Add,
+        right: Box::new(Expr::String("]".into())),
+    }
+}
 
 impl CodeGen {
     pub(crate) fn generate_say(&mut self, expr: &Expr) {
@@ -122,6 +142,10 @@ impl CodeGen {
                                         name: ts_func,
                                         args: vec![part.clone()],
                                     });
+                                    is_floats.push(false);
+                                } else if is_string_array(part, &self.ctx.variables) {
+                                    format_str.push_str("%s");
+                                    exprs.push(string_array_display_expr(part.clone()));
                                     is_floats.push(false);
                                 } else {
                                     let is_flt = is_float_expr(part, &self.ctx.variables);
@@ -314,6 +338,13 @@ impl CodeGen {
                             self.output.push('\n');
                         }
                         VarType::Array(offset) => {
+                            if is_string_array(&Expr::Identifier(name.clone()), &self.ctx.variables)
+                            {
+                                self.generate_say(&string_array_display_expr(Expr::Identifier(
+                                    name.clone(),
+                                )));
+                                return;
+                            }
                             arch::emit_load_var(
                                 &mut self.output,
                                 self.arch,
@@ -414,6 +445,10 @@ impl CodeGen {
                 self.output.push('\n');
             }
             Expr::Array(_) => {
+                if is_string_array(expr, &self.ctx.variables) {
+                    self.generate_say(&string_array_display_expr(expr.clone()));
+                    return;
+                }
                 self.generate_expression(expr);
                 arch::emit_print_array(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
                 self.output.push('\n');
@@ -519,9 +554,26 @@ impl CodeGen {
                     return;
                 }
 
+                if is_string_array(expr, &self.ctx.variables) {
+                    self.generate_say(&string_array_display_expr(expr.clone()));
+                    return;
+                }
+
                 if is_map_expr(expr, &self.ctx.variables) {
                     self.generate_expression(expr);
                     arch::emit_print_map(
+                        &mut self.output,
+                        self.arch,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                    self.output.push('\n');
+                    return;
+                }
+
+                if is_array_expr(expr, &self.ctx.variables) {
+                    self.generate_expression(expr);
+                    arch::emit_print_array(
                         &mut self.output,
                         self.arch,
                         self.ctx.stack_offset,
