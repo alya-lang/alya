@@ -706,7 +706,7 @@ impl CodeGen {
 
                 if name == "assert_eq"
                     && (args.len() == 2 || args.len() == 3)
-                    && !self.ctx.functions.contains("assert_eq")
+                    && !self.user_assert_shadows("assert_eq", args)
                 {
                     let eq_expr = Expr::Binary {
                         left: Box::new(args[0].clone()),
@@ -738,7 +738,7 @@ impl CodeGen {
 
                 if name == "assert"
                     && (args.len() == 1 || args.len() == 2)
-                    && !self.ctx.functions.contains("assert")
+                    && !self.user_assert_shadows("assert", args)
                 {
                     self.generate_expression(&args[0]);
                     let ok_label = self.ctx.next_label();

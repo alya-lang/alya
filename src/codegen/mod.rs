@@ -452,8 +452,10 @@ impl CodeGen {
         for stmt in &program.statements {
             if let Stmt::Function {
                 name,
+                params,
                 param_types,
                 return_type,
+                defaults,
                 ..
             } = stmt.inner_stmt()
             {
@@ -470,6 +472,18 @@ impl CodeGen {
                 } else {
                     ns_bare
                 };
+                // Arity for builtin-shadowing decisions (assert/assert_eq):
+                // required = params without defaults (defaults align with
+                // params; a short defaults vec means all required).
+                let total = params.len();
+                let defaulted = defaults.iter().take(total).filter(|d| d.is_some()).count();
+                let required = total.saturating_sub(defaulted);
+                self.ctx.fn_arities.insert(name.clone(), (required, total));
+                if bare != name {
+                    self.ctx
+                        .fn_arities
+                        .insert(bare.to_string(), (required, total));
+                }
 
                 for (i, ptype) in param_types.iter().enumerate() {
                     if let Some(t) = ptype {
@@ -1340,6 +1354,52 @@ impl CodeGen {
                 self.ctx.stack_offset -= 4;
             }
         }
+    }
+
+    /// True when a user-defined `assert`/`assert_eq` could serve a builtin-form
+    /// call with `nargs` arguments, in which case builtin desugaring must NOT
+    /// shadow it. Plain/bare names match by arity; `Struct__name` method
+    /// entries match only when the first argument's struct agrees, so an
+    /// unrelated struct's method never hijacks a builtin call.
+    pub(crate) fn user_assert_shadows(&self, base: &str, args: &[crate::ast::Expr]) -> bool {
+        let nargs = args.len();
+        let fits = |req: usize, total: usize| req <= nargs && nargs <= total;
+        for (key, (req, total)) in &self.ctx.fn_arities {
+            let bare = key.rsplit("::").next().unwrap_or(key);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            if key == base || bare == base {
+                if fits(*req, *total) {
+                    return true;
+                }
+                continue;
+            }
+            // Method entry (`Struct__assert_eq`): only counts with a matching
+            // receiver struct as first argument.
+            let is_method_shape =
+                key.ends_with(&format!("__{}", base)) || key.ends_with(&format!("::{}", base));
+            if !is_method_shape {
+                continue;
+            }
+            if !fits(*req, *total) {
+                continue;
+            }
+            if let Some(first) = args.first() {
+                if let Some(sname) = self.get_expr_struct_name(first) {
+                    let struct_bare = sname.rsplit("::").next().unwrap_or(&sname);
+                    let struct_bare = struct_bare.rsplit("__").next().unwrap_or(struct_bare);
+                    let head = key
+                        .strip_suffix(&format!("__{}", base))
+                        .or_else(|| key.strip_suffix(&format!("::{}", base)))
+                        .unwrap_or(key.as_str());
+                    let head_bare = head.rsplit("::").next().unwrap_or(head);
+                    let head_bare = head_bare.rsplit("__").next().unwrap_or(head_bare);
+                    if head == sname || head_bare == struct_bare {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     pub(crate) fn get_expr_struct_name(&self, expr: &crate::ast::Expr) -> Option<String> {

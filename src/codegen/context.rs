@@ -59,6 +59,10 @@ pub struct CodeGenContext {
     pub stack_offset: i32,
     pub loop_stack: Vec<(String, String, i32)>,
     pub functions: HashSet<String>,
+    /// Declared function arities: name -> (required_params, total_params).
+    /// Used to keep builtin `assert`/`assert_eq` desugaring from shadowing
+    /// (or being shadowed by) user functions with incompatible arity.
+    pub fn_arities: HashMap<String, (usize, usize)>,
     pub extern_functions: HashMap<String, ExternFnInfo>,
     pub extern_libs: HashSet<String>,
     pub active_defers: Vec<(usize, Stmt, i32)>,
@@ -80,6 +84,7 @@ impl CodeGenContext {
             stack_offset: 0,
             loop_stack: Vec::new(),
             functions: HashSet::new(),
+            fn_arities: HashMap::new(),
             extern_functions: HashMap::new(),
             extern_libs: HashSet::new(),
             active_defers: Vec::new(),
