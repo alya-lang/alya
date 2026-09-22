@@ -15,6 +15,7 @@ function main()
     say "Alya Application Toolchain Entry Point"
     say f"Command line arguments: {os.args()}"
     say f"Process ID: {os.pid()}"
+    assert os.pid() > 0
 end
 
 main()
@@ -33,6 +34,10 @@ end
 function test_environment_args()
     let args = os.args()
     assert args.length() >= 0
+end
+
+test "toolchain entry self-check"
+    assert os.pid() > 0
 end
 
 # ------------------------------------------------------------------------------

@@ -204,6 +204,7 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
                 _ => expr_is_definitely_string(array, known_strings),
             }
         }
+        Expr::ForceUnwrap(inner) => expr_is_definitely_string(inner, known_strings),
         _ => false,
     }
 }
@@ -226,6 +227,7 @@ fn expr_is_string_array(expr: &Expr, known_strings: &HashSet<String>) -> bool {
             ) || known_strings.contains(&format!("fn_ret_str_arr:{}", name))
                 || known_strings.contains(&format!("fn_ret_str_arr:{}", bare))
         }
+        Expr::ForceUnwrap(inner) => expr_is_string_array(inner, known_strings),
         _ => false,
     }
 }
@@ -478,6 +480,9 @@ fn scan_expr_for_strings(
         }
         Expr::Unary { expr, .. } => {
             scan_expr_for_strings(expr, struct_defs, known_strings);
+        }
+        Expr::ForceUnwrap(inner) => {
+            scan_expr_for_strings(inner, struct_defs, known_strings);
         }
         Expr::Array(elems) => {
             for elem in elems {
@@ -775,7 +780,12 @@ fn collect_string_vars_from_stmts(
                 body,
             } => {
                 scan_expr_for_strings(iterable, struct_defs, known_strings);
-                let is_map = match iterable {
+                // Transparent wrapper: classify the inner expression.
+                let iterable_inner: &Expr = match iterable {
+                    Expr::ForceUnwrap(inner) => inner,
+                    other => other,
+                };
+                let is_map = match iterable_inner {
                     Expr::Map(_) => true,
                     Expr::Identifier(name) => known_strings.iter().any(|k| {
                         k.starts_with(&format!("map_str:{}.", name))
@@ -786,7 +796,7 @@ fn collect_string_vars_from_stmts(
                 if let Some(v) = value_var {
                     if is_map {
                         known_strings.insert(var.clone());
-                        let val_is_str = match iterable {
+                        let val_is_str = match iterable_inner {
                             Expr::Map(entries) => entries
                                 .iter()
                                 .any(|(_, val)| expr_is_definitely_string(val, known_strings)),

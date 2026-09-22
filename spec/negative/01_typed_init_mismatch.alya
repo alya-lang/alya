@@ -1,0 +1,3 @@
+# EXPECT-FAIL: check: expected 'int', found 'string'
+# Chapter 01 §1.1: annotated initializer must match the declared type.
+let x: int = "bad"

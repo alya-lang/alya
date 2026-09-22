@@ -103,6 +103,7 @@ fn expr_is_definitely_float(expr: &Expr, known_floats: &HashSet<String>) -> bool
                 Expr::Identifier(arr_name) => {
                     known_floats.contains(&format!("arr_is_flt:{}", arr_name))
                 }
+                Expr::ForceUnwrap(inner) => expr_is_definitely_float(inner, known_floats),
                 _ => false,
             }
         }
@@ -125,6 +126,7 @@ fn expr_is_definitely_float(expr: &Expr, known_floats: &HashSet<String>) -> bool
                 expr_is_definitely_float(inner, known_floats)
             }
         }
+        Expr::ForceUnwrap(inner) => expr_is_definitely_float(inner, known_floats),
         _ => false,
     }
 }
@@ -135,6 +137,7 @@ fn expr_is_float_array(expr: &Expr, known_floats: &HashSet<String>) -> bool {
             .first()
             .is_some_and(|e| expr_is_definitely_float(e, known_floats)),
         Expr::Identifier(name) => known_floats.contains(&format!("arr_is_flt:{}", name)),
+        Expr::ForceUnwrap(inner) => expr_is_float_array(inner, known_floats),
         _ => false,
     }
 }

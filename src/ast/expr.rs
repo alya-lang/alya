@@ -54,6 +54,7 @@ pub enum Expr {
         callee: String,
         args: Vec<Expr>,
     },
+    ForceUnwrap(Box<Expr>),
     TypeCheck {
         expr: Box<Expr>,
         target: String,

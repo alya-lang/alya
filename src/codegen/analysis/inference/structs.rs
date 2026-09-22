@@ -166,6 +166,7 @@ impl StructInference {
                     None
                 }
             }
+            Expr::ForceUnwrap(inner) => self.expr_struct_type(inner, current_fn, struct_names),
             _ => None,
         }
     }

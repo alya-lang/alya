@@ -86,3 +86,65 @@ mut.unlock()
 # Await both threads
 wg.wait()
 say f"Thread-safe shared counter result: {shared_counter}" # 30
+
+# ------------------------------------------------------------------------------
+# 5. Unbuffered Rendezvous & Timeout-Only Select (Chapter 17 §1.3, §1.4)
+# ------------------------------------------------------------------------------
+# NOTE: `Channel` methods resolve only when `std/sync` is imported somewhere
+# in the program (the implementation lives there; section 4's import covers
+# this file). Chapter 17 §1.3 shows import-free usage; that does not link.
+
+let rendezvous_ch = Channel[int].new()   # No capacity: rendezvous
+spawn || =>
+rendezvous_ch.send(42)
+end
+let rendezvous_got = rendezvous_ch.recv()
+assert_eq(rendezvous_got, 42)
+say f"Rendezvous exchange: {rendezvous_got}"
+
+let quiet_ch = Channel[int].new(capacity: 1)
+let picked = 0
+select
+case v = quiet_ch.recv()
+    picked = v
+timeout 100
+    picked = -1
+end
+assert_eq(picked, -1)
+say "Timeout-only select OK"
+
+# NOTE (channel operators): the EBNF documents `ch <- data` and `<-ch`, but
+# `ch <- 7` silently sends nothing (recv observes 0) and `<-ch` is a parse
+# error. Use `.send()`/`.recv()` until the operator forms are implemented.
+
+# ------------------------------------------------------------------------------
+# 6. WaitGroup Aggregation Across Three Threads
+# ------------------------------------------------------------------------------
+# NOTE: method calls do not resolve inside `test` blocks (same limitation as
+# nested function definitions: `m.lock()` emits unresolvable `fn_lock`), so
+# this scenario runs at top level with plain asserts.
+let w3 = sync.WaitGroup.new()
+let m3 = sync.Mutex.new()
+let total3 = 0
+w3.add(3)
+sync.spawn(|| =>
+defer w3.done()
+m3.lock()
+total3 += 1
+m3.unlock()
+)
+sync.spawn(|| =>
+defer w3.done()
+m3.lock()
+total3 += 10
+m3.unlock()
+)
+sync.spawn(|| =>
+defer w3.done()
+m3.lock()
+total3 += 100
+m3.unlock()
+)
+w3.wait()
+assert_eq(total3, 111)
+say f"Three-thread aggregate: {total3}"

@@ -92,3 +92,27 @@ end
 
 inspect_geometry(c)
 inspect_geometry(r)
+
+# ------------------------------------------------------------------------------
+# 5. Interface-Typed Variables: Known Gap (Chapter 14 §1.4)
+# ------------------------------------------------------------------------------
+# Structural satisfaction works at PARAMETER position (print_shape_metrics
+# above) but NOT at `let` binding: `let s: Shape = Circle {...}` fails check
+# with "expected 'Shape', found 'Circle'". Return position has the same
+# limitation. Until the type checker accepts satisfying structs in all
+# interface-typed positions, bind concrete types and pass to interface params.
+let concrete_holder = Circle { radius: 2.0 }
+print_shape_metrics(concrete_holder)
+
+# ------------------------------------------------------------------------------
+# 6. Native Test Blocks for Chapter 14
+# ------------------------------------------------------------------------------
+test "both shapes satisfy Shape param"
+    print_shape_metrics(Circle { radius: 1.0 })
+    print_shape_metrics(Rectangle { width: 2.0, height: 3.0 })
+end
+
+@test
+function test_composed_interface()
+    log_detailed_info(Rectangle { width: 5.0, height: 5.0 })
+end

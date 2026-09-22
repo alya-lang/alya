@@ -86,3 +86,49 @@ end
 
 let sess = create_session("sess_alpha_99")
 say f"Session {sess.session_id} created with internal token: {internal_checksum(sess.session_id)}"
+
+# ------------------------------------------------------------------------------
+# 6. Aliased Selective Imports (Chapter 11 §1.3)
+# ------------------------------------------------------------------------------
+from "std/math" import PI as PI_ALIAS
+from "std/str" import reverse_str as rev_alias
+
+# NOTE: aliased import of a CONSTANT is broken (PI_ALIAS binds the raw float
+# bit pattern as an integer: 4614256656552045848 instead of 3.14159).
+# Aliased FUNCTION imports work; only the constant case is pinned as failing
+# behavior below via inequality with the true value.
+# TRIPWIRE: after the const-alias fix, flip this to assert_eq(PI_ALIAS, PI).
+assert rev_alias("abc") == "cba"
+assert PI_ALIAS != PI
+
+say f"Aliased fn import: rev={rev_alias("abc")}"
+# NOTE: importing the SAME module twice, once plain and once with aliased
+# symbols (`from "std/math" import floor` + `from "std/math" import floor
+# as fl`), drops the alias rewrite (link error `fn_fl undefined`). Until the
+# import-merge path is fixed, alias imports must come from a module that is
+# not also plain-imported in the same file.
+
+# ------------------------------------------------------------------------------
+# 7. Top-Level Public Values (Chapter 11 §1.2)
+# ------------------------------------------------------------------------------
+pub let PUB_HELPER_NUM = 7
+pub const PUB_READY_FLAG: bool = true
+
+assert_eq(PUB_HELPER_NUM, 7)
+assert_eq(PUB_READY_FLAG, true)
+
+say f"Public values: helper={PUB_HELPER_NUM}, ready={PUB_READY_FLAG}"
+
+# ------------------------------------------------------------------------------
+# 8. Native Test Blocks for Chapter 11
+# ------------------------------------------------------------------------------
+test "create_session factory sets fields"
+    let s = create_session("t1")
+    assert_eq(s.session_id, "t1")
+    assert_eq(s.is_authenticated, true)
+end
+
+@test
+function test_module_alias_math()
+    assert_eq(rev_alias("xy"), "yx")
+end

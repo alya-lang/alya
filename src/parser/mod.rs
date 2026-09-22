@@ -591,6 +591,7 @@ pub fn rewrite_calls_in_expr(
             rewrite_calls_in_expr(right, rewrites);
         }
         Expr::Unary { expr, .. } => rewrite_calls_in_expr(expr, rewrites),
+        Expr::ForceUnwrap(inner) => rewrite_calls_in_expr(inner, rewrites),
         Expr::Array(items) => {
             for item in items {
                 rewrite_calls_in_expr(item, rewrites);
@@ -784,6 +785,9 @@ fn prefix_expr(expr: &mut Expr, alias: &str, local_fns: &std::collections::HashS
         }
         Expr::Unary { expr, .. } => {
             prefix_expr(expr, alias, local_fns);
+        }
+        Expr::ForceUnwrap(inner) => {
+            prefix_expr(inner, alias, local_fns);
         }
         Expr::Array(items) => {
             for item in items {
@@ -1758,6 +1762,9 @@ fn expand_defaults_in_expr(
         }
         Expr::Unary { expr, .. } => {
             expand_defaults_in_expr(expr, fn_defs, module_stems, locals, top_level_globals);
+        }
+        Expr::ForceUnwrap(inner) => {
+            expand_defaults_in_expr(inner, fn_defs, module_stems, locals, top_level_globals);
         }
         Expr::Ternary {
             condition,

@@ -181,3 +181,52 @@ end
 let fib_rec = fibonacci_recursive(10)
 let fib_iter = fibonacci_iterative(10)
 say f"Fibonacci(10) recursive: {fib_rec}, iterative: {fib_iter}"
+
+# ------------------------------------------------------------------------------
+# 10. Three- and Five-Value Returns (Chapter 07 §1.4)
+# ------------------------------------------------------------------------------
+# Multi-return scales beyond pairs (real packages destructure up to 5 values).
+function triple_vals() -> (int, int, int)
+    return 1, 2, 3
+end
+
+let tv1, tv2, tv3 = triple_vals()
+assert_eq(tv1, 1)
+assert_eq(tv2, 2)
+assert_eq(tv3, 3)
+
+function quint_vals() -> (int, int, int, int, int)
+    return 10, 20, 30, 40, 50
+end
+
+let qv1, qv2, qv3, qv4, qv5 = quint_vals()
+assert_eq(qv1 + qv2 + qv3 + qv4 + qv5, 150)
+
+say f"Triple: {tv1},{tv2},{tv3}, Quint sum: {qv1 + qv2 + qv3 + qv4 + qv5}"
+
+# ------------------------------------------------------------------------------
+# 11. Immediately Invoked Closures (Chapter 07 §1.6)
+# ------------------------------------------------------------------------------
+let iife_doubled = (|x: int| => x * 2)(21)
+assert_eq(iife_doubled, 42)
+
+say f"IIFE result: {iife_doubled}"
+
+# ------------------------------------------------------------------------------
+# 12. Native Test Blocks for Chapter 07
+# ------------------------------------------------------------------------------
+test "default parameters apply when omitted"
+    assert_eq(format_header("Hi"), "H1: Hi")
+    assert_eq(format_header("Hi", 3, false), "H3: Hi")
+end
+
+test "variadic collects rest args"
+    assert_eq(average(10, 20, 30), 20)
+end
+
+@test
+function test_multi_return_roundtrip()
+    let mn, mx = min_and_max(7, 3)
+    assert_eq(mn, 3)
+    assert_eq(mx, 7)
+end

@@ -26,6 +26,7 @@ fs.append_string(file_path, "Core stdlib contracts verified.\n")
 
 let content = fs.read_string(file_path)
 say f"File content length: {content.length()} bytes"
+assert content.length() > 0
 
 # Clean up temporary test file
 if fs.exists(file_path)
@@ -135,6 +136,7 @@ arena.destroy()
 import "std/math"
 
 let hyp = math.sqrt(3.0 * 3.0 + 4.0 * 4.0)
+assert_eq(hyp, 5.0)
 say f"Hypotenuse (3, 4): {hyp}"
 say f"Pi constant: {math.PI}"
 say f"Random float [0, 1): {math.random()}"
@@ -182,6 +184,18 @@ import "std/test"
 
 test.assert(math.PI > 3.14, "Pi must be greater than 3.14")
 test.assert_eq(2 + 2, 4, "Arithmetic identity check")
+
+# ------------------------------------------------------------------------------
+# 16. Native Test Blocks for Chapter 23
+# ------------------------------------------------------------------------------
+test "path joins use separators"
+    assert_eq(path.join("a", "b"), "a/b")
+end
+
+@test
+function test_stdlib_math_identities()
+    assert_eq(math.sqrt(64.0), 8.0)
+end
 
 # ------------------------------------------------------------------------------
 # 15. SIMD Vectorization Primitives (std/simd)

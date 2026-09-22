@@ -47,6 +47,9 @@ fn collect_expr_identifiers(expr: &Expr, idents: &mut std::collections::HashSet<
         Expr::Unary { expr, .. } | Expr::Cast { expr, .. } | Expr::TypeCheck { expr, .. } => {
             collect_expr_identifiers(expr, idents);
         }
+        Expr::ForceUnwrap(inner) => {
+            collect_expr_identifiers(inner, idents);
+        }
         Expr::Call { args, .. } | Expr::OptionalCall { args, .. } => {
             for arg in args {
                 collect_expr_identifiers(arg, idents);
@@ -1625,6 +1628,7 @@ impl CodeGen {
                 }
                 None
             }
+            Expr::ForceUnwrap(inner) => self.get_expr_struct_name(inner),
             _ => None,
         }
     }
@@ -1641,6 +1645,7 @@ impl CodeGen {
                     None
                 }
             }
+            Expr::ForceUnwrap(inner) => self.get_expr_interface_name(inner),
             _ => None,
         }
     }
@@ -1678,6 +1683,7 @@ impl CodeGen {
             Expr::NullCoalesce { value, default } => {
                 self.is_heap_expression(value) || self.is_heap_expression(default)
             }
+            Expr::ForceUnwrap(inner) => self.is_heap_expression(inner),
             _ => false,
         }
     }

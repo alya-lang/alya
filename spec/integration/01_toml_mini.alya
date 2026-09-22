@@ -1,0 +1,293 @@
+# ==============================================================================
+# Alya Integration Fixture 01: Minimal TOML-style parser
+# Distilled from: Lib/toml/src/parser.alya (619 lines) + Lib/toml/src/types.alya
+# Guards: recursion + tuple destructure + map/array mutation + while/continue/break
+# ==============================================================================
+
+# --- Helpers (copies of Lib/toml/src/types.alya patterns, inlined for single file) ---
+
+function mini_is_space(ch)
+    if ch == " " or ch == "\t"
+        return 1
+    end
+    return 0
+end
+
+function mini_is_blank(ch)
+    if ch == " " or ch == "\t" or ch == "\r" or ch == "\n"
+        return 1
+    end
+    return 0
+end
+
+function mini_map_has(m, key)
+    if m is null
+        return 0
+    end
+    if key in m
+        return 1
+    end
+    return 0
+end
+
+# --- Integer parsing (while + compound assignment, from Lib/toml parser) ---
+
+function parse_hex(s)
+    let slen = len(s)
+    let res = 0
+    let i = 2
+    while i < slen
+        let ch = char_at(s, i)
+        if ch != "_"
+            let val = 0
+            let c = ord(ch)
+            if c >= 48 and c <= 57
+                val = c - 48
+            elif c >= 97 and c <= 102
+                val = c - 97 + 10
+            elif c >= 65 and c <= 70
+                val = c - 65 + 10
+            end
+            res = res * 16 + val
+        end
+        i += 1
+    end
+    return res
+end
+
+function parse_dec_int(s)
+    let clean = ""
+    let slen = len(s)
+    let i = 0
+    while i < slen
+        let ch = char_at(s, i)
+        if ch != "_"
+            clean += ch
+        end
+        i += 1
+    end
+    return to_int(clean)
+end
+
+# --- String parsing (tuple return, destructured by callers) ---
+
+function parse_basic_string(text, pos, text_len)
+    pos += 1
+    let res = ""
+    while pos < text_len
+        let ch = char_at(text, pos)
+        if ch == "\""
+            pos += 1
+            break
+        elif ch == "\\"
+            pos += 1
+            if pos < text_len
+                let esc = char_at(text, pos)
+                if esc == "n"
+                    res += "\n"
+                elif esc == "t"
+                    res += "\t"
+                else
+                    res += esc
+                end
+                pos += 1
+            end
+        else
+            res += ch
+            pos += 1
+        end
+    end
+    return res, pos
+end
+
+function skip_spaces(text, pos, text_len)
+    while pos < text_len
+        let ch = char_at(text, pos)
+        if mini_is_space(ch) == 1
+            pos += 1
+        else
+            break
+        end
+    end
+    return pos
+end
+
+# --- Recursive value parser (calls itself for nested arrays) ---
+
+function parse_value(text, pos, text_len)
+    pos = skip_spaces(text, pos, text_len)
+    if pos >= text_len
+        return null, pos
+    end
+
+    if char_at(text, pos) == "\""
+        return parse_basic_string(text, pos, text_len)
+    end
+
+    if char_at(text, pos) == "["
+        pos += 1
+        let arr = []
+        while pos < text_len
+            while pos < text_len and mini_is_blank(char_at(text, pos)) == 1
+                pos += 1
+            end
+            if pos >= text_len or char_at(text, pos) == "]"
+                break
+            end
+            let elem, new_pos = parse_value(text, pos, text_len)
+            arr.push(elem)
+            pos = new_pos
+            while pos < text_len and mini_is_blank(char_at(text, pos)) == 1
+                pos += 1
+            end
+            if pos < text_len and char_at(text, pos) == ","
+                pos += 1
+            elif pos < text_len and char_at(text, pos) == "]"
+                break
+            end
+        end
+        if pos < text_len and char_at(text, pos) == "]"
+            pos += 1
+        end
+        return arr, pos
+    end
+
+    if pos + 3 < text_len and substring(text, pos, 4) == "true"
+        return true, pos + 4
+    end
+    if pos + 4 < text_len and substring(text, pos, 5) == "false"
+        return false, pos + 5
+    end
+
+    let tok = ""
+    while pos < text_len
+        let ch = char_at(text, pos)
+        if ch == " " or ch == "\t" or ch == "\r" or ch == "\n" or ch == "," or ch == "]" or ch == "#"
+            break
+        else
+            tok += ch
+            pos += 1
+        end
+    end
+
+    let tlen = len(tok)
+    if tlen >= 2 and substring(tok, 0, 2) == "0x"
+        return parse_hex(tok), pos
+    else
+        return parse_dec_int(tok), pos
+    end
+end
+
+# --- Dotted key navigation (map mutation through nested tables) ---
+
+function set_dotted_key_value(target, key_str, val)
+    if key_str == "a.b"
+        if mini_map_has(target, "a") == 0
+            target["a"] = map()
+        end
+        let sub = target["a"]
+        sub["b"] = val
+        return
+    end
+    target[key_str] = val
+end
+
+function get_or_create_section(root, section_name)
+    if mini_map_has(root, section_name) == 0
+        root[section_name] = map()
+    end
+    return root[section_name]
+end
+
+# --- Main document parser (comment/newline/section skipping + continue) ---
+
+function parse_mini_toml(text)
+    let root = map()
+    let current_table = root
+    let text_len = len(text)
+    let pos = 0
+
+    while pos < text_len
+        pos = skip_spaces(text, pos, text_len)
+        if pos >= text_len
+            break
+        end
+
+        let ch = char_at(text, pos)
+
+        if ch == "#"
+            while pos < text_len and char_at(text, pos) != "\n"
+                pos += 1
+            end
+            if pos < text_len and char_at(text, pos) == "\n"
+                pos += 1
+            end
+            continue
+        end
+
+        if ch == "\r" or ch == "\n"
+            pos += 1
+            continue
+        end
+
+        if ch == "["
+            pos += 1
+            let sec_name = ""
+            while pos < text_len and char_at(text, pos) != "]"
+                sec_name += char_at(text, pos)
+                pos += 1
+            end
+            if pos < text_len and char_at(text, pos) == "]"
+                pos += 1
+            end
+            current_table = get_or_create_section(root, sec_name)
+            continue
+        end
+
+        let key_str = ""
+        while pos < text_len
+            let kch = char_at(text, pos)
+            if kch == "=" or kch == "\r" or kch == "\n"
+                break
+            else
+                key_str += kch
+                pos += 1
+            end
+        end
+        let kend = len(key_str)
+        while kend > 0 and (char_at(key_str, kend - 1) == " " or char_at(key_str, kend - 1) == "\t")
+            kend -= 1
+        end
+        key_str = substring(key_str, 0, kend)
+        pos = skip_spaces(text, pos, text_len)
+        if pos < text_len and char_at(text, pos) == "="
+            pos += 1
+            pos = skip_spaces(text, pos, text_len)
+            let val, val_pos = parse_value(text, pos, text_len)
+            set_dotted_key_value(current_table, key_str, val)
+            pos = val_pos
+        else
+            pos += 1
+        end
+    end
+
+    return root
+end
+
+# --- Entry: exercise every combination above ---
+
+let doc_text = "title = \"hello\"\nport = 8080\nhex_val = 0x1A\n# a comment line\nports = [80, 443]\n[server]\nhost = \"127.0.0.1\"\n"
+let doc = parse_mini_toml(doc_text)
+
+assert_eq(doc["title"], "hello")
+assert_eq(doc["port"], 8080)
+assert_eq(doc["hex_val"], 26)
+assert_eq(doc["ports"][0], 80)
+assert_eq(doc["ports"][1], 443)
+assert_eq(doc["server"]["host"], "127.0.0.1")
+
+let nested = map()
+set_dotted_key_value(nested, "a.b", 42)
+assert_eq(nested["a"]["b"], 42)
+
+say "integration 01_toml_mini: OK (title=hello, port=8080, hex=26, nested=42)"

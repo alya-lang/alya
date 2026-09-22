@@ -109,3 +109,89 @@ let byte_char: u8 = b'X'              # Evaluates to integer ASCII 88
 let byte_array: u8[] = b"PNG\r\n\x1a\n" # Byte string array
 
 say f"Byte char: {byte_char}, Magic bytes count: {byte_array.length()}"
+
+# ------------------------------------------------------------------------------
+# 7. Extended Literal Variations (uppercase prefixes, exponents, separators)
+# ------------------------------------------------------------------------------
+# Chapter 00 §1.5: base prefixes accept both cases; exponents accept missing,
+# '+' and '-' signs; underscores are allowed inside numbers.
+let hex_upper_prefix = 0XFF
+let bin_upper_prefix = 0B1010
+let oct_upper_prefix = 0O755
+let sci_no_sign = 6.022e23
+let sci_plus = 2.5e+3
+let sci_capital_no_sign = 3E8
+let flt_separator = 1_000.5
+let dec_multi_sep = 1_000_000
+
+assert_eq(hex_upper_prefix, 255)
+assert_eq(bin_upper_prefix, 10)
+assert_eq(oct_upper_prefix, 493)
+assert_eq(sci_plus, 2500.0)
+assert_eq(sci_capital_no_sign, 300000000.0)
+assert_eq(flt_separator, 1000.5)
+assert_eq(dec_multi_sep, 1000000)
+
+say f"Upper prefixes: {hex_upper_prefix}, {bin_upper_prefix}, {oct_upper_prefix}"
+say f"Exponents: {sci_no_sign}, {sci_plus}, Separated float: {flt_separator}"
+
+# ------------------------------------------------------------------------------
+# 8. Unicode Escapes in Standard Strings (Chapter 00 §1.6)
+# ------------------------------------------------------------------------------
+let rocket_esc = "\u{1F680}"
+let g_breve_esc = "\u{11F}"
+# Known limitation: runtime strings are null-terminated, so an embedded `\0`
+# truncates the value (lexer keeps the escape, runtime drops from null on).
+# Revisit if the string model ever supports embedded nulls.
+let null_trunc = "a\0b"
+
+assert_eq(rocket_esc.byte_length(), 4)
+assert_eq(rocket_esc.char_count(), 1)
+assert_eq(g_breve_esc, "ğ")
+assert_eq(null_trunc.byte_length(), 1)
+
+say f"Unicode escape rocket bytes: {rocket_esc.byte_length()}, runes: {rocket_esc.char_count()}"
+
+# ------------------------------------------------------------------------------
+# 9. Identifier Conventions & Indentation Insensitivity (Chapter 00 §1.1, §1.3)
+# ------------------------------------------------------------------------------
+let _hidden_counter = 7
+let snake_case_var = 1
+const MAX_LEX_ITEMS = 99
+
+assert_eq(_hidden_counter, 7)
+assert_eq(MAX_LEX_ITEMS, 99)
+
+# Blocks are delimited by keywords, not indentation: deliberately odd indent
+# below must still compile and run.
+if true
+        let oddly_indented = 5
+            assert_eq(oddly_indented, 5)
+end
+
+say f"Identifiers: hidden={_hidden_counter}, const={MAX_LEX_ITEMS}"
+
+# ------------------------------------------------------------------------------
+# 10. Native Test Blocks for Chapter 00
+# ------------------------------------------------------------------------------
+test "uppercase base prefixes evaluate correctly"
+    assert_eq(0XFF, 255)
+    assert_eq(0B1010, 10)
+    assert_eq(0O755, 493)
+end
+
+test "unicode escapes decode to correct codepoints"
+    assert_eq("\u{11F}", "ğ")
+    assert_eq("\u{1F680}".char_count(), 1)
+end
+
+@test
+function test_lexical_separators()
+    assert_eq(1_000_000, 1000000)
+    assert_eq(1_000.5, 1000.5)
+end
+
+@test
+function test_lexical_exponents()
+    assert_eq(2.5e+3, 2500.0)
+end

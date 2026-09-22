@@ -19,6 +19,13 @@ pub fn emit_compare_and_jump_if_greater(out: &mut String, label: &str) {
     out.push_str(&format!("    jg {}\n", label));
 }
 
+pub fn emit_compare_and_jump_if_greater_or_equal(out: &mut String, label: &str) {
+    out.push_str("    mov %eax, %ebx\n");
+    out.push_str("    pop %eax\n");
+    out.push_str("    cmp %ebx, %eax\n");
+    out.push_str(&format!("    jge {}\n", label));
+}
+
 pub fn emit_increment_var(out: &mut String, var_offset: i32, start_label: &str) {
     out.push_str(&format!("    addl $1, -{}(%ebp)\n", var_offset));
     out.push_str(&format!("    jmp {}\n", start_label));

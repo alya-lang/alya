@@ -133,6 +133,7 @@ pub fn find_call_arg_in_expr<'a>(
         Expr::Binary { left, right, .. } => find_call_arg_in_expr(left, func_name, param_idx)
             .or_else(|| find_call_arg_in_expr(right, func_name, param_idx)),
         Expr::Unary { expr, .. } => find_call_arg_in_expr(expr, func_name, param_idx),
+        Expr::ForceUnwrap(inner) => find_call_arg_in_expr(inner, func_name, param_idx),
         Expr::InterpolatedString(parts) => {
             for part in parts {
                 if let Some(arg) = find_call_arg_in_expr(part, func_name, param_idx) {
@@ -321,6 +322,9 @@ pub fn collect_call_args_in_expr<'a>(
         }
         Expr::Unary { expr, .. } => {
             collect_call_args_in_expr(expr, func_name, bare_name, param_idx, args);
+        }
+        Expr::ForceUnwrap(inner) => {
+            collect_call_args_in_expr(inner, func_name, bare_name, param_idx, args);
         }
         Expr::Array(elements) => {
             for elem in elements {
@@ -664,6 +668,16 @@ pub fn collect_call_args_in_expr_scoped<'a>(
                 args,
             );
         }
+        Expr::ForceUnwrap(inner) => {
+            collect_call_args_in_expr_scoped(
+                inner,
+                func_name,
+                bare_name,
+                param_idx,
+                current_scope,
+                args,
+            );
+        }
         Expr::Array(elements) => {
             for elem in elements {
                 collect_call_args_in_expr_scoped(
@@ -924,6 +938,7 @@ impl<'a> CallIndex<'a> {
                 self.collect_expr(right, current_scope);
             }
             Expr::Unary { expr, .. } => self.collect_expr(expr, current_scope),
+            Expr::ForceUnwrap(inner) => self.collect_expr(inner, current_scope),
             Expr::Array(elements) => {
                 for elem in elements {
                     self.collect_expr(elem, current_scope);

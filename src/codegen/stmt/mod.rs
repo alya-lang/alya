@@ -46,8 +46,9 @@ impl CodeGen {
                 var,
                 start,
                 end,
+                inclusive,
                 body,
-            } => self.generate_for(var, start, end, body),
+            } => self.generate_for(var, start, end, *inclusive, body),
             Stmt::ForEach {
                 var,
                 value_var,

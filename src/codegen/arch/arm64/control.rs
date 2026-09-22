@@ -19,6 +19,12 @@ pub fn emit_compare_and_jump_if_greater(out: &mut String, label: &str) {
     out.push_str(&format!("    b.gt {}\n", label));
 }
 
+pub fn emit_compare_and_jump_if_greater_or_equal(out: &mut String, label: &str) {
+    out.push_str("    ldr x1, [sp], #16\n");
+    out.push_str("    cmp x1, x0\n");
+    out.push_str(&format!("    b.ge {}\n", label));
+}
+
 pub fn emit_increment_var(
     out: &mut String,
     var_offset: i32,

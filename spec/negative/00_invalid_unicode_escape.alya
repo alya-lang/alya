@@ -1,0 +1,3 @@
+# EXPECT-FAIL: lex: Invalid unicode escape
+# Chapter 00 §1.6: `\u{...}` requires valid hexadecimal digits.
+let s = "\u{ZZZ}"

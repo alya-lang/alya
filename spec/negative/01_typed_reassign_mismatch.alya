@@ -1,0 +1,5 @@
+# EXPECT-FAIL: check: Cannot assign 'string' to variable 'x' of type 'int'
+# Chapter 01 §1.1: reassigning a statically typed variable to an
+# incompatible type is a compile-time error.
+let x: int = 5
+x = "bad"

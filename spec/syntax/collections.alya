@@ -90,3 +90,70 @@ let fruit_lengths = {f: f.length() for f in fruits if f.length() > 4}
 for fruit_name, len in fruit_lengths
     say f"Fruit '{fruit_name}' has length {len}"
 end
+
+# ------------------------------------------------------------------------------
+# 5. Map Introspection & Missing-Key Semantics (Chapter 13 §1.2)
+# ------------------------------------------------------------------------------
+let probe_map = { "a": 1 }
+assert_eq(probe_map.keys().length(), 1)
+assert_eq(probe_map.values().length(), 1)
+
+# Direct access to a missing key yields a falsy null (prints as 0-line empty);
+# use `.get(k, default)` for explicit fallbacks (see section 2 above).
+let missing_direct = probe_map["nope"]
+assert missing_direct == 0
+
+say f"Map keys: {probe_map.keys().length()}, missing reads falsy"
+
+# ------------------------------------------------------------------------------
+# 6. Full-Copy Slices, Negative-Index Assignment & Typed Annotations
+# ------------------------------------------------------------------------------
+let src_arr = [1, 2, 3]
+let whole_copy = src_arr[..]          # Independent copy, not a view
+whole_copy[0] = 99
+assert_eq(src_arr[0], 1)
+assert_eq(whole_copy[0], 99)
+
+let neg_assign = [1, 2, 3]
+neg_assign[-1] = 30                   # Negative index on write side
+assert_eq(neg_assign[-1], 30)
+
+let typed_ints: array[int] = [1, 2]
+let typed_scores: map[string, int] = { "x": 1 }
+assert_eq(typed_ints.length(), 2)
+assert_eq(typed_scores["x"], 1)
+
+say f"Copy independence: {src_arr[0]}/{whole_copy[0]}, neg-assign: {neg_assign[-1]}"
+
+# NOTE (unimplemented intrinsics, Chapter 13 §1.1): `arr.insert(i, v)`,
+# `arr.remove_at(i)` and `arr.capacity()` are documented but have no codegen
+# (link error `fn_insert` etc.). Worse, `arr.contains(v)` on arrays exits
+# silently with code 1 (only the map path rewrites to `has`). Prefer the
+# `in` operator until these are implemented; do NOT add passing asserts here.
+
+# ------------------------------------------------------------------------------
+# 7. Native Test Blocks for Chapter 13
+# ------------------------------------------------------------------------------
+test "slices share documented bounds"
+    let data = [10, 20, 30, 40, 50]
+    assert_eq(data[1..4].length(), 3)   # half-open: indices 1,2,3
+    assert_eq(data[2..].length(), 3)
+    assert_eq(data[..3].length(), 3)
+end
+
+test "map mutation roundtrips"
+    let m = { "k": 1 }
+    m["k"] = 2
+    m["new"] = 3
+    assert_eq(m["k"], 2)
+    assert_eq(m["new"], 3)
+    m.remove("k")
+    assert "k" not in m
+end
+
+@test
+function test_comprehension_filters()
+    let odds = [x for x in [1, 2, 3, 4] if x % 2 == 1]
+    assert_eq(odds.length(), 2)
+    assert_eq(odds[0], 1)
+end

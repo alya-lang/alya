@@ -137,3 +137,73 @@ let v_fma: f64x4 = v1.fma(v2, v_sum)
 let dot: float = v1.sum_horizontal()
 say f"SIMD 6.4 Vector Specification: v_sum[0]={v_sum.get(0)}, v_fma[0]={v_fma.get(0)}, dot={dot}"
 say "SIMD 6.4 Vector Specification: f64x4, f32x8, i32x8, i64x4 ready"
+
+# ------------------------------------------------------------------------------
+# 12. Systems Aliases & Pointer-Sized Integers (Chapter 02 §1.1)
+# ------------------------------------------------------------------------------
+let raw_byte: byte = 65                  # `byte` is an alias for `u8`
+let arch_index: isize = -5               # Signed pointer-sized integer
+let arch_count: usize = 1024
+
+assert_eq(raw_byte, 65)
+assert_eq(arch_index, -5)
+assert_eq(arch_count, 1024)
+
+say f"Aliases: byte={raw_byte}, isize={arch_index}, usize={arch_count}"
+
+# ------------------------------------------------------------------------------
+# 13. Explicit Conversion Functions (Chapter 02 §1.4)
+# ------------------------------------------------------------------------------
+let parsed_num = int("42")               # String to int conversion
+let rendered = str(25)                   # Int to string conversion
+let parsed_float = float("3.5")          # String to float conversion
+
+assert_eq(parsed_num, 42)
+assert_eq(rendered, "25")
+assert_eq(parsed_float, 3.5)
+
+say f"Conversions: int={parsed_num}, str={rendered}, float={parsed_float}"
+
+# ------------------------------------------------------------------------------
+# 14. Negated Type Query & Explicit Dynamic (Chapter 02 §1.3, §1.5)
+# ------------------------------------------------------------------------------
+let probe: any = 42
+
+if probe is not string
+    say "probe is confirmed not to be a string (is-not form)"
+end
+
+let explicit_dyn: any = 7               # Explicit `any` annotation
+let from_dyn: int = explicit_dyn        # any -> static recovery
+assert_eq(from_dyn, 7)
+
+say f"Explicit dynamic: {explicit_dyn}, recovered: {from_dyn}"
+
+# ------------------------------------------------------------------------------
+# 15. Native Test Blocks for Chapter 02
+# ------------------------------------------------------------------------------
+test "sized integer boundaries hold"
+    let lo8: i8 = -128
+    let hi8: i8 = 127
+    let hi_u8: u8 = 255
+    assert_eq(lo8, -128)
+    assert_eq(hi8, 127)
+    assert_eq(hi_u8, 255)
+end
+
+test "casts truncate predictably"
+    assert_eq(1000 as u8, 232)
+    assert_eq(3.99 as int, 3)
+end
+
+test "is and is-not queries agree"
+    let v: any = "text"
+    assert v is string
+    assert v is not int
+end
+
+@test
+function test_type_conversions()
+    assert_eq(int("100"), 100)
+    assert_eq(str(100), "100")
+end

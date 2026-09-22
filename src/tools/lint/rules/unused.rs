@@ -38,6 +38,9 @@ fn collect_expr_identifiers(expr: &Expr, idents: &mut HashSet<String>) {
                 collect_expr_identifiers(a, idents);
             }
         }
+        Expr::ForceUnwrap(inner) => {
+            collect_expr_identifiers(inner, idents);
+        }
         Expr::InterpolatedString(parts) => {
             for p in parts {
                 collect_expr_identifiers(p, idents);

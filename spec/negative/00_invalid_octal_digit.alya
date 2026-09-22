@@ -1,0 +1,3 @@
+# EXPECT-FAIL: lex: Invalid digit
+# Chapter 00 §1.5 + EBNF OctalLit: `8` is not an octal digit.
+let x = 0o789

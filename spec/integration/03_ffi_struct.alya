@@ -1,0 +1,93 @@
+# ==============================================================================
+# Alya Integration Fixture 03: FFI + struct safe wrapper
+# Distilled from: Lib/sqlite/src/ffi.alya + spec/syntax/ffi.alya +
+#                 spec/syntax/structs.alya
+# Guards: extern "C" + @repr(C) struct + safe wrapper + tuple return +
+#         struct methods + null safety. Uses libc only (no sqlite3 link needed).
+# ==============================================================================
+
+extern "C"
+    function puts(s: str) -> i32
+    function abs(n: i32) -> i32
+    function cos(angle: f64) -> f64
+    function sin(angle: f64) -> f64
+    function malloc(size: usize) -> ptr
+    function free(p: ptr) -> void
+end
+
+@repr(C)
+struct NativeBufferDesc
+    buffer_ptr: ptr
+    byte_length: usize
+    flags: u32
+end
+
+struct SafeBuffer
+    desc: NativeBufferDesc
+    owned: int
+end
+
+function safe_trig_calc(degrees: float) -> (float, float)
+    let radians = degrees * 3.141592653589793 / 180.0
+    let cos_val = cos(radians as f64)
+    let sin_val = sin(radians as f64)
+    return cos_val as float, sin_val as float
+end
+
+function SafeBuffer.allocate(self: SafeBuffer, bytes: usize) -> int
+    let raw_p = malloc(bytes)
+    if raw_p == null
+        return 0
+    end
+    self.desc = NativeBufferDesc {
+        buffer_ptr: raw_p,
+        byte_length: bytes,
+        flags: 0
+    }
+    self.owned = 1
+    return 1
+end
+
+function SafeBuffer.release(self: SafeBuffer)
+    if self.owned == 1 and self.desc.buffer_ptr != null
+        free(self.desc.buffer_ptr)
+        self.owned = 0
+    end
+end
+
+function SafeBuffer.describe(self: SafeBuffer) -> string
+    return "buffer bytes={self.desc.byte_length} owned={self.owned}"
+end
+
+puts("FFI: integration fixture 03_ffi_struct active")
+
+let abs_val = abs(-42)
+assert_eq(abs_val, 42)
+say f"abs(-42) via libc: {abs_val}"
+
+let c_val, s_val = safe_trig_calc(45.0)
+assert c_val > 0.7 and c_val < 0.72, "cos(45deg) out of range"
+assert s_val > 0.7 and s_val < 0.72, "sin(45deg) out of range"
+say f"Cos(45deg) = {c_val}, Sin(45deg) = {s_val}"
+
+let buf = SafeBuffer {
+    desc: NativeBufferDesc {
+        buffer_ptr: null,
+        byte_length: 0,
+        flags: 0
+    },
+    owned: 0
+}
+let ok = buf.allocate(256)
+assert_eq(ok, 1)
+say f"Allocated: {buf.describe()}"
+buf.release()
+assert_eq(buf.owned, 0)
+say "Released scratch buffer."
+
+let maybe: ptr? = null
+if maybe is null
+    say "Null-safe ptr check: OK"
+end
+
+say "integration 03_ffi_struct: OK (abs=42, trig~0.707, alloc=256)"

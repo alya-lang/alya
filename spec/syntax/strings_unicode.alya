@@ -57,3 +57,42 @@ say f"Binary: {user_id:#b}"
 # Alignment and column width
 say f"Right aligned: [{label:>10}]"
 say f"Left aligned:  [{label:<10}]"
+
+# ------------------------------------------------------------------------------
+# 5. Rune Conversion & Arithmetic (Chapter 21 §1.2)
+# ------------------------------------------------------------------------------
+assert_eq(int('A'), 65)              # int(rune) conversion form (ASCII)
+assert_eq('🚀' as int, 128640)        # Non-BMP codepoint via `as` cast
+
+let base_rune: rune = 'A'
+assert_eq(base_rune + 1, 66)         # Rune arithmetic yields codepoints
+assert_eq(base_rune as int, 65)
+
+say f"Rune int: {int('A')}, arith: {base_rune + 1}"
+
+# ------------------------------------------------------------------------------
+# 6. String Comparison & Length (Chapter 21 §1.1)
+# ------------------------------------------------------------------------------
+assert "abc" < "abd"
+assert "abc" == "abc"
+assert_eq("hello".length(), 5)
+
+say "String comparison and length OK"
+
+# NOTE (format spec): center alignment `f"{x:^5}"` is broken (renders garbage
+# like `[11:120]` instead of centered text). `>`, `<`, `.Nf`, `05`, `#x`,
+# `#b` above all work; `:^` needs a codegen fix. Format specs also miscompile
+# inside FUNCTION bodies and CALL ARGUMENTS (`junk ':'` at assemble time);
+# only top-level / say-position specs are safe — hence no spec asserts below.
+# NOTE (rune conversion): `int()` accepts ASCII runes but silently dies on
+# non-BMP runes (`int('🚀')` exits 1 with no message); use `as int`, which
+# handles all codepoints.
+
+# ------------------------------------------------------------------------------
+# 7. Native Test Blocks for Chapter 21
+# ------------------------------------------------------------------------------
+test "byte vs rune counts differ on multibyte"
+    let t = "Çç"
+    assert_eq(t.byte_length(), 4)
+    assert_eq(t.char_count(), 2)
+end

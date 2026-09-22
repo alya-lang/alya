@@ -283,7 +283,7 @@ greet("Bob", "Good morning", "?")
 
 function power(base, exp = 2)
     let result = 1
-    for i in 1..exp
+    for i in 1..=exp
         result *= base
     end
     return result

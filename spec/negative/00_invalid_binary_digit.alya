@@ -1,0 +1,3 @@
+# EXPECT-FAIL: lex: Invalid digit
+# Chapter 00 §1.5 + EBNF BinaryLit: `2` is not a binary digit.
+let x = 0b102

@@ -142,6 +142,18 @@ pub fn emit_compare_and_jump_if_greater(out: &mut String, arch: Architecture, la
     }
 }
 
+pub fn emit_compare_and_jump_if_greater_or_equal(
+    out: &mut String,
+    arch: Architecture,
+    label: &str,
+) {
+    match arch {
+        Architecture::ARM64 => arm64::emit_compare_and_jump_if_greater_or_equal(out, label),
+        Architecture::X64 => x64::emit_compare_and_jump_if_greater_or_equal(out, label),
+        Architecture::X86 => x86::emit_compare_and_jump_if_greater_or_equal(out, label),
+    }
+}
+
 pub fn emit_increment_var(
     out: &mut String,
     arch: Architecture,

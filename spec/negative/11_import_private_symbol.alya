@@ -1,0 +1,4 @@
+# EXPECT-FAIL: check: does not export symbol
+# Chapter 11 §1.2: only `pub` symbols may be selectively imported.
+from "std/math" import sqrt
+say sqrt(16.0)

@@ -1,0 +1,3 @@
+# EXPECT-FAIL: check: Type mismatch in 'let t'
+# Chapter 02 §1.5: tuple literals are checked component-by-component.
+let t: (int, string) = (1, 2)

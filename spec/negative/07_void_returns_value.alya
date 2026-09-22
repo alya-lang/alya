@@ -1,0 +1,5 @@
+# EXPECT-FAIL: check: Void function cannot return a value
+# Chapter 07 §1.1: returning a value from a `-> void` function is an error.
+function bad_void() -> void
+    return 42
+end

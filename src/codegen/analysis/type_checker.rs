@@ -2,6 +2,23 @@ use crate::ast::{BinaryOp, Expr, Program, Stmt, UnaryOp};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
+/// Returns true for bare generic type parameter names (`T`, `K`, `V`, `TKey`).
+/// Convention: starts with an ASCII uppercase letter and contains only
+/// alphanumeric/underscore characters while not matching any concrete type
+/// name spelling used by the language (those are lowercase or SIMD names).
+fn is_bare_type_param(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_uppercase() => {}
+        _ => return false,
+    }
+    if !s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return false;
+    }
+    // Exclude concrete nominal types (PascalCase with lowercase tail).
+    !s.chars().skip(1).any(|c| c.is_ascii_lowercase())
+}
+
 /// Represents types within Alya's static gradual type system.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
@@ -132,6 +149,32 @@ impl Type {
             return true;
         }
 
+        // Generic erasure: codegen monomorphizes by erasing type parameters,
+        // so the checker must accept the erased forms too.
+        // - A bare type parameter (`T`, `K`, `V`, ...) accepts any concrete
+        //   type and vice versa (substitution happens at monomorphization).
+        // - `Foo[...]` and `Foo` share a base name and are equivalent here.
+        if matches!(self, Type::Struct(_)) || matches!(target, Type::Struct(_)) {
+            let self_s = match self {
+                Type::Struct(s) => Some(s.as_str()),
+                _ => None,
+            };
+            let target_s = match target {
+                Type::Struct(s) => Some(s.as_str()),
+                _ => None,
+            };
+            if self_s.is_some_and(is_bare_type_param) || target_s.is_some_and(is_bare_type_param) {
+                return true;
+            }
+            if let (Some(a), Some(b)) = (self_s, target_s) {
+                let base_a = a.split('[').next().unwrap_or(a);
+                let base_b = b.split('[').next().unwrap_or(b);
+                if base_a == base_b {
+                    return true;
+                }
+            }
+        }
+
         // Vector subtyping and struct equivalence
         match (self, target) {
             (Type::F64x4, Type::Struct(s)) | (Type::Struct(s), Type::F64x4) if s == "f64x4" => {
@@ -152,6 +195,17 @@ impl Type {
         // String subtyping
         if matches!(self, Type::String) && matches!(target, Type::String) {
             return true;
+        }
+
+        // Byte strings share the runtime C-string representation, so a string
+        // value is accepted where `u8[]` is annotated (Chapter 00 §1.7).
+        // Annotations are check-time only; codegen is unaffected.
+        if matches!(self, Type::String) {
+            if let Type::Array(elem) = target {
+                if matches!(**elem, Type::U8) {
+                    return true;
+                }
+            }
         }
 
         // Bool subtyping
@@ -277,8 +331,12 @@ pub fn parse_type_str(raw: &str) -> Type {
         return Type::Any;
     }
 
+    // Weak `weak T` is a null-or-T reference (Chapter 16 §1.4: a weak
+    // reference safely becomes null when its target is deallocated), so it
+    // parses to Nullable rather than dropping the marker.
     if let Some(rest) = s.strip_prefix("weak ") {
-        s = rest.trim();
+        let inner = parse_type_str(rest.trim());
+        return Type::Nullable(Box::new(inner));
     }
     if let Some(rest) = s.strip_prefix("...") {
         s = rest.trim();
@@ -374,9 +432,12 @@ struct StructSig {
 
 pub struct TypeChecker {
     scopes: Vec<HashMap<String, Type>>,
+    assigned: Vec<HashSet<String>>,
     functions: HashMap<String, FnSig>,
     structs: HashMap<String, StructSig>,
     enums: HashSet<String>,
+    interfaces: HashMap<String, Vec<String>>,
+    struct_methods: HashMap<String, HashSet<String>>,
     current_fn_return_type: Option<Type>,
 }
 
@@ -390,9 +451,12 @@ impl TypeChecker {
     pub fn new() -> Self {
         let mut tc = Self {
             scopes: vec![HashMap::new()],
+            assigned: vec![HashSet::new()],
             functions: HashMap::new(),
             structs: HashMap::new(),
             enums: HashSet::new(),
+            interfaces: HashMap::new(),
+            struct_methods: HashMap::new(),
             current_fn_return_type: None,
         };
         tc.register_builtins();
@@ -567,10 +631,12 @@ impl TypeChecker {
 
     fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
+        self.assigned.push(HashSet::new());
     }
 
     fn pop_scope(&mut self) {
         self.scopes.pop();
+        self.assigned.pop();
     }
 
     fn define_var(&mut self, name: &str, ty: Type) {
@@ -582,6 +648,62 @@ impl TypeChecker {
                 scope.insert(bare.to_string(), ty);
             }
         }
+        self.mark_assigned(name);
+    }
+
+    /// Marks a variable as definitely assigned (any `Assign` to it counts,
+    /// flow-insensitively: assignment inside any branch satisfies later reads).
+    /// The mark lands on the scope where the variable is declared, so
+    /// branch-level assignments survive scope pops.
+    fn mark_assigned(&mut self, name: &str) {
+        let bare = name.rsplit("::").next().unwrap_or(name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        let mut target_idx: Option<usize> = None;
+        for (idx, scope) in self.scopes.iter().enumerate().rev() {
+            if scope.contains_key(name) || scope.contains_key(bare) {
+                target_idx = Some(idx);
+                break;
+            }
+        }
+        let idx = target_idx.unwrap_or_else(|| self.assigned.len().saturating_sub(1));
+        if let Some(set) = self.assigned.get_mut(idx) {
+            set.insert(name.to_string());
+            if bare != name {
+                set.insert(bare.to_string());
+            }
+        }
+    }
+
+    /// Marks a variable as declared-but-unassigned (deferred `let x: T`).
+    fn mark_unassigned(&mut self, name: &str) {
+        let bare = name.rsplit("::").next().unwrap_or(name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        for set in self.assigned.iter_mut().rev() {
+            set.remove(name);
+            set.remove(bare);
+        }
+    }
+
+    /// Definite-assignment read check: a declared-but-unassigned variable
+    /// must not be read (Chapter 01 §1.1). Unknown names stay lenient.
+    fn is_assigned(&self, name: &str) -> bool {
+        let bare = name.rsplit("::").next().unwrap_or(name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        for set in self.assigned.iter().rev() {
+            if set.contains(name) || set.contains(bare) {
+                return true;
+            }
+        }
+        // Not tracked as assigned: only an error if the name is a declared
+        // variable (unknown identifiers keep today's lenient `Any` behavior).
+        let mut declared = false;
+        for scope in self.scopes.iter().rev() {
+            if scope.contains_key(name) || scope.contains_key(bare) {
+                declared = true;
+                break;
+            }
+        }
+        !declared
     }
 
     fn resolve_type(&self, ty: Type) -> Type {
@@ -674,9 +796,20 @@ impl TypeChecker {
             Expr::String(_) => Ok(Type::String),
             Expr::Null => Ok(Type::Null),
             Expr::InterpolatedString(_) => Ok(Type::String),
+            // Force unwrap strips one nullability layer (Chapter 19 §5).
+            Expr::ForceUnwrap(inner) => match self.infer_expr(inner)? {
+                Type::Nullable(boxed) => Ok(*boxed),
+                other => Ok(other),
+            },
 
             Expr::Identifier(name) => {
                 if let Some(ty) = self.lookup_var(name) {
+                    if !self.is_assigned(name) {
+                        return Err(format!(
+                            "TypeError: Variable '{}' is used before assignment",
+                            name
+                        ));
+                    }
                     return Ok(ty);
                 }
                 if self.enums.contains(name) {
@@ -866,12 +999,25 @@ impl TypeChecker {
     /// Recursively checks an expression and validates all sub-expressions.
     pub fn check_expr(&self, expr: &Expr) -> Result<(), String> {
         match expr {
+            Expr::Identifier(name) => {
+                // Definite-assignment read check (Chapter 01 §1.1). Unknown
+                // names stay lenient here; inference resolves them to `Any`.
+                if self.lookup_var(name).is_some() && !self.is_assigned(name) {
+                    return Err(format!(
+                        "TypeError: Variable '{}' is used before assignment",
+                        name
+                    ));
+                }
+            }
             Expr::Binary { left, right, .. } => {
                 self.check_expr(left)?;
                 self.check_expr(right)?;
             }
             Expr::Unary { expr, .. } | Expr::Cast { expr, .. } | Expr::TypeCheck { expr, .. } => {
                 self.check_expr(expr)?;
+            }
+            Expr::ForceUnwrap(inner) => {
+                self.check_expr(inner)?;
             }
             Expr::Array(items) | Expr::InterpolatedString(items) => {
                 for it in items {
@@ -915,7 +1061,7 @@ impl TypeChecker {
                     for (fname, fval) in fields {
                         if let Some(expected_ft) = sdef.fields.get(fname) {
                             let actual_vt = self.infer_expr(fval)?;
-                            if !actual_vt.is_assignable_to(expected_ft) {
+                            if !self.types_compatible(&actual_vt, expected_ft) {
                                 return Err(format!(
                                     "TypeError: Type mismatch for field '{}.{}': expected '{}', found '{}'",
                                     name, fname, expected_ft, actual_vt
@@ -936,7 +1082,7 @@ impl TypeChecker {
                         if param_ty != &Type::Any {
                             if let Some(arg) = args.get(i) {
                                 let arg_ty = self.infer_expr(arg)?;
-                                if !arg_ty.is_assignable_to(param_ty) {
+                                if !self.types_compatible(&arg_ty, param_ty) {
                                     return Err(format!(
                                         "TypeError: Type mismatch for argument {} of function '{}': expected '{}', found '{}'",
                                         i + 1,
@@ -953,7 +1099,7 @@ impl TypeChecker {
                         if field_ty != &Type::Any {
                             if let Some(arg) = args.get(i) {
                                 let arg_ty = self.infer_expr(arg)?;
-                                if !arg_ty.is_assignable_to(field_ty) {
+                                if !self.types_compatible(&arg_ty, field_ty) {
                                     return Err(format!(
                                         "TypeError: Type mismatch for positional argument {} of struct '{}': expected '{}', found '{}'",
                                         i + 1,
@@ -980,12 +1126,25 @@ impl TypeChecker {
                 type_ann,
                 value,
             } => {
+                // Deferred declaration (`let x: T` parses with a Null value):
+                // no compatibility check, declared type kept, reads blocked
+                // until an assignment lands (Chapter 01 §1.1). This path only
+                // applies when null is NOT a valid value for the annotation;
+                // `let x: T? = null` is a genuine assignment of null.
+                if matches!(value, Expr::Null) && type_ann.is_some() {
+                    let expected = self.resolve_type_str(type_ann.as_ref().unwrap());
+                    if !Type::Null.is_assignable_to(&expected) {
+                        self.define_var(name, expected);
+                        self.mark_unassigned(name);
+                        return Ok(());
+                    }
+                }
                 self.check_expr(value)?;
                 let val_type = self.infer_expr(value)?;
 
                 if let Some(ann_str) = type_ann {
                     let expected = self.resolve_type_str(ann_str);
-                    if !val_type.is_assignable_to(&expected) {
+                    if !self.types_compatible(&val_type, &expected) {
                         return Err(format!(
                             "TypeError: Type mismatch in 'let {}': expected '{}', found '{}'",
                             name, expected, val_type
@@ -996,7 +1155,7 @@ impl TypeChecker {
                         if let Expr::Array(items) = value {
                             for (idx, it) in items.iter().enumerate() {
                                 let it_ty = self.infer_expr(it)?;
-                                if !it_ty.is_assignable_to(elem_ty) {
+                                if !self.types_compatible(&it_ty, elem_ty) {
                                     return Err(format!(
                                         "TypeError: Type mismatch in array element {} of 'let {}': expected '{}', found '{}'",
                                         idx, name, elem_ty, it_ty
@@ -1022,13 +1181,14 @@ impl TypeChecker {
                 let val_type = self.infer_expr(value)?;
 
                 if let Some(expected) = self.lookup_var(name) {
-                    if expected != Type::Any && !val_type.is_assignable_to(&expected) {
+                    if expected != Type::Any && !self.types_compatible(&val_type, &expected) {
                         return Err(format!(
                             "TypeError: Cannot assign '{}' to variable '{}' of type '{}'",
                             val_type, name, expected
                         ));
                     }
                 }
+                self.mark_assigned(name);
             }
 
             Stmt::FieldAssign {
@@ -1048,7 +1208,7 @@ impl TypeChecker {
                     if let Some(sdef) = self.structs.get(&sname).or_else(|| self.structs.get(bare))
                     {
                         if let Some(expected_ft) = sdef.fields.get(field) {
-                            if !val_type.is_assignable_to(expected_ft) {
+                            if !self.types_compatible(&val_type, expected_ft) {
                                 return Err(format!(
                                     "TypeError: Type mismatch for field '{}.{}': expected '{}', found '{}'",
                                     sname, field, expected_ft, val_type
@@ -1072,7 +1232,7 @@ impl TypeChecker {
                 let val_type = self.infer_expr(value)?;
 
                 if let Type::Array(elem_type) = arr_type {
-                    if *elem_type != Type::Any && !val_type.is_assignable_to(&elem_type) {
+                    if *elem_type != Type::Any && !self.types_compatible(&val_type, &elem_type) {
                         return Err(format!(
                             "TypeError: Cannot assign '{}' to array of type '{}'",
                             val_type, elem_type
@@ -1125,7 +1285,8 @@ impl TypeChecker {
                                     "TypeError: Void function cannot return a value".to_string()
                                 );
                             }
-                            if expected_ret != &Type::Any && !actual.is_assignable_to(expected_ret)
+                            if expected_ret != &Type::Any
+                                && !self.types_compatible(&actual, expected_ret)
                             {
                                 return Err(format!(
                                     "TypeError: Return type mismatch: expected '{}', found '{}'",
@@ -1190,6 +1351,7 @@ impl TypeChecker {
                 start,
                 end,
                 body,
+                ..
             } => {
                 self.check_expr(start)?;
                 self.check_expr(end)?;
@@ -1285,6 +1447,57 @@ impl TypeChecker {
         Ok(())
     }
 
+    /// Structural interface satisfaction: `struct_name` satisfies `iface_name`
+    /// when it defines every method the interface requires. Both sides are
+    /// compared on bare names (`::`/`__` prefixes stripped).
+    fn struct_satisfies_interface(&self, struct_name: &str, iface_name: &str) -> bool {
+        let bare_struct = struct_name
+            .rsplit("::")
+            .next()
+            .unwrap_or(struct_name)
+            .rsplit("__")
+            .next()
+            .unwrap_or(struct_name);
+        let bare_iface = iface_name
+            .rsplit("::")
+            .next()
+            .unwrap_or(iface_name)
+            .rsplit("__")
+            .next()
+            .unwrap_or(iface_name);
+        let required = match self.interfaces.get(bare_iface) {
+            Some(methods) => methods,
+            None => return false,
+        };
+        // The interface itself is not a struct value.
+        if self.interfaces.contains_key(bare_struct) && bare_struct == bare_iface {
+            return true;
+        }
+        let provided = match self.struct_methods.get(bare_struct) {
+            Some(methods) => methods,
+            None => return false,
+        };
+        required.iter().all(|m| provided.contains(m))
+    }
+
+    /// Full compatibility check: static assignability OR structural
+    /// interface satisfaction (a struct defining all of an interface's
+    /// methods is assignable to that interface).
+    fn types_compatible(&self, actual: &Type, expected: &Type) -> bool {
+        if actual.is_assignable_to(expected) {
+            return true;
+        }
+        let actual_s = match actual {
+            Type::Struct(s) => s.as_str(),
+            _ => return false,
+        };
+        let expected_s = match expected {
+            Type::Struct(s) => s.as_str(),
+            _ => return false,
+        };
+        self.struct_satisfies_interface(actual_s, expected_s)
+    }
+
     /// Primary entry point: analyzes and statically type-checks a complete program.
     pub fn check_program(&mut self, program: &Program) -> Result<(), String> {
         // Pass 1: Collect all struct definitions
@@ -1331,6 +1544,45 @@ impl TypeChecker {
                 if bare != name {
                     self.enums.insert(bare.to_string());
                 }
+            }
+        }
+
+        // Pass 2b: Collect interface contracts and struct method sets for
+        // structural satisfaction checks.
+        for stmt in &program.statements {
+            match stmt.inner_stmt() {
+                Stmt::InterfaceDef { name, methods, .. } => {
+                    let required: Vec<String> = methods.iter().map(|m| m.name.clone()).collect();
+                    self.interfaces.insert(name.clone(), required.clone());
+                    let bare = name.rsplit("::").next().unwrap_or(name);
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    if bare != name {
+                        self.interfaces.insert(bare.to_string(), required);
+                    }
+                }
+                Stmt::Function { name, .. } => {
+                    // UFCS methods are stored mangled as `Struct__method`.
+                    // Only attach when the head is a declared struct, so
+                    // generic specializations (`swap__int`) are not mistaken
+                    // for methods.
+                    if let Some((sname, mname)) = name.split_once("__") {
+                        if !sname.is_empty()
+                            && !mname.is_empty()
+                            && !mname.contains("__")
+                            && (self.structs.contains_key(sname)
+                                || self
+                                    .structs
+                                    .keys()
+                                    .any(|k| k.rsplit("::").next().unwrap_or(k) == sname))
+                        {
+                            self.struct_methods
+                                .entry(sname.to_string())
+                                .or_default()
+                                .insert(mname.to_string());
+                        }
+                    }
+                }
+                _ => {}
             }
         }
 

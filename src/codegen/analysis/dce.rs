@@ -447,6 +447,9 @@ fn collect_references_in_expr(expr: &Expr, refs: &mut HashSet<String>) {
         Expr::Unary { expr, .. } => {
             collect_references_in_expr(expr, refs);
         }
+        Expr::ForceUnwrap(inner) => {
+            collect_references_in_expr(inner, refs);
+        }
         Expr::Array(elements) => {
             for elem in elements {
                 collect_references_in_expr(elem, refs);

@@ -70,3 +70,51 @@ let confirmed_token: string? = "secret_auth_token_9981"
 # Force unwrap (asserts non-null at runtime)
 let non_null_token: string = confirmed_token!
 say f"Active session token: {non_null_token}"
+
+# ------------------------------------------------------------------------------
+# 6. Coalescing Short-Circuit & Null-Assignment Rejection (Chapter 19 §1.3)
+# ------------------------------------------------------------------------------
+# The right side of `??` runs only when the left is null.
+let short_side = 0
+function bump_side() -> string
+    short_side = 99
+    return "b"
+end
+
+let present: string? = "hi"
+let kept = present ?? bump_side()
+assert_eq(kept, "hi")
+assert_eq(short_side, 0)              # bump_side never ran
+
+say f"Coalesce keeps: {kept}, side effect: {short_side}"
+
+# ------------------------------------------------------------------------------
+# 7. Null-Unwrap Trap (Chapter 19 §1.6)
+# ------------------------------------------------------------------------------
+# Unwrapping null traps with "force unwrap of null" and is catchable like
+# other runtime errors. Scalar zero is a valid value, not null: no trap.
+let doomed: string? = null
+try
+    say doomed!
+    say "UNREACHABLE"
+catch err
+    say f"Caught unwrap trap: {err}"
+end
+
+let zero_int = 0
+assert_eq(zero_int!, 0)
+say "Zero-int unwrap passes without trapping"
+
+# ------------------------------------------------------------------------------
+# 8. Native Test Blocks for Chapter 19
+# ------------------------------------------------------------------------------
+test "coalescing picks first non-null"
+    let a: int? = null
+    let b: int? = null
+    assert_eq(a ?? b ?? 5, 5)
+end
+
+@test
+function test_guard_unwraps()
+    parse_and_greet("Ada")
+end

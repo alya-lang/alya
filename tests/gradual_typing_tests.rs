@@ -105,9 +105,21 @@ fn test_type_mismatch_variable_declaration() {
     assert!(res3.unwrap_err().contains("Type mismatch in 'let x'"));
 
     let code4 = r#"let x: int = null"#;
+    // Explicit `= null` with an annotation is a deferred declaration, not an
+    // immediate mismatch (Chapter 01 §1.1): declaration passes, but any read
+    // before a real assignment is rejected (see code4b below).
     let res4 = parse_and_check(code4);
-    assert!(res4.is_err());
-    assert!(res4.unwrap_err().contains("Type mismatch in 'let x'"));
+    assert!(
+        res4.is_ok(),
+        "Deferred declaration should pass, got: {:?}",
+        res4
+    );
+
+    let code4b = r#"let x: int = null
+say x"#;
+    let res4b = parse_and_check(code4b);
+    assert!(res4b.is_err());
+    assert!(res4b.unwrap_err().contains("used before assignment"));
 }
 
 #[test]

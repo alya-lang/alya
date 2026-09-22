@@ -57,6 +57,7 @@ fn expr_is_definitely_map(
             }
             false
         }
+        Expr::ForceUnwrap(inner) => expr_is_definitely_map(inner, fn_scope, known_maps),
         _ => false,
     }
 }
@@ -232,6 +233,7 @@ fn expr_is_definitely_non_map(expr: &Expr) -> bool {
             )
         }
         Expr::Binary { .. } | Expr::Unary { .. } => true,
+        Expr::ForceUnwrap(inner) => expr_is_definitely_non_map(inner),
         _ => false,
     }
 }

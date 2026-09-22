@@ -1,0 +1,5 @@
+# EXPECT-FAIL: check: used before assignment
+# Chapter 01 §1.1 Definite Assignment: reading a declared-but-never-assigned
+# variable is rejected.
+let u: int
+say u

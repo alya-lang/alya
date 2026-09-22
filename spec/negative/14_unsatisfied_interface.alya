@@ -1,0 +1,12 @@
+# EXPECT-FAIL: check: Type mismatch for argument 1
+# Chapter 14 §1.1: only structs defining ALL interface methods satisfy it.
+interface Named14
+    function label(self) -> string
+end
+struct Fish14
+    fins: int
+end
+function takes_named(n: Named14) -> string
+    return n.label()
+end
+say takes_named(Fish14 { fins: 2 })

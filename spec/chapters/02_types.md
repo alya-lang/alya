@@ -7,7 +7,8 @@
 #### 1. Boolean (`bool`)
 - **Type**: `bool`
 - **Literals**: `true` and `false`.
-- **Strict Type Safety**: Integers `0` and `1` are **not** implicitly converted to `bool`. Expressions in conditional statements (`if`, `while`, `when`) must evaluate strictly to boolean values.
+- **Strict Type Safety**: Integers `0` and `1` are **not** implicitly converted to `bool` in typed positions (a function expecting `bool` rejects an `int` argument at compile time).
+- **Conditional Truthiness**: In conditional positions (`if`, `while`, `when` guards), the truthiness matrix of Chapter 04 §1.2 applies instead: only `false` and `null` are falsy; `0` is falsy; all other values (including `1`, `-1`, non-empty and empty strings, instantiated objects) are truthy. For strict and robust codebases, explicit comparisons (e.g., `count == 0` or `user is not null`) remain idiomatic and recommended.
 
 #### 2. Default Integer (`int`)
 - **Canonical 64-bit Integer**: `int` is the default integer type throughout Alya.
@@ -56,8 +57,8 @@ For low-level systems programming, memory-constrained buffers, and C interop, ex
 ---
 
 ### 1.4 Explicit Conversions
-- Conversions are strictly explicit: `int(expr)`, `float(expr)`, `str(expr)`, `bool(expr)`.
-- Implicit type coercions are prohibited to prevent silent bugs (e.g. `"count: " + 25` is a compile error; `f"count: {25}"` or `"count: " + str(25)` must be used).
+- Conversions are explicit by convention: `int(expr)`, `float(expr)`, `str(expr)`, `bool(expr)`, or string interpolation `f"count: {25}"`.
+- The `+` operator stringifies its right operand when the left operand is a string (`"count: " + 25` evaluates to `"count: 25"`). Relying on this implicit stringification is discouraged; prefer interpolation (`f"count: {25}"`) or explicit `str(25)` for readability.
 
 ---
 

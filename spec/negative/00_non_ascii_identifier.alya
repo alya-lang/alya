@@ -1,0 +1,3 @@
+# EXPECT-FAIL: lex: Unexpected character
+# Chapter 00 §1.3 + decision 2026-09-22: identifiers are ASCII-only.
+let değişken = 1

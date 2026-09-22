@@ -81,3 +81,66 @@ let response_verdict = when current_status
 end
 
 say f"Response verdict: {response_verdict}"
+
+# ------------------------------------------------------------------------------
+# 5. Auto-Increment After Explicit Discriminants (Chapter 09 §1.3)
+# ------------------------------------------------------------------------------
+enum BuildStep
+    Fetch = 10
+    Compile     # 11
+    Link        # 12
+end
+
+assert_eq(BuildStep.Fetch as int, 10)
+assert_eq(BuildStep.Compile as int, 11)
+assert_eq(BuildStep.Link as int, 12)
+
+say f"Auto-increment: {BuildStep.Fetch as int},{BuildStep.Compile as int},{BuildStep.Link as int}"
+
+# ------------------------------------------------------------------------------
+# 6. Exhaustive Matching Without 'else' (Chapter 09 §1.5)
+# ------------------------------------------------------------------------------
+# When every variant is covered, the fallback may be omitted.
+enum Toggle
+    Off
+    On
+end
+
+function toggle_name(t: Toggle) -> string
+    return when t
+        is Toggle.Off => "off"
+        is Toggle.On => "on"
+    end
+end
+
+assert_eq(toggle_name(Toggle.Off), "off")
+assert_eq(toggle_name(Toggle.On), "on")
+
+let typed_toggle: Toggle = Toggle.On
+assert_eq(typed_toggle as int, 1)
+
+say "Exhaustive matching without else OK"
+
+# ------------------------------------------------------------------------------
+# 7. Native Test Blocks for Chapter 09
+# ------------------------------------------------------------------------------
+test "sequential enums start at zero"
+    assert_eq(Direction.North as int, 0)
+    assert_eq(Direction.West as int, 3)
+end
+
+test "string enums cast back to strings"
+    assert_eq(Environment.Development as string, "dev")
+    assert_eq(Environment.Staging as string, "staging")
+end
+
+@test
+function test_enum_methods()
+    let ok_status = HttpStatus.Ok
+    let nf_status = HttpStatus.NotFound
+    assert_eq(ok_status.is_success(), true)
+    assert_eq(nf_status.is_success(), false)
+    # NOTE: calling a method directly on an enum variant literal
+    # (`HttpStatus.Ok.is_success()`) is a known codegen gap (unresolvable
+    # symbol); bind to a variable first.
+end

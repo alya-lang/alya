@@ -126,3 +126,84 @@ if true
 end
 
 say f"Back to global: {scope_demo}"           # "Global Level" (Outer unchanged)
+
+# ------------------------------------------------------------------------------
+# 9. Shift Assignments & String Accumulation (Chapter 01 §1.1)
+# ------------------------------------------------------------------------------
+let shifter = 1
+shifter <<= 3                         # 8
+shifter >>= 1                         # 4
+
+let greeting = "hello"
+greeting += " world"                  # String concatenation assignment
+
+let typed_acc: int = 5
+typed_acc += 3                        # 8
+
+assert_eq(shifter, 4)
+assert_eq(greeting, "hello world")
+assert_eq(typed_acc, 8)
+
+say f"Shifted: {shifter}, Greeting: {greeting}, Typed acc: {typed_acc}"
+
+# ------------------------------------------------------------------------------
+# 10. Single-Value Multi-Declaration & Const Expressions (Chapter 01 §1.2-1.3)
+# ------------------------------------------------------------------------------
+let b0, b1, b2 = 0                   # One value broadcast to three variables
+assert_eq(b0, 0)
+assert_eq(b1, 0)
+assert_eq(b2, 0)
+
+const SUM_CONST = 1 + 2               # Const initializer may be an expression
+const DOUBLE_TIMEOUT = DEFAULT_TIMEOUT_MS * 2
+assert_eq(SUM_CONST, 3)
+assert_eq(DOUBLE_TIMEOUT, 10000)
+
+say f"Broadcast: {b0},{b1},{b2}, Const expr: {SUM_CONST},{DOUBLE_TIMEOUT}"
+
+# ------------------------------------------------------------------------------
+# 11. Native Test Blocks for Chapter 01
+# ------------------------------------------------------------------------------
+test "compound assignments mutate correctly"
+    let v = 100
+    v += 50
+    v -= 20
+    v *= 2
+    v /= 4
+    v %= 10
+    assert_eq(v, 5)
+end
+
+test "atomic swap exchanges values"
+    let a = "x"
+    let b = "y"
+    a, b = b, a
+    assert_eq(a, "y")
+    assert_eq(b, "x")
+end
+
+test "destructuring with wildcards skips elements"
+    let t = (1, 2, 3)
+    let (first, _, last) = t
+    assert_eq(first, 1)
+    assert_eq(last, 3)
+end
+
+@test
+function test_variable_shadowing()
+    let level = "outer"
+    if true
+        let level = "inner"
+        assert_eq(level, "inner")
+    end
+    assert_eq(level, "outer")
+end
+
+@test
+function test_shift_assignments()
+    let v = 1
+    v <<= 3
+    assert_eq(v, 8)
+    v >>= 2
+    assert_eq(v, 2)
+end

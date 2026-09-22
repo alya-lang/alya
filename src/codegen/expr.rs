@@ -14,6 +14,33 @@ impl CodeGen {
             Expr::Null => {
                 arch::emit_load_num(&mut self.output, self.arch, 0);
             }
+            // Force unwrap is a check-time operation: the value is already
+            // non-null (or traps downstream exactly as before, when `!` was
+            // erased). Runtime emission is identical to the inner expression.
+            Expr::ForceUnwrap(inner) => {
+                self.generate_expression(inner);
+                // Null trap for heap-typed values (Chapter 19 §1.6), routed
+                // through fn_throw so it is catchable like other runtime
+                // errors. Scalars (0/false are valid values, not null) and
+                // unknown-typed values skip the check (no regression vs the
+                // previous silent behavior).
+                let heapish = is_null_expr(inner, &self.ctx.variables)
+                    || is_string_expr(inner, &self.ctx.variables)
+                    || is_array_expr(inner, &self.ctx.variables)
+                    || is_map_expr(inner, &self.ctx.variables)
+                    || self.get_expr_struct_name(inner).is_some()
+                    || self.get_expr_interface_name(inner).is_some();
+                if heapish {
+                    arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+                    arch::emit_cond_jump(
+                        &mut self.output,
+                        self.arch,
+                        BinaryOp::Equal,
+                        false,
+                        "alya_error_null_unwrap",
+                    );
+                }
+            }
             Expr::Number(n) => {
                 if n.fract() != 0.0 {
                     arch::emit_load_float(&mut self.output, self.arch, *n);
@@ -271,6 +298,51 @@ impl CodeGen {
                                 args: vec![(**left).clone(), (**right).clone()],
                             });
                             return;
+                        }
+                        // Derived comparisons (Chapter 20 §1.3): `!=`, `<=`,
+                        // `>` and `>=` need no explicit overloads. Each side
+                        // is evaluated exactly once.
+                        //   a != b  =>  not (a == b)   (requires ==)
+                        //   a <= b  =>  not (b < a)    (requires <)
+                        //   a > b   =>  (b < a)        (requires <)
+                        //   a >= b  =>  not (a < b)    (requires <)
+                        let derived: Option<(bool, &str, bool)> = match op {
+                            BinaryOp::NotEqual => Some((false, "==", true)),
+                            BinaryOp::LessEqual => Some((true, "<", true)),
+                            BinaryOp::Greater => Some((true, "<", false)),
+                            BinaryOp::GreaterEqual => Some((false, "<", true)),
+                            _ => None,
+                        };
+                        if let Some((swap, base_sym, negate)) = derived {
+                            let base1 = format!("{}__{}{}", sname, "operator", base_sym);
+                            let base2 = format!("{}__{}{}", bare_sname, "operator", base_sym);
+                            let base_call = if self.ctx.functions.contains(&base1) {
+                                Some(base1)
+                            } else if self.ctx.functions.contains(&base2) {
+                                Some(base2)
+                            } else {
+                                None
+                            };
+                            if let Some(base_name) = base_call {
+                                let (first, second) = if swap {
+                                    ((**right).clone(), (**left).clone())
+                                } else {
+                                    ((**left).clone(), (**right).clone())
+                                };
+                                let cmp = Expr::Call {
+                                    name: base_name,
+                                    args: vec![first, second],
+                                };
+                                if negate {
+                                    self.generate_expression(&Expr::Unary {
+                                        op: crate::ast::UnaryOp::Not,
+                                        expr: Box::new(cmp),
+                                    });
+                                } else {
+                                    self.generate_expression(&cmp);
+                                }
+                                return;
+                            }
                         }
                     }
                 }
@@ -3121,6 +3193,7 @@ impl CodeGen {
     pub(crate) fn resolve_struct_field_index(&self, object: &Expr, field: &str) -> usize {
         let base_obj = match object {
             Expr::OptionalFieldAccess { object: inner, .. } => inner.as_ref(),
+            Expr::ForceUnwrap(inner) => inner.as_ref(),
             _ => object,
         };
 
@@ -3234,6 +3307,7 @@ impl CodeGen {
     pub(crate) fn is_struct_field_weak(&self, object: &Expr, field: &str) -> bool {
         let base_obj = match object {
             Expr::OptionalFieldAccess { object: inner, .. } => inner.as_ref(),
+            Expr::ForceUnwrap(inner) => inner.as_ref(),
             _ => object,
         };
 

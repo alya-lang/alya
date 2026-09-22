@@ -108,3 +108,75 @@ say f"Element at ring[0] (actual offset 1): {ring[0]}"
 
 ring[0] = 999
 say f"Updated element at ring[0]: {ring[0]}"
+
+# ------------------------------------------------------------------------------
+# 3. Division, Modulo & Derived Comparisons (Chapter 20 §1.2, §1.3)
+# ------------------------------------------------------------------------------
+struct Fraction
+    num: float
+end
+
+function Fraction.operator/(self, other: Fraction) -> Fraction
+    return Fraction { num: self.num / other.num }
+end
+
+function Fraction.operator%(self, other: Fraction) -> Fraction
+    return Fraction { num: self.num % other.num }
+end
+
+function Fraction.operator==(self, other: Fraction) -> bool
+    return self.num == other.num
+end
+
+let f_half = Fraction { num: 7.0 } / Fraction { num: 2.0 }
+let f_rem = Fraction { num: 7.0 } % Fraction { num: 2.0 }
+assert_eq(f_half.num, 3.5)
+assert_eq(f_rem.num, 1.0)
+# `!=` is auto-derived from `==`.
+assert Fraction { num: 1.0 } != Fraction { num: 2.0 }
+# Same content, distinct instances: derived `!=` must be false (a raw address
+# comparison would wrongly report true here).
+assert (Fraction { num: 1.0 } != Fraction { num: 1.0 }) == false
+
+say f"Div: {f_half.num}, Mod: {f_rem.num}"
+
+# `<=`, `>`, `>=` derive from `<` + `==` without explicit overloads.
+struct Rank
+    level: int
+end
+
+function Rank.operator<(self, other: Rank) -> bool
+    return self.level < other.level
+end
+
+function Rank.operator==(self, other: Rank) -> bool
+    return self.level == other.level
+end
+
+let ra = Rank { level: 1 }
+let rb = Rank { level: 2 }
+assert ra <= rb
+assert (rb >= ra)
+assert (rb > ra)
+assert (ra == ra)
+
+say "Derived comparisons OK"
+
+# ------------------------------------------------------------------------------
+# 4. Native Test Blocks for Chapter 20
+# ------------------------------------------------------------------------------
+test "vector arithmetic is pure (no mutation)"
+    let a = Vector2D { x: 1.0, y: 1.0 }
+    let b = Vector2D { x: 2.0, y: 3.0 }
+    let c = a + b
+    assert_eq(a.x, 1.0)
+    assert_eq(c.x, 3.0)
+    assert_eq(c.y, 4.0)
+end
+
+@test
+function test_ring_index_write()
+    let r = FixedRingBuffer { data: [1, 2, 3], head: 0 }
+    r[1] = 20
+    assert_eq(r[1], 20)
+end

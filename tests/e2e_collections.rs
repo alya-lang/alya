@@ -13,7 +13,7 @@ arr[1] = 99
 arr[0] += 5
 say arr
 let sum = 0
-for i in 0..(len(arr) - 1)
+for i in 0..len(arr)
     sum += arr[i]
 end
 say sum
@@ -45,7 +45,7 @@ say arr
 
 // Test growth beyond initial capacity 8
 let big = []
-for i in 1..15
+for i in 1..=15
     big.push(i * 2)
 end
 say len(big)

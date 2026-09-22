@@ -1,0 +1,4 @@
+# EXPECT-FAIL: check: Cannot assign 'null' to variable 'name' of type 'string'
+# Chapter 19 §1.1: non-nullable types reject null assignment.
+let name: string = "Alice"
+name = null

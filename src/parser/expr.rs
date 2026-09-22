@@ -731,7 +731,9 @@ impl Parser {
                     break;
                 }
                 self.advance();
-                // Postfix ! force unwrap - expr remains intact
+                // Postfix ! force unwrap: preserved as ForceUnwrap so the
+                // type checker can strip nullability (Chapter 19 §5).
+                expr = Expr::ForceUnwrap(Box::new(expr));
             } else {
                 break;
             }

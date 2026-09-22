@@ -127,3 +127,103 @@ let prec_logic = 5 < 10 and 20 > 10   # (5 < 10) and (20 > 10) = true
 let prec_coalesce = null ?? (true and false) # false
 
 say f"Precedence checks: math={prec_math}, shift={prec_shift}, logic={prec_logic}"
+
+# ------------------------------------------------------------------------------
+# 9. Symbolic Logical Forms & Optional Call/Index (Chapter 03 §1.3, §1.5)
+# ------------------------------------------------------------------------------
+let sym_and = true && false
+let sym_or = true || false
+let sym_not = !true
+
+assert_eq(sym_and, false)
+assert_eq(sym_or, true)
+assert_eq(sym_not, false)
+
+struct OptBox
+    val: int
+end
+
+function OptBox.fetch(self) -> int
+    return self.val
+end
+
+let maybe_box: OptBox? = OptBox { val: 9 }
+assert_eq(maybe_box.fetch(), 9)          # Direct method call on nullable
+assert_eq(maybe_box?.val, 9)             # Optional chaining on field
+# NOTE: `maybe_box?.fetch()` (optional chaining on a METHOD call) is a known
+# codegen gap (emits unresolvable `fn_fetch`); use direct call + `?.field`
+# until the OptionalCall path gains UFCS method resolution.
+
+let maybe_arr: int[]? = [1, 2, 3]
+assert_eq(maybe_arr?[0], 1)          # Optional chaining on index
+
+let nil_box: OptBox? = null
+assert_eq(nil_box?.val ?? -1, -1)
+
+say f"Symbolic: and={sym_and}, or={sym_or}, not={sym_not}"
+
+# ------------------------------------------------------------------------------
+# 10. Nested Ternary & Extended Membership (Chapter 03 §1.5)
+# ------------------------------------------------------------------------------
+# Ternary is right-associative: a ? b : c ? d : e == a ? b : (c ? d : e)
+assert_eq(true ? 1 : false ? 2 : 3, 1)
+assert_eq(false ? 1 : true ? 2 : 3, 2)
+
+let role_map = { "admin": 1, "editor": 2 }
+assert "ghost" not in role_map
+assert "q" not in "xyz"
+assert "ell" in "hello"
+
+say "Ternary nesting and extended membership OK"
+
+# ------------------------------------------------------------------------------
+# 11. Divide-by-Zero Contract (Chapter 03 §1.1)
+# ------------------------------------------------------------------------------
+# Integer division/modulo by zero raises a catchable runtime error.
+try
+    let div_trap = 1 / 0
+    say f"UNREACHABLE: {div_trap}"
+catch err
+    say "Divide-by-zero trapped and caught"
+end
+
+try
+    let mod_trap = 10 % 0
+    say f"UNREACHABLE: {mod_trap}"
+catch err
+    say "Modulo-by-zero trapped and caught"
+end
+
+# ------------------------------------------------------------------------------
+# 12. Native Test Blocks for Chapter 03
+# ------------------------------------------------------------------------------
+let sc_ran = false
+# NOTE: nested `function` inside a `test`/`function` block is not supported
+# (emits a call with no definition); helpers live at top level.
+function sc_mark() -> bool
+    sc_ran = true
+    return true
+end
+
+test "short-circuit skips right side"
+    let r1 = false and sc_mark()
+    assert_eq(r1, false)
+    assert_eq(sc_ran, false)
+    let r2 = true or sc_mark()
+    assert_eq(r2, true)
+    assert_eq(sc_ran, false)
+end
+
+test "bitwise identities hold"
+    assert_eq((0b1100 ^ 0b1010), 6)
+    assert_eq((~0 ^ ~0), 0)
+    assert_eq((3 << 2), 12)
+    assert_eq((12 >> 2), 3)
+end
+
+@test
+function test_coalesce_chains()
+    let n1: int? = null
+    let n2: int? = null
+    assert_eq(n1 ?? n2 ?? 42, 42)
+end

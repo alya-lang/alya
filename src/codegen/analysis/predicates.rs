@@ -297,6 +297,7 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                 t == "string" || t == "str" || is_string_expr(inner, vars)
             }
         }
+        Expr::ForceUnwrap(inner) => is_string_expr(inner, vars),
         _ => false,
     }
 }
@@ -425,6 +426,7 @@ pub fn is_array_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             },
             vars,
         ),
+        Expr::ForceUnwrap(inner) => is_array_expr(inner, vars),
         _ => false,
     }
 }
@@ -521,6 +523,7 @@ pub fn is_map_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             },
             vars,
         ),
+        Expr::ForceUnwrap(inner) => is_map_expr(inner, vars),
         _ => false,
     }
 }
@@ -566,6 +569,7 @@ pub fn is_string_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             ) || vars.contains_key(&format!("fn_ret_str_arr:{}", name))
                 || vars.contains_key(&format!("fn_ret_str_arr:{}", bare))
         }
+        Expr::ForceUnwrap(inner) => is_string_array(inner, vars),
         _ => false,
     }
 }
@@ -589,6 +593,7 @@ pub fn is_float_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             let global_field_key = format!("struct_field_arr_flt:{}", field);
             vars.contains_key(&global_field_key)
         }
+        Expr::ForceUnwrap(inner) => is_float_array(inner, vars),
         _ => false,
     }
 }
@@ -759,6 +764,7 @@ pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                 is_float_expr(inner, vars)
             }
         }
+        Expr::ForceUnwrap(inner) => is_float_expr(inner, vars),
         _ => false,
     }
 }
@@ -775,6 +781,8 @@ pub fn is_null_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         Expr::NullCoalesce { value, default } => {
             is_null_expr(value, vars) && is_null_expr(default, vars)
         }
+        // Force unwrap asserts non-null (traps on null at runtime).
+        Expr::ForceUnwrap(_) => false,
         _ => false,
     }
 }
@@ -824,6 +832,7 @@ pub fn is_number_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                 "len" | "arr_len" | "ord" | "time" | "clock_ms" | "rand" | "rand_int" | "int"
             )
         }
+        Expr::ForceUnwrap(inner) => is_number_expr(inner, vars),
         _ => false,
     }
 }

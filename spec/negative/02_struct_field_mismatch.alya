@@ -1,0 +1,7 @@
+# EXPECT-FAIL: check: Type mismatch for field 'Pt.y'
+# Chapter 02 §1.5: struct fields are statically validated at instantiation.
+struct Pt
+    x: int
+    y: int
+end
+let p = Pt { x: 1, y: "bad" }

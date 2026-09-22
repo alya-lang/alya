@@ -79,3 +79,37 @@ if scratch != null
     say "Scratchpad memory allocated successfully."
     free(scratch)
 end
+
+# ------------------------------------------------------------------------------
+# 6. @repr(C) Struct Instantiation & Field Access
+# ------------------------------------------------------------------------------
+# C-layout structs are ordinary values in Alya code: construct, read, mutate.
+let ipc = NativeBufferDesc {
+    buffer_ptr: null,
+    byte_length: 128,
+    flags: 3
+}
+
+assert_eq(ipc.byte_length, 128)
+assert_eq(ipc.flags, 3)
+assert ipc.buffer_ptr is null
+
+ipc.flags = 7
+assert_eq(ipc.flags, 7)
+
+say f"C-struct: bytes={ipc.byte_length}, flags={ipc.flags}"
+
+# ------------------------------------------------------------------------------
+# 7. Native Test Blocks for Chapter 12
+# ------------------------------------------------------------------------------
+test "libc abs handles extremes"
+    assert_eq(abs(-1), 1)
+    assert_eq(abs(0), 0)
+end
+
+@test
+function test_trig_wrapper()
+    let co, si = safe_trig_calc(0.0)
+    assert co > 0.99
+    assert si < 0.01 and si > -0.01
+end

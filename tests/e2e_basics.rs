@@ -57,7 +57,7 @@ while j < 13
 end
 "#;
     if let Some(output) = run_alya_code(code) {
-        assert_eq!(output, "1\n2\n3\n4\n10\n11\n12\n");
+        assert_eq!(output, "1\n2\n3\n10\n11\n12\n");
     }
 }
 

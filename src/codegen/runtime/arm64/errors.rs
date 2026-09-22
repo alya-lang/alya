@@ -68,6 +68,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     emit_adrp_add(out, "x0", "alya_str_bounds", os);
     out.push_str("    b fn_throw\n\n");
 
+    // alya_error_null_unwrap (force unwrap of null, Chapter 19 §1.6)
+    out.push_str("alya_error_null_unwrap:\n");
+    emit_adrp_add(out, "x0", "alya_str_null_unwrap", os);
+    out.push_str("    b fn_throw\n\n");
+
     // fn_sleep
     out.push_str(".align 2\n");
     out.push_str(".global fn_sleep\n");

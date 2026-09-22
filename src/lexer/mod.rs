@@ -583,7 +583,7 @@ impl Lexer {
                         column,
                     });
                 }
-                _ if ch.is_alphabetic() || ch == '_' => {
+                _ if ch.is_ascii_alphabetic() || ch == '_' => {
                     let ident = self.read_identifier();
                     let token_type = TokenType::from_identifier(&ident);
                     tokens.push(Token {

@@ -105,6 +105,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     }
     out.push_str("    jmp fn_throw\n\n");
 
+    // alya_error_null_unwrap (force unwrap of null, Chapter 19 §1.6)
+    out.push_str("alya_error_null_unwrap:\n");
+    if is_win {
+        out.push_str("    lea alya_str_null_unwrap(%rip), %rcx\n");
+    } else {
+        out.push_str("    lea alya_str_null_unwrap(%rip), %rdi\n");
+    }
+    out.push_str("    jmp fn_throw\n\n");
+
     // fn_sleep
     out.push_str(".global fn_sleep\n");
     out.push_str("fn_sleep:\n");

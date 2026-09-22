@@ -85,3 +85,38 @@ end
 
 let b = Book { title: "The Pragmatic Programmer", author: "Hunt & Thomas" }
 log_printable(b)
+
+# ------------------------------------------------------------------------------
+# 5. Generics Robustness Boundary (READ BEFORE EXTENDING THIS FILE)
+# ------------------------------------------------------------------------------
+# Verified by probe 2026-09-22: adding ANY further generic function or generic
+# struct literal to this file hard-crashes at runtime (silent exit 1, no
+# message) at the first new construct, while each construct passes standalone
+# and in pairs. Suspected cumulative codegen-state corruption (vtable /
+# specialization / CallIndex interaction), NOT shape-specific. Do not extend
+# sections 1-4 with new generics until a dedicated debug session with assembly
+# inspection fixes the root cause. Known-good in isolation (all verified via
+# `alya run` on minimal files, all currently red in full-file context):
+# - `first_of[T](items: T[])` with int AND string instantiations;
+# - concrete single-param literals (`Box[int]`, `Box[string]`);
+# - multi-bound identity (`pass_through[T: A + B]`, parse fix verified).
+# Compiler fixes already landed for this chapter (all covered by probes and by
+# this file now passing real `alya check`/`run`, which previously REJECTED it):
+# type_checker generic erasure, T[] element inference, multi-bound `+` parsing,
+# structural interface satisfaction.
+
+# ------------------------------------------------------------------------------
+# 8. Native Test Blocks for Chapter 15
+# ------------------------------------------------------------------------------
+test "swap is symmetric across types"
+    let a1, b1 = swap(1, 2)
+    assert_eq(a1, 2)
+    assert_eq(b1, 1)
+end
+
+@test
+function test_stack_push_pop()
+    let st = Stack[int].new()
+    st.push(99)
+    assert_eq(st.pop(), 99)
+end

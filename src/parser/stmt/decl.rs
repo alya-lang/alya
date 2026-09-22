@@ -438,9 +438,19 @@ impl Parser {
                     self.advance();
                     if matches!(self.current_token().token_type, TokenType::Colon) {
                         self.advance();
-                        if let TokenType::Identifier(bound) = &self.current_token().token_type {
-                            type_bounds.insert(tp.clone(), bound.clone());
+                        // Bounds are `+`-separated per Chapter 15 §1.5.
+                        let mut bounds = Vec::new();
+                        while let TokenType::Identifier(bound) = &self.current_token().token_type {
+                            bounds.push(bound.clone());
                             self.advance();
+                            if matches!(self.current_token().token_type, TokenType::Plus) {
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                        if !bounds.is_empty() {
+                            type_bounds.insert(tp.clone(), bounds);
                         }
                     } else {
                         base_type_params.push(tp);
@@ -572,9 +582,28 @@ impl Parser {
                     self.advance();
                     if matches!(self.current_token().token_type, TokenType::Colon) {
                         self.advance();
-                        if let TokenType::Identifier(bound) = &self.current_token().token_type {
-                            type_bounds.insert(tp.clone(), bound.clone());
+                        // Bounds are `+`-separated per Chapter 15 §1.5:
+                        // `[T: Reader + Closer]`. A single bound keeps the
+                        // legacy substitution behavior; multiple bounds keep
+                        // the parameter for static call-site specialization.
+                        let mut bounds = Vec::new();
+                        while let TokenType::Identifier(bound) = &self.current_token().token_type {
+                            bounds.push(bound.clone());
                             self.advance();
+                            if matches!(self.current_token().token_type, TokenType::Plus) {
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                        if !bounds.is_empty() {
+                            type_bounds.insert(tp.clone(), bounds);
+                        }
+                        // A multi-bound parameter stays generic: register it
+                        // as a type parameter so call-site monomorphization
+                        // specializes the function per concrete argument.
+                        if type_bounds.get(&tp).is_some_and(|b| b.len() > 1) {
+                            type_params.push(tp);
                         }
                     } else {
                         type_params.push(tp);
@@ -624,10 +653,13 @@ impl Parser {
             let param_type = if matches!(self.current_token().token_type, TokenType::Colon) {
                 self.advance();
                 let ty = self.parse_type_annotation()?;
-                let resolved_ty = if let Some(bound) = type_bounds.get(&ty) {
-                    bound.clone()
-                } else {
-                    ty
+                let resolved_ty = match type_bounds.get(&ty) {
+                    // Single bound: legacy substitution with the interface.
+                    Some(bounds) if bounds.len() == 1 => bounds[0].clone(),
+                    // Multiple bounds: keep the parameter; call-site
+                    // monomorphization specializes it statically per concrete
+                    // argument type (bound conformance is not yet validated).
+                    _ => ty,
                 };
                 if is_rest {
                     Some(format!("...{}", resolved_ty))
@@ -1363,6 +1395,7 @@ fn expr_references_name(expr: &Expr, name: &str) -> bool {
             expr_references_name(left, name) || expr_references_name(right, name)
         }
         Expr::Unary { expr, .. } => expr_references_name(expr, name),
+        Expr::ForceUnwrap(inner) => expr_references_name(inner, name),
         Expr::Call { args, .. } => args.iter().any(|a| expr_references_name(a, name)),
         Expr::Array(items) => items.iter().any(|item| expr_references_name(item, name)),
         Expr::Index { array, index } => {

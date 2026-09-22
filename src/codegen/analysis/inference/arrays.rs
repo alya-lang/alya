@@ -60,6 +60,7 @@ fn expr_is_definitely_array(
                 || known_arrays.contains(&format!("fn_ret_arr:{}", name))
                 || known_arrays.contains(&format!("fn_ret_arr:{}", bare))
         }
+        Expr::ForceUnwrap(inner) => expr_is_definitely_array(inner, fn_scope, known_arrays),
         _ => false,
     }
 }
@@ -115,6 +116,7 @@ fn expr_is_definitely_non_array(expr: &Expr) -> bool {
             op: UnaryOp::Not | UnaryOp::Negate | UnaryOp::BitNot,
             ..
         } => true,
+        Expr::ForceUnwrap(inner) => expr_is_definitely_non_array(inner),
         _ => false,
     }
 }
@@ -205,6 +207,7 @@ fn expr_uses_param_as_array(param: &str, expr: &Expr) -> bool {
             expr_uses_param_as_array(param, left) || expr_uses_param_as_array(param, right)
         }
         Expr::Unary { expr, .. } => expr_uses_param_as_array(param, expr),
+        Expr::ForceUnwrap(inner) => expr_uses_param_as_array(param, inner),
         Expr::Array(elements) => elements.iter().any(|e| expr_uses_param_as_array(param, e)),
         Expr::Index { array, index } => {
             if let Expr::Identifier(id) = &**array {
@@ -310,6 +313,7 @@ fn expr_forwards_param_to_array(expr: &Expr, param: &str, known_arrays: &HashSet
                 || expr_forwards_param_to_array(right, param, known_arrays)
         }
         Expr::Unary { expr, .. } => expr_forwards_param_to_array(expr, param, known_arrays),
+        Expr::ForceUnwrap(inner) => expr_forwards_param_to_array(inner, param, known_arrays),
         Expr::Array(elements) => elements
             .iter()
             .any(|e| expr_forwards_param_to_array(e, param, known_arrays)),

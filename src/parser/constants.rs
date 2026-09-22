@@ -279,6 +279,9 @@ fn resolve_expr(expr: &mut Expr, stack: &ScopeStack) {
         Expr::Unary { expr: inner, .. } => {
             resolve_expr(inner, stack);
         }
+        Expr::ForceUnwrap(inner) => {
+            resolve_expr(inner, stack);
+        }
         Expr::Call { args, .. } => {
             for arg in args {
                 resolve_expr(arg, stack);

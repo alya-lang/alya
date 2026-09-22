@@ -157,3 +157,92 @@ end
 
 let primes_under_50 = count_primes(50)
 say f"Primes under 50: {primes_under_50}"
+
+# ------------------------------------------------------------------------------
+# 9. String Iteration & Variable Bounds (Chapter 06 §1.3, §1.4)
+# ------------------------------------------------------------------------------
+# Iterating a string yields one single-char string per Unicode scalar.
+let spelled = ""
+for ch in "abc"
+    spelled += ch
+end
+assert_eq(spelled, "abc")
+
+let lo_b = 2
+let hi_b = 5
+let var_sum = 0
+for i in lo_b..hi_b
+    var_sum += i
+end
+assert_eq(var_sum, 9)                # 2+3+4: bounds may be variables
+
+# Chapter 06 §1.3 (fixed 2026-09-22): `..` is half-open [start, end) in loops,
+# matching slicing (`a[1..4]`). `..=` stays inclusive. Previously the loop ran
+# the end value too (6 trips for 0..5); that was a spec violation, now fixed
+# with an `inclusive` flag threaded from parser to codegen.
+let trip_count = 0
+for i in 0..5
+    trip_count += 1
+end
+assert_eq(trip_count, 5)
+assert_eq(sum_exclusive, 10)         # 0+1+2+3+4
+
+say f"String iter: {spelled}, var bounds sum: {var_sum}, trips: {trip_count}"
+
+# ------------------------------------------------------------------------------
+# 10. Flow Control in while/for (Chapter 06 §1.7)
+# ------------------------------------------------------------------------------
+let odd_sum = 0
+let k = 0
+while k < 10
+    k += 1
+    if k % 2 == 0
+        continue
+    end
+    odd_sum += k
+end
+assert_eq(odd_sum, 25)               # 1+3+5+7+9
+
+let found_break = -1
+for n in [5, 6, 7]
+    if n == 6
+        found_break = n
+        break
+    end
+end
+assert_eq(found_break, 6)
+
+say f"while+continue sum: {odd_sum}, for+break: {found_break}"
+
+# ------------------------------------------------------------------------------
+# 11. Native Test Blocks for Chapter 06
+# ------------------------------------------------------------------------------
+test "inclusive range product is factorial"
+    let p = 1
+    for i in 1..=5
+        p *= i
+    end
+    assert_eq(p, 120)
+end
+
+test "empty range body never runs"
+    let runs = 0
+    for i in 0..0
+        runs += 1
+    end
+    assert_eq(runs, 0)
+end
+
+@test
+function test_nested_break_exits_inner()
+    let hits = 0
+    for a in [1, 2]
+        for b in [3, 4]
+            if b == 3
+                hits += 1
+                break
+            end
+        end
+    end
+    assert_eq(hits, 2)
+end

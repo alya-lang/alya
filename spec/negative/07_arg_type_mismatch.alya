@@ -1,0 +1,6 @@
+# EXPECT-FAIL: check: Type mismatch for argument 1
+# Chapter 07 §1.1: call-site arguments must match parameter types.
+function need_int(n: int) -> int
+    return n
+end
+say need_int("nope")

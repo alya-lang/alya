@@ -86,3 +86,53 @@ function run_arena_workload()
 end
 
 run_arena_workload()
+
+# ------------------------------------------------------------------------------
+# 5. Weak Nulling After Target Deallocation (Chapter 16 §1.4)
+# ------------------------------------------------------------------------------
+# The core weak guarantee: when the strong owner is freed, the weak reference
+# observes null instead of dangling.
+struct WeakKid
+    name: string
+    parent: weak WeakKid
+end
+
+function make_orphan() -> WeakKid
+    let root = WeakKid { name: "root", parent: null }
+    let child = WeakKid { name: "child", parent: root }
+    return child
+end
+
+let orphan = make_orphan()
+assert_eq(orphan.name, "child")
+assert orphan.parent is null
+
+say f"Weak nulled after dealloc: {orphan.name} (parent null)"
+
+# ------------------------------------------------------------------------------
+# 6. Arena Reset & Reuse (Chapter 16 §1.5)
+# ------------------------------------------------------------------------------
+let arena2 = mem.Arena.new(4096)
+let first_block = arena2.alloc(64)
+arena2.reset()
+let second_block = arena2.alloc(32)
+say "Arena reset and reuse OK"
+arena2.destroy()
+
+# ------------------------------------------------------------------------------
+# 7. Native Test Blocks for Chapter 16
+# ------------------------------------------------------------------------------
+test "stack copies are independent"
+    let a = 10
+    let b = a
+    b += 5
+    assert_eq(a, 10)
+    assert_eq(b, 15)
+end
+
+@test
+function test_weak_starts_null()
+    let lone = WeakKid { name: "lone", parent: null }
+    assert lone.parent is null
+    assert_eq(lone.name, "lone")
+end

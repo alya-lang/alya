@@ -61,6 +61,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    push $alya_str_bounds\n");
     out.push_str("    call fn_throw\n\n");
 
+    // alya_error_null_unwrap (force unwrap of null, Chapter 19 §1.6)
+    out.push_str("alya_error_null_unwrap:\n");
+    out.push_str("    push $alya_str_null_unwrap\n");
+    out.push_str("    call fn_throw\n\n");
+
     // fn_sleep
     out.push_str(".global fn_sleep\n");
     out.push_str("fn_sleep:\n");

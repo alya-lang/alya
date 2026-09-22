@@ -107,3 +107,61 @@ if debug_logging then say "[DEBUG] Subsystem initialized at high resolution"
             # temp_diagnostic is accessible here
         end
         # temp_diagnostic is out of scope here
+
+# ------------------------------------------------------------------------------
+# 9. 'else if' Alias & Truthiness Matrix (Chapter 04 §1.1, §1.2)
+# ------------------------------------------------------------------------------
+# `else if` is a canonical alias for `elif`.
+let alias_grade = 75
+if alias_grade >= 90
+    say "Alias grade: A"
+else if alias_grade >= 60
+    say "Alias grade: B via else-if"
+else
+    say "Alias grade: F"
+end
+
+# Only `false` and `null` are falsy; 0 is falsy, everything else truthy.
+# (Note: this refines Chapter 02 §1.1's "strict boolean" note: conditional
+# positions accept truthy/falsy values per this matrix.)
+assert_eq(if 0 then 1 else 2, 2)
+assert_eq(if 1 then 1 else 2, 1)
+assert_eq(if -1 then 1 else 2, 1)
+assert_eq(if "" then 1 else 2, 1)        # Empty string is truthy (only false/null falsy)
+assert_eq(if "x" then 1 else 2, 1)
+
+let nil_cond: int? = null
+assert_eq(if nil_cond then 1 else 2, 2)
+assert_eq(if nil_cond != null then 1 else 2, 2)
+
+say "Alias else-if and truthiness matrix OK"
+
+# ------------------------------------------------------------------------------
+# 10. Native Test Blocks for Chapter 04
+# ------------------------------------------------------------------------------
+test "elif cascade picks first matching branch"
+    let s = 84
+    let grade = ""
+    if s >= 90
+        grade = "A"
+    elif s >= 80
+        grade = "B"
+    elif s >= 70
+        grade = "C"
+    else
+        grade = "F"
+    end
+    assert_eq(grade, "B")
+end
+
+test "null is falsy, zero is falsy, nonzero truthy"
+    assert_eq(if null then 1 else 0, 0)
+    assert_eq(if 0 then 1 else 0, 0)
+    assert_eq(if 42 then 1 else 0, 1)
+end
+
+@test
+function test_if_expressions()
+    assert_eq(if true then "y" else "n", "y")
+    assert_eq(if false then "y" else "n", "n")
+end

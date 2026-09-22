@@ -1,0 +1,29 @@
+# ==============================================================================
+# Alya Integration Fixture 02 (entry): multi-file pub facade
+# Distilled from: Lib/template/src/lib.alya + Lib/toml/src/lib.alya +
+#                 App/vpn/src/main.alya (aliased relative imports)
+# Guards: import "./x" as alias + :: namespaced calls + from-import +
+#         pub struct factory + UFCS method across files
+# ==============================================================================
+
+import "./02_facade_types.alya" as models
+from "./02_facade_types.alya" import sanitize_name
+
+let cfg = models::make_facade_config("Alice", 3, models::FacadePriority.High)
+assert_eq(cfg.name, "Alice")
+assert_eq(cfg.count, 3)
+assert_eq(cfg.priority, 2)
+assert_eq(cfg.is_valid(), 1)
+assert_eq(cfg.summary(), "Alice (count: 3)")
+
+let clean = sanitize_name("")
+assert_eq(clean, "World")
+
+let res = models::ok_facade_result("payload", "Done")
+assert_eq(res.is_ok(), 1)
+assert_eq(res.message, "Done")
+
+assert_eq(models::FacadeStatus.Active, 1)
+assert_eq(models::FacadePriority.High, 2)
+
+say f"integration 02_facade: OK ({cfg.summary()}, status={res.message})"

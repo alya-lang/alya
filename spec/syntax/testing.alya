@@ -20,6 +20,20 @@ assert_eq(discounted, 85.0, "Discount calculation identity check")
 say f"Calculated valid discount: {discounted}"
 
 # ------------------------------------------------------------------------------
+# 4. Assert Message Arguments (Chapter 22 §1.2)
+# ------------------------------------------------------------------------------
+# Both assert forms accept an optional trailing diagnostic message.
+assert 1 + 1 == 2, "addition identity broke"
+assert_eq(2 * 3, 6, "multiplication identity broke")
+
+test "message-bearing asserts"
+    assert 5 > 3, "five exceeds three"
+    assert_eq("a", "a", "string identity broke")
+end
+
+say "Assert message forms OK"
+
+# ------------------------------------------------------------------------------
 # 2. Native 'test' Blocks
 # ------------------------------------------------------------------------------
 test "basic arithmetic invariants hold"

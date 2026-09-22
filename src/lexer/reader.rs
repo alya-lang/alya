@@ -28,6 +28,14 @@ impl Lexer {
                             start_line, start_col
                         ));
                     }
+                    if let Some(c) = self.current_char() {
+                        if c.is_ascii_alphanumeric() {
+                            return Err(format!(
+                                "Invalid digit '{}' in hexadecimal literal '0x{}...' at line {}, column {}",
+                                c, s, start_line, start_col
+                            ));
+                        }
+                    }
                     let val = u64::from_str_radix(&s, 16).map_err(|_| {
                         format!(
                             "Invalid hexadecimal number '0x{}' at line {}, column {}",
@@ -55,6 +63,14 @@ impl Lexer {
                             start_line, start_col
                         ));
                     }
+                    if let Some(c) = self.current_char() {
+                        if c.is_ascii_alphanumeric() {
+                            return Err(format!(
+                                "Invalid digit '{}' in binary literal '0b{}...' at line {}, column {}",
+                                c, s, start_line, start_col
+                            ));
+                        }
+                    }
                     let val = u64::from_str_radix(&s, 2).map_err(|_| {
                         format!(
                             "Invalid binary number '0b{}' at line {}, column {}",
@@ -81,6 +97,14 @@ impl Lexer {
                             "Expected octal digits after '0o' at line {}, column {}",
                             start_line, start_col
                         ));
+                    }
+                    if let Some(c) = self.current_char() {
+                        if c.is_ascii_alphanumeric() {
+                            return Err(format!(
+                                "Invalid digit '{}' in octal literal '0o{}...' at line {}, column {}",
+                                c, s, start_line, start_col
+                            ));
+                        }
                     }
                     let val = u64::from_str_radix(&s, 8).map_err(|_| {
                         format!(
@@ -163,6 +187,10 @@ impl Lexer {
                     Some('"') => result.push('"'),
                     Some('{') => result.push('{'),
                     Some('}') => result.push('}'),
+                    Some('u') => {
+                        let decoded = self.parse_unicode_braced(start_line, start_col)?;
+                        result.push(decoded);
+                    }
                     Some(c) => result.push(c),
                     None => {
                         return Err(format!(
@@ -256,6 +284,10 @@ impl Lexer {
                     Some('"') => result.push('"'),
                     Some('{') => result.push('{'),
                     Some('}') => result.push('}'),
+                    Some('u') => {
+                        let decoded = self.parse_unicode_braced(start_line, start_col)?;
+                        result.push(decoded);
+                    }
                     Some(c) => result.push(c),
                     None => {
                         return Err(format!(
@@ -320,6 +352,10 @@ impl Lexer {
                     Some('"') => result.push('"'),
                     Some('{') => result.push('{'),
                     Some('}') => result.push('}'),
+                    Some('u') => {
+                        let decoded = self.parse_unicode_braced(start_line, start_col)?;
+                        result.push(decoded);
+                    }
                     Some(c) => {
                         result.push('\\');
                         result.push(c);
@@ -376,7 +412,9 @@ impl Lexer {
         let start_pos = self.position;
 
         while let Some(ch) = self.current_char() {
-            if ch.is_alphanumeric() || ch == '_' {
+            // Identifiers are ASCII-only per Chapter 00 §1.3 (decision
+            // 2026-09-22). `is_alphanumeric` would accept Unicode letters.
+            if ch.is_ascii_alphanumeric() || ch == '_' {
                 self.advance();
             } else {
                 break;
@@ -403,39 +441,7 @@ impl Lexer {
                     Some('\'') => '\'',
                     Some('"') => '"',
                     Some('e') => '\x1b',
-                    Some('u') => {
-                        self.advance();
-                        if self.current_char() == Some('{') {
-                            self.advance();
-                            let hex_start = self.position;
-                            while let Some(c) = self.current_char() {
-                                if c == '}' {
-                                    break;
-                                }
-                                self.advance();
-                            }
-                            let hex_str: String =
-                                self.input[hex_start..self.position].iter().collect();
-                            self.advance(); // skip '}'
-                            let codepoint = u32::from_str_radix(&hex_str, 16).map_err(|_| {
-                                format!(
-                                    "Invalid unicode escape '\\u{{{}}}' at line {}, column {}",
-                                    hex_str, start_line, start_col
-                                )
-                            })?;
-                            char::from_u32(codepoint).ok_or_else(|| {
-                                format!(
-                                    "Invalid unicode codepoint {:X} at line {}, column {}",
-                                    codepoint, start_line, start_col
-                                )
-                            })?
-                        } else {
-                            return Err(format!(
-                                "Expected '{{' after '\\u' at line {}, column {}",
-                                start_line, start_col
-                            ));
-                        }
-                    }
+                    Some('u') => self.parse_unicode_braced(start_line, start_col)?,
                     Some(c) => c,
                     None => {
                         return Err(format!(
@@ -499,5 +505,59 @@ impl Lexer {
             "Unterminated raw string starting at line {}, column {}",
             start_line, start_col
         ))
+    }
+
+    /// Parses a braced unicode escape `\u{HEX}` inside string literals.
+    ///
+    /// Contract: on entry the current char is `u` (backslash already consumed
+    /// by the caller). On success returns the decoded char with the cursor
+    /// left ON the closing `}` so the caller's trailing `advance()` moves
+    /// past it. On failure returns a lexical error (invalid hex, missing
+    /// brace, unterminated sequence).
+    pub(crate) fn parse_unicode_braced(
+        &mut self,
+        start_line: usize,
+        start_col: usize,
+    ) -> Result<char, String> {
+        self.advance(); // Skip 'u'
+        if self.current_char() != Some('{') {
+            return Err(format!(
+                "Expected '{{' after '\\u' at line {}, column {}",
+                start_line, start_col
+            ));
+        }
+        self.advance(); // Skip '{'
+        let hex_start = self.position;
+        while let Some(c) = self.current_char() {
+            if c == '}' {
+                break;
+            }
+            if c == '"' || c == '\n' {
+                return Err(format!(
+                    "Unterminated unicode escape '\\u{{...}}' at line {}, column {}",
+                    start_line, start_col
+                ));
+            }
+            self.advance();
+        }
+        let hex_str: String = self.input[hex_start..self.position].iter().collect();
+        if self.current_char() != Some('}') {
+            return Err(format!(
+                "Unterminated unicode escape '\\u{{...}}' at line {}, column {}",
+                start_line, start_col
+            ));
+        }
+        let codepoint = u32::from_str_radix(&hex_str, 16).map_err(|_| {
+            format!(
+                "Invalid unicode escape '\\u{{{}}}' at line {}, column {}",
+                hex_str, start_line, start_col
+            )
+        })?;
+        char::from_u32(codepoint).ok_or_else(|| {
+            format!(
+                "Invalid unicode codepoint {:X} at line {}, column {}",
+                codepoint, start_line, start_col
+            )
+        })
     }
 }

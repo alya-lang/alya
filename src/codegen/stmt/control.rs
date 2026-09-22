@@ -518,7 +518,14 @@ impl CodeGen {
         self.ctx.pop_loop();
     }
 
-    pub(super) fn generate_for(&mut self, var: &str, start: &Expr, end: &Expr, body: &[Stmt]) {
+    pub(super) fn generate_for(
+        &mut self,
+        var: &str,
+        start: &Expr,
+        end: &Expr,
+        inclusive: bool,
+        body: &[Stmt],
+    ) {
         let var = var.to_string();
         self.generate_expression(start);
 
@@ -559,7 +566,17 @@ impl CodeGen {
         arch::emit_push_temp(&mut self.output, self.arch);
 
         self.generate_expression(end);
-        arch::emit_compare_and_jump_if_greater(&mut self.output, self.arch, &end_label);
+        // Half-open `..` exits when var reaches end (`>=`); inclusive `..=`
+        // exits past it (`>`). Chapter 06 §1.3.
+        if inclusive {
+            arch::emit_compare_and_jump_if_greater(&mut self.output, self.arch, &end_label);
+        } else {
+            arch::emit_compare_and_jump_if_greater_or_equal(
+                &mut self.output,
+                self.arch,
+                &end_label,
+            );
+        }
 
         for s in body {
             self.generate_statement(s);

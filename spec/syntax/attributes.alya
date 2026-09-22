@@ -110,3 +110,59 @@ function fast_clamp(val: int, min_val: int, max_val: int) -> int
         say f"Comptime computed packet limit: {MAX_PACKET_SIZE} bytes"
         say f"Comptime seconds in a day: {SECONDS_PER_DAY}s"
         say f"Comptime banner: {compile_banner}"
+
+        # ------------------------------------------------------------------------------
+        # 8. Noinline, Arch-Conditional & Bench Attributes (Chapter 18 §1.2-1.4)
+        # ------------------------------------------------------------------------------
+        @noinline
+        function slow_add18(a: int, b: int) -> int
+            return a + b
+        end
+
+        assert_eq(slow_add18(2, 3), 5)
+
+        @cfg(arch = "x64")
+        function arch_tag18() -> string
+            return "x64-path"
+        end
+
+        @cfg(arch = "arm64")
+        function arch_tag18() -> string
+            return "arm64-path"
+        end
+
+        @cfg(arch = "x86")
+        function arch_tag18() -> string
+            return "x86-path"
+        end
+
+        say f"Arch tag: {arch_tag18()}"
+        say f"Noinline add: {slow_add18(20, 22)}"
+
+        @bench
+        function bench_addition18()
+            let s = 0
+            for i in 0..100
+                s += i
+            end
+        end
+
+        say f"Sizeof int: {sizeof(int)}, Alignof int: {alignof(int)}"
+
+        # NOTE (unimplemented): `@deprecated` is parsed but has no effect —
+        # neither the warning form nor `error = true` (Chapter 18 §1.2 mandates
+        # a fatal error for the latter). Attributes are dropped before codegen
+        # (no attribute field on AST function nodes), so even call-site
+        # warnings need AST plumbing first.
+
+        # ------------------------------------------------------------------------------
+        # 9. Native Test Blocks for Chapter 18
+        # ------------------------------------------------------------------------------
+        test "comptime folds arithmetic"
+            assert_eq(comptime { 6 * 7 }, 42)
+        end
+
+        @test
+        function test_sizeof_positive()
+            assert sizeof(int) > 0
+        end

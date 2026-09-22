@@ -1,0 +1,9 @@
+# EXPECT-FAIL: check: Type mismatch for argument 1
+# Chapter 15 §1.5: constrained parameters only accept satisfying types.
+interface Printable15
+    function to_string(self) -> string
+end
+function log15[T: Printable15](entity: T)
+    say f"got it"
+end
+log15(42)

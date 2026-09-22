@@ -117,6 +117,7 @@ pub fn expr_contains_ask(expr: &Expr, session_funcs: &[(String, String)]) -> boo
             expr_contains_ask(left, session_funcs) || expr_contains_ask(right, session_funcs)
         }
         Expr::Unary { expr, .. } => expr_contains_ask(expr, session_funcs),
+        Expr::ForceUnwrap(inner) => expr_contains_ask(inner, session_funcs),
         Expr::Ternary {
             condition,
             then_branch,

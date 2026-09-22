@@ -253,6 +253,8 @@ pub fn emit_data_sections(
     ));
     out.push_str("alya_str_bounds:\n");
     out.push_str(&format!("    {} \"index out of bounds\"\n", str_directive));
+    out.push_str("alya_str_null_unwrap:\n");
+    out.push_str(&format!("    {} \"force unwrap of null\"\n", str_directive));
     out.push_str("alya_fmt_arr_empty:\n");
     out.push_str(&format!("    {} \"[]\\n\"\n", str_directive));
     out.push_str("alya_fmt_arr_open:\n");

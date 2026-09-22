@@ -81,6 +81,7 @@ pub enum Stmt {
         var: String,
         start: Expr,
         end: Expr,
+        inclusive: bool,
         body: Vec<Stmt>,
     },
     ForEach {

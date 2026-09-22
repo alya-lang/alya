@@ -218,3 +218,62 @@ let calc_mul = evaluate_op("*", 15, 7)
 let calc_div = evaluate_op("/", 15, 7)
 let calc_mod = evaluate_op("%", 15, 7)
 say f"Calculator evaluator: 15 + 7 = {calc_add}, 15 - 7 = {calc_sub}, 15 * 7 = {calc_mul}, 15 / 7 = {calc_div}, 15 % 7 = {calc_mod}"
+
+# ------------------------------------------------------------------------------
+# 12. Single-Line 'then' Arms (compact dispatch idiom)
+# ------------------------------------------------------------------------------
+# The dominant dispatch idiom in real packages: each arm is one line.
+function classify_size(n: int) -> string
+    when n
+        is 0 then return "zero"
+        is 1, 2 then return "small"
+        is 3..10 then return "medium"
+        else return "big"
+    end
+end
+
+assert_eq(classify_size(0), "zero")
+assert_eq(classify_size(2), "small")
+assert_eq(classify_size(5), "medium")
+assert_eq(classify_size(99), "big")
+
+# First matching arm wins: literal arms shadow later type arms.
+function first_match_wins(x) -> string
+    when x
+        is 1 then return "one"
+        is int then return "int"
+        else return "other"
+    end
+end
+
+assert_eq(first_match_wins(1), "one")
+assert_eq(first_match_wins(7), "int")
+
+say "Single-line then arms and first-match-wins OK"
+
+function when_range_name(n: int) -> string
+    when n
+        is 0..10 then return "low"
+        is 10..=20 then return "mid"
+        else return "high"
+    end
+end
+
+# ------------------------------------------------------------------------------
+# 13. Native Test Blocks for Chapter 05
+# ------------------------------------------------------------------------------
+test "range arms bound correctly"
+    assert_eq(when_range_name(5), "low")
+    assert_eq(when_range_name(10), "mid")
+    assert_eq(when_range_name(21), "high")
+end
+
+@test
+function test_when_expression_form()
+    let g = when 3
+        is 1 => "one"
+        is 2 => "two"
+        else => "many"
+    end
+    assert_eq(g, "many")
+end

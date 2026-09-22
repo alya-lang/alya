@@ -584,7 +584,7 @@ fn test_golden_spec_loops_execution() {
         println!("Output from loops.alya (code={}):\n{}", code, output);
         assert_eq!(code, 0);
         assert!(output.contains("Countdown finished!"));
-        assert!(output.contains("Sum of 0..5 (exclusive): 15"));
+        assert!(output.contains("Sum of 0..5 (exclusive): 10"));
         assert!(output.contains("Product of 1..=5 (factorial 5): 120"));
         assert!(output.contains("Technology: Alya"));
         assert!(output.contains("Step #1: Lexer"));

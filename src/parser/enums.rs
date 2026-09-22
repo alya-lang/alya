@@ -208,6 +208,9 @@ pub fn resolve_enums_in_expr(expr: &mut Expr, enums: &HashMap<String, HashMap<St
         Expr::Unary { expr: inner, .. } => {
             resolve_enums_in_expr(inner, enums);
         }
+        Expr::ForceUnwrap(inner) => {
+            resolve_enums_in_expr(inner, enums);
+        }
         Expr::Call { args, .. } => {
             for arg in args {
                 resolve_enums_in_expr(arg, enums);

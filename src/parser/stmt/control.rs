@@ -178,6 +178,9 @@ pub(crate) fn substitute_bindings(expr: &Expr, bindings: &[(String, Expr)]) -> E
             object: Box::new(substitute_bindings(object, bindings)),
             field: field.clone(),
         },
+        Expr::ForceUnwrap(inner) => {
+            Expr::ForceUnwrap(Box::new(substitute_bindings(inner, bindings)))
+        }
         Expr::Ternary {
             condition,
             then_branch,
@@ -360,21 +363,27 @@ impl Parser {
         self.expect(TokenType::In)?;
 
         let expr = self.parse_expression()?;
-        let (is_range, start, end) = if let Expr::Binary { left, op, right } = &expr {
+        let (is_range, inclusive, start, end) = if let Expr::Binary { left, op, right } = &expr {
             if *op == BinaryOp::Range || *op == BinaryOp::RangeInclusive {
-                (true, *left.clone(), *right.clone())
+                (
+                    true,
+                    *op == BinaryOp::RangeInclusive,
+                    *left.clone(),
+                    *right.clone(),
+                )
             } else {
-                (false, expr.clone(), Expr::Null)
+                (false, false, expr.clone(), Expr::Null)
             }
         } else if matches!(
             self.current_token().token_type,
             TokenType::DotDot | TokenType::DotDotEqual
         ) {
+            let inclusive = matches!(self.current_token().token_type, TokenType::DotDotEqual);
             self.advance();
             let end_expr = self.parse_expression()?;
-            (true, expr.clone(), end_expr)
+            (true, inclusive, expr.clone(), end_expr)
         } else {
-            (false, expr.clone(), Expr::Null)
+            (false, false, expr.clone(), Expr::Null)
         };
 
         if is_range {
@@ -402,6 +411,7 @@ impl Parser {
                 var,
                 start,
                 end,
+                inclusive,
                 body,
             })
         } else {

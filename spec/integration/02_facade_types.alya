@@ -1,0 +1,92 @@
+# ==============================================================================
+# Alya Integration Fixture 02 (helper): multi-file package facade types
+# Distilled from: Lib/template/src/types.alya + Lib/toml/src/types.alya
+# NOT an entry point. Imported by 02_facade_main.alya via relative import.
+# Guards: pub enum/struct/factory/method across file boundary, private isolation
+# ==============================================================================
+
+## Public status codes for the facade demo.
+pub enum FacadeStatus
+    Pending = 0,
+    Active = 1,
+    Error = 2
+end
+
+## Public priority levels for the facade demo.
+pub enum FacadePriority
+    Low = 0,
+    Normal = 1,
+    High = 2
+end
+
+## Public configuration model.
+pub struct FacadeConfig
+    name: string,
+    count: int,
+    priority: int,
+    enabled: int
+end
+
+## Public result container.
+pub struct FacadeResult
+    value,
+    status: int,
+    message: string
+end
+
+# Private helper: must NOT be importable (negative test in harness).
+function sanitize_text_internal(text, fallback: string) -> string
+    if text is null
+        return fallback
+    end
+    if text == ""
+        return fallback
+    end
+    return text
+end
+
+## Public sanitizer wrapping the private helper.
+pub function sanitize_name(name) -> string
+    return sanitize_text_internal(name, "World")
+end
+
+## Public factory for FacadeConfig.
+pub function make_facade_config(name = "World", count: int = 1, priority: int = FacadePriority.Normal) -> FacadeConfig
+    let valid_name = sanitize_name(name)
+    return FacadeConfig {
+        name: valid_name,
+        count: count,
+        priority: priority,
+        enabled: 1
+    }
+end
+
+## Public factory for successful FacadeResult.
+pub function ok_facade_result(value, message: string = "OK") -> FacadeResult
+    return FacadeResult {
+        value: value,
+        status: 0,
+        message: message
+    }
+end
+
+## Config summary method (UFCS dispatch across file boundary).
+pub function FacadeConfig.summary(self: FacadeConfig) -> string
+    return "{self.name} (count: {self.count})"
+end
+
+## Config validation method.
+pub function FacadeConfig.is_valid(self: FacadeConfig) -> int
+    if self.name == "" or self.count < 0
+        return 0
+    end
+    return 1
+end
+
+## Result status check method.
+pub function FacadeResult.is_ok(self: FacadeResult) -> int
+    if self.status == 0
+        return 1
+    end
+    return 0
+end

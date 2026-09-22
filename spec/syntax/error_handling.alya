@@ -100,9 +100,71 @@ function outer_supervisor()
         fetch_record("valid.host", -1)
     catch err
         say "Supervisor logging error before re-throw..."
-        # Re-throw err to higher call frame
-        # throw err
+        throw err
     end
 end
 
-outer_supervisor()
+try
+    outer_supervisor()
+catch err
+    say "Supervisor re-throw observed at top level"
+end
+
+# ------------------------------------------------------------------------------
+# 7. Anonymous Catch, Bare Rethrow & Try/Finally (Chapter 10 §1.2, §1.3)
+# ------------------------------------------------------------------------------
+function failer_eh() -> int
+    throw "inner boom"
+    return 1
+end
+
+# Catch without a variable: error is swallowed anonymously.
+try
+    failer_eh()
+catch
+    say "Anonymous catch swallowed the error"
+end
+
+# `finally` without `catch`: cleanup still guaranteed.
+try
+    say "Try body before finally"
+finally
+    say "Finally-without-catch executed"
+end
+
+# Bare `throw` re-raises the currently captured error.
+function bare_rethrower()
+    try
+        throw "bare test"
+    catch
+        throw
+    end
+end
+
+try
+    bare_rethrower()
+catch err
+    say f"Bare re-throw observed: {err}"
+end
+
+# ------------------------------------------------------------------------------
+# 8. Native Test Blocks for Chapter 10
+# ------------------------------------------------------------------------------
+test "caught struct preserves fields"
+    try
+        throw ValidationError { field: "email", message: "bad format" }
+    catch err
+        assert_eq(err.field, "email")
+    end
+end
+
+@test
+function test_error_roundtrip()
+    let seen = ""
+    try
+        throw "roundtrip"
+    catch err
+        seen = err
+    end
+    assert_eq(seen, "roundtrip")
+end

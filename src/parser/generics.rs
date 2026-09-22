@@ -226,6 +226,23 @@ fn monomorphize_expr(
                                     {
                                         subst.insert(ptype.clone(), concrete_ty);
                                     }
+                                } else {
+                                    // Parameterized types mentioning a type
+                                    // parameter (e.g. `T[]`, `map[string, T]`):
+                                    // infer the parameter from the argument's
+                                    // element type instead of defaulting.
+                                    for tp in t_type_params.iter() {
+                                        if subst.contains_key(tp) {
+                                            continue;
+                                        }
+                                        if type_str_mentions_param(ptype, tp) {
+                                            if let Some(concrete_ty) =
+                                                infer_param_from_arg(arg, known_vars)
+                                            {
+                                                subst.insert(tp.clone(), concrete_ty);
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -289,6 +306,9 @@ fn monomorphize_expr(
         Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
             monomorphize_expr(object, generic_funcs, known_vars, specializations);
         }
+        Expr::ForceUnwrap(inner) => {
+            monomorphize_expr(inner, generic_funcs, known_vars, specializations);
+        }
         Expr::StructInit { fields, .. } => {
             for (_, fval) in fields {
                 monomorphize_expr(fval, generic_funcs, known_vars, specializations);
@@ -308,6 +328,50 @@ fn monomorphize_expr(
             monomorphize_expr(default, generic_funcs, known_vars, specializations);
         }
         _ => {}
+    }
+}
+
+/// Word-boundary check: does the type string mention the type parameter?
+/// `T` matches in `T[]` or `map[string, T]` but not in `TT` or `Target`.
+fn type_str_mentions_param(ptype: &str, tp: &str) -> bool {
+    let mut chars = ptype.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch.is_alphanumeric() || ch == '_' {
+            let mut word = String::new();
+            word.push(ch);
+            while let Some(&next_ch) = chars.peek() {
+                if next_ch.is_alphanumeric() || next_ch == '_' {
+                    word.push(chars.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+            if word == tp {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Infers a type parameter's concrete type from a call argument by looking
+/// through one container level: array literals use their first element's
+/// type, identifiers use their known element type (`string[]` -> `string`).
+fn infer_param_from_arg(arg: &Expr, known_vars: &HashMap<String, String>) -> Option<String> {
+    match arg {
+        Expr::Array(elems) => {
+            let first = elems.first()?;
+            infer_concrete_type(first, known_vars)
+        }
+        Expr::Identifier(id) => {
+            let ty = known_vars.get(id)?;
+            if let Some(elem) = ty.strip_suffix("[]") {
+                Some(elem.to_string())
+            } else {
+                Some(ty.clone())
+            }
+        }
+        other => infer_concrete_type(other, known_vars),
     }
 }
 

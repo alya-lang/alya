@@ -184,12 +184,32 @@ end
             var,
             start,
             end,
+            inclusive,
             body,
         } => {
             assert_eq!(var, "i");
             assert_eq!(*start, Expr::Number(1.0));
             assert_eq!(*end, Expr::Number(10.0));
+            assert_eq!(*inclusive, false);
             assert_eq!(body.len(), 1);
+        }
+        other => panic!("Expected For loop, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_for_loop_inclusive() {
+    let code = r#"
+for i in 1..=10
+    say i
+end
+"#;
+    let program = parse_code(code).expect("Parse failed");
+    assert_eq!(program.statements.len(), 1);
+
+    match &program.statements[0] {
+        Stmt::For { inclusive, .. } => {
+            assert_eq!(*inclusive, true);
         }
         other => panic!("Expected For loop, got {:?}", other),
     }

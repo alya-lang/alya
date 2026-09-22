@@ -1,0 +1,4 @@
+# EXPECT-FAIL: parse: Cannot assign to constant
+# Chapter 01 §1.2: reassignment to a `const` is a compile-time error.
+const C = 1
+C = 2
