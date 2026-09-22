@@ -30,6 +30,9 @@ fn is_ignored_test_dir(name: &str) -> bool {
                 | "mocks"
                 | "node_modules"
                 | "vendor"
+                // Spec rejection fixtures: intentionally unparseable, never
+                // runnable suites (covered by negative_spec_tests instead).
+                | "negative"
         )
 }
 
@@ -41,19 +44,58 @@ fn is_test_file(name: &str) -> bool {
 }
 
 fn collect_test_files_recursive(dir: &Path, tests: &mut Vec<PathBuf>) {
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            let file_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            if is_ignored_test_dir(file_name) {
-                continue;
-            }
-            if p.is_dir() {
-                collect_test_files_recursive(&p, tests);
-            } else if is_test_file(file_name) {
-                tests.push(p);
-            }
+    collect_suite_files_recursive(dir, SuiteKind::Test, tests);
+}
+
+/// Unified suite discovery: files matching by NAME (`test_*`, `bench_*`,
+/// …) plus files containing suite entries by CONTENT (`test` blocks / `@test`
+/// for Test kind, `bench` blocks / `@bench` for Bench kind), so suites placed
+/// alongside production code (Chapter 22 §1.3) are found without renaming.
+/// Unparseable files are skipped here (name-matched ones still fail loudly
+/// at execution); ignored directories (including `negative/`) never entered.
+fn collect_suite_files_recursive(dir: &Path, kind: SuiteKind, out: &mut Vec<PathBuf>) {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let file_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        if is_ignored_test_dir(file_name) {
+            continue;
         }
+        if p.is_dir() {
+            collect_suite_files_recursive(&p, kind, out);
+            continue;
+        }
+        if p.extension().and_then(|e| e.to_str()) != Some("alya") {
+            continue;
+        }
+        let name_matched = match kind {
+            SuiteKind::Test => is_test_file(file_name),
+            SuiteKind::Bench => is_bench_file(file_name),
+        };
+        if name_matched || file_contains_suite_entries(&p, kind) {
+            out.push(p);
+        }
+    }
+}
+
+/// Parses a file and reports whether it declares suite entries for `kind`.
+/// Returns false (skip) when the file cannot even be lexed/parsed.
+fn file_contains_suite_entries(path: &Path, kind: SuiteKind) -> bool {
+    let source = match fs::read_to_string(path) {
+        Ok(source) => source,
+        Err(_) => return false,
+    };
+    let tokens = match Lexer::new(&source).tokenize() {
+        Ok(tokens) => tokens,
+        Err(_) => return false,
+    };
+    let mut parser = Parser::new(tokens);
+    match parser.parse() {
+        Ok(program) => !discover_suite_entry_points(&program, kind).is_empty(),
+        Err(_) => false,
     }
 }
 
@@ -268,7 +310,9 @@ pub fn synthesize_test_calls(program: &mut Program, entries: &[String]) {
     }
 }
 
-/// Discovers test files in the specified path.
+/// Discovers test files in the specified path: name-matched (`test_*`,
+/// `*_test`, `*.test`) plus content-matched (files declaring `test` blocks
+/// or `@test` functions anywhere under the path).
 pub fn discover_test_files(path: &Path) -> Vec<PathBuf> {
     let mut tests = Vec::new();
 
@@ -279,15 +323,7 @@ pub fn discover_test_files(path: &Path) -> Vec<PathBuf> {
         return tests;
     }
 
-    // If path is a directory, check tests/ directory or search for test_*.alya / *_test.alya
-    let tests_subdir = path.join("tests");
-    let target_dir = if tests_subdir.is_dir() {
-        &tests_subdir
-    } else {
-        path
-    };
-
-    collect_test_files_recursive(target_dir, &mut tests);
+    collect_test_files_recursive(path, &mut tests);
 
     tests.sort();
     tests
@@ -301,24 +337,12 @@ fn is_bench_file(name: &str) -> bool {
 }
 
 fn collect_bench_files_recursive(dir: &Path, benches: &mut Vec<PathBuf>) {
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            let file_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            if is_ignored_test_dir(file_name) {
-                continue;
-            }
-            if p.is_dir() {
-                collect_bench_files_recursive(&p, benches);
-            } else if is_bench_file(file_name) {
-                benches.push(p);
-            }
-        }
-    }
+    collect_suite_files_recursive(dir, SuiteKind::Bench, benches);
 }
 
-/// Discovers benchmark files: `benches/` directories take precedence,
-/// otherwise `bench_*.alya` / `*_bench.alya` / `*.bench.alya` names.
+/// Discovers benchmark files in the specified path: name-matched
+/// (`bench_*`, `*_bench`, `*.bench`) plus content-matched (files declaring
+/// `bench` blocks or `@bench` functions anywhere under the path).
 pub fn discover_bench_files(path: &Path) -> Vec<PathBuf> {
     let mut benches = Vec::new();
 
@@ -329,14 +353,7 @@ pub fn discover_bench_files(path: &Path) -> Vec<PathBuf> {
         return benches;
     }
 
-    let benches_subdir = path.join("benches");
-    let target_dir = if benches_subdir.is_dir() {
-        &benches_subdir
-    } else {
-        path
-    };
-
-    collect_bench_files_recursive(target_dir, &mut benches);
+    collect_bench_files_recursive(path, &mut benches);
 
     benches.sort();
     benches

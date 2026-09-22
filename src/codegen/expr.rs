@@ -2494,6 +2494,73 @@ impl CodeGen {
                     self.output.push_str("    or %rdx, %rcx\n");
                     self.output.push_str("    mov %rcx, %rax\n");
                     self.output.push_str(&format!("{}:\n", end_lbl));
+                } else if t == "float" || t == "f64" {
+                    // int -> float (Chapter 02 §1.4). Float and string operands
+                    // pass through (strings: use float("...") conversion).
+                    if !is_float_expr(expr, &self.ctx.variables)
+                        && !is_string_expr(expr, &self.ctx.variables)
+                    {
+                        arch::emit_int_to_float(&mut self.output, self.arch);
+                    }
+                } else if t == "int"
+                    || t == "i64"
+                    || t == "isize"
+                    || t == "rune"
+                    || t == "uint"
+                    || t == "u64"
+                    || t == "usize"
+                    || t == "ptr"
+                {
+                    // float -> int truncation; same-width integers are no-ops.
+                    if is_float_expr(expr, &self.ctx.variables) {
+                        arch::emit_float_to_int(&mut self.output, self.arch);
+                    }
+                } else if t == "u8" || t == "byte" {
+                    if is_float_expr(expr, &self.ctx.variables) {
+                        arch::emit_float_to_int(&mut self.output, self.arch);
+                    }
+                    match self.arch {
+                        Architecture::X64 => self.output.push_str("    and $0xFF, %rax\n"),
+                        Architecture::X86 => self.output.push_str("    and $0xFF, %eax\n"),
+                        Architecture::ARM64 => self.output.push_str("    and x0, x0, #0xff\n"),
+                    }
+                } else if t == "u16" {
+                    if is_float_expr(expr, &self.ctx.variables) {
+                        arch::emit_float_to_int(&mut self.output, self.arch);
+                    }
+                    match self.arch {
+                        Architecture::X64 => self.output.push_str("    and $0xFFFF, %rax\n"),
+                        Architecture::X86 => self.output.push_str("    and $0xFFFF, %eax\n"),
+                        Architecture::ARM64 => self.output.push_str("    and x0, x0, #0xffff\n"),
+                    }
+                } else if t == "i8" {
+                    if is_float_expr(expr, &self.ctx.variables) {
+                        arch::emit_float_to_int(&mut self.output, self.arch);
+                    }
+                    match self.arch {
+                        Architecture::X64 => self.output.push_str("    movsbq %al, %rax\n"),
+                        Architecture::X86 => self.output.push_str("    movsbl %al, %eax\n"),
+                        Architecture::ARM64 => self.output.push_str("    sxtb x0, w0\n"),
+                    }
+                } else if t == "i16" {
+                    if is_float_expr(expr, &self.ctx.variables) {
+                        arch::emit_float_to_int(&mut self.output, self.arch);
+                    }
+                    match self.arch {
+                        Architecture::X64 => self.output.push_str("    movswq %ax, %rax\n"),
+                        Architecture::X86 => self.output.push_str("    movswl %ax, %eax\n"),
+                        Architecture::ARM64 => self.output.push_str("    sxth x0, w0\n"),
+                    }
+                } else if t == "i32" || t == "u32" {
+                    if is_float_expr(expr, &self.ctx.variables) {
+                        arch::emit_float_to_int(&mut self.output, self.arch);
+                    }
+                    // 32-bit moves zero-extend on x64/ARM64; x86 is native 32-bit.
+                    match self.arch {
+                        Architecture::X64 => self.output.push_str("    mov %eax, %eax\n"),
+                        Architecture::X86 => {}
+                        Architecture::ARM64 => self.output.push_str("    mov w0, w0\n"),
+                    }
                 }
             }
         }
