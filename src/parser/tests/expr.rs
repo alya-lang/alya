@@ -566,3 +566,66 @@ fn test_parse_tuple_literal() {
         other => panic!("Expected Stmt::Let, got {:?}", other),
     }
 }
+
+#[test]
+fn test_interpolated_string_per_hole_fallback() {
+    // A `{...}` region that does not parse as an expression keeps its braces
+    // literally, while valid holes nested inside still interpolate.
+    let program = parse_code("say \"{\\\"level\\\":\\\"{lvl}\\\"}\"").expect("Parse failed");
+    match &program.statements[0] {
+        Stmt::Say(Expr::InterpolatedString(parts)) => {
+            assert!(
+                parts
+                    .iter()
+                    .any(|p| matches!(p, Expr::Identifier(n) if n == "lvl")),
+                "expected lvl hole in {:?}",
+                parts
+            );
+            // Leading `{` plus inner literal are separate parts.
+            assert!(
+                matches!(&parts[0], Expr::String(s) if s == "{")
+                    && matches!(&parts[1], Expr::String(s) if s == "\"level\":\""),
+                "expected literal prefix parts, got {:?}",
+                parts
+            );
+        }
+        other => panic!("Expected InterpolatedString, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_interpolated_string_brace_escapes() {
+    // `{{` / `}}` render single braces; lone braces stay plain strings.
+    let program = parse_code("say \"{{}}\"").expect("Parse failed");
+    match &program.statements[0] {
+        Stmt::Say(Expr::InterpolatedString(parts)) => {
+            assert_eq!(parts.len(), 1);
+            assert!(matches!(&parts[0], Expr::String(s) if s == "{}"));
+        }
+        other => panic!("Expected InterpolatedString, got {:?}", other),
+    }
+
+    let plain = parse_code("say \"{\"").expect("Parse failed");
+    match &plain.statements[0] {
+        Stmt::Say(Expr::String(s)) => assert_eq!(s, "{"),
+        other => panic!("Expected plain String, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_interpolated_string_unterminated_hole() {
+    // An unterminated `{` emits literally; later holes still interpolate.
+    let program = parse_code("say \"{oops! {lvl}}\"").expect("Parse failed");
+    match &program.statements[0] {
+        Stmt::Say(Expr::InterpolatedString(parts)) => {
+            assert!(
+                parts
+                    .iter()
+                    .any(|p| matches!(p, Expr::Identifier(n) if n == "lvl")),
+                "expected lvl hole in {:?}",
+                parts
+            );
+        }
+        other => panic!("Expected InterpolatedString, got {:?}", other),
+    }
+}
