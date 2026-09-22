@@ -3,6 +3,7 @@ use crate::codegen::{self, Architecture, OperatingSystem};
 use crate::driver::runner;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
+use crate::tools::tool_config::SuiteConfig;
 use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -43,8 +44,8 @@ fn is_test_file(name: &str) -> bool {
     name.starts_with("test_") || name.ends_with("_test.alya") || name.ends_with(".test.alya")
 }
 
-fn collect_test_files_recursive(dir: &Path, tests: &mut Vec<PathBuf>) {
-    collect_suite_files_recursive(dir, SuiteKind::Test, tests);
+fn collect_test_files_recursive(dir: &Path, config: &SuiteConfig, tests: &mut Vec<PathBuf>) {
+    collect_suite_files_recursive(dir, SuiteKind::Test, config, tests);
 }
 
 /// Unified suite discovery: files matching by NAME (`test_*`, `bench_*`,
@@ -53,7 +54,15 @@ fn collect_test_files_recursive(dir: &Path, tests: &mut Vec<PathBuf>) {
 /// alongside production code (Chapter 22 §1.3) are found without renaming.
 /// Unparseable files are skipped here (name-matched ones still fail loudly
 /// at execution); ignored directories (including `negative/`) never entered.
-fn collect_suite_files_recursive(dir: &Path, kind: SuiteKind, out: &mut Vec<PathBuf>) {
+/// Project excludes from `.alyatest` / `alya.toml` (`[test]` or `[bench]`)
+/// prune whole subtrees on top of the built-in skips.
+fn collect_suite_files_recursive(
+    dir: &Path,
+    kind: SuiteKind,
+    config: &SuiteConfig,
+    out: &mut Vec<PathBuf>,
+) {
+    let is_bench = matches!(kind, SuiteKind::Bench);
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(_) => return,
@@ -65,10 +74,15 @@ fn collect_suite_files_recursive(dir: &Path, kind: SuiteKind, out: &mut Vec<Path
             continue;
         }
         if p.is_dir() {
-            collect_suite_files_recursive(&p, kind, out);
+            if !config.is_path_excluded(&p, is_bench) {
+                collect_suite_files_recursive(&p, kind, config, out);
+            }
             continue;
         }
         if p.extension().and_then(|e| e.to_str()) != Some("alya") {
+            continue;
+        }
+        if config.is_path_excluded(&p, is_bench) {
             continue;
         }
         let name_matched = match kind {
@@ -312,7 +326,9 @@ pub fn synthesize_test_calls(program: &mut Program, entries: &[String]) {
 
 /// Discovers test files in the specified path: name-matched (`test_*`,
 /// `*_test`, `*.test`) plus content-matched (files declaring `test` blocks
-/// or `@test` functions anywhere under the path).
+/// or `@test` functions anywhere under the path). Project excludes from
+/// `.alyatest` / `alya.toml` `[test]` apply to directory walks; an
+/// explicitly named single file is always honored.
 pub fn discover_test_files(path: &Path) -> Vec<PathBuf> {
     let mut tests = Vec::new();
 
@@ -323,7 +339,8 @@ pub fn discover_test_files(path: &Path) -> Vec<PathBuf> {
         return tests;
     }
 
-    collect_test_files_recursive(path, &mut tests);
+    let config = SuiteConfig::discover(path);
+    collect_test_files_recursive(path, &config, &mut tests);
 
     tests.sort();
     tests
@@ -336,13 +353,15 @@ fn is_bench_file(name: &str) -> bool {
     name.starts_with("bench_") || name.ends_with("_bench.alya") || name.ends_with(".bench.alya")
 }
 
-fn collect_bench_files_recursive(dir: &Path, benches: &mut Vec<PathBuf>) {
-    collect_suite_files_recursive(dir, SuiteKind::Bench, benches);
+fn collect_bench_files_recursive(dir: &Path, config: &SuiteConfig, benches: &mut Vec<PathBuf>) {
+    collect_suite_files_recursive(dir, SuiteKind::Bench, config, benches);
 }
 
 /// Discovers benchmark files in the specified path: name-matched
 /// (`bench_*`, `*_bench`, `*.bench`) plus content-matched (files declaring
-/// `bench` blocks or `@bench` functions anywhere under the path).
+/// `bench` blocks or `@bench` functions anywhere under the path). Project
+/// excludes from `.alyatest` / `alya.toml` `[bench]` apply to directory
+/// walks; an explicitly named single file is always honored.
 pub fn discover_bench_files(path: &Path) -> Vec<PathBuf> {
     let mut benches = Vec::new();
 
@@ -353,7 +372,8 @@ pub fn discover_bench_files(path: &Path) -> Vec<PathBuf> {
         return benches;
     }
 
-    collect_bench_files_recursive(path, &mut benches);
+    let config = SuiteConfig::discover(path);
+    collect_bench_files_recursive(path, &config, &mut benches);
 
     benches.sort();
     benches
@@ -1099,5 +1119,63 @@ mod tests {
         assert_eq!(benches.len(), 2);
         assert!(benches.contains(&"at_bench".to_string()));
         assert!(benches.iter().any(|n| n.starts_with("__bench_")));
+    }
+
+    fn unique_suite_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "alya_suite_cfg_{}_{}_{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn test_discover_respects_suite_config_excludes() {
+        let dir = unique_suite_dir("excl");
+        fs::write(
+            dir.join(".alyatest"),
+            "[test]\nexclude = [\"slow\"]\n[bench]\nexclude = [\"heavy\"]\n",
+        )
+        .unwrap();
+        fs::create_dir_all(dir.join("slow")).unwrap();
+        fs::create_dir_all(dir.join("heavy")).unwrap();
+        // Content-matched suites (no name prefix needed).
+        fs::write(
+            dir.join("fast.alya"),
+            "test \"t\"\n    assert_eq(1, 1)\nend\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("slow").join("slow.alya"),
+            "test \"t\"\n    assert_eq(1, 1)\nend\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("quick_bench.alya"),
+            "@bench\nfunction b_q()\nend\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("heavy").join("heavy_bench.alya"),
+            "@bench\nfunction b_h()\nend\n",
+        )
+        .unwrap();
+
+        let tests = discover_test_files(&dir);
+        assert!(tests.iter().any(|p| p.ends_with("fast.alya")));
+        assert!(!tests.iter().any(|p| p.ends_with("slow.alya")));
+
+        let benches = discover_bench_files(&dir);
+        assert!(benches.iter().any(|p| p.ends_with("quick_bench.alya")));
+        assert!(!benches.iter().any(|p| p.ends_with("heavy_bench.alya")));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

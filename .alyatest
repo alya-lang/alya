@@ -1,0 +1,20 @@
+# Alya test/bench discovery project configuration.
+#
+# Lookup (mirrors `alya lint` and `alya fmt`): this `.alyatest` file wins;
+# otherwise the `[test]` / `[bench]` sections of the nearest `alya.toml`
+# walking upwards are used. When neither exists, built-in defaults apply.
+#
+# `exclude` only ADDS to the built-in skips, which always apply:
+#   directories `negative` (spec rejection fixtures, covered by
+#   negative_spec_tests instead), `fixtures`, `fixture`, `testdata`,
+#   `common`, `helpers`, `mock(s)`, `node_modules`, `vendor`, dot-directories,
+#   `target`, `build`.
+# Entries match as substrings on `/`-normalized paths and prune whole
+# subtrees during directory walks. An explicitly named single file
+# (`alya test path/to/file.alya`) is always honored.
+
+[test]
+exclude = ["spec/negative"]
+
+[bench]
+exclude = ["spec/negative"]

@@ -1,0 +1,20 @@
+# Alya formatter project configuration.
+#
+# Lookup (mirrors `alya lint`): this `.alyafmt` file wins; otherwise the
+# `[fmt]` section of the nearest `alya.toml` walking upwards is used.
+# When neither exists, built-in defaults apply (empty excludes).
+#
+# `exclude` only ADDS to the built-in skips, which always apply:
+#   directories `negative`, `fixtures`, `fixture`, `testdata` (intentionally
+#   non-canonical fixtures), dot-directories, `target`, `build`.
+# Entries match as substrings on `/`-normalized paths, so both
+# `spec/negative` and bare names like `vendor` work.
+#
+# NOTE: `exclude` skips whole files. For intentional odd layout inside an
+# otherwise formatted file, use inline suppression instead:
+#   # fmt: off
+#   ...kept verbatim...
+#   # fmt: on
+
+[fmt]
+exclude = ["spec/negative"]

@@ -1089,9 +1089,29 @@ pub fn find_alya_files(path: &Path) -> Vec<PathBuf> {
 }
 
 /// Formats a single file or directory. Returns Ok(number_of_changed_files).
+///
+/// Project excludes from `.alyafmt` / `alya.toml` `[fmt]` apply to directory
+/// discovery; an explicitly named single file is always honored. Built-in
+/// fixture skips (`negative`, `fixtures`, …) always apply on top.
 pub fn run_fmt(path_str: &str, check_only: bool) -> Result<usize, String> {
     let root = Path::new(path_str);
     let files = find_alya_files(root);
+
+    if files.is_empty() {
+        println!("No .alya files found in '{}'.", path_str);
+        return Ok(0);
+    }
+
+    // Config-based excludes only narrow directory walks, never an explicit file.
+    let config = if root.is_file() {
+        super::tool_config::FmtConfig::default()
+    } else {
+        super::tool_config::FmtConfig::discover(root)
+    };
+    let files: Vec<PathBuf> = files
+        .into_iter()
+        .filter(|p| !config.is_path_excluded(p))
+        .collect();
 
     if files.is_empty() {
         println!("No .alya files found in '{}'.", path_str);
@@ -1695,5 +1715,36 @@ say "nested"
     fn test_format_inline_closure_untouched() {
         let input = "let f = || => 42\nsay f()\n";
         assert_eq!(format_source(input).unwrap(), input);
+    }
+
+    #[test]
+    fn test_run_fmt_respects_project_excludes() {
+        let dir = std::env::temp_dir().join(format!(
+            "alya_fmt_cfg_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("generated")).unwrap();
+        fs::write(dir.join(".alyafmt"), "[fmt]\nexclude = [\"generated\"]\n").unwrap();
+        // Deliberately badly indented: must be reformatted when not excluded.
+        fs::write(dir.join("main.alya"), "function f()\nlet x = 1\nend\n").unwrap();
+        fs::write(
+            dir.join("generated").join("gen.alya"),
+            "function g()\nlet y = 2\nend\n",
+        )
+        .unwrap();
+
+        let changed = run_fmt(dir.to_str().unwrap(), false).unwrap();
+        assert_eq!(changed, 1);
+        let main = fs::read_to_string(dir.join("main.alya")).unwrap();
+        assert_eq!(main, "function f()\n    let x = 1\nend\n");
+        // Excluded file untouched.
+        let gen = fs::read_to_string(dir.join("generated").join("gen.alya")).unwrap();
+        assert_eq!(gen, "function g()\nlet y = 2\nend\n");
+        let _ = fs::remove_dir_all(&dir);
     }
 }

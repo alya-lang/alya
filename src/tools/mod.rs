@@ -7,3 +7,4 @@ pub mod lsp;
 pub mod pkg;
 pub mod repl;
 pub mod test_runner;
+pub mod tool_config;
