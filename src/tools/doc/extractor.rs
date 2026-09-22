@@ -308,6 +308,12 @@ fn parse_doc_comments(source: &str) -> (String, HashMap<String, String>) {
     for line in source.lines() {
         let trimmed = line.trim();
 
+        // Section banners (`# --- ... ---`) are file layout, not documentation:
+        // skip them transparently so they never leak into module or symbol docs.
+        if is_section_banner(trimmed) {
+            continue;
+        }
+
         if trimmed.starts_with("##") {
             let doc_line = if let Some(rest) = trimmed.strip_prefix("## ") {
                 rest
@@ -441,5 +447,67 @@ pub fn expr_to_string(expr: &Expr) -> String {
             format!("[{}]", inner.join(", "))
         }
         _ => "...".to_string(),
+    }
+}
+
+/// Returns true for section-banner comments (`# --- ... ---`), which are
+/// file layout rather than documentation. The extractor skips them
+/// transparently so they never leak into module or symbol docs.
+fn is_section_banner(trimmed: &str) -> bool {
+    let rest = match trimmed.strip_prefix('#') {
+        Some(r) if !r.starts_with('#') => r.trim_start(),
+        _ => return false,
+    };
+    rest.starts_with("---")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_banner_above_doc_block_does_not_leak_into_symbol_doc() {
+        let source = "# --- Raw Argument Accessors ---\n\n## Returns the raw argument.\n##\n## ### Parameters\npub function cli_arg_at(idx: int) -> string\n    return \"x\"\nend\n";
+        let module = extract_module_docs(source, "cli.alya");
+        assert_eq!(module.functions.len(), 1);
+        assert!(
+            !module.functions[0].doc.contains("Raw Argument Accessors"),
+            "banner leaked: {}",
+            module.functions[0].doc
+        );
+        assert!(module.functions[0]
+            .doc
+            .contains("Returns the raw argument."));
+    }
+
+    #[test]
+    fn test_banner_after_header_does_not_leak_into_module_doc() {
+        let source = "# Module header.\n# Second header line.\n\n# --- Private Helpers ---\n\n## Helper doc.\nfunction helper()\nend\n";
+        let module = extract_module_docs(source, "m.alya");
+        assert!(
+            !module.description.contains("Private Helpers"),
+            "banner leaked: {}",
+            module.description
+        );
+        assert!(module.description.contains("Module header."));
+    }
+
+    #[test]
+    fn test_banner_between_doc_and_decl_preserves_doc() {
+        let source = "## Real doc line.\n# --- Next Section ---\npub function thing() -> int\n    return 1\nend\n";
+        let module = extract_module_docs(source, "m.alya");
+        assert_eq!(module.functions.len(), 1);
+        assert!(module.functions[0].doc.contains("Real doc line."));
+        assert!(!module.functions[0].doc.contains("Next Section"));
+    }
+
+    #[test]
+    fn test_plain_hash_comments_still_collected() {
+        // Non-banner single-# lines keep their long-standing behavior.
+        let source =
+            "# Behavior note.\n## Summary line.\npub function f() -> int\n    return 1\nend\n";
+        let module = extract_module_docs(source, "m.alya");
+        assert!(module.functions[0].doc.contains("Behavior note."));
+        assert!(module.functions[0].doc.contains("Summary line."));
     }
 }
