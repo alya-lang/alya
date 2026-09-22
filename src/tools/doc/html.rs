@@ -266,20 +266,20 @@ h1.title code { font-family: var(--font-mono); font-weight: 800; }
 .lede { color: var(--fg-muted); margin: 0 0 16px; max-width: 70ch; }
 .badgerow { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
 
-/* Code blocks */
+/* Code blocks: the wrapper never scrolls, so the floating copy button stays
+   put; only the inner pane pans long signatures on narrow screens. */
 .codeblock {
   position: relative;
   background: var(--code-bg);
   color: var(--code-fg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 14px 16px;
   font-family: var(--font-mono);
   font-size: 0.82rem;
-  overflow-x: auto;
   margin: 0 0 20px;
   white-space: pre;
 }
+.codeblock-scroll { overflow-x: auto; padding: 14px 16px; padding-right: 48px; }
 .codeblock pre { margin: 0; font: inherit; }
 .codeblock code { font: inherit; background: none; }
 .codeblock .copy {
@@ -302,14 +302,9 @@ h1.title code { font-family: var(--font-mono); font-weight: 800; }
 }
 .copy svg { width: 14px; height: 14px; display: block; }
 .copy:hover { color: var(--fg); }
-/* Reserve room for the floating button so long signatures never slide
-   underneath it; keep the button visible on touch devices (no hover). */
-.codeblock { padding-right: 46px; }
-@media (hover: none) {
-  .codeblock .copy { opacity: 1; }
-}
 @media (max-width: 860px) {
-  .codeblock { font-size: 0.76rem; padding: 12px 46px 12px 12px; }
+  .codeblock { font-size: 0.76rem; }
+  .codeblock-scroll { padding: 12px; padding-right: 48px; }
   .fn h2 { font-size: 1.05rem; overflow-wrap: anywhere; }
 }
 .tok-k, .kw { color: var(--accent); }
@@ -1513,7 +1508,7 @@ fn escape_html(s: &str) -> String {
 fn render_code_block(sig: &str) -> String {
     let highlighted = highlight_signature(sig);
     format!(
-        "<div class=\"codeblock\">{}\n<button class=\"copy\" aria-label=\"Copy signature\">{}</button></div>\n",
+        "<div class=\"codeblock\"><div class=\"codeblock-scroll\">{}</div>\n<button class=\"copy\" aria-label=\"Copy signature\">{}</button></div>\n",
         highlighted, COPY_SVG
     )
 }
@@ -1591,16 +1586,19 @@ fn render_markdown_html(md: &str) -> String {
         if trimmed.starts_with("```") {
             if in_code_block {
                 out.push_str("</code></pre></div>\n");
+                out.push_str(&format!(
+                    "<button class=\"copy\" aria-label=\"Copy code\">{}</button></div>\n",
+                    COPY_SVG
+                ));
                 in_code_block = false;
             } else {
                 if in_list {
                     out.push_str("</ul>\n");
                     in_list = false;
                 }
-                out.push_str(&format!(
-                    "<div class=\"codeblock\"><button class=\"copy\" aria-label=\"Copy code\">{}</button><pre><code>",
-                    COPY_SVG
-                ));
+                out.push_str(
+                    "<div class=\"codeblock\"><div class=\"codeblock-scroll\"><pre><code>",
+                );
                 in_code_block = true;
             }
             continue;
@@ -1686,6 +1684,10 @@ fn render_markdown_html(md: &str) -> String {
     }
     if in_code_block {
         out.push_str("</code></pre></div>\n");
+        out.push_str(&format!(
+            "<button class=\"copy\" aria-label=\"Copy code\">{}</button></div>\n",
+            COPY_SVG
+        ));
     }
 
     out
