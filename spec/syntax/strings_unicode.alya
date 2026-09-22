@@ -89,7 +89,24 @@ say "String comparison and length OK"
 # handles all codepoints.
 
 # ------------------------------------------------------------------------------
-# 7. Native Test Blocks for Chapter 21
+# 7. Interpolation Brace Semantics (Chapter 21 §1.7)
+# ------------------------------------------------------------------------------
+let lvl = "INFO"
+# Holes nested inside an unparsable region still interpolate (per-hole rule).
+assert_eq("{\"level\":\"{lvl}\"}", "{\"level\":\"INFO\"}")
+assert_eq("{123 abc {lvl}}", "{123 abc INFO}")
+assert_eq("{\"a\":{\"b\":\"{lvl}\"}}", "{\"a\":{\"b\":\"INFO\"}}")
+# `{{` / `}}` escapes render single literal braces.
+assert_eq("{{}}", "{}")
+assert_eq("{{lvl}}", "{" + "lvl}")
+# Lone braces without holes stay literal.
+assert_eq("{", "{")
+assert_eq("prefix-}suffix", "prefix-}suffix")
+
+say "Brace semantics OK"
+
+# ------------------------------------------------------------------------------
+# 8. Native Test Blocks for Chapter 21
 # ------------------------------------------------------------------------------
 test "byte vs rune counts differ on multibyte"
     let t = "Çç"

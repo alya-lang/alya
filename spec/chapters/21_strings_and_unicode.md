@@ -32,6 +32,17 @@ Alya string interpolation supports formatting specifiers via the `:spec` suffix:
 - **Alignment**: `f"{name:>10}"` (right align), `f"{name:<10}"` (left align)
 - **Radix Conversion**: `f"{val:#x}"` (hex `0xff`), `f"{val:#b}"` (binary `0b1010`)
 
+### 1.7 Interpolation Brace Semantics
+- `{expr}` interpolates the value of `expr`; any expression (calls, indexing,
+  field access, format specs) may appear inside the hole.
+- `{{` and `}}` are escapes rendering single literal braces: `"{{}}"` -> `"{}"`.
+- A lone `{` or `}` with no valid hole stays literal: `"{"` -> `"{"`, `"{}"` -> `"{}"`.
+- Per-hole fallback: when a `{...}` region does not parse as an expression,
+  only its braces stay literal while valid holes nested inside still
+  interpolate: `"{\"level\":\"{lvl}\"}"` with `lvl = "INFO"` renders
+  `"{"level":"INFO"}"`. The region terminator is preserved verbatim, so a
+  following literal `}` is never merged into an escape pair.
+
 ---
 
 ## 2. Formal Grammar (EBNF Snippet)

@@ -2004,110 +2004,113 @@ impl Parser {
     }
 }
 
-fn parse_interpolated_string(s: &str) -> Option<Vec<Expr>> {
-    let mut parts = Vec::new();
-    let mut current_lit = String::new();
-    let mut chars = s.chars().peekable();
-    let mut has_interpolation = false;
-    let mut has_escaped = false;
-
-    while let Some(ch) = chars.next() {
-        if ch == '{' {
-            if chars.peek() == Some(&'{') {
-                chars.next();
-                current_lit.push('{');
-                has_escaped = true;
-                continue;
-            }
-
-            let mut expr_str = String::new();
-            let mut depth = 1;
-            let mut in_str = false;
-            let mut in_escape = false;
-            let mut found_close = false;
-
-            for c in chars.by_ref() {
-                if in_escape {
-                    expr_str.push(c);
-                    in_escape = false;
-                } else if c == '\\' && in_str {
-                    expr_str.push(c);
-                    in_escape = true;
-                } else if c == '"' {
-                    in_str = !in_str;
-                    expr_str.push(c);
-                } else if !in_str && c == '{' {
-                    depth += 1;
-                    expr_str.push(c);
-                } else if !in_str && c == '}' {
-                    depth -= 1;
-                    if depth == 0 {
-                        found_close = true;
-                        break;
-                    } else {
-                        expr_str.push(c);
-                    }
-                } else {
-                    expr_str.push(c);
+fn try_parse_hole(expr_str: &str) -> Option<Expr> {
+    let mut parsed_expr = None;
+    if !expr_str.trim().is_empty() {
+        let mut sub_lexer = crate::lexer::Lexer::new(expr_str);
+        if let Ok(sub_tokens) = sub_lexer.tokenize() {
+            let mut sub_parser = Parser::new(sub_tokens);
+            if let Ok(expr) = sub_parser.parse_expression() {
+                if sub_parser.current_token().token_type == TokenType::Eof {
+                    parsed_expr = Some(expr);
                 }
             }
+        }
+    }
 
-            let mut parsed_expr = None;
-            if found_close && !expr_str.trim().is_empty() {
-                let mut sub_lexer = crate::lexer::Lexer::new(&expr_str);
-                if let Ok(sub_tokens) = sub_lexer.tokenize() {
-                    let mut sub_parser = Parser::new(sub_tokens);
-                    if let Ok(expr) = sub_parser.parse_expression() {
-                        if sub_parser.current_token().token_type == TokenType::Eof {
-                            parsed_expr = Some(expr);
-                        }
-                    }
-                }
-            }
-
-            if parsed_expr.is_none() && found_close && !expr_str.trim().is_empty() {
-                if let Some(colon_idx) = expr_str.rfind(':') {
-                    if colon_idx > 0 && colon_idx < expr_str.len() - 1 {
-                        let prev_ch = expr_str.as_bytes()[colon_idx - 1];
-                        let next_ch = expr_str.as_bytes()[colon_idx + 1];
-                        if prev_ch != b':' && next_ch != b':' {
-                            let raw_expr = &expr_str[..colon_idx];
-                            let raw_spec = expr_str[colon_idx + 1..].trim();
-                            let is_valid_spec = (raw_spec.starts_with('.')
-                                && raw_spec.ends_with('f')
-                                && raw_spec.len() > 2
-                                && raw_spec[1..raw_spec.len() - 1]
-                                    .chars()
-                                    .all(|c| c.is_ascii_digit()))
-                                || (raw_spec.starts_with('0')
-                                    && raw_spec.len() > 1
-                                    && raw_spec[1..].chars().all(|c| c.is_ascii_digit()))
-                                || matches!(
-                                    raw_spec,
-                                    "x" | "#x" | "X" | "#X" | "b" | "#b" | "d" | "s"
-                                )
-                                || ((raw_spec.starts_with('>')
-                                    || raw_spec.starts_with('<')
-                                    || raw_spec.starts_with('^'))
-                                    && raw_spec.len() > 1
-                                    && raw_spec[1..].chars().all(|c| c.is_ascii_digit()));
-                            if is_valid_spec {
-                                let mut sub_lexer = crate::lexer::Lexer::new(raw_expr);
-                                if let Ok(sub_tokens) = sub_lexer.tokenize() {
-                                    let mut sub_parser = Parser::new(sub_tokens);
-                                    if let Ok(expr) = sub_parser.parse_expression() {
-                                        if sub_parser.current_token().token_type == TokenType::Eof {
-                                            parsed_expr = Some(Expr::Call {
-                                                name: format!("__alya_format:{}", raw_spec),
-                                                args: vec![expr],
-                                            });
-                                        }
-                                    }
+    if parsed_expr.is_none() && !expr_str.trim().is_empty() {
+        if let Some(colon_idx) = expr_str.rfind(':') {
+            if colon_idx > 0 && colon_idx < expr_str.len() - 1 {
+                let prev_ch = expr_str.as_bytes()[colon_idx - 1];
+                let next_ch = expr_str.as_bytes()[colon_idx + 1];
+                if prev_ch != b':' && next_ch != b':' {
+                    let raw_expr = &expr_str[..colon_idx];
+                    let raw_spec = expr_str[colon_idx + 1..].trim();
+                    let is_valid_spec = (raw_spec.starts_with('.')
+                        && raw_spec.ends_with('f')
+                        && raw_spec.len() > 2
+                        && raw_spec[1..raw_spec.len() - 1]
+                            .chars()
+                            .all(|c| c.is_ascii_digit()))
+                        || (raw_spec.starts_with('0')
+                            && raw_spec.len() > 1
+                            && raw_spec[1..].chars().all(|c| c.is_ascii_digit()))
+                        || matches!(raw_spec, "x" | "#x" | "X" | "#X" | "b" | "#b" | "d" | "s")
+                        || ((raw_spec.starts_with('>')
+                            || raw_spec.starts_with('<')
+                            || raw_spec.starts_with('^'))
+                            && raw_spec.len() > 1
+                            && raw_spec[1..].chars().all(|c| c.is_ascii_digit()));
+                    if is_valid_spec {
+                        let mut sub_lexer = crate::lexer::Lexer::new(raw_expr);
+                        if let Ok(sub_tokens) = sub_lexer.tokenize() {
+                            let mut sub_parser = Parser::new(sub_tokens);
+                            if let Ok(expr) = sub_parser.parse_expression() {
+                                if sub_parser.current_token().token_type == TokenType::Eof {
+                                    parsed_expr = Some(Expr::Call {
+                                        name: format!("__alya_format:{}", raw_spec),
+                                        args: vec![expr],
+                                    });
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+
+    parsed_expr
+}
+
+fn scan_parts(chars: &[char]) -> (Vec<Expr>, bool, bool) {
+    let mut parts = Vec::new();
+    let mut current_lit = String::new();
+    let mut i = 0;
+    let mut has_interpolation = false;
+    let mut has_escaped = false;
+
+    while i < chars.len() {
+        let ch = chars[i];
+        if ch == '{' {
+            if i + 1 < chars.len() && chars[i + 1] == '{' {
+                i += 2;
+                current_lit.push('{');
+                has_escaped = true;
+                continue;
+            }
+
+            // Scan ahead for the depth-0 closing brace, tracking nested
+            // braces and string literals exactly like before.
+            let mut depth = 1;
+            let mut in_str = false;
+            let mut in_escape = false;
+            let mut j = i + 1;
+            let mut found_close = false;
+            while j < chars.len() {
+                let c = chars[j];
+                if in_escape {
+                    in_escape = false;
+                } else if c == '\\' && in_str {
+                    in_escape = true;
+                } else if c == '"' {
+                    in_str = !in_str;
+                } else if !in_str && c == '{' {
+                    depth += 1;
+                } else if !in_str && c == '}' {
+                    depth -= 1;
+                    if depth == 0 {
+                        found_close = true;
+                        break;
+                    }
+                }
+                j += 1;
+            }
+
+            let mut parsed_expr = None;
+            if found_close {
+                let expr_str: String = chars[i + 1..j].iter().collect();
+                parsed_expr = try_parse_hole(&expr_str);
             }
 
             if let Some(expr) = parsed_expr {
@@ -2117,25 +2120,50 @@ fn parse_interpolated_string(s: &str) -> Option<Vec<Expr>> {
                     current_lit.clear();
                 }
                 parts.push(expr);
-            } else {
+                i = j + 1;
+            } else if found_close {
+                // Unparsable region with a terminator: keep the braces
+                // literally, but rescan the inside so valid holes nested in
+                // it (e.g. `{"level":"{lvl}"}`) still interpolate. The
+                // terminator itself is preserved verbatim so a following
+                // literal `}` is never merged into an escape pair.
                 current_lit.push('{');
-                current_lit.push_str(&expr_str);
-                if found_close {
-                    current_lit.push('}');
+                let (inner_parts, inner_interp, inner_esc) = scan_parts(&chars[i + 1..j]);
+                if !current_lit.is_empty() {
+                    parts.push(Expr::String(current_lit.clone()));
+                    current_lit.clear();
                 }
+                parts.extend(inner_parts);
+                has_interpolation |= inner_interp;
+                has_escaped |= inner_esc;
+                current_lit.push('}');
+                i = j + 1;
+            } else {
+                // Unterminated `{`: emit it literally and rescan from
+                // inside so later holes still interpolate.
+                current_lit.push('{');
+                i += 1;
             }
-        } else if ch == '}' && chars.peek() == Some(&'}') {
-            chars.next();
+        } else if ch == '}' && i + 1 < chars.len() && chars[i + 1] == '}' {
+            i += 2;
             current_lit.push('}');
             has_escaped = true;
         } else {
             current_lit.push(ch);
+            i += 1;
         }
     }
 
     if !current_lit.is_empty() {
         parts.push(Expr::String(current_lit));
     }
+
+    (parts, has_interpolation, has_escaped)
+}
+
+fn parse_interpolated_string(s: &str) -> Option<Vec<Expr>> {
+    let chars: Vec<char> = s.chars().collect();
+    let (parts, has_interpolation, has_escaped) = scan_parts(&chars);
 
     if has_interpolation || has_escaped {
         Some(parts)
