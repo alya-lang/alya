@@ -445,6 +445,8 @@ pub struct TypeChecker {
     /// checking. The driver prints these; `validate_types` discards them.
     warnings: Vec<String>,
     current_fn_return_type: Option<Type>,
+    /// Name of the function whose body is currently checked (for diagnostics).
+    current_fn_name: Option<String>,
 }
 
 impl Default for TypeChecker {
@@ -466,6 +468,7 @@ impl TypeChecker {
             deprecated: HashMap::new(),
             warnings: Vec::new(),
             current_fn_return_type: None,
+            current_fn_name: None,
         };
         tc.register_builtins();
         tc
@@ -1252,7 +1255,7 @@ impl TypeChecker {
             }
 
             Stmt::Function {
-                name: _,
+                name,
                 params,
                 param_types,
                 return_type,
@@ -1266,6 +1269,8 @@ impl TypeChecker {
 
                 let prev_ret = self.current_fn_return_type.take();
                 self.current_fn_return_type = Some(declared_ret.clone());
+                let prev_name = self.current_fn_name.take();
+                self.current_fn_name = Some(name.clone());
                 self.push_scope();
 
                 for (pname, ptype_opt) in params.iter().zip(param_types.iter()) {
@@ -1282,6 +1287,7 @@ impl TypeChecker {
 
                 self.pop_scope();
                 self.current_fn_return_type = prev_ret;
+                self.current_fn_name = prev_name;
             }
 
             Stmt::Return(expr_opt) => {
@@ -1299,17 +1305,21 @@ impl TypeChecker {
                             if expected_ret != &Type::Any
                                 && !self.types_compatible(&actual, expected_ret)
                             {
+                                let where_fn =
+                                    self.current_fn_name.as_deref().unwrap_or("<unknown>");
                                 return Err(format!(
-                                    "TypeError: Return type mismatch: expected '{}', found '{}'",
-                                    expected_ret, actual
+                                    "TypeError: Return type mismatch in '{}': expected '{}', found '{}'",
+                                    where_fn, expected_ret, actual
                                 ));
                             }
                         }
                         None => {
                             if expected_ret != &Type::Void && expected_ret != &Type::Any {
+                                let where_fn =
+                                    self.current_fn_name.as_deref().unwrap_or("<unknown>");
                                 return Err(format!(
-                                    "TypeError: Non-void function must return a value of type '{}'",
-                                    expected_ret
+                                    "TypeError: Non-void function '{}' must return a value of type '{}'",
+                                    where_fn, expected_ret
                                 ));
                             }
                         }

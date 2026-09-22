@@ -1037,18 +1037,43 @@ impl CodeGen {
                 self.os,
             );
 
-            let is_str = inference.infer_param_is_string(name, i, program);
-            let is_flt = inference.infer_param_is_float(name, i, program);
-            let is_arr = inference.infer_param_is_array(name, i, program)
+            // Explicit scalar annotations are authoritative and override
+            // heuristic inference. Rationale: whole-program inference keys
+            // string-ness by bare field name (`struct_field_str:port`), so an
+            // unrelated struct's `port: string` field once poisoned an
+            // explicitly-typed `port: int` parameter into string treatment
+            // (`is null` compiled to strcmp, `say` segfaulted). An explicit
+            // scalar annotation always wins; inference only applies to
+            // unannotated (`any`) parameters.
+            let explicit_scalar: Option<&str> =
+                param_types.get(i).and_then(|t| t.as_deref()).and_then(|t| {
+                    // Array/map/generic spellings (`string[]`, `map[...]`)
+                    // are not scalars: the existing array/map logic below
+                    // (plus inference) keeps applying to them.
+                    if t.contains('[') || t.contains(']') {
+                        return None;
+                    }
+                    let base = t.rsplit("::").next().unwrap_or(t);
+                    let base = base.rsplit("__").next().unwrap_or(base);
+                    match base {
+                        "string" | "str" | "int" | "i64" | "isize" | "uint" | "u64" | "usize"
+                        | "i32" | "i16" | "i8" | "u32" | "u16" | "u8" | "byte" | "float"
+                        | "f64" | "f32" | "bool" | "boolean" | "rune" | "char" => Some(base),
+                        _ => None,
+                    }
+                });
+            let mut is_str = inference.infer_param_is_string(name, i, program);
+            let mut is_flt = inference.infer_param_is_float(name, i, program);
+            let mut is_arr = inference.infer_param_is_array(name, i, program)
                 || param_types
                     .get(i)
                     .and_then(|t| t.as_deref())
                     .is_some_and(|t| {
                         t == "..." || t.starts_with("...") || t == "array" || t.ends_with("[]")
                     });
-            let is_str_arr = inference.infer_param_is_string_array(name, i, program);
-            let is_flt_arr = inference.infer_param_is_float_array(name, i, program);
-            let is_map = inference.infer_param_is_map(name, i, program)
+            let mut is_str_arr = inference.infer_param_is_string_array(name, i, program);
+            let mut is_flt_arr = inference.infer_param_is_float_array(name, i, program);
+            let mut is_map = inference.infer_param_is_map(name, i, program)
                 || param_types
                     .get(i)
                     .and_then(|t| t.as_deref())
@@ -1057,6 +1082,34 @@ impl CodeGen {
                             || t.starts_with("map[")
                             || (t.starts_with('[') && t.contains(':') && t.ends_with(']'))
                     });
+            if let Some(s) = explicit_scalar {
+                match s {
+                    "string" | "str" => {
+                        is_str = true;
+                        is_flt = false;
+                        is_arr = false;
+                        is_str_arr = false;
+                        is_flt_arr = false;
+                        is_map = false;
+                    }
+                    "float" | "f64" | "f32" => {
+                        is_str = false;
+                        is_flt = true;
+                        is_arr = false;
+                        is_str_arr = false;
+                        is_flt_arr = false;
+                        is_map = false;
+                    }
+                    _ => {
+                        is_str = false;
+                        is_flt = false;
+                        is_arr = false;
+                        is_str_arr = false;
+                        is_flt_arr = false;
+                        is_map = false;
+                    }
+                }
+            }
             let struct_type = if let Some(Some(t)) = param_types.get(i) {
                 let bare_base = t.split('[').next().unwrap_or(t);
                 let b = bare_base.rsplit("::").next().unwrap_or(bare_base);

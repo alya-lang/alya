@@ -668,3 +668,45 @@ say sel_p2.y
         );
     }
 }
+
+#[test]
+fn test_e2e_explicit_scalar_param_immune_to_bare_field_marker() {
+    // Regression: an unrelated struct's `port: string` field once poisoned
+    // the bare-name `struct_field_str:port` inference marker, causing an
+    // explicitly-typed `port: int` parameter to be miscompiled as a string
+    // (`is null` emitted strcmp on the integer, `say` segfaulted).
+    // Explicit scalar annotations must be authoritative in codegen.
+    let code = r#"
+struct Url
+    scheme: string,
+    port: string
+end
+
+struct Srv
+    host: string,
+    port: int
+end
+
+function inner_check(port: int) -> int
+    if port is null or port <= 0
+        return -1
+    end
+    return port
+end
+
+function wrap_check(port: int) -> int
+    return inner_check(port)
+end
+
+let u = Url { scheme: "http", port: "8080" }
+say u.port
+let s = Srv { host: "127.0.0.1", port: 19884 }
+say s.port
+let p = wrap_check(s.port)
+say p
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, concat!("8080\n", "19884\n", "19884\n"));
+    }
+}

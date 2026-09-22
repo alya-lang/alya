@@ -432,6 +432,7 @@ fn scan_expr_for_strings(
     expr: &Expr,
     struct_defs: &HashMap<String, Vec<String>>,
     known_strings: &mut HashSet<String>,
+    conflicts: &HashSet<String>,
 ) {
     match expr {
         Expr::Call { name, args } => {
@@ -456,55 +457,59 @@ fn scan_expr_for_strings(
                     if expr_is_definitely_string(arg, known_strings) {
                         if let Some(fname) = fields.get(i) {
                             known_strings.insert(format!("struct_field_str:{}.{}", name, fname));
-                            known_strings.insert(format!("struct_field_str:{}", fname));
+                            if !conflicts.contains(fname) {
+                                known_strings.insert(format!("struct_field_str:{}", fname));
+                            }
                         }
                     }
                 }
             }
             for arg in args {
-                scan_expr_for_strings(arg, struct_defs, known_strings);
+                scan_expr_for_strings(arg, struct_defs, known_strings, conflicts);
             }
         }
         Expr::StructInit { name, fields } => {
             for (fname, fval) in fields {
                 if expr_is_definitely_string(fval, known_strings) {
                     known_strings.insert(format!("struct_field_str:{}.{}", name, fname));
-                    known_strings.insert(format!("struct_field_str:{}", fname));
+                    if !conflicts.contains(fname) {
+                        known_strings.insert(format!("struct_field_str:{}", fname));
+                    }
                 }
-                scan_expr_for_strings(fval, struct_defs, known_strings);
+                scan_expr_for_strings(fval, struct_defs, known_strings, conflicts);
             }
         }
         Expr::Binary { left, right, .. } => {
-            scan_expr_for_strings(left, struct_defs, known_strings);
-            scan_expr_for_strings(right, struct_defs, known_strings);
+            scan_expr_for_strings(left, struct_defs, known_strings, conflicts);
+            scan_expr_for_strings(right, struct_defs, known_strings, conflicts);
         }
         Expr::Unary { expr, .. } => {
-            scan_expr_for_strings(expr, struct_defs, known_strings);
+            scan_expr_for_strings(expr, struct_defs, known_strings, conflicts);
         }
         Expr::ForceUnwrap(inner) => {
-            scan_expr_for_strings(inner, struct_defs, known_strings);
+            scan_expr_for_strings(inner, struct_defs, known_strings, conflicts);
         }
         Expr::Array(elems) => {
             for elem in elems {
-                scan_expr_for_strings(elem, struct_defs, known_strings);
+                scan_expr_for_strings(elem, struct_defs, known_strings, conflicts);
             }
         }
         Expr::Index { array, index } => {
-            scan_expr_for_strings(array, struct_defs, known_strings);
-            scan_expr_for_strings(index, struct_defs, known_strings);
+            scan_expr_for_strings(array, struct_defs, known_strings, conflicts);
+            scan_expr_for_strings(index, struct_defs, known_strings, conflicts);
         }
         Expr::FieldAccess { object, .. } => {
-            scan_expr_for_strings(object, struct_defs, known_strings);
+            scan_expr_for_strings(object, struct_defs, known_strings, conflicts);
         }
         Expr::Map(entries) => {
             for (k, v) in entries {
-                scan_expr_for_strings(k, struct_defs, known_strings);
-                scan_expr_for_strings(v, struct_defs, known_strings);
+                scan_expr_for_strings(k, struct_defs, known_strings, conflicts);
+                scan_expr_for_strings(v, struct_defs, known_strings, conflicts);
             }
         }
         Expr::InterpolatedString(parts) => {
             for part in parts {
-                scan_expr_for_strings(part, struct_defs, known_strings);
+                scan_expr_for_strings(part, struct_defs, known_strings, conflicts);
             }
         }
         Expr::Ternary {
@@ -512,13 +517,13 @@ fn scan_expr_for_strings(
             then_branch,
             else_branch,
         } => {
-            scan_expr_for_strings(condition, struct_defs, known_strings);
-            scan_expr_for_strings(then_branch, struct_defs, known_strings);
-            scan_expr_for_strings(else_branch, struct_defs, known_strings);
+            scan_expr_for_strings(condition, struct_defs, known_strings, conflicts);
+            scan_expr_for_strings(then_branch, struct_defs, known_strings, conflicts);
+            scan_expr_for_strings(else_branch, struct_defs, known_strings, conflicts);
         }
         Expr::NullCoalesce { value, default } => {
-            scan_expr_for_strings(value, struct_defs, known_strings);
-            scan_expr_for_strings(default, struct_defs, known_strings);
+            scan_expr_for_strings(value, struct_defs, known_strings, conflicts);
+            scan_expr_for_strings(default, struct_defs, known_strings, conflicts);
         }
         _ => {}
     }
@@ -528,6 +533,7 @@ fn collect_string_vars_from_stmts(
     stmts: &[Stmt],
     struct_defs: &HashMap<String, Vec<String>>,
     known_strings: &mut HashSet<String>,
+    conflicts: &HashSet<String>,
 ) {
     for stmt in stmts {
         match stmt {
@@ -543,7 +549,7 @@ fn collect_string_vars_from_stmts(
                         known_strings.insert(format!("arr_is_str:{}", name));
                     }
                 }
-                scan_expr_for_strings(value, struct_defs, known_strings);
+                scan_expr_for_strings(value, struct_defs, known_strings, conflicts);
                 if expr_is_definitely_string(value, known_strings) {
                     known_strings.insert(name.clone());
                 }
@@ -613,7 +619,9 @@ fn collect_string_vars_from_stmts(
                     for (fname, fval) in fields {
                         if expr_is_definitely_string(fval, known_strings) {
                             known_strings.insert(format!("struct_field_str:{}.{}", sname, fname));
-                            known_strings.insert(format!("struct_field_str:{}", fname));
+                            if !conflicts.contains(fname) {
+                                known_strings.insert(format!("struct_field_str:{}", fname));
+                            }
                             known_strings.insert(format!("{}.{}", name, fname));
                         }
                     }
@@ -625,7 +633,9 @@ fn collect_string_vars_from_stmts(
                                 if let Some(fname) = fnames.get(i) {
                                     known_strings
                                         .insert(format!("struct_field_str:{}.{}", cname, fname));
-                                    known_strings.insert(format!("struct_field_str:{}", fname));
+                                    if !conflicts.contains(fname) {
+                                        known_strings.insert(format!("struct_field_str:{}", fname));
+                                    }
                                     known_strings.insert(format!("{}.{}", name, fname));
                                 }
                             }
@@ -634,7 +644,7 @@ fn collect_string_vars_from_stmts(
                 }
             }
             Stmt::Assign { name, value, .. } => {
-                scan_expr_for_strings(value, struct_defs, known_strings);
+                scan_expr_for_strings(value, struct_defs, known_strings, conflicts);
                 if expr_is_definitely_string(value, known_strings) {
                     known_strings.insert(name.clone());
                 }
@@ -693,7 +703,9 @@ fn collect_string_vars_from_stmts(
                     for (fname, fval) in fields {
                         if expr_is_definitely_string(fval, known_strings) {
                             known_strings.insert(format!("struct_field_str:{}.{}", sname, fname));
-                            known_strings.insert(format!("struct_field_str:{}", fname));
+                            if !conflicts.contains(fname) {
+                                known_strings.insert(format!("struct_field_str:{}", fname));
+                            }
                             known_strings.insert(format!("{}.{}", name, fname));
                         }
                     }
@@ -705,7 +717,9 @@ fn collect_string_vars_from_stmts(
                                 if let Some(fname) = fnames.get(i) {
                                     known_strings
                                         .insert(format!("struct_field_str:{}.{}", cname, fname));
-                                    known_strings.insert(format!("struct_field_str:{}", fname));
+                                    if !conflicts.contains(fname) {
+                                        known_strings.insert(format!("struct_field_str:{}", fname));
+                                    }
                                     known_strings.insert(format!("{}.{}", name, fname));
                                 }
                             }
@@ -714,19 +728,21 @@ fn collect_string_vars_from_stmts(
                 }
             }
             Stmt::Say(expr) | Stmt::Expr(expr) => {
-                scan_expr_for_strings(expr, struct_defs, known_strings);
+                scan_expr_for_strings(expr, struct_defs, known_strings, conflicts);
             }
             Stmt::Return(Some(expr)) | Stmt::Throw(Some(expr)) => {
-                scan_expr_for_strings(expr, struct_defs, known_strings);
+                scan_expr_for_strings(expr, struct_defs, known_strings, conflicts);
             }
             Stmt::FieldAssign {
                 object,
                 field,
                 value,
             } => {
-                scan_expr_for_strings(value, struct_defs, known_strings);
+                scan_expr_for_strings(value, struct_defs, known_strings, conflicts);
                 if expr_is_definitely_string(value, known_strings) {
-                    known_strings.insert(format!("struct_field_str:{}", field));
+                    if !conflicts.contains(field) {
+                        known_strings.insert(format!("struct_field_str:{}", field));
+                    }
                     if let Expr::Identifier(obj_name) = object {
                         known_strings.insert(format!("{}.{}", obj_name, field));
                     }
@@ -741,10 +757,15 @@ fn collect_string_vars_from_stmts(
                 if let Some(err_var) = catch_var {
                     known_strings.insert(err_var.clone());
                 }
-                collect_string_vars_from_stmts(try_block, struct_defs, known_strings);
-                collect_string_vars_from_stmts(catch_block, struct_defs, known_strings);
+                collect_string_vars_from_stmts(try_block, struct_defs, known_strings, conflicts);
+                collect_string_vars_from_stmts(catch_block, struct_defs, known_strings, conflicts);
                 if let Some(finally_block) = finally_block {
-                    collect_string_vars_from_stmts(finally_block, struct_defs, known_strings);
+                    collect_string_vars_from_stmts(
+                        finally_block,
+                        struct_defs,
+                        known_strings,
+                        conflicts,
+                    );
                 }
             }
             Stmt::If {
@@ -753,25 +774,30 @@ fn collect_string_vars_from_stmts(
                 else_block,
                 ..
             } => {
-                scan_expr_for_strings(condition, struct_defs, known_strings);
-                collect_string_vars_from_stmts(then_block, struct_defs, known_strings);
+                scan_expr_for_strings(condition, struct_defs, known_strings, conflicts);
+                collect_string_vars_from_stmts(then_block, struct_defs, known_strings, conflicts);
                 if let Some(else_stmts) = else_block {
-                    collect_string_vars_from_stmts(else_stmts, struct_defs, known_strings);
+                    collect_string_vars_from_stmts(
+                        else_stmts,
+                        struct_defs,
+                        known_strings,
+                        conflicts,
+                    );
                 }
             }
             Stmt::While { condition, body } => {
-                scan_expr_for_strings(condition, struct_defs, known_strings);
-                collect_string_vars_from_stmts(body, struct_defs, known_strings);
+                scan_expr_for_strings(condition, struct_defs, known_strings, conflicts);
+                collect_string_vars_from_stmts(body, struct_defs, known_strings, conflicts);
             }
             Stmt::Repeat { body } => {
-                collect_string_vars_from_stmts(body, struct_defs, known_strings);
+                collect_string_vars_from_stmts(body, struct_defs, known_strings, conflicts);
             }
             Stmt::For {
                 start, end, body, ..
             } => {
-                scan_expr_for_strings(start, struct_defs, known_strings);
-                scan_expr_for_strings(end, struct_defs, known_strings);
-                collect_string_vars_from_stmts(body, struct_defs, known_strings);
+                scan_expr_for_strings(start, struct_defs, known_strings, conflicts);
+                scan_expr_for_strings(end, struct_defs, known_strings, conflicts);
+                collect_string_vars_from_stmts(body, struct_defs, known_strings, conflicts);
             }
             Stmt::ForEach {
                 var,
@@ -779,7 +805,7 @@ fn collect_string_vars_from_stmts(
                 iterable,
                 body,
             } => {
-                scan_expr_for_strings(iterable, struct_defs, known_strings);
+                scan_expr_for_strings(iterable, struct_defs, known_strings, conflicts);
                 // Transparent wrapper: classify the inner expression.
                 let iterable_inner: &Expr = match iterable {
                     Expr::ForceUnwrap(inner) => inner,
@@ -814,7 +840,7 @@ fn collect_string_vars_from_stmts(
                 } else if is_map || expr_is_string_array(iterable, known_strings) {
                     known_strings.insert(var.clone());
                 }
-                collect_string_vars_from_stmts(body, struct_defs, known_strings);
+                collect_string_vars_from_stmts(body, struct_defs, known_strings, conflicts);
             }
             Stmt::Function {
                 name, params, body, ..
@@ -843,7 +869,7 @@ fn collect_string_vars_from_stmts(
                         fn_locals.insert(format!("arr_is_str:{}", var_name));
                     }
                 }
-                collect_string_vars_from_stmts(body, struct_defs, &mut fn_locals);
+                collect_string_vars_from_stmts(body, struct_defs, &mut fn_locals, conflicts);
                 if stmts_return_string(body, &fn_locals)
                     && !matches!(
                         bare,
@@ -904,8 +930,8 @@ fn collect_string_vars_from_stmts(
                 index,
                 value,
             } => {
-                scan_expr_for_strings(index, struct_defs, known_strings);
-                scan_expr_for_strings(value, struct_defs, known_strings);
+                scan_expr_for_strings(index, struct_defs, known_strings, conflicts);
+                scan_expr_for_strings(value, struct_defs, known_strings, conflicts);
                 if expr_is_definitely_string(value, known_strings) {
                     if let Expr::String(field) = index {
                         known_strings.insert(format!("map_field_str:{}", field));
@@ -920,6 +946,7 @@ fn collect_string_vars_from_stmts(
                     std::slice::from_ref(inner),
                     struct_defs,
                     known_strings,
+                    conflicts,
                 );
             }
             _ => {}
@@ -932,11 +959,86 @@ pub fn collect_known_string_vars(program: &Program) -> HashSet<String> {
     collect_known_string_vars_with_index(program, &call_index)
 }
 
+/// Bare field names whose `string` type is contradicted by another struct's
+/// explicit non-string declaration (e.g. `Url.port: string` vs
+/// `Srv.port: int`).
+///
+/// Bare `struct_field_str:{field}` markers for such fields are unsound: any
+/// read of an unrelated struct's same-named non-string field (e.g.
+/// `srv.port`) would be misclassified as a string, which once miscompiled
+/// `is null` into `strcmp` on an integer and segfaulted `say`. Qualified
+/// markers (`Struct.field`, `var.field`) stay precise and are unaffected.
+fn conflicting_string_fields(program: &Program) -> HashSet<String> {
+    fn walk(stmts: &[Stmt], kinds: &mut HashMap<String, (bool, bool)>) {
+        for s in stmts {
+            match s {
+                Stmt::StructDef {
+                    fields,
+                    field_types,
+                    ..
+                } => {
+                    for (f, ft) in fields.iter().zip(field_types.iter()) {
+                        let e = kinds.entry(f.clone()).or_insert((false, false));
+                        match ft.as_deref() {
+                            Some("string") | Some("str") => e.0 = true,
+                            None | Some("any") | Some("auto") => {}
+                            Some(_) => e.1 = true,
+                        }
+                    }
+                }
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    walk(then_block, kinds);
+                    if let Some(eb) = else_block {
+                        walk(eb, kinds);
+                    }
+                }
+                Stmt::While { body, .. }
+                | Stmt::Repeat { body }
+                | Stmt::For { body, .. }
+                | Stmt::ForEach { body, .. }
+                | Stmt::Function { body, .. } => walk(body, kinds),
+                Stmt::TryCatch {
+                    try_block,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    walk(try_block, kinds);
+                    walk(catch_block, kinds);
+                    if let Some(fb) = finally_block {
+                        walk(fb, kinds);
+                    }
+                }
+                Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                    walk(std::slice::from_ref(inner), kinds);
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut kinds: HashMap<String, (bool, bool)> = HashMap::new();
+    walk(&program.statements, &mut kinds);
+    kinds
+        .into_iter()
+        .filter(|(_, (has_str, has_other))| *has_str && *has_other)
+        .map(|(f, _)| f)
+        .collect()
+}
+
 pub fn collect_known_string_vars_with_index(
     program: &Program,
     call_index: &CallIndex,
 ) -> HashSet<String> {
     let mut known_strings = HashSet::new();
+    // Fields whose `string` type is contradicted by another struct's explicit
+    // non-string declaration (e.g. `Url.port: string` vs `Srv.port: int`).
+    // Bare `struct_field_str:{field}` markers for such fields are unsound and
+    // are skipped; qualified markers stay precise.
+    let conflicts = conflicting_string_fields(program);
     for stmt in &program.statements {
         let stmt = stmt.inner_stmt();
         if let Stmt::ExternBlock { functions, .. } = stmt {
@@ -999,7 +1101,9 @@ pub fn collect_known_string_vars_with_index(
                     if t == "string" || t == "str" {
                         known_strings.insert(format!("struct_field_str:{}.{}", name, f));
                         known_strings.insert(format!("struct_field_str:{}.{}", bare, f));
-                        known_strings.insert(format!("struct_field_str:{}", f));
+                        if !conflicts.contains(f) {
+                            known_strings.insert(format!("struct_field_str:{}", f));
+                        }
                     } else if t == "string[]" || t == "str[]" {
                         known_strings.insert(format!("struct_field_arr_str:{}.{}", name, f));
                         known_strings.insert(format!("struct_field_arr_str:{}.{}", bare, f));
@@ -1015,7 +1119,12 @@ pub fn collect_known_string_vars_with_index(
     collect_struct_defs(&program.statements, &mut struct_defs);
     for _ in 0..5 {
         let prev_len = known_strings.len();
-        collect_string_vars_from_stmts(&program.statements, &struct_defs, &mut known_strings);
+        collect_string_vars_from_stmts(
+            &program.statements,
+            &struct_defs,
+            &mut known_strings,
+            &conflicts,
+        );
         for (name, params, _, _) in &funcs {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
