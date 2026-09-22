@@ -16,10 +16,34 @@ fn get_spec_syntax_dir() -> PathBuf {
 }
 
 fn run_spec_code(source: &str) -> Option<(i32, String)> {
-    if cfg!(target_os = "macos") {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP golden execution: {}", reason);
         return None;
     }
     run_alya_code_full(source)
+}
+
+#[test]
+fn test_native_execution_support_or_documented_skip() {
+    // Gate + inventory in one: where execution is supported, prove it with a
+    // smoke binary; where it is skipped, print the recorded reason. The test
+    // name shows up in every CI log on every OS, so the gap stays auditable.
+    // Remove skips (not this test) once Darwin execution is verified.
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP native execution on this platform: {}", reason);
+        return;
+    }
+    match run_alya_code_full("say 40\nsay 2\n") {
+        None => println!("SKIP smoke: no C toolchain in PATH"),
+        Some((code, out)) => {
+            assert_eq!(code, 0, "smoke binary exit code");
+            assert!(
+                out.contains("40") && out.contains("2"),
+                "smoke output:\n{}",
+                out
+            );
+        }
+    }
 }
 
 #[test]
@@ -109,8 +133,8 @@ fn test_golden_spec_conformance_matrix() {
 
 #[test]
 fn test_golden_spec_execution_matrix() {
-    if cfg!(target_os = "macos") {
-        println!("Golden spec execution matrix skipped on macOS (Darwin ARM64 target pending full ABI alignment).");
+    if let Some(reason) = execution_skip_reason() {
+        println!("Golden spec execution matrix skipped: {}.", reason);
         return;
     }
     let syntax_dir = get_spec_syntax_dir();

@@ -2,6 +2,7 @@ mod common;
 use alya::codegen::{self, Architecture, OperatingSystem};
 use alya::lexer::Lexer;
 use alya::parser::Parser;
+use common::execution_skip_reason;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -186,8 +187,8 @@ fn test_integration_codegen_matrix() {
 
 #[test]
 fn test_integration_execution_matrix() {
-    if cfg!(target_os = "macos") {
-        println!("Integration execution skipped on macOS.");
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP integration execution: {}", reason);
         return;
     }
     let dir = get_integration_dir();
@@ -206,7 +207,8 @@ fn test_integration_execution_matrix() {
 
 #[test]
 fn test_integration_01_toml_mini_output() {
-    if cfg!(target_os = "macos") {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 01_toml_mini: {}", reason);
         return;
     }
     let dir = get_integration_dir();
@@ -219,7 +221,8 @@ fn test_integration_01_toml_mini_output() {
 
 #[test]
 fn test_integration_02_facade_output() {
-    if cfg!(target_os = "macos") {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 02_facade: {}", reason);
         return;
     }
     let dir = get_integration_dir();
@@ -233,7 +236,8 @@ fn test_integration_02_facade_output() {
 
 #[test]
 fn test_integration_03_ffi_struct_output() {
-    if cfg!(target_os = "macos") {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 03_ffi_struct: {}", reason);
         return;
     }
     let dir = get_integration_dir();
@@ -260,4 +264,22 @@ fn test_integration_private_symbol_is_rejected() {
         "Expected private-symbol rejection, got: {}",
         err
     );
+}
+
+#[test]
+fn test_native_execution_support_or_documented_skip() {
+    // Same gate as golden: prove execution with a smoke binary, or print the
+    // recorded skip reason. Test name keeps the gap auditable in CI logs.
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP native execution on this platform: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    match run_entry_with_base_dir("say 40\nsay 2\n", &dir) {
+        None => println!("SKIP smoke: no C toolchain in PATH"),
+        Some((code, out)) => {
+            assert_eq!(code, 0, "smoke binary exit code");
+            assert_eq!(out, "40\n2\n", "smoke binary output");
+        }
+    }
 }
