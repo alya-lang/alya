@@ -23,6 +23,12 @@ enum BlockKind {
     Interface,
     Test,
     Bench,
+    /// Bare closure/spawn block closed by `end`:
+    /// `spawn || =>`, `let f = || =>` (multiline, nothing after `=>`).
+    ClosureEnd,
+    /// Paren closure call closed by `)`:
+    /// `sync.spawn(|| =>` (unclosed `(` on the starter line).
+    ClosureParen,
 }
 
 fn is_in_extern_block(stack: &[BlockKind]) -> bool {
@@ -347,6 +353,42 @@ fn ends_with_word_outside_quotes(s: &str, word: &str) -> bool {
     !in_str_scan
 }
 
+fn has_unclosed_paren_outside_quotes(s: &str) -> bool {
+    let mut in_str = false;
+    let mut quote = '"';
+    let mut escaped = false;
+    let mut depth: i32 = 0;
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_str {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == quote as u8 {
+                in_str = false;
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'"' || b == b'`' {
+            in_str = true;
+            quote = b as char;
+            i += 1;
+            continue;
+        }
+        if b == b'(' {
+            depth += 1;
+        } else if b == b')' {
+            depth -= 1;
+        }
+        i += 1;
+    }
+    depth > 0
+}
+
 fn get_block_starter(code: &str, in_extern: bool, in_interface: bool) -> Option<BlockKind> {
     // If the line ends with 'end' outside quotes, whatever block it opened is immediately closed on the same line
     if ends_with_word_outside_quotes(code, "end") {
@@ -429,6 +471,23 @@ fn get_block_starter(code: &str, in_extern: bool, in_interface: bool) -> Option<
             return Some(BlockKind::Test);
         } else {
             return Some(BlockKind::Bench);
+        }
+    }
+    // Multiline closure / spawn blocks: a trailing `=>` with nothing after
+    // it opens an indented body. `when`/`select` arms (`is .. =>`,
+    // `case ..`) are handled by their own logic above and excluded here.
+    // A starter with an unclosed `(` (e.g. `sync.spawn(|| =>`) closes with
+    // `)`; otherwise it closes with `end` (e.g. `spawn || =>`).
+    if !matches!(first_word, "is" | "case" | "else") {
+        if let Some(pos) = find_str_outside_quotes(code_after_pub, "=>") {
+            let after = code_after_pub[pos + "=>".len()..].trim();
+            if after.is_empty() {
+                if has_unclosed_paren_outside_quotes(code_after_pub) {
+                    return Some(BlockKind::ClosureParen);
+                } else {
+                    return Some(BlockKind::ClosureEnd);
+                }
+            }
         }
     }
     None
@@ -780,10 +839,18 @@ pub fn format_source(source: &str) -> Result<String, String> {
         let is_finally = first_word == "finally" || code.starts_with("finally(");
         let is_case = first_word == "case";
         let is_timeout = first_word == "timeout";
+        // Closes a paren closure call (`sync.spawn(|| =>` .. `)`). Only
+        // dedents when the top of stack is actually such a block; a plain
+        // `)` (e.g. multiline call args) keeps current behavior.
+        let is_close_paren =
+            code.starts_with(")") && block_stack.last() == Some(&BlockKind::ClosureParen);
 
         let line_indent: usize;
 
-        if is_end {
+        if is_close_paren {
+            block_stack.pop();
+            line_indent = block_stack.len();
+        } else if is_end {
             if block_stack.last() == Some(&BlockKind::WhenArm)
                 || block_stack.last() == Some(&BlockKind::SelectArm)
             {
@@ -867,6 +934,7 @@ pub fn format_source(source: &str) -> Result<String, String> {
 
         // Indent increase triggers (opens a new block for following lines)
         if !is_end
+            && !is_close_paren
             && !is_is
             && !is_else
             && !is_elif
@@ -1566,5 +1634,66 @@ pub struct WithComment
 end
 "#;
         assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_spawn_bare_closure_block() {
+        let input = r#"spawn || =>
+ch_a.send("hi")
+end
+"#;
+        let expected = r#"spawn || =>
+    ch_a.send("hi")
+end
+"#;
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_sync_spawn_paren_closure_block() {
+        let input = r#"sync.spawn(|| =>
+defer wg.done()
+mut.lock()
+counter += 1
+mut.unlock()
+)
+"#;
+        let expected = r#"sync.spawn(|| =>
+    defer wg.done()
+    mut.lock()
+    counter += 1
+    mut.unlock()
+)
+"#;
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_nested_closure_blocks() {
+        let input = r#"sync.spawn(|| =>
+if ready
+say "go"
+end
+sync.spawn(|| =>
+say "nested"
+)
+)
+"#;
+        let expected = r#"sync.spawn(|| =>
+    if ready
+        say "go"
+    end
+    sync.spawn(|| =>
+        say "nested"
+    )
+)
+"#;
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_inline_closure_untouched() {
+        let input = "let f = || => 42\nsay f()\n";
+        assert_eq!(format_source(input).unwrap(), input);
     }
 }

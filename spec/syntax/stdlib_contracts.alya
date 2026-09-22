@@ -91,17 +91,17 @@ let counter = 0
 wg.add(2)
 
 sync.spawn(|| =>
-defer wg.done()
-mut.lock()
-counter += 1
-mut.unlock()
+    defer wg.done()
+    mut.lock()
+    counter += 1
+    mut.unlock()
 )
 
 sync.spawn(|| =>
-defer wg.done()
-mut.lock()
-counter += 1
-mut.unlock()
+    defer wg.done()
+    mut.lock()
+    counter += 1
+    mut.unlock()
 )
 
 wg.wait()

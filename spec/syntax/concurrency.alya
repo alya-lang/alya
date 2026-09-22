@@ -38,11 +38,11 @@ let ch_a = Channel[string].new(capacity: 1)
 let ch_b = Channel[string].new(capacity: 1)
 
 spawn || =>
-ch_a.send("Packet from Sensor A")
+    ch_a.send("Packet from Sensor A")
 end
 
 spawn || =>
-ch_b.send("Packet from Sensor B")
+    ch_b.send("Packet from Sensor B")
 end
 
 # Multiplex incoming messages with non-blocking fallback
@@ -70,17 +70,17 @@ wg.add(2)
 
 # Spawn OS worker threads
 sync.spawn(|| =>
-defer wg.done()
-mut.lock()
-shared_counter += 10
-mut.unlock()
+    defer wg.done()
+    mut.lock()
+    shared_counter += 10
+    mut.unlock()
 )
 
 sync.spawn(|| =>
-defer wg.done()
-mut.lock()
-shared_counter += 20
-mut.unlock()
+    defer wg.done()
+    mut.lock()
+    shared_counter += 20
+    mut.unlock()
 )
 
 # Await both threads
@@ -96,7 +96,7 @@ say f"Thread-safe shared counter result: {shared_counter}" # 30
 
 let rendezvous_ch = Channel[int].new()   # No capacity: rendezvous
 spawn || =>
-rendezvous_ch.send(42)
+    rendezvous_ch.send(42)
 end
 let rendezvous_got = rendezvous_ch.recv()
 assert_eq(rendezvous_got, 42)
@@ -128,22 +128,22 @@ let m3 = sync.Mutex.new()
 let total3 = 0
 w3.add(3)
 sync.spawn(|| =>
-defer w3.done()
-m3.lock()
-total3 += 1
-m3.unlock()
+    defer w3.done()
+    m3.lock()
+    total3 += 1
+    m3.unlock()
 )
 sync.spawn(|| =>
-defer w3.done()
-m3.lock()
-total3 += 10
-m3.unlock()
+    defer w3.done()
+    m3.lock()
+    total3 += 10
+    m3.unlock()
 )
 sync.spawn(|| =>
-defer w3.done()
-m3.lock()
-total3 += 100
-m3.unlock()
+    defer w3.done()
+    m3.lock()
+    total3 += 100
+    m3.unlock()
 )
 w3.wait()
 assert_eq(total3, 111)
