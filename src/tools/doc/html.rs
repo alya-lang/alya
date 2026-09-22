@@ -64,7 +64,7 @@ const COMMON_CSS: &str = r##"
   --radius: 0.5rem;
 }
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; height: 100%; }
 body {
   margin: 0;
   background: var(--bg);
@@ -73,6 +73,11 @@ body {
   font-size: 14.5px;
   line-height: 1.7;
   -webkit-font-smoothing: antialiased;
+  /* App shell: viewport-locked column; only the three shell columns scroll. */
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 a { color: inherit; }
 ::selection { background: rgba(124, 58, 237, 0.22); }
@@ -82,6 +87,7 @@ a { color: inherit; }
   position: sticky;
   top: 0;
   z-index: 50;
+  flex: none;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
 }
@@ -188,15 +194,19 @@ a { color: inherit; }
 /* Shell: sidebar + content + toc */
 .shell {
   max-width: 1400px;
+  width: 100%;
   margin: 0 auto;
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr) 220px;
-  align-items: start;
+  flex: 1;
+  min-height: 0;
 }
+/* Grid items must be allowed to shrink so their own scrollbars engage. */
+.sidenav, .content, .toc { min-height: 0; }
 .sidenav {
   position: sticky;
   top: 57px;
-  max-height: calc(100vh - 57px);
+  height: 100%;
   overflow-y: auto;
   padding: 24px 12px 48px 24px;
   font-size: 0.85rem;
@@ -228,7 +238,7 @@ a { color: inherit; }
 .toc {
   position: sticky;
   top: 57px;
-  max-height: calc(100vh - 57px);
+  height: 100%;
   overflow-y: auto;
   padding: 24px 24px 48px 12px;
   font-size: 0.8rem;
@@ -239,7 +249,11 @@ a { color: inherit; }
 .toc a.on { color: var(--fg); border-left-color: var(--fg); font-weight: 500; }
 
 /* Content */
-.content { padding: 28px 40px 96px; min-width: 0; }
+.content { padding: 28px 40px 96px; min-width: 0; height: 100%; overflow-y: auto; }
+/* Reserve viewport room after the final section so its title can scroll up
+   just beneath the sticky header — this lets the scroll-spy activate the
+   last link instead of sticking on an earlier one. */
+.content > section:last-child { margin-bottom: max(24px, calc(100vh - 160px)); }
 .crumbs { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--fg-faint); margin-bottom: 12px; }
 .crumbs a { color: var(--fg-muted); text-decoration: none; }
 .crumbs a:hover { color: var(--fg); }
@@ -398,16 +412,21 @@ table.tbl tr:hover td { background: var(--bg-soft); }
 .modcard code { font-family: var(--font-mono); font-size: 0.9rem; font-weight: 600; }
 .modcard p { font-size: 0.82rem; color: var(--fg-muted); margin: 6px 0 12px; min-height: 2.5em; }
 .footer {
+  flex: none;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  z-index: 50;
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+}
+.footer-in {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 20px 24px 40px;
-  border-top: 1px solid var(--border);
-  color: var(--fg-muted);
-  font-size: 0.8rem;
+  padding: 10px 24px;
   display: flex;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 4px 16px;
 }
 .footer a { color: var(--fg-muted); }
 
@@ -579,7 +598,7 @@ pub fn generate_html_with_nav(module: &DocModule, all_modules: &[DocModule]) -> 
 
     html.push_str("</div>\n\n");
 
-    html.push_str("<footer class=\"footer\">\n");
+    html.push_str("<footer class=\"footer\">\n  <div class=\"footer-in\">\n");
     if is_stdlib_path(&module.file_path) {
         html.push_str(&format!(
             "  <span>Generated with <code class=\"inline\">alya doc</code> &middot; Alya Standard Library v{}</span>\n",
@@ -591,7 +610,7 @@ pub fn generate_html_with_nav(module: &DocModule, all_modules: &[DocModule]) -> 
             env!("CARGO_PKG_VERSION")
         ));
     }
-    html.push_str("  <span><a href=\"index.html\">\u{2190} All modules</a></span>\n");
+    html.push_str("  <span><a href=\"index.html\">\u{2190} All modules</a></span>\n  </div>\n");
     html.push_str("</footer>\n\n");
 
     // Client-side scripts: theme, ⌘K focus, live filter, copy, scroll-spy.
@@ -651,9 +670,15 @@ const spy = new IntersectionObserver((entries) => {
   });
 }, { rootMargin: '-20% 0px -70% 0px' });
 tocLinks.forEach((a) => {
-  const s = document.querySelector(a.getAttribute('href'));
+  const s = targetFor(a);
   if (s) spy.observe(s);
 });
+// querySelector chokes on literal `/` and `.` inside IDs (e.g. `#g-i/o-…`,
+// `#fn-sync.spawn`); getElementById takes IDs verbatim.
+function targetFor(a) {
+  const href = a.getAttribute('href');
+  return href && href.charAt(0) === '#' ? document.getElementById(href.slice(1)) : null;
+}
 function toggleDrawer(which) {
   const left = document.querySelector('.sidenav');
   const right = document.querySelector('.toc');
@@ -1220,15 +1245,15 @@ pub fn generate_index_html(modules: &[DocModule], pkg_name: Option<&str>) -> Str
 
     html.push_str("</div>\n\n");
 
-    html.push_str("<footer class=\"footer\">\n");
+    html.push_str("<footer class=\"footer\">\n  <div class=\"footer-in\">\n");
     if let Some(pkg) = pkg_name {
         html.push_str(&format!(
-            "  <span>Generated with <code class=\"inline\">alya doc</code> &middot; {} API reference</span>\n",
+            "  <span>Generated with <code class=\"inline\">alya doc</code> &middot; {} API reference</span>\n  </div>\n",
             escape_html(pkg)
         ));
     } else {
         html.push_str(&format!(
-            "  <span>Generated with <code class=\"inline\">alya doc</code> &middot; Alya Standard Library v{}</span>\n",
+            "  <span>Generated with <code class=\"inline\">alya doc</code> &middot; Alya Standard Library v{}</span>\n  </div>\n",
             env!("CARGO_PKG_VERSION")
         ));
     }
@@ -1271,9 +1296,15 @@ const spy = new IntersectionObserver((entries) => {
   });
 }, { rootMargin: '-20% 0px -70% 0px' });
 tocLinks.forEach((a) => {
-  const s = document.querySelector(a.getAttribute('href'));
+  const s = targetFor(a);
   if (s) spy.observe(s);
 });
+// querySelector chokes on literal `/` and `.` inside IDs (e.g. `#g-i/o-…`,
+// `#fn-sync.spawn`); getElementById takes IDs verbatim.
+function targetFor(a) {
+  const href = a.getAttribute('href');
+  return href && href.charAt(0) === '#' ? document.getElementById(href.slice(1)) : null;
+}
 function toggleDrawer(which) {
   const left = document.querySelector('.sidenav');
   const right = document.querySelector('.toc');
