@@ -1792,7 +1792,11 @@ impl Parser {
                         let pattern_start = self.parse_expression()?;
                         if let Expr::Binary { left, op, right } = pattern_start {
                             if op == BinaryOp::Range || op == BinaryOp::RangeInclusive {
-                                patterns.push(WhenPattern::Range(*left, *right));
+                                patterns.push(WhenPattern::Range(
+                                    *left,
+                                    *right,
+                                    op == BinaryOp::RangeInclusive,
+                                ));
                             } else {
                                 patterns.push(WhenPattern::Exact(Expr::Binary { left, op, right }));
                             }
@@ -1800,9 +1804,15 @@ impl Parser {
                             self.current_token().token_type,
                             TokenType::DotDot | TokenType::DotDotEqual
                         ) {
+                            let inclusive =
+                                matches!(self.current_token().token_type, TokenType::DotDotEqual);
                             self.advance(); // skip '..' or '..='
                             let pattern_end = self.parse_expression()?;
-                            patterns.push(WhenPattern::Range(pattern_start, pattern_end));
+                            patterns.push(WhenPattern::Range(
+                                pattern_start,
+                                pattern_end,
+                                inclusive,
+                            ));
                         } else if let Expr::Array(elements) = pattern_start {
                             let mut bindings = Vec::new();
                             let mut literal_checks = Vec::new();

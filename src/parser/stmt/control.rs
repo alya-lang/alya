@@ -5,7 +5,7 @@ use crate::parser::Parser;
 #[derive(Debug, Clone)]
 pub(crate) enum WhenPattern {
     Exact(Expr),
-    Range(Expr, Expr),
+    Range(Expr, Expr, bool),
     Relational(BinaryOp, Expr),
     Type(String),
     TupleDestructure {
@@ -31,12 +31,19 @@ pub(crate) fn build_pattern_condition(subject: &Expr, pattern: WhenPattern) -> E
             target,
             negated: false,
         },
-        WhenPattern::Range(start, end) => {
+        WhenPattern::Range(start, end, _inclusive) => {
             let gte = Expr::Binary {
                 left: Box::new(subject.clone()),
                 op: BinaryOp::GreaterEqual,
                 right: Box::new(start),
             };
+            // Pattern-position ranges are CLOSED intervals on both ends:
+            // `is a..b` and `is a..=b` both include `b`. This differs
+            // deliberately from value-position `..` (loops, slices), which
+            // is half-open: stdlib and ecosystem packages pervasively encode
+            // closed digit/ASCII intervals (`is 48..57` must include '9'),
+            // and silently dropping endpoints corrupts data (e.g. hex
+            // decoding). The flag is retained for tooling.
             let lte = Expr::Binary {
                 left: Box::new(subject.clone()),
                 op: BinaryOp::LessEqual,
@@ -488,7 +495,11 @@ impl Parser {
                         let pattern_start = self.parse_expression()?;
                         if let Expr::Binary { left, op, right } = pattern_start {
                             if op == BinaryOp::Range || op == BinaryOp::RangeInclusive {
-                                patterns.push(WhenPattern::Range(*left, *right));
+                                patterns.push(WhenPattern::Range(
+                                    *left,
+                                    *right,
+                                    op == BinaryOp::RangeInclusive,
+                                ));
                             } else {
                                 patterns.push(WhenPattern::Exact(Expr::Binary { left, op, right }));
                             }
@@ -496,9 +507,15 @@ impl Parser {
                             self.current_token().token_type,
                             TokenType::DotDot | TokenType::DotDotEqual
                         ) {
+                            let inclusive =
+                                matches!(self.current_token().token_type, TokenType::DotDotEqual);
                             self.advance(); // skip '..' or '..='
                             let pattern_end = self.parse_expression()?;
-                            patterns.push(WhenPattern::Range(pattern_start, pattern_end));
+                            patterns.push(WhenPattern::Range(
+                                pattern_start,
+                                pattern_end,
+                                inclusive,
+                            ));
                         } else if let Expr::Array(elements) = pattern_start {
                             let mut bindings = Vec::new();
                             let mut literal_checks = Vec::new();

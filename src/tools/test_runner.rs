@@ -86,7 +86,7 @@ impl SuiteKind {
 /// order: lowered blocks (`__test_*` / `__bench_*`) and `@test` / `@bench`
 /// functions. Only zero-parameter functions qualify — anything needing
 /// arguments cannot be auto-invoked.
-fn discover_suite_entry_points(program: &Program, kind: SuiteKind) -> Vec<String> {
+pub fn discover_suite_entry_points(program: &Program, kind: SuiteKind) -> Vec<String> {
     let mut entries = Vec::new();
     for stmt in &program.statements {
         if let Stmt::Function {
@@ -250,7 +250,7 @@ fn collect_called_names(program: &Program) -> HashSet<String> {
 /// Appends synthesized invocations for pre-discovered test entries that are
 /// not already called manually. Entries come from the pre-resolve AST;
 /// the called-names check runs on the current (resolved) program.
-fn synthesize_test_calls(program: &mut Program, entries: &[String]) {
+pub fn synthesize_test_calls(program: &mut Program, entries: &[String]) {
     if entries.is_empty() {
         return;
     }

@@ -33,7 +33,7 @@ when http_status
         say "2xx Success response"
     is 301, 302, 307
         say "3xx Redirection"
-    is 400..500                         # 400 through 499 (half-open range)
+    is 400..500                         # 400 through 500 (closed interval in patterns)
         say "4xx Client Error"
     is 500..=599                        # 500 through 599 (inclusive range)
         say "5xx Server Error"
@@ -253,7 +253,7 @@ say "Single-line then arms and first-match-wins OK"
 
 function when_range_name(n: int) -> string
     when n
-        is 0..10 then return "low"
+        is 0..9 then return "low"
         is 10..=20 then return "mid"
         else return "high"
     end
@@ -264,6 +264,7 @@ end
 # ------------------------------------------------------------------------------
 test "range arms bound correctly"
     assert_eq(when_range_name(5), "low")
+    assert_eq(when_range_name(9), "low")
     assert_eq(when_range_name(10), "mid")
     assert_eq(when_range_name(21), "high")
 end

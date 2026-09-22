@@ -61,8 +61,19 @@ pub fn run_alya_code_with_options(
     let tokens = lexer.tokenize().expect("Lexer error");
     let mut parser = Parser::new(tokens);
     let mut ast = parser.parse().expect("Parser error");
+    // Auto-invoke `test` blocks and `@test` functions (same as `alya test`),
+    // so fixtures' embedded tests actually execute instead of rotting.
+    // Entries are collected BEFORE imports merge (foreign tests stay out).
+    let test_entries = {
+        use alya::tools::test_runner::{discover_suite_entry_points, SuiteKind};
+        discover_suite_entry_points(&ast, SuiteKind::Test)
+    };
     alya::parser::resolve_imports(&mut ast, std::path::Path::new("."))
         .expect("Module import resolution failed");
+    {
+        use alya::tools::test_runner::synthesize_test_calls;
+        synthesize_test_calls(&mut ast, &test_entries);
+    }
 
     let os = if cfg!(target_os = "windows") {
         OperatingSystem::Windows

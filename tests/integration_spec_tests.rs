@@ -62,7 +62,15 @@ fn run_entry_with_base_dir(source: &str, base_dir: &Path) -> Option<(i32, String
     let tokens = lexer.tokenize().expect("Lexer error");
     let mut parser = Parser::new(tokens);
     let mut ast = parser.parse().expect("Parser error");
+    let test_entries = {
+        use alya::tools::test_runner::{discover_suite_entry_points, SuiteKind};
+        discover_suite_entry_points(&ast, SuiteKind::Test)
+    };
     alya::parser::resolve_imports(&mut ast, base_dir).expect("Import resolution failed");
+    {
+        use alya::tools::test_runner::synthesize_test_calls;
+        synthesize_test_calls(&mut ast, &test_entries);
+    }
 
     let os = host_os();
     let arch = host_arch();
