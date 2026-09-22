@@ -304,9 +304,15 @@ pub fn extract_module_docs(source: &str, file_path: &str) -> DocModule {
         }
     }
 
-    // Any remaining methods whose structs weren't defined in the same file stay in standalone functions
-    for (_, methods) in struct_methods {
-        standalone_functions.extend(methods);
+    // Any remaining methods whose structs weren't defined in the same file stay
+    // in standalone functions, keeping their qualified `Struct.method` display
+    // name so anchors stay unique (e.g. `sync__spawn` renders as `sync.spawn`,
+    // never colliding with a bare `spawn` on the same page).
+    for (st_name, methods) in struct_methods {
+        standalone_functions.extend(methods.into_iter().map(|mut m| {
+            m.name = format!("{}.{}", st_name, m.name);
+            m
+        }));
     }
 
     module.functions = standalone_functions;

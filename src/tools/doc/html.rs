@@ -8,6 +8,10 @@ const ALYA_LOGO_SVG: &str = include_str!("../../../assets/brand/docs/alya-docs.s
 const SUN_SVG: &str = r##"<svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>"##;
 const MOON_SVG: &str = r##"<svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>"##;
 
+// Lucide-style clipboard glyph for copy buttons. (The transient check mark
+// lives in page scripts next to the click handler.)
+const COPY_SVG: &str = r##"<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>"##;
+
 // Lucide-style hamburger glyphs for the mobile drawer toggles.
 const MENU_SVG: &str = r##"<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/></svg>"##;
 const LIST_SVG: &str = r##"<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>"##;
@@ -267,16 +271,30 @@ h1.title code { font-family: var(--font-mono); font-weight: 800; }
   right: 8px;
 }
 .copy {
-  font-size: 0.72rem;
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 5px;
   background: var(--bg);
   color: var(--fg-muted);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 3px 9px;
   cursor: pointer;
 }
+.copy svg { width: 14px; height: 14px; display: block; }
 .copy:hover { color: var(--fg); }
+/* Reserve room for the floating button so long signatures never slide
+   underneath it; keep the button visible on touch devices (no hover). */
+.codeblock { padding-right: 46px; }
+@media (hover: none) {
+  .codeblock .copy { opacity: 1; }
+}
+@media (max-width: 860px) {
+  .codeblock { font-size: 0.76rem; padding: 12px 46px 12px 12px; }
+  .fn h2 { font-size: 1.05rem; overflow-wrap: anywhere; }
+}
 .tok-k, .kw { color: var(--accent); }
 .tok-t, .ty { color: var(--accent-2); }
 .tok-s { color: var(--good); }
@@ -540,8 +558,9 @@ pub fn generate_html_with_nav(module: &DocModule, all_modules: &[DocModule]) -> 
     html.push_str(&render_badgerow(module));
     if let Some(import_line) = module_import_line(module) {
         html.push_str(&format!(
-            "  <div class=\"codeblock\">{}<button class=\"copy\">Copy</button></div>\n",
-            escape_html(&import_line)
+            "  <div class=\"codeblock\">{}<button class=\"copy\" aria-label=\"Copy import\">{}</button></div>\n",
+            escape_html(&import_line),
+            COPY_SVG
         ));
     }
 
@@ -603,11 +622,12 @@ function filterSymbols() {
     if (target) a.style.display = target.style.display;
   });
 }
+const ICON_CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
 document.querySelectorAll('.copy').forEach((btn) => {
   btn.addEventListener('click', async () => {
     const block = btn.closest('.codeblock');
     const code = block ? block.querySelector('code') : null;
-    const text = code ? code.innerText : btn.parentElement.innerText.replace(/Copy$/, '');
+    const text = code ? code.innerText : btn.parentElement.innerText;
     try { await navigator.clipboard.writeText(text); }
     catch {
       const ta = document.createElement('textarea');
@@ -617,9 +637,9 @@ document.querySelectorAll('.copy').forEach((btn) => {
       document.execCommand('copy');
       ta.remove();
     }
-    const old = btn.textContent;
-    btn.textContent = 'Copied';
-    setTimeout(() => (btn.textContent = old), 1200);
+    const old = btn.innerHTML;
+    btn.innerHTML = ICON_CHECK;
+    setTimeout(() => (btn.innerHTML = old), 1200);
   });
 });
 const tocLinks = [...document.querySelectorAll('#toc a')];
@@ -1347,8 +1367,8 @@ fn escape_html(s: &str) -> String {
 fn render_code_block(sig: &str) -> String {
     let highlighted = highlight_signature(sig);
     format!(
-        "<div class=\"codeblock\">{}\n<button class=\"copy\">Copy</button></div>\n",
-        highlighted
+        "<div class=\"codeblock\">{}\n<button class=\"copy\" aria-label=\"Copy signature\">{}</button></div>\n",
+        highlighted, COPY_SVG
     )
 }
 
@@ -1431,9 +1451,10 @@ fn render_markdown_html(md: &str) -> String {
                     out.push_str("</ul>\n");
                     in_list = false;
                 }
-                out.push_str(
-                    "<div class=\"codeblock\"><button class=\"copy\">Copy</button><pre><code>",
-                );
+                out.push_str(&format!(
+                    "<div class=\"codeblock\"><button class=\"copy\" aria-label=\"Copy code\">{}</button><pre><code>",
+                    COPY_SVG
+                ));
                 in_code_block = true;
             }
             continue;
