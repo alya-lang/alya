@@ -1,6 +1,7 @@
 # Alya Standard Library - String Module (std/str)
 # String inspection, transformation, padding and trimming utilities.
 # Also covers hex and base64 encoding helpers.
+# Usage: import "std/str"
 
 # --- Inspection ---
 

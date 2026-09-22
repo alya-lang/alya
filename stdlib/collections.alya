@@ -1,5 +1,6 @@
 # Alya Standard Library - Collections Module (std/collections)
 # Provides Stack, Queue, and Set data structures plus array and map utilities.
+# Usage: import "std/collections"
 
 # --- Types ---
 

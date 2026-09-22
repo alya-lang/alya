@@ -1,6 +1,7 @@
 # Alya Standard Library - Filesystem Module (std/fs)
 # Provides high-level file and directory I/O operations.
 # Covers line-oriented file helpers, recursive directory utilities, and globbing.
+# Usage: import "std/fs"
 
 import "std/path"
 

@@ -1,5 +1,6 @@
 # Alya Standard Library - OS Module (std/os)
 # Provides operating system, platform, architecture, environment, and CLI interactions.
+# Usage: import "std/os"
 
 # --- Types ---
 

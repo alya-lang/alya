@@ -1,5 +1,6 @@
 # Alya Standard Library - Math Module (std/math)
 # Provides mathematical constants, trigonometry, statistics, random numbers, and vector utilities.
+# Usage: import "std/math"
 
 # --- Constants ---
 

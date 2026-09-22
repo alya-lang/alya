@@ -1,6 +1,7 @@
 # Alya Standard Library - Console Module (std/console)
 # Provides cross-platform console encoding, code page management, and terminal control.
 # Includes ANSI colors, styles, raw code snippets, and input helpers.
+# Usage: import "std/console"
 
 # --- Color and Style Types (Merged from std/color) ---
 

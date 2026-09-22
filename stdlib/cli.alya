@@ -3,6 +3,7 @@
 # basic flag detection, option retrieval, and positional arguments.
 # For advanced CLI parsing (subcommands, choice validation, auto-generated
 # help screens, flag clustering), use the modern 'alya-lang/cli' package.
+# Usage: import "std/cli"
 
 # --- Private Helpers ---
 

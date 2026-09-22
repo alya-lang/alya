@@ -1,5 +1,6 @@
 # Alya Standard Library - Process Module (std/process)
 # Provides subprocess spawning, execution, stream piping, and exit code handling.
+# Usage: import "std/process"
 
 # --- Types ---
 

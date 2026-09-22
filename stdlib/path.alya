@@ -1,5 +1,6 @@
 # Alya Standard Library - Path Module (std/path)
 # Cross-platform path parsing, joining, normalization and glob matching utilities.
+# Usage: import "std/path"
 
 # --- Separators ---
 

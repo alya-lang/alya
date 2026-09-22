@@ -1,6 +1,7 @@
 # Alya Standard Library - Synchronization Module (std/sync)
 # Thread synchronization primitives: Mutex, Channel, WaitGroup, Once, and RwLock.
 # Also provides native OS thread and lightweight fiber (green thread) management.
+# Usage: import "std/sync"
 
 # --- Types ---
 

@@ -1,5 +1,6 @@
 # Alya Standard Library - I/O Module (std/io)
 # Standard stream handles, Stream Reader/Writer abstractions, and I/O helpers.
+# Usage: import "std/io"
 
 # --- Constants ---
 

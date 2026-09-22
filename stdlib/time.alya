@@ -1,6 +1,7 @@
 # Alya Standard Library - Time Module (std/time)
 # Provides time querying, delay routines, and UTC calendar conversions.
 # Durations are expressed in seconds unless a name says otherwise.
+# Usage: import "std/time"
 
 # --- Clock Queries ---
 

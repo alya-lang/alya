@@ -1,6 +1,7 @@
 # Alya Standard Library - Test Module (std/test)
 # Micro-testing and assertion utilities with a counting TestRunner.
 # Also hosts the micro-benchmarking engine (BenchRunner).
+# Usage: import "std/test"
 
 # --- Types ---
 

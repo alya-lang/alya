@@ -1,6 +1,7 @@
 # Alya Standard Library - JSON Module (std/json)
 # Provides JSON encoding helpers and a recursive-descent parser.
 # Encoding functions take preformatted fragments; parsing returns Alya values.
+# Usage: import "std/json"
 
 # --- Encoding ---
 

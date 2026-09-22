@@ -1,5 +1,6 @@
 # Alya Standard Library - SIMD Module (std/simd)
 # Phase 6.4 Specification: Hardware-accelerated 256-bit SIMD Vector Types
+# Usage: import "std/simd"
 
 import "std/mem"
 

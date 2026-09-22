@@ -1,5 +1,6 @@
 # Alya Standard Library - Memory Module (std/mem)
 # Provides high-performance Arena memory allocation, raw pointer utilities, and dynamic buffers.
+# Usage: import "std/mem"
 
 # --- Types ---
 

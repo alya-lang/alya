@@ -1,6 +1,7 @@
 # Alya Standard Library - Hash Module (std/hash)
 # Provides non-cryptographic hashing algorithms (MurmurHash3, FNV-1/1a, CRC-16/32/64, Adler-32, DJB2, SDBM, Jenkins, ELF).
 # Includes hex formatting and hash-combining helpers.
+# Usage: import "std/hash"
 
 # --- Hash Algorithms ---
 

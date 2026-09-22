@@ -1,6 +1,7 @@
 # Alya Standard Library - Network Module (std/net)
 # Provides low-level TCP/UDP socket networking (client & server).
 # For HTTP client, server, router, and middleware, use `alya-lang/http`.
+# Usage: import "std/net"
 
 import "std/str"
 
