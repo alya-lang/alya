@@ -5,12 +5,21 @@
 # --- Types ---
 
 ## Handle to a background process: process id plus the command line.
+##
+## ### Fields
+## - `pid`: Value returned by `system_exec` for the spawn command.
+## - `command`: Full command line built from the program and its arguments.
 pub struct ProcessHandle
     pid: int
     command: string
 end
 
 ## Captured result of a finished process: exit code with stdout and stderr text.
+##
+## ### Fields
+## - `exit_code`: Exit code reported by `system_exec`.
+## - `stdout`: Captured standard output text, or "" when unavailable.
+## - `stderr`: Captured standard error text, or "" when unavailable.
 pub struct ProcessOutput
     exit_code: int
     stdout: string
@@ -20,6 +29,13 @@ end
 # --- Constructors ---
 
 ## Executes program with args, waiting for completion and capturing stdout and stderr.
+##
+## ### Parameters
+## - `program`: Executable path or name to run.
+## - `args`: Argument list appended to the command separated by spaces.
+##
+## ### Returns
+## A ProcessOutput with the exit code and the captured stdout and stderr text.
 pub function process_run(program: string, args: string[] = []) -> ProcessOutput
     let pid: int = __native_get_pid()
     let now_ms: int = clock_ms()
@@ -50,6 +66,13 @@ pub function process_run(program: string, args: string[] = []) -> ProcessOutput
 end
 
 ## Spawns program with args in the background without waiting for completion.
+##
+## ### Parameters
+## - `program`: Executable path or name to run.
+## - `args`: Argument list appended to the command separated by spaces.
+##
+## ### Returns
+## A ProcessHandle holding the spawn result code and the full command line.
 pub function process_spawn(program: string, args: string[] = []) -> ProcessHandle
     let cmd: string = program
     for arg in args
@@ -66,6 +89,12 @@ end
 # --- Methods ---
 
 ## Returns true when the process exited with code 0.
+##
+## ### Parameters
+## - `self`: Finished process output to inspect.
+##
+## ### Returns
+## True when `exit_code` is 0, otherwise false.
 pub function ProcessOutput.is_ok(self: ProcessOutput) -> bool
     return self.exit_code == 0
 end
@@ -73,23 +102,35 @@ end
 # --- Utilities ---
 
 ## Exits the current process with the given code.
+##
+## ### Parameters
+## - `code`: Exit code reported to the OS.
+##
+## ### Returns
+## Nothing.
 pub function process_exit(code: int = 0)
     exit(code)
 end
 
 ## Returns the current process id.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The current process id.
 pub function process_pid() -> int
     return __native_get_pid()
 end
 
 # --- Legacy Aliases ---
 
-## Legacy alias of process_run.
+## Legacy alias of process_run. See: `process_run`.
 pub function process__run(program: string, args: string[] = []) -> ProcessOutput
     return process_run(program, args)
 end
 
-## Legacy alias of process_spawn.
+## Legacy alias of process_spawn. See: `process_spawn`.
 pub function process__spawn(program: string, args: string[] = []) -> ProcessHandle
     return process_spawn(program, args)
 end

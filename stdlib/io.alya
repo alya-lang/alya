@@ -5,22 +5,37 @@
 # --- Constants ---
 
 ## Standard error stream writer.
+##
+## ### Value
+## A Writer routing writes to `io_stderr_write`.
 pub let stderr: Writer = Writer { destination: io_stderr_write }
 
 ## Standard input stream reader.
+##
+## ### Value
+## A Reader sourcing input from `io_stdin_read`.
 pub let stdin: Reader = Reader { source: io_stdin_read }
 
 ## Standard output stream writer.
+##
+## ### Value
+## A Writer routing writes to `io_stdout_write`.
 pub let stdout: Writer = Writer { destination: io_stdout_write }
 
 # --- Types ---
 
 ## Byte stream reader backed by a source function.
+##
+## ### Fields
+## - `source`: Zero-argument function returning the available data as a string.
 pub struct Reader
     source
 end
 
 ## Byte stream writer backed by a destination function.
+##
+## ### Fields
+## - `destination`: Function accepting the data string to write.
 pub struct Writer
     destination
 end
@@ -28,6 +43,13 @@ end
 # --- Core I/O Operations ---
 
 ## Copies all data from src into dst, returning the number of bytes written.
+##
+## ### Parameters
+## - `src`: Reader to drain via `io_read_all`.
+## - `dst`: Writer receiving the data.
+##
+## ### Returns
+## The number of bytes written, or 0 when dst has no destination.
 pub function io_copy(src: Reader, dst: Writer) -> int
     let data: string = io_read_all(src)
     if dst != null and dst.destination != null
@@ -39,6 +61,12 @@ pub function io_copy(src: Reader, dst: Writer) -> int
 end
 
 ## Reads all available data from reader r, returning "" when it is empty.
+##
+## ### Parameters
+## - `r`: Reader whose source function is invoked.
+##
+## ### Returns
+## The data returned by the source, or "" when r or its source is unset.
 pub function io_read_all(r: Reader) -> string
     if r == null or r.source == null
         return ""
@@ -50,16 +78,34 @@ end
 # --- Standard Streams ---
 
 ## Writes data to standard error.
+##
+## ### Parameters
+## - `data`: Text to write.
+##
+## ### Returns
+## Nothing.
 pub function io_stderr_write(data: string)
     say data
 end
 
 ## Reads a line from standard input.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The input line read with an empty prompt.
 pub function io_stdin_read() -> string
     return ask("")
 end
 
 ## Writes data to standard output.
+##
+## ### Parameters
+## - `data`: Text to write.
+##
+## ### Returns
+## Nothing.
 pub function io_stdout_write(data: string)
     say data
 end
@@ -67,16 +113,35 @@ end
 # --- Convenience Helpers ---
 
 ## Prints s to standard output.
+##
+## ### Parameters
+## - `s`: Text to print.
+##
+## ### Returns
+## Nothing.
 pub function io_print(s: string)
     say s
 end
 
 ## Reads a line of input, showing prompt_text first when given.
+##
+## ### Parameters
+## - `prompt_text`: Prompt shown before reading; empty shows no prompt.
+##
+## ### Returns
+## The input line.
 pub function io_read_line(prompt_text: string = "") -> string
     return ask(prompt_text)
 end
 
 ## Writes data through target, falling back to standard output when unset.
+##
+## ### Parameters
+## - `target`: Writer receiving the data.
+## - `data`: Text to write.
+##
+## ### Returns
+## Nothing.
 pub function write(target: Writer, data: string)
     if target != null and target.destination != null
         let wf = target.destination
@@ -89,11 +154,24 @@ end
 # --- Reader & Writer Methods ---
 
 ## Reads all available data from this reader.
+##
+## ### Parameters
+## - `self`: Reader whose source function is invoked.
+##
+## ### Returns
+## The data returned by the source, or "" when the source is unset.
 pub function Reader.read_all(self: Reader) -> string
     return io_read_all(self)
 end
 
 ## Writes data through this writer, falling back to standard output when unset.
+##
+## ### Parameters
+## - `self`: Writer receiving the data.
+## - `data`: Text to write.
+##
+## ### Returns
+## Nothing.
 pub function Writer.write(self: Writer, data: string)
     if self != null and self.destination != null
         let wf = self.destination

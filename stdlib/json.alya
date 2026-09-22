@@ -6,6 +6,12 @@
 # --- Encoding ---
 
 ## Encodes preformatted item fragments as a JSON array.
+##
+## ### Parameters
+## - `items`: Array of preformatted JSON fragments joined with commas.
+##
+## ### Returns
+## The JSON array string, or `[]` when `items` is empty.
 pub function json_array(items) -> string
     let count: int = len(items)
     if count == 0
@@ -25,6 +31,12 @@ pub function json_array(items) -> string
 end
 
 ## Encodes 1 as true and any other value as false.
+##
+## ### Parameters
+## - `b`: Integer flag where only 1 encodes as true.
+##
+## ### Returns
+## The JSON literal `true` or `false`.
 pub function json_bool(b: int) -> string
     when b
         is 1 then return "true"
@@ -32,7 +44,13 @@ pub function json_bool(b: int) -> string
     end
 end
 
-## Escapes control characters, quotes, and backslashes for JSON.
+## Escapes quotes, backslashes, and common control characters for JSON.
+##
+## ### Parameters
+## - `s`: Raw string whose characters are escaped.
+##
+## ### Returns
+## The escaped string content without surrounding quotes.
 pub function json_escape(s: string) -> string
     let slen: int = len(s)
     let res: string = ""
@@ -58,6 +76,12 @@ pub function json_escape(s: string) -> string
 end
 
 ## Formats a float with trimmed fractional digits.
+##
+## ### Parameters
+## - `n`: Float value rounded to two fractional digits.
+##
+## ### Returns
+## The JSON number string with trailing fractional zeros trimmed and `.0` when whole.
 pub function json_float(n: float) -> string
     let iv: int = int(n)
     let fv: float = n - float(iv)
@@ -78,26 +102,54 @@ pub function json_float(n: float) -> string
 end
 
 ## Formats an integer as a JSON number.
+##
+## ### Parameters
+## - `n`: Integer value converted to decimal text.
+##
+## ### Returns
+## The JSON number string.
 pub function json_int(n: int) -> string
     return str(n)
 end
 
 ## Formats an escaped key with a preformatted value as a JSON pair.
+##
+## ### Parameters
+## - `key`: Raw object key escaped before quoting.
+## - `val`: Preformatted JSON value fragment.
+##
+## ### Returns
+## The `"key": value` JSON pair string.
 pub function json_kv(key: string, val) -> string
     return "\"" + json_escape(key) + "\": " + str(val)
 end
 
 ## Returns the JSON null literal.
+##
+## ### Returns
+## The JSON literal `null`.
 pub function json_null() -> string
     return "null"
 end
 
 ## Formats an untyped number as a JSON number.
+##
+## ### Parameters
+## - `n`: Untyped numeric value converted with string coercion.
+##
+## ### Returns
+## The JSON number string.
 pub function json_number(n) -> string
     return str(n)
 end
 
 ## Encodes a map of preformatted values as a JSON object.
+##
+## ### Parameters
+## - `m`: Map whose keys are escaped and whose values are preformatted fragments.
+##
+## ### Returns
+## The JSON object string, or `{}` when `m` is empty.
 pub function json_object(m) -> string
     if len(m) == 0
         return "{}"
@@ -117,6 +169,12 @@ pub function json_object(m) -> string
 end
 
 ## Wraps an escaped string in double quotes.
+##
+## ### Parameters
+## - `s`: Raw string escaped before quoting.
+##
+## ### Returns
+## The double-quoted JSON string.
 pub function json_string(s: string) -> string
     return "\"" + json_escape(s) + "\""
 end
@@ -306,7 +364,13 @@ function _json_skip_ws(s: string, pos: int[], slen: int)
     end
 end
 
-## Returns 1 when the text parses as a complete JSON value.
+## Returns 1 when the text parses as a complete non-null JSON value.
+##
+## ### Parameters
+## - `text`: JSON source text parsed and checked for trailing content.
+##
+## ### Returns
+## 1 when the whole text is one complete non-null JSON value, 0 otherwise.
 pub function json_is_valid(text: string) -> int
     let s: string = str_from_ptr(text)
     let slen: int = len(s)
@@ -323,6 +387,12 @@ pub function json_is_valid(text: string) -> int
 end
 
 ## Parses a JSON document into Alya values.
+##
+## ### Parameters
+## - `text`: JSON source text decoded into objects, arrays, strings, numbers, booleans, or null.
+##
+## ### Returns
+## The parsed Alya value with `true` as 1, `false` as 0, or null for empty input.
 pub function json_parse(text: string)
     let s: string = str_from_ptr(text)
     let slen: int = len(s)
@@ -336,16 +406,22 @@ end
 # --- Legacy Aliases ---
 
 ## Legacy alias encoding a map as a JSON object.
+##
+## See: `json_object`.
 pub function json_map(m) -> string
     return json_object(m)
 end
 
 ## Legacy alias parsing a JSON document expected to be an array.
+##
+## See: `json_parse`.
 pub function json_parse_array(text: string)
     return json_parse(text)
 end
 
 ## Legacy alias parsing a JSON document expected to be an object.
+##
+## See: `json_parse`.
 pub function json_parse_object(text: string)
     return json_parse(text)
 end

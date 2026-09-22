@@ -5,42 +5,84 @@
 # --- Types ---
 
 ## First-in first-out queue backed by an array with a head pointer.
+##
+## Represented as an array whose index 0 holds the head pointer; create one with `queue_new` and operate on it with the `queue_*` functions.
 pub struct Queue end
 
 ## Set of unique items backed by a map.
+##
+## Represented as a map from each item to 1; create one with `set_new` and operate on it with the `set_*` functions.
 pub struct Set end
 
 ## Last-in first-out stack backed by an array.
+##
+## Represented as a plain array where the end is the top; create one with `Stack.new` and operate on it with the `stack_*` functions.
 pub struct Stack end
 
 # --- Constructors ---
 
 ## Creates a new empty queue.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## A new empty queue, delegated to `queue_new`.
 pub function Queue.new()
     return queue_new()
 end
 
 ## Creates a new empty queue.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## A new empty queue as an array holding only the head pointer.
 pub function queue_new()
     return [1]
 end
 
 ## Creates a new empty set.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## A new empty set, delegated to `set_new`.
 pub function Set.new()
     return set_new()
 end
 
 ## Creates a new empty set.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## A new empty set as an empty map.
 pub function set_new()
     return {}
 end
 
 ## Creates a new empty stack.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## A new empty stack as an empty array.
 pub function Stack.new()
     return []
 end
 
 ## Creates a new empty stack.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## A new empty stack as an empty array.
 pub function stack_new()
     return []
 end
@@ -48,6 +90,12 @@ end
 # --- Stack ---
 
 ## Returns 1 if the stack is empty, 0 otherwise.
+##
+## ### Parameters
+## - `s`: Stack to test.
+##
+## ### Returns
+## 1 when the stack holds no items, 0 otherwise.
 pub function stack_is_empty(s) -> int
     if len(s) == 0
         return 1
@@ -56,6 +104,12 @@ pub function stack_is_empty(s) -> int
 end
 
 ## Returns the top item without removing it, or 0 if empty.
+##
+## ### Parameters
+## - `s`: Stack to peek at.
+##
+## ### Returns
+## The top item of the stack, or 0 when the stack is empty.
 pub function stack_peek(s)
     let count: int = len(s)
     if count == 0
@@ -65,16 +119,35 @@ pub function stack_peek(s)
 end
 
 ## Removes and returns the top item.
+##
+## ### Parameters
+## - `s`: Stack to pop from.
+##
+## ### Returns
+## The removed top item of the stack.
 pub function stack_pop(s)
     return s.pop()
 end
 
 ## Pushes a value onto the stack.
+##
+## ### Parameters
+## - `s`: Stack to push onto.
+## - `val`: Value to push onto the top of the stack.
+##
+## ### Returns
+## No return value; appends `val` to the top of the stack.
 pub function stack_push(s, val)
     s.push(val)
 end
 
 ## Returns the number of items in the stack.
+##
+## ### Parameters
+## - `s`: Stack to measure.
+##
+## ### Returns
+## The number of items in the stack.
 pub function stack_size(s) -> int
     return len(s)
 end
@@ -82,6 +155,12 @@ end
 # --- Queue ---
 
 ## Removes all items from the queue.
+##
+## ### Parameters
+## - `q`: Queue to clear.
+##
+## ### Returns
+## No return value; resets the queue to the empty state with its head pointer restored.
 pub function queue_clear(q)
     while len(q) > 1
         q.pop()
@@ -90,6 +169,12 @@ pub function queue_clear(q)
 end
 
 ## Returns 1 if the queue is empty, 0 otherwise.
+##
+## ### Parameters
+## - `q`: Queue to test.
+##
+## ### Returns
+## 1 when the queue holds no pending items, 0 otherwise.
 pub function queue_is_empty(q) -> int
     if q[0] >= len(q)
         return 1
@@ -98,6 +183,12 @@ pub function queue_is_empty(q) -> int
 end
 
 ## Returns the front item without removing it, or 0 if empty.
+##
+## ### Parameters
+## - `q`: Queue to peek at.
+##
+## ### Returns
+## The front item of the queue, or 0 when the queue is empty.
 pub function queue_peek(q)
     let head: int = q[0]
     if head >= len(q)
@@ -107,6 +198,12 @@ pub function queue_peek(q)
 end
 
 ## Removes and returns the front item, or 0 if empty.
+##
+## ### Parameters
+## - `q`: Queue to pop from; its backing array is compacted once the head drifts far forward.
+##
+## ### Returns
+## The removed front item of the queue, or 0 when the queue is empty.
 pub function queue_pop(q)
     let head: int = q[0]
     let total: int = len(q)
@@ -132,11 +229,24 @@ pub function queue_pop(q)
 end
 
 ## Pushes a value onto the back of the queue.
+##
+## ### Parameters
+## - `q`: Queue to push onto.
+## - `val`: Value to append to the back of the queue.
+##
+## ### Returns
+## No return value; appends `val` to the back of the queue.
 pub function queue_push(q, val)
     q.push(val)
 end
 
 ## Returns the number of items in the queue.
+##
+## ### Parameters
+## - `q`: Queue to measure.
+##
+## ### Returns
+## The number of pending items in the queue, or 0 when the head pointer runs past the backing array.
 pub function queue_size(q) -> int
     let sz: int = len(q) - q[0]
     if sz < 0
@@ -146,6 +256,12 @@ pub function queue_size(q) -> int
 end
 
 ## Returns the queued items as a plain array.
+##
+## ### Parameters
+## - `q`: Queue whose pending items are copied; the queue itself is left unmodified.
+##
+## ### Returns
+## A new array with the pending items in front-to-back order.
 pub function queue_to_array(q)
     let res = []
     let head: int = q[0]
@@ -161,11 +277,24 @@ end
 # --- Set ---
 
 ## Adds an item to the set.
+##
+## ### Parameters
+## - `s`: Set to add to.
+## - `item`: Item to add; adding it again keeps a single entry.
+##
+## ### Returns
+## No return value; maps `item` to 1 in the set.
 pub function set_add(s, item)
     s[item] = 1
 end
 
 ## Removes all items from the set.
+##
+## ### Parameters
+## - `s`: Set to clear.
+##
+## ### Returns
+## No return value; removes every key from the set.
 pub function set_clear(s)
     for k in keys(s)
         remove(s, k)
@@ -173,6 +302,13 @@ pub function set_clear(s)
 end
 
 ## Returns items in a that are not in b.
+##
+## ### Parameters
+## - `a`: Set whose items are filtered.
+## - `b`: Set whose items are excluded.
+##
+## ### Returns
+## A new set with the items of `a` that are absent from `b`.
 pub function set_difference(a, b)
     let res = {}
     for k in keys(a)
@@ -184,6 +320,12 @@ pub function set_difference(a, b)
 end
 
 ## Builds a set from the items of an array.
+##
+## ### Parameters
+## - `arr`: Array whose items become set entries; duplicates collapse to one entry.
+##
+## ### Returns
+## A new set containing each distinct item of `arr`.
 pub function set_from_array(arr)
     let s = {}
     for item in arr
@@ -193,6 +335,13 @@ pub function set_from_array(arr)
 end
 
 ## Returns 1 if the item is in the set, 0 otherwise.
+##
+## ### Parameters
+## - `s`: Set to search.
+## - `item`: Item to look up.
+##
+## ### Returns
+## 1 when `item` is in the set, 0 otherwise.
 pub function set_has(s, item) -> int
     if item in s
         return 1
@@ -201,6 +350,13 @@ pub function set_has(s, item) -> int
 end
 
 ## Returns items present in both sets.
+##
+## ### Parameters
+## - `a`: First set.
+## - `b`: Second set.
+##
+## ### Returns
+## A new set with the items found in both `a` and `b`.
 pub function set_intersection(a, b)
     let res = {}
     for k in keys(a)
@@ -212,6 +368,13 @@ pub function set_intersection(a, b)
 end
 
 ## Returns 1 if every item of a is in b, 0 otherwise.
+##
+## ### Parameters
+## - `a`: Potential subset to test.
+## - `b`: Set that must contain every item of `a`.
+##
+## ### Returns
+## 1 when every item of `a` is in `b` (an empty `a` yields 1), 0 otherwise.
 pub function set_is_subset(a, b) -> int
     for k in keys(a)
         if k not in b
@@ -222,21 +385,47 @@ pub function set_is_subset(a, b) -> int
 end
 
 ## Removes an item from the set.
+##
+## ### Parameters
+## - `s`: Set to remove from.
+## - `item`: Item to remove.
+##
+## ### Returns
+## The result of removing `item` from the set.
 pub function set_remove(s, item)
     return remove(s, item)
 end
 
 ## Returns the number of items in the set.
+##
+## ### Parameters
+## - `s`: Set to measure.
+##
+## ### Returns
+## The number of items in the set.
 pub function set_size(s) -> int
     return len(s)
 end
 
 ## Returns the set items as an array.
+##
+## ### Parameters
+## - `s`: Set whose items are listed.
+##
+## ### Returns
+## A new array holding the keys of the set.
 pub function set_to_array(s)
     return keys(s)
 end
 
 ## Returns the combined items of both sets.
+##
+## ### Parameters
+## - `a`: First set.
+## - `b`: Second set.
+##
+## ### Returns
+## A new set with every distinct item from `a` and `b`.
 pub function set_union(a, b)
     let res = {}
     for k in keys(a)
@@ -251,6 +440,13 @@ end
 # --- Array Utilities ---
 
 ## Splits an array into chunks of the given size.
+##
+## ### Parameters
+## - `arr`: Array to split; left unmodified.
+## - `chunk_size`: Number of items per chunk; must be positive.
+##
+## ### Returns
+## A new array of chunks, each holding up to `chunk_size` items in order, or an empty array when `chunk_size` is 0 or less.
 pub function array_chunk(arr, chunk_size: int)
     let res = []
     if chunk_size <= 0
@@ -274,16 +470,36 @@ pub function array_chunk(arr, chunk_size: int)
 end
 
 ## Returns a shallow copy of an array.
+##
+## ### Parameters
+## - `arr`: Array to copy.
+##
+## ### Returns
+## A new array with the same items in the same order.
 pub function array_clone(arr)
     return [...arr]
 end
 
 ## Concatenates two arrays into a new array.
+##
+## ### Parameters
+## - `a`: First array; its items come first.
+## - `b`: Second array; its items come second.
+##
+## ### Returns
+## A new array with the items of `a` followed by the items of `b`.
 pub function array_concat(a, b)
     return [...a, ...b]
 end
 
 ## Returns 1 if the array contains the value, 0 otherwise.
+##
+## ### Parameters
+## - `arr`: Array to search.
+## - `val`: Value to look for.
+##
+## ### Returns
+## 1 when `val` is in the array, 0 otherwise.
 pub function array_contains(arr, val) -> int
     if val in arr
         return 1
@@ -292,6 +508,13 @@ pub function array_contains(arr, val) -> int
 end
 
 ## Builds an array with count copies of a value.
+##
+## ### Parameters
+## - `val`: Value to repeat.
+## - `count`: How many copies to append; 0 or less yields an empty array.
+##
+## ### Returns
+## A new array holding `count` copies of `val`.
 pub function array_fill(val, count: int)
     let res = []
     let i: int = 0
@@ -303,6 +526,13 @@ pub function array_fill(val, count: int)
 end
 
 ## Returns the first index of a value, or -1 if absent.
+##
+## ### Parameters
+## - `arr`: Array to search from the front.
+## - `val`: Value to look for.
+##
+## ### Returns
+## The lowest index holding `val`, or -1 when `val` is absent.
 pub function array_index_of(arr, val) -> int
     for i, item in arr
         if item == val
@@ -313,6 +543,13 @@ pub function array_index_of(arr, val) -> int
 end
 
 ## Returns the last index of a value, or -1 if absent.
+##
+## ### Parameters
+## - `arr`: Array to search from the back.
+## - `val`: Value to look for.
+##
+## ### Returns
+## The highest index holding `val`, or -1 when `val` is absent.
 pub function array_last_index_of(arr, val) -> int
     let i: int = len(arr) - 1
     while i >= 0
@@ -325,6 +562,12 @@ pub function array_last_index_of(arr, val) -> int
 end
 
 ## Returns the largest item, or 0 for an empty array.
+##
+## ### Parameters
+## - `arr`: Array to scan.
+##
+## ### Returns
+## The largest item of the array, or 0 when the array is empty.
 pub function array_max(arr)
     let count: int = len(arr)
     if count == 0
@@ -342,6 +585,12 @@ pub function array_max(arr)
 end
 
 ## Returns the smallest item, or 0 for an empty array.
+##
+## ### Parameters
+## - `arr`: Array to scan.
+##
+## ### Returns
+## The smallest item of the array, or 0 when the array is empty.
 pub function array_min(arr)
     let count: int = len(arr)
     if count == 0
@@ -359,6 +608,12 @@ pub function array_min(arr)
 end
 
 ## Returns a reversed copy of an array.
+##
+## ### Parameters
+## - `arr`: Array to reverse; left unmodified.
+##
+## ### Returns
+## A new array with the items of `arr` in reverse order.
 pub function array_reverse(arr)
     let res = []
     let i: int = len(arr) - 1
@@ -370,6 +625,12 @@ pub function array_reverse(arr)
 end
 
 ## Reverses an array in place and returns it.
+##
+## ### Parameters
+## - `arr`: Array to reverse; its items are swapped in place.
+##
+## ### Returns
+## The same array with its items in reverse order.
 pub function array_reverse_in_place(arr)
     let left: int = 0
     let right: int = len(arr) - 1
@@ -385,6 +646,14 @@ pub function array_reverse_in_place(arr)
 end
 
 ## Returns the slice from start_idx to end_idx with clamped bounds.
+##
+## ### Parameters
+## - `arr`: Array to slice.
+## - `start_idx`: Start index (inclusive); negative values clamp to 0.
+## - `end_idx`: End index (exclusive); values past the length clamp to the length.
+##
+## ### Returns
+## The items from `start_idx` up to but not including `end_idx`, or an empty array when the clamped start reaches or passes the clamped end.
 pub function array_slice(arr, start_idx: int, end_idx: int)
     let total: int = len(arr)
     if start_idx < 0
@@ -400,12 +669,24 @@ pub function array_slice(arr, start_idx: int, end_idx: int)
 end
 
 ## Returns a sorted copy of an array.
+##
+## ### Parameters
+## - `arr`: Array to sort; left unmodified.
+##
+## ### Returns
+## A new array with the items in ascending order, sorted with bubble sort.
 pub function array_sort(arr)
     let copy = array_clone(arr)
     return array_sort_in_place(copy)
 end
 
 ## Sorts an array in place with bubble sort and returns it.
+##
+## ### Parameters
+## - `arr`: Array to sort; its items are reordered in place.
+##
+## ### Returns
+## The same array with its items in ascending order.
 pub function array_sort_in_place(arr)
     let n: int = len(arr)
     let i: int = 0
@@ -427,6 +708,12 @@ pub function array_sort_in_place(arr)
 end
 
 ## Returns an array with duplicate items removed.
+##
+## ### Parameters
+## - `arr`: Array to deduplicate; left unmodified.
+##
+## ### Returns
+## A new array with the first occurrence of each item in its original order.
 pub function array_unique(arr)
     let seen = {}
     let res = []
@@ -442,6 +729,12 @@ end
 # --- Map Utilities ---
 
 ## Returns a copy of a map.
+##
+## ### Parameters
+## - `m`: Map to copy.
+##
+## ### Returns
+## A new map with the same keys and values.
 pub function map_clone(m)
     let res = {}
     for k, v in m
@@ -451,6 +744,12 @@ pub function map_clone(m)
 end
 
 ## Returns the key-value pairs of a map as an array.
+##
+## ### Parameters
+## - `m`: Map whose entries are listed.
+##
+## ### Returns
+## A new array where each item is a `[key, value]` pair.
 pub function map_entries(m)
     let res = []
     for k, v in m
@@ -460,6 +759,12 @@ pub function map_entries(m)
 end
 
 ## Builds a map from an array of key-value pairs.
+##
+## ### Parameters
+## - `entries`: Array of pairs; entries shorter than 2 items are skipped and later pairs overwrite earlier ones.
+##
+## ### Returns
+## A new map built from the valid pairs.
 pub function map_from_entries(entries)
     let res = {}
     for pair in entries
@@ -472,6 +777,12 @@ pub function map_from_entries(entries)
 end
 
 ## Returns 1 if the map is empty, 0 otherwise.
+##
+## ### Parameters
+## - `m`: Map to test.
+##
+## ### Returns
+## 1 when the map holds no keys, 0 otherwise.
 pub function map_is_empty(m) -> int
     if len(m) == 0
         return 1
@@ -480,6 +791,13 @@ pub function map_is_empty(m) -> int
 end
 
 ## Merges src into a copy of dest and returns it.
+##
+## ### Parameters
+## - `dest`: Base map; left unmodified.
+## - `src`: Map whose entries overwrite matching keys.
+##
+## ### Returns
+## A new map with the entries of `dest` plus the entries of `src`, where `src` wins on key conflicts.
 pub function map_merge(dest, src)
     let res = map_clone(dest)
     for k, v in src

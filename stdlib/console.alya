@@ -6,6 +6,16 @@
 # --- Color and Style Types (Merged from std/color) ---
 
 ## Background ANSI color codes.
+##
+## ### Variants
+## - `Black` (40): Black background.
+## - `Red` (41): Red background.
+## - `Green` (42): Green background.
+## - `Yellow` (43): Yellow background.
+## - `Blue` (44): Blue background.
+## - `Magenta` (45): Magenta background.
+## - `Cyan` (46): Cyan background.
+## - `White` (47): White background.
 pub enum BgColor
     Black = 40
     Red = 41
@@ -18,6 +28,24 @@ pub enum BgColor
 end
 
 ## Foreground ANSI color codes.
+##
+## ### Variants
+## - `Black` (30): Black foreground.
+## - `Red` (31): Red foreground.
+## - `Green` (32): Green foreground.
+## - `Yellow` (33): Yellow foreground.
+## - `Blue` (34): Blue foreground.
+## - `Magenta` (35): Magenta foreground.
+## - `Cyan` (36): Cyan foreground.
+## - `White` (37): White foreground.
+## - `Gray` (90): Gray foreground.
+## - `BrightRed` (91): Bright red foreground.
+## - `BrightGreen` (92): Bright green foreground.
+## - `BrightYellow` (93): Bright yellow foreground.
+## - `BrightBlue` (94): Bright blue foreground.
+## - `BrightMagenta` (95): Bright magenta foreground.
+## - `BrightCyan` (96): Bright cyan foreground.
+## - `BrightWhite` (97): Bright white foreground.
 pub enum Color
     Black = 30
     Red = 31
@@ -38,6 +66,15 @@ pub enum Color
 end
 
 ## ANSI text style codes.
+##
+## ### Variants
+## - `Reset` (0): Reset style.
+## - `Bold` (1): Bold style.
+## - `Dim` (2): Dim style.
+## - `Italic` (3): Italic style.
+## - `Underline` (4): Underline style.
+## - `Inverse` (7): Inverse style.
+## - `Strikethrough` (9): Strikethrough style.
 pub enum Style
     Reset = 0
     Bold = 1
@@ -91,26 +128,56 @@ function _encoding_name_for_cp(cp: int) -> string
 end
 
 ## Returns the console input code page.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The console input code page number.
 pub function console_input_cp() -> int
     return get_console_input_cp()
 end
 
 ## Returns the console output code page.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The console output code page number.
 pub function console_output_cp() -> int
     return get_console_output_cp()
 end
 
 ## Sets the console input code page.
+##
+## ### Parameters
+## - `cp`: Code page number to set (e.g. 65001 for UTF-8).
+##
+## ### Returns
+## The native status code.
 pub function console_set_input_cp(cp: int) -> int
     return set_console_input_cp(cp)
 end
 
 ## Sets the console output code page.
+##
+## ### Parameters
+## - `cp`: Code page number to set (e.g. 65001 for UTF-8).
+##
+## ### Returns
+## The native status code.
 pub function console_set_output_cp(cp: int) -> int
     return set_console_output_cp(cp)
 end
 
 ## Switches the console to UTF-8 and enables virtual-terminal processing.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## 1 after setting both code pages to 65001 and enabling virtual-terminal processing.
 pub function console_utf8() -> int
     set_console_output_cp(65001)
     set_console_input_cp(65001)
@@ -119,18 +186,36 @@ pub function console_utf8() -> int
 end
 
 ## Returns a display name for the console input code page.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The display name for the current input code page (unmapped code pages render as `CP{n}`).
 pub function get_input_encoding() -> string
     let cp: int = console_input_cp()
     return _encoding_name_for_cp(cp)
 end
 
 ## Returns a display name for the console output code page.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The display name for the current output code page (unmapped code pages render as `CP{n}`).
 pub function get_output_encoding() -> string
     let cp: int = console_output_cp()
     return _encoding_name_for_cp(cp)
 end
 
 ## Sets the console output code page by encoding name.
+##
+## ### Parameters
+## - `encoding_name`: Encoding name, matched case-insensitively (e.g. `utf-8`, `ascii`, `windows-1254`, `shift-jis`, `gbk`); unrecognized names fall back to UTF-8.
+##
+## ### Returns
+## The selected numeric code page (65001 for unrecognized names).
 pub function set_output_encoding(encoding_name: string) -> int
     let clean: string = lower(encoding_name)
     let cp: int = when clean
@@ -163,36 +248,79 @@ end
 # --- Terminal Control ---
 
 ## Rings the terminal bell.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The native status code.
 pub function console_beep() -> int
     return beep_console()
 end
 
 ## Clears the console screen.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The native status code.
 pub function console_clear() -> int
     return clear_console()
 end
 
 ## Hides the terminal cursor.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## Nothing.
 pub function console_cursor_hide()
     say "\e[?25l"
 end
 
 ## Shows the terminal cursor.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## Nothing.
 pub function console_cursor_show()
     say "\e[?25h"
 end
 
 ## Moves the cursor to the given row and column.
+##
+## ### Parameters
+## - `row`: Cursor row number.
+## - `col`: Cursor column number.
+##
+## ### Returns
+## Nothing.
 pub function console_cursor_to(row: int, col: int)
     say f"\e[{row};{col}H"
 end
 
 ## Enables virtual-terminal ANSI processing.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The native status code.
 pub function console_enable_ansi() -> int
     return enable_virtual_terminal()
 end
 
 ## Sets the console window title.
+##
+## ### Parameters
+## - `title`: Title text to assign to the console window.
+##
+## ### Returns
+## The native status code.
 pub function console_title(title: string) -> int
     return set_console_title(title)
 end
@@ -200,6 +328,13 @@ end
 # --- Console Input ---
 
 ## Asks a yes/no question, returning 1 for yes and 0 for no.
+##
+## ### Parameters
+## - `prompt_text`: Question text shown before the yes/no suffix.
+## - `default_yes`: Default hint and empty-input result (1 shows ` (Y/n): ` and defaults to yes; 0 shows ` (y/N): ` and defaults to no).
+##
+## ### Returns
+## 1 for a yes answer (`y`, `yes`, `1`, `e`, `evet`, case-insensitive) or an empty answer resolving to a nonzero default; else 0.
 pub function console_confirm(prompt_text: string, default_yes: int = 1) -> int
     let suffix: string = " (Y/n): "
     if default_yes == 0
@@ -216,6 +351,12 @@ pub function console_confirm(prompt_text: string, default_yes: int = 1) -> int
 end
 
 ## Prompts the user and reads a full line of text from stdin.
+##
+## ### Parameters
+## - `prompt_text`: Prompt text shown to the user.
+##
+## ### Returns
+## The full line of text read from stdin.
 pub function console_prompt(prompt_text: string) -> string
     return ask(prompt_text)
 end
@@ -227,18 +368,48 @@ function _esc(code: string, s: string) -> string
 end
 
 ## Returns the raw ANSI bold sequence.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The raw ANSI bold sequence.
 pub function ansi_bold() -> string return "\e[1m" end
 
 ## Returns the raw ANSI dim sequence.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The raw ANSI dim sequence.
 pub function ansi_dim() -> string return "\e[2m" end
 
 ## Returns the raw ANSI italic sequence.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The raw ANSI italic sequence.
 pub function ansi_italic() -> string return "\e[3m" end
 
 ## Returns the raw ANSI reset sequence.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The raw ANSI reset sequence.
 pub function ansi_reset() -> string return "\e[0m" end
 
 ## Removes ANSI CSI escape sequences from text.
+##
+## ### Parameters
+## - `text`: Text that may contain ANSI CSI escape sequences.
+##
+## ### Returns
+## The text with ANSI CSI escape sequences removed.
 pub function ansi_strip(text: string) -> string
     let s: string = str(text)
     let slen: int = len(s)
@@ -265,33 +436,91 @@ pub function ansi_strip(text: string) -> string
 end
 
 ## Returns the raw ANSI underline sequence.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The raw ANSI underline sequence.
 pub function ansi_underline() -> string return "\e[4m" end
 
 ## Wraps text in a 256-palette background color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+## - `code`: 256-palette color code number.
+##
+## ### Returns
+## The text wrapped in the 256-palette background sequence with a trailing reset.
 pub function bg_256(s: string, code: int) -> string
     let c: string = str(code)
     return "\e[48;5;" + c + "m" + str(s) + "\e[0m"
 end
 
 ## Wraps text in the black background color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the black background sequence with a trailing reset.
 pub function bg_black(s: string) -> string return _esc(str(BgColor.Black), s) end
 
 ## Wraps text in the blue background color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the blue background sequence with a trailing reset.
 pub function bg_blue(s: string) -> string return _esc(str(BgColor.Blue), s) end
 
 ## Wraps text in the cyan background color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the cyan background sequence with a trailing reset.
 pub function bg_cyan(s: string) -> string return _esc(str(BgColor.Cyan), s) end
 
 ## Wraps text in the green background color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the green background sequence with a trailing reset.
 pub function bg_green(s: string) -> string return _esc(str(BgColor.Green), s) end
 
 ## Wraps text in the magenta background color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the magenta background sequence with a trailing reset.
 pub function bg_magenta(s: string) -> string return _esc(str(BgColor.Magenta), s) end
 
 ## Wraps text in the red background color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the red background sequence with a trailing reset.
 pub function bg_red(s: string) -> string return _esc(str(BgColor.Red), s) end
 
 ## Wraps text in a 24-bit truecolor background.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+## - `r`: Red component value.
+## - `g`: Green component value.
+## - `b`: Blue component value.
+##
+## ### Returns
+## The text wrapped in the 24-bit truecolor background sequence with a trailing reset.
 pub function bg_rgb(s: string, r: int, g: int, b: int) -> string
     let rc: string = str(r)
     let gc: string = str(g)
@@ -300,66 +529,192 @@ pub function bg_rgb(s: string, r: int, g: int, b: int) -> string
 end
 
 ## Wraps text in the white background color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the white background sequence with a trailing reset.
 pub function bg_white(s: string) -> string return _esc(str(BgColor.White), s) end
 
 ## Wraps text in the yellow background color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the yellow background sequence with a trailing reset.
 pub function bg_yellow(s: string) -> string return _esc(str(BgColor.Yellow), s) end
 
 ## Wraps text in a 256-palette foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+## - `code`: 256-palette color code number.
+##
+## ### Returns
+## The text wrapped in the 256-palette foreground sequence with a trailing reset.
 pub function color_256(s: string, code: int) -> string
     let c: string = str(code)
     return "\e[38;5;" + c + "m" + str(s) + "\e[0m"
 end
 
 ## Wraps text in an ANSI background color code.
+##
+## ### Parameters
+## - `code`: ANSI background color code number.
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the given background sequence with a trailing reset.
 pub function color_bg(code: int, s: string) -> string return _esc(str(code), s) end
 
 ## Wraps text in the black foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the black foreground sequence with a trailing reset.
 pub function color_black(s: string) -> string return _esc(str(Color.Black), s) end
 
 ## Wraps text in the blue foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the blue foreground sequence with a trailing reset.
 pub function color_blue(s: string) -> string return _esc(str(Color.Blue), s) end
 
 ## Wraps text in the bright blue foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the bright blue foreground sequence with a trailing reset.
 pub function color_bright_blue(s: string) -> string return _esc(str(Color.BrightBlue), s) end
 
 ## Wraps text in the bright cyan foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the bright cyan foreground sequence with a trailing reset.
 pub function color_bright_cyan(s: string) -> string return _esc(str(Color.BrightCyan), s) end
 
 ## Wraps text in the bright green foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the bright green foreground sequence with a trailing reset.
 pub function color_bright_green(s: string) -> string return _esc(str(Color.BrightGreen), s) end
 
 ## Wraps text in the bright magenta foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the bright magenta foreground sequence with a trailing reset.
 pub function color_bright_magenta(s: string) -> string return _esc(str(Color.BrightMagenta), s) end
 
 ## Wraps text in the bright red foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the bright red foreground sequence with a trailing reset.
 pub function color_bright_red(s: string) -> string return _esc(str(Color.BrightRed), s) end
 
 ## Wraps text in the bright white foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the bright white foreground sequence with a trailing reset.
 pub function color_bright_white(s: string) -> string return _esc(str(Color.BrightWhite), s) end
 
 ## Wraps text in the bright yellow foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the bright yellow foreground sequence with a trailing reset.
 pub function color_bright_yellow(s: string) -> string return _esc(str(Color.BrightYellow), s) end
 
 ## Wraps text in the cyan foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the cyan foreground sequence with a trailing reset.
 pub function color_cyan(s: string) -> string return _esc(str(Color.Cyan), s) end
 
 ## Wraps text in an ANSI foreground color code.
+##
+## ### Parameters
+## - `code`: ANSI foreground color code number.
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the given foreground sequence with a trailing reset.
 pub function color_fg(code: int, s: string) -> string return _esc(str(code), s) end
 
 ## Wraps text in the gray foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the gray foreground sequence with a trailing reset.
 pub function color_gray(s: string) -> string return _esc(str(Color.Gray), s) end
 
 ## Wraps text in the green foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the green foreground sequence with a trailing reset.
 pub function color_green(s: string) -> string return _esc(str(Color.Green), s) end
 
 ## Wraps text in the magenta foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the magenta foreground sequence with a trailing reset.
 pub function color_magenta(s: string) -> string return _esc(str(Color.Magenta), s) end
 
 ## Wraps text in the red foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the red foreground sequence with a trailing reset.
 pub function color_red(s: string) -> string return _esc(str(Color.Red), s) end
 
 ## Wraps text in a 24-bit truecolor foreground.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+## - `r`: Red component value.
+## - `g`: Green component value.
+## - `b`: Blue component value.
+##
+## ### Returns
+## The text wrapped in the 24-bit truecolor foreground sequence with a trailing reset.
 pub function color_rgb(s: string, r: int, g: int, b: int) -> string
     let rc: string = str(r)
     let gc: string = str(g)
@@ -368,102 +723,181 @@ pub function color_rgb(s: string, r: int, g: int, b: int) -> string
 end
 
 ## Wraps text in an ANSI style code.
+##
+## ### Parameters
+## - `code`: ANSI style code number.
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the given style sequence with a trailing reset.
 pub function color_style(code: int, s: string) -> string return _esc(str(code), s) end
 
 ## Wraps text in the white foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the white foreground sequence with a trailing reset.
 pub function color_white(s: string) -> string return _esc(str(Color.White), s) end
 
 ## Wraps text in the yellow foreground color.
+##
+## ### Parameters
+## - `s`: Text to wrap.
+##
+## ### Returns
+## The text wrapped in the yellow foreground sequence with a trailing reset.
 pub function color_yellow(s: string) -> string return _esc(str(Color.Yellow), s) end
 
 ## Renders text in the bold style.
+##
+## ### Parameters
+## - `s`: Text to render.
+##
+## ### Returns
+## The text wrapped in the bold sequence with a trailing reset.
 pub function style_bold(s: string) -> string return _esc(str(Style.Bold), s) end
 
 ## Renders text in the dim style.
+##
+## ### Parameters
+## - `s`: Text to render.
+##
+## ### Returns
+## The text wrapped in the dim sequence with a trailing reset.
 pub function style_dim(s: string) -> string return _esc(str(Style.Dim), s) end
 
 ## Renders text in the inverse style.
+##
+## ### Parameters
+## - `s`: Text to render.
+##
+## ### Returns
+## The text wrapped in the inverse sequence with a trailing reset.
 pub function style_inverse(s: string) -> string return _esc(str(Style.Inverse), s) end
 
 ## Renders text in the italic style.
+##
+## ### Parameters
+## - `s`: Text to render.
+##
+## ### Returns
+## The text wrapped in the italic sequence with a trailing reset.
 pub function style_italic(s: string) -> string return _esc(str(Style.Italic), s) end
 
 ## Renders text in the strikethrough style.
+##
+## ### Parameters
+## - `s`: Text to render.
+##
+## ### Returns
+## The text wrapped in the strikethrough sequence with a trailing reset.
 pub function style_strikethrough(s: string) -> string return _esc(str(Style.Strikethrough), s) end
 
 ## Renders text in the underline style.
+##
+## ### Parameters
+## - `s`: Text to render.
+##
+## ### Returns
+## The text wrapped in the underline sequence with a trailing reset.
 pub function style_underline(s: string) -> string return _esc(str(Style.Underline), s) end
 
 # --- Legacy Aliases ---
 
 ## Legacy alias rendering text in blue.
+## See: `color_blue`.
 pub function blue(text: string) -> string return console_blue(text) end
 
 ## Legacy alias rendering text in bold.
+## See: `style_bold`.
 pub function bold(text: string) -> string return console_bold(text) end
 
 ## Legacy alias rendering text in bold.
+## See: `style_bold`.
 pub function color_bold(s: string) -> string return style_bold(s) end
 
 ## Legacy alias rendering text in italic.
+## See: `style_italic`.
 pub function color_italic(s: string) -> string return style_italic(s) end
 
 ## Legacy alias rendering text underlined.
+## See: `style_underline`.
 pub function color_underline(s: string) -> string return style_underline(s) end
 
 ## Legacy alias rendering text in blue.
+## See: `color_blue`.
 pub function console__blue(text: string) -> string return console_blue(text) end
 
 ## Legacy alias rendering text in bold.
+## See: `style_bold`.
 pub function console__bold(text: string) -> string return console_bold(text) end
 
 ## Legacy alias rendering text in green.
+## See: `color_green`.
 pub function console__green(text: string) -> string return console_green(text) end
 
 ## Legacy alias switching the console to UTF-8.
+## See: `console_utf8`.
 pub function console__utf8() -> int return console_utf8() end
 
 ## Legacy alias rendering text in blue.
+## See: `color_blue`.
 pub function console_blue(text: string) -> string return color_blue(text) end
 
 ## Legacy alias rendering text in bold.
+## See: `style_bold`.
 pub function console_bold(text: string) -> string return style_bold(text) end
 
 ## Legacy alias wrapping text in a foreground color code.
+## See: `color_fg`.
 pub function console_color(fg_code: int, text: string) -> string return color_fg(fg_code, text) end
 
 ## Legacy alias rendering text in cyan.
+## See: `color_cyan`.
 pub function console_cyan(text: string) -> string return color_cyan(text) end
 
 ## Legacy alias rendering text in dim.
+## See: `style_dim`.
 pub function console_dim(text: string) -> string return style_dim(text) end
 
 ## Legacy alias rendering text in gray.
+## See: `color_gray`.
 pub function console_gray(text: string) -> string return color_gray(text) end
 
 ## Legacy alias rendering text in green.
+## See: `color_green`.
 pub function console_green(text: string) -> string return color_green(text) end
 
 ## Legacy alias rendering text in italic.
+## See: `style_italic`.
 pub function console_italic(text: string) -> string return style_italic(text) end
 
 ## Legacy alias rendering text in magenta.
+## See: `color_magenta`.
 pub function console_magenta(text: string) -> string return color_magenta(text) end
 
 ## Legacy alias rendering text in red.
+## See: `color_red`.
 pub function console_red(text: string) -> string return color_red(text) end
 
 ## Legacy alias rendering text underlined.
+## See: `style_underline`.
 pub function console_underline(text: string) -> string return style_underline(text) end
 
 ## Legacy alias rendering text in white.
+## See: `color_white`.
 pub function console_white(text: string) -> string return color_white(text) end
 
 ## Legacy alias rendering text in yellow.
+## See: `color_yellow`.
 pub function console_yellow(text: string) -> string return color_yellow(text) end
 
 ## Legacy alias rendering text in green.
+## See: `color_green`.
 pub function green(text: string) -> string return console_green(text) end
 
 ## Legacy alias switching the console to UTF-8.
+## See: `console_utf8`.
 pub function utf8() -> int return console_utf8() end

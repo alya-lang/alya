@@ -6,6 +6,14 @@
 # --- Types ---
 
 ## Stores timing and allocation stats for one benchmark operation.
+##
+## ### Fields
+## - `op_name`: Benchmark operation name.
+## - `op_iters`: Iteration count executed.
+## - `op_elapsed`: Total elapsed time in ms.
+## - `op_alloc`: Allocated bytes per operation.
+## - `op_ns`: Mean time per operation in ns.
+## - `op_throughput`: Operations completed per second.
 pub struct BenchRecord
     op_name: string
     op_iters: int
@@ -16,6 +24,15 @@ pub struct BenchRecord
 end
 
 ## Accumulates benchmark records for one benchmark suite.
+##
+## ### Fields
+## - `suite_name`: Benchmark suite name.
+## - `records`: Collected per-operation records.
+## - `total_runs`: Number of recorded runs.
+## - `total_ms`: Total elapsed time in ms across runs.
+## - `start_ms`: Clock reading in ms captured at run start.
+## - `start_alloc`: Allocated bytes captured at run start.
+## - `run_iters`: Iteration count planned for the current run.
 pub struct BenchRunner
     suite_name: string
     records: BenchRecord[]
@@ -27,6 +44,11 @@ pub struct BenchRunner
 end
 
 ## Counts passed and failed assertions for one test run.
+##
+## ### Fields
+## - `total`: Total assertions recorded.
+## - `passed`: Assertions that passed.
+## - `failed`: Assertions that failed.
 pub struct TestRunner
     total: int
     passed: int
@@ -36,12 +58,24 @@ end
 # --- Constructors ---
 
 ## Creates a BenchRunner and announces the benchmark suite.
+##
+## ### Parameters
+## - `name`: Benchmark suite name announced and stored.
+##
+## ### Returns
+## A BenchRunner with zeroed counters and no records.
 pub function bench_runner(name: string) -> BenchRunner
     say f"=== Benchmark Suite: {name} ==="
     return BenchRunner { suite_name: name, records: [], total_runs: 0, total_ms: 0, start_ms: 0, start_alloc: 0, run_iters: 0 }
 end
 
 ## Creates a TestRunner with zeroed counters.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## A TestRunner with total, passed, and failed set to 0.
 pub function runner_new() -> TestRunner
     return TestRunner { total: 0, passed: 0, failed: 0 }
 end
@@ -49,6 +83,13 @@ end
 # --- Assertions ---
 
 ## Prints PASS/FAIL for a condition and returns 1 or 0.
+##
+## ### Parameters
+## - `cond`: Condition value; nonzero passes.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when the condition passes, otherwise 0.
 pub function assert(cond: int, msg: string) -> int
     if cond
         say "  [PASS] {msg}"
@@ -60,6 +101,14 @@ pub function assert(cond: int, msg: string) -> int
 end
 
 ## Passes when actual equals expected.
+##
+## ### Parameters
+## - `actual`: Value produced by the code under test.
+## - `expected`: Value compared against.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when actual equals expected, otherwise 0.
 pub function assert_eq(actual, expected, msg: string) -> int
     if actual == expected
         say "  [PASS] {msg}"
@@ -71,6 +120,13 @@ pub function assert_eq(actual, expected, msg: string) -> int
 end
 
 ## Passes when the condition is zero.
+##
+## ### Parameters
+## - `cond`: Condition value; zero passes.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when cond is zero, otherwise 0.
 pub function assert_false(cond: int, msg: string) -> int
     if cond == 0
         say "  [PASS] {msg}"
@@ -82,6 +138,14 @@ pub function assert_false(cond: int, msg: string) -> int
 end
 
 ## Passes when actual is greater than expected.
+##
+## ### Parameters
+## - `actual`: Value produced by the code under test.
+## - `expected`: Bound that actual must exceed.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when actual is greater than expected, otherwise 0.
 pub function assert_gt(actual, expected, msg: string) -> int
     if actual > expected
         say "  [PASS] {msg}"
@@ -93,6 +157,14 @@ pub function assert_gt(actual, expected, msg: string) -> int
 end
 
 ## Passes when actual is greater than or equal to expected.
+##
+## ### Parameters
+## - `actual`: Value produced by the code under test.
+## - `expected`: Bound that actual must meet or exceed.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when actual is greater than or equal to expected, otherwise 0.
 pub function assert_gte(actual, expected, msg: string) -> int
     if actual >= expected
         say "  [PASS] {msg}"
@@ -104,6 +176,14 @@ pub function assert_gte(actual, expected, msg: string) -> int
 end
 
 ## Passes when actual is less than expected.
+##
+## ### Parameters
+## - `actual`: Value produced by the code under test.
+## - `expected`: Bound that actual must stay below.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when actual is less than expected, otherwise 0.
 pub function assert_lt(actual, expected, msg: string) -> int
     if actual < expected
         say "  [PASS] {msg}"
@@ -115,6 +195,14 @@ pub function assert_lt(actual, expected, msg: string) -> int
 end
 
 ## Passes when actual is less than or equal to expected.
+##
+## ### Parameters
+## - `actual`: Value produced by the code under test.
+## - `expected`: Bound that actual must meet or stay below.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when actual is less than or equal to expected, otherwise 0.
 pub function assert_lte(actual, expected, msg: string) -> int
     if actual <= expected
         say "  [PASS] {msg}"
@@ -126,6 +214,14 @@ pub function assert_lte(actual, expected, msg: string) -> int
 end
 
 ## Passes when actual differs from expected.
+##
+## ### Parameters
+## - `actual`: Value produced by the code under test.
+## - `expected`: Value that actual must differ from.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when actual differs from expected, otherwise 0.
 pub function assert_ne(actual, expected, msg: string) -> int
     if actual != expected
         say "  [PASS] {msg}"
@@ -137,6 +233,13 @@ pub function assert_ne(actual, expected, msg: string) -> int
 end
 
 ## Passes when the value is neither null nor zero.
+##
+## ### Parameters
+## - `val`: Value to inspect.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when val is neither null nor zero, otherwise 0.
 pub function assert_not_null(val, msg: string) -> int
     if val is not null and val != 0
         say "  [PASS] {msg}"
@@ -148,6 +251,13 @@ pub function assert_not_null(val, msg: string) -> int
 end
 
 ## Passes when the value is null or zero.
+##
+## ### Parameters
+## - `val`: Value to inspect.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when val is null or zero, otherwise 0.
 pub function assert_null(val, msg: string) -> int
     if val is null or val == 0
         say "  [PASS] {msg}"
@@ -159,6 +269,14 @@ pub function assert_null(val, msg: string) -> int
 end
 
 ## Passes when two strings are equal.
+##
+## ### Parameters
+## - `actual`: String produced by the code under test.
+## - `expected`: String compared against.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when the strings are equal, otherwise 0.
 pub function assert_str_eq(actual: string, expected: string, msg: string) -> int
     if streq(actual, expected)
         say "  [PASS] {msg}"
@@ -170,6 +288,14 @@ pub function assert_str_eq(actual: string, expected: string, msg: string) -> int
 end
 
 ## Passes when two strings differ.
+##
+## ### Parameters
+## - `actual`: String produced by the code under test.
+## - `expected`: String that actual must differ from.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when the strings differ, otherwise 0.
 pub function assert_str_ne(actual: string, expected: string, msg: string) -> int
     if streq(actual, expected) == 0
         say "  [PASS] {msg}"
@@ -181,6 +307,13 @@ pub function assert_str_ne(actual: string, expected: string, msg: string) -> int
 end
 
 ## Passes when the condition is nonzero.
+##
+## ### Parameters
+## - `cond`: Condition value; nonzero passes.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when cond is nonzero, otherwise 0.
 pub function assert_true(cond: int, msg: string) -> int
     if cond
         say "  [PASS] {msg}"
@@ -194,6 +327,13 @@ end
 # --- Suites and Reports ---
 
 ## Prints a pass/fail summary and returns the failure count.
+##
+## ### Parameters
+## - `passed`: Number of passing checks.
+## - `total`: Total number of checks.
+##
+## ### Returns
+## The failure count (`total` minus `passed`).
 pub function test_report(passed: int, total: int) -> int
     let failed: int = total - passed
     say "----------------------------------------"
@@ -207,11 +347,23 @@ pub function test_report(passed: int, total: int) -> int
 end
 
 ## Prints a test suite header banner.
+##
+## ### Parameters
+## - `name`: Test suite name shown in the banner.
+##
+## ### Returns
+## Nothing.
 pub function test_suite(name: string)
     say "=== Test Suite: {name} ==="
 end
 
 ## Prints a fixed all-passed summary and returns 0.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## 0.
 pub function test_summary() -> int
     say "----------------------------------------"
     say "Status: ALL TESTS PASSED!"
@@ -222,6 +374,14 @@ end
 # --- TestRunner Functions ---
 
 ## Records a conditional check on the runner and prints PASS/FAIL.
+##
+## ### Parameters
+## - `r`: TestRunner mutated with the result.
+## - `cond`: Condition value; nonzero passes.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when the condition passes, otherwise 0.
 pub function runner_assert(r: TestRunner, cond: int, msg: string) -> int
     r.total += 1
     if cond
@@ -236,6 +396,15 @@ pub function runner_assert(r: TestRunner, cond: int, msg: string) -> int
 end
 
 ## Records an equality check on the runner.
+##
+## ### Parameters
+## - `r`: TestRunner mutated with the result.
+## - `actual`: Value produced by the code under test.
+## - `expected`: Value compared against.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when actual equals expected, otherwise 0.
 pub function runner_assert_eq(r: TestRunner, actual, expected, msg: string) -> int
     r.total += 1
     if actual == expected
@@ -250,6 +419,14 @@ pub function runner_assert_eq(r: TestRunner, actual, expected, msg: string) -> i
 end
 
 ## Records a false check on the runner.
+##
+## ### Parameters
+## - `r`: TestRunner mutated with the result.
+## - `cond`: Condition value; zero passes.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when cond is zero, otherwise 0.
 pub function runner_assert_false(r: TestRunner, cond: int, msg: string) -> int
     let is_zero: int = 0
     if cond == 0
@@ -259,6 +436,15 @@ pub function runner_assert_false(r: TestRunner, cond: int, msg: string) -> int
 end
 
 ## Records an inequality check on the runner.
+##
+## ### Parameters
+## - `r`: TestRunner mutated with the result.
+## - `actual`: Value produced by the code under test.
+## - `expected`: Value that actual must differ from.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when actual differs from expected, otherwise 0.
 pub function runner_assert_ne(r: TestRunner, actual, expected, msg: string) -> int
     r.total += 1
     if actual != expected
@@ -273,6 +459,15 @@ pub function runner_assert_ne(r: TestRunner, actual, expected, msg: string) -> i
 end
 
 ## Records a string equality check on the runner.
+##
+## ### Parameters
+## - `r`: TestRunner mutated with the result.
+## - `actual`: String produced by the code under test.
+## - `expected`: String compared against.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when the strings are equal, otherwise 0.
 pub function runner_assert_str_eq(r: TestRunner, actual: string, expected: string, msg: string) -> int
     r.total += 1
     if streq(actual, expected)
@@ -287,6 +482,15 @@ pub function runner_assert_str_eq(r: TestRunner, actual: string, expected: strin
 end
 
 ## Records a string inequality check on the runner.
+##
+## ### Parameters
+## - `r`: TestRunner mutated with the result.
+## - `actual`: String produced by the code under test.
+## - `expected`: String that actual must differ from.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when the strings differ, otherwise 0.
 pub function runner_assert_str_ne(r: TestRunner, actual: string, expected: string, msg: string) -> int
     r.total += 1
     if streq(actual, expected) == 0
@@ -301,11 +505,25 @@ pub function runner_assert_str_ne(r: TestRunner, actual: string, expected: strin
 end
 
 ## Records a true check on the runner.
+##
+## ### Parameters
+## - `r`: TestRunner mutated with the result.
+## - `cond`: Condition value; nonzero passes.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when cond is nonzero, otherwise 0.
 pub function runner_assert_true(r: TestRunner, cond: int, msg: string) -> int
     return runner_assert(r, cond, msg)
 end
 
 ## Prints the runner totals and returns the failure count.
+##
+## ### Parameters
+## - `r`: TestRunner whose totals are reported.
+##
+## ### Returns
+## The failure count stored on the runner.
 pub function runner_summary(r: TestRunner) -> int
     say "----------------------------------------"
     say f"Results: {r.passed}/{r.total} passed, {r.failed} failed."
@@ -319,42 +537,108 @@ end
 
 # --- TestRunner Methods ---
 
-## Method wrapper around runner_assert.
+## Records a conditional check on the runner and prints PASS/FAIL.
+##
+## ### Parameters
+## - `self`: TestRunner mutated with the result.
+## - `cond`: Condition value; nonzero passes.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when the condition passes, otherwise 0.
 pub function TestRunner.assert(self: TestRunner, cond: int, msg: string) -> int
     return runner_assert(self, cond, msg)
 end
 
-## Method wrapper around runner_assert_eq.
+## Records an equality check on the runner.
+##
+## ### Parameters
+## - `self`: TestRunner mutated with the result.
+## - `actual`: Value produced by the code under test.
+## - `expected`: Value compared against.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when actual equals expected, otherwise 0.
 pub function TestRunner.assert_eq(self: TestRunner, actual, expected, msg: string) -> int
     return runner_assert_eq(self, actual, expected, msg)
 end
 
-## Method wrapper around runner_assert_false.
+## Records a false check on the runner.
+##
+## ### Parameters
+## - `self`: TestRunner mutated with the result.
+## - `cond`: Condition value; zero passes.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when cond is zero, otherwise 0.
 pub function TestRunner.assert_false(self: TestRunner, cond: int, msg: string) -> int
     return runner_assert_false(self, cond, msg)
 end
 
-## Method wrapper around runner_assert_ne.
+## Records an inequality check on the runner.
+##
+## ### Parameters
+## - `self`: TestRunner mutated with the result.
+## - `actual`: Value produced by the code under test.
+## - `expected`: Value that actual must differ from.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when actual differs from expected, otherwise 0.
 pub function TestRunner.assert_ne(self: TestRunner, actual, expected, msg: string) -> int
     return runner_assert_ne(self, actual, expected, msg)
 end
 
-## Method wrapper around runner_assert_str_eq.
+## Records a string equality check on the runner.
+##
+## ### Parameters
+## - `self`: TestRunner mutated with the result.
+## - `actual`: String produced by the code under test.
+## - `expected`: String compared against.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when the strings are equal, otherwise 0.
 pub function TestRunner.assert_str_eq(self: TestRunner, actual: string, expected: string, msg: string) -> int
     return runner_assert_str_eq(self, actual, expected, msg)
 end
 
-## Method wrapper around runner_assert_str_ne.
+## Records a string inequality check on the runner.
+##
+## ### Parameters
+## - `self`: TestRunner mutated with the result.
+## - `actual`: String produced by the code under test.
+## - `expected`: String that actual must differ from.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when the strings differ, otherwise 0.
 pub function TestRunner.assert_str_ne(self: TestRunner, actual: string, expected: string, msg: string) -> int
     return runner_assert_str_ne(self, actual, expected, msg)
 end
 
-## Method wrapper around runner_assert_true.
+## Records a true check on the runner.
+##
+## ### Parameters
+## - `self`: TestRunner mutated with the result.
+## - `cond`: Condition value; nonzero passes.
+## - `msg`: Label identifying the check.
+##
+## ### Returns
+## 1 when cond is nonzero, otherwise 0.
 pub function TestRunner.assert_true(self: TestRunner, cond: int, msg: string) -> int
     return runner_assert_true(self, cond, msg)
 end
 
-## Method wrapper around runner_summary.
+## Prints the runner totals and returns the failure count.
+##
+## ### Parameters
+## - `self`: TestRunner whose totals are reported.
+##
+## ### Returns
+## The failure count stored on the runner.
 pub function TestRunner.summary(self: TestRunner) -> int
     return runner_summary(self)
 end
@@ -457,6 +741,14 @@ function _bench_format_throughput(ops: int) -> string
 end
 
 ## Reports benchmark stats from a pre-measured elapsed time.
+##
+## ### Parameters
+## - `name`: Benchmark label shown in the report line.
+## - `iters`: Iteration count the elapsed time covers.
+## - `elapsed_ms`: Pre-measured elapsed time in ms.
+##
+## ### Returns
+## The `elapsed_ms` value passed in.
 pub function bench_measure(name: string, iters: int, elapsed_ms: int) -> int
     let safe_elapsed: int = elapsed_ms
     if safe_elapsed < 1
@@ -469,6 +761,13 @@ pub function bench_measure(name: string, iters: int, elapsed_ms: int) -> int
 end
 
 ## Starts timing a benchmark run of iters iterations.
+##
+## ### Parameters
+## - `b`: BenchRunner mutated with the start state.
+## - `iters`: Iteration count planned for the run.
+##
+## ### Returns
+## Nothing.
 pub function bench_start(b: BenchRunner, iters: int)
     b.run_iters = iters
     b.start_alloc = mem_allocated()
@@ -476,6 +775,13 @@ pub function bench_start(b: BenchRunner, iters: int)
 end
 
 ## Stops timing, records a BenchRecord and prints the result.
+##
+## ### Parameters
+## - `b`: BenchRunner mutated with the new record and totals.
+## - `name`: Benchmark label shown in the report line.
+##
+## ### Returns
+## The measured elapsed time in ms.
 pub function bench_stop(b: BenchRunner, name: string) -> int
     let elapsed: int = clock_ms() - b.start_ms
     let end_alloc: int = mem_allocated()
@@ -505,6 +811,12 @@ pub function bench_stop(b: BenchRunner, name: string) -> int
 end
 
 ## Prints the full benchmark results table.
+##
+## ### Parameters
+## - `b`: BenchRunner whose records and totals are reported.
+##
+## ### Returns
+## Nothing.
 pub function bench_summary(b: BenchRunner)
     let num_records: int = b.total_runs
     if num_records > 0
@@ -695,6 +1007,15 @@ pub function bench_summary(b: BenchRunner)
 end
 
 ## Warms up, then times a task over iters iterations.
+##
+## ### Parameters
+## - `name`: Benchmark label shown in the report line.
+## - `warmup`: Number of untimed warmup invocations.
+## - `iters`: Number of timed iterations.
+## - `task`: Zero-argument callable invoked each iteration.
+##
+## ### Returns
+## The measured elapsed time in ms, clamped to a minimum of 1.
 pub function test_run_bench(name: string, warmup: int, iters: int, task) -> int
     let w: int = 0
     while w < warmup
@@ -719,29 +1040,49 @@ end
 
 # --- BenchRunner Methods ---
 
-## Method wrapper around bench_start.
+## Starts timing a benchmark run of iters iterations.
+##
+## ### Parameters
+## - `self`: BenchRunner mutated with the start state.
+## - `iters`: Iteration count planned for the run.
+##
+## ### Returns
+## Nothing.
 pub function BenchRunner.start(self: BenchRunner, iters: int)
     bench_start(self, iters)
 end
 
-## Method wrapper around bench_stop.
+## Stops timing, records a BenchRecord and prints the result.
+##
+## ### Parameters
+## - `self`: BenchRunner mutated with the new record and totals.
+## - `name`: Benchmark label shown in the report line.
+##
+## ### Returns
+## The measured elapsed time in ms.
 pub function BenchRunner.stop(self: BenchRunner, name: string) -> int
     return bench_stop(self, name)
 end
 
-## Method wrapper around bench_summary.
+## Prints the full benchmark results table.
+##
+## ### Parameters
+## - `self`: BenchRunner whose records and totals are reported.
+##
+## ### Returns
+## Nothing.
 pub function BenchRunner.summary(self: BenchRunner)
     bench_summary(self)
 end
 
 # --- Legacy Aliases ---
 
-## Prints PASS/FAIL for a condition (alias of assert).
+## Prints PASS/FAIL for a condition. See: `assert`.
 pub function test__assert(cond: int, msg: string) -> int
     return assert(cond, msg)
 end
 
-## Checks equality and prints PASS/FAIL (alias of assert_eq).
+## Checks equality and prints PASS/FAIL. See: `assert_eq`.
 pub function test__assert_eq(actual, expected, msg: string) -> int
     return assert_eq(actual, expected, msg)
 end

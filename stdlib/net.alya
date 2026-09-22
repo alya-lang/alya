@@ -8,6 +8,30 @@ import "std/str"
 # --- Types ---
 
 ## Standard HTTP status codes.
+##
+## ### Variants
+## - `Ok` (200): OK.
+## - `Created` (201): Created.
+## - `Accepted` (202): Accepted.
+## - `NoContent` (204): No Content.
+## - `MovedPermanently` (301): Moved Permanently.
+## - `Found` (302): Found.
+## - `NotModified` (304): Not Modified.
+## - `TemporaryRedirect` (307): Temporary Redirect.
+## - `PermanentRedirect` (308): Permanent Redirect.
+## - `BadRequest` (400): Bad Request.
+## - `Unauthorized` (401): Unauthorized.
+## - `Forbidden` (403): Forbidden.
+## - `NotFound` (404): Not Found.
+## - `MethodNotAllowed` (405): Method Not Allowed.
+## - `RequestTimeout` (408): Request Timeout.
+## - `Conflict` (409): Conflict.
+## - `UnprocessableEntity` (422): Unprocessable Entity.
+## - `TooManyRequests` (429): Too Many Requests.
+## - `InternalServerError` (500): Internal Server Error.
+## - `BadGateway` (502): Bad Gateway.
+## - `ServiceUnavailable` (503): Service Unavailable.
+## - `GatewayTimeout` (504): Gateway Timeout.
 pub enum HttpStatus
     Ok = 200
     Created = 201
@@ -34,6 +58,9 @@ pub enum HttpStatus
 end
 
 ## Error thrown when a TCP connection attempt fails.
+##
+## ### Fields
+## - `message`: Human-readable connection failure description.
 pub struct SocketError
     message: string
 end
@@ -41,16 +68,38 @@ end
 # --- TCP Sockets ---
 
 ## Accepts an incoming client connection, returning the client socket handle or -1 on error.
+##
+## ### Parameters
+## - `server_sock`: Listening server socket handle.
+##
+## ### Returns
+## The client socket handle, or -1 on error.
 pub function tcp_accept(server_sock: int) -> int
     return net_accept(server_sock)
 end
 
 ## Closes a TCP or UDP socket connection.
+##
+## ### Parameters
+## - `sock`: Socket handle to close.
+##
+## ### Returns
+## The native close status code.
 pub function tcp_close(sock: int) -> int
     return net_close(sock)
 end
 
 ## Connects to a remote TCP server, returning a socket descriptor or throwing SocketError on error.
+##
+## ### Parameters
+## - `host`: Remote host name or IP address.
+## - `port`: Remote port number.
+##
+## ### Returns
+## The connected socket descriptor.
+##
+## ### Throws
+## `SocketError` when the native connect call returns a negative handle.
 pub function tcp_connect(host: string, port: int) -> int
     let s: int = net_connect(host, port)
     if s < 0
@@ -60,6 +109,13 @@ pub function tcp_connect(host: string, port: int) -> int
 end
 
 ## Creates a TCP server socket listening on port, returning the listening handle or -1 on error.
+##
+## ### Parameters
+## - `port`: Local port number to listen on.
+## - `backlog`: Pending-connection queue length (defaults to 10; values <= 0 fall back to 10).
+##
+## ### Returns
+## The listening socket handle, or -1 on error.
 pub function tcp_listen(port: int, backlog: int = 10) -> int
     let b: int = backlog
     if b <= 0
@@ -69,6 +125,12 @@ pub function tcp_listen(port: int, backlog: int = 10) -> int
 end
 
 ## Returns the remote peer address in "ip:port" format, or "" on failure.
+##
+## ### Parameters
+## - `sock`: Connected socket handle.
+##
+## ### Returns
+## The peer address in "ip:port" format, or "" when the IP is empty or the port lookup fails.
 pub function tcp_peer_addr(sock: int) -> string
     let ip: string = net_peer_ip(sock)
     let port: int = net_peer_port(sock)
@@ -79,16 +141,35 @@ pub function tcp_peer_addr(sock: int) -> string
 end
 
 ## Returns the remote peer IP address (e.g. "127.0.0.1"), or "" on failure.
+##
+## ### Parameters
+## - `sock`: Connected socket handle.
+##
+## ### Returns
+## The remote peer IP address, or "" on failure.
 pub function tcp_peer_ip(sock: int) -> string
     return net_peer_ip(sock)
 end
 
 ## Returns the remote peer port number, or -1 on failure.
+##
+## ### Parameters
+## - `sock`: Connected socket handle.
+##
+## ### Returns
+## The remote peer port number, or -1 on failure.
 pub function tcp_peer_port(sock: int) -> int
     return net_peer_port(sock)
 end
 
 ## Polls a socket for readability within timeout_ms, returning 1 ready, 0 timed out, or -1 on error.
+##
+## ### Parameters
+## - `sock`: Socket handle to poll.
+## - `timeout_ms`: Poll timeout in milliseconds (defaults to 0; negative values are clamped to 0).
+##
+## ### Returns
+## 1 when ready, 0 when timed out, or -1 on error.
 pub function tcp_poll(sock: int, timeout_ms: int = 0) -> int
     let t: int = timeout_ms
     if t < 0
@@ -98,6 +179,13 @@ pub function tcp_poll(sock: int, timeout_ms: int = 0) -> int
 end
 
 ## Receives up to max_bytes from a TCP socket, returning the string or "" on close/EOF.
+##
+## ### Parameters
+## - `sock`: Connected socket handle.
+## - `max_bytes`: Maximum byte count to receive (defaults to 4096; values <= 0 fall back to 4096).
+##
+## ### Returns
+## The received string, or "" on close/EOF.
 pub function tcp_recv(sock: int, max_bytes: int = 4096) -> string
     let bytes_limit: int = max_bytes
     if bytes_limit <= 0
@@ -107,16 +195,37 @@ pub function tcp_recv(sock: int, max_bytes: int = 4096) -> string
 end
 
 ## Sends a string over a connected TCP socket, returning bytes sent or -1 on error.
+##
+## ### Parameters
+## - `sock`: Connected socket handle.
+## - `data`: String payload to send.
+##
+## ### Returns
+## Bytes sent, or -1 on error.
 pub function tcp_send(sock: int, data: string) -> int
     return net_send(sock, data)
 end
 
 ## Sets non-blocking mode on a socket (1 non-blocking, 0 blocking), returning 0 or -1 on error.
+##
+## ### Parameters
+## - `sock`: Socket handle to configure.
+## - `mode`: 1 for non-blocking, 0 for blocking (defaults to 1).
+##
+## ### Returns
+## 0 on success, or -1 on error.
 pub function tcp_set_nonblocking(sock: int, mode: int = 1) -> int
     return net_set_nonblocking(sock, mode)
 end
 
 ## Sets read and write timeouts on a socket in milliseconds, returning 0 or -1 on error.
+##
+## ### Parameters
+## - `sock`: Socket handle to configure.
+## - `ms`: Timeout in milliseconds (defaults to 10000; values <= 0 fall back to 10000).
+##
+## ### Returns
+## 0 on success, or -1 on error.
 pub function tcp_set_timeout(sock: int, ms: int = 10000) -> int
     let t: int = ms
     if t <= 0
@@ -126,6 +235,12 @@ pub function tcp_set_timeout(sock: int, ms: int = 10000) -> int
 end
 
 ## Creates a new TCP streaming socket, returning a descriptor (>= 0) or -1 on error.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The socket descriptor (>= 0), or -1 on error.
 pub function tcp_socket() -> int
     return net_socket()
 end
@@ -133,16 +248,36 @@ end
 # --- UDP Sockets ---
 
 ## Binds a UDP socket to port on INADDR_ANY, returning 0 on success or -1 on error.
+##
+## ### Parameters
+## - `sock`: UDP socket handle to bind.
+## - `port`: Local port number to bind.
+##
+## ### Returns
+## 0 on success, or -1 on error.
 pub function udp_bind(sock: int, port: int) -> int
     return net_udp_bind(sock, port)
 end
 
 ## Closes a UDP socket.
+##
+## ### Parameters
+## - `sock`: UDP socket handle to close.
+##
+## ### Returns
+## The native close status code.
 pub function udp_close(sock: int) -> int
     return net_close(sock)
 end
 
 ## Polls a UDP socket for incoming datagrams within timeout_ms milliseconds.
+##
+## ### Parameters
+## - `sock`: UDP socket handle to poll.
+## - `timeout_ms`: Poll timeout in milliseconds (defaults to 0; negative values are clamped to 0).
+##
+## ### Returns
+## The native poll result (1 ready, 0 timed out, -1 on error).
 pub function udp_poll(sock: int, timeout_ms: int = 0) -> int
     let t: int = timeout_ms
     if t < 0
@@ -152,6 +287,13 @@ pub function udp_poll(sock: int, timeout_ms: int = 0) -> int
 end
 
 ## Receives up to max_bytes from a UDP socket, returning the string or "" on error/empty datagram.
+##
+## ### Parameters
+## - `sock`: UDP socket handle.
+## - `max_bytes`: Maximum byte count to receive (defaults to 4096; values <= 0 fall back to 4096).
+##
+## ### Returns
+## The received string, or "" on error/empty datagram.
 pub function udp_recv(sock: int, max_bytes: int = 4096) -> string
     let bytes_limit: int = max_bytes
     if bytes_limit <= 0
@@ -161,16 +303,39 @@ pub function udp_recv(sock: int, max_bytes: int = 4096) -> string
 end
 
 ## Sends a datagram to host:port over a UDP socket, returning bytes sent or -1 on error.
+##
+## ### Parameters
+## - `sock`: UDP socket handle.
+## - `host`: Destination host name or IP address.
+## - `port`: Destination port number.
+## - `data`: String payload to send.
+##
+## ### Returns
+## Bytes sent, or -1 on error.
 pub function udp_send(sock: int, host: string, port: int, data: string) -> int
     return net_udp_send(sock, host, port, data)
 end
 
 ## Sets non-blocking mode on a UDP socket (1 non-blocking, 0 blocking).
+##
+## ### Parameters
+## - `sock`: UDP socket handle to configure.
+## - `mode`: 1 for non-blocking, 0 for blocking (defaults to 1).
+##
+## ### Returns
+## The native status code (0 on success, -1 on error).
 pub function udp_set_nonblocking(sock: int, mode: int = 1) -> int
     return net_set_nonblocking(sock, mode)
 end
 
 ## Sets read and write timeouts on a UDP socket in milliseconds.
+##
+## ### Parameters
+## - `sock`: UDP socket handle to configure.
+## - `ms`: Timeout in milliseconds (defaults to 10000; values <= 0 fall back to 10000).
+##
+## ### Returns
+## The native status code (0 on success, -1 on error).
 pub function udp_set_timeout(sock: int, ms: int = 10000) -> int
     let t: int = ms
     if t <= 0
@@ -180,6 +345,12 @@ pub function udp_set_timeout(sock: int, ms: int = 10000) -> int
 end
 
 ## Creates a new UDP datagram socket, returning a descriptor (>= 0) or -1 on error.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The socket descriptor (>= 0), or -1 on error.
 pub function udp_socket() -> int
     return net_udp_socket()
 end
@@ -187,6 +358,13 @@ end
 # --- HTTP & Protocol Helpers ---
 
 ## Generates a standard HTTP Basic Authentication header string.
+##
+## ### Parameters
+## - `username`: User name placed before the colon.
+## - `password`: Password placed after the colon.
+##
+## ### Returns
+## The `Basic <base64>` header value for `username:password`.
 pub function basic_auth(username: string, password: string) -> string
     let creds: string = f"{username}:{password}"
     let b64: string = base64_encode(creds)
@@ -194,6 +372,12 @@ pub function basic_auth(username: string, password: string) -> string
 end
 
 ## Returns the standard HTTP status code description.
+##
+## ### Parameters
+## - `code`: Numeric HTTP status code.
+##
+## ### Returns
+## The standard reason phrase, or "Unknown Status" when the code is unmapped.
 pub function http_status_text(code: int) -> string
     return when code
         is HttpStatus.Ok => "OK"
@@ -225,16 +409,19 @@ end
 # --- Legacy Aliases ---
 
 ## Legacy alias of tcp_close.
+## See: `tcp_close`.
 pub function close(sock: int) -> int
     return tcp_close(sock)
 end
 
 ## Legacy alias of tcp_recv.
+## See: `tcp_recv`.
 pub function recv(sock: int, max_bytes: int = 4096) -> string
     return tcp_recv(sock, max_bytes)
 end
 
 ## Legacy alias of tcp_send.
+## See: `tcp_send`.
 pub function send(sock: int, data: string) -> int
     return tcp_send(sock, data)
 end

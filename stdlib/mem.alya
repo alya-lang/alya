@@ -5,12 +5,21 @@
 # --- Types ---
 
 ## Region-based arena allocator handle.
+##
+## ### Fields
+## - `handle`: Opaque handle created by `arena_create`.
+## - `chunk_size`: Default chunk size in bytes used for arena growth.
 pub struct Arena
     handle
     chunk_size
 end
 
 ## Dynamic byte buffer with pointer, size, and capacity.
+##
+## ### Fields
+## - `ptr`: Pointer to the heap-allocated byte storage.
+## - `size`: Number of bytes currently stored in the buffer.
+## - `capacity`: Number of bytes currently allocated for the buffer.
 pub struct ByteBuffer
     ptr
     size
@@ -18,11 +27,21 @@ pub struct ByteBuffer
 end
 
 ## Heap memory metrics snapshot.
+##
+## ### Fields
+## - `allocated_bytes`: Total bytes currently allocated through the heap allocator.
 pub struct MemStats
     allocated_bytes
 end
 
 ## Fixed-size block pool allocator handle.
+##
+## ### Fields
+## - `block_size`: Size of each block in bytes (a multiple of 8, minimum 8).
+## - `capacity`: Total number of blocks in the pool.
+## - `buffer`: Pointer to the backing block storage.
+## - `free_head`: Pointer to the first free block in the free list.
+## - `allocated_count`: Number of blocks currently checked out.
 pub struct Pool
     block_size
     capacity
@@ -34,10 +53,22 @@ end
 # --- Constructors ---
 
 ## Creates a new Arena with the given default chunk size.
+##
+## ### Parameters
+## - `chunk_size`: Default chunk size in bytes (defaults to 65536 when omitted; non-positive values fall back to 65536 inside `arena_new`).
+##
+## ### Returns
+## The new `Arena` wrapping the created handle.
 pub function Arena.new(chunk_size = 65536) return arena_new(chunk_size) end
 
 ## Creates a new Arena allocator with the specified default chunk size.
-# If chunk_size is 0 or negative, 65536 bytes (64KB) is used by default.
+## If chunk_size is 0 or negative, 65536 bytes (64KB) is used by default.
+##
+## ### Parameters
+## - `chunk_size`: Default chunk size in bytes; values <= 0 select 65536 bytes.
+##
+## ### Returns
+## The new `Arena` struct wrapping the created handle and the effective chunk size.
 pub function arena_new(chunk_size)
     if chunk_size <= 0
         chunk_size = 65536
@@ -47,6 +78,12 @@ pub function arena_new(chunk_size)
 end
 
 ## Creates a new dynamic byte buffer with the given initial capacity.
+##
+## ### Parameters
+## - `capacity`: Initial capacity in bytes; values <= 0 select 64 bytes.
+##
+## ### Returns
+## The new `ByteBuffer` with size 0 and the effective capacity.
 pub function buffer_new(capacity)
     if capacity <= 0
         capacity = 64
@@ -56,7 +93,14 @@ pub function buffer_new(capacity)
 end
 
 ## Creates a new fixed-size block Pool allocator.
-# block_size is rounded up to multiple of 8 (minimum 8 bytes).
+## block_size is rounded up to multiple of 8 (minimum 8 bytes).
+##
+## ### Parameters
+## - `block_size`: Requested block size in bytes; raised to at least 8 and rounded up to a multiple of 8.
+## - `capacity`: Requested block count; values <= 0 select 16 blocks.
+##
+## ### Returns
+## The new `Pool` with linked free blocks, or a `Pool` with zero capacity and null pointers when allocation fails.
 pub function pool_new(block_size, capacity)
     if block_size < 8
         block_size = 8
@@ -92,16 +136,34 @@ end
 # --- Size Helpers ---
 
 ## Converts gigabytes to bytes.
+##
+## ### Parameters
+## - `n`: Gigabyte count (each gigabyte is 1073741824 bytes).
+##
+## ### Returns
+## The byte count for `n` gigabytes in bytes.
 pub function gb(n)
     return n * 1073741824
 end
 
 ## Converts kilobytes to bytes.
+##
+## ### Parameters
+## - `n`: Kilobyte count (each kilobyte is 1024 bytes).
+##
+## ### Returns
+## The byte count for `n` kilobytes in bytes.
 pub function kb(n)
     return n * 1024
 end
 
 ## Converts megabytes to bytes.
+##
+## ### Parameters
+## - `n`: Megabyte count (each megabyte is 1048576 bytes).
+##
+## ### Returns
+## The byte count for `n` megabytes in bytes.
 pub function mb(n)
     return n * 1048576
 end
@@ -109,6 +171,12 @@ end
 # --- Pointer Utilities ---
 
 ## Returns 1 if the pointer is null, 0 otherwise.
+##
+## ### Parameters
+## - `ptr`: Raw pointer to test against 0.
+##
+## ### Returns
+## 1 when `ptr` equals 0, else 0.
 pub function is_null(ptr)
     if ptr == 0
         return 1
@@ -117,6 +185,12 @@ pub function is_null(ptr)
 end
 
 ## Returns 1 if the pointer is not null, 0 otherwise.
+##
+## ### Parameters
+## - `ptr`: Raw pointer to test against 0.
+##
+## ### Returns
+## 1 when `ptr` differs from 0, else 0.
 pub function is_valid(ptr)
     if ptr != 0
         return 1
@@ -125,11 +199,25 @@ pub function is_valid(ptr)
 end
 
 ## Adds a byte offset to a pointer.
+##
+## ### Parameters
+## - `ptr`: Base raw pointer.
+## - `offset`: Byte offset to add (may be negative).
+##
+## ### Returns
+## The pointer `ptr + offset`.
 pub function ptr_add(ptr, offset)
     return ptr + offset
 end
 
 ## Returns the difference between two pointers.
+##
+## ### Parameters
+## - `ptr_a`: First raw pointer.
+## - `ptr_b`: Second raw pointer.
+##
+## ### Returns
+## The byte distance `ptr_a - ptr_b` in bytes.
 pub function ptr_diff(ptr_a, ptr_b)
     return ptr_a - ptr_b
 end
@@ -137,7 +225,14 @@ end
 # --- Heap Allocation ---
 
 ## Allocates size bytes aligned to the given boundary.
-# Stores the raw pointer in the header word immediately preceding the aligned address.
+## Stores the raw pointer in the header word immediately preceding the aligned address.
+##
+## ### Parameters
+## - `size`: Number of usable bytes requested.
+## - `alignment`: Required alignment in bytes (defaults to 32; values below 8 select 8).
+##
+## ### Returns
+## The aligned pointer, or 0 when the backing allocation fails.
 pub function aligned_alloc(size, alignment = 32)
     let align = alignment
     if align < 8
@@ -156,6 +251,12 @@ pub function aligned_alloc(size, alignment = 32)
 end
 
 ## Frees aligned memory previously allocated by aligned_alloc.
+##
+## ### Parameters
+## - `p`: Aligned pointer to release; 0 is ignored.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function aligned_free(p)
     if p != 0
         let raw = peek_int(p - 8, 0)
@@ -164,11 +265,23 @@ pub function aligned_free(p)
 end
 
 ## Allocates size bytes from the system heap using malloc.
+##
+## ### Parameters
+## - `size`: Number of bytes to allocate.
+##
+## ### Returns
+## The raw pointer to the allocated memory.
 pub function alloc_mem(size)
     return alloc(size)
 end
 
 ## Allocates size bytes and initializes all bytes to zero.
+##
+## ### Parameters
+## - `size`: Number of bytes to allocate.
+##
+## ### Returns
+## The raw pointer to the zeroed memory, or 0 when allocation fails.
 pub function alloc_zeroed(size)
     let p = alloc(size)
     if p != 0
@@ -178,16 +291,39 @@ pub function alloc_zeroed(size)
 end
 
 ## Allocates zeroed memory for num elements of size bytes each.
+##
+## ### Parameters
+## - `num`: Element count.
+## - `size`: Size of each element in bytes.
+##
+## ### Returns
+## The raw pointer to the zeroed `num * size` byte region, or 0 when allocation fails.
 pub function calloc_mem(num, size)
     return alloc_zeroed(num * size)
 end
 
 ## Copies size bytes from src to dest.
+##
+## ### Parameters
+## - `dest`: Destination raw pointer.
+## - `src`: Source raw pointer.
+## - `size`: Number of bytes to copy.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function copy_memory(dest, src, size)
     copy_mem(dest, src, size)
 end
 
 ## Fills size bytes at dest with byte value val.
+##
+## ### Parameters
+## - `dest`: Destination raw pointer.
+## - `val`: Byte value written to each of the `size` bytes.
+## - `size`: Number of bytes to fill.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function fill_mem(dest, val, size)
     let i = 0
     while i < size
@@ -197,12 +333,25 @@ pub function fill_mem(dest, val, size)
 end
 
 ## Frees memory previously allocated by alloc or realloc.
+##
+## ### Parameters
+## - `ptr`: Raw pointer to release back to the heap.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function free_mem(ptr)
     free(ptr)
 end
 
 ## Compares size bytes between two memory blocks.
-# Returns 1 if identical, 0 otherwise.
+##
+## ### Parameters
+## - `ptr_a`: First raw pointer.
+## - `ptr_b`: Second raw pointer.
+## - `size`: Number of bytes to compare.
+##
+## ### Returns
+## 1 when both blocks hold identical bytes (including when both pointers are equal), else 0. Null pointers compare as unequal.
 pub function mem_equal(ptr_a, ptr_b, size)
     if ptr_a == ptr_b
         return 1
@@ -221,11 +370,25 @@ pub function mem_equal(ptr_a, ptr_b, size)
 end
 
 ## Resizes an existing heap allocation.
+##
+## ### Parameters
+## - `ptr`: Raw pointer to the existing allocation.
+## - `size`: New size in bytes.
+##
+## ### Returns
+## The raw pointer to the resized allocation.
 pub function realloc_mem(ptr, size)
     return realloc(ptr, size)
 end
 
 ## Zeroes size bytes starting at dest.
+##
+## ### Parameters
+## - `dest`: Destination raw pointer.
+## - `size`: Number of bytes to zero.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function zero_memory(dest, size)
     zero_mem(dest, size)
 end
@@ -233,43 +396,100 @@ end
 # --- Memory Access ---
 
 ## Converts a string to a raw pointer.
+##
+## ### Parameters
+## - `str`: Source string.
+##
+## ### Returns
+## The raw pointer to the string data.
 pub function from_string(str)
     return str_to_ptr(str)
 end
 
 ## Reads a byte at the given offset.
+##
+## ### Parameters
+## - `ptr`: Base raw pointer.
+## - `offset`: Byte offset from `ptr`.
+##
+## ### Returns
+## The byte value at `ptr + offset`.
 pub function read_byte(ptr, offset)
     return peek_byte(ptr, offset)
 end
 
 ## Reads a float at the given offset via raw 64-bit load (exact bit
 ## round-trip with write_float on 64-bit targets; x86 truncates to 32 bits).
+##
+## ### Parameters
+## - `ptr`: Base raw pointer.
+## - `offset`: Byte offset from `ptr`.
+##
+## ### Returns
+## The float loaded from the 64-bit slot at `ptr + offset`.
 pub function read_float(ptr, offset) -> float
     return peek_int(ptr, offset)
 end
 
 ## Reads an integer at the given offset.
+##
+## ### Parameters
+## - `ptr`: Base raw pointer.
+## - `offset`: Byte offset from `ptr`.
+##
+## ### Returns
+## The integer loaded from the slot at `ptr + offset`.
 pub function read_int(ptr, offset)
     return peek_int(ptr, offset)
 end
 
 ## Reads a string from the given pointer.
+##
+## ### Parameters
+## - `ptr`: Raw pointer to the string data.
+##
+## ### Returns
+## The string read from `ptr`.
 pub function to_string(ptr)
     return str_from_ptr(ptr)
 end
 
 ## Writes a byte at the given offset.
+##
+## ### Parameters
+## - `ptr`: Base raw pointer.
+## - `offset`: Byte offset from `ptr`.
+## - `val`: Byte value to store.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function write_byte(ptr, offset, val)
     poke_byte(ptr, offset, val)
 end
 
 ## Writes a float at the given offset via raw 64-bit store (f64 bits
 ## preserved; exact round-trip with read_float on 64-bit targets).
+##
+## ### Parameters
+## - `ptr`: Base raw pointer.
+## - `offset`: Byte offset from `ptr`.
+## - `val`: Float value whose bits are stored.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function write_float(ptr, offset, val: float)
     poke_int(ptr, offset, val)
 end
 
 ## Writes an integer at the given offset.
+##
+## ### Parameters
+## - `ptr`: Base raw pointer.
+## - `offset`: Byte offset from `ptr`.
+## - `val`: Integer value to store.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function write_int(ptr, offset, val)
     poke_int(ptr, offset, val)
 end
@@ -277,31 +497,83 @@ end
 # --- Arena Allocator ---
 
 ## Allocates size bytes from the arena.
+##
+## ### Parameters
+## - `self`: Arena to allocate from.
+## - `size`: Number of bytes requested.
+##
+## ### Returns
+## The raw pointer to the arena-allocated memory.
 pub function Arena.alloc(self, size) return arena_alloc_mem(self, size) end
 
 ## Allocates memory in the arena and copies s into it.
+##
+## ### Parameters
+## - `self`: Arena backing the new string.
+## - `s`: Source string to copy.
+##
+## ### Returns
+## The arena-resident copy of `s`, tied to the lifetime of the arena.
 pub function Arena.alloc_string(self, s) return arena_alloc_string(self, s) end
 
 ## Resets all allocations within the arena for reuse.
+##
+## ### Parameters
+## - `self`: Arena to reset.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function Arena.clear(self) arena_clear(self) end
 
 ## Destroys the arena and frees all chunk memory.
+##
+## ### Parameters
+## - `self`: Arena to destroy.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function Arena.free(self) arena_free(self) end
 
 ## Returns 1 if the arena has an active handle, 0 otherwise.
+##
+## ### Parameters
+## - `self`: Arena to test.
+##
+## ### Returns
+## 1 when the arena handle is active, else 0.
 pub function Arena.is_valid(self) return arena_is_valid(self) end
 
 ## Returns the total bytes currently allocated through this arena.
+##
+## ### Parameters
+## - `self`: Arena to measure.
+##
+## ### Returns
+## The cumulative allocated byte count in bytes.
 pub function Arena.total_allocated(self) return arena_total_allocated(self) end
 
 ## Allocates size bytes from the arena.
-# The allocation is O(1) and aligned to 8 bytes.
+## The allocation is O(1) and aligned to 8 bytes.
+##
+## ### Parameters
+## - `arena`: Arena to allocate from.
+## - `size`: Number of bytes requested.
+##
+## ### Returns
+## The raw pointer to the arena-allocated memory.
 pub function arena_alloc_mem(arena: Arena, size)
     return arena_alloc(arena.handle, size)
 end
 
 ## Allocates memory in the arena and copies str into it.
-# Returns a string pointer whose lifetime is tied to the arena.
+## Returns a string pointer whose lifetime is tied to the arena.
+##
+## ### Parameters
+## - `arena`: Arena backing the new string.
+## - `str`: Source string to copy; `len(str) + 1` bytes are reserved and copied.
+##
+## ### Returns
+## The arena-resident copy of `str`.
 pub function arena_alloc_string(arena: Arena, str)
     let slen = len(str)
     let p = arena_alloc(arena.handle, slen + 1)
@@ -313,6 +585,13 @@ pub function arena_alloc_string(arena: Arena, str)
 end
 
 ## Allocates size bytes from the arena and zeroes the memory.
+##
+## ### Parameters
+## - `arena`: Arena to allocate from.
+## - `size`: Number of bytes requested.
+##
+## ### Returns
+## The raw pointer to the zeroed region, or 0 when allocation fails.
 pub function arena_alloc_zeroed(arena: Arena, size)
     let p = arena_alloc(arena.handle, size)
     if p != 0
@@ -322,12 +601,24 @@ pub function arena_alloc_zeroed(arena: Arena, size)
 end
 
 ## Resets all allocations within the arena.
-# Memory chunks are retained for instant reuse without OS reallocation overhead.
+## Memory chunks are retained for instant reuse without OS reallocation overhead.
+##
+## ### Parameters
+## - `arena`: Arena to reset.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function arena_clear(arena: Arena)
     arena_reset(arena.handle)
 end
 
 ## Destroys the arena and frees all underlying chunk memory back to the system.
+##
+## ### Parameters
+## - `arena`: Arena to destroy; its handle is set to 0. Arenas with a null handle are ignored.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function arena_free(arena: Arena)
     if arena.handle != 0
         arena_destroy(arena.handle)
@@ -336,6 +627,12 @@ pub function arena_free(arena: Arena)
 end
 
 ## Returns 1 if the arena has an active handle, 0 otherwise.
+##
+## ### Parameters
+## - `arena`: Arena to test.
+##
+## ### Returns
+## 1 when the arena handle is non-zero, else 0.
 pub function arena_is_valid(arena: Arena)
     if arena.handle != 0
         return 1
@@ -344,6 +641,12 @@ pub function arena_is_valid(arena: Arena)
 end
 
 ## Returns the total number of bytes currently allocated through this arena.
+##
+## ### Parameters
+## - `arena`: Arena to measure.
+##
+## ### Returns
+## The cumulative allocated byte count in bytes.
 pub function arena_total_allocated(arena: Arena)
     return arena_allocated(arena.handle)
 end
@@ -351,11 +654,25 @@ end
 # --- ByteBuffer ---
 
 ## Clears the buffer contents without deallocating memory.
+##
+## ### Parameters
+## - `buf`: Buffer whose size is reset to 0; allocated storage is retained.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function buffer_clear(buf: ByteBuffer)
     buf.size = 0
 end
 
 ## Ensures the buffer has at least needed bytes of capacity.
+## Grows by doubling, or directly to `needed` when doubling falls short.
+##
+## ### Parameters
+## - `buf`: Buffer to grow when `needed` exceeds current capacity.
+## - `needed`: Required capacity in bytes.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function buffer_ensure_capacity(buf: ByteBuffer, needed)
     if needed > buf.capacity
         let new_cap = buf.capacity * 2
@@ -368,6 +685,12 @@ pub function buffer_ensure_capacity(buf: ByteBuffer, needed)
 end
 
 ## Frees the buffer memory and zeroes its state.
+##
+## ### Parameters
+## - `buf`: Buffer to free; buffers with a null pointer are ignored.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function buffer_free(buf: ByteBuffer)
     if buf.ptr != 0
         free(buf.ptr)
@@ -378,6 +701,12 @@ pub function buffer_free(buf: ByteBuffer)
 end
 
 ## Returns 1 if the buffer is empty, 0 otherwise.
+##
+## ### Parameters
+## - `buf`: Buffer to test.
+##
+## ### Returns
+## 1 when `buf.size` equals 0, else 0.
 pub function buffer_is_empty(buf: ByteBuffer)
     if buf.size == 0
         return 1
@@ -386,11 +715,24 @@ pub function buffer_is_empty(buf: ByteBuffer)
 end
 
 ## Returns the number of bytes currently stored in the buffer.
+##
+## ### Parameters
+## - `buf`: Buffer to measure.
+##
+## ### Returns
+## The stored byte count (`buf.size`) in bytes.
 pub function buffer_len(buf: ByteBuffer)
     return buf.size
 end
 
 ## Reads a byte from the buffer at the given offset.
+##
+## ### Parameters
+## - `buf`: Buffer to read from.
+## - `offset`: Byte offset into the stored data.
+##
+## ### Returns
+## The byte at `offset`, or 0 when `offset` is out of range.
 pub function buffer_read_byte(buf: ByteBuffer, offset)
     if offset >= 0 and offset < buf.size
         return peek_byte(buf.ptr, offset)
@@ -399,6 +741,13 @@ pub function buffer_read_byte(buf: ByteBuffer, offset)
 end
 
 ## Reads a 64-bit integer from the buffer at the given byte offset.
+##
+## ### Parameters
+## - `buf`: Buffer to read from.
+## - `offset`: Byte offset of the 8-byte slot.
+##
+## ### Returns
+## The 64-bit integer at `offset`, or 0 when fewer than 8 stored bytes remain at `offset`.
 pub function buffer_read_int(buf: ByteBuffer, offset)
     if offset >= 0 and offset + 8 <= buf.size
         return peek_int(buf.ptr, offset)
@@ -407,7 +756,13 @@ pub function buffer_read_int(buf: ByteBuffer, offset)
 end
 
 ## Returns the buffer contents as a string.
-# Appends a null terminator (without increasing buffer size) and returns the string.
+## Appends a null terminator (without increasing buffer size) and returns the string.
+##
+## ### Parameters
+## - `buf`: Buffer whose contents are exposed; capacity grows when no spare byte exists.
+##
+## ### Returns
+## The buffer contents as a string.
 pub function buffer_to_string(buf: ByteBuffer)
     buffer_ensure_capacity(buf, buf.size + 1)
     poke_byte(buf.ptr, buf.size, 0)
@@ -415,6 +770,13 @@ pub function buffer_to_string(buf: ByteBuffer)
 end
 
 ## Appends a single byte to the buffer.
+##
+## ### Parameters
+## - `buf`: Buffer to extend, growing capacity as needed.
+## - `val`: Byte value to append.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function buffer_write_byte(buf: ByteBuffer, val)
     buffer_ensure_capacity(buf, buf.size + 1)
     poke_byte(buf.ptr, buf.size, val)
@@ -422,6 +784,13 @@ pub function buffer_write_byte(buf: ByteBuffer, val)
 end
 
 ## Appends a 64-bit integer to the buffer.
+##
+## ### Parameters
+## - `buf`: Buffer to extend, growing capacity as needed.
+## - `val`: 64-bit integer to append.
+##
+## ### Returns
+## 8, the number of bytes appended.
 pub function buffer_write_int(buf: ByteBuffer, val)
     buffer_ensure_capacity(buf, buf.size + 8)
     poke_int(buf.ptr, buf.size, val)
@@ -430,6 +799,13 @@ pub function buffer_write_int(buf: ByteBuffer, val)
 end
 
 ## Appends a string to the buffer and returns the bytes written.
+##
+## ### Parameters
+## - `buf`: Buffer to extend, growing capacity as needed.
+## - `str`: String whose `len(str)` bytes (without terminator) are appended; empty strings append nothing.
+##
+## ### Returns
+## The number of bytes appended in bytes, or 0 for an empty string.
 pub function buffer_write_string(buf: ByteBuffer, str)
     let slen = len(str)
     if slen == 0
@@ -443,31 +819,82 @@ pub function buffer_write_string(buf: ByteBuffer, str)
 end
 
 ## Clears the buffer contents without deallocating memory.
+##
+## ### Parameters
+## - `self`: Buffer whose size is reset to 0.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function ByteBuffer.clear(self) buffer_clear(self) end
 
 ## Frees the buffer memory and zeroes its state.
+##
+## ### Parameters
+## - `self`: Buffer to free.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function ByteBuffer.free(self) buffer_free(self) end
 
 ## Reads a byte from the buffer at the given offset.
+##
+## ### Parameters
+## - `self`: Buffer to read from.
+## - `offset`: Byte offset into the stored data.
+##
+## ### Returns
+## The byte at `offset`, or 0 when `offset` is out of range.
 pub function ByteBuffer.read_byte(self, offset) return buffer_read_byte(self, offset) end
 
 ## Returns the buffer contents as a string.
+##
+## ### Parameters
+## - `self`: Buffer whose contents are exposed.
+##
+## ### Returns
+## The buffer contents as a string.
 pub function ByteBuffer.to_string(self) return buffer_to_string(self) end
 
 ## Appends a single byte to the buffer.
+##
+## ### Parameters
+## - `self`: Buffer to extend.
+## - `val`: Byte value to append.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function ByteBuffer.write_byte(self, val) buffer_write_byte(self, val) end
 
 ## Appends a string to the buffer.
+##
+## ### Parameters
+## - `self`: Buffer to extend.
+## - `s`: String whose bytes are appended.
+##
+## ### Returns
+## The number of bytes appended in bytes.
 pub function ByteBuffer.write_string(self, s) return buffer_write_string(self, s) end
 
 # --- Heap Strings ---
 
 ## Creates an independent heap copy of the string that survives ring-buffer recycling.
+##
+## ### Parameters
+## - `s`: Source string to copy.
+##
+## ### Returns
+## The independent heap-allocated copy of `s`.
 pub function string_clone(s)
     return str_clone(s)
 end
 
 ## Frees an independent heap-allocated string created by string_clone.
+##
+## ### Parameters
+## - `s`: Heap string to release.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function string_free(s)
     str_free(s)
 end
@@ -475,16 +902,25 @@ end
 # --- Memory Statistics ---
 
 ## Returns the total bytes currently allocated through the heap allocator.
+##
+## ### Returns
+## The allocated byte count in bytes.
 pub function mem_bytes_allocated()
     return mem_allocated()
 end
 
 ## Returns a MemStats struct with current memory metrics.
+##
+## ### Returns
+## A `MemStats` snapshot wrapping the current allocated byte count.
 pub function mem_stats()
     return MemStats(mem_allocated())
 end
 
 ## Resets the memory allocation tracking counter to zero.
+##
+## ### Returns
+## The value returned by `mem_reset_alloc`.
 pub function mem_stats_reset()
     return mem_reset_alloc()
 end
@@ -492,22 +928,59 @@ end
 # --- Pool Allocator ---
 
 ## Allocates one fixed-size block from the pool.
+##
+## ### Parameters
+## - `self`: Pool to allocate from.
+##
+## ### Returns
+## The raw pointer to the block, or 0 when the pool is exhausted.
 pub function Pool.alloc(self) return pool_alloc(self) end
 
 ## Returns the number of available free blocks in the pool.
+##
+## ### Parameters
+## - `self`: Pool to measure.
+##
+## ### Returns
+## The free block count (`capacity - allocated_count`) in blocks.
 pub function Pool.available(self) return pool_available(self) end
 
 ## Re-links all pool blocks without re-allocating memory.
+##
+## ### Parameters
+## - `self`: Pool to reset.
+##
+## ### Returns
+## 1 when the free list was rebuilt, or 0 when the pool has no usable storage.
 pub function Pool.clear(self) return pool_clear(self) end
 
 ## Destroys the pool and frees its memory.
+##
+## ### Parameters
+## - `self`: Pool to destroy; its storage fields are zeroed.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function Pool.destroy(self) pool_destroy(self) end
 
 ## Returns an allocated block back to the pool.
+##
+## ### Parameters
+## - `self`: Pool receiving the block.
+## - `ptr`: Block pointer to return; 0 is ignored.
+##
+## ### Returns
+## 1 when the block was linked back, or 0 for a null pointer.
 pub function Pool.free(self, ptr) return pool_free(self, ptr) end
 
 ## Allocates one fixed-size block from the pool in O(1) time.
-# Returns raw pointer to block, or 0 if pool is exhausted.
+## Returns raw pointer to block, or 0 if pool is exhausted.
+##
+## ### Parameters
+## - `pool`: Pool to allocate from.
+##
+## ### Returns
+## The raw pointer to the block with its header word cleared, or 0 when the pool is exhausted.
 pub function pool_alloc(pool: Pool)
     if pool.free_head == 0
         return 0
@@ -520,11 +993,23 @@ pub function pool_alloc(pool: Pool)
 end
 
 ## Returns the number of available free blocks in the pool.
+##
+## ### Parameters
+## - `pool`: Pool to measure.
+##
+## ### Returns
+## The free block count (`capacity - allocated_count`) in blocks.
 pub function pool_available(pool: Pool)
     return pool.capacity - pool.allocated_count
 end
 
 ## Re-links all blocks in the pool without re-allocating buffer memory.
+##
+## ### Parameters
+## - `pool`: Pool to reset; its free list is rebuilt and the checked-out count is cleared.
+##
+## ### Returns
+## 1 when the free list was rebuilt, or 0 when the pool has no buffer or capacity.
 pub function pool_clear(pool: Pool)
     if pool.buffer == 0 or pool.capacity <= 0
         return 0
@@ -544,6 +1029,12 @@ pub function pool_clear(pool: Pool)
 end
 
 ## Destroys the pool and frees underlying memory back to the system heap.
+##
+## ### Parameters
+## - `pool`: Pool to destroy; pools with a null buffer are ignored.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function pool_destroy(pool: Pool)
     if pool.buffer != 0
         free(pool.buffer)
@@ -555,6 +1046,13 @@ pub function pool_destroy(pool: Pool)
 end
 
 ## Returns an allocated block back to the pool in O(1) time.
+##
+## ### Parameters
+## - `pool`: Pool receiving the block.
+## - `ptr`: Block pointer to return; 0 is ignored. Ownership is not validated.
+##
+## ### Returns
+## 1 when the block was linked back, or 0 for a null pointer.
 pub function pool_free(pool: Pool, ptr)
     if ptr == 0
         return 0
@@ -568,30 +1066,54 @@ end
 # --- Reference Counting ---
 
 ## Manually decrements the reference count of an object.
+##
+## ### Parameters
+## - `obj`: Heap object to release a reference on.
+##
+## ### Returns
+## The value returned by `rc_release`.
 pub function rc_dec(obj)
     return rc_release(obj)
 end
 
 ## Returns the current reference count of a heap object.
-# Returns 0 if obj is null, an integer, or not a managed heap object.
+## Returns 0 if obj is null, an integer, or not a managed heap object.
+##
+## ### Parameters
+## - `obj`: Object to inspect.
+##
+## ### Returns
+## The reference count, or 0 for null, integer, or unmanaged values.
 pub function rc_get_count(obj)
     return rc_count(obj)
 end
 
 ## Manually increments the reference count of an object.
+##
+## ### Parameters
+## - `obj`: Heap object to retain a reference on.
+##
+## ### Returns
+## The value returned by `rc_retain`.
 pub function rc_inc(obj)
     return rc_retain(obj)
 end
 
 # --- Garbage Collector ---
 
-## Triggers a cycle collection cycle to sweep cyclic reference islands.
-# Returns the number of cyclic objects collected and deallocated.
+## Triggers a cycle collection pass that sweeps cyclic reference islands.
+## Returns the number of cyclic objects collected and deallocated.
+##
+## ### Returns
+## The number of cyclic objects collected and deallocated.
 pub function gc_collect()
     return _gc_collect()
 end
 
 ## Returns the cumulative number of cyclic objects collected since program start.
+##
+## ### Returns
+## The cumulative collected count in objects.
 pub function gc_collected_count()
     return _gc_collected_count()
 end
@@ -599,12 +1121,18 @@ end
 # --- Legacy Aliases ---
 
 ## Alias for Arena.free that destroys the arena.
+##
+## See: `arena_free`.
 pub function Arena.destroy(self) arena_free(self) end
 
 ## Alias for Arena.clear that resets all arena allocations.
+##
+## See: `arena_clear`.
 pub function Arena.reset(self) arena_clear(self) end
 
 ## Alias for arena_free that destroys the arena.
+##
+## See: `arena_free`.
 pub function arena_free_all(arena: Arena)
     arena_free(arena)
 end

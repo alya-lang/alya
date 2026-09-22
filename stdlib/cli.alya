@@ -27,6 +27,13 @@ end
 # --- Raw Argument Accessors ---
 
 ## Returns the raw argument at idx, or default_val when out of range.
+##
+## ### Parameters
+## - `idx`: Zero-based index into the raw OS argument list.
+## - `default_val`: Fallback value returned when idx is out of range.
+##
+## ### Returns
+## The raw argument at idx, or default_val when idx is negative or past the end.
 pub function cli_arg_at(idx: int, default_val: string = "") -> string
     let raw: string[] = args()
     if idx >= 0
@@ -38,11 +45,23 @@ pub function cli_arg_at(idx: int, default_val: string = "") -> string
 end
 
 ## Returns the number of raw OS arguments.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The count of raw OS arguments.
 pub function cli_arg_count() -> int
     return len(args())
 end
 
 ## Returns all raw OS arguments.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The full raw OS argument list.
 pub function cli_raw_args() -> string[]
     return args()
 end
@@ -50,6 +69,13 @@ end
 # --- Flags, Options & Positionals ---
 
 ## Returns the value of option opt_name (--opt=value or --opt value), or default_val when absent.
+##
+## ### Parameters
+## - `opt_name`: Option name, with or without leading dashes.
+## - `default_val`: Fallback value returned when the option is absent.
+##
+## ### Returns
+## The option value, or default_val when the option is absent or has no following value.
 pub function cli_get_opt(opt_name: string, default_val: string = "") -> string
     let raw: string[] = args()
     let clean: string = _cli_strip_dashes(opt_name)
@@ -78,6 +104,13 @@ pub function cli_get_opt(opt_name: string, default_val: string = "") -> string
 end
 
 ## Returns the idx-th positional (non-dash) argument, or default_val when absent.
+##
+## ### Parameters
+## - `idx`: Zero-based index among positional arguments only.
+## - `default_val`: Fallback value returned when the index is out of range.
+##
+## ### Returns
+## The idx-th argument that does not start with `-`, or default_val when absent.
 pub function cli_get_positional(idx: int, default_val: string = "") -> string
     let raw: string[] = args()
     let count: int = len(raw)
@@ -100,6 +133,12 @@ pub function cli_get_positional(idx: int, default_val: string = "") -> string
 end
 
 ## Returns 1 when flag_name (--flag or -flag) is present among raw arguments.
+##
+## ### Parameters
+## - `flag_name`: Flag name, with or without leading dashes.
+##
+## ### Returns
+## 1 when the flag is present, otherwise 0.
 pub function cli_has_flag(flag_name: string) -> int
     let raw: string[] = args()
     let clean: string = _cli_strip_dashes(flag_name)

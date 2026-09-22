@@ -29,27 +29,35 @@ end
 
 # --- Constants ---
 
-## Backward-compatible numeric alias for LogLevel.Debug.
+## Backward-compatible numeric alias for LogLevel.Debug (value 1, unitless).
 pub let LOG_DEBUG: int = LogLevel.Debug
 
-## Backward-compatible numeric alias for LogLevel.Error.
+## Backward-compatible numeric alias for LogLevel.Error (value 4, unitless).
 pub let LOG_ERROR: int = LogLevel.Error
 
-## Backward-compatible numeric alias for LogLevel.Fatal.
+## Backward-compatible numeric alias for LogLevel.Fatal (value 5, unitless).
 pub let LOG_FATAL: int = LogLevel.Fatal
 
-## Backward-compatible numeric alias for LogLevel.Info.
+## Backward-compatible numeric alias for LogLevel.Info (value 2, unitless).
 pub let LOG_INFO: int = LogLevel.Info
 
-## Backward-compatible numeric alias for LogLevel.Off.
+## Backward-compatible numeric alias for LogLevel.Off (value 6, unitless).
 pub let LOG_OFF: int = LogLevel.Off
 
-## Backward-compatible numeric alias for LogLevel.Warn.
+## Backward-compatible numeric alias for LogLevel.Warn (value 3, unitless).
 pub let LOG_WARN: int = LogLevel.Warn
 
 # --- Types ---
 
 ## Severity levels for log output.
+##
+## ### Variants
+## - `Debug`: Debug messages (1).
+## - `Info`: Informational messages (2).
+## - `Warn`: Warnings (3).
+## - `Error`: Errors (4).
+## - `Fatal`: Fatal errors (5).
+## - `Off`: Disables all output (6).
 pub enum LogLevel
     Debug = 1
     Info = 2
@@ -60,6 +68,13 @@ pub enum LogLevel
 end
 
 ## Leveled console logger with colored badges, timestamps, and optional file output.
+##
+## ### Fields
+## - `log_name`: Logger name shown in brackets; empty hides the name segment.
+## - `log_level`: Minimum level emitted; lower levels are filtered.
+## - `log_colored`: 1 enables colored badges and names, other values disable them.
+## - `log_timestamps`: 1 prepends `[HH:MM:SS]` timestamps, other values disable them.
+## - `log_file`: File path receiving plain appended log lines; empty disables file output.
 pub struct Logger
     log_name: string
     log_level: int
@@ -71,6 +86,13 @@ end
 # --- Constructors ---
 
 ## Creates a logger with colored output, no timestamps, and no log file.
+##
+## ### Parameters
+## - `name`: Logger name shown in brackets.
+## - `level`: Minimum level emitted.
+##
+## ### Returns
+## The new `Logger` with colored output enabled, timestamps disabled, and no log file.
 pub function logger_new(name: string, level: int) -> Logger
     return Logger(name, level, 1, 0, "")
 end
@@ -78,6 +100,13 @@ end
 # --- Level Helpers ---
 
 ## Parses a level name into a LogLevel value, defaulting to Info.
+## Matching is case-insensitive; WARNING maps to Warn and unknown names return Info.
+##
+## ### Parameters
+## - `s`: Level name such as DEBUG, INFO, WARN, ERROR, FATAL, or OFF.
+##
+## ### Returns
+## The parsed level as an int.
 pub function log_level_from_str(s: string) -> int
     let up: string = upper(s)
     when up
@@ -93,6 +122,12 @@ pub function log_level_from_str(s: string) -> int
 end
 
 ## Returns the level name (DEBUG, INFO, WARN, ERROR, FATAL, OFF) for lvl.
+##
+## ### Parameters
+## - `lvl`: Numeric level to name.
+##
+## ### Returns
+## The level name as a string, or LOG for unrecognized values.
 pub function log_level_name(lvl: int) -> string
     when lvl
         is LogLevel.Debug then return "DEBUG"
@@ -108,18 +143,55 @@ end
 # --- Logger Functions ---
 
 ## Logs msg at debug level through l.
+##
+## ### Parameters
+## - `l`: Logger emitting the message.
+## - `msg`: Message text.
+##
+## ### Returns
+## 1 when the message is written, or 0 when filtered by the logger level.
 pub function logger_debug(l: Logger, msg: string) -> int return logger_log(l, 1, msg) end
 
 ## Logs msg at error level through l.
+##
+## ### Parameters
+## - `l`: Logger emitting the message.
+## - `msg`: Message text.
+##
+## ### Returns
+## 1 when the message is written, or 0 when filtered by the logger level.
 pub function logger_error(l: Logger, msg: string) -> int return logger_log(l, 4, msg) end
 
 ## Logs msg at fatal level through l.
+##
+## ### Parameters
+## - `l`: Logger emitting the message.
+## - `msg`: Message text.
+##
+## ### Returns
+## 1 when the message is written, or 0 when filtered by the logger level.
 pub function logger_fatal(l: Logger, msg: string) -> int return logger_log(l, 5, msg) end
 
 ## Logs msg at info level through l.
+##
+## ### Parameters
+## - `l`: Logger emitting the message.
+## - `msg`: Message text.
+##
+## ### Returns
+## 1 when the message is written, or 0 when filtered by the logger level.
 pub function logger_info(l: Logger, msg: string) -> int  return logger_log(l, 2, msg) end
 
 ## Emits message at level through l, returning 1 when written and 0 when filtered.
+## Levels below the logger level are dropped; written lines carry a padded badge with optional color, name, and timestamp, and are appended plain to the log file when set.
+##
+## ### Parameters
+## - `l`: Logger carrying level, color, timestamp, name, and file settings.
+## - `level`: Numeric severity of this message; dropped when below `l.log_level`.
+## - `message`: Message text.
+##
+## ### Returns
+## 1 when the message is printed (and appended to the log file when set), or 0 when filtered.
 pub function logger_log(l: Logger, level: int, message: string) -> int
     if level < l.log_level
         return 0
@@ -171,83 +243,219 @@ pub function logger_log(l: Logger, level: int, message: string) -> int
 end
 
 ## Enables or disables colored badges on l.
+##
+## ### Parameters
+## - `l`: Logger to configure.
+## - `colored`: 1 enables colored badges and names, other values disable them.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function logger_set_colored(l: Logger, colored: int)
     l.log_colored = colored
 end
 
 ## Sets the file path that l appends plain log lines to.
+##
+## ### Parameters
+## - `l`: Logger to configure.
+## - `file_path`: File path receiving ANSI-stripped lines; empty disables file output.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function logger_set_file(l: Logger, file_path: string)
     l.log_file = file_path
 end
 
 ## Sets the minimum level that l emits.
+##
+## ### Parameters
+## - `l`: Logger to configure.
+## - `level`: Minimum numeric severity emitted; lower levels are filtered.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function logger_set_level(l: Logger, level: int)
     l.log_level = level
 end
 
 ## Enables or disables timestamp prefixes on l.
+##
+## ### Parameters
+## - `l`: Logger to configure.
+## - `timestamps`: 1 enables `[HH:MM:SS]` prefixes, other values disable them.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function logger_set_timestamps(l: Logger, timestamps: int)
     l.log_timestamps = timestamps
 end
 
 ## Logs msg at warn level through l.
+##
+## ### Parameters
+## - `l`: Logger emitting the message.
+## - `msg`: Message text.
+##
+## ### Returns
+## 1 when the message is written, or 0 when filtered by the logger level.
 pub function logger_warn(l: Logger, msg: string) -> int  return logger_log(l, 3, msg) end
 
 # --- Top-Level Log Functions ---
 
 ## Prints a cyan DEBUG message to the console.
+##
+## ### Parameters
+## - `msg`: Message text appended after the badge.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function log_debug(msg: string) say color_cyan("[DEBUG] ") + str_from_ptr(msg) end
 
 ## Prints a red ERROR message to the console.
+##
+## ### Parameters
+## - `msg`: Message text appended after the badge.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function log_error(msg: string) say color_red("[ERROR] ") + str_from_ptr(msg) end
 
 ## Prints a bold bright-red FATAL message to the console.
+##
+## ### Parameters
+## - `msg`: Message text appended after the badge.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function log_fatal(msg: string) say style_bold(color_bright_red("[FATAL] ")) + str_from_ptr(msg) end
 
 ## Prints a green INFO message to the console.
+##
+## ### Parameters
+## - `msg`: Message text appended after the badge.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function log_info(msg: string)  say color_green("[INFO]  ") + str_from_ptr(msg) end
 
 ## Prints a yellow WARN message to the console.
+##
+## ### Parameters
+## - `msg`: Message text appended after the badge.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function log_warn(msg: string)  say color_yellow("[WARN]  ") + str_from_ptr(msg) end
 
 # --- Logger Methods ---
 
 ## Logs msg at debug level through this logger.
+##
+## ### Parameters
+## - `self`: Logger emitting the message.
+## - `msg`: Message text.
+##
+## ### Returns
+## 1 when the message is written, or 0 when filtered by the logger level.
 pub function Logger.debug(self: Logger, msg: string) -> int return logger_debug(self, msg) end
 
 ## Logs msg at error level through this logger.
+##
+## ### Parameters
+## - `self`: Logger emitting the message.
+## - `msg`: Message text.
+##
+## ### Returns
+## 1 when the message is written, or 0 when filtered by the logger level.
 pub function Logger.error(self: Logger, msg: string) -> int return logger_error(self, msg) end
 
 ## Logs msg at fatal level through this logger.
+##
+## ### Parameters
+## - `self`: Logger emitting the message.
+## - `msg`: Message text.
+##
+## ### Returns
+## 1 when the message is written, or 0 when filtered by the logger level.
 pub function Logger.fatal(self: Logger, msg: string) -> int return logger_fatal(self, msg) end
 
 ## Logs msg at info level through this logger.
+##
+## ### Parameters
+## - `self`: Logger emitting the message.
+## - `msg`: Message text.
+##
+## ### Returns
+## 1 when the message is written, or 0 when filtered by the logger level.
 pub function Logger.info(self: Logger, msg: string) -> int  return logger_info(self, msg) end
 
 ## Emits message at level through this logger.
+##
+## ### Parameters
+## - `self`: Logger emitting the message.
+## - `level`: Numeric severity of this message; dropped when below the logger level.
+## - `message`: Message text.
+##
+## ### Returns
+## 1 when the message is written, or 0 when filtered by the logger level.
 pub function Logger.log(self: Logger, level: int, message: string) -> int
     return logger_log(self, level, message)
 end
 
 ## Enables or disables colored badges on this logger.
+##
+## ### Parameters
+## - `self`: Logger to configure.
+## - `colored`: 1 enables colored badges and names, other values disable them.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function Logger.set_colored(self: Logger, colored: int)
     logger_set_colored(self, colored)
 end
 
 ## Sets the file path that this logger appends plain log lines to.
+##
+## ### Parameters
+## - `self`: Logger to configure.
+## - `file_path`: File path receiving ANSI-stripped lines; empty disables file output.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function Logger.set_file(self: Logger, file_path: string)
     logger_set_file(self, file_path)
 end
 
 ## Sets the minimum level that this logger emits.
+##
+## ### Parameters
+## - `self`: Logger to configure.
+## - `level`: Minimum numeric severity emitted; lower levels are filtered.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function Logger.set_level(self: Logger, level: int)
     logger_set_level(self, level)
 end
 
 ## Enables or disables timestamp prefixes on this logger.
+##
+## ### Parameters
+## - `self`: Logger to configure.
+## - `timestamps`: 1 enables `[HH:MM:SS]` prefixes, other values disable them.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
 pub function Logger.set_timestamps(self: Logger, timestamps: int)
     logger_set_timestamps(self, timestamps)
 end
 
 ## Logs msg at warn level through this logger.
+##
+## ### Parameters
+## - `self`: Logger emitting the message.
+## - `msg`: Message text.
+##
+## ### Returns
+## 1 when the message is written, or 0 when filtered by the logger level.
 pub function Logger.warn(self: Logger, msg: string) -> int  return logger_warn(self, msg) end

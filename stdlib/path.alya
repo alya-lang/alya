@@ -5,6 +5,12 @@
 # --- Separators ---
 
 ## Returns the OS-native path separator.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## The OS-native separator: backslash on Windows, forward slash elsewhere.
 pub function native_separator() -> string
     return when target_os()
         is "windows" => "\\"
@@ -13,6 +19,12 @@ pub function native_separator() -> string
 end
 
 ## Returns the canonical forward-slash separator.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## A single forward slash.
 pub function path_separator() -> string
     return "/"
 end
@@ -20,6 +32,12 @@ end
 # --- Classification ---
 
 ## Returns 1 when the path is absolute.
+##
+## ### Parameters
+## - `path`: Path to classify.
+##
+## ### Returns
+## 1 when the path starts with a slash or a drive-letter slash, otherwise 0.
 pub function is_absolute(path: string) -> int
     let plen: int = len(path)
     if plen == 0
@@ -39,6 +57,12 @@ pub function is_absolute(path: string) -> int
 end
 
 ## Returns 1 when the path is not absolute.
+##
+## ### Parameters
+## - `path`: Path to classify.
+##
+## ### Returns
+## 1 when `is_absolute` reports 0, otherwise 0.
 pub function is_relative(path: string) -> int
     if is_absolute(path)
         return 0
@@ -47,6 +71,12 @@ pub function is_relative(path: string) -> int
 end
 
 ## Returns 1 when the path is a filesystem root.
+##
+## ### Parameters
+## - `path`: Path to classify.
+##
+## ### Returns
+## 1 for a lone slash, a drive name, or a drive-letter slash, otherwise 0.
 pub function is_root(path: string) -> int
     let plen: int = len(path)
     if plen == 1
@@ -70,6 +100,12 @@ end
 # --- Components ---
 
 ## Returns the extension (with dot) of the final component.
+##
+## ### Parameters
+## - `path`: Path whose final component is inspected.
+##
+## ### Returns
+## The extension including the dot, or "" when there is none.
 pub function file_ext(path: string) -> string
     let name: string = file_name(path)
     let nlen: int = len(name)
@@ -87,6 +123,12 @@ pub function file_ext(path: string) -> string
 end
 
 ## Returns the final component of the path.
+##
+## ### Parameters
+## - `path`: Path to inspect.
+##
+## ### Returns
+## The final component with trailing slashes trimmed.
 pub function file_name(path: string) -> string
     let plen: int = len(path)
     if plen == 0
@@ -109,6 +151,12 @@ pub function file_name(path: string) -> string
 end
 
 ## Returns the final component without its extension.
+##
+## ### Parameters
+## - `path`: Path to inspect.
+##
+## ### Returns
+## The final component minus the extension returned by `file_ext`.
 pub function file_stem(path: string) -> string
     let name: string = file_name(path)
     let ext: string = file_ext(name)
@@ -120,6 +168,12 @@ pub function file_stem(path: string) -> string
 end
 
 ## Returns 1 when the final component has an extension.
+##
+## ### Parameters
+## - `path`: Path to inspect.
+##
+## ### Returns
+## 1 when `file_ext` is non-empty, otherwise 0.
 pub function has_extension(path: string) -> int
     if len(file_ext(path)) > 0
         return 1
@@ -128,6 +182,12 @@ pub function has_extension(path: string) -> int
 end
 
 ## Returns the directory portion of the path.
+##
+## ### Parameters
+## - `path`: Path to inspect.
+##
+## ### Returns
+## The parent directory, "/" for a top-level entry, or "." when there is no directory part.
 pub function parent_dir(path: string) -> string
     let plen: int = len(path)
     if plen == 0
@@ -158,6 +218,12 @@ end
 # --- Transformation ---
 
 ## Converts separators to the OS-native form.
+##
+## ### Parameters
+## - `path`: Path to convert.
+##
+## ### Returns
+## The path with OS-native separators.
 pub function to_native_separators(path: string) -> string
     if target_os() == "windows"
         let plen: int = len(path)
@@ -179,6 +245,12 @@ pub function to_native_separators(path: string) -> string
 end
 
 ## Converts backslashes to forward slashes.
+##
+## ### Parameters
+## - `path`: Path to convert.
+##
+## ### Returns
+## The path with every backslash replaced by a forward slash.
 pub function to_slash(path: string) -> string
     let plen: int = len(path)
     let res: string = ""
@@ -197,6 +269,13 @@ pub function to_slash(path: string) -> string
 end
 
 ## Replaces the extension of the final component.
+##
+## ### Parameters
+## - `path`: Path whose extension is replaced.
+## - `new_ext`: New extension; a leading dot is added when missing.
+##
+## ### Returns
+## The path with the final component carrying the new extension.
 pub function with_extension(path: string, new_ext: string) -> string
     let pdir: string = parent_dir(path)
     let st: string = file_stem(path)
@@ -225,6 +304,13 @@ pub function with_extension(path: string, new_ext: string) -> string
 end
 
 ## Replaces the final component with a new file name.
+##
+## ### Parameters
+## - `path`: Path whose final component is replaced.
+## - `new_name`: Replacement file name.
+##
+## ### Returns
+## The path with the final component replaced.
 pub function with_file_name(path: string, new_name: string) -> string
     let pdir: string = parent_dir(path)
     if pdir == "."
@@ -249,6 +335,13 @@ end
 # --- Joining ---
 
 ## Joins two path segments with a single slash.
+##
+## ### Parameters
+## - `a`: Left path segment.
+## - `b`: Right path segment.
+##
+## ### Returns
+## Both segments joined with exactly one forward slash at the boundary.
 pub function path_join(a: string, b: string) -> string
     let alen: int = len(a)
     let blen: int = len(b)
@@ -272,11 +365,25 @@ pub function path_join(a: string, b: string) -> string
 end
 
 ## Joins three path segments.
+##
+## ### Parameters
+## - `a`: First path segment.
+## - `b`: Second path segment.
+## - `c`: Third path segment.
+##
+## ### Returns
+## `a`, `b`, and `c` joined via `path_join`.
 pub function path_join3(a: string, b: string, c: string) -> string
     return path_join(path_join(a, b), c)
 end
 
 ## Joins an array of path segments.
+##
+## ### Parameters
+## - `parts`: Path segments to join in order.
+##
+## ### Returns
+## All segments folded through `path_join`, or "" when the array is empty.
 pub function path_join_all(parts: string[]) -> string
     let total: int = len(parts)
     if total == 0
@@ -506,11 +613,24 @@ function _glob_match_simple_rec(p: string, p_idx: int, s: string, s_idx: int) ->
 end
 
 ## Lists the current directory filtered by a glob pattern.
+##
+## ### Parameters
+## - `pattern`: Glob pattern to match entry names against.
+##
+## ### Returns
+## The matching entry names from the current directory.
 pub function glob(pattern: string) -> string[]
     return glob_dir(pattern, ".")
 end
 
 ## Lists a directory filtered by a glob pattern.
+##
+## ### Parameters
+## - `pattern`: Glob pattern to match entry names against.
+## - `dir_path`: Directory whose entries are listed.
+##
+## ### Returns
+## The entries of `dir_path` matching the pattern.
 pub function glob_dir(pattern: string, dir_path: string) -> string[]
     let d: string = str_from_ptr(dir_path)
     let raw_lines = list_dir(d)
@@ -518,6 +638,12 @@ pub function glob_dir(pattern: string, dir_path: string) -> string[]
 end
 
 ## Escapes glob metacharacters in a literal string.
+##
+## ### Parameters
+## - `s`: Literal text to escape.
+##
+## ### Returns
+## The text with glob metacharacters backslash-escaped.
 pub function glob_escape(s: string) -> string
     let text: string = str_from_ptr(s)
     let tlen: int = len(text)
@@ -535,6 +661,13 @@ pub function glob_escape(s: string) -> string
 end
 
 ## Keeps list items matching a glob pattern.
+##
+## ### Parameters
+## - `pattern`: Glob pattern to match against.
+## - `list`: Candidate entry names.
+##
+## ### Returns
+## The items of `list` matching the pattern via `glob_match`.
 pub function glob_filter(pattern: string, list: string[]) -> string[]
     let res: string[] = []
     let total: int = array_len(list)
@@ -550,6 +683,12 @@ pub function glob_filter(pattern: string, list: string[]) -> string[]
 end
 
 ## Returns 1 when the string holds glob metacharacters.
+##
+## ### Parameters
+## - `pattern`: String to inspect.
+##
+## ### Returns
+## 1 when the string contains a glob metacharacter, otherwise 0.
 pub function glob_is_pattern(pattern: string) -> int
     let s: string = str_from_ptr(pattern)
     let slen: int = len(s)
@@ -565,63 +704,85 @@ pub function glob_is_pattern(pattern: string) -> int
 end
 
 ## Matches text against a path-aware glob pattern.
+##
+## ### Parameters
+## - `pattern`: Glob pattern supporting star, double star, question mark, classes, and escapes.
+## - `text`: Text to test.
+##
+## ### Returns
+## 1 on a match, otherwise 0.
 pub function glob_match(pattern: string, text: string) -> int
     return _glob_match_path_rec(str_from_ptr(pattern), 0, str_from_ptr(text), 0)
 end
 
 ## Matches text against a glob where star crosses slashes.
+##
+## ### Parameters
+## - `pattern`: Glob pattern in which star matches across slashes.
+## - `text`: Text to test.
+##
+## ### Returns
+## 1 on a match, otherwise 0.
 pub function glob_match_simple(pattern: string, text: string) -> int
     return _glob_match_simple_rec(str_from_ptr(pattern), 0, str_from_ptr(text), 0)
 end
 
 # --- Legacy Aliases ---
 
-## Returns the final component (alias of file_name).
+## Returns the final component. See: `file_name`.
 pub function basename(path: string) -> string
     return file_name(path)
 end
 
-## Returns the directory portion (alias of parent_dir).
+## Returns the directory portion. See: `parent_dir`.
 pub function dirname(path: string) -> string
     return parent_dir(path)
 end
 
-## Returns the extension (alias of file_ext).
+## Returns the extension. See: `file_ext`.
 pub function ext(path: string) -> string
     return file_ext(path)
 end
 
-## Returns the extension (alias of file_ext).
+## Returns the extension. See: `file_ext`.
 pub function extname(path: string) -> string
     return file_ext(path)
 end
 
-## Matches text against a glob (alias of glob_match_simple).
+## Matches text against a glob. See: `glob_match_simple`.
 pub function fnmatch(pattern: string, text: string) -> int
     return glob_match_simple(pattern, text)
 end
 
-## Converts backslashes to slashes (alias of to_slash).
+## Converts backslashes to slashes. See: `to_slash`.
 pub function normalize_slashes(path: string) -> string
     return to_slash(path)
 end
 
-## Returns the final component (alias of file_name).
+## Returns the final component. See: `file_name`.
 pub function path__basename(path: string) -> string
     return file_name(path)
 end
 
-## Returns the directory portion (alias of parent_dir).
+## Returns the directory portion. See: `parent_dir`.
 pub function path__dirname(path: string) -> string
     return parent_dir(path)
 end
 
-## Returns the extension (alias of file_ext).
+## Returns the extension. See: `file_ext`.
 pub function path__ext(path: string) -> string
     return file_ext(path)
 end
 
 ## Joins up to three path segments with optional parts.
+##
+## ### Parameters
+## - `a`: First path segment.
+## - `b`: Second path segment; ignored when empty.
+## - `c`: Third path segment; ignored when empty.
+##
+## ### Returns
+## `a` joined with `b` and `c` through `path_join`.
 pub function path__join(a: string, b: string = "", c: string = "") -> string
     if len(c) > 0
         return path_join3(a, b, c)
@@ -632,12 +793,12 @@ pub function path__join(a: string, b: string = "", c: string = "") -> string
     end
 end
 
-## Matches text against a glob pattern (alias of glob_match).
+## Matches text against a glob pattern. See: `glob_match`.
 pub function path_glob_match(pattern: string, text: string) -> int
     return glob_match(pattern, text)
 end
 
-## Returns the stem component (alias of file_stem).
+## Returns the stem component. See: `file_stem`.
 pub function stem(path: string) -> string
     return file_stem(path)
 end

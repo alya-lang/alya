@@ -10,6 +10,12 @@ function _rotl32(x: int, r: int) -> int
 end
 
 ## Computes the Adler-32 checksum of a string.
+##
+## ### Parameters
+## - `s`: Input string hashed character by character.
+##
+## ### Returns
+## The Adler-32 checksum as an integer.
 pub function adler32(s: string) -> int
     let slen: int = len(s)
     let a: int = 1
@@ -24,6 +30,12 @@ pub function adler32(s: string) -> int
 end
 
 ## Computes the CRC-16/CCITT checksum of a string.
+##
+## ### Parameters
+## - `s`: Input string hashed character by character.
+##
+## ### Returns
+## The CRC-16 checksum as an integer.
 pub function crc16(s: string) -> int
     let slen: int = len(s)
     let crc: int = 65535
@@ -48,6 +60,12 @@ pub function crc16(s: string) -> int
 end
 
 ## Computes the CRC-32 (IEEE) checksum of a string.
+##
+## ### Parameters
+## - `s`: Input string hashed character by character.
+##
+## ### Returns
+## The CRC-32 checksum as an integer.
 pub function crc32(s: string) -> int
     let slen: int = len(s)
     let crc: int = 4294967295
@@ -73,6 +91,12 @@ pub function crc32(s: string) -> int
 end
 
 ## Computes the CRC-64/ECMA-182 checksum of a string.
+##
+## ### Parameters
+## - `s`: Input string hashed character by character.
+##
+## ### Returns
+## The CRC-64 checksum as an integer.
 pub function crc64(s: string) -> int
     let slen: int = len(s)
     # 0x42F0E1EBA9EA3693 (ECMA-182) constructed from two 32-bit words
@@ -99,6 +123,12 @@ pub function crc64(s: string) -> int
 end
 
 ## Computes the DJB2 hash of a string.
+##
+## ### Parameters
+## - `s`: Input string hashed character by character.
+##
+## ### Returns
+## The DJB2 hash as a non-negative integer.
 pub function djb2(s: string) -> int
     let slen: int = len(s)
     let h: int = 5381
@@ -111,6 +141,12 @@ pub function djb2(s: string) -> int
 end
 
 ## Computes the ELF hash of a string.
+##
+## ### Parameters
+## - `s`: Input string hashed character by character.
+##
+## ### Returns
+## The ELF hash as an integer.
 pub function elf_hash(s: string) -> int
     let slen: int = len(s)
     let h: int = 0
@@ -129,6 +165,12 @@ pub function elf_hash(s: string) -> int
 end
 
 ## Computes the 32-bit FNV-1 hash of a string.
+##
+## ### Parameters
+## - `s`: Input string hashed character by character.
+##
+## ### Returns
+## The 32-bit FNV-1 hash as a non-negative integer.
 pub function fnv1(s: string) -> int
     let slen: int = len(s)
     let h: int = 2166136261
@@ -141,6 +183,12 @@ pub function fnv1(s: string) -> int
 end
 
 ## Computes the 32-bit FNV-1a hash of a string.
+##
+## ### Parameters
+## - `s`: Input string hashed character by character.
+##
+## ### Returns
+## The 32-bit FNV-1a hash as a non-negative integer.
 pub function fnv1a(s: string) -> int
     let slen: int = len(s)
     let h: int = 2166136261
@@ -153,6 +201,12 @@ pub function fnv1a(s: string) -> int
 end
 
 ## Computes the 64-bit FNV-1a hash of a string.
+##
+## ### Parameters
+## - `s`: Input string hashed character by character.
+##
+## ### Returns
+## The 64-bit FNV-1a hash as an integer.
 pub function fnv1a64(s: string) -> int
     let slen: int = len(s)
     # 0xcbf29ce484222325 split into two 32-bit words
@@ -167,12 +221,25 @@ pub function fnv1a64(s: string) -> int
 end
 
 ## Combines two hash values into one.
+##
+## ### Parameters
+## - `h1`: First hash value mixed with the second.
+## - `h2`: Second hash value folded into the first.
+##
+## ### Returns
+## The combined hash as a non-negative integer.
 pub function hash_combine(h1: int, h2: int) -> int
     let combined: int = bit_xor(h1, h2 + 2654435769 + bit_shl(h1, 6) + bit_shr(h1, 2))
     return bit_and(combined, 2147483647)
 end
 
 ## Computes the Jenkins one-at-a-time hash of a string.
+##
+## ### Parameters
+## - `s`: Input string hashed character by character.
+##
+## ### Returns
+## The Jenkins hash as an integer.
 pub function jenkins(s: string) -> int
     let slen: int = len(s)
     let h: int = 0
@@ -190,11 +257,25 @@ pub function jenkins(s: string) -> int
 end
 
 ## Computes the MurmurHash3 32-bit hash with an optional seed.
+##
+## ### Parameters
+## - `s`: Input string hashed character by character.
+## - `seed`: Mixing seed prepended into the hash state.
+##
+## ### Returns
+## The MurmurHash3 32-bit hash as an integer.
 pub function murmur3(s: string, seed: int = 0) -> int
     return murmur3_32(s, seed)
 end
 
 ## Computes the MurmurHash3 32-bit hash with an optional seed.
+##
+## ### Parameters
+## - `s`: Input string hashed four bytes at a time with a tail-byte remainder pass.
+## - `seed`: Mixing seed used as the initial hash state.
+##
+## ### Returns
+## The MurmurHash3 32-bit hash as an integer.
 pub function murmur3_32(s: string, seed: int = 0) -> int
     let slen: int = len(s)
     let h: int = seed
@@ -245,6 +326,12 @@ pub function murmur3_32(s: string, seed: int = 0) -> int
 end
 
 ## Computes the SDBM hash of a string.
+##
+## ### Parameters
+## - `s`: Input string hashed character by character.
+##
+## ### Returns
+## The SDBM hash as a non-negative integer.
 pub function sdbm(s: string) -> int
     let slen: int = len(s)
     let h: int = 0
@@ -262,31 +349,68 @@ end
 # --- Hex Formatting ---
 
 ## Returns the Adler-32 checksum as 8 lowercase hex digits.
+##
+## ### Parameters
+## - `s`: Input string passed to the Adler-32 checksum.
+##
+## ### Returns
+## The checksum formatted as 8 lowercase hex digits.
 pub function adler32_hex(s: string) -> string
     return int_to_hex(adler32(s), 8)
 end
 
 ## Returns the CRC-16 checksum as 4 lowercase hex digits.
+##
+## ### Parameters
+## - `s`: Input string passed to the CRC-16 checksum.
+##
+## ### Returns
+## The checksum formatted as 4 lowercase hex digits.
 pub function crc16_hex(s: string) -> string
     return int_to_hex(crc16(s), 4)
 end
 
 ## Returns the CRC-32 checksum as 8 lowercase hex digits.
+##
+## ### Parameters
+## - `s`: Input string passed to the CRC-32 checksum.
+##
+## ### Returns
+## The checksum formatted as 8 lowercase hex digits.
 pub function crc32_hex(s: string) -> string
     return int_to_hex(crc32(s), 8)
 end
 
 ## Returns the CRC-64 checksum as 16 lowercase hex digits.
+##
+## ### Parameters
+## - `s`: Input string passed to the CRC-64 checksum.
+##
+## ### Returns
+## The checksum formatted as 16 lowercase hex digits.
 pub function crc64_hex(s: string) -> string
     return int_to_hex(crc64(s), 16)
 end
 
 ## Returns the 64-bit FNV-1a hash as 16 lowercase hex digits.
+##
+## ### Parameters
+## - `s`: Input string passed to the 64-bit FNV-1a hash.
+##
+## ### Returns
+## The hash formatted as 16 lowercase hex digits.
 pub function fnv1a64_hex(s: string) -> string
     return int_to_hex(fnv1a64(s), 16)
 end
 
 ## Formats an integer as lowercase hex, zero-padded to the given width.
+##
+## ### Parameters
+## - `val`: Integer value converted to hexadecimal digits.
+## - `width`: Minimum digit width, left-padded with zeros.
+##
+## ### Returns
+## The lowercase hex string, zero-padded to `width` digits and capped at 16 digits.
 pub function int_to_hex(val: int, width: int = 0) -> string
     let hex_digits: string = "0123456789abcdef"
     if val == 0
@@ -315,6 +439,13 @@ pub function int_to_hex(val: int, width: int = 0) -> string
 end
 
 ## Returns the MurmurHash3 32-bit hash as 8 lowercase hex digits.
+##
+## ### Parameters
+## - `s`: Input string passed to the MurmurHash3 hash.
+## - `seed`: Mixing seed forwarded to the hash.
+##
+## ### Returns
+## The hash formatted as 8 lowercase hex digits.
 pub function murmur3_hex(s: string, seed: int = 0) -> string
     return int_to_hex(murmur3_32(s, seed), 8)
 end
