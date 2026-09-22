@@ -44,6 +44,11 @@ assets/brand/
 │   ├── alya-icon-light.png       # 485×512 transparent PNG (Light theme)
 │   ├── alya-icon-light.ico       # Multi-resolution Windows ICO (Light theme)
 │   └── alya-icon-light.icns      # Multi-resolution Apple ICNS (Light theme)
+├── docs/                         # Documentation header marks
+│   └── alya-docs.svg             # Simplified 3D Delta Prism for `alya doc` HTML pages (single source; embedded via include_str!)
+│   └── alya-docs.png             # 485×512 transparent PNG (docs header fallback)
+│   └── alya-docs.ico             # Multi-resolution Windows ICO (docs header fallback)
+│   └── alya-docs.icns            # Multi-resolution Apple ICNS (docs header fallback)
 ├── build.ts                      # One-command asset regenerator (Bun + Rust resvg)
 ├── package.json                  # Bun dependencies
 └── README.md                     # This documentation

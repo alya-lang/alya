@@ -15,6 +15,7 @@ import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
 
 const SCRIPT_DIR = dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+const DOCS_DIR = join(SCRIPT_DIR, "docs");
 const ICONS_DIR = join(SCRIPT_DIR, "icons");
 const LOGOS_DIR = join(SCRIPT_DIR, "logos");
 
@@ -210,6 +211,15 @@ function main() {
       width: 512,
       height: 512,
       squareViewBox: "0 0 512 512",
+    },
+    {
+      svgPath: join(DOCS_DIR, "alya-docs.svg"),
+      pngPath: join(DOCS_DIR, "alya-docs.png"),
+      icoPath: join(DOCS_DIR, "alya-docs.ico"),
+      icnsPath: join(DOCS_DIR, "alya-docs.icns"),
+      width: 485,
+      height: 512,
+      squareViewBox: "0 0 485 512",
     },
   ];
 

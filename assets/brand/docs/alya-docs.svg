@@ -1,0 +1,21 @@
+<svg class="alya-logo" viewBox="0 0 485 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="logo-left" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c084fc"/>
+      <stop offset="100%" stop-color="#7e22ce"/>
+    </linearGradient>
+    <linearGradient id="logo-right" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="logo-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+  </defs>
+  <path d="M242.5 32 L40 440 L242.5 360 Z" fill="url(#logo-left)" opacity="0.95"/>
+  <path d="M242.5 32 L445 440 L242.5 360 Z" fill="url(#logo-right)" opacity="0.95"/>
+  <path d="M242.5 32 L180 375 L242.5 360 Z" fill="url(#logo-glow)" opacity="0.4"/>
+  <path d="M242.5 32 L305 375 L242.5 360 Z" fill="#ffffff" opacity="0.6"/>
+  <polygon points="242.5,30 252,50 242.5,45 233,50" fill="#ffffff"/>
+</svg>
