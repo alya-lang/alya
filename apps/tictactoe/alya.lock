@@ -4,9 +4,9 @@ version = 1
 [[package]]
 name = "rand"
 version = "0.1.0"
-source = "git:https://github.com/alya-lang/rand?branch=main#323e44585e01584f14c8e7d9487eb8a4a3bb9935"
+source = "git:https://github.com/alya-lang/rand?branch=main#bb1b445fb4c7029a0a2d0f68e8735713b93ee3d4"
 entry = ".alya/packages/rand/src/lib.alya"
-checksum = "sha256:8ce6dc64fa41ddb16a659d2ee5e734eec21af058bb230f377b630732cd596d20"
+checksum = "sha256:30e0733613f29a81967341163cf04022857712638e375a84b6b911662442589b"
 
 [[package]]
 name = "term"
