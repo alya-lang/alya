@@ -43,6 +43,17 @@ Alya string interpolation supports formatting specifiers via the `:spec` suffix:
   `"{"level":"INFO"}"`. The region terminator is preserved verbatim, so a
   following literal `}` is never merged into an escape pair.
 
+### 1.8 Plain vs `f` Strings
+- Plain `"..."`, `f"..."`, and `r"..."` literals all interpolate `{holes}`
+  identically for simple expressions: `say "Player {player}"` and
+  `say f"Player {player}"` both render `"Player Taiizor"`.
+- The `f` prefix switches the lexer to brace-depth-aware scanning, so holes
+  may contain string literals with quotes: `f"{m["key"]}"` renders the
+  looked-up value, while the plain form terminates the literal at the inner
+  quote and miscompiles.
+- Convention: use the `f` prefix whenever a hole contains quotes or a
+  `:spec` suffix; plain strings suffice for simple variable and field holes.
+
 ---
 
 ## 2. Formal Grammar (EBNF Snippet)

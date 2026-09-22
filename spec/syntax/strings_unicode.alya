@@ -102,6 +102,10 @@ assert_eq("{{lvl}}", "{" + "lvl}")
 # Lone braces without holes stay literal.
 assert_eq("{", "{")
 assert_eq("prefix-}suffix", "prefix-}suffix")
+# `f` strings allow quotes inside holes; plain strings interpolate the same otherwise.
+let probe_map = {"key": "VAL"}
+assert_eq(f"{probe_map["key"]}", "VAL")
+assert_eq("Player {lvl}", "Player INFO")
 
 say "Brace semantics OK"
 
