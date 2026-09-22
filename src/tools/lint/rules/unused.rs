@@ -490,7 +490,26 @@ fn extract_pub_symbols(src: &str) -> HashSet<String> {
     if let Ok(tokens) = lexer.tokenize() {
         let mut idx = 0;
         while idx < tokens.len() {
-            if matches!(tokens[idx].token_type, TokenType::Pub) {
+            // `extern "C" [from "lib"]` blocks declare FFI symbols that are
+            // visible to importing modules exactly like `pub` declarations.
+            // Without this, `import "./ffi.alya"` is misreported as unused
+            // and `--fix` strips it, breaking the native link.
+            if matches!(tokens[idx].token_type, TokenType::Extern) {
+                idx += 1;
+                while idx < tokens.len() && !matches!(tokens[idx].token_type, TokenType::End) {
+                    if matches!(tokens[idx].token_type, TokenType::Function) {
+                        idx += 1;
+                        if idx < tokens.len() {
+                            if let TokenType::Identifier(name) = &tokens[idx].token_type {
+                                symbols.insert(name.clone());
+                            }
+                        }
+                    } else {
+                        idx += 1;
+                    }
+                }
+            }
+            if idx < tokens.len() && matches!(tokens[idx].token_type, TokenType::Pub) {
                 idx += 1;
                 let mut is_enum = false;
                 if idx < tokens.len() {
