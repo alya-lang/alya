@@ -556,9 +556,6 @@ pub fn generate_html_with_nav(module: &DocModule, all_modules: &[DocModule]) -> 
     if !all_modules.is_empty() {
         html.push_str(&render_nav_siblings(&module.name, all_modules));
     }
-    html.push_str("  <details class=\"side-group\" open>\n    <summary>On This Page</summary>\n");
-    html.push_str(&render_nav_page_anchors(module));
-    html.push_str("  </details>\n");
     html.push_str("</aside>\n\n");
 
     // Main content.
