@@ -27,6 +27,7 @@ pub fn print_usage() {
     println!("  tokens <file>         Print tokenized output from lexical analysis");
     println!("  fmt [path]            Format Alya source code in-place (--check to verify)");
     println!("  test [path]           Discover and run Alya test suites");
+    println!("  bench [path]          Discover and run Alya benchmarks");
     println!("  init [path]           Initialize a new Alya package (creates alya.toml)");
     println!(
         "  add <name>            Add a dependency to alya.toml (--path, --git, --tag, --branch)"

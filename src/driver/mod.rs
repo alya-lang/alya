@@ -35,6 +35,11 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         return Ok(());
     }
 
+    if args.command == CommandKind::Bench {
+        crate::tools::test_runner::run_benches(&args.input_file, args.arch, args.os)?;
+        return Ok(());
+    }
+
     if args.command == CommandKind::Repl {
         crate::tools::repl::start_repl(args.arch, args.os)?;
         return Ok(());

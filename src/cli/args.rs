@@ -13,6 +13,7 @@ pub enum CommandKind {
     EmitAst,
     Fmt,
     Test,
+    Bench,
     Repl,
     Pkg(PkgCommand),
     Toolchain(ToolchainCommand),
@@ -228,6 +229,10 @@ impl CliArgs {
                 command = CommandKind::Test;
                 start_idx = 2;
             }
+            "bench" => {
+                command = CommandKind::Bench;
+                start_idx = 2;
+            }
             _ => {}
         }
 
@@ -423,7 +428,10 @@ impl CliArgs {
         let input_file = match input_file {
             Some(f) => f,
             None => {
-                if matches!(command, CommandKind::Fmt | CommandKind::Test) {
+                if matches!(
+                    command,
+                    CommandKind::Fmt | CommandKind::Test | CommandKind::Bench
+                ) {
                     ".".to_string()
                 } else if command == CommandKind::Repl || matches!(command, CommandKind::Pkg(_)) {
                     String::new()

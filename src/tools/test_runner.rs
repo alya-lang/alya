@@ -57,11 +57,36 @@ fn collect_test_files_recursive(dir: &Path, tests: &mut Vec<PathBuf>) {
     }
 }
 
-/// Discovers test entry points in a parsed (pre-resolve) program, in source
-/// order: `test` blocks (lowered to `__test_*` functions) and `@test`
+/// Test vs benchmark suite kind. `alya test` invokes `test` blocks and
+/// `@test` functions; `alya bench` invokes `bench` blocks and `@bench`
+/// functions (Chapter 22 §1.3–1.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SuiteKind {
+    Test,
+    Bench,
+}
+
+impl SuiteKind {
+    fn entry_prefix(self) -> &'static str {
+        match self {
+            SuiteKind::Test => "__test_",
+            SuiteKind::Bench => "__bench_",
+        }
+    }
+
+    fn attr_name(self) -> &'static str {
+        match self {
+            SuiteKind::Test => "test",
+            SuiteKind::Bench => "bench",
+        }
+    }
+}
+
+/// Discovers suite entry points in a parsed (pre-resolve) program, in source
+/// order: lowered blocks (`__test_*` / `__bench_*`) and `@test` / `@bench`
 /// functions. Only zero-parameter functions qualify — anything needing
 /// arguments cannot be auto-invoked.
-fn discover_test_entry_points(program: &Program) -> Vec<String> {
+fn discover_suite_entry_points(program: &Program, kind: SuiteKind) -> Vec<String> {
     let mut entries = Vec::new();
     for stmt in &program.statements {
         if let Stmt::Function {
@@ -74,8 +99,8 @@ fn discover_test_entry_points(program: &Program) -> Vec<String> {
             if !params.is_empty() {
                 continue;
             }
-            if name.starts_with("__test_")
-                || (!name.contains("__") && attributes.iter().any(|a| a.name == "test"))
+            if name.starts_with(kind.entry_prefix())
+                || (!name.contains("__") && attributes.iter().any(|a| a.name == kind.attr_name()))
             {
                 entries.push(name.clone());
             }
@@ -268,6 +293,55 @@ pub fn discover_test_files(path: &Path) -> Vec<PathBuf> {
     tests
 }
 
+fn is_bench_file(name: &str) -> bool {
+    if !name.ends_with(".alya") {
+        return false;
+    }
+    name.starts_with("bench_") || name.ends_with("_bench.alya") || name.ends_with(".bench.alya")
+}
+
+fn collect_bench_files_recursive(dir: &Path, benches: &mut Vec<PathBuf>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            let file_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+            if is_ignored_test_dir(file_name) {
+                continue;
+            }
+            if p.is_dir() {
+                collect_bench_files_recursive(&p, benches);
+            } else if is_bench_file(file_name) {
+                benches.push(p);
+            }
+        }
+    }
+}
+
+/// Discovers benchmark files: `benches/` directories take precedence,
+/// otherwise `bench_*.alya` / `*_bench.alya` / `*.bench.alya` names.
+pub fn discover_bench_files(path: &Path) -> Vec<PathBuf> {
+    let mut benches = Vec::new();
+
+    if path.is_file() {
+        if path.extension().and_then(|e| e.to_str()) == Some("alya") {
+            benches.push(path.to_path_buf());
+        }
+        return benches;
+    }
+
+    let benches_subdir = path.join("benches");
+    let target_dir = if benches_subdir.is_dir() {
+        &benches_subdir
+    } else {
+        path
+    };
+
+    collect_bench_files_recursive(target_dir, &mut benches);
+
+    benches.sort();
+    benches
+}
+
 #[derive(Debug, Clone)]
 pub struct TestExecution {
     pub success: bool,
@@ -337,6 +411,7 @@ pub fn execute_test_file(
     path: &Path,
     arch: Architecture,
     os: OperatingSystem,
+    kind: SuiteKind,
 ) -> Result<TestExecution, String> {
     let start_time = Instant::now();
     let source = fs::read_to_string(path)
@@ -356,9 +431,9 @@ pub fn execute_test_file(
 
     // 3. Module Resolution
     let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
-    // Collect test entry points BEFORE imports merge (foreign `__test_*`
-    // functions must not be auto-invoked here).
-    let test_entries = discover_test_entry_points(&ast);
+    // Collect suite entry points BEFORE imports merge (foreign `__test_*`
+    // / `__bench_*` functions must not be auto-invoked here).
+    let test_entries = discover_suite_entry_points(&ast, kind);
     let imported_files = crate::parser::resolve_imports_with_sources(&mut ast, base_dir)
         .map_err(|e| format!("Import resolution error in '{}': {}", path.display(), e))?;
 
@@ -782,7 +857,7 @@ pub fn run_tests(
     if num_workers == 1 {
         for file in &test_files {
             let display_name = format_test_path(file, root);
-            let outcome = execute_test_file(file, arch, os);
+            let outcome = execute_test_file(file, arch, os, SuiteKind::Test);
             handle_test_result(&display_name, outcome, name_width, &mut stats);
         }
     } else {
@@ -802,7 +877,7 @@ pub fn run_tests(
                 match file {
                     Some(path) => {
                         let display_name = format_test_path(&path, &r_root);
-                        let outcome = execute_test_file(&path, arch, os);
+                        let outcome = execute_test_file(&path, arch, os, SuiteKind::Test);
                         let _ = sender.send(TestResultItem {
                             display_name,
                             outcome,
@@ -877,6 +952,81 @@ pub fn run_tests(
     }
 }
 
+/// Discovers and runs benchmark suites: `bench` blocks and `@bench`
+/// functions are auto-invoked (Chapter 22 §1.4). Benchmarks always run
+/// sequentially — parallel workers would distort timing.
+pub fn run_benches(path_str: &str, arch: Architecture, os: OperatingSystem) -> Result<(), String> {
+    let root = Path::new(path_str);
+    let bench_files = discover_bench_files(root);
+
+    if bench_files.is_empty() {
+        println!("No benchmark files found in '{}'.", path_str);
+        return Ok(());
+    }
+
+    let arch_str = match arch {
+        Architecture::X64 => "x64",
+        Architecture::ARM64 => "arm64",
+        Architecture::X86 => "x86",
+    };
+    let os_str = match os {
+        OperatingSystem::Windows => "windows",
+        OperatingSystem::Linux => "linux",
+        OperatingSystem::MacOS => "macos",
+    };
+    let alya_ver = env!("CARGO_PKG_VERSION");
+
+    let name_width = bench_files
+        .iter()
+        .map(|p| format_test_path(p, root).len())
+        .max()
+        .unwrap_or(30)
+        .max(32);
+
+    println!("\n=== Alya Benchmark Suite v{} ===", alya_ver);
+    println!("Target : {}-{} | Concurrency: sequential", arch_str, os_str);
+    println!(
+        "Discovered {} benchmark suite(s) in '{}'\n",
+        bench_files.len(),
+        path_str
+    );
+
+    let mut stats = TestStats::default();
+    let total_start = Instant::now();
+
+    for file in &bench_files {
+        let display_name = format_test_path(file, root);
+        let outcome = execute_test_file(file, arch, os, SuiteKind::Bench);
+        handle_test_result(&display_name, outcome, name_width, &mut stats);
+    }
+
+    let total_time = total_start.elapsed().as_millis();
+    println!("\n------------------------------------------------------------------------");
+    if stats.failed == 0 {
+        println!(
+            "  \x1b[1;32m✓ Benchmarks : {} passed, {} total\x1b[0m",
+            stats.passed,
+            stats.passed + stats.failed
+        );
+        println!("    Duration    : {} ms (sequential)", total_time);
+        println!("    Status      : \x1b[1;32mPASSED\x1b[0m");
+        println!("------------------------------------------------------------------------\n");
+        Ok(())
+    } else {
+        println!(
+            "  \x1b[1;31m✗ Benchmarks : {} passed, {} failed, {} total\x1b[0m",
+            stats.passed,
+            stats.failed,
+            stats.passed + stats.failed
+        );
+        println!("------------------------------------------------------------------------\n");
+        Err(format!(
+            "Benchmark suite completed with {} failure(s).",
+            stats.failed
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -900,5 +1050,33 @@ mod tests {
         assert!(!is_test_file("module1.alya"));
         assert!(!is_test_file("helper.alya"));
         assert!(!is_test_file("test_suite.rs"));
+    }
+
+    #[test]
+    fn test_is_bench_file() {
+        assert!(is_bench_file("bench_basic.alya"));
+        assert!(is_bench_file("crypto_bench.alya"));
+        assert!(is_bench_file("matrix.bench.alya"));
+        assert!(!is_bench_file("module1.alya"));
+        assert!(!is_bench_file("test_basic.alya"));
+        assert!(!is_bench_file("bench_basic.rs"));
+    }
+
+    #[test]
+    fn test_discover_suite_entries() {
+        use crate::lexer::Lexer;
+        use crate::parser::Parser;
+        let source = "@test\nfunction at_fn()\nend\n\ntest \"blk\"\n    say 1\nend\n\n@bench\nfunction at_bench()\nend\n\nbench \"blk2\"\n    say 2\nend\n";
+        let tokens = Lexer::new(source).tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse().unwrap();
+        let tests = discover_suite_entry_points(&program, SuiteKind::Test);
+        assert_eq!(tests.len(), 2);
+        assert!(tests.contains(&"at_fn".to_string()));
+        assert!(tests.iter().any(|n| n.starts_with("__test_")));
+        let benches = discover_suite_entry_points(&program, SuiteKind::Bench);
+        assert_eq!(benches.len(), 2);
+        assert!(benches.contains(&"at_bench".to_string()));
+        assert!(benches.iter().any(|n| n.starts_with("__bench_")));
     }
 }
