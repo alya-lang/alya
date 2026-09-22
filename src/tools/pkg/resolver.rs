@@ -396,27 +396,6 @@ pub fn try_git_clone(
     }
 }
 
-pub fn update_git_dependency(tag: Option<&str>, branch: Option<&str>, target_dir: &Path) {
-    if !target_dir.join(".git").exists() {
-        return;
-    }
-    let _ = Command::new("git")
-        .current_dir(target_dir)
-        .args(["fetch", "-q", "--depth", "1"])
-        .output();
-    if let Some(t) = tag {
-        let _ = Command::new("git")
-            .current_dir(target_dir)
-            .args(["checkout", "-q", t])
-            .output();
-    } else if let Some(b) = branch {
-        let _ = Command::new("git")
-            .current_dir(target_dir)
-            .args(["checkout", "-q", b])
-            .output();
-    }
-}
-
 pub fn fetch_git_or_archive_dependency(
     name: &str,
     url: &str,
@@ -611,6 +590,38 @@ pub fn query_remote_tags(url: &str) -> Vec<String> {
         }
     }
     tags
+}
+
+/// Resolves a tag name to its commit SHA via `git ls-remote`.
+///
+/// Prefers the `^{}` dereferenced commit for annotated tags so the result
+/// is always the commit a checkout would land on. Returns `None` offline
+/// or when the tag does not exist; callers must fall back gracefully.
+pub fn query_tag_rev(url: &str, tag: &str) -> Option<String> {
+    let output = Command::new("git")
+        .args(["ls-remote", "--tags", "-q", url])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let want_peeled = format!("refs/tags/{tag}^{{}}");
+    let want_plain = format!("refs/tags/{tag}");
+    let mut plain_sha = None;
+    for line in stdout.lines() {
+        let mut parts = line.split_whitespace();
+        let sha = match parts.next() {
+            Some(s) => s,
+            None => continue,
+        };
+        match parts.next() {
+            Some(r) if r == want_peeled => return Some(sha.to_string()),
+            Some(r) if r == want_plain => plain_sha = Some(sha.to_string()),
+            _ => {}
+        }
+    }
+    plain_sha
 }
 
 pub fn query_remote_branch_head(url: &str, branch: &str) -> Option<String> {

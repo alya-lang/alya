@@ -67,6 +67,9 @@ pub struct BuildConfig {
     pub c_sources: Vec<String>,
     pub c_flags: Vec<String>,
     pub c_include_dirs: Vec<String>,
+    /// Unknown `[build]` keys preserved verbatim (`key = raw value`) so
+    /// manifest rewrites never drop tool or user configuration.
+    pub build_extra: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +77,11 @@ pub struct PackageManifest {
     pub package: PackageInfo,
     pub dependencies: BTreeMap<String, DependencySource>,
     pub build: Option<BuildConfig>,
+    /// Raw lines preserved from unrecognized sections (e.g. `[lint]`, `[fmt]`,
+    /// `[test]`, `[bench]`) plus stray comment lines, keyed by section name
+    /// (`""` holds top-of-file comments). Re-emitted verbatim on serialize
+    /// so `add`/`update` never destroy tool configuration.
+    pub section_extras: BTreeMap<String, Vec<String>>,
 }
 
 impl PackageManifest {

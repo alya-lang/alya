@@ -163,9 +163,33 @@ pub fn sha256_hex(data: &[u8]) -> String {
 }
 
 pub fn compute_cache_key(name: &str, tag_or_branch: &str, url: &str) -> String {
+    compute_cache_key_rev(name, tag_or_branch, url, None)
+}
+
+/// Revision-scoped cache key. Including the resolved commit SHA makes moved
+/// tags (re-pointed `v0.1.0` baselines) naturally miss stale entries instead
+/// of serving outdated checkouts. `None` preserves the legacy tag-only key
+/// for offline fallbacks.
+pub fn compute_cache_key_rev(
+    name: &str,
+    tag_or_branch: &str,
+    url: &str,
+    rev: Option<&str>,
+) -> String {
     let sanitized_tag = tag_or_branch.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
     let url_hash = &sha256_hex(url.as_bytes())[..8];
-    format!("{}@{}-{}", name, sanitized_tag, url_hash)
+    match rev {
+        Some(r) if r.len() >= 7 => {
+            format!(
+                "{}@{}-{}-{}",
+                name,
+                sanitized_tag,
+                url_hash,
+                &r[..7.min(r.len())]
+            )
+        }
+        _ => format!("{}@{}-{}", name, sanitized_tag, url_hash),
+    }
 }
 
 pub fn compute_package_checksum(dir: &Path) -> Result<String, String> {

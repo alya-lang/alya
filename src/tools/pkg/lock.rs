@@ -160,7 +160,9 @@ pub fn format_git_source(
 
 /// Parses the locked commit SHA from a git source string if present.
 ///
-/// Returns `Some(sha)` if the fragment after '#' is a 40-character hex string.
+/// Returns `Some(sha)` if the fragment after '#' is a hex string between 7
+/// and 40 characters long (full SHAs and unambiguous short SHAs both count).
+/// Anything else (branch/tag names) yields `None`.
 pub fn parse_git_source_rev(source: &str) -> Option<String> {
     if !source.starts_with("git:") {
         return None;
@@ -168,7 +170,7 @@ pub fn parse_git_source_rev(source: &str) -> Option<String> {
     let after_prefix = &source[4..];
     if let Some((_, fragment)) = after_prefix.split_once('#') {
         let trimmed = fragment.trim();
-        if trimmed.len() == 40 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+        if (7..=40).contains(&trimmed.len()) && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
             return Some(trimmed.to_string());
         }
     }

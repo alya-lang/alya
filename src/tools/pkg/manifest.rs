@@ -2,6 +2,48 @@ use super::toml::{parse_inline_table, parse_string_array, strip_toml_comment, un
 use super::types::{BuildConfig, DependencySource, PackageInfo, PackageManifest};
 use std::collections::BTreeMap;
 
+fn is_section_header(trimmed: &str) -> Option<String> {
+    if trimmed.starts_with('[') && trimmed.ends_with(']') && trimmed.len() > 2 {
+        let inner = trimmed[1..trimmed.len() - 1].trim();
+        if !inner.is_empty()
+            && inner
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-')
+        {
+            return Some(inner.to_string());
+        }
+    }
+    None
+}
+
+/// Collects verbatim lines the typed parser would otherwise drop: full
+/// unknown sections plus stray `#` comment lines inside known sections and
+/// at the top of the file. Keyed by section name (`""` = file top).
+fn collect_section_extras(content: &str) -> BTreeMap<String, Vec<String>> {
+    let mut extras: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut current = String::new();
+    for raw_line in content.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(name) = is_section_header(trimmed) {
+            current = name;
+            continue;
+        }
+        let known = matches!(current.as_str(), "" | "package" | "dependencies" | "build");
+        if trimmed.starts_with('#') || !known {
+            extras
+                .entry(current.clone())
+                .or_default()
+                .push(trimmed.to_string());
+        }
+    }
+    // Drop sections that ended up empty (e.g. headers with no body).
+    extras.retain(|_, v| !v.is_empty());
+    extras
+}
+
 pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
     let mut name = String::new();
     let mut version = "0.1.0".to_string();
@@ -20,6 +62,8 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
     let mut c_sources = Vec::new();
     let mut c_flags = Vec::new();
     let mut c_include_dirs = Vec::new();
+    let mut build_extra = BTreeMap::new();
+    let section_extras = collect_section_extras(content);
 
     let mut current_section = String::new();
 
@@ -62,7 +106,9 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                     "c-sources" | "c_sources" => c_sources = parse_string_array(val),
                     "c-flags" | "c_flags" => c_flags = parse_string_array(val),
                     "c-include-dirs" | "c_include_dirs" => c_include_dirs = parse_string_array(val),
-                    _ => {}
+                    other => {
+                        build_extra.insert(other.to_string(), val.to_string());
+                    }
                 },
                 "dependencies" => {
                     if val.starts_with('{') {
@@ -87,6 +133,11 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                                 key.to_string(),
                                 DependencySource::Version(v_inner.clone()),
                             );
+                        } else {
+                            return Err(format!(
+                                "Invalid dependency entry '{}' in alya.toml at line {}: inline table must declare one of 'path', 'git', or 'version'",
+                                key, line_no
+                            ));
                         }
                     } else {
                         dependencies
@@ -111,12 +162,14 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
         || !c_flags.is_empty()
         || !c_include_dirs.is_empty()
         || build_links.is_some()
+        || !build_extra.is_empty()
     {
         Some(BuildConfig {
             links: build_links,
             c_sources,
             c_flags,
             c_include_dirs,
+            build_extra,
         })
     } else {
         None
@@ -139,11 +192,19 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
         },
         dependencies,
         build,
+        section_extras,
     })
 }
 
 pub fn serialize_manifest(manifest: &PackageManifest) -> String {
     let mut out = String::new();
+    if let Some(top) = manifest.section_extras.get("") {
+        for line in top {
+            out.push_str(line);
+            out.push('\n');
+        }
+        out.push('\n');
+    }
     out.push_str("[package]\n");
     out.push_str(&format!("name = \"{}\"\n", manifest.package.name));
     out.push_str(&format!("version = \"{}\"\n", manifest.package.version));
@@ -189,6 +250,12 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
     for (k, v) in &manifest.package.extra {
         out.push_str(&format!("{} = {}\n", k, v));
     }
+    if let Some(pkg_extras) = manifest.section_extras.get("package") {
+        for line in pkg_extras {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
 
     out.push_str("\n[dependencies]\n");
     for (name, dep) in &manifest.dependencies {
@@ -223,6 +290,12 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
             }
         }
     }
+    if let Some(dep_extras) = manifest.section_extras.get("dependencies") {
+        for line in dep_extras {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
 
     if let Some(b) = &manifest.build {
         out.push_str("\n[build]\n");
@@ -255,6 +328,29 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
                 .collect::<Vec<_>>()
                 .join(", ");
             out.push_str(&format!("c-include-dirs = [{}]\n", inc_str));
+        }
+        for (k, v) in &b.build_extra {
+            out.push_str(&format!("{} = {}\n", k, v));
+        }
+        if let Some(build_extras) = manifest.section_extras.get("build") {
+            for line in build_extras {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+    }
+    for (section, lines) in &manifest.section_extras {
+        if section.is_empty()
+            || section == "package"
+            || section == "dependencies"
+            || section == "build"
+        {
+            continue;
+        }
+        out.push_str(&format!("\n[{}]\n", section));
+        for line in lines {
+            out.push_str(line);
+            out.push('\n');
         }
     }
     out

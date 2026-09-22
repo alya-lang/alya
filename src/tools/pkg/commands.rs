@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 
 use super::cache::{get_global_cache_dir, run_cache, run_clean};
 use super::discovery::{find_manifest_dir, find_package_entry};
-use super::hash::{compute_cache_key, compute_package_checksum};
+use super::hash::{compute_cache_key, compute_cache_key_rev, compute_package_checksum};
 use super::lock::{format_git_source, parse_git_source_rev, parse_lockfile, serialize_lockfile};
 use super::manifest::{check_compiler_compatibility, parse_manifest, serialize_manifest};
 use super::resolver::{
     coalesce_semver_versions, compare_semver, copy_dir_all, fetch_git_or_archive_dependency,
-    find_latest_semver_tag, query_remote_branch_head, query_remote_tags, resolve_package_spec,
-    resolve_registry_url, semver_major,
+    find_latest_semver_tag, query_remote_branch_head, query_remote_tags, query_tag_rev,
+    resolve_package_spec, resolve_registry_url, semver_major,
 };
 use super::types::{
     DependencySource, LockedPackage, PackageInfo, PackageLock, PackageManifest, PkgCommand,
@@ -110,6 +110,7 @@ pub fn run_init(path: Option<&str>, name: Option<&str>, is_lib: bool) -> Result<
         },
         dependencies: BTreeMap::new(),
         build: None,
+        section_extras: BTreeMap::new(),
     };
 
     fs::write(&manifest_path, serialize_manifest(&manifest))
@@ -332,9 +333,19 @@ fn ensure_dep_cached(
                 .or(effective_rev.as_deref())
                 .unwrap_or("head");
 
+            // Resolve moved tags to their current commit so the cache key
+            // below is revision-scoped. Lock-pinned revs win (deterministic,
+            // offline-safe); a live lookup happens only for fresh resolves,
+            // and any failure silently falls back to the legacy tag-only key.
+            let resolved_tag_rev: Option<String> = if effective_rev.is_none() {
+                tag.as_deref().and_then(|t| query_tag_rev(url, t))
+            } else {
+                None
+            };
+            let key_rev = effective_rev.as_deref().or(resolved_tag_rev.as_deref());
             let cache_dir = get_global_cache_dir()
                 .unwrap_or_else(|| from_manifest_dir.join(".alya").join("cache"));
-            let cache_key = compute_cache_key(name, tag_or_branch, url);
+            let cache_key = compute_cache_key_rev(name, tag_or_branch, url, key_rev);
             let cached_pkg_dir = cache_dir.join(&cache_key);
 
             let cache_hit = cached_pkg_dir.exists()
@@ -613,6 +624,26 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
                 let _ = fs::remove_dir_all(&local_git_dir);
             }
 
+            // Verify content integrity against a previous lock when one pins
+            // this package: recompute over the installed tree and reject
+            // tampered or unexpectedly swapped checkouts.
+            if let Some(locked) = existing_lock.as_ref().and_then(|l| {
+                l.packages
+                    .iter()
+                    .find(|p| p.name == folder_name)
+                    .or_else(|| l.packages.iter().find(|p| p.name == *name))
+            }) {
+                if !locked.checksum.is_empty() {
+                    let actual = compute_package_checksum(&dest_dir)?;
+                    if actual != locked.checksum {
+                        return Err(format!(
+                            "Checksum mismatch for '{}': installed content does not match alya.lock (locked {}, got {}). Delete the lock or reinstall to proceed.",
+                            name, locked.checksum, actual
+                        ));
+                    }
+                }
+            }
+
             let source_str = match &dep {
                 DependencySource::Version(v) => {
                     let url = resolve_registry_url(&name);
@@ -790,9 +821,23 @@ pub fn run_list() -> Result<(), String> {
             } else {
                 &lp.checksum
             };
+            let integrity = if lp.checksum.is_empty() {
+                "integrity: unchecked"
+            } else {
+                let installed_dir = manifest_dir.join(".alya").join("packages").join(name);
+                if !installed_dir.exists() {
+                    "integrity: not installed"
+                } else {
+                    match compute_package_checksum(&installed_dir) {
+                        Ok(actual) if actual == lp.checksum => "integrity: ok",
+                        Ok(_) => "integrity: MISMATCH",
+                        Err(_) => "integrity: unreadable",
+                    }
+                }
+            };
             println!(
-                "  • {:<16} {:<35} [locked: {}...]",
-                name, dep_desc, chk_short
+                "  • {:<16} {:<35} [locked: {}..., {}]",
+                name, dep_desc, chk_short, integrity
             );
         } else {
             println!(
@@ -840,6 +885,30 @@ struct UpdateRow {
     can_upgrade: bool,
     new_source: Option<DependencySource>,
     clear_cache_key: Option<String>,
+}
+
+/// Best-effort current revision of an installed/locked git dependency.
+///
+/// Prefers the lockfile pin, then the local `.alya/packages` checkout.
+/// Returns `None` when nothing is installed or locked yet.
+fn current_dep_rev(manifest_dir: &Path, lock: &Option<PackageLock>, name: &str) -> Option<String> {
+    if let Some(l) = lock {
+        if let Some(p) = l.packages.iter().find(|p| p.name == name) {
+            if let Some(sha) = parse_git_source_rev(&p.source) {
+                return Some(sha);
+            }
+        }
+    }
+    fs::read_to_string(
+        manifest_dir
+            .join(".alya")
+            .join("packages")
+            .join(name)
+            .join(".alya-rev"),
+    )
+    .ok()
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty())
 }
 
 pub fn run_update(upgrade: bool) -> Result<(), String> {
@@ -957,15 +1026,44 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
                                 clear_cache_key: None,
                             });
                         } else {
-                            rows.push(UpdateRow {
-                                name: name.clone(),
-                                current: cur_tag.clone(),
-                                latest: cur_tag.clone(),
-                                status: "Up to date".to_string(),
-                                can_upgrade: false,
-                                new_source: None,
-                                clear_cache_key: None,
-                            });
+                            // Same tag name on both sides: the tag itself may
+                            // still have moved (re-pointed baselines). Compare
+                            // resolved revisions to detect that.
+                            let remote_rev = query_tag_rev(url, cur_tag);
+                            let current_rev = current_dep_rev(&manifest_dir, &lock, name);
+                            let short = |s: &str| s[..7.min(s.len())].to_string();
+                            match (remote_rev, current_rev) {
+                                (Some(rr), Some(cr)) if rr != cr => {
+                                    upgradable_count += 1;
+                                    let old_key =
+                                        compute_cache_key_rev(name, cur_tag, url, Some(&cr));
+                                    rows.push(UpdateRow {
+                                        name: name.clone(),
+                                        current: format!("{} ({})", cur_tag, short(&cr)),
+                                        latest: format!("{} ({})", cur_tag, short(&rr)),
+                                        status: format!(
+                                            "Update available (tag {} moved: {} -> {})",
+                                            cur_tag,
+                                            short(&cr),
+                                            short(&rr)
+                                        ),
+                                        can_upgrade: true,
+                                        new_source: None,
+                                        clear_cache_key: Some(old_key),
+                                    });
+                                }
+                                _ => {
+                                    rows.push(UpdateRow {
+                                        name: name.clone(),
+                                        current: cur_tag.clone(),
+                                        latest: cur_tag.clone(),
+                                        status: "Up to date".to_string(),
+                                        can_upgrade: false,
+                                        new_source: None,
+                                        clear_cache_key: None,
+                                    });
+                                }
+                            }
                         }
                     } else {
                         rows.push(UpdateRow {

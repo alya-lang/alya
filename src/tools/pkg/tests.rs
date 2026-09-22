@@ -870,3 +870,94 @@ fn test_mangled_symbol_name_preservation() {
     assert_eq!(mangle_symbol_name("_Alya_z_v2::calc"), "_Alya_z_v2_calc");
     assert_eq!(mangle_symbol_name("std::io::print"), "std__io__print");
 }
+
+#[test]
+fn test_manifest_preserves_tool_sections() {
+    // Unknown sections ([fmt]/[test]/...) and stray comments must survive
+    // a parse -> serialize round-trip (regression: `add` used to delete them).
+    let toml = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nentry = \"src/main.alya\"\n\n[dependencies]\nrand = { git = \"https://github.com/alya-lang/rand\", tag = \"v0.1.0\" }\n\n# Tool configuration\n[fmt]\nexclude = [\"generated/\"]\n\n[test]\n# slow suites excluded\nexclude = [\"slow/\"]\n";
+    let manifest = parse_manifest(toml).expect("parse failed");
+    let serialized = serialize_manifest(&manifest);
+    assert!(
+        serialized.contains("[fmt]"),
+        "fmt section lost: {}",
+        serialized
+    );
+    assert!(
+        serialized.contains("[test]"),
+        "test section lost: {}",
+        serialized
+    );
+    assert!(
+        serialized.contains("exclude = [\"generated/\"]"),
+        "fmt body lost: {}",
+        serialized
+    );
+    assert!(
+        serialized.contains("# slow suites excluded"),
+        "inner comment lost: {}",
+        serialized
+    );
+    assert!(
+        serialized.contains("# Tool configuration"),
+        "section comment lost: {}",
+        serialized
+    );
+    let manifest2 = parse_manifest(&serialized).expect("roundtrip parse failed");
+    assert_eq!(manifest, manifest2);
+}
+
+#[test]
+fn test_manifest_rejects_malformed_dependency() {
+    // Inline tables without path/git/version must error instead of
+    // silently dropping the dependency.
+    let toml = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nentry = \"src/main.alya\"\n\n[dependencies]\nbroken = { url = \"https://example.com/x\" }\n";
+    let err = parse_manifest(toml).expect_err("malformed dep must error");
+    assert!(err.contains("broken"), "error names culprit: {}", err);
+}
+
+#[test]
+fn test_cache_key_is_rev_scoped() {
+    // Same tag, different revs => different keys (moved-tag fix).
+    let a = compute_cache_key_rev(
+        "rand",
+        "v0.1.0",
+        "https://github.com/alya-lang/rand",
+        Some("bb1b445fb4c7029a0a2d0f68e8735713b93ee3d4"),
+    );
+    let b = compute_cache_key_rev(
+        "rand",
+        "v0.1.0",
+        "https://github.com/alya-lang/rand",
+        Some("323e44585e01584f14c8e7d9487eb8a4a3bb9935"),
+    );
+    assert_ne!(a, b);
+    // Legacy form (no rev) is unchanged for offline fallbacks.
+    assert_eq!(
+        compute_cache_key("crypto", "v0.1.0", "https://github.com/alya-lang/crypto"),
+        compute_cache_key_rev(
+            "crypto",
+            "v0.1.0",
+            "https://github.com/alya-lang/crypto",
+            None
+        )
+    );
+}
+
+#[test]
+fn test_git_source_rev_accepts_short_sha() {
+    assert_eq!(
+        parse_git_source_rev("git:https://example.com/r?tag=v0.1.0#bb1b445"),
+        Some("bb1b445".to_string())
+    );
+    assert_eq!(
+        parse_git_source_rev(
+            "git:https://example.com/r?tag=v0.1.0#bb1b445fb4c7029a0a2d0f68e8735713b93ee3d4"
+        ),
+        Some("bb1b445fb4c7029a0a2d0f68e8735713b93ee3d4".to_string())
+    );
+    assert_eq!(
+        parse_git_source_rev("git:https://example.com/r?tag=v0.1.0#main"),
+        None
+    );
+}
