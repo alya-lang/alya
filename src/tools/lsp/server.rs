@@ -80,6 +80,10 @@ impl ServerState {
                 );
                 capabilities.insert("referencesProvider".to_string(), JsonValue::Bool(true));
                 capabilities.insert("foldingRangeProvider".to_string(), JsonValue::Bool(true));
+                capabilities.insert(
+                    "documentFormattingProvider".to_string(),
+                    JsonValue::Bool(true),
+                );
 
                 // Milestone 3 capabilities
                 let mut sig_provider = BTreeMap::new();

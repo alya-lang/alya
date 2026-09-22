@@ -37,8 +37,15 @@ pub fn check_document(source: &str, file_path: Option<&std::path::Path>) -> Vec<
                 diagnostics.push(type_error_to_diagnostic(&type_err, source));
             }
 
-            // 2. Linter Analysis Rules
+            // 2. Linter Analysis Rules (same filters as the `alya lint` CLI:
+            // inline suppressions plus project config from `.alyalint` /
+            // `alya.toml [lint]`, discovered fresh per request so config
+            // edits apply without restarting the server).
             let lint_diags = crate::tools::lint::run_all_rules(&program, &tokens, target_path);
+            let suppression = crate::tools::lint::SuppressionFilter::from_source(source);
+            let lint_diags = suppression.filter_diagnostics(lint_diags);
+            let lint_config = crate::tools::lint::LintConfig::discover(target_path);
+            let lint_diags = lint_config.apply_to_diagnostics(lint_diags);
             for d in lint_diags {
                 let start_line = if d.line > 0 { (d.line - 1) as u32 } else { 0 };
                 let start_col = if d.col > 0 { (d.col - 1) as u32 } else { 0 };
