@@ -1508,7 +1508,7 @@ fn escape_html(s: &str) -> String {
 fn render_code_block(sig: &str) -> String {
     let highlighted = highlight_signature(sig);
     format!(
-        "<div class=\"codeblock\"><div class=\"codeblock-scroll\">{}</div>\n<button class=\"copy\" aria-label=\"Copy signature\">{}</button></div>\n",
+        "<div class=\"codeblock\"><div class=\"codeblock-scroll\">{}</div><button class=\"copy\" aria-label=\"Copy signature\">{}</button></div>\n",
         highlighted, COPY_SVG
     )
 }
@@ -1585,7 +1585,7 @@ fn render_markdown_html(md: &str) -> String {
 
         if trimmed.starts_with("```") {
             if in_code_block {
-                out.push_str("</code></pre></div>\n");
+                out.push_str("</code></pre></div>");
                 out.push_str(&format!(
                     "<button class=\"copy\" aria-label=\"Copy code\">{}</button></div>\n",
                     COPY_SVG
@@ -1683,7 +1683,7 @@ fn render_markdown_html(md: &str) -> String {
         out.push_str("</ul>\n");
     }
     if in_code_block {
-        out.push_str("</code></pre></div>\n");
+        out.push_str("</code></pre></div>");
         out.push_str(&format!(
             "<button class=\"copy\" aria-label=\"Copy code\">{}</button></div>\n",
             COPY_SVG
