@@ -163,11 +163,13 @@ assert_eq(_hidden_counter, 7)
 assert_eq(MAX_LEX_ITEMS, 99)
 
 # Blocks are delimited by keywords, not indentation: deliberately odd indent
-# below must still compile and run.
+# below must still compile and run (kept verbatim via fmt suppression).
+# fmt: off
 if true
         let oddly_indented = 5
             assert_eq(oddly_indented, 5)
 end
+# fmt: on
 
 say f"Identifiers: hidden={_hidden_counter}, const={MAX_LEX_ITEMS}"
 

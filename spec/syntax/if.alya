@@ -61,52 +61,52 @@ say f"Status badge: {status_badge}"
 let debug_logging = true
 if debug_logging then say "[DEBUG] Subsystem initialized at high resolution"
 
-    let pending_tasks = 0
-    if pending_tasks == 0 then say "Worker thread pool idle"
+let pending_tasks = 0
+if pending_tasks == 0 then say "Worker thread pool idle"
 
-        # Inline 'if ... then ... else'
-        let mode_str = if debug_logging then "Verbose" else "Silent"
+# Inline 'if ... then ... else'
+let mode_str = if debug_logging then "Verbose" else "Silent"
 
-        # ------------------------------------------------------------------------------
-        # 6. Compound Boolean Conditions & Branch Fusion Invariants
-        # ------------------------------------------------------------------------------
-        let user_role = "maintainer"
-        let is_active = true
-        let failed_login_attempts = 0
+# ------------------------------------------------------------------------------
+# 6. Compound Boolean Conditions & Branch Fusion Invariants
+# ------------------------------------------------------------------------------
+let user_role = "maintainer"
+let is_active = true
+let failed_login_attempts = 0
 
-        # Compiler fuses (role == "admin" or role == "maintainer") and is_active into direct jump cascades
-        if (user_role == "admin" or user_role == "maintainer") and is_active and failed_login_attempts < 3
-            say "Authorized for repository write access."
-        end
+# Compiler fuses (role == "admin" or role == "maintainer") and is_active into direct jump cascades
+if (user_role == "admin" or user_role == "maintainer") and is_active and failed_login_attempts < 3
+    say "Authorized for repository write access."
+end
 
-        # ------------------------------------------------------------------------------
-        # 7. Smart-Casting inside 'if' Branches
-        # ------------------------------------------------------------------------------
-        let nullable_name: string? = "Alya Developer"
+# ------------------------------------------------------------------------------
+# 7. Smart-Casting inside 'if' Branches
+# ------------------------------------------------------------------------------
+let nullable_name: string? = "Alya Developer"
 
-        if nullable_name != null
-            # Flow-sensitive type analysis: inside this block, nullable_name is promoted to non-null 'string'
-            say f"Hello, {nullable_name.to_upper()}!"
-        else
-            say "Anonymous user detected."
-        end
+if nullable_name != null
+    # Flow-sensitive type analysis: inside this block, nullable_name is promoted to non-null 'string'
+    say f"Hello, {nullable_name.to_upper()}!"
+else
+    say "Anonymous user detected."
+end
 
-        # ------------------------------------------------------------------------------
-        # 8. Nested Conditionals & Scope Encapsulation
-        # ------------------------------------------------------------------------------
-        let system_online = true
-        let storage_free_gb = 45
+# ------------------------------------------------------------------------------
+# 8. Nested Conditionals & Scope Encapsulation
+# ------------------------------------------------------------------------------
+let system_online = true
+let storage_free_gb = 45
 
-        if system_online
-            let temp_diagnostic = "Diagnostic OK"
-            if storage_free_gb < 10
-                say "CRITICAL: Low disk space!"
-            else
-                say f"System operating normally ({storage_free_gb} GB free). Status: {temp_diagnostic}"
-            end
-            # temp_diagnostic is accessible here
-        end
-        # temp_diagnostic is out of scope here
+if system_online
+    let temp_diagnostic = "Diagnostic OK"
+    if storage_free_gb < 10
+        say "CRITICAL: Low disk space!"
+    else
+        say f"System operating normally ({storage_free_gb} GB free). Status: {temp_diagnostic}"
+    end
+    # temp_diagnostic is accessible here
+end
+# temp_diagnostic is out of scope here
 
 # ------------------------------------------------------------------------------
 # 9. 'else if' Alias & Truthiness Matrix (Chapter 04 §1.1, §1.2)

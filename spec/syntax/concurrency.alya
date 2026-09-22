@@ -47,14 +47,14 @@ end
 
 # Multiplex incoming messages with non-blocking fallback
 select
-case packet_a = ch_a.recv()
-say f"Multiplexer received: {packet_a}"
-case packet_b = ch_b.recv()
-say f"Multiplexer received: {packet_b}"
-timeout 1000
-say "Timeout: No sensor packet received within 1000ms"
-else
-say "Non-blocking check: No immediate data pending"
+    case packet_a = ch_a.recv()
+        say f"Multiplexer received: {packet_a}"
+    case packet_b = ch_b.recv()
+        say f"Multiplexer received: {packet_b}"
+    timeout 1000
+        say "Timeout: No sensor packet received within 1000ms"
+    else
+        say "Non-blocking check: No immediate data pending"
 end
 
 # ------------------------------------------------------------------------------
@@ -105,10 +105,10 @@ say f"Rendezvous exchange: {rendezvous_got}"
 let quiet_ch = Channel[int].new(capacity: 1)
 let picked = 0
 select
-case v = quiet_ch.recv()
-    picked = v
-timeout 100
-    picked = -1
+    case v = quiet_ch.recv()
+        picked = v
+    timeout 100
+        picked = -1
 end
 assert_eq(picked, -1)
 say "Timeout-only select OK"

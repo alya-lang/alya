@@ -15,6 +15,8 @@ enum BlockKind {
     Enum,
     When,
     WhenArm,
+    Select,
+    SelectArm,
     Brace,
     Bracket,
     Extern,
@@ -236,6 +238,14 @@ fn has_word_outside_quotes(s: &str, word: &str) -> bool {
 }
 
 fn has_inline_if(code: &str) -> bool {
+    // Single-line form `if C then stmt [else ...]`: anything after `then`
+    // on the same line means no block opens (and no `end` is needed).
+    // A bare trailing `then` (`if C then` + newline body + `end`) still opens.
+    if let Some(pos) = find_word_outside_quotes(code, "then") {
+        if !code[pos + "then".len()..].trim().is_empty() {
+            return true;
+        }
+    }
     has_word_outside_quotes(code, "then") && has_word_outside_quotes(code, "else")
 }
 
@@ -397,6 +407,9 @@ fn get_block_starter(code: &str, in_extern: bool, in_interface: bool) -> Option<
             && !ends_with_word_outside_quotes(code_after_pub, "end"))
     {
         return Some(BlockKind::When);
+    }
+    if first_word == "select" {
+        return Some(BlockKind::Select);
     }
     if first_word == "struct" {
         return Some(BlockKind::Struct);
@@ -563,6 +576,8 @@ fn determine_comment_indent(
     let is_catch = f_first_word == "catch" || nc.starts_with("catch(");
     let is_finally = f_first_word == "finally" || nc.starts_with("finally(");
     let is_is = f_first_word == "is" || nc.starts_with("is(");
+    let is_case = f_first_word == "case";
+    let is_timeout = f_first_word == "timeout";
 
     // Find effective top block kind, ignoring Brace and Bracket
     let effective_top = block_stack
@@ -574,6 +589,7 @@ fn determine_comment_indent(
         Some(BlockKind::If) => is_elif || is_else,
         Some(BlockKind::Try) => is_catch || is_finally,
         Some(BlockKind::WhenArm) => is_is || is_else,
+        Some(BlockKind::SelectArm) => is_case || is_timeout || is_else,
         _ => false,
     };
 
@@ -691,9 +707,33 @@ pub fn format_source(source: &str) -> Result<String, String> {
     let mut block_stack: Vec<BlockKind> = Vec::new();
     let mut multiline_state: Option<MultilineLiteralState> = None;
     let mut prev_was_empty = false;
+    let mut suppressed = false;
 
     for (line_idx, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
+
+        // 0. Formatter suppression (`# fmt: off` .. `# fmt: on`): lines in
+        // between are emitted verbatim to preserve intentional layout
+        // (e.g. indentation-insensitivity demonstrations in spec fixtures).
+        // Contract: the suppressed region is self-contained (balanced blocks
+        // and quotes); tracking resumes after it unchanged.
+        if trimmed == "# fmt: off" || trimmed == "// fmt: off" {
+            suppressed = true;
+            formatted_lines.push(line.to_string());
+            prev_was_empty = false;
+            continue;
+        }
+        if trimmed == "# fmt: on" || trimmed == "// fmt: on" {
+            suppressed = false;
+            formatted_lines.push(line.to_string());
+            prev_was_empty = false;
+            continue;
+        }
+        if suppressed {
+            formatted_lines.push(line.to_string());
+            prev_was_empty = false;
+            continue;
+        }
 
         // 1. Multiline literal handling (string or comment): preserve lines verbatim
         if let Some(state) = multiline_state {
@@ -738,11 +778,15 @@ pub fn format_source(source: &str) -> Result<String, String> {
                 .any(|b| matches!(b, BlockKind::When | BlockKind::WhenArm));
         let is_catch = first_word == "catch" || code.starts_with("catch(");
         let is_finally = first_word == "finally" || code.starts_with("finally(");
+        let is_case = first_word == "case";
+        let is_timeout = first_word == "timeout";
 
         let line_indent: usize;
 
         if is_end {
-            if block_stack.last() == Some(&BlockKind::WhenArm) {
+            if block_stack.last() == Some(&BlockKind::WhenArm)
+                || block_stack.last() == Some(&BlockKind::SelectArm)
+            {
                 block_stack.pop();
             }
             while let Some(top) = block_stack.last() {
@@ -782,9 +826,18 @@ pub fn format_source(source: &str) -> Result<String, String> {
                 if !is_inline {
                     block_stack.push(BlockKind::WhenArm);
                 }
+            } else if block_stack.last() == Some(&BlockKind::Select) {
+                line_indent = block_stack.len();
+                block_stack.push(BlockKind::SelectArm);
             } else {
                 line_indent = block_stack.len().saturating_sub(1);
             }
+        } else if is_case || is_timeout {
+            if block_stack.last() == Some(&BlockKind::SelectArm) {
+                block_stack.pop();
+            }
+            line_indent = block_stack.len();
+            block_stack.push(BlockKind::SelectArm);
         } else if is_is {
             if block_stack.last() == Some(&BlockKind::WhenArm) {
                 block_stack.pop();
@@ -813,7 +866,15 @@ pub fn format_source(source: &str) -> Result<String, String> {
         formatted_lines.push(format!("{}{}", indent_spaces, clean_content));
 
         // Indent increase triggers (opens a new block for following lines)
-        if !is_end && !is_is && !is_else && !is_elif && !is_catch && !is_finally {
+        if !is_end
+            && !is_is
+            && !is_else
+            && !is_elif
+            && !is_catch
+            && !is_finally
+            && !is_case
+            && !is_timeout
+        {
             let in_extern = is_in_extern_block(&block_stack);
             let in_interface = is_in_interface_block(&block_stack);
             if let Some(new_block) = get_block_starter(code, in_extern, in_interface) {
