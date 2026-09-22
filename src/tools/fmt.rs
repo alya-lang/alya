@@ -920,7 +920,17 @@ fn format_line_content(line: &str) -> String {
 }
 
 /// Recursively discovers all .alya files in a given path.
+///
+/// Directories holding intentionally non-canonical code are skipped, mirroring
+/// the test runner's fixture exclusion (`test_runner::is_ignored_test_dir`):
+/// `negative` (spec rejection fixtures that must NOT parse), `fixtures`,
+/// `fixture`, `testdata`. Formatting or linting those would either fail or
+/// destroy their purpose.
 pub fn find_alya_files(path: &Path) -> Vec<PathBuf> {
+    fn is_skipped_dir(name: &str) -> bool {
+        matches!(name, "negative" | "fixtures" | "fixture" | "testdata")
+    }
+
     let mut files = Vec::new();
     if path.is_file() {
         if path.extension().and_then(|ext| ext.to_str()) == Some("alya") {
@@ -935,6 +945,9 @@ pub fn find_alya_files(path: &Path) -> Vec<PathBuf> {
                     continue;
                 }
                 if p.is_dir() {
+                    if is_skipped_dir(file_name) {
+                        continue;
+                    }
                     files.extend(find_alya_files(&p));
                 } else if p.extension().and_then(|ext| ext.to_str()) == Some("alya") {
                     files.push(p);
