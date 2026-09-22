@@ -1,8 +1,9 @@
+use crate::ast::{Expr, Program, Stmt};
 use crate::codegen::{self, Architecture, OperatingSystem};
 use crate::driver::runner;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -53,6 +54,192 @@ fn collect_test_files_recursive(dir: &Path, tests: &mut Vec<PathBuf>) {
                 tests.push(p);
             }
         }
+    }
+}
+
+/// Discovers test entry points in a parsed (pre-resolve) program, in source
+/// order: `test` blocks (lowered to `__test_*` functions) and `@test`
+/// functions. Only zero-parameter functions qualify — anything needing
+/// arguments cannot be auto-invoked.
+fn discover_test_entry_points(program: &Program) -> Vec<String> {
+    let mut entries = Vec::new();
+    for stmt in &program.statements {
+        if let Stmt::Function {
+            name,
+            params,
+            attributes,
+            ..
+        } = stmt.inner_stmt()
+        {
+            if !params.is_empty() {
+                continue;
+            }
+            if name.starts_with("__test_")
+                || (!name.contains("__") && attributes.iter().any(|a| a.name == "test"))
+            {
+                entries.push(name.clone());
+            }
+        }
+    }
+    entries
+}
+
+/// Collects every callee name referenced in the program (bare and qualified),
+/// so tests that are already invoked manually are not called twice.
+fn collect_called_names(program: &Program) -> HashSet<String> {
+    fn bare(name: &str) -> String {
+        let b = name.rsplit("::").next().unwrap_or(name);
+        b.rsplit("__").next().unwrap_or(b).to_string()
+    }
+    fn walk_expr(expr: &Expr, out: &mut HashSet<String>) {
+        match expr {
+            Expr::Call { name, args } => {
+                out.insert(name.clone());
+                out.insert(bare(name));
+                for a in args {
+                    walk_expr(a, out);
+                }
+            }
+            Expr::OptionalCall { callee, args } => {
+                out.insert(callee.clone());
+                out.insert(bare(callee));
+                for a in args {
+                    walk_expr(a, out);
+                }
+            }
+            Expr::Binary { left, right, .. } => {
+                walk_expr(left, out);
+                walk_expr(right, out);
+            }
+            Expr::Unary { expr, .. } | Expr::ForceUnwrap(expr) => walk_expr(expr, out),
+            Expr::Array(items) | Expr::InterpolatedString(items) => {
+                for e in items {
+                    walk_expr(e, out);
+                }
+            }
+            Expr::Index { array, index } => {
+                walk_expr(array, out);
+                walk_expr(index, out);
+            }
+            Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+                walk_expr(object, out)
+            }
+            Expr::StructInit { fields, .. } => {
+                for (_, v) in fields {
+                    walk_expr(v, out);
+                }
+            }
+            Expr::Map(entries) => {
+                for (k, v) in entries {
+                    walk_expr(k, out);
+                    walk_expr(v, out);
+                }
+            }
+            Expr::Ternary {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                walk_expr(condition, out);
+                walk_expr(then_branch, out);
+                walk_expr(else_branch, out);
+            }
+            Expr::NullCoalesce { value, default } => {
+                walk_expr(value, out);
+                walk_expr(default, out);
+            }
+            Expr::Cast { expr, .. } | Expr::TypeCheck { expr, .. } => walk_expr(expr, out),
+            _ => {}
+        }
+    }
+    fn walk_stmt(stmt: &Stmt, out: &mut HashSet<String>) {
+        if let Stmt::Function { body, .. } = stmt.inner_stmt() {
+            for s in body {
+                walk_stmt(s, out);
+            }
+        }
+        // Top-level and nested expressions: walk generically via debug shape.
+        // (Function bodies covered above; other statements hold expressions
+        // in known positions — cover the common ones.)
+        match stmt.inner_stmt() {
+            Stmt::Say(e) | Stmt::Expr(e) | Stmt::Return(Some(e)) | Stmt::Throw(Some(e)) => {
+                walk_expr(e, out)
+            }
+            Stmt::Let { value, .. } | Stmt::Const { value, .. } => walk_expr(value, out),
+            Stmt::Assign { value, .. } => walk_expr(value, out),
+            _ => {}
+        }
+    }
+
+    let mut out = HashSet::new();
+    for stmt in &program.statements {
+        walk_stmt(stmt, &mut out);
+        // Recurse into bodies missed above (if/while/for/try/defer blocks).
+        fn walk_blocks(stmt: &Stmt, out: &mut HashSet<String>) {
+            let blocks: Vec<&Vec<Stmt>> = match stmt.inner_stmt() {
+                Stmt::Function { body, .. } => vec![body],
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    let mut v = vec![then_block];
+                    if let Some(eb) = else_block {
+                        v.push(eb);
+                    }
+                    v
+                }
+                Stmt::While { body, .. } | Stmt::Repeat { body, .. } => vec![body],
+                Stmt::For { body, .. } => vec![body],
+                Stmt::ForEach { body, .. } => vec![body],
+                Stmt::TryCatch {
+                    try_block,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    let mut v = vec![try_block, catch_block];
+                    if let Some(fb) = finally_block {
+                        v.push(fb);
+                    }
+                    v
+                }
+                Stmt::Defer(inner) | Stmt::Pub(inner) => {
+                    walk_blocks(inner, out);
+                    vec![]
+                }
+                _ => vec![],
+            };
+            for b in blocks {
+                for s in b {
+                    walk_stmt(s, out);
+                    walk_blocks(s, out);
+                }
+            }
+        }
+        walk_blocks(stmt, &mut out);
+    }
+    out
+}
+
+/// Appends synthesized invocations for pre-discovered test entries that are
+/// not already called manually. Entries come from the pre-resolve AST;
+/// the called-names check runs on the current (resolved) program.
+fn synthesize_test_calls(program: &mut Program, entries: &[String]) {
+    if entries.is_empty() {
+        return;
+    }
+    let called = collect_called_names(program);
+    for name in entries {
+        let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        if called.contains(name.as_str()) || called.contains(bare) {
+            continue;
+        }
+        program.statements.push(Stmt::Expr(Expr::Call {
+            name: name.clone(),
+            args: Vec::new(),
+        }));
     }
 }
 
@@ -169,8 +356,15 @@ pub fn execute_test_file(
 
     // 3. Module Resolution
     let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    // Collect test entry points BEFORE imports merge (foreign `__test_*`
+    // functions must not be auto-invoked here).
+    let test_entries = discover_test_entry_points(&ast);
     let imported_files = crate::parser::resolve_imports_with_sources(&mut ast, base_dir)
         .map_err(|e| format!("Import resolution error in '{}': {}", path.display(), e))?;
+
+    // 3b. Synthesize invocations for `test` blocks and `@test` functions that
+    // are not already called manually (Chapter 18 §1.4, Chapter 22 §1.3).
+    synthesize_test_calls(&mut ast, &test_entries);
 
     // 4. Codegen
     let asm_code = codegen::generate(&ast, arch, os);
