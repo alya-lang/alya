@@ -105,6 +105,7 @@ fn test_codegen_function_definition() {
             defaults: vec![None],
             body: vec![Stmt::Return(Some(Expr::Identifier("a".into())))],
             type_params: vec![],
+            attributes: vec![],
         }],
     };
 

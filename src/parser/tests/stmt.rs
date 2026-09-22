@@ -265,6 +265,7 @@ let result = multiply(6, 7)
         Stmt::Function {
             name: "multiply".into(),
             type_params: vec![],
+            attributes: vec![],
             params: vec!["a".into(), "b".into()],
             param_types: vec![None, None],
             return_type: None,
@@ -307,6 +308,7 @@ greet("Alya")
         Stmt::Function {
             name: "greet".into(),
             type_params: vec![],
+            attributes: vec![],
             params: vec!["name".into(), "greeting".into(), "punctuation".into()],
             param_types: vec![None, None, None],
             return_type: None,

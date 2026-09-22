@@ -44,6 +44,13 @@ pub fn emit_function_prologue(out: &mut String, name: &str) {
     out.push_str("    mov x29, sp\n\n");
 }
 
+/// Emits a global alias label for `@export("name")` (Chapter 18 §1.2).
+/// Must precede the function prologue so both labels share one address.
+pub fn emit_export_alias(out: &mut String, alias: &str) {
+    out.push_str(&format!("\n.globl {}\n", alias));
+    out.push_str(&format!("{}:\n", alias));
+}
+
 pub fn emit_function_param_push(out: &mut String, param_idx: usize, stack_offset: &mut i32) {
     *stack_offset += 16;
     if param_idx < 8 {

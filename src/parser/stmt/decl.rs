@@ -729,6 +729,7 @@ impl Parser {
             defaults,
             body,
             type_params,
+            attributes: vec![],
         })
     }
 
@@ -843,6 +844,7 @@ impl Parser {
             fields,
             field_types,
             defaults,
+            attributes: vec![],
         })
     }
 

@@ -38,6 +38,13 @@ pub fn emit_function_prologue(out: &mut String, name: &str) {
     out.push_str("    mov %esp, %ebp\n");
 }
 
+/// Emits a global alias label for `@export("name")` (Chapter 18 §1.2).
+/// Must precede the function prologue so both labels share one address.
+pub fn emit_export_alias(out: &mut String, alias: &str) {
+    out.push_str(&format!("\n.global {}\n", alias));
+    out.push_str(&format!("{}:\n", alias));
+}
+
 pub fn emit_function_epilogue(out: &mut String) {
     out.push_str("    mov %ebp, %esp\n");
     out.push_str("    pop %ebp\n");

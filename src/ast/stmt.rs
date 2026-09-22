@@ -19,6 +19,19 @@ pub struct ImportSymbol {
     pub alias: Option<String>,
 }
 
+/// A source-level attribute (`@name` or `@name(args)`).
+///
+/// The parser records every non-`cfg` attribute here instead of discarding it;
+/// consumers decide the effect (`deprecated` diagnostics, `export` linkage,
+/// `test`/`bench` discovery). Arguments preserve source form: `None` key
+/// means positional (`@export("native_add")`), `Some` key means named
+/// (`@deprecated(since = "0.2.0", error = true)`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Attribute {
+    pub name: String,
+    pub args: Vec<(Option<String>, String)>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Import {
@@ -60,6 +73,7 @@ pub enum Stmt {
         fields: Vec<String>,
         field_types: Vec<Option<String>>,
         defaults: Vec<Option<Expr>>,
+        attributes: Vec<Attribute>,
     },
     EnumDef {
         name: String,
@@ -98,6 +112,7 @@ pub enum Stmt {
         defaults: Vec<Option<Expr>>,
         body: Vec<Stmt>,
         type_params: Vec<String>,
+        attributes: Vec<Attribute>,
     },
     Return(Option<Expr>),
     Break,

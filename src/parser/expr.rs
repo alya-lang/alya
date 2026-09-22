@@ -902,6 +902,7 @@ impl Parser {
             defaults,
             body,
             type_params: vec![],
+            attributes: vec![],
         });
 
         Ok(Expr::Identifier(lambda_name))
@@ -965,6 +966,7 @@ impl Parser {
             defaults,
             body,
             type_params: vec![],
+            attributes: vec![],
         });
 
         Ok(Expr::Identifier(lambda_name))
@@ -1331,6 +1333,7 @@ impl Parser {
                                 defaults: vec![],
                                 body,
                                 type_params: vec![],
+                                attributes: vec![],
                             });
                             return Ok(Expr::Call {
                                 name: lambda_name,
@@ -1424,6 +1427,7 @@ impl Parser {
                         defaults,
                         body,
                         type_params: vec![],
+                        attributes: vec![],
                     });
 
                     Ok(Expr::Call {
@@ -1575,6 +1579,7 @@ impl Parser {
                         defaults: vec![],
                         body,
                         type_params: vec![],
+                        attributes: vec![],
                     });
                     return Ok(Expr::Call {
                         name: lambda_name,
@@ -1675,6 +1680,7 @@ impl Parser {
                 defaults,
                 body,
                 type_params: vec![],
+                attributes: vec![],
             });
 
             Ok(Expr::Call {

@@ -2,7 +2,7 @@ pub(crate) mod control;
 mod decl;
 
 use crate::ast::*;
-use crate::lexer::TokenType;
+use crate::lexer::{Token, TokenType};
 use crate::parser::Parser;
 
 impl Parser {
@@ -579,6 +579,7 @@ impl Parser {
             defaults: vec![],
             body,
             type_params: vec![],
+            attributes: vec![],
         };
         Ok(vec![fn_stmt])
     }
@@ -650,6 +651,94 @@ impl Parser {
         true
     }
 
+    /// Converts collected attribute argument tokens into structured args.
+    /// Splits top-level commas; `key = value` becomes named, a lone value
+    /// becomes positional. Only scalar tokens are kept.
+    fn attribute_args_from_tokens(tokens: &[Token]) -> Vec<(Option<String>, String)> {
+        fn scalar_text(tok: &Token) -> Option<String> {
+            match &tok.token_type {
+                TokenType::String(s) | TokenType::Identifier(s) => Some(s.clone()),
+                TokenType::Number(n) => Some(if n.fract() == 0.0 {
+                    format!("{}", *n as i64)
+                } else {
+                    format!("{}", n)
+                }),
+                TokenType::True => Some("true".to_string()),
+                TokenType::False => Some("false".to_string()),
+                _ => None,
+            }
+        }
+
+        fn flush_group(group: &[&Token], args: &mut Vec<(Option<String>, String)>) {
+            let mut key: Option<String> = None;
+            let mut value: Option<String> = None;
+            let mut seen_assign = false;
+            for tok in group.iter() {
+                if matches!(&tok.token_type, TokenType::Assign) {
+                    seen_assign = true;
+                    continue;
+                }
+                if let Some(text) = scalar_text(tok) {
+                    if seen_assign && value.is_none() {
+                        value = Some(text);
+                    } else if key.is_none() {
+                        key = Some(text);
+                    }
+                }
+            }
+            match (key, value) {
+                (Some(k), Some(v)) => args.push((Some(k), v)),
+                (Some(k), None) if seen_assign => args.push((Some(k), String::new())),
+                (Some(v), None) => args.push((None, v)),
+                _ => {}
+            }
+        }
+
+        let mut args = Vec::new();
+        let mut depth = 0usize;
+        let mut current: Vec<&Token> = Vec::new();
+        for tok in tokens {
+            match &tok.token_type {
+                TokenType::LeftParen => {
+                    depth += 1;
+                    current.push(tok);
+                }
+                TokenType::RightParen => {
+                    depth = depth.saturating_sub(1);
+                    current.push(tok);
+                }
+                TokenType::Comma if depth == 0 => {
+                    flush_group(&current, &mut args);
+                    current = Vec::new();
+                }
+                _ => current.push(tok),
+            }
+        }
+        flush_group(&current, &mut args);
+        args
+    }
+
+    /// Drains pending attributes into top-level Function/StructDef nodes
+    /// (looking through `pub` wrappers). Anything else leaves them cleared.
+    fn attach_pending_attributes(&mut self, stmts: &mut [Stmt]) {
+        if self.pending_attributes.is_empty() {
+            return;
+        }
+        let attrs = std::mem::take(&mut self.pending_attributes);
+        fn attach(stmt: &mut Stmt, attrs: &[Attribute]) {
+            match stmt {
+                Stmt::Function { attributes, .. } | Stmt::StructDef { attributes, .. } => {
+                    attributes.extend(attrs.iter().cloned());
+                }
+                Stmt::Pub(inner) => attach(inner, attrs),
+                _ => {}
+            }
+        }
+        for stmt in stmts.iter_mut() {
+            attach(stmt, &attrs);
+        }
+    }
+
     fn parse_attribute(&mut self) -> Result<Vec<Stmt>, String> {
         self.advance(); // consume '@'
         let attr_name = match &self.current_token().token_type {
@@ -670,7 +759,9 @@ impl Parser {
         };
         self.advance();
         let mut cfg_match = true;
+        let mut saw_parens = false;
         if matches!(self.current_token().token_type, TokenType::LeftParen) {
+            saw_parens = true;
             self.advance();
             let mut depth = 1;
             let mut paren_tokens = Vec::new();
@@ -692,15 +783,31 @@ impl Parser {
             }
             if attr_name == "cfg" {
                 cfg_match = Self::evaluate_cfg_tokens(&paren_tokens);
+            } else {
+                let args = Self::attribute_args_from_tokens(&paren_tokens);
+                self.pending_attributes.push(Attribute {
+                    name: attr_name.clone(),
+                    args,
+                });
             }
+        }
+        if !saw_parens && attr_name != "cfg" {
+            // Bare `@name` form (`@inline`, `@test`): no arguments.
+            self.pending_attributes.push(Attribute {
+                name: attr_name,
+                args: Vec::new(),
+            });
         }
         if !cfg_match {
             self.skip_newlines();
             let _ = self.parse_statement()?;
+            self.pending_attributes.clear();
             return Ok(vec![]);
         }
         self.skip_newlines();
-        self.parse_statement()
+        let mut stmts = self.parse_statement()?;
+        self.attach_pending_attributes(&mut stmts);
+        Ok(stmts)
     }
 
     fn parse_spawn(&mut self) -> Result<Vec<Stmt>, String> {
@@ -739,6 +846,7 @@ impl Parser {
                             args: thunk_args,
                         })],
                         type_params: vec![],
+                        attributes: vec![],
                     };
                     self.lambda_functions.push(thunk_fn);
                     Ok(vec![Stmt::Expr(Expr::Call {

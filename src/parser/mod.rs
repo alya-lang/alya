@@ -16,6 +16,10 @@ pub struct Parser {
     pub(super) lambda_counter: usize,
     pub(super) fn_depth: usize,
     pub(crate) struct_defs: std::collections::HashMap<String, Vec<String>>,
+    /// Attributes (`@...`) parsed but not yet attached to a declaration.
+    /// `parse_attribute` accumulates here; the following Function/StructDef
+    /// drains them. Anything else leaves them to be cleared.
+    pub(super) pending_attributes: Vec<crate::ast::Attribute>,
 }
 
 impl Parser {
@@ -27,6 +31,7 @@ impl Parser {
             lambda_counter: 0,
             fn_depth: 0,
             struct_defs: std::collections::HashMap::new(),
+            pending_attributes: Vec::new(),
         }
     }
 
@@ -1207,6 +1212,7 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                                     defaults,
                                     body,
                                     type_params,
+                                    attributes,
                                 } if name == &sym.name => {
                                     additional_stmts.push(Stmt::Function {
                                         name: alias_name.clone(),
@@ -1216,6 +1222,7 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                                         defaults: defaults.clone(),
                                         body: body.clone(),
                                         type_params: type_params.clone(),
+                                        attributes: attributes.clone(),
                                     });
                                 }
                                 Stmt::StructDef {
@@ -1223,12 +1230,14 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                                     fields,
                                     field_types,
                                     defaults,
+                                    attributes,
                                 } if name == &sym.name => {
                                     additional_stmts.push(Stmt::StructDef {
                                         name: alias_name.clone(),
                                         fields: fields.clone(),
                                         field_types: field_types.clone(),
                                         defaults: defaults.clone(),
+                                        attributes: attributes.clone(),
                                     });
                                 }
                                 Stmt::EnumDef { name, variants } if name == &sym.name => {

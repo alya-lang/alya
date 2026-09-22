@@ -198,6 +198,7 @@ pub fn extract_module_docs(source: &str, file_path: &str) -> DocModule {
                 fields,
                 field_types,
                 defaults,
+                ..
             } => {
                 let doc = symbol_docs.get(name).cloned().unwrap_or_default();
                 let mut doc_fields = Vec::new();

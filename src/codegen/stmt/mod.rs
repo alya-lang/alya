@@ -150,6 +150,7 @@ impl CodeGen {
                 fields,
                 field_types,
                 defaults,
+                ..
             } => {
                 self.ctx.structs.insert(
                     name.clone(),

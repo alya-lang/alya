@@ -129,8 +129,12 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     crate::parser::constants::resolve_and_validate_constants(&mut resolved_ast)
         .map_err(|e| format!("Constant error in '{}': {}", args.input_file, e))?;
     crate::parser::generics::resolve_generics(&mut resolved_ast);
-    crate::codegen::analysis::type_checker::validate_types(&resolved_ast)
-        .map_err(|e| format!("Type error in '{}': {}", args.input_file, e))?;
+    let (type_warnings, type_result) =
+        crate::codegen::analysis::type_checker::validate_types_with_warnings(&resolved_ast);
+    for warning in type_warnings {
+        eprintln!("{} in '{}'", warning, args.input_file);
+    }
+    type_result.map_err(|e| format!("Type error in '{}': {}", args.input_file, e))?;
     let d_typecheck = t_typecheck.elapsed();
 
     if args.command == CommandKind::Check {

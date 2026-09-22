@@ -481,6 +481,65 @@ fn test_golden_spec_attributes_execution() {
 }
 
 #[test]
+fn test_deprecated_warning_collected() {
+    // Warning-form `@deprecated` records (not fatals) via the warnings
+    // channel; `error = true` is covered by the negative fixture.
+    let source = r#"
+@deprecated("Use new_add instead")
+function old_add(a: int, b: int) -> int
+    return a + b
+end
+say old_add(1, 2)
+"#;
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().expect("Lexer error");
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().expect("Parser error");
+    let (warnings, result) =
+        alya::codegen::analysis::type_checker::validate_types_with_warnings(&ast);
+    assert!(result.is_ok(), "warning form must not fail: {:?}", result);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains("deprecated function 'old_add'"));
+    assert!(warnings[0].contains("Use new_add instead"));
+}
+
+#[test]
+fn test_export_symbol_emitted() {
+    // `@export("alias")` must produce a global `alias` label in every
+    // backend's assembly (Chapter 18 §1.2).
+    let file = get_spec_syntax_dir().join("attributes.alya");
+    let source = fs::read_to_string(&file).expect("Failed to read attributes.alya");
+    let mut lexer = Lexer::new(&source);
+    let tokens = lexer.tokenize().expect("Lexer error");
+    let mut parser = Parser::new(tokens);
+    let mut ast = parser.parse().expect("Parser error");
+    alya::parser::resolve_imports(&mut ast, &get_spec_syntax_dir())
+        .expect("Import resolution failed");
+    for (arch, os) in [
+        (
+            alya::codegen::Architecture::X64,
+            alya::codegen::OperatingSystem::Windows,
+        ),
+        (
+            alya::codegen::Architecture::X64,
+            alya::codegen::OperatingSystem::Linux,
+        ),
+        (
+            alya::codegen::Architecture::ARM64,
+            alya::codegen::OperatingSystem::Linux,
+        ),
+    ] {
+        let asm = alya::codegen::generate(&ast, arch, os);
+        assert!(
+            asm.contains("native_add"),
+            "export alias missing for {:?}/{:?}",
+            arch,
+            os
+        );
+    }
+}
+
+#[test]
 fn test_golden_spec_lexical_execution() {
     let file = get_spec_syntax_dir().join("lexical.alya");
     let source = fs::read_to_string(&file).expect("Failed to read lexical.alya");

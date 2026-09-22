@@ -201,6 +201,17 @@ pub fn emit_function_prologue(out: &mut String, arch: Architecture, name: &str) 
     }
 }
 
+/// Emits a global alias label for `@export("name")` (Chapter 18 §1.2).
+/// Must be called before the function prologue so both labels share one
+/// address. The alias is emitted verbatim (no `fn_` prefix, no mangling).
+pub fn emit_export_alias(out: &mut String, arch: Architecture, alias: &str) {
+    match arch {
+        Architecture::ARM64 => arm64::emit_export_alias(out, alias),
+        Architecture::X64 => x64::emit_export_alias(out, alias),
+        Architecture::X86 => x86::emit_export_alias(out, alias),
+    }
+}
+
 pub fn emit_function_epilogue(out: &mut String, arch: Architecture) {
     match arch {
         Architecture::ARM64 => arm64::emit_function_epilogue(out),

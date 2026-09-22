@@ -1,0 +1,7 @@
+# EXPECT-FAIL: check: call to removed function
+# Chapter 18 §1.2: `error = true` elevates deprecation to a fatal error.
+@deprecated(since = "0.2.0", note = "gone for good", error = true)
+function removed_fn() -> int
+    return 1
+end
+say removed_fn()

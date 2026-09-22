@@ -438,6 +438,12 @@ pub struct TypeChecker {
     enums: HashSet<String>,
     interfaces: HashMap<String, Vec<String>>,
     struct_methods: HashMap<String, HashSet<String>>,
+    /// Deprecated functions: name -> (message, is_error). Collected from
+    /// `@deprecated` attributes; enforced at call sites.
+    deprecated: HashMap<String, (String, bool)>,
+    /// Non-fatal diagnostics (e.g. deprecation warnings) accumulated during
+    /// checking. The driver prints these; `validate_types` discards them.
+    warnings: Vec<String>,
     current_fn_return_type: Option<Type>,
 }
 
@@ -457,6 +463,8 @@ impl TypeChecker {
             enums: HashSet::new(),
             interfaces: HashMap::new(),
             struct_methods: HashMap::new(),
+            deprecated: HashMap::new(),
+            warnings: Vec::new(),
             current_fn_return_type: None,
         };
         tc.register_builtins();
@@ -997,7 +1005,7 @@ impl TypeChecker {
     }
 
     /// Recursively checks an expression and validates all sub-expressions.
-    pub fn check_expr(&self, expr: &Expr) -> Result<(), String> {
+    pub fn check_expr(&mut self, expr: &Expr) -> Result<(), String> {
         match expr {
             Expr::Identifier(name)
                 if self.lookup_var(name).is_some() && !self.is_assigned(name) =>
@@ -1075,6 +1083,8 @@ impl TypeChecker {
                 for a in args {
                     self.check_expr(a)?;
                 }
+
+                self.check_deprecated_call(name)?;
 
                 let first_arg_type = args.first().and_then(|a| self.infer_expr(a).ok());
                 if let Some(sig) = self.lookup_fn(name, first_arg_type.as_ref()) {
@@ -1275,7 +1285,8 @@ impl TypeChecker {
             }
 
             Stmt::Return(expr_opt) => {
-                if let Some(ref expected_ret) = self.current_fn_return_type {
+                let expected_ret = self.current_fn_return_type.clone();
+                if let Some(ref expected_ret) = expected_ret {
                     match expr_opt {
                         Some(expr) => {
                             self.check_expr(expr)?;
@@ -1498,6 +1509,41 @@ impl TypeChecker {
         self.struct_satisfies_interface(actual_s, expected_s)
     }
 
+    /// Enforces `@deprecated` at a call site. `error = true` is fatal;
+    /// otherwise a warning is recorded for the driver to print.
+    fn check_deprecated_call(&mut self, name: &str) -> Result<(), String> {
+        let bare = name.rsplit("::").next().unwrap_or(name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        let hit = self
+            .deprecated
+            .get(name)
+            .or_else(|| self.deprecated.get(bare))
+            .cloned();
+        if let Some((message, is_error)) = hit {
+            if is_error {
+                return Err(format!(
+                    "TypeError: call to removed function '{}': {}",
+                    name,
+                    if message.is_empty() {
+                        "removed via @deprecated(error = true)".to_string()
+                    } else {
+                        message
+                    }
+                ));
+            }
+            let detail = if message.is_empty() {
+                String::new()
+            } else {
+                format!(": {}", message)
+            };
+            self.warnings.push(format!(
+                "warning: call to deprecated function '{}'{}",
+                name, detail
+            ));
+        }
+        Ok(())
+    }
+
     /// Primary entry point: analyzes and statically type-checks a complete program.
     pub fn check_program(&mut self, program: &Program) -> Result<(), String> {
         // Pass 1: Collect all struct definitions
@@ -1593,9 +1639,31 @@ impl TypeChecker {
                 params: _,
                 param_types,
                 return_type,
+                attributes,
                 ..
             } = stmt.inner_stmt()
             {
+                for attr in attributes {
+                    if attr.name == "deprecated" {
+                        let mut message = String::new();
+                        let mut is_error = false;
+                        for (key, val) in &attr.args {
+                            match key.as_deref() {
+                                None if message.is_empty() => message = val.clone(),
+                                Some("note") | Some("message") => message = val.clone(),
+                                Some("error") => is_error = val == "true" || val == "1",
+                                _ => {}
+                            }
+                        }
+                        self.deprecated
+                            .insert(name.clone(), (message.clone(), is_error));
+                        let bare_mod = name.rsplit("::").next().unwrap_or(name);
+                        if bare_mod != name {
+                            self.deprecated
+                                .insert(bare_mod.to_string(), (message, is_error));
+                        }
+                    }
+                }
                 let p_types = param_types
                     .iter()
                     .map(|pt| {
@@ -1636,6 +1704,13 @@ impl TypeChecker {
 
 /// Convenience function: validates typing contracts across a program AST.
 pub fn validate_types(program: &Program) -> Result<(), String> {
+    validate_types_with_warnings(program).1
+}
+
+/// Validates typing contracts, returning accumulated non-fatal warnings
+/// (e.g. deprecation notices) alongside the result.
+pub fn validate_types_with_warnings(program: &Program) -> (Vec<String>, Result<(), String>) {
     let mut checker = TypeChecker::new();
-    checker.check_program(program)
+    let result = checker.check_program(program);
+    (checker.warnings, result)
 }

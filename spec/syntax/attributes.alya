@@ -149,11 +149,14 @@ end
 
 say f"Sizeof int: {sizeof(int)}, Alignof int: {alignof(int)}"
 
-# NOTE (unimplemented): `@deprecated` is parsed but has no effect —
-# neither the warning form nor `error = true` (Chapter 18 §1.2 mandates
-# a fatal error for the latter). Attributes are dropped before codegen
-# (no attribute field on AST function nodes), so even call-site
-# warnings need AST plumbing first.
+# ------------------------------------------------------------------------------
+# 8b. Deprecated Call Enforcement (Chapter 18 §1.2)
+# ------------------------------------------------------------------------------
+# Calling a deprecated function prints a warning (stderr, exit stays 0);
+# `error = true` is fatal (see spec/negative/). `@export` emits the alias
+# symbol (checked by the export-symbol test, not at runtime).
+say legacy_distance(3.0, 4.0, 0.0, 0.0)
+say exported_c_addition(20, 22)
 
 # ------------------------------------------------------------------------------
 # 9. Native Test Blocks for Chapter 18

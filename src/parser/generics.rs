@@ -205,6 +205,7 @@ fn monomorphize_expr(
                     defaults: t_defaults,
                     body: t_body,
                     type_params: t_type_params,
+                    attributes: t_attributes,
                     ..
                 }) = generic_funcs.get(&template_name).cloned()
                 {
@@ -282,6 +283,7 @@ fn monomorphize_expr(
                                 defaults: t_defaults,
                                 body: spec_body,
                                 type_params: vec![],
+                                attributes: t_attributes,
                             }
                         });
                 }
@@ -456,6 +458,7 @@ fn substitute_in_stmts(stmts: &[Stmt], subst: &HashMap<String, String>) -> Vec<S
                 defaults,
                 body,
                 type_params,
+                attributes,
             } => Stmt::Function {
                 name: name.clone(),
                 params: params.clone(),
@@ -467,6 +470,7 @@ fn substitute_in_stmts(stmts: &[Stmt], subst: &HashMap<String, String>) -> Vec<S
                 defaults: defaults.clone(),
                 body: substitute_in_stmts(body, subst),
                 type_params: type_params.clone(),
+                attributes: attributes.clone(),
             },
             other => other.clone(),
         })

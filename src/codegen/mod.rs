@@ -277,6 +277,7 @@ impl CodeGen {
                 fields,
                 field_types,
                 defaults,
+                ..
             } = stmt.inner_stmt()
             {
                 self.ctx.structs.insert(
@@ -921,10 +922,19 @@ impl CodeGen {
                 params,
                 param_types,
                 body,
+                attributes,
                 ..
             } = func
             {
-                self.generate_function(name, params, param_types, body, program, &inference);
+                self.generate_function(
+                    name,
+                    params,
+                    param_types,
+                    body,
+                    attributes,
+                    program,
+                    &inference,
+                );
             }
         }
 
@@ -952,12 +962,14 @@ impl CodeGen {
         };
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn generate_function(
         &mut self,
         name: &str,
         params: &[String],
         param_types: &[Option<String>],
         body: &[Stmt],
+        attributes: &[Attribute],
         program: &Program,
         inference: &ProgramInference,
     ) {
@@ -977,6 +989,19 @@ impl CodeGen {
                 self.ctx
                     .variables
                     .insert(format!("arr_is_str:{}", var_name), VarType::Number(0));
+            }
+        }
+
+        // `@export("alias")`: global alias labels sharing the entry address,
+        // so native consumers can link against the unmangled name. Emitted
+        // BEFORE the prologue: both labels land on the same address.
+        for attr in attributes {
+            if attr.name == "export" {
+                if let Some((_, alias)) = attr.args.first() {
+                    if !alias.is_empty() {
+                        arch::emit_export_alias(&mut self.output, self.arch, alias);
+                    }
+                }
             }
         }
 

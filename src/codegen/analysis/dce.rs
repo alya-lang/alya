@@ -119,6 +119,18 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
         }
     }
 
+    // 1b. `@export`ed functions are library entry points for native consumers
+    // and survive regardless of internal references.
+    for (name, stmt) in &function_defs {
+        let exported = match stmt.inner_stmt() {
+            Stmt::Function { attributes, .. } => attributes.iter().any(|a| a.name == "export"),
+            _ => false,
+        };
+        if exported {
+            mark_function(name, &mut reachable_functions, &mut worklist);
+        }
+    }
+
     let mut all_reachable_refs: HashSet<String> = HashSet::new();
 
     // 2. All top-level statements are roots
@@ -515,6 +527,7 @@ mod tests {
                 Stmt::Function {
                     name: "used_fn".into(),
                     type_params: vec![],
+                    attributes: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -524,6 +537,7 @@ mod tests {
                 Stmt::Function {
                     name: "dead_fn".into(),
                     type_params: vec![],
+                    attributes: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -560,6 +574,7 @@ mod tests {
                 Stmt::Function {
                     name: "entry_fn".into(),
                     type_params: vec![],
+                    attributes: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -572,6 +587,7 @@ mod tests {
                 Stmt::Function {
                     name: "helper_fn".into(),
                     type_params: vec![],
+                    attributes: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -581,6 +597,7 @@ mod tests {
                 Stmt::Function {
                     name: "unreachable_fn".into(),
                     type_params: vec![],
+                    attributes: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -619,6 +636,7 @@ mod tests {
                 Stmt::Function {
                     name: "on_event".into(),
                     type_params: vec![],
+                    attributes: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -628,6 +646,7 @@ mod tests {
                 Stmt::Function {
                     name: "register_cb".into(),
                     type_params: vec![],
+                    attributes: vec![],
                     params: vec!["cb".into()],
                     param_types: vec![],
                     return_type: None,
@@ -667,12 +686,14 @@ mod tests {
                     fields: vec!["x".into(), "y".into()],
                     field_types: vec![None, None],
                     defaults: vec![None, None],
+                    attributes: vec![],
                 },
                 Stmt::StructDef {
                     name: "UnusedPoint".into(),
                     fields: vec!["z".into()],
                     field_types: vec![None],
                     defaults: vec![None],
+                    attributes: vec![],
                 },
                 Stmt::Expr(Expr::StructInit {
                     name: "ActivePoint".into(),
@@ -707,6 +728,7 @@ mod tests {
                 Stmt::Function {
                     name: "lib_a".into(),
                     type_params: vec![],
+                    attributes: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -716,6 +738,7 @@ mod tests {
                 Stmt::Function {
                     name: "lib_b".into(),
                     type_params: vec![],
+                    attributes: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -736,6 +759,7 @@ mod tests {
                 Stmt::Pub(Box::new(Stmt::Function {
                     name: "exported_api".into(),
                     type_params: vec![],
+                    attributes: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -748,6 +772,7 @@ mod tests {
                 Stmt::Function {
                     name: "internal_used_helper".into(),
                     type_params: vec![],
+                    attributes: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -757,6 +782,7 @@ mod tests {
                 Stmt::Function {
                     name: "internal_dead_helper".into(),
                     type_params: vec![],
+                    attributes: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -766,6 +792,7 @@ mod tests {
                 Stmt::Function {
                     name: "test_feature".into(),
                     type_params: vec![],
+                    attributes: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -822,6 +849,7 @@ mod tests {
                 Stmt::Function {
                     name: "main".into(),
                     type_params: vec![],
+                    attributes: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
@@ -870,6 +898,7 @@ mod tests {
                 Stmt::Function {
                     name: "main".into(),
                     type_params: vec![],
+                    attributes: vec![],
                     params: vec![],
                     param_types: vec![],
                     return_type: None,
