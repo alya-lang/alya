@@ -36,7 +36,7 @@ end
 
 ## Creates a BenchRunner and announces the benchmark suite.
 pub function bench_runner(name: string) -> BenchRunner
-    say "=== Benchmark Suite: " + name + " ==="
+    say f"=== Benchmark Suite: {name} ==="
     return BenchRunner { suite_name: name, records: [], total_runs: 0, total_ms: 0, start_ms: 0, start_alloc: 0, run_iters: 0 }
 end
 
@@ -86,7 +86,7 @@ pub function assert_gt(actual, expected, msg: string) -> int
         say "  [PASS] {msg}"
         return 1
     else
-        say "  [FAIL] {msg} (" + str(actual) + " not > " + str(expected) + ")"
+        say f"  [FAIL] {msg} ({actual} not > {expected})"
         return 0
     end
 end
@@ -97,7 +97,7 @@ pub function assert_gte(actual, expected, msg: string) -> int
         say "  [PASS] {msg}"
         return 1
     else
-        say "  [FAIL] {msg} (" + str(actual) + " not >= " + str(expected) + ")"
+        say f"  [FAIL] {msg} ({actual} not >= {expected})"
         return 0
     end
 end
@@ -108,7 +108,7 @@ pub function assert_lt(actual, expected, msg: string) -> int
         say "  [PASS] {msg}"
         return 1
     else
-        say "  [FAIL] {msg} (" + str(actual) + " not < " + str(expected) + ")"
+        say f"  [FAIL] {msg} ({actual} not < {expected})"
         return 0
     end
 end
@@ -119,7 +119,7 @@ pub function assert_lte(actual, expected, msg: string) -> int
         say "  [PASS] {msg}"
         return 1
     else
-        say "  [FAIL] {msg} (" + str(actual) + " not <= " + str(expected) + ")"
+        say f"  [FAIL] {msg} ({actual} not <= {expected})"
         return 0
     end
 end
@@ -163,7 +163,7 @@ pub function assert_str_eq(actual: string, expected: string, msg: string) -> int
         say "  [PASS] {msg}"
         return 1
     else
-        say "  [FAIL] {msg} (expected: \"" + expected + "\", got: \"" + actual + "\")"
+        say f"  [FAIL] {msg} (expected: \"{expected}\", got: \"{actual}\")"
         return 0
     end
 end
@@ -174,7 +174,7 @@ pub function assert_str_ne(actual: string, expected: string, msg: string) -> int
         say "  [PASS] {msg}"
         return 1
     else
-        say "  [FAIL] {msg} (expected not: \"" + expected + "\")"
+        say f"  [FAIL] {msg} (expected not: \"{expected}\")"
         return 0
     end
 end
@@ -280,7 +280,7 @@ pub function runner_assert_str_eq(r: TestRunner, actual: string, expected: strin
         return 1
     else
         r.failed += 1
-        say "  [FAIL] {msg} (expected: \"" + expected + "\", got: \"" + actual + "\")"
+        say f"  [FAIL] {msg} (expected: \"{expected}\", got: \"{actual}\")"
         return 0
     end
 end
@@ -294,7 +294,7 @@ pub function runner_assert_str_ne(r: TestRunner, actual: string, expected: strin
         return 1
     else
         r.failed += 1
-        say "  [FAIL] {msg} (expected not: \"" + expected + "\")"
+        say f"  [FAIL] {msg} (expected not: \"{expected}\")"
         return 0
     end
 end
@@ -307,7 +307,7 @@ end
 ## Prints the runner totals and returns the failure count.
 pub function runner_summary(r: TestRunner) -> int
     say "----------------------------------------"
-    say "Results: " + str(r.passed) + "/" + str(r.total) + " passed, " + str(r.failed) + " failed."
+    say f"Results: {r.passed}/{r.total} passed, {r.failed} failed."
     when r.failed
         is 0 then say "Status: ALL TESTS PASSED!"
         else say "Status: SOME TESTS FAILED!"
@@ -463,7 +463,7 @@ pub function bench_measure(name: string, iters: int, elapsed_ms: int) -> int
     end
     let ns_per_op: int = (safe_elapsed * 1000000) / iters
     let ops_sec: int = (iters * 1000) / safe_elapsed
-    say "  * " + name + ": " + _bench_format_thousands(iters) + " iters in " + str(elapsed_ms) + " ms (~" + _bench_format_thousands(ns_per_op) + " ns/op | " + _bench_format_thousands(ops_sec) + " ops/sec)"
+    say f"  * {name}: {_bench_format_thousands(iters)} iters in {elapsed_ms} ms (~{_bench_format_thousands(ns_per_op)} ns/op | {_bench_format_thousands(ops_sec)} ops/sec)"
     return elapsed_ms
 end
 
@@ -494,7 +494,7 @@ pub function bench_stop(b: BenchRunner, name: string) -> int
     let ops_sec: int = (iters * 1000) / safe_elapsed
     let alloc_per_op: int = alloc_diff / iters
 
-    say "  * " + name + ": " + _bench_format_thousands(iters) + " iters in " + str(elapsed) + " ms (~" + _bench_format_thousands(ns_per_op) + " ns/op | " + _bench_format_thousands(ops_sec) + " ops/sec)"
+    say f"  * {name}: {_bench_format_thousands(iters)} iters in {elapsed} ms (~{_bench_format_thousands(ns_per_op)} ns/op | {_bench_format_thousands(ops_sec)} ops/sec)"
 
     let rec: BenchRecord = BenchRecord { op_name: name, op_iters: iters, op_elapsed: elapsed, op_alloc: alloc_per_op, op_ns: ns_per_op, op_throughput: ops_sec }
     push(b.records, rec)
@@ -508,9 +508,9 @@ pub function bench_summary(b: BenchRunner)
     let num_records: int = b.total_runs
     if num_records > 0
         say "\n// * Summary *\n"
-        say "Benchmark Suite : " + str_from_ptr(b.suite_name)
+        say f"Benchmark Suite : {str_from_ptr(b.suite_name)}"
         say "Target Runtime  : Alya Native (Spec v1.0)"
-        say "Workload        : " + str(num_records) + " methods\n"
+        say f"Workload        : {num_records} methods\n"
 
         let baseline_rec = b.records[0]
         let baseline_ns: int = baseline_rec.op_ns
@@ -613,7 +613,7 @@ pub function bench_summary(b: BenchRunner)
         let col_ar_hdr: string = _bench_pad_left("Alloc Ratio", w_alloc_ratio)
         let col_tp_hdr: string = _bench_pad_left("Throughput", w_tp)
 
-        say "| " + col_name_hdr + " | " + col_iters_hdr + " | " + col_mean_hdr + " | " + col_time_hdr + " | " + col_ratio_hdr + " | " + col_alloc_hdr + " | " + col_ar_hdr + " | " + col_tp_hdr + " |"
+        say f"| {col_name_hdr} | {col_iters_hdr} | {col_mean_hdr} | {col_time_hdr} | {col_ratio_hdr} | {col_alloc_hdr} | {col_ar_hdr} | {col_tp_hdr} |"
 
         # Render Separator (each column has width W, so between pipes it is W + 2 chars)
         let sep_name: string = ":" + _bench_repeat("-", w_method + 1)
@@ -625,7 +625,7 @@ pub function bench_summary(b: BenchRunner)
         let sep_ar: string = _bench_repeat("-", w_alloc_ratio + 1) + ":"
         let sep_tp: string = _bench_repeat("-", w_tp + 1) + ":"
 
-        say "|" + sep_name + "|" + sep_iters + "|" + sep_mean + "|" + sep_time + "|" + sep_ratio + "|" + sep_alloc + "|" + sep_ar + "|" + sep_tp + "|"
+        say f"|{sep_name}|{sep_iters}|{sep_mean}|{sep_time}|{sep_ratio}|{sep_alloc}|{sep_ar}|{sep_tp}|"
 
         # Render Data Rows
         let i: int = 0
@@ -673,14 +673,14 @@ pub function bench_summary(b: BenchRunner)
             let col_ar: string = _bench_pad_left(a_ratio_str, w_alloc_ratio)
             let col_tp: string = _bench_pad_left(_bench_format_throughput(r.op_throughput), w_tp)
 
-            say "| " + col_name + " | " + col_iters + " | " + col_mean + " | " + col_time + " | " + col_ratio + " | " + col_alloc + " | " + col_ar + " | " + col_tp + " |"
+            say f"| {col_name} | {col_iters} | {col_mean} | {col_time} | {col_ratio} | {col_alloc} | {col_ar} | {col_tp} |"
             i += 1
         end
 
         say "\n// * Legends *"
         say "  Mean (ns/op) : Average elapsed time per single operation"
         say "  Total Time   : Total elapsed time across all iterations"
-        say "  Ratio        : Mean time ratio relative to baseline (" + str_from_ptr(baseline_rec.op_name) + ")"
+        say f"  Ratio        : Mean time ratio relative to baseline ({str_from_ptr(baseline_rec.op_name)})"
         say "  Allocated    : Allocated heap memory per single operation"
         say "  Alloc Ratio  : Allocated memory ratio relative to baseline"
         say "  Throughput   : Operations executed per second\n"
@@ -689,7 +689,7 @@ pub function bench_summary(b: BenchRunner)
     let runs: string = str(b.total_runs)
     let ms: string = str(b.total_ms)
     say "----------------------------------------"
-    say "Finished " + runs + " benchmark(s) in " + ms + " ms."
+    say f"Finished {runs} benchmark(s) in {ms} ms."
     say "========================================"
 end
 
@@ -712,7 +712,7 @@ pub function test_run_bench(name: string, warmup: int, iters: int, task) -> int
     end
     let ns_per_op: int = (elapsed * 1000000) / iters
     let ops_sec: int = (iters * 1000) / elapsed
-    say "  [BENCH] " + name + ": " + str(iters) + " iters in " + str(elapsed) + " ms (~" + str(ns_per_op) + " ns/op | " + str(ops_sec) + " ops/sec)"
+    say f"  [BENCH] {name}: {iters} iters in {elapsed} ms (~{ns_per_op} ns/op | {ops_sec} ops/sec)"
     return elapsed
 end
 

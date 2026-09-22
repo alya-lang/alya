@@ -152,13 +152,13 @@ function _json_parse_array(s: string, pos: int[], slen: int)
             break
         end
         let ch: string = char_at(s, pos[0])
-        if ch == ","
-            pos[0] = pos[0] + 1
-        elif ch == "]"
-            pos[0] = pos[0] + 1
-            break
-        else
-            break
+        when ch
+            is "," then pos[0] = pos[0] + 1
+            is "]" then
+                pos[0] = pos[0] + 1
+                break
+            else
+                break
         end
     end
     return arr
@@ -212,13 +212,13 @@ function _json_parse_object(s: string, pos: int[], slen: int)
             break
         end
         let ch: string = char_at(s, pos[0])
-        if ch == ","
-            pos[0] = pos[0] + 1
-        elif ch == "}"
-            pos[0] = pos[0] + 1
-            break
-        else
-            break
+        when ch
+            is "," then pos[0] = pos[0] + 1
+            is "}" then
+                pos[0] = pos[0] + 1
+                break
+            else
+                break
         end
     end
     return obj

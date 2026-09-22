@@ -262,10 +262,9 @@ pub function title_case(s: string) -> string
     while i < slen
         ch = char_at(s, i)
         c = ord(ch)
-        if c == 32 or c == 9 or c == 10 or c == 13
-            is_space = 1
-        else
-            is_space = 0
+        when c
+            is 32, 9, 10, 13 then is_space = 1
+            else is_space = 0
         end
         if is_space == 1
             res += ch
@@ -454,7 +453,10 @@ pub function slugify(s: string) -> string
         is_digit_c = (c >= 48 and c <= 57)
         is_lower_c = (c >= 97 and c <= 122)
         is_upper_c = (c >= 65 and c <= 90)
-        is_sep = (ch == " " or ch == "-" or ch == "_")
+        when ch
+            is " ", "-", "_" then is_sep = 1
+            else is_sep = 0
+        end
 
         if is_upper_c == 1
             res += lower(ch)

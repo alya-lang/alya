@@ -524,10 +524,9 @@ pub function glob_escape(s: string) -> string
     let i: int = 0
     while i < tlen
         let ch: string = char_at(text, i)
-        if ch == "*" or ch == "?" or ch == "[" or ch == "]" or ch == "{" or ch == "}" or ch == "\\"
-            res = res + "\\" + ch
-        else
-            res = res + ch
+        when ch
+            is "*", "?", "[", "]", "{", "}", "\\" then res = res + "\\" + ch
+            else res = res + ch
         end
         i += 1
     end
@@ -556,8 +555,8 @@ pub function glob_is_pattern(pattern: string) -> int
     let i: int = 0
     while i < slen
         let ch: string = char_at(s, i)
-        if ch == "*" or ch == "?" or ch == "[" or ch == "{"
-            return 1
+        when ch
+            is "*", "?", "[", "{" then return 1
         end
         i += 1
     end

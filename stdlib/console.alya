@@ -183,7 +183,7 @@ end
 
 ## Moves the cursor to the given row and column.
 pub function console_cursor_to(row: int, col: int)
-    say "\e[" + str(row) + ";" + str(col) + "H"
+    say f"\e[{row};{col}H"
 end
 
 ## Enables virtual-terminal ANSI processing.
@@ -208,8 +208,8 @@ pub function console_confirm(prompt_text: string, default_yes: int = 1) -> int
     if len(resp) == 0
         return default_yes
     end
-    if resp == "y" or resp == "yes" or resp == "1" or resp == "e" or resp == "evet"
-        return 1
+    when resp
+        is "y", "yes", "1", "e", "evet" then return 1
     end
     return 0
 end
