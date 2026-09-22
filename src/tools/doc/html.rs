@@ -252,8 +252,11 @@ a { color: inherit; }
 .content { padding: 28px 40px 96px; min-width: 0; height: 100%; overflow-y: auto; }
 /* Reserve viewport room after the final section so its title can scroll up
    just beneath the sticky header — this lets the scroll-spy activate the
-   last link instead of sticking on an earlier one. */
-.content > section:last-child { margin-bottom: max(24px, calc(100vh - 160px)); }
+   last link instead of sticking on an earlier one.
+   Base declaration is a no-JS fallback (dvh tracks the real visible area on
+   mobile where 100vh overshoots the URL bar); the page script refines it per
+   content via fitLastSectionRoom(). */
+.content > section:last-child { margin-bottom: max(24px, calc(100vh - 160px)); margin-bottom: max(24px, calc(100dvh - 160px)); }
 .crumbs { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--fg-faint); margin-bottom: 12px; }
 .crumbs a { color: var(--fg-muted); text-decoration: none; }
 .crumbs a:hover { color: var(--fg); }
@@ -700,6 +703,28 @@ document.addEventListener('keydown', (e) => {
 document.querySelectorAll('.sidenav a').forEach((a) => {
   a.addEventListener('click', () => closeDrawers());
 });
+// Size the trailing room after the final section from live layout: just
+// enough for its title to reach the scroll-spy band, never a fixed tor.
+// Recomputed on load (fonts) and resize (viewport/orientation changes).
+function fitLastSectionRoom() {
+  const content = document.querySelector('main.content');
+  if (!content) return;
+  const sections = content.querySelectorAll(':scope > section');
+  if (!sections.length) return;
+  const last = sections[sections.length - 1];
+  last.style.marginBottom = '0px';
+  // Scroll-invariant distance from the section title to content end
+  // (offsetTop is relative to the offset parent, so derive it from rects).
+  const contentRect = content.getBoundingClientRect();
+  const lastRect = last.getBoundingClientRect();
+  const layoutOffset = lastRect.top - contentRect.top + content.scrollTop;
+  const belowTitle = content.scrollHeight - layoutOffset;
+  const want = Math.round(content.clientHeight * 0.3 - belowTitle) + 32;
+  last.style.marginBottom = Math.max(24, want) + 'px';
+}
+fitLastSectionRoom();
+window.addEventListener('load', fitLastSectionRoom);
+window.addEventListener('resize', fitLastSectionRoom);
 </script>
 </body>
 </html>
@@ -1326,6 +1351,28 @@ document.addEventListener('keydown', (e) => {
 document.querySelectorAll('.sidenav a').forEach((a) => {
   a.addEventListener('click', () => closeDrawers());
 });
+// Size the trailing room after the final section from live layout: just
+// enough for its title to reach the scroll-spy band, never a fixed tor.
+// Recomputed on load (fonts) and resize (viewport/orientation changes).
+function fitLastSectionRoom() {
+  const content = document.querySelector('main.content');
+  if (!content) return;
+  const sections = content.querySelectorAll(':scope > section');
+  if (!sections.length) return;
+  const last = sections[sections.length - 1];
+  last.style.marginBottom = '0px';
+  // Scroll-invariant distance from the section title to content end
+  // (offsetTop is relative to the offset parent, so derive it from rects).
+  const contentRect = content.getBoundingClientRect();
+  const lastRect = last.getBoundingClientRect();
+  const layoutOffset = lastRect.top - contentRect.top + content.scrollTop;
+  const belowTitle = content.scrollHeight - layoutOffset;
+  const want = Math.round(content.clientHeight * 0.3 - belowTitle) + 32;
+  last.style.marginBottom = Math.max(24, want) + 'px';
+}
+fitLastSectionRoom();
+window.addEventListener('load', fitLastSectionRoom);
+window.addEventListener('resize', fitLastSectionRoom);
 </script>
 </body>
 </html>
