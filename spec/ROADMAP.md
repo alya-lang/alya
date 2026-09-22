@@ -265,7 +265,7 @@ This roadmap defines the sequenced implementation phases, actionable engineering
   - Target files: `Lib/template/`.
   - Verification: Package generation via `create-package.ps1` produces starter packages matching the modern v1.0 spec standard.
 
-- [ ] **5.6 Ecosystem Standalone Packages Modernization & Clean v0.1.0 Baseline**
+- [x] **5.6 Ecosystem Standalone Packages Modernization & Clean v0.1.0 Baseline**
   - **Manifest & CI Alignment (Completed)**: Synchronized all 23 standalone package manifests (`alya.toml` with `version = "0.1.0"`), repository templates, and GitHub Actions workflows with `Lib/template`.
   - **Test Verification (Completed)**: 100% test suite pass rate across all 23 packages (23 test suites, 2,000+ assertions passed).
   - **Remote Tag & Release Purge (Completed)**: Purged all 80 legacy remote releases, 80 remote tags, and 80 local tags across all 23 repositories under `alya-lang/*`.
@@ -342,5 +342,5 @@ This roadmap defines the sequenced implementation phases, actionable engineering
 | **2** | **Standard Library Consolidation & Modern Syntax (19 Modules)** | 🟡 High | ✅ Complete |
 | **3** | **Grammar, Lexer & Parser Conformance (Rune, Pratt, Main)** | 🟡 High | ✅ Complete |
 | **4** | **Advanced Systems Runtime (Weak ARC, Fibers, Cycle Collector, Event)** | 🔵 Normal | ✅ Complete |
-| **5** | **Developer Tooling & Ecosystem (Linter, LSP, Resolution, Packages)** | 🟢 Future | 🟡 In Progress |
+| **5** | **Developer Tooling & Ecosystem (Linter, LSP, Resolution, Packages)** | 🟢 Future | ✅ Complete |
 | **6** | **Future Explorations & Targets (WASM, GUI, SIMD, Gradual Typing)** | 💡 Research | 🟡 In Progress |
