@@ -2,8 +2,8 @@ pub mod extractor;
 pub mod html;
 pub mod markdown;
 
-use extractor::extract_module_docs;
-use html::generate_html;
+use extractor::{extract_module_docs, DocModule};
+use html::{generate_html, generate_html_with_nav};
 use markdown::generate_markdown;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -89,6 +89,9 @@ fn process_directory(
     }
 
     let mut modules = Vec::new();
+    // HTML pages render after all modules are known so each page can link
+    // its sibling modules in the sidebar.
+    let mut html_jobs: Vec<(DocModule, String)> = Vec::new();
 
     for file in &alya_files {
         let source = fs::read_to_string(file)
@@ -114,15 +117,21 @@ fn process_directory(
         }
 
         if gen_html {
-            let html_content = generate_html(&module);
-            let html_file = out_dir.join(format!("{}.html", target_file_name));
-            fs::write(&html_file, html_content).map_err(|e| {
-                format!("Failed to write HTML doc '{}': {}", html_file.display(), e)
-            })?;
-            println!("  ✓ Generated HTML doc: {}", html_file.display());
+            let target_file = out_dir.join(format!("{}.html", target_file_name));
+            html_jobs.push((module.clone(), target_file.to_string_lossy().to_string()));
         }
 
         modules.push(module);
+    }
+
+    // HTML rendering runs after collection so sibling navigation is complete.
+    if gen_html {
+        for (module, target_file) in &html_jobs {
+            let html_content = generate_html_with_nav(module, &modules);
+            fs::write(target_file, html_content)
+                .map_err(|e| format!("Failed to write HTML doc '{}': {}", target_file, e))?;
+            println!("  ✓ Generated HTML doc: {}", target_file);
+        }
     }
 
     // Detect package name from alya.toml if available
@@ -183,7 +192,8 @@ fn process_directory(
     }
 
     if gen_html {
-        let index_html = crate::tools::doc::html::generate_index_html(&modules);
+        let index_html =
+            crate::tools::doc::html::generate_index_html(&modules, pkg_name.as_deref());
         let index_file = out_dir.join("index.html");
         let _ = fs::write(&index_file, index_html);
         println!("  ✓ Generated HTML Index: {}", index_file.display());
