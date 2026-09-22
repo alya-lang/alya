@@ -1,93 +1,140 @@
-# Alya Standard Library - SIMD Vectorization Primitives (std/simd)
+# Alya Standard Library - SIMD Module (std/simd)
 # Phase 6.4 Specification: Hardware-accelerated 256-bit SIMD Vector Types
 
 import "std/mem"
 
-# --- f64x4 (256-bit Vector of 4x 64-bit IEEE 754 Floats) ---
+# --- Types ---
 
+## 256-bit vector of 8 single-precision floats.
+pub struct f32x8
+    handle: ptr
+end
+
+## 256-bit vector of 4 double-precision floats.
 pub struct f64x4
     handle: ptr
 end
 
-# Creates a new f64x4 vector from four scalar float components.
-pub function f64x4_new(a: float, b: float, c: float, d: float) -> f64x4
-    let p: ptr = simd_f64x4_new(a, b, c, d)
-    return f64x4(p)
+## 256-bit vector of 8 signed 32-bit integers.
+pub struct i32x8
+    handle: ptr
 end
 
-# Broadcasts (splats) a single float value across all 4 vector lanes.
-pub function f64x4_splat(val: float) -> f64x4
-    let p: ptr = simd_f64x4_splat(val)
-    return f64x4(p)
+## 256-bit vector of 4 signed 64-bit integers.
+pub struct i64x4
+    handle: ptr
 end
 
-# Loads a 256-bit vector from memory address `base_ptr + byte_offset`.
+# --- Constructors ---
+
+## Broadcasts (splats) a single float value across all 8 f32x8 lanes.
+pub function f32x8_splat(val: float) -> f32x8
+    let p: ptr = simd_f32x8_splat(val)
+    return f32x8(p)
+end
+
+## Loads a 256-bit vector from memory address `base_ptr + byte_offset`.
 pub function f64x4_load(base_ptr: ptr, byte_offset: int) -> f64x4
     let p: ptr = simd_f64x4_load(base_ptr, byte_offset)
     return f64x4(p)
 end
 
-# Stores the vector directly to memory at `base_ptr + byte_offset`.
-pub function f64x4.store(self: f64x4, base_ptr: ptr, byte_offset: int)
-    simd_f64x4_store(base_ptr, byte_offset, self.handle)
-end
-
-# Element access: retrieves float element at lane 0..3.
-pub function f64x4.get(self: f64x4, idx: int) -> float
-    return simd_f64x4_get(self.handle, idx)
-end
-
-# Element update: sets float element at lane 0..3.
-pub function f64x4.set(self: f64x4, idx: int, val: float)
-    simd_f64x4_set(self.handle, idx, val)
-end
-
-# Operator + (AVX2 vaddpd: single-cycle 4-wide parallel addition).
-pub function f64x4.operator+(self: f64x4, other: f64x4) -> f64x4
-    let p: ptr = simd_f64x4_add(self.handle, other.handle)
+## Creates a new f64x4 vector from four scalar float components.
+pub function f64x4_new(a: float, b: float, c: float, d: float) -> f64x4
+    let p: ptr = simd_f64x4_new(a, b, c, d)
     return f64x4(p)
 end
 
-# Operator - (AVX2 vsubpd).
-pub function f64x4.operator-(self: f64x4, other: f64x4) -> f64x4
-    let p: ptr = simd_f64x4_sub(self.handle, other.handle)
+## Broadcasts (splats) a single float value across all 4 vector lanes.
+pub function f64x4_splat(val: float) -> f64x4
+    let p: ptr = simd_f64x4_splat(val)
     return f64x4(p)
 end
 
-# Operator * (AVX2 vmulpd: single-cycle 4-wide parallel multiplication).
-pub function f64x4.operator*(self: f64x4, other: f64x4) -> f64x4
-    let p: ptr = simd_f64x4_mul(self.handle, other.handle)
-    return f64x4(p)
+## Broadcasts (splats) a single int value across all 8 i32x8 lanes.
+pub function i32x8_splat(val: int) -> i32x8
+    let p: ptr = simd_i32x8_splat(val)
+    return i32x8(p)
 end
 
-# Operator / (AVX2 vdivpd).
-pub function f64x4.operator/(self: f64x4, other: f64x4) -> f64x4
-    let p: ptr = simd_f64x4_div(self.handle, other.handle)
-    return f64x4(p)
+## Broadcasts (splats) a single int value across all 4 i64x4 lanes.
+pub function i64x4_splat(val: int) -> i64x4
+    let p: ptr = simd_i64x4_splat(val)
+    return i64x4(p)
 end
 
-# Fused Multiply-Add: (self * b) + c using hardware FMA3 (vfmadd213pd).
+# --- f32x8 Methods ---
+
+## Operator * (parallel 8-wide multiplication).
+pub function f32x8.operator*(self: f32x8, other: f32x8) -> f32x8
+    let p: ptr = simd_f32x8_mul(self.handle, other.handle)
+    return f32x8(p)
+end
+
+## Operator + (parallel 8-wide addition).
+pub function f32x8.operator+(self: f32x8, other: f32x8) -> f32x8
+    let p: ptr = simd_f32x8_add(self.handle, other.handle)
+    return f32x8(p)
+end
+
+## Horizontal sum: collapses all 8 lanes into a single scalar float sum.
+pub function f32x8.sum_horizontal(self: f32x8) -> float
+    return simd_f32x8_sum(self.handle)
+end
+
+# --- f64x4 Methods ---
+
+## Fused Multiply-Add: (self * b) + c using hardware FMA3 (vfmadd213pd).
 pub function f64x4.fma(self: f64x4, b: f64x4, c: f64x4) -> f64x4
     let p: ptr = simd_f64x4_fma(self.handle, b.handle, c.handle)
     return f64x4(p)
 end
 
-# Horizontal sum: collapses all 4 lanes into a single scalar float sum.
-pub function f64x4.sum_horizontal(self: f64x4) -> float
-    return simd_f64x4_sum(self.handle)
+## Element access: retrieves float element at lane 0..3.
+pub function f64x4.get(self: f64x4, idx: int) -> float
+    return simd_f64x4_get(self.handle, idx)
 end
 
-# Horizontal minimum.
-pub function f64x4.min(self: f64x4) -> float
-    return simd_f64x4_min(self.handle)
-end
-
-# Horizontal maximum.
+## Horizontal maximum.
 pub function f64x4.max(self: f64x4) -> float
     return simd_f64x4_max(self.handle)
 end
 
-# Rearranges components according to lane indices (0..3).
+## Horizontal minimum.
+pub function f64x4.min(self: f64x4) -> float
+    return simd_f64x4_min(self.handle)
+end
+
+## Operator * (AVX2 vmulpd: single-cycle 4-wide parallel multiplication).
+pub function f64x4.operator*(self: f64x4, other: f64x4) -> f64x4
+    let p: ptr = simd_f64x4_mul(self.handle, other.handle)
+    return f64x4(p)
+end
+
+## Operator + (AVX2 vaddpd: single-cycle 4-wide parallel addition).
+pub function f64x4.operator+(self: f64x4, other: f64x4) -> f64x4
+    let p: ptr = simd_f64x4_add(self.handle, other.handle)
+    return f64x4(p)
+end
+
+## Operator - (AVX2 vsubpd).
+pub function f64x4.operator-(self: f64x4, other: f64x4) -> f64x4
+    let p: ptr = simd_f64x4_sub(self.handle, other.handle)
+    return f64x4(p)
+end
+
+## Operator / (AVX2 vdivpd).
+pub function f64x4.operator/(self: f64x4, other: f64x4) -> f64x4
+    let p: ptr = simd_f64x4_div(self.handle, other.handle)
+    return f64x4(p)
+end
+
+## Element update: sets float element at lane 0..3.
+pub function f64x4.set(self: f64x4, idx: int, val: float)
+    simd_f64x4_set(self.handle, idx, val)
+end
+
+## Rearranges components according to lane indices (0..3).
 pub function f64x4.shuffle(self: f64x4, i0: int, i1: int, i2: int, i3: int) -> f64x4
     let v0: float = self.get(i0)
     let v1: float = self.get(i1)
@@ -96,12 +143,17 @@ pub function f64x4.shuffle(self: f64x4, i0: int, i1: int, i2: int, i3: int) -> f
     return f64x4_new(v0, v1, v2, v3)
 end
 
-# Swizzle alias.
-pub function f64x4.swizzle(self: f64x4, i0: int, i1: int, i2: int, i3: int) -> f64x4
-    return self.shuffle(i0, i1, i2, i3)
+## Stores the vector directly to memory at `base_ptr + byte_offset`.
+pub function f64x4.store(self: f64x4, base_ptr: ptr, byte_offset: int)
+    simd_f64x4_store(base_ptr, byte_offset, self.handle)
 end
 
-# String representation.
+## Horizontal sum: collapses all 4 lanes into a single scalar float sum.
+pub function f64x4.sum_horizontal(self: f64x4) -> float
+    return simd_f64x4_sum(self.handle)
+end
+
+## String representation.
 pub function f64x4.to_string(self: f64x4) -> string
     let v0 = self.get(0)
     let v1 = self.get(1)
@@ -110,59 +162,25 @@ pub function f64x4.to_string(self: f64x4) -> string
     return "f64x4(" + str(v0) + ", " + str(v1) + ", " + str(v2) + ", " + str(v3) + ")"
 end
 
-# --- f32x8 (256-bit Vector of 8x 32-bit Single-Precision Floats) ---
+# --- i32x8 Methods ---
 
-pub struct f32x8
-    handle: ptr
-end
-
-pub function f32x8_splat(val: float) -> f32x8
-    let p: ptr = simd_f32x8_splat(val)
-    return f32x8(p)
-end
-
-pub function f32x8.operator+(self: f32x8, other: f32x8) -> f32x8
-    let p: ptr = simd_f32x8_add(self.handle, other.handle)
-    return f32x8(p)
-end
-
-pub function f32x8.operator*(self: f32x8, other: f32x8) -> f32x8
-    let p: ptr = simd_f32x8_mul(self.handle, other.handle)
-    return f32x8(p)
-end
-
-pub function f32x8.sum_horizontal(self: f32x8) -> float
-    return simd_f32x8_sum(self.handle)
-end
-
-# --- i32x8 (256-bit Vector of 8x 32-bit Signed Integers) ---
-
-pub struct i32x8
-    handle: ptr
-end
-
-pub function i32x8_splat(val: int) -> i32x8
-    let p: ptr = simd_i32x8_splat(val)
-    return i32x8(p)
-end
-
+## Operator + (parallel 8-wide addition).
 pub function i32x8.operator+(self: i32x8, other: i32x8) -> i32x8
     let p: ptr = simd_i32x8_add(self.handle, other.handle)
     return i32x8(p)
 end
 
-# --- i64x4 (256-bit Vector of 4x 64-bit Signed Integers) ---
+# --- i64x4 Methods ---
 
-pub struct i64x4
-    handle: ptr
-end
-
-pub function i64x4_splat(val: int) -> i64x4
-    let p: ptr = simd_i64x4_splat(val)
-    return i64x4(p)
-end
-
+## Operator + (parallel 4-wide addition).
 pub function i64x4.operator+(self: i64x4, other: i64x4) -> i64x4
     let p: ptr = simd_i64x4_add(self.handle, other.handle)
     return i64x4(p)
+end
+
+# --- Legacy Aliases ---
+
+## Legacy alias of shuffle that rearranges components by lane indices.
+pub function f64x4.swizzle(self: f64x4, i0: int, i1: int, i2: int, i3: int) -> f64x4
+    return self.shuffle(i0, i1, i2, i3)
 end

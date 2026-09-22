@@ -2,6 +2,43 @@ mod common;
 use common::*;
 
 #[test]
+fn test_e2e_mem_float_roundtrip() {
+    // std/mem read_float/write_float delegate to raw 64-bit peek/poke.
+    // Alya floats travel as raw f64 bits in value slots, so the round-trip
+    // is exact on 64-bit backends. Locks that contract in.
+    // x86 is excluded: its peek/poke are 32-bit (known backend limitation).
+    if cfg!(target_arch = "x86") {
+        return;
+    }
+    let code = r#"
+import "std/mem"
+let arena = Arena.new(1024)
+let p = arena.alloc(64)
+write_float(p, 0, 4.25)
+write_float(p, 8, -2.5)
+write_float(p, 16, 42.0)
+write_float(p, 24, 1e300)
+write_int(p, 32, 123456789)
+assert_eq(read_float(p, 0), 4.25)
+assert_eq(read_float(p, 8), -2.5)
+assert_eq(read_float(p, 16), 42.0)
+assert_eq(read_float(p, 24), 1e300)
+assert_eq(read_int(p, 32), 123456789)
+assert(read_float(p, 0) > 4.0)
+assert(read_float(p, 8) < 0.0)
+assert_eq(read_float(p, 0) + 1.0, 5.25)
+if read_float(p, 0) == 4.25
+    say "FLOAT ROUNDTRIP OK"
+end
+"#;
+
+    if let Some((exit, output)) = run_alya_code_full(code) {
+        assert_eq!(exit, 0, "Failed with code {}\nOutput:\n{}", exit, output);
+        assert!(output.contains("FLOAT ROUNDTRIP OK"), "Got:\n{}", output);
+    }
+}
+
+#[test]
 fn test_e2e_builtins() {
     let code = r#"
 say len("Hello, Alya!")

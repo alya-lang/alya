@@ -257,6 +257,10 @@ pub fn emit_unary_op(out: &mut String, op: UnaryOp) {
 }
 
 pub fn emit_float_binary_op_reg(out: &mut String, op: BinaryOp) {
+    // Left operand arrives as raw f64 bits in %rax (calls, arithmetic results
+    // and int-to-float conversions never touch %xmm0); materialize it so a
+    // stale %xmm0 is never compared. No-op when the loader already synced it.
+    out.push_str("    movq %rax, %xmm0\n");
     match op {
         BinaryOp::Add => {
             out.push_str("    addsd %xmm1, %xmm0\n");
@@ -320,6 +324,7 @@ pub fn emit_float_binary_op_reg(out: &mut String, op: BinaryOp) {
 }
 
 pub fn emit_float_binary_op_imm(out: &mut String, op: BinaryOp, val: f64) {
+    // Left materialization happens inside emit_float_binary_op_reg below.
     let bits = val.to_bits() as i64;
     out.push_str(&format!("    movabs ${}, %rbx\n", bits));
     out.push_str("    movq %rbx, %xmm1\n");

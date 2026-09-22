@@ -1,22 +1,32 @@
 # Alya Standard Library - I/O Module (std/io)
 # Standard stream handles, Stream Reader/Writer abstractions, and I/O helpers.
 
+# --- Constants ---
+
+## Standard error stream writer.
+pub let stderr: Writer = Writer { destination: io_stderr_write }
+
+## Standard input stream reader.
+pub let stdin: Reader = Reader { source: io_stdin_read }
+
+## Standard output stream writer.
+pub let stdout: Writer = Writer { destination: io_stdout_write }
+
+# --- Types ---
+
+## Byte stream reader backed by a source function.
 pub struct Reader
     source
 end
 
+## Byte stream writer backed by a destination function.
 pub struct Writer
     destination
 end
 
-pub function io_read_all(r: Reader) -> string
-    if r == null or r.source == null
-        return ""
-    end
-    let f = r.source
-    return f()
-end
+# --- Core I/O Operations ---
 
+## Copies all data from src into dst, returning the number of bytes written.
 pub function io_copy(src: Reader, dst: Writer) -> int
     let data: string = io_read_all(src)
     if dst != null and dst.destination != null
@@ -27,22 +37,45 @@ pub function io_copy(src: Reader, dst: Writer) -> int
     return 0
 end
 
-pub function io_stdin_read() -> string
-    return ask("")
+## Reads all available data from reader r, returning "" when it is empty.
+pub function io_read_all(r: Reader) -> string
+    if r == null or r.source == null
+        return ""
+    end
+    let f = r.source
+    return f()
 end
 
-pub function io_stdout_write(data: string)
-    say data
-end
+# --- Standard Streams ---
 
+## Writes data to standard error.
 pub function io_stderr_write(data: string)
     say data
 end
 
-pub let stdin: Reader = Reader { source: io_stdin_read }
-pub let stdout: Writer = Writer { destination: io_stdout_write }
-pub let stderr: Writer = Writer { destination: io_stderr_write }
+## Reads a line from standard input.
+pub function io_stdin_read() -> string
+    return ask("")
+end
 
+## Writes data to standard output.
+pub function io_stdout_write(data: string)
+    say data
+end
+
+# --- Convenience Helpers ---
+
+## Prints s to standard output.
+pub function io_print(s: string)
+    say s
+end
+
+## Reads a line of input, showing prompt_text first when given.
+pub function io_read_line(prompt_text: string = "") -> string
+    return ask(prompt_text)
+end
+
+## Writes data through target, falling back to standard output when unset.
 pub function write(target: Writer, data: string)
     if target != null and target.destination != null
         let wf = target.destination
@@ -52,10 +85,14 @@ pub function write(target: Writer, data: string)
     end
 end
 
+# --- Reader & Writer Methods ---
+
+## Reads all available data from this reader.
 pub function Reader.read_all(self: Reader) -> string
     return io_read_all(self)
 end
 
+## Writes data through this writer, falling back to standard output when unset.
 pub function Writer.write(self: Writer, data: string)
     if self != null and self.destination != null
         let wf = self.destination
@@ -63,12 +100,4 @@ pub function Writer.write(self: Writer, data: string)
     else
         say data
     end
-end
-
-pub function io_print(s: string)
-    say s
-end
-
-pub function io_read_line(prompt_text: string = "") -> string
-    return ask(prompt_text)
 end

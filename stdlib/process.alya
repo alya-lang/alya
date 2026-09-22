@@ -1,18 +1,24 @@
 # Alya Standard Library - Process Module (std/process)
 # Provides subprocess spawning, execution, stream piping, and exit code handling.
 
+# --- Types ---
+
+## Handle to a background process: process id plus the command line.
+pub struct ProcessHandle
+    pid: int
+    command: string
+end
+
+## Captured result of a finished process: exit code with stdout and stderr text.
 pub struct ProcessOutput
     exit_code: int
     stdout: string
     stderr: string
 end
 
-pub struct ProcessHandle
-    pid: int
-    command: string
-end
+# --- Constructors ---
 
-# Executes 'program' with 'args', waiting for completion and capturing stdout and stderr.
+## Executes program with args, waiting for completion and capturing stdout and stderr.
 pub function process_run(program: string, args: string[] = []) -> ProcessOutput
     let pid: int = __native_get_pid()
     let now_ms: int = clock_ms()
@@ -42,7 +48,7 @@ pub function process_run(program: string, args: string[] = []) -> ProcessOutput
     return ProcessOutput { exit_code: exit_code, stdout: out_content, stderr: err_content }
 end
 
-# Spawns a process in the background.
+## Spawns program with args in the background without waiting for completion.
 pub function process_spawn(program: string, args: string[] = []) -> ProcessHandle
     let cmd: string = program
     for arg in args
@@ -56,22 +62,33 @@ pub function process_spawn(program: string, args: string[] = []) -> ProcessHandl
     return ProcessHandle { pid: code, command: cmd }
 end
 
+# --- Methods ---
+
+## Returns true when the process exited with code 0.
 pub function ProcessOutput.is_ok(self: ProcessOutput) -> bool
     return self.exit_code == 0
 end
 
-pub function process_pid() -> int
-    return __native_get_pid()
-end
+# --- Utilities ---
 
+## Exits the current process with the given code.
 pub function process_exit(code: int = 0)
     exit(code)
 end
 
+## Returns the current process id.
+pub function process_pid() -> int
+    return __native_get_pid()
+end
+
+# --- Legacy Aliases ---
+
+## Legacy alias of process_run.
 pub function process__run(program: string, args: string[] = []) -> ProcessOutput
     return process_run(program, args)
 end
 
+## Legacy alias of process_spawn.
 pub function process__spawn(program: string, args: string[] = []) -> ProcessHandle
     return process_spawn(program, args)
 end

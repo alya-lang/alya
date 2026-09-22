@@ -1,6 +1,103 @@
-# Alya Standard Library - Hash Module
+# Alya Standard Library - Hash Module (std/hash)
 # Provides non-cryptographic hashing algorithms (MurmurHash3, FNV-1/1a, CRC-16/32/64, Adler-32, DJB2, SDBM, Jenkins, ELF).
+# Includes hex formatting and hash-combining helpers.
 
+# --- Hash Algorithms ---
+
+function _rotl32(x: int, r: int) -> int
+    return bit_and(bit_or(bit_shl(x, r), bit_shr(x, 32 - r)), 4294967295)
+end
+
+## Computes the Adler-32 checksum of a string.
+pub function adler32(s: string) -> int
+    let slen: int = len(s)
+    let a: int = 1
+    let b: int = 0
+    let i: int = 0
+    while i < slen
+        a = (a + ord(char_at(s, i))) % 65521
+        b = (b + a) % 65521
+        i += 1
+    end
+    return bit_or(bit_shl(b, 16), a)
+end
+
+## Computes the CRC-16/CCITT checksum of a string.
+pub function crc16(s: string) -> int
+    let slen: int = len(s)
+    let crc: int = 65535
+    let i: int = 0
+    let j: int = 0
+    let byte: int = 0
+    while i < slen
+        byte = ord(char_at(s, i))
+        crc = bit_xor(crc, bit_shl(byte, 8))
+        j = 0
+        while j < 8
+            if bit_and(crc, 32768) != 0
+                crc = bit_and(bit_xor(bit_shl(crc, 1), 4129), 65535)
+            else
+                crc = bit_and(bit_shl(crc, 1), 65535)
+            end
+            j += 1
+        end
+        i += 1
+    end
+    return crc
+end
+
+## Computes the CRC-32 (IEEE) checksum of a string.
+pub function crc32(s: string) -> int
+    let slen: int = len(s)
+    let crc: int = 4294967295
+    let i: int = 0
+    let j: int = 0
+    let byte: int = 0
+    let mask: int = 0
+    while i < slen
+        byte = ord(char_at(s, i))
+        crc = bit_xor(crc, byte)
+        j = 0
+        while j < 8
+            mask = bit_and(crc, 1)
+            crc = bit_shr(crc, 1)
+            if mask != 0
+                crc = bit_xor(crc, 3988292384)
+            end
+            j += 1
+        end
+        i += 1
+    end
+    return bit_xor(crc, 4294967295)
+end
+
+## Computes the CRC-64/ECMA-182 checksum of a string.
+pub function crc64(s: string) -> int
+    let slen: int = len(s)
+    # 0x42F0E1EBA9EA3693 (ECMA-182) constructed from two 32-bit words
+    let poly: int = bit_or(bit_shl(1123082731, 32), 2850698899)
+    let crc: int = 0
+    let i: int = 0
+    let j: int = 0
+    let byte: int = 0
+    while i < slen
+        byte = ord(char_at(s, i))
+        crc = bit_xor(crc, bit_shl(byte, 56))
+        j = 0
+        while j < 8
+            if bit_shr(crc, 63) == 1
+                crc = bit_xor(bit_shl(crc, 1), poly)
+            else
+                crc = bit_shl(crc, 1)
+            end
+            j += 1
+        end
+        i += 1
+    end
+    return crc
+end
+
+## Computes the DJB2 hash of a string.
 pub function djb2(s: string) -> int
     let slen: int = len(s)
     let h: int = 5381
@@ -12,17 +109,25 @@ pub function djb2(s: string) -> int
     return h
 end
 
-pub function fnv1a(s: string) -> int
+## Computes the ELF hash of a string.
+pub function elf_hash(s: string) -> int
     let slen: int = len(s)
-    let h: int = 2166136261
+    let h: int = 0
+    let g: int = 0
     let i: int = 0
     while i < slen
-        h = bit_and(bit_xor(h, ord(char_at(s, i))) * 16777619, 2147483647)
+        h = bit_and(bit_shl(h, 4) + ord(char_at(s, i)), 4294967295)
+        g = bit_and(h, 4026531840)
+        if g != 0
+            h = bit_xor(h, bit_shr(g, 24))
+        end
+        h = bit_and(h, bit_xor(4294967295, g))
         i += 1
     end
     return h
 end
 
+## Computes the 32-bit FNV-1 hash of a string.
 pub function fnv1(s: string) -> int
     let slen: int = len(s)
     let h: int = 2166136261
@@ -34,6 +139,19 @@ pub function fnv1(s: string) -> int
     return h
 end
 
+## Computes the 32-bit FNV-1a hash of a string.
+pub function fnv1a(s: string) -> int
+    let slen: int = len(s)
+    let h: int = 2166136261
+    let i: int = 0
+    while i < slen
+        h = bit_and(bit_xor(h, ord(char_at(s, i))) * 16777619, 2147483647)
+        i += 1
+    end
+    return h
+end
+
+## Computes the 64-bit FNV-1a hash of a string.
 pub function fnv1a64(s: string) -> int
     let slen: int = len(s)
     # 0xcbf29ce484222325 split into two 32-bit words
@@ -47,10 +165,35 @@ pub function fnv1a64(s: string) -> int
     return h
 end
 
-function _rotl32(x: int, r: int) -> int
-    return bit_and(bit_or(bit_shl(x, r), bit_shr(x, 32 - r)), 4294967295)
+## Combines two hash values into one.
+pub function hash_combine(h1: int, h2: int) -> int
+    let combined: int = bit_xor(h1, h2 + 2654435769 + bit_shl(h1, 6) + bit_shr(h1, 2))
+    return bit_and(combined, 2147483647)
 end
 
+## Computes the Jenkins one-at-a-time hash of a string.
+pub function jenkins(s: string) -> int
+    let slen: int = len(s)
+    let h: int = 0
+    let i: int = 0
+    while i < slen
+        h += ord(char_at(s, i))
+        h = bit_and(h + bit_shl(h, 10), 4294967295)
+        h = bit_xor(h, bit_shr(h, 6))
+        i += 1
+    end
+    h = bit_and(h + bit_shl(h, 3), 4294967295)
+    h = bit_xor(h, bit_shr(h, 11))
+    h = bit_and(h + bit_shl(h, 15), 4294967295)
+    return h
+end
+
+## Computes the MurmurHash3 32-bit hash with an optional seed.
+pub function murmur3(s: string, seed: int = 0) -> int
+    return murmur3_32(s, seed)
+end
+
+## Computes the MurmurHash3 32-bit hash with an optional seed.
 pub function murmur3_32(s: string, seed: int = 0) -> int
     let slen: int = len(s)
     let h: int = seed
@@ -100,43 +243,49 @@ pub function murmur3_32(s: string, seed: int = 0) -> int
     return h
 end
 
-pub function murmur3(s: string, seed: int = 0) -> int
-    return murmur3_32(s, seed)
-end
-
-pub function jenkins(s: string) -> int
+## Computes the SDBM hash of a string.
+pub function sdbm(s: string) -> int
     let slen: int = len(s)
     let h: int = 0
     let i: int = 0
+    let c: int = 0
     while i < slen
-        h += ord(char_at(s, i))
-        h = bit_and(h + bit_shl(h, 10), 4294967295)
-        h = bit_xor(h, bit_shr(h, 6))
-        i += 1
-    end
-    h = bit_and(h + bit_shl(h, 3), 4294967295)
-    h = bit_xor(h, bit_shr(h, 11))
-    h = bit_and(h + bit_shl(h, 15), 4294967295)
-    return h
-end
-
-pub function elf_hash(s: string) -> int
-    let slen: int = len(s)
-    let h: int = 0
-    let g: int = 0
-    let i: int = 0
-    while i < slen
-        h = bit_and(bit_shl(h, 4) + ord(char_at(s, i)), 4294967295)
-        g = bit_and(h, 4026531840)
-        if g != 0
-            h = bit_xor(h, bit_shr(g, 24))
-        end
-        h = bit_and(h, bit_xor(4294967295, g))
+        c = ord(char_at(s, i))
+        h = c + bit_shl(h, 6) + bit_shl(h, 16) - h
+        h = bit_and(h, 2147483647)
         i += 1
     end
     return h
 end
 
+# --- Hex Formatting ---
+
+## Returns the Adler-32 checksum as 8 lowercase hex digits.
+pub function adler32_hex(s: string) -> string
+    return int_to_hex(adler32(s), 8)
+end
+
+## Returns the CRC-16 checksum as 4 lowercase hex digits.
+pub function crc16_hex(s: string) -> string
+    return int_to_hex(crc16(s), 4)
+end
+
+## Returns the CRC-32 checksum as 8 lowercase hex digits.
+pub function crc32_hex(s: string) -> string
+    return int_to_hex(crc32(s), 8)
+end
+
+## Returns the CRC-64 checksum as 16 lowercase hex digits.
+pub function crc64_hex(s: string) -> string
+    return int_to_hex(crc64(s), 16)
+end
+
+## Returns the 64-bit FNV-1a hash as 16 lowercase hex digits.
+pub function fnv1a64_hex(s: string) -> string
+    return int_to_hex(fnv1a64(s), 16)
+end
+
+## Formats an integer as lowercase hex, zero-padded to the given width.
 pub function int_to_hex(val: int, width: int = 0) -> string
     let hex_digits: string = "0123456789abcdef"
     if val == 0
@@ -164,130 +313,7 @@ pub function int_to_hex(val: int, width: int = 0) -> string
     return res
 end
 
-pub function crc16(s: string) -> int
-    let slen: int = len(s)
-    let crc: int = 65535
-    let i: int = 0
-    let j: int = 0
-    let byte: int = 0
-    while i < slen
-        byte = ord(char_at(s, i))
-        crc = bit_xor(crc, bit_shl(byte, 8))
-        j = 0
-        while j < 8
-            if bit_and(crc, 32768) != 0
-                crc = bit_and(bit_xor(bit_shl(crc, 1), 4129), 65535)
-            else
-                crc = bit_and(bit_shl(crc, 1), 65535)
-            end
-            j += 1
-        end
-        i += 1
-    end
-    return crc
-end
-
-pub function crc32(s: string) -> int
-    let slen: int = len(s)
-    let crc: int = 4294967295
-    let i: int = 0
-    let j: int = 0
-    let byte: int = 0
-    let mask: int = 0
-    while i < slen
-        byte = ord(char_at(s, i))
-        crc = bit_xor(crc, byte)
-        j = 0
-        while j < 8
-            mask = bit_and(crc, 1)
-            crc = bit_shr(crc, 1)
-            if mask != 0
-                crc = bit_xor(crc, 3988292384)
-            end
-            j += 1
-        end
-        i += 1
-    end
-    return bit_xor(crc, 4294967295)
-end
-
-pub function crc64(s: string) -> int
-    let slen: int = len(s)
-    # 0x42F0E1EBA9EA3693 (ECMA-182) constructed from two 32-bit words
-    let poly: int = bit_or(bit_shl(1123082731, 32), 2850698899)
-    let crc: int = 0
-    let i: int = 0
-    let j: int = 0
-    let byte: int = 0
-    while i < slen
-        byte = ord(char_at(s, i))
-        crc = bit_xor(crc, bit_shl(byte, 56))
-        j = 0
-        while j < 8
-            if bit_shr(crc, 63) == 1
-                crc = bit_xor(bit_shl(crc, 1), poly)
-            else
-                crc = bit_shl(crc, 1)
-            end
-            j += 1
-        end
-        i += 1
-    end
-    return crc
-end
-
-pub function crc16_hex(s: string) -> string
-    return int_to_hex(crc16(s), 4)
-end
-
-pub function crc32_hex(s: string) -> string
-    return int_to_hex(crc32(s), 8)
-end
-
-pub function crc64_hex(s: string) -> string
-    return int_to_hex(crc64(s), 16)
-end
-
+## Returns the MurmurHash3 32-bit hash as 8 lowercase hex digits.
 pub function murmur3_hex(s: string, seed: int = 0) -> string
     return int_to_hex(murmur3_32(s, seed), 8)
-end
-
-pub function fnv1a64_hex(s: string) -> string
-    return int_to_hex(fnv1a64(s), 16)
-end
-
-pub function adler32(s: string) -> int
-    let slen: int = len(s)
-    let a: int = 1
-    let b: int = 0
-    let i: int = 0
-    while i < slen
-        a = (a + ord(char_at(s, i))) % 65521
-        b = (b + a) % 65521
-        i += 1
-    end
-    return bit_or(bit_shl(b, 16), a)
-end
-
-pub function adler32_hex(s: string) -> string
-    return int_to_hex(adler32(s), 8)
-end
-
-pub function sdbm(s: string) -> int
-    let slen: int = len(s)
-    let h: int = 0
-    let i: int = 0
-    let c: int = 0
-    while i < slen
-        c = ord(char_at(s, i))
-        h = c + bit_shl(h, 6) + bit_shl(h, 16) - h
-        h = bit_and(h, 2147483647)
-        i += 1
-    end
-    return h
-end
-
-pub function hash_combine(h1: int, h2: int) -> int
-    let combined: int = bit_xor(h1, h2 + 2654435769 + bit_shl(h1, 6) + bit_shr(h1, 2))
-    return bit_and(combined, 2147483647)
 end

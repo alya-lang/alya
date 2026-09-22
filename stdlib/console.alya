@@ -1,30 +1,53 @@
-# Alya Standard Library - Console Module
+# Alya Standard Library - Console Module (std/console)
 # Provides cross-platform console encoding, code page management, and terminal control.
+# Includes ANSI colors, styles, raw code snippets, and input helpers.
 
-# --- Encoding & Code Pages ---
+# --- Color and Style Types (Merged from std/color) ---
 
-pub function console_set_output_cp(cp: int) -> int
-    return set_console_output_cp(cp)
+## Background ANSI color codes.
+pub enum BgColor
+    Black = 40
+    Red = 41
+    Green = 42
+    Yellow = 43
+    Blue = 44
+    Magenta = 45
+    Cyan = 46
+    White = 47
 end
 
-pub function console_set_input_cp(cp: int) -> int
-    return set_console_input_cp(cp)
+## Foreground ANSI color codes.
+pub enum Color
+    Black = 30
+    Red = 31
+    Green = 32
+    Yellow = 33
+    Blue = 34
+    Magenta = 35
+    Cyan = 36
+    White = 37
+    Gray = 90
+    BrightRed = 91
+    BrightGreen = 92
+    BrightYellow = 93
+    BrightBlue = 94
+    BrightMagenta = 95
+    BrightCyan = 96
+    BrightWhite = 97
 end
 
-pub function console_output_cp() -> int
-    return get_console_output_cp()
+## ANSI text style codes.
+pub enum Style
+    Reset = 0
+    Bold = 1
+    Dim = 2
+    Italic = 3
+    Underline = 4
+    Inverse = 7
+    Strikethrough = 9
 end
 
-pub function console_input_cp() -> int
-    return get_console_input_cp()
-end
-
-pub function console_utf8() -> int
-    set_console_output_cp(65001)
-    set_console_input_cp(65001)
-    enable_virtual_terminal()
-    return 1
-end
+# --- Code Page and Encoding ---
 
 function _encoding_name_for_cp(cp: int) -> string
     return when cp
@@ -66,16 +89,47 @@ function _encoding_name_for_cp(cp: int) -> string
     end
 end
 
-pub function get_output_encoding() -> string
-    let cp: int = console_output_cp()
-    return _encoding_name_for_cp(cp)
+## Returns the console input code page.
+pub function console_input_cp() -> int
+    return get_console_input_cp()
 end
 
+## Returns the console output code page.
+pub function console_output_cp() -> int
+    return get_console_output_cp()
+end
+
+## Sets the console input code page.
+pub function console_set_input_cp(cp: int) -> int
+    return set_console_input_cp(cp)
+end
+
+## Sets the console output code page.
+pub function console_set_output_cp(cp: int) -> int
+    return set_console_output_cp(cp)
+end
+
+## Switches the console to UTF-8 and enables virtual-terminal processing.
+pub function console_utf8() -> int
+    set_console_output_cp(65001)
+    set_console_input_cp(65001)
+    enable_virtual_terminal()
+    return 1
+end
+
+## Returns a display name for the console input code page.
 pub function get_input_encoding() -> string
     let cp: int = console_input_cp()
     return _encoding_name_for_cp(cp)
 end
 
+## Returns a display name for the console output code page.
+pub function get_output_encoding() -> string
+    let cp: int = console_output_cp()
+    return _encoding_name_for_cp(cp)
+end
+
+## Sets the console output code page by encoding name.
 pub function set_output_encoding(encoding_name: string) -> int
     let clean: string = lower(encoding_name)
     let cp: int = when clean
@@ -105,44 +159,46 @@ pub function set_output_encoding(encoding_name: string) -> int
     return cp
 end
 
-# --- Terminal Display & Cursor Control ---
+# --- Terminal Control ---
 
-pub function console_enable_ansi() -> int
-    return enable_virtual_terminal()
-end
-
-pub function console_clear() -> int
-    return clear_console()
-end
-
-pub function console_title(title: string) -> int
-    return set_console_title(title)
-end
-
+## Rings the terminal bell.
 pub function console_beep() -> int
     return beep_console()
 end
 
-pub function console_cursor_to(row: int, col: int)
-    say "\e[" + str(row) + ";" + str(col) + "H"
+## Clears the console screen.
+pub function console_clear() -> int
+    return clear_console()
 end
 
+## Hides the terminal cursor.
 pub function console_cursor_hide()
     say "\e[?25l"
 end
 
+## Shows the terminal cursor.
 pub function console_cursor_show()
     say "\e[?25h"
 end
 
-# --- Console Input Helpers ---
-
-# Prompts the user with message and reads a full line of text from stdin.
-pub function console_prompt(prompt_text: string) -> string
-    return ask(prompt_text)
+## Moves the cursor to the given row and column.
+pub function console_cursor_to(row: int, col: int)
+    say "\e[" + str(row) + ";" + str(col) + "H"
 end
 
-# Asks user a yes/no question. Returns 1 for yes, 0 for no.
+## Enables virtual-terminal ANSI processing.
+pub function console_enable_ansi() -> int
+    return enable_virtual_terminal()
+end
+
+## Sets the console window title.
+pub function console_title(title: string) -> int
+    return set_console_title(title)
+end
+
+# --- Console Input ---
+
+## Asks a yes/no question, returning 1 for yes and 0 for no.
 pub function console_confirm(prompt_text: string, default_yes: int = 1) -> int
     let suffix: string = " (Y/n): "
     if default_yes == 0
@@ -158,133 +214,30 @@ pub function console_confirm(prompt_text: string, default_yes: int = 1) -> int
     return 0
 end
 
-# --- Color & Style Enums (Merged from std/color) ---
-
-pub enum Color
-    Black = 30
-    Red = 31
-    Green = 32
-    Yellow = 33
-    Blue = 34
-    Magenta = 35
-    Cyan = 36
-    White = 37
-    Gray = 90
-    BrightRed = 91
-    BrightGreen = 92
-    BrightYellow = 93
-    BrightBlue = 94
-    BrightMagenta = 95
-    BrightCyan = 96
-    BrightWhite = 97
+## Prompts the user and reads a full line of text from stdin.
+pub function console_prompt(prompt_text: string) -> string
+    return ask(prompt_text)
 end
 
-pub enum BgColor
-    Black = 40
-    Red = 41
-    Green = 42
-    Yellow = 43
-    Blue = 44
-    Magenta = 45
-    Cyan = 46
-    White = 47
-end
-
-pub enum Style
-    Reset = 0
-    Bold = 1
-    Dim = 2
-    Italic = 3
-    Underline = 4
-    Inverse = 7
-    Strikethrough = 9
-end
+# --- Color and Style ---
 
 function _esc(code: string, s: string) -> string
     return "\e[" + code + "m" + str(s) + "\e[0m"
 end
 
-# Applies an ANSI code directly to a string.
-pub function color_fg(code: int, s: string) -> string return _esc(str(code), s) end
-pub function color_bg(code: int, s: string) -> string return _esc(str(code), s) end
-pub function color_style(code: int, s: string) -> string return _esc(str(code), s) end
-
-# --- Foreground Colors ---
-pub function color_black(s: string) -> string return _esc(str(Color.Black), s) end
-pub function color_red(s: string) -> string return _esc(str(Color.Red), s) end
-pub function color_green(s: string) -> string return _esc(str(Color.Green), s) end
-pub function color_yellow(s: string) -> string return _esc(str(Color.Yellow), s) end
-pub function color_blue(s: string) -> string return _esc(str(Color.Blue), s) end
-pub function color_magenta(s: string) -> string return _esc(str(Color.Magenta), s) end
-pub function color_cyan(s: string) -> string return _esc(str(Color.Cyan), s) end
-pub function color_white(s: string) -> string return _esc(str(Color.White), s) end
-pub function color_gray(s: string) -> string return _esc(str(Color.Gray), s) end
-
-# --- Bright Foreground Colors ---
-pub function color_bright_red(s: string) -> string return _esc(str(Color.BrightRed), s) end
-pub function color_bright_green(s: string) -> string return _esc(str(Color.BrightGreen), s) end
-pub function color_bright_yellow(s: string) -> string return _esc(str(Color.BrightYellow), s) end
-pub function color_bright_blue(s: string) -> string return _esc(str(Color.BrightBlue), s) end
-pub function color_bright_magenta(s: string) -> string return _esc(str(Color.BrightMagenta), s) end
-pub function color_bright_cyan(s: string) -> string return _esc(str(Color.BrightCyan), s) end
-pub function color_bright_white(s: string) -> string return _esc(str(Color.BrightWhite), s) end
-
-# --- Background Colors ---
-pub function bg_black(s: string) -> string return _esc(str(BgColor.Black), s) end
-pub function bg_red(s: string) -> string return _esc(str(BgColor.Red), s) end
-pub function bg_green(s: string) -> string return _esc(str(BgColor.Green), s) end
-pub function bg_yellow(s: string) -> string return _esc(str(BgColor.Yellow), s) end
-pub function bg_blue(s: string) -> string return _esc(str(BgColor.Blue), s) end
-pub function bg_magenta(s: string) -> string return _esc(str(BgColor.Magenta), s) end
-pub function bg_cyan(s: string) -> string return _esc(str(BgColor.Cyan), s) end
-pub function bg_white(s: string) -> string return _esc(str(BgColor.White), s) end
-
-# --- Text Styles ---
-pub function style_bold(s: string) -> string return _esc(str(Style.Bold), s) end
-pub function style_dim(s: string) -> string return _esc(str(Style.Dim), s) end
-pub function style_italic(s: string) -> string return _esc(str(Style.Italic), s) end
-pub function style_underline(s: string) -> string return _esc(str(Style.Underline), s) end
-pub function style_inverse(s: string) -> string return _esc(str(Style.Inverse), s) end
-pub function style_strikethrough(s: string) -> string return _esc(str(Style.Strikethrough), s) end
-
-pub function color_bold(s: string) -> string return style_bold(s) end
-pub function color_underline(s: string) -> string return style_underline(s) end
-pub function color_italic(s: string) -> string return style_italic(s) end
-
-# --- 24-bit TrueColor RGB (r, g, b in range 0-255) ---
-pub function color_rgb(s: string, r: int, g: int, b: int) -> string
-    let rc: string = str(r)
-    let gc: string = str(g)
-    let bc: string = str(b)
-    return "\e[38;2;" + rc + ";" + gc + ";" + bc + "m" + str(s) + "\e[0m"
-end
-
-pub function bg_rgb(s: string, r: int, g: int, b: int) -> string
-    let rc: string = str(r)
-    let gc: string = str(g)
-    let bc: string = str(b)
-    return "\e[48;2;" + rc + ";" + gc + ";" + bc + "m" + str(s) + "\e[0m"
-end
-
-# --- 256-Color Palette ---
-pub function color_256(s: string, code: int) -> string
-    let c: string = str(code)
-    return "\e[38;5;" + c + "m" + str(s) + "\e[0m"
-end
-
-pub function bg_256(s: string, code: int) -> string
-    let c: string = str(code)
-    return "\e[48;5;" + c + "m" + str(s) + "\e[0m"
-end
-
-# --- Raw ANSI Code Snippets ---
-pub function ansi_reset() -> string return "\e[0m" end
+## Returns the raw ANSI bold sequence.
 pub function ansi_bold() -> string return "\e[1m" end
-pub function ansi_dim() -> string return "\e[2m" end
-pub function ansi_italic() -> string return "\e[3m" end
-pub function ansi_underline() -> string return "\e[4m" end
 
-# Strips all ANSI CSI escape sequences from text
+## Returns the raw ANSI dim sequence.
+pub function ansi_dim() -> string return "\e[2m" end
+
+## Returns the raw ANSI italic sequence.
+pub function ansi_italic() -> string return "\e[3m" end
+
+## Returns the raw ANSI reset sequence.
+pub function ansi_reset() -> string return "\e[0m" end
+
+## Removes ANSI CSI escape sequences from text.
 pub function ansi_strip(text: string) -> string
     let s: string = str(text)
     let slen: int = len(s)
@@ -310,26 +263,206 @@ pub function ansi_strip(text: string) -> string
     return res
 end
 
-# --- Console Aliases ---
-pub function console_color(fg_code: int, text: string) -> string return color_fg(fg_code, text) end
-pub function console_bold(text: string) -> string return style_bold(text) end
-pub function console_dim(text: string) -> string return style_dim(text) end
-pub function console_italic(text: string) -> string return style_italic(text) end
-pub function console_underline(text: string) -> string return style_underline(text) end
-pub function console_red(text: string) -> string return color_red(text) end
-pub function console_green(text: string) -> string return color_green(text) end
-pub function console_yellow(text: string) -> string return color_yellow(text) end
+## Returns the raw ANSI underline sequence.
+pub function ansi_underline() -> string return "\e[4m" end
+
+## Wraps text in a 256-palette background color.
+pub function bg_256(s: string, code: int) -> string
+    let c: string = str(code)
+    return "\e[48;5;" + c + "m" + str(s) + "\e[0m"
+end
+
+## Wraps text in the black background color.
+pub function bg_black(s: string) -> string return _esc(str(BgColor.Black), s) end
+
+## Wraps text in the blue background color.
+pub function bg_blue(s: string) -> string return _esc(str(BgColor.Blue), s) end
+
+## Wraps text in the cyan background color.
+pub function bg_cyan(s: string) -> string return _esc(str(BgColor.Cyan), s) end
+
+## Wraps text in the green background color.
+pub function bg_green(s: string) -> string return _esc(str(BgColor.Green), s) end
+
+## Wraps text in the magenta background color.
+pub function bg_magenta(s: string) -> string return _esc(str(BgColor.Magenta), s) end
+
+## Wraps text in the red background color.
+pub function bg_red(s: string) -> string return _esc(str(BgColor.Red), s) end
+
+## Wraps text in a 24-bit truecolor background.
+pub function bg_rgb(s: string, r: int, g: int, b: int) -> string
+    let rc: string = str(r)
+    let gc: string = str(g)
+    let bc: string = str(b)
+    return "\e[48;2;" + rc + ";" + gc + ";" + bc + "m" + str(s) + "\e[0m"
+end
+
+## Wraps text in the white background color.
+pub function bg_white(s: string) -> string return _esc(str(BgColor.White), s) end
+
+## Wraps text in the yellow background color.
+pub function bg_yellow(s: string) -> string return _esc(str(BgColor.Yellow), s) end
+
+## Wraps text in a 256-palette foreground color.
+pub function color_256(s: string, code: int) -> string
+    let c: string = str(code)
+    return "\e[38;5;" + c + "m" + str(s) + "\e[0m"
+end
+
+## Wraps text in an ANSI background color code.
+pub function color_bg(code: int, s: string) -> string return _esc(str(code), s) end
+
+## Wraps text in the black foreground color.
+pub function color_black(s: string) -> string return _esc(str(Color.Black), s) end
+
+## Wraps text in the blue foreground color.
+pub function color_blue(s: string) -> string return _esc(str(Color.Blue), s) end
+
+## Wraps text in the bright blue foreground color.
+pub function color_bright_blue(s: string) -> string return _esc(str(Color.BrightBlue), s) end
+
+## Wraps text in the bright cyan foreground color.
+pub function color_bright_cyan(s: string) -> string return _esc(str(Color.BrightCyan), s) end
+
+## Wraps text in the bright green foreground color.
+pub function color_bright_green(s: string) -> string return _esc(str(Color.BrightGreen), s) end
+
+## Wraps text in the bright magenta foreground color.
+pub function color_bright_magenta(s: string) -> string return _esc(str(Color.BrightMagenta), s) end
+
+## Wraps text in the bright red foreground color.
+pub function color_bright_red(s: string) -> string return _esc(str(Color.BrightRed), s) end
+
+## Wraps text in the bright white foreground color.
+pub function color_bright_white(s: string) -> string return _esc(str(Color.BrightWhite), s) end
+
+## Wraps text in the bright yellow foreground color.
+pub function color_bright_yellow(s: string) -> string return _esc(str(Color.BrightYellow), s) end
+
+## Wraps text in the cyan foreground color.
+pub function color_cyan(s: string) -> string return _esc(str(Color.Cyan), s) end
+
+## Wraps text in an ANSI foreground color code.
+pub function color_fg(code: int, s: string) -> string return _esc(str(code), s) end
+
+## Wraps text in the gray foreground color.
+pub function color_gray(s: string) -> string return _esc(str(Color.Gray), s) end
+
+## Wraps text in the green foreground color.
+pub function color_green(s: string) -> string return _esc(str(Color.Green), s) end
+
+## Wraps text in the magenta foreground color.
+pub function color_magenta(s: string) -> string return _esc(str(Color.Magenta), s) end
+
+## Wraps text in the red foreground color.
+pub function color_red(s: string) -> string return _esc(str(Color.Red), s) end
+
+## Wraps text in a 24-bit truecolor foreground.
+pub function color_rgb(s: string, r: int, g: int, b: int) -> string
+    let rc: string = str(r)
+    let gc: string = str(g)
+    let bc: string = str(b)
+    return "\e[38;2;" + rc + ";" + gc + ";" + bc + "m" + str(s) + "\e[0m"
+end
+
+## Wraps text in an ANSI style code.
+pub function color_style(code: int, s: string) -> string return _esc(str(code), s) end
+
+## Wraps text in the white foreground color.
+pub function color_white(s: string) -> string return _esc(str(Color.White), s) end
+
+## Wraps text in the yellow foreground color.
+pub function color_yellow(s: string) -> string return _esc(str(Color.Yellow), s) end
+
+## Renders text in the bold style.
+pub function style_bold(s: string) -> string return _esc(str(Style.Bold), s) end
+
+## Renders text in the dim style.
+pub function style_dim(s: string) -> string return _esc(str(Style.Dim), s) end
+
+## Renders text in the inverse style.
+pub function style_inverse(s: string) -> string return _esc(str(Style.Inverse), s) end
+
+## Renders text in the italic style.
+pub function style_italic(s: string) -> string return _esc(str(Style.Italic), s) end
+
+## Renders text in the strikethrough style.
+pub function style_strikethrough(s: string) -> string return _esc(str(Style.Strikethrough), s) end
+
+## Renders text in the underline style.
+pub function style_underline(s: string) -> string return _esc(str(Style.Underline), s) end
+
+# --- Legacy Aliases ---
+
+## Legacy alias rendering text in blue.
+pub function blue(text: string) -> string return console_blue(text) end
+
+## Legacy alias rendering text in bold.
+pub function bold(text: string) -> string return console_bold(text) end
+
+## Legacy alias rendering text in bold.
+pub function color_bold(s: string) -> string return style_bold(s) end
+
+## Legacy alias rendering text in italic.
+pub function color_italic(s: string) -> string return style_italic(s) end
+
+## Legacy alias rendering text underlined.
+pub function color_underline(s: string) -> string return style_underline(s) end
+
+## Legacy alias rendering text in blue.
+pub function console__blue(text: string) -> string return console_blue(text) end
+
+## Legacy alias rendering text in bold.
+pub function console__bold(text: string) -> string return console_bold(text) end
+
+## Legacy alias rendering text in green.
+pub function console__green(text: string) -> string return console_green(text) end
+
+## Legacy alias switching the console to UTF-8.
+pub function console__utf8() -> int return console_utf8() end
+
+## Legacy alias rendering text in blue.
 pub function console_blue(text: string) -> string return color_blue(text) end
-pub function console_magenta(text: string) -> string return color_magenta(text) end
+
+## Legacy alias rendering text in bold.
+pub function console_bold(text: string) -> string return style_bold(text) end
+
+## Legacy alias wrapping text in a foreground color code.
+pub function console_color(fg_code: int, text: string) -> string return color_fg(fg_code, text) end
+
+## Legacy alias rendering text in cyan.
 pub function console_cyan(text: string) -> string return color_cyan(text) end
-pub function console_white(text: string) -> string return color_white(text) end
+
+## Legacy alias rendering text in dim.
+pub function console_dim(text: string) -> string return style_dim(text) end
+
+## Legacy alias rendering text in gray.
 pub function console_gray(text: string) -> string return color_gray(text) end
 
-pub function utf8() -> int return console_utf8() end
-pub function console__utf8() -> int return console_utf8() end
+## Legacy alias rendering text in green.
+pub function console_green(text: string) -> string return color_green(text) end
+
+## Legacy alias rendering text in italic.
+pub function console_italic(text: string) -> string return style_italic(text) end
+
+## Legacy alias rendering text in magenta.
+pub function console_magenta(text: string) -> string return color_magenta(text) end
+
+## Legacy alias rendering text in red.
+pub function console_red(text: string) -> string return color_red(text) end
+
+## Legacy alias rendering text underlined.
+pub function console_underline(text: string) -> string return style_underline(text) end
+
+## Legacy alias rendering text in white.
+pub function console_white(text: string) -> string return color_white(text) end
+
+## Legacy alias rendering text in yellow.
+pub function console_yellow(text: string) -> string return color_yellow(text) end
+
+## Legacy alias rendering text in green.
 pub function green(text: string) -> string return console_green(text) end
-pub function console__green(text: string) -> string return console_green(text) end
-pub function blue(text: string) -> string return console_blue(text) end
-pub function console__blue(text: string) -> string return console_blue(text) end
-pub function bold(text: string) -> string return console_bold(text) end
-pub function console__bold(text: string) -> string return console_bold(text) end
+
+## Legacy alias switching the console to UTF-8.
+pub function utf8() -> int return console_utf8() end

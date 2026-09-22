@@ -69,9 +69,20 @@ pub fn emit_cond_jump(
 }
 
 pub fn emit_float_cmp_reg(out: &mut String, arch: Architecture) {
+    // Same contract as emit_float_binary_op_reg: the left operand's raw f64
+    // bits arrive in the integer return register, so sync the FP register
+    // first (call/arithmetic results never touch it). x86 left as-is: its
+    // 32-bit value slots cannot carry f64 bits (known backend limitation).
     match arch {
-        Architecture::ARM64 => out.push_str("    fcmp d0, d1\n"),
-        Architecture::X64 | Architecture::X86 => out.push_str("    ucomisd %xmm1, %xmm0\n"),
+        Architecture::ARM64 => {
+            out.push_str("    fmov d0, x0\n");
+            out.push_str("    fcmp d0, d1\n")
+        }
+        Architecture::X64 => {
+            out.push_str("    movq %rax, %xmm0\n");
+            out.push_str("    ucomisd %xmm1, %xmm0\n")
+        }
+        Architecture::X86 => out.push_str("    ucomisd %xmm1, %xmm0\n"),
     }
 }
 

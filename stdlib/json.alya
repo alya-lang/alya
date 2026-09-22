@@ -1,6 +1,37 @@
-# Alya Standard Library - JSON Helper Module
-# Provides serialization and helper utilities for JSON formatting.
+# Alya Standard Library - JSON Module (std/json)
+# Provides JSON encoding helpers and a recursive-descent parser.
+# Encoding functions take preformatted fragments; parsing returns Alya values.
 
+# --- Encoding ---
+
+## Encodes preformatted item fragments as a JSON array.
+pub function json_array(items) -> string
+    let count: int = len(items)
+    if count == 0
+        return "[]"
+    end
+    let res: string = "["
+    let i: int = 0
+    while i < count
+        if i > 0
+            res = res + ", "
+        end
+        res = res + items[i]
+        i += 1
+    end
+    res = res + "]"
+    return res
+end
+
+## Encodes 1 as true and any other value as false.
+pub function json_bool(b: int) -> string
+    when b
+        is 1 then return "true"
+        else return "false"
+    end
+end
+
+## Escapes control characters, quotes, and backslashes for JSON.
 pub function json_escape(s: string) -> string
     let slen: int = len(s)
     let res: string = ""
@@ -25,18 +56,7 @@ pub function json_escape(s: string) -> string
     return res
 end
 
-pub function json_string(s: string) -> string
-    return "\"" + json_escape(s) + "\""
-end
-
-pub function json_number(n) -> string
-    return str(n)
-end
-
-pub function json_int(n: int) -> string
-    return str(n)
-end
-
+## Formats a float with trimmed fractional digits.
 pub function json_float(n: float) -> string
     let iv: int = int(n)
     let fv: float = n - float(iv)
@@ -56,39 +76,27 @@ pub function json_float(n: float) -> string
     return str(iv) + "." + str(frac)
 end
 
-pub function json_null() -> string
-    return "null"
+## Formats an integer as a JSON number.
+pub function json_int(n: int) -> string
+    return str(n)
 end
 
-pub function json_bool(b: int) -> string
-    when b
-        is 1 then return "true"
-        else return "false"
-    end
-end
-
+## Formats an escaped key with a preformatted value as a JSON pair.
 pub function json_kv(key: string, val) -> string
     return "\"" + json_escape(key) + "\": " + str(val)
 end
 
-pub function json_array(items) -> string
-    let count: int = len(items)
-    if count == 0
-        return "[]"
-    end
-    let res: string = "["
-    let i: int = 0
-    while i < count
-        if i > 0
-            res = res + ", "
-        end
-        res = res + items[i]
-        i += 1
-    end
-    res = res + "]"
-    return res
+## Returns the JSON null literal.
+pub function json_null() -> string
+    return "null"
 end
 
+## Formats an untyped number as a JSON number.
+pub function json_number(n) -> string
+    return str(n)
+end
+
+## Encodes a map of preformatted values as a JSON object.
 pub function json_object(m) -> string
     if len(m) == 0
         return "{}"
@@ -107,11 +115,12 @@ pub function json_object(m) -> string
     return res
 end
 
-pub function json_map(m) -> string
-    return json_object(m)
+## Wraps an escaped string in double quotes.
+pub function json_string(s: string) -> string
+    return "\"" + json_escape(s) + "\""
 end
 
-# --- Full Recursive-Descent JSON Parser ---
+# --- Parsing (Recursive-Descent Parser) ---
 
 function _json_hex_val(ch: string) -> int
     let c: int = ord(ch)
@@ -127,15 +136,92 @@ function _json_hex_val(ch: string) -> int
     end
 end
 
-function _json_skip_ws(s: string, pos: int[], slen: int)
+function _json_parse_array(s: string, pos: int[], slen: int)
+    pos[0] = pos[0] + 1
+    let arr = []
+    _json_skip_ws(s, pos, slen)
+    if pos[0] < slen and char_at(s, pos[0]) == "]"
+        pos[0] = pos[0] + 1
+        return arr
+    end
+    while pos[0] < slen
+        let val = _json_parse_val(s, pos, slen)
+        arr.push(val)
+        _json_skip_ws(s, pos, slen)
+        if pos[0] >= slen
+            break
+        end
+        let ch: string = char_at(s, pos[0])
+        if ch == ","
+            pos[0] = pos[0] + 1
+        elif ch == "]"
+            pos[0] = pos[0] + 1
+            break
+        else
+            break
+        end
+    end
+    return arr
+end
+
+function _json_parse_number(s: string, pos: int[], slen: int)
+    let start: int = pos[0]
+    let is_flt: int = 0
     while pos[0] < slen
         let ch: string = char_at(s, pos[0])
-        if ch == " " or ch == "\t" or ch == "\n" or ch == "\r"
+        let c: int = ord(ch)
+        if (c >= 48 and c <= 57) or ch == "-" or ch == "+"
+            pos[0] = pos[0] + 1
+        elif ch == "." or ch == "e" or ch == "E"
+            is_flt = 1
             pos[0] = pos[0] + 1
         else
             break
         end
     end
+    let num_str: string = substring(s, start, pos[0] - start)
+    if is_flt == 1
+        return float(num_str)
+    else
+        return int(num_str)
+    end
+end
+
+function _json_parse_object(s: string, pos: int[], slen: int)
+    pos[0] = pos[0] + 1
+    let obj = {}
+    _json_skip_ws(s, pos, slen)
+    if pos[0] < slen and char_at(s, pos[0]) == "}"
+        pos[0] = pos[0] + 1
+        return obj
+    end
+    while pos[0] < slen
+        _json_skip_ws(s, pos, slen)
+        if pos[0] >= slen or char_at(s, pos[0]) != "\""
+            break
+        end
+        let key: string = _json_parse_string(s, pos, slen)
+        _json_skip_ws(s, pos, slen)
+        if pos[0] < slen and char_at(s, pos[0]) == ":"
+            pos[0] = pos[0] + 1
+        end
+        let val = _json_parse_val(s, pos, slen)
+        obj[key] = val
+        _json_skip_ws(s, pos, slen)
+        if pos[0] >= slen
+            break
+        end
+        let ch: string = char_at(s, pos[0])
+        if ch == ","
+            pos[0] = pos[0] + 1
+        elif ch == "}"
+            pos[0] = pos[0] + 1
+            break
+        else
+            break
+        end
+    end
+    return obj
 end
 
 function _json_parse_string(s: string, pos: int[], slen: int) -> string
@@ -181,94 +267,6 @@ function _json_parse_string(s: string, pos: int[], slen: int) -> string
     return res
 end
 
-function _json_parse_number(s: string, pos: int[], slen: int)
-    let start: int = pos[0]
-    let is_flt: int = 0
-    while pos[0] < slen
-        let ch: string = char_at(s, pos[0])
-        let c: int = ord(ch)
-        if (c >= 48 and c <= 57) or ch == "-" or ch == "+"
-            pos[0] = pos[0] + 1
-        elif ch == "." or ch == "e" or ch == "E"
-            is_flt = 1
-            pos[0] = pos[0] + 1
-        else
-            break
-        end
-    end
-    let num_str: string = substring(s, start, pos[0] - start)
-    if is_flt == 1
-        return float(num_str)
-    else
-        return int(num_str)
-    end
-end
-
-function _json_parse_array(s: string, pos: int[], slen: int)
-    pos[0] = pos[0] + 1
-    let arr = []
-    _json_skip_ws(s, pos, slen)
-    if pos[0] < slen and char_at(s, pos[0]) == "]"
-        pos[0] = pos[0] + 1
-        return arr
-    end
-    while pos[0] < slen
-        let val = _json_parse_val(s, pos, slen)
-        arr.push(val)
-        _json_skip_ws(s, pos, slen)
-        if pos[0] >= slen
-            break
-        end
-        let ch: string = char_at(s, pos[0])
-        if ch == ","
-            pos[0] = pos[0] + 1
-        elif ch == "]"
-            pos[0] = pos[0] + 1
-            break
-        else
-            break
-        end
-    end
-    return arr
-end
-
-function _json_parse_object(s: string, pos: int[], slen: int)
-    pos[0] = pos[0] + 1
-    let obj = {}
-    _json_skip_ws(s, pos, slen)
-    if pos[0] < slen and char_at(s, pos[0]) == "}"
-        pos[0] = pos[0] + 1
-        return obj
-    end
-    while pos[0] < slen
-        _json_skip_ws(s, pos, slen)
-        if pos[0] >= slen or char_at(s, pos[0]) != "\""
-            break
-        end
-        let key: string = _json_parse_string(s, pos, slen)
-        _json_skip_ws(s, pos, slen)
-        if pos[0] < slen and char_at(s, pos[0]) == ":"
-            pos[0] = pos[0] + 1
-        end
-        let val = _json_parse_val(s, pos, slen)
-        obj[key] = val
-        _json_skip_ws(s, pos, slen)
-        if pos[0] >= slen
-            break
-        end
-        let ch: string = char_at(s, pos[0])
-        if ch == ","
-            pos[0] = pos[0] + 1
-        elif ch == "}"
-            pos[0] = pos[0] + 1
-            break
-        else
-            break
-        end
-    end
-    return obj
-end
-
 function _json_parse_val(s: string, pos: int[], slen: int)
     _json_skip_ws(s, pos, slen)
     if pos[0] >= slen
@@ -296,24 +294,18 @@ function _json_parse_val(s: string, pos: int[], slen: int)
     end
 end
 
-pub function json_parse(text: string)
-    let s: string = str_from_ptr(text)
-    let slen: int = len(s)
-    if slen == 0
-        return null
+function _json_skip_ws(s: string, pos: int[], slen: int)
+    while pos[0] < slen
+        let ch: string = char_at(s, pos[0])
+        if ch == " " or ch == "\t" or ch == "\n" or ch == "\r"
+            pos[0] = pos[0] + 1
+        else
+            break
+        end
     end
-    let pos: int[] = [0]
-    return _json_parse_val(s, pos, slen)
 end
 
-pub function json_parse_object(text: string)
-    return json_parse(text)
-end
-
-pub function json_parse_array(text: string)
-    return json_parse(text)
-end
-
+## Returns 1 when the text parses as a complete JSON value.
 pub function json_is_valid(text: string) -> int
     let s: string = str_from_ptr(text)
     let slen: int = len(s)
@@ -327,4 +319,32 @@ pub function json_is_valid(text: string) -> int
         return 1
     end
     return 0
+end
+
+## Parses a JSON document into Alya values.
+pub function json_parse(text: string)
+    let s: string = str_from_ptr(text)
+    let slen: int = len(s)
+    if slen == 0
+        return null
+    end
+    let pos: int[] = [0]
+    return _json_parse_val(s, pos, slen)
+end
+
+# --- Legacy Aliases ---
+
+## Legacy alias encoding a map as a JSON object.
+pub function json_map(m) -> string
+    return json_object(m)
+end
+
+## Legacy alias parsing a JSON document expected to be an array.
+pub function json_parse_array(text: string)
+    return json_parse(text)
+end
+
+## Legacy alias parsing a JSON document expected to be an object.
+pub function json_parse_object(text: string)
+    return json_parse(text)
 end

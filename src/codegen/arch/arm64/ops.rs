@@ -247,6 +247,10 @@ pub fn emit_unary_op(out: &mut String, op: UnaryOp) {
 }
 
 pub fn emit_float_binary_op_reg(out: &mut String, op: BinaryOp) {
+    // Left operand arrives as raw f64 bits in x0 (calls, arithmetic results
+    // and int-to-float conversions never touch d0); materialize it so a
+    // stale d0 is never compared. No-op when the loader already synced it.
+    out.push_str("    fmov d0, x0\n");
     match op {
         BinaryOp::Add => {
             out.push_str("    fadd d0, d0, d1\n");

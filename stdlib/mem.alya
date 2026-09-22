@@ -1,182 +1,41 @@
-# Alya Standard Library - Memory & Arena Allocator Module
+# Alya Standard Library - Memory Module (std/mem)
 # Provides high-performance Arena memory allocation, raw pointer utilities, and dynamic buffers.
 
-# --- Size Helpers ---
+# --- Types ---
 
-pub function kb(n)
-    return n * 1024
-end
-
-pub function mb(n)
-    return n * 1048576
-end
-
-pub function gb(n)
-    return n * 1073741824
-end
-
-# --- Pointer & Memory Inspection ---
-
-pub function is_null(ptr)
-    if ptr == 0
-        return 1
-    end
-    return 0
-end
-
-pub function is_valid(ptr)
-    if ptr != 0
-        return 1
-    end
-    return 0
-end
-
-pub function ptr_add(ptr, offset)
-    return ptr + offset
-end
-
-pub function ptr_diff(ptr_a, ptr_b)
-    return ptr_a - ptr_b
-end
-
-# --- Heap Allocation & Raw Memory Operations ---
-
-# Allocates 'size' bytes from the system heap using malloc.
-pub function alloc_mem(size)
-    return alloc(size)
-end
-
-# Frees memory previously allocated by alloc() or realloc().
-pub function free_mem(ptr)
-    free(ptr)
-end
-
-# Allocates 'size' bytes aligned to 'alignment' boundary (default 32 bytes for AVX2 / SIMD).
-# Stores the raw pointer in the header word immediately preceding the aligned address.
-pub function aligned_alloc(size, alignment = 32)
-    let align = alignment
-    if align < 8
-        align = 8
-    end
-    let total = size + align + 8
-    let raw = alloc(total)
-    if raw == 0
-        return 0
-    end
-    let offset = raw + 8 + align - 1
-    let mask = 0 - align
-    let aligned = offset & mask
-    poke_int(aligned - 8, 0, raw)
-    return aligned
-end
-
-# Frees aligned memory previously allocated by aligned_alloc().
-pub function aligned_free(p)
-    if p != 0
-        let raw = peek_int(p - 8, 0)
-        free(raw)
-    end
-end
-
-# Resizes an existing heap allocation.
-pub function realloc_mem(ptr, size)
-    return realloc(ptr, size)
-end
-
-# Allocates 'size' bytes and initializes all bytes to 0.
-pub function alloc_zeroed(size)
-    let p = alloc(size)
-    if p != 0
-        zero_mem(p, size)
-    end
-    return p
-end
-
-# Allocates memory for an array of 'num' elements of 'size' bytes each and zeroes it.
-pub function calloc_mem(num, size)
-    return alloc_zeroed(num * size)
-end
-
-# Copies 'size' bytes from src to dest.
-pub function copy_memory(dest, src, size)
-    copy_mem(dest, src, size)
-end
-
-# Zeroes 'size' bytes starting at dest.
-pub function zero_memory(dest, size)
-    zero_mem(dest, size)
-end
-
-# Fills 'size' bytes at dest with byte value 'val'.
-pub function fill_mem(dest, val, size)
-    let i = 0
-    while i < size
-        poke_byte(dest, i, val)
-        i += 1
-    end
-end
-
-# Compares 'size' bytes between two memory blocks.
-# Returns 1 if identical, 0 otherwise.
-pub function mem_equal(ptr_a, ptr_b, size)
-    if ptr_a == ptr_b
-        return 1
-    end
-    if ptr_a == 0 or ptr_b == 0
-        return 0
-    end
-    let i = 0
-    while i < size
-        if peek_byte(ptr_a, i) != peek_byte(ptr_b, i)
-            return 0
-        end
-        i += 1
-    end
-    return 1
-end
-
-# --- Byte & Word Access ---
-
-pub function read_byte(ptr, offset)
-    return peek_byte(ptr, offset)
-end
-
-pub function write_byte(ptr, offset, val)
-    poke_byte(ptr, offset, val)
-end
-
-pub function read_int(ptr, offset)
-    return peek_int(ptr, offset)
-end
-
-pub function write_int(ptr, offset, val)
-    poke_int(ptr, offset, val)
-end
-
-pub function read_float(ptr, offset) -> float
-    return peek_int(ptr, offset)
-end
-
-pub function write_float(ptr, offset, val: float)
-    poke_int(ptr, offset, val)
-end
-
-pub function to_string(ptr)
-    return str_from_ptr(ptr)
-end
-
-pub function from_string(str)
-    return str_to_ptr(str)
-end
-
-# --- Arena Allocator ---
-
+## Region-based arena allocator handle.
 pub struct Arena
     handle
     chunk_size
 end
 
-# Creates a new Arena allocator with the specified default chunk size (bytes).
+## Dynamic byte buffer with pointer, size, and capacity.
+pub struct ByteBuffer
+    ptr
+    size
+    capacity
+end
+
+## Heap memory metrics snapshot.
+pub struct MemStats
+    allocated_bytes
+end
+
+## Fixed-size block pool allocator handle.
+pub struct Pool
+    block_size
+    capacity
+    buffer
+    free_head
+    allocated_count
+end
+
+# --- Constructors ---
+
+## Creates a new Arena with the given default chunk size.
+pub function Arena.new(chunk_size = 65536) return arena_new(chunk_size) end
+
+## Creates a new Arena allocator with the specified default chunk size.
 # If chunk_size is 0 or negative, 65536 bytes (64KB) is used by default.
 pub function arena_new(chunk_size)
     if chunk_size <= 0
@@ -186,73 +45,7 @@ pub function arena_new(chunk_size)
     return Arena { handle: h, chunk_size: chunk_size }
 end
 
-# Allocates 'size' bytes from the arena.
-# The allocation is O(1) and aligned to 8 bytes.
-pub function arena_alloc_mem(arena: Arena, size)
-    return arena_alloc(arena.handle, size)
-end
-
-# Allocates 'size' bytes from the arena and zeroes the memory.
-pub function arena_alloc_zeroed(arena: Arena, size)
-    let p = arena_alloc(arena.handle, size)
-    if p != 0
-        zero_mem(p, size)
-    end
-    return p
-end
-
-# Allocates memory in the arena and copies 'str' into it.
-# Returns a string pointer whose lifetime is tied to the arena.
-pub function arena_alloc_string(arena: Arena, str)
-    let slen = len(str)
-    let p = arena_alloc(arena.handle, slen + 1)
-    if p != 0
-        let src_ptr = str_to_ptr(str)
-        copy_mem(p, src_ptr, slen + 1)
-    end
-    return str_from_ptr(p)
-end
-
-# Resets all allocations within the arena.
-# Memory chunks are retained for instant reuse without OS reallocation overhead.
-pub function arena_clear(arena: Arena)
-    arena_reset(arena.handle)
-end
-
-# Destroys the arena and frees all underlying chunk memory back to the system.
-pub function arena_free(arena: Arena)
-    if arena.handle != 0
-        arena_destroy(arena.handle)
-        arena.handle = 0
-    end
-end
-
-pub function arena_free_all(arena: Arena)
-    arena_free(arena)
-end
-
-# Returns the total number of bytes currently allocated through this arena.
-pub function arena_total_allocated(arena: Arena)
-    return arena_allocated(arena.handle)
-end
-
-# Returns 1 if the arena has an active handle, 0 otherwise.
-pub function arena_is_valid(arena: Arena)
-    if arena.handle != 0
-        return 1
-    end
-    return 0
-end
-
-# --- ByteBuffer (Dynamic Byte Buffer) ---
-
-pub struct ByteBuffer
-    ptr
-    size
-    capacity
-end
-
-# Creates a new dynamic byte buffer with initial capacity.
+## Creates a new dynamic byte buffer with the given initial capacity.
 pub function buffer_new(capacity)
     if capacity <= 0
         capacity = 64
@@ -261,141 +54,7 @@ pub function buffer_new(capacity)
     return ByteBuffer { ptr: p, size: 0, capacity: capacity }
 end
 
-# Frees the buffer's memory and zeroes its state.
-pub function buffer_free(buf: ByteBuffer)
-    if buf.ptr != 0
-        free(buf.ptr)
-        buf.ptr = 0
-        buf.size = 0
-        buf.capacity = 0
-    end
-end
-
-# Ensures the buffer has at least 'needed' bytes of capacity.
-pub function buffer_ensure_capacity(buf: ByteBuffer, needed)
-    if needed > buf.capacity
-        let new_cap = buf.capacity * 2
-        if new_cap < needed
-            new_cap = needed
-        end
-        buf.ptr = realloc(buf.ptr, new_cap)
-        buf.capacity = new_cap
-    end
-end
-
-# Appends a single byte to the buffer.
-pub function buffer_write_byte(buf: ByteBuffer, val)
-    buffer_ensure_capacity(buf, buf.size + 1)
-    poke_byte(buf.ptr, buf.size, val)
-    buf.size = buf.size + 1
-end
-
-# Reads a byte from the buffer at the given offset.
-pub function buffer_read_byte(buf: ByteBuffer, offset)
-    if offset >= 0 and offset < buf.size
-        return peek_byte(buf.ptr, offset)
-    end
-    return 0
-end
-
-# Appends a string to the buffer. Returns number of bytes written.
-pub function buffer_write_string(buf: ByteBuffer, str)
-    let slen = len(str)
-    if slen == 0
-        return 0
-    end
-    buffer_ensure_capacity(buf, buf.size + slen)
-    let src_ptr = str_to_ptr(str)
-    copy_mem(buf.ptr + buf.size, src_ptr, slen)
-    buf.size = buf.size + slen
-    return slen
-end
-
-# Appends a null terminator (without increasing buffer size) and returns the string.
-pub function buffer_to_string(buf: ByteBuffer)
-    buffer_ensure_capacity(buf, buf.size + 1)
-    poke_byte(buf.ptr, buf.size, 0)
-    return str_from_ptr(buf.ptr)
-end
-
-# Clears the buffer contents without deallocating underlying memory.
-pub function buffer_clear(buf: ByteBuffer)
-    buf.size = 0
-end
-
-# Returns the number of bytes currently stored in the buffer.
-pub function buffer_len(buf: ByteBuffer)
-    return buf.size
-end
-
-# Returns 1 if the buffer is empty, 0 otherwise.
-pub function buffer_is_empty(buf: ByteBuffer)
-    if buf.size == 0
-        return 1
-    end
-    return 0
-end
-
-# Appends a 64-bit integer to the buffer (8 bytes).
-pub function buffer_write_int(buf: ByteBuffer, val)
-    buffer_ensure_capacity(buf, buf.size + 8)
-    poke_int(buf.ptr, buf.size, val)
-    buf.size = buf.size + 8
-    return 8
-end
-
-# Reads a 64-bit integer from the buffer at the given byte offset.
-pub function buffer_read_int(buf: ByteBuffer, offset)
-    if offset >= 0 and offset + 8 <= buf.size
-        return peek_int(buf.ptr, offset)
-    end
-    return 0
-end
-
-# --- Permanent Heap Strings ---
-
-# Creates an independent heap-allocated copy of the string that survives ring-buffer recycling.
-pub function string_clone(s)
-    return str_clone(s)
-end
-
-# Frees an independent heap-allocated string created with string_clone / str_clone.
-pub function string_free(s)
-    str_free(s)
-end
-
-# --- Memory Allocation Tracking ---
-
-pub struct MemStats
-    allocated_bytes
-end
-
-# Returns the total number of bytes currently allocated through the heap allocator.
-pub function mem_bytes_allocated()
-    return mem_allocated()
-end
-
-# Resets the memory allocation tracking counter to zero.
-pub function mem_stats_reset()
-    return mem_reset_alloc()
-end
-
-# Returns a MemStats struct with current memory metrics.
-pub function mem_stats()
-    return MemStats(mem_allocated())
-end
-
-# --- Pool Allocator (Fixed-Size Block Pool) ---
-
-pub struct Pool
-    block_size
-    capacity
-    buffer
-    free_head
-    allocated_count
-end
-
-# Creates a new fixed-size block Pool allocator.
+## Creates a new fixed-size block Pool allocator.
 # block_size is rounded up to multiple of 8 (minimum 8 bytes).
 pub function pool_new(block_size, capacity)
     if block_size < 8
@@ -429,7 +88,424 @@ pub function pool_new(block_size, capacity)
     return Pool(block_size, capacity, buf, buf, 0)
 end
 
-# Allocates one fixed-size block from the pool in O(1) time.
+# --- Size Helpers ---
+
+## Converts gigabytes to bytes.
+pub function gb(n)
+    return n * 1073741824
+end
+
+## Converts kilobytes to bytes.
+pub function kb(n)
+    return n * 1024
+end
+
+## Converts megabytes to bytes.
+pub function mb(n)
+    return n * 1048576
+end
+
+# --- Pointer Utilities ---
+
+## Returns 1 if the pointer is null, 0 otherwise.
+pub function is_null(ptr)
+    if ptr == 0
+        return 1
+    end
+    return 0
+end
+
+## Returns 1 if the pointer is not null, 0 otherwise.
+pub function is_valid(ptr)
+    if ptr != 0
+        return 1
+    end
+    return 0
+end
+
+## Adds a byte offset to a pointer.
+pub function ptr_add(ptr, offset)
+    return ptr + offset
+end
+
+## Returns the difference between two pointers.
+pub function ptr_diff(ptr_a, ptr_b)
+    return ptr_a - ptr_b
+end
+
+# --- Heap Allocation ---
+
+## Allocates size bytes aligned to the given boundary.
+# Stores the raw pointer in the header word immediately preceding the aligned address.
+pub function aligned_alloc(size, alignment = 32)
+    let align = alignment
+    if align < 8
+        align = 8
+    end
+    let total = size + align + 8
+    let raw = alloc(total)
+    if raw == 0
+        return 0
+    end
+    let offset = raw + 8 + align - 1
+    let mask = 0 - align
+    let aligned = offset & mask
+    poke_int(aligned - 8, 0, raw)
+    return aligned
+end
+
+## Frees aligned memory previously allocated by aligned_alloc.
+pub function aligned_free(p)
+    if p != 0
+        let raw = peek_int(p - 8, 0)
+        free(raw)
+    end
+end
+
+## Allocates size bytes from the system heap using malloc.
+pub function alloc_mem(size)
+    return alloc(size)
+end
+
+## Allocates size bytes and initializes all bytes to zero.
+pub function alloc_zeroed(size)
+    let p = alloc(size)
+    if p != 0
+        zero_mem(p, size)
+    end
+    return p
+end
+
+## Allocates zeroed memory for num elements of size bytes each.
+pub function calloc_mem(num, size)
+    return alloc_zeroed(num * size)
+end
+
+## Copies size bytes from src to dest.
+pub function copy_memory(dest, src, size)
+    copy_mem(dest, src, size)
+end
+
+## Fills size bytes at dest with byte value val.
+pub function fill_mem(dest, val, size)
+    let i = 0
+    while i < size
+        poke_byte(dest, i, val)
+        i += 1
+    end
+end
+
+## Frees memory previously allocated by alloc or realloc.
+pub function free_mem(ptr)
+    free(ptr)
+end
+
+## Compares size bytes between two memory blocks.
+# Returns 1 if identical, 0 otherwise.
+pub function mem_equal(ptr_a, ptr_b, size)
+    if ptr_a == ptr_b
+        return 1
+    end
+    if ptr_a == 0 or ptr_b == 0
+        return 0
+    end
+    let i = 0
+    while i < size
+        if peek_byte(ptr_a, i) != peek_byte(ptr_b, i)
+            return 0
+        end
+        i += 1
+    end
+    return 1
+end
+
+## Resizes an existing heap allocation.
+pub function realloc_mem(ptr, size)
+    return realloc(ptr, size)
+end
+
+## Zeroes size bytes starting at dest.
+pub function zero_memory(dest, size)
+    zero_mem(dest, size)
+end
+
+# --- Memory Access ---
+
+## Converts a string to a raw pointer.
+pub function from_string(str)
+    return str_to_ptr(str)
+end
+
+## Reads a byte at the given offset.
+pub function read_byte(ptr, offset)
+    return peek_byte(ptr, offset)
+end
+
+## Reads a float at the given offset via raw 64-bit load (exact bit
+## round-trip with write_float on 64-bit targets; x86 truncates to 32 bits).
+pub function read_float(ptr, offset) -> float
+    return peek_int(ptr, offset)
+end
+
+## Reads an integer at the given offset.
+pub function read_int(ptr, offset)
+    return peek_int(ptr, offset)
+end
+
+## Reads a string from the given pointer.
+pub function to_string(ptr)
+    return str_from_ptr(ptr)
+end
+
+## Writes a byte at the given offset.
+pub function write_byte(ptr, offset, val)
+    poke_byte(ptr, offset, val)
+end
+
+## Writes a float at the given offset via raw 64-bit store (f64 bits
+## preserved; exact round-trip with read_float on 64-bit targets).
+pub function write_float(ptr, offset, val: float)
+    poke_int(ptr, offset, val)
+end
+
+## Writes an integer at the given offset.
+pub function write_int(ptr, offset, val)
+    poke_int(ptr, offset, val)
+end
+
+# --- Arena Allocator ---
+
+## Allocates size bytes from the arena.
+pub function Arena.alloc(self, size) return arena_alloc_mem(self, size) end
+
+## Allocates memory in the arena and copies s into it.
+pub function Arena.alloc_string(self, s) return arena_alloc_string(self, s) end
+
+## Resets all allocations within the arena for reuse.
+pub function Arena.clear(self) arena_clear(self) end
+
+## Destroys the arena and frees all chunk memory.
+pub function Arena.free(self) arena_free(self) end
+
+## Returns 1 if the arena has an active handle, 0 otherwise.
+pub function Arena.is_valid(self) return arena_is_valid(self) end
+
+## Returns the total bytes currently allocated through this arena.
+pub function Arena.total_allocated(self) return arena_total_allocated(self) end
+
+## Allocates size bytes from the arena.
+# The allocation is O(1) and aligned to 8 bytes.
+pub function arena_alloc_mem(arena: Arena, size)
+    return arena_alloc(arena.handle, size)
+end
+
+## Allocates memory in the arena and copies str into it.
+# Returns a string pointer whose lifetime is tied to the arena.
+pub function arena_alloc_string(arena: Arena, str)
+    let slen = len(str)
+    let p = arena_alloc(arena.handle, slen + 1)
+    if p != 0
+        let src_ptr = str_to_ptr(str)
+        copy_mem(p, src_ptr, slen + 1)
+    end
+    return str_from_ptr(p)
+end
+
+## Allocates size bytes from the arena and zeroes the memory.
+pub function arena_alloc_zeroed(arena: Arena, size)
+    let p = arena_alloc(arena.handle, size)
+    if p != 0
+        zero_mem(p, size)
+    end
+    return p
+end
+
+## Resets all allocations within the arena.
+# Memory chunks are retained for instant reuse without OS reallocation overhead.
+pub function arena_clear(arena: Arena)
+    arena_reset(arena.handle)
+end
+
+## Destroys the arena and frees all underlying chunk memory back to the system.
+pub function arena_free(arena: Arena)
+    if arena.handle != 0
+        arena_destroy(arena.handle)
+        arena.handle = 0
+    end
+end
+
+## Returns 1 if the arena has an active handle, 0 otherwise.
+pub function arena_is_valid(arena: Arena)
+    if arena.handle != 0
+        return 1
+    end
+    return 0
+end
+
+## Returns the total number of bytes currently allocated through this arena.
+pub function arena_total_allocated(arena: Arena)
+    return arena_allocated(arena.handle)
+end
+
+# --- ByteBuffer ---
+
+## Clears the buffer contents without deallocating memory.
+pub function buffer_clear(buf: ByteBuffer)
+    buf.size = 0
+end
+
+## Ensures the buffer has at least needed bytes of capacity.
+pub function buffer_ensure_capacity(buf: ByteBuffer, needed)
+    if needed > buf.capacity
+        let new_cap = buf.capacity * 2
+        if new_cap < needed
+            new_cap = needed
+        end
+        buf.ptr = realloc(buf.ptr, new_cap)
+        buf.capacity = new_cap
+    end
+end
+
+## Frees the buffer memory and zeroes its state.
+pub function buffer_free(buf: ByteBuffer)
+    if buf.ptr != 0
+        free(buf.ptr)
+        buf.ptr = 0
+        buf.size = 0
+        buf.capacity = 0
+    end
+end
+
+## Returns 1 if the buffer is empty, 0 otherwise.
+pub function buffer_is_empty(buf: ByteBuffer)
+    if buf.size == 0
+        return 1
+    end
+    return 0
+end
+
+## Returns the number of bytes currently stored in the buffer.
+pub function buffer_len(buf: ByteBuffer)
+    return buf.size
+end
+
+## Reads a byte from the buffer at the given offset.
+pub function buffer_read_byte(buf: ByteBuffer, offset)
+    if offset >= 0 and offset < buf.size
+        return peek_byte(buf.ptr, offset)
+    end
+    return 0
+end
+
+## Reads a 64-bit integer from the buffer at the given byte offset.
+pub function buffer_read_int(buf: ByteBuffer, offset)
+    if offset >= 0 and offset + 8 <= buf.size
+        return peek_int(buf.ptr, offset)
+    end
+    return 0
+end
+
+## Returns the buffer contents as a string.
+# Appends a null terminator (without increasing buffer size) and returns the string.
+pub function buffer_to_string(buf: ByteBuffer)
+    buffer_ensure_capacity(buf, buf.size + 1)
+    poke_byte(buf.ptr, buf.size, 0)
+    return str_from_ptr(buf.ptr)
+end
+
+## Appends a single byte to the buffer.
+pub function buffer_write_byte(buf: ByteBuffer, val)
+    buffer_ensure_capacity(buf, buf.size + 1)
+    poke_byte(buf.ptr, buf.size, val)
+    buf.size = buf.size + 1
+end
+
+## Appends a 64-bit integer to the buffer.
+pub function buffer_write_int(buf: ByteBuffer, val)
+    buffer_ensure_capacity(buf, buf.size + 8)
+    poke_int(buf.ptr, buf.size, val)
+    buf.size = buf.size + 8
+    return 8
+end
+
+## Appends a string to the buffer and returns the bytes written.
+pub function buffer_write_string(buf: ByteBuffer, str)
+    let slen = len(str)
+    if slen == 0
+        return 0
+    end
+    buffer_ensure_capacity(buf, buf.size + slen)
+    let src_ptr = str_to_ptr(str)
+    copy_mem(buf.ptr + buf.size, src_ptr, slen)
+    buf.size = buf.size + slen
+    return slen
+end
+
+## Clears the buffer contents without deallocating memory.
+pub function ByteBuffer.clear(self) buffer_clear(self) end
+
+## Frees the buffer memory and zeroes its state.
+pub function ByteBuffer.free(self) buffer_free(self) end
+
+## Reads a byte from the buffer at the given offset.
+pub function ByteBuffer.read_byte(self, offset) return buffer_read_byte(self, offset) end
+
+## Returns the buffer contents as a string.
+pub function ByteBuffer.to_string(self) return buffer_to_string(self) end
+
+## Appends a single byte to the buffer.
+pub function ByteBuffer.write_byte(self, val) buffer_write_byte(self, val) end
+
+## Appends a string to the buffer.
+pub function ByteBuffer.write_string(self, s) return buffer_write_string(self, s) end
+
+# --- Heap Strings ---
+
+## Creates an independent heap copy of the string that survives ring-buffer recycling.
+pub function string_clone(s)
+    return str_clone(s)
+end
+
+## Frees an independent heap-allocated string created by string_clone.
+pub function string_free(s)
+    str_free(s)
+end
+
+# --- Memory Statistics ---
+
+## Returns the total bytes currently allocated through the heap allocator.
+pub function mem_bytes_allocated()
+    return mem_allocated()
+end
+
+## Returns a MemStats struct with current memory metrics.
+pub function mem_stats()
+    return MemStats(mem_allocated())
+end
+
+## Resets the memory allocation tracking counter to zero.
+pub function mem_stats_reset()
+    return mem_reset_alloc()
+end
+
+# --- Pool Allocator ---
+
+## Allocates one fixed-size block from the pool.
+pub function Pool.alloc(self) return pool_alloc(self) end
+
+## Returns the number of available free blocks in the pool.
+pub function Pool.available(self) return pool_available(self) end
+
+## Re-links all pool blocks without re-allocating memory.
+pub function Pool.clear(self) return pool_clear(self) end
+
+## Destroys the pool and frees its memory.
+pub function Pool.destroy(self) pool_destroy(self) end
+
+## Returns an allocated block back to the pool.
+pub function Pool.free(self, ptr) return pool_free(self, ptr) end
+
+## Allocates one fixed-size block from the pool in O(1) time.
 # Returns raw pointer to block, or 0 if pool is exhausted.
 pub function pool_alloc(pool: Pool)
     if pool.free_head == 0
@@ -442,23 +518,12 @@ pub function pool_alloc(pool: Pool)
     return block
 end
 
-# Returns an allocated block back to the pool in O(1) time.
-pub function pool_free(pool: Pool, ptr)
-    if ptr == 0
-        return 0
-    end
-    poke_int(ptr, 0, pool.free_head)
-    pool.free_head = ptr
-    pool.allocated_count = pool.allocated_count - 1
-    return 1
-end
-
-# Returns the number of available free blocks in the pool.
+## Returns the number of available free blocks in the pool.
 pub function pool_available(pool: Pool)
     return pool.capacity - pool.allocated_count
 end
 
-# Re-links all blocks in the pool without re-allocating buffer memory.
+## Re-links all blocks in the pool without re-allocating buffer memory.
 pub function pool_clear(pool: Pool)
     if pool.buffer == 0 or pool.capacity <= 0
         return 0
@@ -477,7 +542,7 @@ pub function pool_clear(pool: Pool)
     return 1
 end
 
-# Destroys the pool and frees underlying memory back to system heap.
+## Destroys the pool and frees underlying memory back to the system heap.
 pub function pool_destroy(pool: Pool)
     if pool.buffer != 0
         free(pool.buffer)
@@ -488,61 +553,57 @@ pub function pool_destroy(pool: Pool)
     end
 end
 
-# --- Reference Counting (ARC) Operations ---
+## Returns an allocated block back to the pool in O(1) time.
+pub function pool_free(pool: Pool, ptr)
+    if ptr == 0
+        return 0
+    end
+    poke_int(ptr, 0, pool.free_head)
+    pool.free_head = ptr
+    pool.allocated_count = pool.allocated_count - 1
+    return 1
+end
 
-# Returns the current reference count of a heap object (array, map, struct).
+# --- Reference Counting ---
+
+## Manually decrements the reference count of an object.
+pub function rc_dec(obj)
+    return rc_release(obj)
+end
+
+## Returns the current reference count of a heap object.
 # Returns 0 if obj is null, an integer, or not a managed heap object.
 pub function rc_get_count(obj)
     return rc_count(obj)
 end
 
-# Manually increments the reference count of an object.
+## Manually increments the reference count of an object.
 pub function rc_inc(obj)
     return rc_retain(obj)
 end
 
-# Manually decrements the reference count of an object.
-pub function rc_dec(obj)
-    return rc_release(obj)
-end
+# --- Garbage Collector ---
 
-# --- Cycle Garbage Collector (Bacon-Rajan Algorithm) ---
-
-# Triggers a cycle collection cycle to identify and sweep cyclic reference islands.
+## Triggers a cycle collection cycle to sweep cyclic reference islands.
 # Returns the number of cyclic objects collected and deallocated.
 pub function gc_collect()
     return _gc_collect()
 end
 
-# Returns the cumulative number of cyclic objects collected since program start.
+## Returns the cumulative number of cyclic objects collected since program start.
 pub function gc_collected_count()
     return _gc_collected_count()
 end
 
-# --- Struct Methods for Memory Types ---
+# --- Legacy Aliases ---
 
-# Arena Methods
-pub function Arena.new(chunk_size = 65536) return arena_new(chunk_size) end
-pub function Arena.alloc(self, size) return arena_alloc_mem(self, size) end
-pub function Arena.alloc_string(self, s) return arena_alloc_string(self, s) end
-pub function Arena.clear(self) arena_clear(self) end
-pub function Arena.reset(self) arena_clear(self) end
-pub function Arena.free(self) arena_free(self) end
+## Alias for Arena.free that destroys the arena.
 pub function Arena.destroy(self) arena_free(self) end
-pub function Arena.total_allocated(self) return arena_total_allocated(self) end
-pub function Arena.is_valid(self) return arena_is_valid(self) end
 
-# ByteBuffer Methods
-pub function ByteBuffer.write_byte(self, val) buffer_write_byte(self, val) end
-pub function ByteBuffer.read_byte(self, offset) return buffer_read_byte(self, offset) end
-pub function ByteBuffer.write_string(self, s) return buffer_write_string(self, s) end
-pub function ByteBuffer.to_string(self) return buffer_to_string(self) end
-pub function ByteBuffer.clear(self) buffer_clear(self) end
-pub function ByteBuffer.free(self) buffer_free(self) end
+## Alias for Arena.clear that resets all arena allocations.
+pub function Arena.reset(self) arena_clear(self) end
 
-# Pool Methods
-pub function Pool.alloc(self) return pool_alloc(self) end
-pub function Pool.free(self, ptr) return pool_free(self, ptr) end
-pub function Pool.available(self) return pool_available(self) end
-pub function Pool.clear(self) return pool_clear(self) end
-pub function Pool.destroy(self) pool_destroy(self) end
+## Alias for arena_free that destroys the arena.
+pub function arena_free_all(arena: Arena)
+    arena_free(arena)
+end

@@ -1,9 +1,12 @@
-# Alya Standard Library - CLI / Args Module (std/cli)
+# Alya Standard Library - CLI Module (std/cli)
 # Provides lightweight raw access to operating system arguments,
 # basic flag detection, option retrieval, and positional arguments.
 # For advanced CLI parsing (subcommands, choice validation, auto-generated
 # help screens, flag clustering), use the modern 'alya-lang/cli' package.
 
+# --- Private Helpers ---
+
+# Strips leading dashes from a flag or option name.
 function _cli_strip_dashes(s: string) -> string
     let s_str: string = str_from_ptr(s)
     let slen: int = len(s_str)
@@ -22,14 +25,7 @@ end
 
 # --- Raw Argument Accessors ---
 
-pub function cli_raw_args() -> string[]
-    return args()
-end
-
-pub function cli_arg_count() -> int
-    return len(args())
-end
-
+## Returns the raw argument at idx, or default_val when out of range.
 pub function cli_arg_at(idx: int, default_val: string = "") -> string
     let raw: string[] = args()
     if idx >= 0
@@ -40,25 +36,19 @@ pub function cli_arg_at(idx: int, default_val: string = "") -> string
     return default_val
 end
 
-# --- Lightweight Flag & Option Getters ---
-
-pub function cli_has_flag(flag_name: string) -> int
-    let raw: string[] = args()
-    let clean: string = _cli_strip_dashes(flag_name)
-    let target_long: string = "--" + clean
-    let target_short: string = "-" + clean
-    let count: int = len(raw)
-    let i: int = 0
-    while i < count
-        let arg: string = str_from_ptr(raw[i])
-        if arg == target_long or arg == target_short
-            return 1
-        end
-        i += 1
-    end
-    return 0
+## Returns the number of raw OS arguments.
+pub function cli_arg_count() -> int
+    return len(args())
 end
 
+## Returns all raw OS arguments.
+pub function cli_raw_args() -> string[]
+    return args()
+end
+
+# --- Flags, Options & Positionals ---
+
+## Returns the value of option opt_name (--opt=value or --opt value), or default_val when absent.
 pub function cli_get_opt(opt_name: string, default_val: string = "") -> string
     let raw: string[] = args()
     let clean: string = _cli_strip_dashes(opt_name)
@@ -86,6 +76,7 @@ pub function cli_get_opt(opt_name: string, default_val: string = "") -> string
     return default_val
 end
 
+## Returns the idx-th positional (non-dash) argument, or default_val when absent.
 pub function cli_get_positional(idx: int, default_val: string = "") -> string
     let raw: string[] = args()
     let count: int = len(raw)
@@ -105,4 +96,22 @@ pub function cli_get_positional(idx: int, default_val: string = "") -> string
         i += 1
     end
     return default_val
+end
+
+## Returns 1 when flag_name (--flag or -flag) is present among raw arguments.
+pub function cli_has_flag(flag_name: string) -> int
+    let raw: string[] = args()
+    let clean: string = _cli_strip_dashes(flag_name)
+    let target_long: string = "--" + clean
+    let target_short: string = "-" + clean
+    let count: int = len(raw)
+    let i: int = 0
+    while i < count
+        let arg: string = str_from_ptr(raw[i])
+        if arg == target_long or arg == target_short
+            return 1
+        end
+        i += 1
+    end
+    return 0
 end

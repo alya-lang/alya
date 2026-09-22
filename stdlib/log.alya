@@ -7,8 +7,48 @@
 
 import "std/color"
 
-# --- Log Level Enum ---
+# --- Private Helpers ---
 
+# Pads a time component with a leading zero.
+function _log_pad2(n: int) -> string
+    if n < 10
+        return "0" + str(n)
+    end
+    return str(n)
+end
+
+# Returns the current time of day as an HH:MM:SS string.
+function _log_timestamp() -> string
+    let now: int = time() % 86400
+    let hh: int = (now / 3600) % 24
+    let mm: int = (now / 60) % 60
+    let ss: int = now % 60
+    return _log_pad2(hh) + ":" + _log_pad2(mm) + ":" + _log_pad2(ss)
+end
+
+# --- Constants ---
+
+## Backward-compatible numeric alias for LogLevel.Debug.
+pub let LOG_DEBUG: int = LogLevel.Debug
+
+## Backward-compatible numeric alias for LogLevel.Error.
+pub let LOG_ERROR: int = LogLevel.Error
+
+## Backward-compatible numeric alias for LogLevel.Fatal.
+pub let LOG_FATAL: int = LogLevel.Fatal
+
+## Backward-compatible numeric alias for LogLevel.Info.
+pub let LOG_INFO: int = LogLevel.Info
+
+## Backward-compatible numeric alias for LogLevel.Off.
+pub let LOG_OFF: int = LogLevel.Off
+
+## Backward-compatible numeric alias for LogLevel.Warn.
+pub let LOG_WARN: int = LogLevel.Warn
+
+# --- Types ---
+
+## Severity levels for log output.
 pub enum LogLevel
     Debug = 1
     Info = 2
@@ -18,14 +58,7 @@ pub enum LogLevel
     Off = 6
 end
 
-# Log Levels (backward compatibility constants)
-pub let LOG_DEBUG: int = LogLevel.Debug
-pub let LOG_INFO: int = LogLevel.Info
-pub let LOG_WARN: int = LogLevel.Warn
-pub let LOG_ERROR: int = LogLevel.Error
-pub let LOG_FATAL: int = LogLevel.Fatal
-pub let LOG_OFF: int = LogLevel.Off
-
+## Leveled console logger with colored badges, timestamps, and optional file output.
 pub struct Logger
     log_name: string
     log_level: int
@@ -34,18 +67,16 @@ pub struct Logger
     log_file: string
 end
 
-pub function log_level_name(lvl: int) -> string
-    when lvl
-        is LogLevel.Debug then return "DEBUG"
-        is LogLevel.Info then return "INFO"
-        is LogLevel.Warn then return "WARN"
-        is LogLevel.Error then return "ERROR"
-        is LogLevel.Fatal then return "FATAL"
-        is LogLevel.Off then return "OFF"
-        else return "LOG"
-    end
+# --- Constructors ---
+
+## Creates a logger with colored output, no timestamps, and no log file.
+pub function logger_new(name: string, level: int) -> Logger
+    return Logger(name, level, 1, 0, "")
 end
 
+# --- Level Helpers ---
+
+## Parses a level name into a LogLevel value, defaulting to Info.
 pub function log_level_from_str(s: string) -> int
     let up: string = upper(s)
     when up
@@ -60,41 +91,34 @@ pub function log_level_from_str(s: string) -> int
     end
 end
 
-function _log_pad2(n: int) -> string
-    if n < 10
-        return "0" + str(n)
+## Returns the level name (DEBUG, INFO, WARN, ERROR, FATAL, OFF) for lvl.
+pub function log_level_name(lvl: int) -> string
+    when lvl
+        is LogLevel.Debug then return "DEBUG"
+        is LogLevel.Info then return "INFO"
+        is LogLevel.Warn then return "WARN"
+        is LogLevel.Error then return "ERROR"
+        is LogLevel.Fatal then return "FATAL"
+        is LogLevel.Off then return "OFF"
+        else return "LOG"
     end
-    return str(n)
 end
 
-function _log_timestamp() -> string
-    let now: int = time() % 86400
-    let hh: int = (now / 3600) % 24
-    let mm: int = (now / 60) % 60
-    let ss: int = now % 60
-    return _log_pad2(hh) + ":" + _log_pad2(mm) + ":" + _log_pad2(ss)
-end
+# --- Logger Functions ---
 
-pub function logger_new(name: string, level: int) -> Logger
-    return Logger(name, level, 1, 0, "")
-end
+## Logs msg at debug level through l.
+pub function logger_debug(l: Logger, msg: string) -> int return logger_log(l, 1, msg) end
 
-pub function logger_set_level(l: Logger, level: int)
-    l.log_level = level
-end
+## Logs msg at error level through l.
+pub function logger_error(l: Logger, msg: string) -> int return logger_log(l, 4, msg) end
 
-pub function logger_set_colored(l: Logger, colored: int)
-    l.log_colored = colored
-end
+## Logs msg at fatal level through l.
+pub function logger_fatal(l: Logger, msg: string) -> int return logger_log(l, 5, msg) end
 
-pub function logger_set_timestamps(l: Logger, timestamps: int)
-    l.log_timestamps = timestamps
-end
+## Logs msg at info level through l.
+pub function logger_info(l: Logger, msg: string) -> int  return logger_log(l, 2, msg) end
 
-pub function logger_set_file(l: Logger, file_path: string)
-    l.log_file = file_path
-end
-
+## Emits message at level through l, returning 1 when written and 0 when filtered.
 pub function logger_log(l: Logger, level: int, message: string) -> int
     if level < l.log_level
         return 0
@@ -145,42 +169,84 @@ pub function logger_log(l: Logger, level: int, message: string) -> int
     return 1
 end
 
-pub function logger_debug(l: Logger, msg: string) -> int return logger_log(l, 1, msg) end
-pub function logger_info(l: Logger, msg: string) -> int  return logger_log(l, 2, msg) end
-pub function logger_warn(l: Logger, msg: string) -> int  return logger_log(l, 3, msg) end
-pub function logger_error(l: Logger, msg: string) -> int return logger_log(l, 4, msg) end
-pub function logger_fatal(l: Logger, msg: string) -> int return logger_log(l, 5, msg) end
+## Enables or disables colored badges on l.
+pub function logger_set_colored(l: Logger, colored: int)
+    l.log_colored = colored
+end
 
-# Direct top-level functions
+## Sets the file path that l appends plain log lines to.
+pub function logger_set_file(l: Logger, file_path: string)
+    l.log_file = file_path
+end
+
+## Sets the minimum level that l emits.
+pub function logger_set_level(l: Logger, level: int)
+    l.log_level = level
+end
+
+## Enables or disables timestamp prefixes on l.
+pub function logger_set_timestamps(l: Logger, timestamps: int)
+    l.log_timestamps = timestamps
+end
+
+## Logs msg at warn level through l.
+pub function logger_warn(l: Logger, msg: string) -> int  return logger_log(l, 3, msg) end
+
+# --- Top-Level Log Functions ---
+
+## Prints a cyan DEBUG message to the console.
 pub function log_debug(msg: string) say color_cyan("[DEBUG] ") + str_from_ptr(msg) end
-pub function log_info(msg: string)  say color_green("[INFO]  ") + str_from_ptr(msg) end
-pub function log_warn(msg: string)  say color_yellow("[WARN]  ") + str_from_ptr(msg) end
+
+## Prints a red ERROR message to the console.
 pub function log_error(msg: string) say color_red("[ERROR] ") + str_from_ptr(msg) end
+
+## Prints a bold bright-red FATAL message to the console.
 pub function log_fatal(msg: string) say style_bold(color_bright_red("[FATAL] ")) + str_from_ptr(msg) end
 
-# --- Logger Struct Methods ---
-pub function Logger.set_level(self: Logger, level: int)
-    logger_set_level(self, level)
-end
+## Prints a green INFO message to the console.
+pub function log_info(msg: string)  say color_green("[INFO]  ") + str_from_ptr(msg) end
 
-pub function Logger.set_colored(self: Logger, colored: int)
-    logger_set_colored(self, colored)
-end
+## Prints a yellow WARN message to the console.
+pub function log_warn(msg: string)  say color_yellow("[WARN]  ") + str_from_ptr(msg) end
 
-pub function Logger.set_timestamps(self: Logger, timestamps: int)
-    logger_set_timestamps(self, timestamps)
-end
+# --- Logger Methods ---
 
-pub function Logger.set_file(self: Logger, file_path: string)
-    logger_set_file(self, file_path)
-end
+## Logs msg at debug level through this logger.
+pub function Logger.debug(self: Logger, msg: string) -> int return logger_debug(self, msg) end
 
+## Logs msg at error level through this logger.
+pub function Logger.error(self: Logger, msg: string) -> int return logger_error(self, msg) end
+
+## Logs msg at fatal level through this logger.
+pub function Logger.fatal(self: Logger, msg: string) -> int return logger_fatal(self, msg) end
+
+## Logs msg at info level through this logger.
+pub function Logger.info(self: Logger, msg: string) -> int  return logger_info(self, msg) end
+
+## Emits message at level through this logger.
 pub function Logger.log(self: Logger, level: int, message: string) -> int
     return logger_log(self, level, message)
 end
 
-pub function Logger.debug(self: Logger, msg: string) -> int return logger_debug(self, msg) end
-pub function Logger.info(self: Logger, msg: string) -> int  return logger_info(self, msg) end
+## Enables or disables colored badges on this logger.
+pub function Logger.set_colored(self: Logger, colored: int)
+    logger_set_colored(self, colored)
+end
+
+## Sets the file path that this logger appends plain log lines to.
+pub function Logger.set_file(self: Logger, file_path: string)
+    logger_set_file(self, file_path)
+end
+
+## Sets the minimum level that this logger emits.
+pub function Logger.set_level(self: Logger, level: int)
+    logger_set_level(self, level)
+end
+
+## Enables or disables timestamp prefixes on this logger.
+pub function Logger.set_timestamps(self: Logger, timestamps: int)
+    logger_set_timestamps(self, timestamps)
+end
+
+## Logs msg at warn level through this logger.
 pub function Logger.warn(self: Logger, msg: string) -> int  return logger_warn(self, msg) end
-pub function Logger.error(self: Logger, msg: string) -> int return logger_error(self, msg) end
-pub function Logger.fatal(self: Logger, msg: string) -> int return logger_fatal(self, msg) end

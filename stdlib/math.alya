@@ -1,30 +1,44 @@
-# Alya Standard Library - Math Module
-# Provides common mathematical constants, trigonometry, statistics, and utility functions.
+# Alya Standard Library - Math Module (std/math)
+# Provides mathematical constants, trigonometry, statistics, random numbers, and vector utilities.
 
-pub let PI: float = 3.141592653589793
+# --- Constants ---
+
+## Base of the natural logarithm.
 pub let E: float = 2.718281828459045
-pub let TAU: float = 6.283185307179586
-pub let SQRT2: float = 1.4142135623730951
-pub let LN2: float = 0.6931471805599453
+
+## Natural logarithm of 10.
 pub let LN10: float = 2.302585092994046
+
+## Natural logarithm of 2.
+pub let LN2: float = 0.6931471805599453
+
+## Golden ratio.
 pub let PHI: float = 1.618033988749895
 
+## Ratio of a circle's circumference to its diameter.
+pub let PI: float = 3.141592653589793
+
+## Square root of 2.
+pub let SQRT2: float = 1.4142135623730951
+
+## Ratio of a circle's circumference to its radius (2 times PI).
+pub let TAU: float = 6.283185307179586
+
+# --- Angle Conversion ---
+
+## Converts degrees to radians.
 pub function deg_to_rad(deg: float) -> float
     return deg * (3.141592653589793 / 180.0)
 end
 
-pub function radians(deg: float) -> float
-    return deg * (3.141592653589793 / 180.0)
-end
-
+## Converts radians to degrees.
 pub function rad_to_deg(rad: float) -> float
     return rad * (180.0 / 3.141592653589793)
 end
 
-pub function degrees(rad: float) -> float
-    return rad * (180.0 / 3.141592653589793)
-end
+# --- Basic Utilities ---
 
+## Clamps a value into the given inclusive range.
 pub function clamp(val, min_val, max_val)
     return when val
         is < min_val => min_val
@@ -33,6 +47,22 @@ pub function clamp(val, min_val, max_val)
     end
 end
 
+## Returns the floating-point remainder of a divided by b.
+pub function fmod(a, b) -> float
+    return native_fmod(float(a), float(b))
+end
+
+## Tests whether a number is even.
+pub function is_even(n: int) -> int
+    return n % 2 == 0
+end
+
+## Tests whether a number is odd.
+pub function is_odd(n: int) -> int
+    return n % 2 != 0
+end
+
+## Returns 1, -1, or 0 for positive, negative, or zero input.
 pub function sign(val) -> int
     return when val
         is > 0 => 1
@@ -41,44 +71,23 @@ pub function sign(val) -> int
     end
 end
 
-pub function is_even(n: int) -> int
-    return n % 2 == 0
-end
+# --- Roots and Powers ---
 
-pub function is_odd(n: int) -> int
-    return n % 2 != 0
-end
-
-pub function math__sqrt(x: float) -> float
-    return native_sqrt(x)
-end
-
-pub function sqrt_f(x) -> float
-    return native_sqrt(float(x))
-end
-
+## Returns the hypotenuse length for sides a and b.
 pub function hypot(a, b) -> float
     let fa: float = float(a)
     let fb: float = float(b)
     return native_sqrt(fa * fa + fb * fb)
 end
 
-pub function round(val: float) -> int
-    return when val
-        is >= 0.0 => int(val + 0.5)
-        else => int(val - 0.5)
-    end
+## Returns the square root of the value.
+pub function sqrt_f(x) -> float
+    return native_sqrt(float(x))
 end
 
-pub function floor(val: float) -> int
-    let iv: int = int(val)
-    if val >= 0.0 or float(iv) == val
-        return iv
-    else
-        return iv - 1
-    end
-end
+# --- Rounding ---
 
+## Rounds a float up to the nearest integer.
 pub function ceil(val: float) -> int
     let iv: int = int(val)
     if val <= 0.0 or float(iv) == val
@@ -88,10 +97,32 @@ pub function ceil(val: float) -> int
     end
 end
 
+## Rounds a float down to the nearest integer.
+pub function floor(val: float) -> int
+    let iv: int = int(val)
+    if val >= 0.0 or float(iv) == val
+        return iv
+    else
+        return iv - 1
+    end
+end
+
+## Rounds a float to the nearest integer.
+pub function round(val: float) -> int
+    return when val
+        is >= 0.0 => int(val + 0.5)
+        else => int(val - 0.5)
+    end
+end
+
+## Truncates a float toward zero.
 pub function trunc(val: float) -> int
     return int(val)
 end
 
+# --- Trigonometry ---
+
+# Private helper that wraps an angle in radians into the [-PI, PI] range.
 function _normalize_angle(rad: float) -> float
     let two_pi: float = 6.283185307179586
     let pi: float = 3.141592653589793
@@ -106,83 +137,83 @@ function _normalize_angle(rad: float) -> float
     return rem
 end
 
-pub function sin(x) -> float
-    return native_sin(float(x))
-end
-
-pub function cos(x) -> float
-    return native_cos(float(x))
-end
-
-pub function tan(x) -> float
-    return native_tan(float(x))
-end
-
-pub function asin(x) -> float
-    return native_asin(float(x))
-end
-
+## Returns the arc cosine of the value in radians.
 pub function acos(x) -> float
     return native_acos(float(x))
 end
 
+## Returns the arc sine of the value in radians.
+pub function asin(x) -> float
+    return native_asin(float(x))
+end
+
+## Returns the arc tangent of the value in radians.
 pub function atan(x) -> float
     return native_atan(float(x))
 end
 
+## Returns the angle of point (x, y) in radians.
 pub function atan2(y, x) -> float
     return native_atan2(float(y), float(x))
 end
 
-pub function sinh(x) -> float
-    return native_sinh(float(x))
+## Returns the cosine of the angle in radians.
+pub function cos(x) -> float
+    return native_cos(float(x))
 end
 
+## Returns the sine of the angle in radians.
+pub function sin(x) -> float
+    return native_sin(float(x))
+end
+
+## Returns the tangent of the angle in radians.
+pub function tan(x) -> float
+    return native_tan(float(x))
+end
+
+# --- Hyperbolic Functions ---
+
+## Returns the hyperbolic cosine of the value.
 pub function cosh(x) -> float
     return native_cosh(float(x))
 end
 
+## Returns the hyperbolic sine of the value.
+pub function sinh(x) -> float
+    return native_sinh(float(x))
+end
+
+## Returns the hyperbolic tangent of the value.
 pub function tanh(x) -> float
     return native_tanh(float(x))
 end
 
-pub function log_n(x) -> float
-    return native_log(float(x))
-end
+# --- Exponentials and Logarithms ---
 
-pub function log2(x) -> float
-    return native_log2(float(x))
-end
-
-pub function log10(x) -> float
-    return native_log10(float(x))
-end
-
+## Returns e raised to the given power.
 pub function exp_f(x) -> float
     return native_exp(float(x))
 end
 
-pub function fmod(a, b) -> float
-    return native_fmod(float(a), float(b))
+## Returns the base-10 logarithm of the value.
+pub function log10(x) -> float
+    return native_log10(float(x))
 end
 
-pub function rand_range(min_val: int, max_val: int) -> int
-    if min_val >= max_val
-        return min_val
-    end
-    let r: int = rand()
-    let span: int = max_val - min_val + 1
-    return min_val + (r % span)
+## Returns the base-2 logarithm of the value.
+pub function log2(x) -> float
+    return native_log2(float(x))
 end
 
-pub function sum(arr)
-    let total = 0
-    for x in arr
-        total += x
-    end
-    return total
+## Returns the natural logarithm of the value.
+pub function log_n(x) -> float
+    return native_log(float(x))
 end
 
+# --- Statistics ---
+
+## Returns the arithmetic mean of an array.
 pub function mean(arr) -> float
     let count: int = len(arr)
     if count == 0
@@ -191,6 +222,7 @@ pub function mean(arr) -> float
     return float(sum(arr)) / float(count)
 end
 
+## Returns the median of an array.
 pub function median(arr)
     let count: int = len(arr)
     if count == 0
@@ -220,6 +252,21 @@ pub function median(arr)
     end
 end
 
+## Returns the standard deviation of an array.
+pub function std_dev(arr) -> float
+    return native_sqrt(variance(arr))
+end
+
+## Returns the sum of an array.
+pub function sum(arr)
+    let total = 0
+    for x in arr
+        total += x
+    end
+    return total
+end
+
+## Returns the population variance of an array.
 pub function variance(arr) -> float
     let count: int = len(arr)
     if count == 0
@@ -235,14 +282,14 @@ pub function variance(arr) -> float
     return sum_sq / float(count)
 end
 
-pub function std_dev(arr) -> float
-    return native_sqrt(variance(arr))
-end
+# --- Interpolation ---
 
+## Linearly interpolates between a and b by t.
 pub function lerp(a: float, b: float, t: float) -> float
     return a + (b - a) * t
 end
 
+## Normalizes a value into the 0 to 1 range of the given span.
 pub function norm(val: float, min_val: float, max_val: float) -> float
     let span: float = max_val - min_val
     if span == 0.0 or span == 0
@@ -251,6 +298,7 @@ pub function norm(val: float, min_val: float, max_val: float) -> float
     return (val - min_val) / span
 end
 
+## Smoothly interpolates between two edges with Hermite smoothing.
 pub function smoothstep(edge0: float, edge1: float, x: float) -> float
     let span: float = edge1 - edge0
     if span == 0.0 or span == 0
@@ -266,28 +314,9 @@ pub function smoothstep(edge0: float, edge1: float, x: float) -> float
     return t * t * (3.0 - 2.0 * t)
 end
 
-pub function gcd(a: int, b: int) -> int
-    let x: int = abs(a)
-    let y: int = abs(b)
-    let temp: int = 0
-    while y != 0
-        temp = y
-        y = x % y
-        x = temp
-    end
-    return x
-end
+# --- Number Theory ---
 
-pub function lcm(a: int, b: int) -> int
-    if a == 0 or b == 0
-        return 0
-    end
-    let g: int = gcd(a, b)
-    let x: int = abs(a)
-    let y: int = abs(b)
-    return (x / g) * y
-end
-
+## Returns the factorial of n.
 pub function factorial(n: int) -> int
     if n <= 1
         return 1
@@ -301,6 +330,20 @@ pub function factorial(n: int) -> int
     return res
 end
 
+## Returns the greatest common divisor of two integers.
+pub function gcd(a: int, b: int) -> int
+    let x: int = abs(a)
+    let y: int = abs(b)
+    let temp: int = 0
+    while y != 0
+        temp = y
+        y = x % y
+        x = temp
+    end
+    return x
+end
+
+## Tests whether a number is prime, returning 1 or 0.
 pub function is_prime(n: int) -> int
     if n <= 1
         return 0
@@ -321,69 +364,31 @@ pub function is_prime(n: int) -> int
     return 1
 end
 
-# --- Pseudo-Random Number Generation (Merged from std/rand) ---
-
-pub function rand_seed_state(s: int)
-    rand_seed(s)
+## Returns the least common multiple of two integers.
+pub function lcm(a: int, b: int) -> int
+    if a == 0 or b == 0
+        return 0
+    end
+    let g: int = gcd(a, b)
+    let x: int = abs(a)
+    let y: int = abs(b)
+    return (x / g) * y
 end
 
+# --- Random Numbers ---
+
+## Reseeds the PRNG from the current time.
 pub function rand_auto_seed()
     let s: int = (time() * 1000) + (clock_ms() % 1000) + rand()
     rand_seed(s)
 end
 
-# Generates a pseudo-random integer in the range [0, 2147483647] using the global PRNG.
-pub function rand_next() -> int
-    let r: int = rand()
-    if r < 0
-        r = 0 - r
-    end
-    return r
-end
-
-# Inclusive random integer in [min_val, max_val]
-pub function rand_int(min_val: int, max_val: int) -> int
-    if min_val >= max_val
-        return min_val
-    end
-    let r: int = rand_next()
-    let range: int = (max_val - min_val) + 1
-    return min_val + (r % range)
-end
-
-pub function math__rand_int(min_val: int, max_val: int) -> int
-    return rand_int(min_val, max_val)
-end
-
-# Monotonic 0.0 to 1.0 float
-pub function random() -> float
-    let r: int = rand_next() % 1000000000
-    return r / 1000000000.0
-end
-
-pub function math__random() -> float
-    return random()
-end
-
-pub function rand_float() -> float
-    return random()
-end
-
-# Generates a pseudo-random float in the range [min_val, max_val).
-pub function rand_float_range(min_val: float, max_val: float) -> float
-    if min_val >= max_val
-        return min_val
-    end
-    let f: float = rand_float()
-    return min_val + (f * (max_val - min_val))
-end
-
-# Returns 1 or 0 with 50% probability.
+## Returns 1 or 0 with 50 percent probability.
 pub function rand_bool() -> int
     return rand_next() % 2
 end
 
-# Returns 1 if an event with probability 'pct' (0..100) occurs, else 0.
+## Returns 1 if an event with probability pct (0..100) occurs, else 0.
 pub function rand_chance(pct: int) -> int
     if pct <= 0
         return 0
@@ -394,7 +399,7 @@ pub function rand_chance(pct: int) -> int
     return (rand_next() % 100) < pct
 end
 
-# Returns a randomly selected element from 'arr'.
+## Returns a randomly selected element from arr.
 pub function rand_choice(arr)
     let n: int = len(arr)
     if n == 0
@@ -404,9 +409,70 @@ pub function rand_choice(arr)
     return arr[idx]
 end
 
-# --- SIMD & High-Performance Vector / AI Primitives ---
+## Generates a pseudo-random float in the range [min_val, max_val).
+pub function rand_float_range(min_val: float, max_val: float) -> float
+    if min_val >= max_val
+        return min_val
+    end
+    let f: float = rand_float()
+    return min_val + (f * (max_val - min_val))
+end
 
-# Hardware-friendly 4-wide unrolled dot product of two vectors.
+## Generates an inclusive random integer in [min_val, max_val].
+pub function rand_int(min_val: int, max_val: int) -> int
+    if min_val >= max_val
+        return min_val
+    end
+    let r: int = rand_next()
+    let range: int = (max_val - min_val) + 1
+    return min_val + (r % range)
+end
+
+## Generates a pseudo-random integer in the range [0, 2147483647] using the global PRNG.
+pub function rand_next() -> int
+    let r: int = rand()
+    if r < 0
+        r = 0 - r
+    end
+    return r
+end
+
+## Returns a random integer in [min_val, max_val] using the raw PRNG.
+pub function rand_range(min_val: int, max_val: int) -> int
+    if min_val >= max_val
+        return min_val
+    end
+    let r: int = rand()
+    let span: int = max_val - min_val + 1
+    return min_val + (r % span)
+end
+
+## Seeds the global PRNG with the given value.
+pub function rand_seed_state(s: int)
+    rand_seed(s)
+end
+
+## Returns a pseudo-random float in the 0.0 to 1.0 range.
+pub function random() -> float
+    let r: int = rand_next() % 1000000000
+    return r / 1000000000.0
+end
+
+# --- Vector Operations ---
+
+## Cosine similarity between two vectors for AI embeddings / semantic search: (A . B) / (|A| * |B|).
+pub function cosine_similarity(a, b) -> float
+    let dot: float = dot_product(a, b)
+    let norm_a: float = vector_norm(a)
+    let norm_b: float = vector_norm(b)
+    let denom: float = norm_a * norm_b
+    if denom == 0.0
+        return 0.0
+    end
+    return dot / denom
+end
+
+## Hardware-friendly 4-wide unrolled dot product of two vectors.
 pub function dot_product(a, b) -> float
     let n: int = len(a)
     let nb: int = len(b)
@@ -438,25 +504,7 @@ pub function dot_product(a, b) -> float
     return sum
 end
 
-# Euclidean L2 norm (magnitude) of a vector: sqrt(sum(v_i^2)).
-pub function vector_norm(v) -> float
-    let dot: float = dot_product(v, v)
-    return native_sqrt(dot)
-end
-
-# Cosine similarity between two vectors for AI embeddings / semantic search: (A . B) / (|A| * |B|).
-pub function cosine_similarity(a, b) -> float
-    let dot: float = dot_product(a, b)
-    let norm_a: float = vector_norm(a)
-    let norm_b: float = vector_norm(b)
-    let denom: float = norm_a * norm_b
-    if denom == 0.0
-        return 0.0
-    end
-    return dot / denom
-end
-
-# High-throughput 4-way unrolled summation of float array elements.
+## High-throughput 4-way unrolled summation of float array elements.
 pub function sum_f64(arr) -> float
     let n: int = len(arr)
     let total: float = 0.0
@@ -476,4 +524,42 @@ pub function sum_f64(arr) -> float
         i += 1
     end
     return total
+end
+
+## Euclidean L2 norm (magnitude) of a vector: sqrt(sum(v_i^2)).
+pub function vector_norm(v) -> float
+    let dot: float = dot_product(v, v)
+    return native_sqrt(dot)
+end
+
+# --- Legacy Aliases ---
+
+## Alias for rad_to_deg converting radians to degrees.
+pub function degrees(rad: float) -> float
+    return rad * (180.0 / 3.141592653589793)
+end
+
+## Alias for rand_int generating an inclusive random integer.
+pub function math__rand_int(min_val: int, max_val: int) -> int
+    return rand_int(min_val, max_val)
+end
+
+## Alias for random generating a float in 0.0 to 1.0.
+pub function math__random() -> float
+    return random()
+end
+
+## Alias for sqrt_f returning the square root.
+pub function math__sqrt(x: float) -> float
+    return native_sqrt(x)
+end
+
+## Alias for deg_to_rad converting degrees to radians.
+pub function radians(deg: float) -> float
+    return deg * (3.141592653589793 / 180.0)
+end
+
+## Alias for random generating a float in 0.0 to 1.0.
+pub function rand_float() -> float
+    return random()
 end

@@ -1,25 +1,60 @@
-# Alya Standard Library - Collections Module
-# Provides common data structures: Stack, Queue, and Set.
+# Alya Standard Library - Collections Module (std/collections)
+# Provides Stack, Queue, and Set data structures plus array and map utilities.
 
-# 1. Stack (LIFO)
+# --- Types ---
+
+## First-in first-out queue backed by an array with a head pointer.
+pub struct Queue end
+
+## Set of unique items backed by a map.
+pub struct Set end
+
+## Last-in first-out stack backed by an array.
 pub struct Stack end
 
+# --- Constructors ---
+
+## Creates a new empty queue.
+pub function Queue.new()
+    return queue_new()
+end
+
+## Creates a new empty queue.
+pub function queue_new()
+    return [1]
+end
+
+## Creates a new empty set.
+pub function Set.new()
+    return set_new()
+end
+
+## Creates a new empty set.
+pub function set_new()
+    return {}
+end
+
+## Creates a new empty stack.
 pub function Stack.new()
     return []
 end
 
+## Creates a new empty stack.
 pub function stack_new()
     return []
 end
 
-pub function stack_push(s, val)
-    s.push(val)
+# --- Stack ---
+
+## Returns 1 if the stack is empty, 0 otherwise.
+pub function stack_is_empty(s) -> int
+    if len(s) == 0
+        return 1
+    end
+    return 0
 end
 
-pub function stack_pop(s)
-    return s.pop()
-end
-
+## Returns the top item without removing it, or 0 if empty.
 pub function stack_peek(s)
     let count: int = len(s)
     if count == 0
@@ -28,32 +63,49 @@ pub function stack_peek(s)
     return s[count - 1]
 end
 
+## Removes and returns the top item.
+pub function stack_pop(s)
+    return s.pop()
+end
+
+## Pushes a value onto the stack.
+pub function stack_push(s, val)
+    s.push(val)
+end
+
+## Returns the number of items in the stack.
 pub function stack_size(s) -> int
     return len(s)
 end
 
-pub function stack_is_empty(s) -> int
-    if len(s) == 0
+# --- Queue ---
+
+## Removes all items from the queue.
+pub function queue_clear(q)
+    while len(q) > 1
+        q.pop()
+    end
+    q[0] = 1
+end
+
+## Returns 1 if the queue is empty, 0 otherwise.
+pub function queue_is_empty(q) -> int
+    if q[0] >= len(q)
         return 1
     end
     return 0
 end
 
-# 2. Queue (FIFO) - O(1) amortized queue using head pointer and compaction
-pub struct Queue end
-
-pub function Queue.new()
-    return queue_new()
+## Returns the front item without removing it, or 0 if empty.
+pub function queue_peek(q)
+    let head: int = q[0]
+    if head >= len(q)
+        return 0
+    end
+    return q[head]
 end
 
-pub function queue_new()
-    return [1]
-end
-
-pub function queue_push(q, val)
-    q.push(val)
-end
-
+## Removes and returns the front item, or 0 if empty.
 pub function queue_pop(q)
     let head: int = q[0]
     let total: int = len(q)
@@ -78,14 +130,12 @@ pub function queue_pop(q)
     return first
 end
 
-pub function queue_peek(q)
-    let head: int = q[0]
-    if head >= len(q)
-        return 0
-    end
-    return q[head]
+## Pushes a value onto the back of the queue.
+pub function queue_push(q, val)
+    q.push(val)
 end
 
+## Returns the number of items in the queue.
 pub function queue_size(q) -> int
     let sz: int = len(q) - q[0]
     if sz < 0
@@ -94,20 +144,7 @@ pub function queue_size(q) -> int
     return sz
 end
 
-pub function queue_is_empty(q) -> int
-    if q[0] >= len(q)
-        return 1
-    end
-    return 0
-end
-
-pub function queue_clear(q)
-    while len(q) > 1
-        q.pop()
-    end
-    q[0] = 1
-end
-
+## Returns the queued items as a plain array.
 pub function queue_to_array(q)
     let res = []
     let head: int = q[0]
@@ -120,46 +157,32 @@ pub function queue_to_array(q)
     return res
 end
 
-# 3. Set (Unique items)
-pub struct Set end
+# --- Set ---
 
-pub function Set.new()
-    return set_new()
-end
-
-pub function set_new()
-    return {}
-end
-
+## Adds an item to the set.
 pub function set_add(s, item)
     s[item] = 1
 end
 
-pub function set_has(s, item) -> int
-    if item in s
-        return 1
-    end
-    return 0
-end
-
-pub function set_remove(s, item)
-    return remove(s, item)
-end
-
-pub function set_size(s) -> int
-    return len(s)
-end
-
-pub function set_to_array(s)
-    return keys(s)
-end
-
+## Removes all items from the set.
 pub function set_clear(s)
     for k in keys(s)
         remove(s, k)
     end
 end
 
+## Returns items in a that are not in b.
+pub function set_difference(a, b)
+    let res = {}
+    for k in keys(a)
+        if k not in b
+            res[k] = 1
+        end
+    end
+    return res
+end
+
+## Builds a set from the items of an array.
 pub function set_from_array(arr)
     let s = {}
     for item in arr
@@ -168,6 +191,51 @@ pub function set_from_array(arr)
     return s
 end
 
+## Returns 1 if the item is in the set, 0 otherwise.
+pub function set_has(s, item) -> int
+    if item in s
+        return 1
+    end
+    return 0
+end
+
+## Returns items present in both sets.
+pub function set_intersection(a, b)
+    let res = {}
+    for k in keys(a)
+        if k in b
+            res[k] = 1
+        end
+    end
+    return res
+end
+
+## Returns 1 if every item of a is in b, 0 otherwise.
+pub function set_is_subset(a, b) -> int
+    for k in keys(a)
+        if k not in b
+            return 0
+        end
+    end
+    return 1
+end
+
+## Removes an item from the set.
+pub function set_remove(s, item)
+    return remove(s, item)
+end
+
+## Returns the number of items in the set.
+pub function set_size(s) -> int
+    return len(s)
+end
+
+## Returns the set items as an array.
+pub function set_to_array(s)
+    return keys(s)
+end
+
+## Returns the combined items of both sets.
 pub function set_union(a, b)
     let res = {}
     for k in keys(a)
@@ -179,178 +247,9 @@ pub function set_union(a, b)
     return res
 end
 
-pub function set_intersection(a, b)
-    let res = {}
-    for k in keys(a)
-        if k in b
-            res[k] = 1
-        end
-    end
-    return res
-end
+# --- Array Utilities ---
 
-pub function set_difference(a, b)
-    let res = {}
-    for k in keys(a)
-        if k not in b
-            res[k] = 1
-        end
-    end
-    return res
-end
-
-pub function set_is_subset(a, b) -> int
-    for k in keys(a)
-        if k not in b
-            return 0
-        end
-    end
-    return 1
-end
-
-# 4. Array Utilities
-pub function array_contains(arr, val) -> int
-    if val in arr
-        return 1
-    end
-    return 0
-end
-
-pub function array_index_of(arr, val) -> int
-    for i, item in arr
-        if item == val
-            return i
-        end
-    end
-    return -1
-end
-
-pub function array_last_index_of(arr, val) -> int
-    let i: int = len(arr) - 1
-    while i >= 0
-        if arr[i] == val
-            return i
-        end
-        i -= 1
-    end
-    return -1
-end
-
-pub function array_slice(arr, start_idx: int, end_idx: int)
-    let total: int = len(arr)
-    if start_idx < 0
-        start_idx = 0
-    end
-    if end_idx > total
-        end_idx = total
-    end
-    if start_idx >= end_idx
-        return []
-    end
-    return arr[start_idx..end_idx]
-end
-
-pub function array_clone(arr)
-    return [...arr]
-end
-
-pub function array_concat(a, b)
-    return [...a, ...b]
-end
-
-pub function array_reverse(arr)
-    let res = []
-    let i: int = len(arr) - 1
-    while i >= 0
-        res.push(arr[i])
-        i -= 1
-    end
-    return res
-end
-
-pub function array_reverse_in_place(arr)
-    let left: int = 0
-    let right: int = len(arr) - 1
-    let temp = 0
-    while left < right
-        temp = arr[left]
-        arr[left] = arr[right]
-        arr[right] = temp
-        left += 1
-        right -= 1
-    end
-    return arr
-end
-
-pub function array_unique(arr)
-    let seen = {}
-    let res = []
-    for x in arr
-        if x not in seen
-            seen[x] = 1
-            res.push(x)
-        end
-    end
-    return res
-end
-
-pub function array_min(arr)
-    let count: int = len(arr)
-    if count == 0
-        return 0
-    end
-    let m = arr[0]
-    let i: int = 1
-    while i < count
-        if arr[i] < m
-            m = arr[i]
-        end
-        i += 1
-    end
-    return m
-end
-
-pub function array_max(arr)
-    let count: int = len(arr)
-    if count == 0
-        return 0
-    end
-    let m = arr[0]
-    let i: int = 1
-    while i < count
-        if arr[i] > m
-            m = arr[i]
-        end
-        i += 1
-    end
-    return m
-end
-
-pub function array_sort_in_place(arr)
-    let n: int = len(arr)
-    let i: int = 0
-    let j: int = 0
-    let temp = 0
-    while i < n
-        j = 0
-        while j < n - i - 1
-            if arr[j] > arr[j + 1]
-                temp = arr[j]
-                arr[j] = arr[j + 1]
-                arr[j + 1] = temp
-            end
-            j += 1
-        end
-        i += 1
-    end
-    return arr
-end
-
-pub function array_sort(arr)
-    let copy = array_clone(arr)
-    return array_sort_in_place(copy)
-end
-
+## Splits an array into chunks of the given size.
 pub function array_chunk(arr, chunk_size: int)
     let res = []
     if chunk_size <= 0
@@ -373,6 +272,25 @@ pub function array_chunk(arr, chunk_size: int)
     return res
 end
 
+## Returns a shallow copy of an array.
+pub function array_clone(arr)
+    return [...arr]
+end
+
+## Concatenates two arrays into a new array.
+pub function array_concat(a, b)
+    return [...a, ...b]
+end
+
+## Returns 1 if the array contains the value, 0 otherwise.
+pub function array_contains(arr, val) -> int
+    if val in arr
+        return 1
+    end
+    return 0
+end
+
+## Builds an array with count copies of a value.
 pub function array_fill(val, count: int)
     let res = []
     let i: int = 0
@@ -383,7 +301,146 @@ pub function array_fill(val, count: int)
     return res
 end
 
-# 5. Map Utilities
+## Returns the first index of a value, or -1 if absent.
+pub function array_index_of(arr, val) -> int
+    for i, item in arr
+        if item == val
+            return i
+        end
+    end
+    return -1
+end
+
+## Returns the last index of a value, or -1 if absent.
+pub function array_last_index_of(arr, val) -> int
+    let i: int = len(arr) - 1
+    while i >= 0
+        if arr[i] == val
+            return i
+        end
+        i -= 1
+    end
+    return -1
+end
+
+## Returns the largest item, or 0 for an empty array.
+pub function array_max(arr)
+    let count: int = len(arr)
+    if count == 0
+        return 0
+    end
+    let m = arr[0]
+    let i: int = 1
+    while i < count
+        if arr[i] > m
+            m = arr[i]
+        end
+        i += 1
+    end
+    return m
+end
+
+## Returns the smallest item, or 0 for an empty array.
+pub function array_min(arr)
+    let count: int = len(arr)
+    if count == 0
+        return 0
+    end
+    let m = arr[0]
+    let i: int = 1
+    while i < count
+        if arr[i] < m
+            m = arr[i]
+        end
+        i += 1
+    end
+    return m
+end
+
+## Returns a reversed copy of an array.
+pub function array_reverse(arr)
+    let res = []
+    let i: int = len(arr) - 1
+    while i >= 0
+        res.push(arr[i])
+        i -= 1
+    end
+    return res
+end
+
+## Reverses an array in place and returns it.
+pub function array_reverse_in_place(arr)
+    let left: int = 0
+    let right: int = len(arr) - 1
+    let temp = 0
+    while left < right
+        temp = arr[left]
+        arr[left] = arr[right]
+        arr[right] = temp
+        left += 1
+        right -= 1
+    end
+    return arr
+end
+
+## Returns the slice from start_idx to end_idx with clamped bounds.
+pub function array_slice(arr, start_idx: int, end_idx: int)
+    let total: int = len(arr)
+    if start_idx < 0
+        start_idx = 0
+    end
+    if end_idx > total
+        end_idx = total
+    end
+    if start_idx >= end_idx
+        return []
+    end
+    return arr[start_idx..end_idx]
+end
+
+## Returns a sorted copy of an array.
+pub function array_sort(arr)
+    let copy = array_clone(arr)
+    return array_sort_in_place(copy)
+end
+
+## Sorts an array in place with bubble sort and returns it.
+pub function array_sort_in_place(arr)
+    let n: int = len(arr)
+    let i: int = 0
+    let j: int = 0
+    let temp = 0
+    while i < n
+        j = 0
+        while j < n - i - 1
+            if arr[j] > arr[j + 1]
+                temp = arr[j]
+                arr[j] = arr[j + 1]
+                arr[j + 1] = temp
+            end
+            j += 1
+        end
+        i += 1
+    end
+    return arr
+end
+
+## Returns an array with duplicate items removed.
+pub function array_unique(arr)
+    let seen = {}
+    let res = []
+    for x in arr
+        if x not in seen
+            seen[x] = 1
+            res.push(x)
+        end
+    end
+    return res
+end
+
+# --- Map Utilities ---
+
+## Returns a copy of a map.
 pub function map_clone(m)
     let res = {}
     for k, v in m
@@ -392,21 +449,7 @@ pub function map_clone(m)
     return res
 end
 
-pub function map_merge(dest, src)
-    let res = map_clone(dest)
-    for k, v in src
-        res[k] = v
-    end
-    return res
-end
-
-pub function map_is_empty(m) -> int
-    if len(m) == 0
-        return 1
-    end
-    return 0
-end
-
+## Returns the key-value pairs of a map as an array.
 pub function map_entries(m)
     let res = []
     for k, v in m
@@ -415,6 +458,7 @@ pub function map_entries(m)
     return res
 end
 
+## Builds a map from an array of key-value pairs.
 pub function map_from_entries(entries)
     let res = {}
     for pair in entries
@@ -422,6 +466,23 @@ pub function map_from_entries(entries)
             let k, v = pair
             res[k] = v
         end
+    end
+    return res
+end
+
+## Returns 1 if the map is empty, 0 otherwise.
+pub function map_is_empty(m) -> int
+    if len(m) == 0
+        return 1
+    end
+    return 0
+end
+
+## Merges src into a copy of dest and returns it.
+pub function map_merge(dest, src)
+    let res = map_clone(dest)
+    for k, v in src
+        res[k] = v
     end
     return res
 end

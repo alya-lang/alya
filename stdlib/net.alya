@@ -4,185 +4,9 @@
 
 import "std/str"
 
-# --- Low-Level TCP Socket Functions ---
+# --- Types ---
 
-# Creates a new TCP streaming socket (AF_INET, SOCK_STREAM).
-# Returns a socket descriptor (>= 0) or -1 on error.
-pub function tcp_socket() -> int
-    return net_socket()
-end
-
-pub struct SocketError
-    message: string
-end
-
-# Connects to a remote TCP server. Returns a socket descriptor (>= 0) or throws SocketError on error.
-pub function tcp_connect(host: string, port: int) -> int
-    let s: int = net_connect(host, port)
-    if s < 0
-        throw SocketError { message: f"Connection to {host}:{port} refused or failed" }
-    end
-    return s
-end
-
-# Sends a string over a connected TCP socket. Returns number of bytes sent or -1 on error.
-pub function tcp_send(sock: int, data: string) -> int
-    return net_send(sock, data)
-end
-
-# Receives up to max_bytes from a connected TCP socket.
-# Returns received string, or "" on connection close/EOF.
-pub function tcp_recv(sock: int, max_bytes: int = 4096) -> string
-    let bytes_limit: int = max_bytes
-    if bytes_limit <= 0
-        bytes_limit = 4096
-    end
-    return net_recv(sock, bytes_limit)
-end
-
-# Closes a TCP or UDP socket connection.
-pub function tcp_close(sock: int) -> int
-    return net_close(sock)
-end
-
-pub function send(sock: int, data: string) -> int
-    return tcp_send(sock, data)
-end
-
-pub function recv(sock: int, max_bytes: int = 4096) -> string
-    return tcp_recv(sock, max_bytes)
-end
-
-pub function close(sock: int) -> int
-    return tcp_close(sock)
-end
-
-# Creates a TCP server socket listening on the specified port.
-# Returns listening socket handle or -1 on error.
-pub function tcp_listen(port: int, backlog: int = 10) -> int
-    let b: int = backlog
-    if b <= 0
-        b = 10
-    end
-    return net_listen(port, b)
-end
-
-# Accepts an incoming client connection on a listening server socket.
-# Returns client socket handle or -1 on error.
-pub function tcp_accept(server_sock: int) -> int
-    return net_accept(server_sock)
-end
-
-# Sets read and write timeouts on a socket in milliseconds.
-# Returns 0 on success or -1 on error.
-pub function tcp_set_timeout(sock: int, ms: int = 10000) -> int
-    let t: int = ms
-    if t <= 0
-        t = 10000
-    end
-    return net_set_timeout(sock, t)
-end
-
-# Sets non-blocking mode on a socket (mode = 1: non-blocking, mode = 0: blocking).
-# Returns 0 on success or -1 on error.
-pub function tcp_set_nonblocking(sock: int, mode: int = 1) -> int
-    return net_set_nonblocking(sock, mode)
-end
-
-# Polls a socket for incoming readable data (or incoming connections on listening server)
-# within timeout_ms milliseconds.
-# Returns:
-#   1: socket has data ready to read (or connection ready to accept)
-#   0: timed out (no data ready)
-#  -1: error or connection reset
-pub function tcp_poll(sock: int, timeout_ms: int = 0) -> int
-    let t: int = timeout_ms
-    if t < 0
-        t = 0
-    end
-    return net_poll(sock, t)
-end
-
-# Returns the remote peer's IP address as a string (e.g. "127.0.0.1"), or "" on failure.
-pub function tcp_peer_ip(sock: int) -> string
-    return net_peer_ip(sock)
-end
-
-# Returns the remote peer's port number as an integer, or -1 on failure.
-pub function tcp_peer_port(sock: int) -> int
-    return net_peer_port(sock)
-end
-
-# Returns remote peer address in "ip:port" format, or "" on failure.
-pub function tcp_peer_addr(sock: int) -> string
-    let ip: string = net_peer_ip(sock)
-    let port: int = net_peer_port(sock)
-    if port < 0 or ip == ""
-        return ""
-    end
-    return ip + ":" + str(port)
-end
-
-# --- UDP Socket Functions ---
-
-# Creates a new UDP datagram socket (AF_INET, SOCK_DGRAM).
-# Returns a socket descriptor (>= 0) or -1 on error.
-pub function udp_socket() -> int
-    return net_udp_socket()
-end
-
-# Binds a UDP socket to the specified port on INADDR_ANY.
-# Returns 0 on success or -1 on error.
-pub function udp_bind(sock: int, port: int) -> int
-    return net_udp_bind(sock, port)
-end
-
-# Sends a datagram to host:port over a UDP socket.
-# Returns number of bytes sent or -1 on error.
-pub function udp_send(sock: int, host: string, port: int, data: string) -> int
-    return net_udp_send(sock, host, port, data)
-end
-
-# Receives up to max_bytes from a UDP socket.
-# Returns received string, or "" on error / empty datagram.
-pub function udp_recv(sock: int, max_bytes: int = 4096) -> string
-    let bytes_limit: int = max_bytes
-    if bytes_limit <= 0
-        bytes_limit = 4096
-    end
-    return net_udp_recv(sock, bytes_limit)
-end
-
-# Closes a UDP socket.
-pub function udp_close(sock: int) -> int
-    return net_close(sock)
-end
-
-# Sets read and write timeouts on a UDP socket in milliseconds.
-pub function udp_set_timeout(sock: int, ms: int = 10000) -> int
-    let t: int = ms
-    if t <= 0
-        t = 10000
-    end
-    return net_set_timeout(sock, t)
-end
-
-# Sets non-blocking mode on a UDP socket (mode = 1: non-blocking, mode = 0: blocking).
-pub function udp_set_nonblocking(sock: int, mode: int = 1) -> int
-    return net_set_nonblocking(sock, mode)
-end
-
-# Polls a UDP socket for incoming datagrams within timeout_ms milliseconds.
-pub function udp_poll(sock: int, timeout_ms: int = 0) -> int
-    let t: int = timeout_ms
-    if t < 0
-        t = 0
-    end
-    return net_poll(sock, t)
-end
-
-# --- Basic Network & HTTP Protocol Helpers ---
-
+## Standard HTTP status codes.
 pub enum HttpStatus
     Ok = 200
     Created = 201
@@ -208,7 +32,167 @@ pub enum HttpStatus
     GatewayTimeout = 504
 end
 
-# Returns standard HTTP status code description.
+## Error thrown when a TCP connection attempt fails.
+pub struct SocketError
+    message: string
+end
+
+# --- TCP Sockets ---
+
+## Accepts an incoming client connection, returning the client socket handle or -1 on error.
+pub function tcp_accept(server_sock: int) -> int
+    return net_accept(server_sock)
+end
+
+## Closes a TCP or UDP socket connection.
+pub function tcp_close(sock: int) -> int
+    return net_close(sock)
+end
+
+## Connects to a remote TCP server, returning a socket descriptor or throwing SocketError on error.
+pub function tcp_connect(host: string, port: int) -> int
+    let s: int = net_connect(host, port)
+    if s < 0
+        throw SocketError { message: f"Connection to {host}:{port} refused or failed" }
+    end
+    return s
+end
+
+## Creates a TCP server socket listening on port, returning the listening handle or -1 on error.
+pub function tcp_listen(port: int, backlog: int = 10) -> int
+    let b: int = backlog
+    if b <= 0
+        b = 10
+    end
+    return net_listen(port, b)
+end
+
+## Returns the remote peer address in "ip:port" format, or "" on failure.
+pub function tcp_peer_addr(sock: int) -> string
+    let ip: string = net_peer_ip(sock)
+    let port: int = net_peer_port(sock)
+    if port < 0 or ip == ""
+        return ""
+    end
+    return ip + ":" + str(port)
+end
+
+## Returns the remote peer IP address (e.g. "127.0.0.1"), or "" on failure.
+pub function tcp_peer_ip(sock: int) -> string
+    return net_peer_ip(sock)
+end
+
+## Returns the remote peer port number, or -1 on failure.
+pub function tcp_peer_port(sock: int) -> int
+    return net_peer_port(sock)
+end
+
+## Polls a socket for readability within timeout_ms, returning 1 ready, 0 timed out, or -1 on error.
+pub function tcp_poll(sock: int, timeout_ms: int = 0) -> int
+    let t: int = timeout_ms
+    if t < 0
+        t = 0
+    end
+    return net_poll(sock, t)
+end
+
+## Receives up to max_bytes from a TCP socket, returning the string or "" on close/EOF.
+pub function tcp_recv(sock: int, max_bytes: int = 4096) -> string
+    let bytes_limit: int = max_bytes
+    if bytes_limit <= 0
+        bytes_limit = 4096
+    end
+    return net_recv(sock, bytes_limit)
+end
+
+## Sends a string over a connected TCP socket, returning bytes sent or -1 on error.
+pub function tcp_send(sock: int, data: string) -> int
+    return net_send(sock, data)
+end
+
+## Sets non-blocking mode on a socket (1 non-blocking, 0 blocking), returning 0 or -1 on error.
+pub function tcp_set_nonblocking(sock: int, mode: int = 1) -> int
+    return net_set_nonblocking(sock, mode)
+end
+
+## Sets read and write timeouts on a socket in milliseconds, returning 0 or -1 on error.
+pub function tcp_set_timeout(sock: int, ms: int = 10000) -> int
+    let t: int = ms
+    if t <= 0
+        t = 10000
+    end
+    return net_set_timeout(sock, t)
+end
+
+## Creates a new TCP streaming socket, returning a descriptor (>= 0) or -1 on error.
+pub function tcp_socket() -> int
+    return net_socket()
+end
+
+# --- UDP Sockets ---
+
+## Binds a UDP socket to port on INADDR_ANY, returning 0 on success or -1 on error.
+pub function udp_bind(sock: int, port: int) -> int
+    return net_udp_bind(sock, port)
+end
+
+## Closes a UDP socket.
+pub function udp_close(sock: int) -> int
+    return net_close(sock)
+end
+
+## Polls a UDP socket for incoming datagrams within timeout_ms milliseconds.
+pub function udp_poll(sock: int, timeout_ms: int = 0) -> int
+    let t: int = timeout_ms
+    if t < 0
+        t = 0
+    end
+    return net_poll(sock, t)
+end
+
+## Receives up to max_bytes from a UDP socket, returning the string or "" on error/empty datagram.
+pub function udp_recv(sock: int, max_bytes: int = 4096) -> string
+    let bytes_limit: int = max_bytes
+    if bytes_limit <= 0
+        bytes_limit = 4096
+    end
+    return net_udp_recv(sock, bytes_limit)
+end
+
+## Sends a datagram to host:port over a UDP socket, returning bytes sent or -1 on error.
+pub function udp_send(sock: int, host: string, port: int, data: string) -> int
+    return net_udp_send(sock, host, port, data)
+end
+
+## Sets non-blocking mode on a UDP socket (1 non-blocking, 0 blocking).
+pub function udp_set_nonblocking(sock: int, mode: int = 1) -> int
+    return net_set_nonblocking(sock, mode)
+end
+
+## Sets read and write timeouts on a UDP socket in milliseconds.
+pub function udp_set_timeout(sock: int, ms: int = 10000) -> int
+    let t: int = ms
+    if t <= 0
+        t = 10000
+    end
+    return net_set_timeout(sock, t)
+end
+
+## Creates a new UDP datagram socket, returning a descriptor (>= 0) or -1 on error.
+pub function udp_socket() -> int
+    return net_udp_socket()
+end
+
+# --- HTTP & Protocol Helpers ---
+
+## Generates a standard HTTP Basic Authentication header string.
+pub function basic_auth(username: string, password: string) -> string
+    let creds: string = f"{username}:{password}"
+    let b64: string = base64_encode(creds)
+    return f"Basic {b64}"
+end
+
+## Returns the standard HTTP status code description.
 pub function http_status_text(code: int) -> string
     return when code
         is HttpStatus.Ok => "OK"
@@ -237,9 +221,19 @@ pub function http_status_text(code: int) -> string
     end
 end
 
-# Generates standard HTTP Basic Authentication header string.
-pub function basic_auth(username: string, password: string) -> string
-    let creds: string = f"{username}:{password}"
-    let b64: string = base64_encode(creds)
-    return f"Basic {b64}"
+# --- Legacy Aliases ---
+
+## Legacy alias of tcp_close.
+pub function close(sock: int) -> int
+    return tcp_close(sock)
+end
+
+## Legacy alias of tcp_recv.
+pub function recv(sock: int, max_bytes: int = 4096) -> string
+    return tcp_recv(sock, max_bytes)
+end
+
+## Legacy alias of tcp_send.
+pub function send(sock: int, data: string) -> int
+    return tcp_send(sock, data)
 end

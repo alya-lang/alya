@@ -1,13 +1,121 @@
-# Alya Standard Library - String Module
-# Provides advanced string manipulation and inspection functions.
+# Alya Standard Library - String Module (std/str)
+# String inspection, transformation, padding and trimming utilities.
+# Also covers hex and base64 encoding helpers.
 
-pub function is_empty(s: string) -> int
-    if s is null or len(s) == 0
+# --- Inspection ---
+
+## Returns 1 when the string contains the given substring.
+pub function contains_str(s: string, sub: string) -> int
+    if sub in s
         return 1
     end
     return 0
 end
 
+## Counts non-overlapping occurrences of a substring.
+pub function count_matches(s: string, sub: string) -> int
+    let slen: int = len(s)
+    let sublen: int = len(sub)
+    if sublen == 0 or slen == 0 or sublen > slen
+        return 0
+    end
+    let count: int = 0
+    let i: int = 0
+    while i <= slen - sublen
+        if substring(s, i, sublen) == sub
+            count += 1
+            i += sublen
+        else
+            i += 1
+        end
+    end
+    return count
+end
+
+## Returns 1 when the string ends with the given suffix.
+pub function ends_with(s: string, suffix: string) -> int
+    let slen: int = len(s)
+    let suflen: int = len(suffix)
+    if suflen > slen
+        return 0
+    end
+    if suflen == 0
+        return 1
+    end
+    if substring(s, slen - suflen, suflen) == suffix
+        return 1
+    end
+    return 0
+end
+
+## Returns the first index of a substring, or -1 when absent.
+pub function index_of(s: string, sub: string) -> int
+    let slen: int = len(s)
+    let sublen: int = len(sub)
+    if sublen == 0
+        return 0
+    end
+    if sublen > slen
+        return -1
+    end
+    let i: int = 0
+    let max_idx: int = slen - sublen
+    while i <= max_idx
+        if substring(s, i, sublen) == sub
+            return i
+        end
+        i += 1
+    end
+    return -1
+end
+
+## Returns 1 when the string holds only ASCII letters.
+pub function is_alphabetic(s: string) -> int
+    let slen: int = len(s)
+    if slen == 0
+        return 0
+    end
+    let i: int = 0
+    let c: int = 0
+    let is_lower_c: int = 0
+    let is_upper_c: int = 0
+    while i < slen
+        c = ord(char_at(s, i))
+        is_lower_c = (c >= 97 and c <= 122)
+        is_upper_c = (c >= 65 and c <= 90)
+        if not is_lower_c and not is_upper_c
+            return 0
+        end
+        i += 1
+    end
+    return 1
+end
+
+## Returns 1 when the string holds only ASCII letters or digits.
+pub function is_alphanumeric(s: string) -> int
+    let slen: int = len(s)
+    if slen == 0
+        return 0
+    end
+    let i: int = 0
+    let c: int = 0
+    let is_digit_c: int = 0
+    let is_lower_c: int = 0
+    let is_upper_c: int = 0
+    while i < slen
+        c = ord(char_at(s, i))
+        is_digit_c = (c >= 48 and c <= 57)
+        is_lower_c = (c >= 97 and c <= 122)
+        is_upper_c = (c >= 65 and c <= 90)
+        if not is_digit_c and not is_lower_c and not is_upper_c
+            return 0
+        end
+        i += 1
+    end
+    return 1
+end
+
+## Returns 1 when the string is empty or holds only whitespace.
 pub function is_blank(s: string) -> int
     let slen: int = len(s)
     if slen == 0
@@ -25,6 +133,89 @@ pub function is_blank(s: string) -> int
     return 1
 end
 
+## Returns 1 when the string is null or has zero length.
+pub function is_empty(s: string) -> int
+    if s is null or len(s) == 0
+        return 1
+    end
+    return 0
+end
+
+## Returns 1 when the string holds only lowercase ASCII letters.
+pub function is_lower(s: string) -> int
+    let slen: int = len(s)
+    if slen == 0
+        return 0
+    end
+    let i: int = 0
+    let c: int = 0
+    while i < slen
+        c = ord(char_at(s, i))
+        if c < 97 or c > 122
+            return 0
+        end
+        i += 1
+    end
+    return 1
+end
+
+## Returns 1 when the string holds only ASCII digits.
+pub function is_numeric(s: string) -> int
+    let slen: int = len(s)
+    if slen == 0
+        return 0
+    end
+    let i: int = 0
+    let c: int = 0
+    while i < slen
+        c = ord(char_at(s, i))
+        if c < 48 or c > 57
+            return 0
+        end
+        i += 1
+    end
+    return 1
+end
+
+## Returns 1 when the string holds only uppercase ASCII letters.
+pub function is_upper(s: string) -> int
+    let slen: int = len(s)
+    if slen == 0
+        return 0
+    end
+    let i: int = 0
+    let c: int = 0
+    while i < slen
+        c = ord(char_at(s, i))
+        if c < 65 or c > 90
+            return 0
+        end
+        i += 1
+    end
+    return 1
+end
+
+## Returns the last index of a substring, or -1 when absent.
+pub function last_index_of(s: string, sub: string) -> int
+    let slen: int = len(s)
+    let sublen: int = len(sub)
+    if sublen == 0
+        return slen
+    end
+    if sublen > slen
+        return -1
+    end
+    let i: int = slen - sublen
+    while i >= 0
+        if substring(s, i, sublen) == sub
+            return i
+        end
+        i -= 1
+    end
+    return -1
+end
+
+## Returns 1 when the string begins with the given prefix.
 pub function starts_with(s: string, prefix: string) -> int
     let plen: int = len(prefix)
     let slen: int = len(s)
@@ -40,143 +231,9 @@ pub function starts_with(s: string, prefix: string) -> int
     return 0
 end
 
-pub function ends_with(s: string, suffix: string) -> int
-    let slen: int = len(s)
-    let suflen: int = len(suffix)
-    if suflen > slen
-        return 0
-    end
-    if suflen == 0
-        return 1
-    end
-    if substring(s, slen - suflen, suflen) == suffix
-        return 1
-    end
-    return 0
-end
+# --- Case Conversion ---
 
-pub function replace(s: string, old: string, new_s: string) -> string
-    let slen: int = len(s)
-    let olen: int = len(old)
-    if olen == 0
-        return s
-    end
-    let res: string = ""
-    let i: int = 0
-    while i < slen
-        if i + olen <= slen and substring(s, i, olen) == old
-            res += new_s
-            i += olen
-        else
-            res += char_at(s, i)
-            i += 1
-        end
-    end
-    return res
-end
-
-pub function str_repeat(s: string, count: int) -> string
-    let res: string = ""
-    let i: int = 0
-    while i < count
-        res += s
-        i += 1
-    end
-    return res
-end
-
-pub function pad_left(s: string, total_len: int, pad_char: string) -> string
-    let slen: int = len(s)
-    if slen >= total_len
-        return s
-    end
-    let diff: int = total_len - slen
-    let padding: string = str_repeat(pad_char, diff)
-    return padding + s
-end
-
-pub function pad_right(s: string, total_len: int, pad_char: string) -> string
-    let slen: int = len(s)
-    if slen >= total_len
-        return s
-    end
-    let diff: int = total_len - slen
-    let padding: string = str_repeat(pad_char, diff)
-    return s + padding
-end
-
-pub function center(s: string, total_len: int, pad_char: string) -> string
-    let slen: int = len(s)
-    if slen >= total_len
-        return s
-    end
-    let total_pad: int = total_len - slen
-    let left_pad: int = total_pad / 2
-    let right_pad: int = total_pad - left_pad
-    return str_repeat(pad_char, left_pad) + s + str_repeat(pad_char, right_pad)
-end
-
-pub function trim_start(s: string) -> string
-    let slen: int = len(s)
-    let i: int = 0
-    let c: string = ""
-    while i < slen
-        c = char_at(s, i)
-        if c != " " and c != "\t" and c != "\r" and c != "\n"
-            break
-        end
-        i += 1
-    end
-    if i >= slen
-        return ""
-    end
-    return substring(s, i, slen - i)
-end
-
-pub function ltrim(s: string) -> string
-    return trim_start(s)
-end
-
-pub function trim_end(s: string) -> string
-    let slen: int = len(s)
-    let i: int = slen - 1
-    let c: string = ""
-    while i >= 0
-        c = char_at(s, i)
-        if c != " " and c != "\t" and c != "\r" and c != "\n"
-            break
-        end
-        i -= 1
-    end
-    if i < 0
-        return ""
-    end
-    return substring(s, 0, i + 1)
-end
-
-pub function rtrim(s: string) -> string
-    return trim_end(s)
-end
-
-pub function trim_char(s: string, ch: string) -> string
-    let slen: int = len(s)
-    if slen == 0
-        return ""
-    end
-    let start_idx: int = 0
-    while start_idx < slen and char_at(s, start_idx) == ch
-        start_idx += 1
-    end
-    if start_idx >= slen
-        return ""
-    end
-    let end_idx: int = slen - 1
-    while end_idx >= start_idx and char_at(s, end_idx) == ch
-        end_idx -= 1
-    end
-    return substring(s, start_idx, end_idx - start_idx + 1)
-end
-
+## Uppercases the first character and lowercases the rest.
 pub function capitalize(s: string) -> string
     let slen: int = len(s)
     if slen == 0
@@ -190,6 +247,7 @@ pub function capitalize(s: string) -> string
     return first + rest
 end
 
+## Uppercases the first letter of each whitespace-separated word.
 pub function title_case(s: string) -> string
     let slen: int = len(s)
     if slen == 0
@@ -225,112 +283,112 @@ pub function title_case(s: string) -> string
     return res
 end
 
-pub function lines(s: string) -> string[]
-    let res: string[] = []
+# --- Trimming ---
+
+## Removes the given character from both ends of the string.
+pub function trim_char(s: string, ch: string) -> string
     let slen: int = len(s)
     if slen == 0
-        return res
+        return ""
     end
-    let current: string = ""
-    let ch: string = ""
-    let i: int = 0
-    while i < slen
-        ch = char_at(s, i)
-        when ch
-            is "\r" then
-                if i + 1 < slen and char_at(s, i + 1) == "\n"
-                    i += 1
-                end
-                res.push(current)
-                current = ""
-            is "\n" then
-                res.push(current)
-                current = ""
-            else
-                current += ch
-        end
-        i += 1
+    let start_idx: int = 0
+    while start_idx < slen and char_at(s, start_idx) == ch
+        start_idx += 1
     end
-    res.push(current)
-    return res
+    if start_idx >= slen
+        return ""
+    end
+    let end_idx: int = slen - 1
+    while end_idx >= start_idx and char_at(s, end_idx) == ch
+        end_idx -= 1
+    end
+    return substring(s, start_idx, end_idx - start_idx + 1)
 end
 
-pub function count_matches(s: string, sub: string) -> int
+## Removes trailing whitespace from the string.
+pub function trim_end(s: string) -> string
     let slen: int = len(s)
-    let sublen: int = len(sub)
-    if sublen == 0 or slen == 0 or sublen > slen
-        return 0
-    end
-    let count: int = 0
-    let i: int = 0
-    while i <= slen - sublen
-        if substring(s, i, sublen) == sub
-            count += 1
-            i += sublen
-        else
-            i += 1
-        end
-    end
-    return count
-end
-
-pub function index_of(s: string, sub: string) -> int
-    let slen: int = len(s)
-    let sublen: int = len(sub)
-    if sublen == 0
-        return 0
-    end
-    if sublen > slen
-        return -1
-    end
-    let i: int = 0
-    let max_idx: int = slen - sublen
-    while i <= max_idx
-        if substring(s, i, sublen) == sub
-            return i
-        end
-        i += 1
-    end
-    return -1
-end
-
-pub function last_index_of(s: string, sub: string) -> int
-    let slen: int = len(s)
-    let sublen: int = len(sub)
-    if sublen == 0
-        return slen
-    end
-    if sublen > slen
-        return -1
-    end
-    let i: int = slen - sublen
-    while i >= 0
-        if substring(s, i, sublen) == sub
-            return i
-        end
-        i -= 1
-    end
-    return -1
-end
-
-pub function contains_str(s: string, sub: string) -> int
-    if sub in s
-        return 1
-    end
-    return 0
-end
-
-pub function reverse_str(s: string) -> string
-    let slen: int = len(s)
-    let res: string = ""
     let i: int = slen - 1
+    let c: string = ""
     while i >= 0
-        res += char_at(s, i)
+        c = char_at(s, i)
+        if c != " " and c != "\t" and c != "\r" and c != "\n"
+            break
+        end
         i -= 1
+    end
+    if i < 0
+        return ""
+    end
+    return substring(s, 0, i + 1)
+end
+
+## Removes leading whitespace from the string.
+pub function trim_start(s: string) -> string
+    let slen: int = len(s)
+    let i: int = 0
+    let c: string = ""
+    while i < slen
+        c = char_at(s, i)
+        if c != " " and c != "\t" and c != "\r" and c != "\n"
+            break
+        end
+        i += 1
+    end
+    if i >= slen
+        return ""
+    end
+    return substring(s, i, slen - i)
+end
+
+# --- Padding and Shaping ---
+
+## Centers the string in a field padded with the given character.
+pub function center(s: string, total_len: int, pad_char: string) -> string
+    let slen: int = len(s)
+    if slen >= total_len
+        return s
+    end
+    let total_pad: int = total_len - slen
+    let left_pad: int = total_pad / 2
+    let right_pad: int = total_pad - left_pad
+    return str_repeat(pad_char, left_pad) + s + str_repeat(pad_char, right_pad)
+end
+
+## Pads the left side until the string reaches the total length.
+pub function pad_left(s: string, total_len: int, pad_char: string) -> string
+    let slen: int = len(s)
+    if slen >= total_len
+        return s
+    end
+    let diff: int = total_len - slen
+    let padding: string = str_repeat(pad_char, diff)
+    return padding + s
+end
+
+## Pads the right side until the string reaches the total length.
+pub function pad_right(s: string, total_len: int, pad_char: string) -> string
+    let slen: int = len(s)
+    if slen >= total_len
+        return s
+    end
+    let diff: int = total_len - slen
+    let padding: string = str_repeat(pad_char, diff)
+    return s + padding
+end
+
+## Repeats the string count times.
+pub function str_repeat(s: string, count: int) -> string
+    let res: string = ""
+    let i: int = 0
+    while i < count
+        res += s
+        i += 1
     end
     return res
 end
 
+## Shortens the string to max_len, appending the suffix when cut.
 pub function truncate(s: string, max_len: int, suffix: string) -> string
     let slen: int = len(s)
     if slen <= max_len
@@ -343,101 +401,42 @@ pub function truncate(s: string, max_len: int, suffix: string) -> string
     return substring(s, 0, max_len - suflen) + suffix
 end
 
-pub function is_numeric(s: string) -> int
+# --- Transformation ---
+
+## Replaces every occurrence of old with new_s.
+pub function replace(s: string, old: string, new_s: string) -> string
     let slen: int = len(s)
-    if slen == 0
-        return 0
+    let olen: int = len(old)
+    if olen == 0
+        return s
     end
+    let res: string = ""
     let i: int = 0
-    let c: int = 0
     while i < slen
-        c = ord(char_at(s, i))
-        if c < 48 or c > 57
-            return 0
+        if i + olen <= slen and substring(s, i, olen) == old
+            res += new_s
+            i += olen
+        else
+            res += char_at(s, i)
+            i += 1
         end
-        i += 1
     end
-    return 1
+    return res
 end
 
-pub function is_alphabetic(s: string) -> int
+## Returns the string with characters in reverse order.
+pub function reverse_str(s: string) -> string
     let slen: int = len(s)
-    if slen == 0
-        return 0
+    let res: string = ""
+    let i: int = slen - 1
+    while i >= 0
+        res += char_at(s, i)
+        i -= 1
     end
-    let i: int = 0
-    let c: int = 0
-    let is_lower_c: int = 0
-    let is_upper_c: int = 0
-    while i < slen
-        c = ord(char_at(s, i))
-        is_lower_c = (c >= 97 and c <= 122)
-        is_upper_c = (c >= 65 and c <= 90)
-        if not is_lower_c and not is_upper_c
-            return 0
-        end
-        i += 1
-    end
-    return 1
+    return res
 end
 
-pub function is_alphanumeric(s: string) -> int
-    let slen: int = len(s)
-    if slen == 0
-        return 0
-    end
-    let i: int = 0
-    let c: int = 0
-    let is_digit_c: int = 0
-    let is_lower_c: int = 0
-    let is_upper_c: int = 0
-    while i < slen
-        c = ord(char_at(s, i))
-        is_digit_c = (c >= 48 and c <= 57)
-        is_lower_c = (c >= 97 and c <= 122)
-        is_upper_c = (c >= 65 and c <= 90)
-        if not is_digit_c and not is_lower_c and not is_upper_c
-            return 0
-        end
-        i += 1
-    end
-    return 1
-end
-
-pub function is_upper(s: string) -> int
-    let slen: int = len(s)
-    if slen == 0
-        return 0
-    end
-    let i: int = 0
-    let c: int = 0
-    while i < slen
-        c = ord(char_at(s, i))
-        if c < 65 or c > 90
-            return 0
-        end
-        i += 1
-    end
-    return 1
-end
-
-pub function is_lower(s: string) -> int
-    let slen: int = len(s)
-    if slen == 0
-        return 0
-    end
-    let i: int = 0
-    let c: int = 0
-    while i < slen
-        c = ord(char_at(s, i))
-        if c < 97 or c > 122
-            return 0
-        end
-        i += 1
-    end
-    return 1
-end
-
+## Converts the string to a lowercase dash-separated slug.
 pub function slugify(s: string) -> string
     let slen: int = len(s)
     let res: string = ""
@@ -480,7 +479,40 @@ pub function slugify(s: string) -> string
     return res
 end
 
-# --- Hex and Base64 String Encodings ---
+# --- Splitting ---
+
+## Splits the string into lines on CR, LF or CRLF boundaries.
+pub function lines(s: string) -> string[]
+    let res: string[] = []
+    let slen: int = len(s)
+    if slen == 0
+        return res
+    end
+    let current: string = ""
+    let ch: string = ""
+    let i: int = 0
+    while i < slen
+        ch = char_at(s, i)
+        when ch
+            is "\r" then
+                if i + 1 < slen and char_at(s, i + 1) == "\n"
+                    i += 1
+                end
+                res.push(current)
+                current = ""
+            is "\n" then
+                res.push(current)
+                current = ""
+            else
+                current += ch
+        end
+        i += 1
+    end
+    res.push(current)
+    return res
+end
+
+# --- Hex Encoding ---
 
 function _hex_val(ch: string) -> int
     let c: int = ord(ch)
@@ -492,6 +524,25 @@ function _hex_val(ch: string) -> int
     end
 end
 
+## Decodes a hex string back into its raw bytes.
+pub function hex_decode(s: string) -> string
+    let slen: int = len(s)
+    let res: string = ""
+    let i: int = 0
+    let hi: int = 0
+    let lo: int = 0
+    let b: int = 0
+    while i + 1 < slen
+        hi = _hex_val(char_at(s, i))
+        lo = _hex_val(char_at(s, i + 1))
+        b = bit_or(bit_shl(hi, 4), lo)
+        res = res + chr(b)
+        i += 2
+    end
+    return res
+end
+
+## Encodes the string bytes as lowercase hex.
 pub function hex_encode(s: string) -> string
     let hex_chars: string = "0123456789abcdef"
     let slen: int = len(s)
@@ -510,23 +561,7 @@ pub function hex_encode(s: string) -> string
     return res
 end
 
-pub function hex_decode(s: string) -> string
-    let slen: int = len(s)
-    let res: string = ""
-    let i: int = 0
-    let hi: int = 0
-    let lo: int = 0
-    let b: int = 0
-    while i + 1 < slen
-        hi = _hex_val(char_at(s, i))
-        lo = _hex_val(char_at(s, i + 1))
-        b = bit_or(bit_shl(hi, 4), lo)
-        res = res + chr(b)
-        i += 2
-    end
-    return res
-end
-
+## Returns 1 when the string is even-length valid hex.
 pub function is_hex(s: string) -> int
     let slen: int = len(s)
     if slen == 0 or slen % 2 != 0
@@ -550,6 +585,8 @@ pub function is_hex(s: string) -> int
     return 1
 end
 
+# --- Base64 Encoding ---
+
 function _b64_val(ch: string) -> int
     let c: int = ord(ch)
     return when c
@@ -562,6 +599,75 @@ function _b64_val(ch: string) -> int
     end
 end
 
+## Decodes a base64 string back into a string.
+pub function base64_decode(s: string) -> string
+    let bytes: int[] = base64_decode_bytes(s)
+    let blen: int = len(bytes)
+    let res: string = ""
+    let i: int = 0
+    while i < blen
+        res = res + chr(bytes[i])
+        i += 1
+    end
+    return res
+end
+
+## Decodes a base64 string back into a byte array.
+pub function base64_decode_bytes(s: string) -> int[]
+    let slen: int = len(s)
+    let bytes: int[] = []
+    let i: int = 0
+    let v0: int = 0
+    let v1: int = 0
+    let v2: int = 0
+    let v3: int = 0
+    let b0: int = 0
+    let b1: int = 0
+    let b2: int = 0
+    let c0: string = ""
+    let c1: string = ""
+    let c2: string = ""
+    let c3: string = ""
+    while i + 3 < slen
+        c0 = char_at(s, i)
+        c1 = char_at(s, i + 1)
+        c2 = char_at(s, i + 2)
+        c3 = char_at(s, i + 3)
+
+        v0 = _b64_val(c0)
+        v1 = _b64_val(c1)
+        v2 = _b64_val(c2)
+        v3 = _b64_val(c3)
+
+        b0 = bit_or(bit_shl(v0, 2), bit_and(bit_shr(v1, 4), 3))
+        bytes.push(b0)
+
+        if c2 != "="
+            b1 = bit_and(bit_or(bit_shl(bit_and(v1, 15), 4), bit_shr(v2, 2)), 255)
+            bytes.push(b1)
+        end
+        if c3 != "="
+            b2 = bit_and(bit_or(bit_shl(bit_and(v2, 3), 6), v3), 255)
+            bytes.push(b2)
+        end
+        i += 4
+    end
+    return bytes
+end
+
+## Encodes the string with standard base64.
+pub function base64_encode(s: string) -> string
+    let slen: int = len(s)
+    let bytes: int[] = []
+    let i: int = 0
+    while i < slen
+        bytes.push(ord(char_at(s, i)))
+        i += 1
+    end
+    return base64_encode_bytes(bytes)
+end
+
+## Encodes a byte array with standard base64.
 pub function base64_encode_bytes(bytes: int[]) -> string
     let b64_chars: string = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
     let blen: int = len(bytes)
@@ -613,79 +719,7 @@ pub function base64_encode_bytes(bytes: int[]) -> string
     return res
 end
 
-pub function base64_encode(s: string) -> string
-    let slen: int = len(s)
-    let bytes: int[] = []
-    let i: int = 0
-    while i < slen
-        bytes.push(ord(char_at(s, i)))
-        i += 1
-    end
-    return base64_encode_bytes(bytes)
-end
-
-pub function str__base64_encode(s: string) -> string
-    return base64_encode(s)
-end
-
-pub function base64_decode_bytes(s: string) -> int[]
-    let slen: int = len(s)
-    let bytes: int[] = []
-    let i: int = 0
-    let v0: int = 0
-    let v1: int = 0
-    let v2: int = 0
-    let v3: int = 0
-    let b0: int = 0
-    let b1: int = 0
-    let b2: int = 0
-    let c0: string = ""
-    let c1: string = ""
-    let c2: string = ""
-    let c3: string = ""
-    while i + 3 < slen
-        c0 = char_at(s, i)
-        c1 = char_at(s, i + 1)
-        c2 = char_at(s, i + 2)
-        c3 = char_at(s, i + 3)
-
-        v0 = _b64_val(c0)
-        v1 = _b64_val(c1)
-        v2 = _b64_val(c2)
-        v3 = _b64_val(c3)
-
-        b0 = bit_or(bit_shl(v0, 2), bit_and(bit_shr(v1, 4), 3))
-        bytes.push(b0)
-
-        if c2 != "="
-            b1 = bit_and(bit_or(bit_shl(bit_and(v1, 15), 4), bit_shr(v2, 2)), 255)
-            bytes.push(b1)
-        end
-        if c3 != "="
-            b2 = bit_and(bit_or(bit_shl(bit_and(v2, 3), 6), v3), 255)
-            bytes.push(b2)
-        end
-        i += 4
-    end
-    return bytes
-end
-
-pub function base64_decode(s: string) -> string
-    let bytes: int[] = base64_decode_bytes(s)
-    let blen: int = len(bytes)
-    let res: string = ""
-    let i: int = 0
-    while i < blen
-        res = res + chr(bytes[i])
-        i += 1
-    end
-    return res
-end
-
-pub function str__base64_decode(s: string) -> string
-    return base64_decode(s)
-end
-
+## Returns 1 when the string looks like valid base64 input.
 pub function is_base64(s: string) -> int
     let slen: int = len(s)
     if slen == 0 or slen % 4 != 0
@@ -713,18 +747,44 @@ pub function is_base64(s: string) -> int
     return 1
 end
 
-pub function to_hex(s: string) -> string
-    return hex_encode(s)
+# --- Legacy Aliases ---
+
+## Decodes a base64 string (alias of base64_decode).
+pub function from_base64(s: string) -> string
+    return base64_decode(s)
 end
 
+## Decodes a hex string (alias of hex_decode).
 pub function from_hex(s: string) -> string
     return hex_decode(s)
 end
 
+## Removes leading whitespace (alias of trim_start).
+pub function ltrim(s: string) -> string
+    return trim_start(s)
+end
+
+## Removes trailing whitespace (alias of trim_end).
+pub function rtrim(s: string) -> string
+    return trim_end(s)
+end
+
+## Decodes a base64 string (alias of base64_decode).
+pub function str__base64_decode(s: string) -> string
+    return base64_decode(s)
+end
+
+## Encodes a string with base64 (alias of base64_encode).
+pub function str__base64_encode(s: string) -> string
+    return base64_encode(s)
+end
+
+## Encodes the string with base64 (alias of base64_encode).
 pub function to_base64(s: string) -> string
     return base64_encode(s)
 end
 
-pub function from_base64(s: string) -> string
-    return base64_decode(s)
+## Encodes the string as hex (alias of hex_encode).
+pub function to_hex(s: string) -> string
+    return hex_encode(s)
 end

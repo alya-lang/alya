@@ -1,15 +1,9 @@
-# Alya Standard Library - OS Module
+# Alya Standard Library - OS Module (std/os)
 # Provides operating system, platform, architecture, environment, and CLI interactions.
 
-# --- Platform & Architecture ---
+# --- Types ---
 
-pub enum OS
-    Windows = "windows"
-    Linux = "linux"
-    MacOS = "macos"
-    Unknown = "unknown"
-end
-
+## CPU architecture identifiers.
 pub enum Arch
     X64 = "x64"
     X86 = "x86"
@@ -17,15 +11,22 @@ pub enum Arch
     Unknown = "unknown"
 end
 
-pub function current_os() -> OS
-    return when target_os()
-        is "windows" => OS.Windows
-        is "linux" => OS.Linux
-        is "macos" => OS.MacOS
-        else => OS.Unknown
-    end
+## Operating system identifiers.
+pub enum OS
+    Windows = "windows"
+    Linux = "linux"
+    MacOS = "macos"
+    Unknown = "unknown"
 end
 
+# --- Platform & Architecture ---
+
+## Returns the target architecture name.
+pub function arch_name() -> string
+    return target_arch()
+end
+
+## Returns the current CPU architecture as an Arch value.
 pub function current_arch() -> Arch
     return when target_arch()
         is "x64" => Arch.X64
@@ -35,29 +36,17 @@ pub function current_arch() -> Arch
     end
 end
 
-pub function os_name() -> string
-    return target_os()
-end
-
-pub function arch_name() -> string
-    return target_arch()
-end
-
-pub function arch() -> string
-    return target_arch()
-end
-
-pub function platform() -> string
-    return target_os()
-end
-
-pub function is_windows() -> int
-    if target_os() == "windows"
-        return 1
+## Returns the current operating system as an OS value.
+pub function current_os() -> OS
+    return when target_os()
+        is "windows" => OS.Windows
+        is "linux" => OS.Linux
+        is "macos" => OS.MacOS
+        else => OS.Unknown
     end
-    return 0
 end
 
+## Returns 1 when running on Linux, else 0.
 pub function is_linux() -> int
     if target_os() == "linux"
         return 1
@@ -65,6 +54,7 @@ pub function is_linux() -> int
     return 0
 end
 
+## Returns 1 when running on macOS, else 0.
 pub function is_macos() -> int
     if target_os() == "macos"
         return 1
@@ -72,6 +62,7 @@ pub function is_macos() -> int
     return 0
 end
 
+## Returns 1 when running on a POSIX system (non-Windows), else 0.
 pub function is_posix() -> int
     if target_os() != "windows"
         return 1
@@ -79,12 +70,27 @@ pub function is_posix() -> int
     return 0
 end
 
+## Returns 1 when running on Windows, else 0.
+pub function is_windows() -> int
+    if target_os() == "windows"
+        return 1
+    end
+    return 0
+end
+
+## Returns the target OS name.
+pub function os_name() -> string
+    return target_os()
+end
+
 # --- Environment Variables ---
 
+## Returns the value of environment variable key.
 pub function env(key: string) -> string
     return get_env(key)
 end
 
+## Returns the value of key, or default_val when it is empty.
 pub function env_or(key: string, default_val: string) -> string
     let val: string = get_env(key)
     if len(val) == 0
@@ -93,6 +99,7 @@ pub function env_or(key: string, default_val: string) -> string
     return val
 end
 
+## Returns the value of key, or null when it is empty.
 pub function getenv(key: string)
     let val: string = get_env(key)
     if len(val) == 0
@@ -101,6 +108,7 @@ pub function getenv(key: string)
     return val
 end
 
+## Returns 1 when environment variable key is set and non-empty.
 pub function has_env(key: string) -> int
     if len(get_env(key)) > 0
         return 1
@@ -108,75 +116,36 @@ pub function has_env(key: string) -> int
     return 0
 end
 
-# --- Command Execution & Process ---
+# --- Process & Execution ---
 
+## Executes cmd through the shell and returns its exit status.
 pub function exec(cmd: string) -> int
     return system_exec(cmd)
 end
 
+## Exits the current process with code.
 pub function exit_process(code: int)
     exit(code)
 end
 
-pub function get_pid() -> int
-    return __native_get_pid()
-end
-
-pub function pid() -> int
-    return __native_get_pid()
-end
-
+## Returns the current working directory.
 pub function get_cwd() -> string
     return __native_get_cwd()
 end
 
-pub function cwd() -> string
-    return __native_get_cwd()
+## Returns the current process id.
+pub function get_pid() -> int
+    return __native_get_pid()
 end
 
-pub function os__pid() -> int
-    return pid()
-end
-
-pub function os__cwd() -> string
-    return cwd()
-end
-
-pub function os__platform() -> string
-    return platform()
-end
-
-pub function os__arch() -> string
-    return arch()
-end
-
-pub function os__getenv(key: string)
-    return getenv(key)
-end
-
+## Sets the current working directory, returning a status code.
 pub function set_cwd(path: string) -> int
     return __native_set_cwd(path)
 end
 
-pub function chdir(path: string) -> int
-    return __native_set_cwd(path)
-end
+# --- Command-Line Arguments ---
 
-# --- Command Line Arguments ---
-
-pub function cli_args() -> string[]
-    return args()
-end
-
-pub function os_args() -> string[]
-    return args()
-end
-
-pub function arg_count() -> int
-    let a: string[] = args()
-    return len(a)
-end
-
+## Returns the CLI argument at index, or default_val when out of range.
 pub function arg_at(index: int, default_val: string = "") -> string
     let a: string[] = args()
     if index >= 0 and index < len(a)
@@ -185,10 +154,18 @@ pub function arg_at(index: int, default_val: string = "") -> string
     return default_val
 end
 
-pub function os_arg_at(index: int, default_val: string = "") -> string
-    return arg_at(index, default_val)
+## Returns the number of CLI arguments.
+pub function arg_count() -> int
+    let a: string[] = args()
+    return len(a)
 end
 
+## Returns all CLI arguments.
+pub function cli_args() -> string[]
+    return args()
+end
+
+## Returns 1 when flag is present among CLI arguments.
 pub function has_arg(flag: string) -> int
     let a: string[] = args()
     for arg in a
@@ -199,24 +176,60 @@ pub function has_arg(flag: string) -> int
     return 0
 end
 
-pub function os_has_arg(flag: string) -> int
-    return has_arg(flag)
-end
-
-pub function os_exit(code: int = 0)
-    exit(code)
-end
-
-pub function os_set_cwd(path: string) -> int
-    return set_cwd(path)
-end
-
-pub function os_setenv(key: string, value: string) -> int
-    return set_env(key, value)
-end
-
 # --- Filesystem & Platform Helpers ---
 
+## Returns the current user's home directory.
+pub function home_dir() -> string
+    let h: string = ""
+    if is_windows()
+        h = get_env("USERPROFILE")
+        if len(h) > 0
+            return h
+        end
+        let drive: string = get_env("HOMEDRIVE")
+        let p: string = get_env("HOMEPATH")
+        if len(drive) > 0 and len(p) > 0
+            return f"{drive}{p}"
+        end
+        return ""
+    end
+    return get_env("HOME")
+end
+
+## Returns the machine hostname, or "" when unknown.
+pub function hostname() -> string
+    let h: string = ""
+    if is_windows()
+        h = get_env("COMPUTERNAME")
+        if len(h) > 0
+            return h
+        end
+        return ""
+    end
+    h = get_env("HOSTNAME")
+    if len(h) > 0
+        return h
+    end
+    return ""
+end
+
+## Returns the platform null device path ("NUL" on Windows, "/dev/null" elsewhere).
+pub function null_device() -> string
+    return when target_os()
+        is "windows" => "NUL"
+        else => "/dev/null"
+    end
+end
+
+## Returns the PATH list separator (";" on Windows, ":" elsewhere).
+pub function path_list_separator() -> string
+    return when target_os()
+        is "windows" => ";"
+        else => ":"
+    end
+end
+
+## Returns the system temporary directory.
 pub function temp_dir() -> string
     let t: string = ""
     if is_windows()
@@ -237,23 +250,7 @@ pub function temp_dir() -> string
     return "/tmp"
 end
 
-pub function home_dir() -> string
-    let h: string = ""
-    if is_windows()
-        h = get_env("USERPROFILE")
-        if len(h) > 0
-            return h
-        end
-        let drive: string = get_env("HOMEDRIVE")
-        let p: string = get_env("HOMEPATH")
-        if len(drive) > 0 and len(p) > 0
-            return f"{drive}{p}"
-        end
-        return ""
-    end
-    return get_env("HOME")
-end
-
+## Returns the current user name, or "" when unknown.
 pub function user_name() -> string
     let u: string = ""
     if is_windows()
@@ -270,32 +267,84 @@ pub function user_name() -> string
     return get_env("LOGNAME")
 end
 
-pub function hostname() -> string
-    let h: string = ""
-    if is_windows()
-        h = get_env("COMPUTERNAME")
-        if len(h) > 0
-            return h
-        end
-        return ""
-    end
-    h = get_env("HOSTNAME")
-    if len(h) > 0
-        return h
-    end
-    return ""
+# --- Legacy Aliases ---
+
+## Alias of arch_name.
+pub function arch() -> string
+    return target_arch()
 end
 
-pub function null_device() -> string
-    return when target_os()
-        is "windows" => "NUL"
-        else => "/dev/null"
-    end
+## Alias of set_cwd.
+pub function chdir(path: string) -> int
+    return __native_set_cwd(path)
 end
 
-pub function path_list_separator() -> string
-    return when target_os()
-        is "windows" => ";"
-        else => ":"
-    end
+## Alias of get_cwd.
+pub function cwd() -> string
+    return __native_get_cwd()
+end
+
+## Legacy alias of arch.
+pub function os__arch() -> string
+    return arch()
+end
+
+## Legacy alias of cwd.
+pub function os__cwd() -> string
+    return cwd()
+end
+
+## Legacy alias of getenv.
+pub function os__getenv(key: string)
+    return getenv(key)
+end
+
+## Legacy alias of pid.
+pub function os__pid() -> int
+    return pid()
+end
+
+## Legacy alias of platform.
+pub function os__platform() -> string
+    return platform()
+end
+
+## Legacy alias of arg_at.
+pub function os_arg_at(index: int, default_val: string = "") -> string
+    return arg_at(index, default_val)
+end
+
+## Legacy alias of cli_args.
+pub function os_args() -> string[]
+    return args()
+end
+
+## Legacy alias that exits the current process with code.
+pub function os_exit(code: int = 0)
+    exit(code)
+end
+
+## Legacy alias of has_arg.
+pub function os_has_arg(flag: string) -> int
+    return has_arg(flag)
+end
+
+## Legacy alias of set_cwd.
+pub function os_set_cwd(path: string) -> int
+    return set_cwd(path)
+end
+
+## Sets environment variable key to value, returning a status code.
+pub function os_setenv(key: string, value: string) -> int
+    return set_env(key, value)
+end
+
+## Alias of get_pid.
+pub function pid() -> int
+    return __native_get_pid()
+end
+
+## Alias of os_name.
+pub function platform() -> string
+    return target_os()
 end
