@@ -10,6 +10,7 @@
 - `==` (Equality), `!=` (Inequality).
 - `<` (Less than), `<=` (Less than or equal), `>` (Greater than), `>=` (Greater than or equal).
 - Return type is always `bool`.
+- Float operands with a call or binary-expression on the left and a literal on the right are evaluated via slot materialization (see Chapter 02 §1.1); on x86 they truncate (32-bit slots, known limitation).
 - Can be overloaded via special methods (see Chapter 20).
 
 ### 1.3 Logical Operators
@@ -27,7 +28,7 @@
 ### 1.5 Modern Expressive Operators
 - **Ternary Operator**: `condition ? value_if_true : value_if_false`.
 - **Null Coalescing (`??`)**: `value ?? default_value`. Evaluates to `default_value` only if `value` is `null`. Short-circuits if `value` is non-null.
-- **Optional Chaining (`?.`)**: Safely navigates potentially null objects, arrays, and callable invocations (`user?.address?.city`, `records?[0]`).
+- **Optional Chaining (`?.`)**: Safely navigates potentially null field access, index access, and method calls (`user?.address?.city`, `records?[0]`). Field and index chains short-circuit to `null` on a null receiver; method-call form requires a non-null receiver (method dispatch on a null receiver is a known codegen gap).
 - **Membership Operator (`in` / `not in`)**: Tests element presence in arrays, key presence in maps, and substring presence in strings (`"admin" in roles`).
 - **Range Operators**: `start..end` (exclusive half-open range), `start..=end` (inclusive range).
 

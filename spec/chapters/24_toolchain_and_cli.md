@@ -164,11 +164,13 @@ When a package wraps a native C library (such as SQLite, OpenSSL, or libuv), glo
 ### 1.8 Integrated Developer Tooling
 
 #### 1. Code Formatter (`alya fmt`)
-- `alya fmt [path]`: Formats `.alya` source files in-place according to standard language styling rules (2 spaces indentation, operator spacing, canonical keyword capitalization).
+- `alya fmt [path]`: Formats `.alya` source files in-place according to standard language styling rules (4 spaces indentation, operator spacing, canonical keyword capitalization).
 - `alya fmt --check [path]`: Returns exit code `1` if unformatted files are detected (for CI pipelines).
+- Project excludes live in `.alyafmt` (or the `[fmt]` section of `alya.toml`), discovered walking upwards; `exclude` entries are additive to the built-in fixture skips, an explicitly named file is always honored, and `# fmt: off` / `# fmt: on` suppress formatting for a line range.
 
-#### 2. Test Runner (`alya test`)
-- `alya test [path]`: Automatically discovers and executes all `@test` functions and `test "..." ... end` blocks across the project.
+#### 2. Test Runner (`alya test`) & Benchmarks (`alya bench`)
+- `alya test [path]`: Automatically discovers and executes all `@test` functions and `test "..." ... end` blocks across the project, by filename (`test_*`, `*_test`) AND by content (any file declaring suite entries). `alya bench [path]` mirrors this for `@bench` functions and `bench` blocks.
+- Project excludes live in `.alyatest` (or the `[test]` / `[bench]` sections of `alya.toml`); `spec/negative`-style fixture directories are never entered.
 - Emits pass/fail metrics, assertion failure diffs, and execution times.
 
 #### 3. Interactive Shell (`alya repl`)

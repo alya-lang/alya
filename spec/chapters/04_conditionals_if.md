@@ -10,8 +10,7 @@
 - Parentheses around conditions are **optional**. Parentheses should only be used when necessary for disambiguating nested boolean logic precedence.
 
 ### 1.2 Truthiness Semantics
-- In conditional evaluation, only `false` and `null` evaluate to falsy.
-- Numbers (`0`, `1`, `-1`), non-empty strings, and instantiated objects evaluate to truthy.
+- In conditional evaluation, `false`, `null`, and numeric zero (`0`, `0.0`) evaluate to falsy; every other value (including `1`, `-1`, empty and non-empty strings, instantiated objects) evaluates to truthy.
 - For strict and robust codebases, explicit comparisons (e.g., `count == 0` or `user is not null`) are idiomatic and recommended.
 
 ### 1.3 Scope Rules

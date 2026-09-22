@@ -28,26 +28,27 @@ Alya adheres strictly to the 3-Tier Classification Model:
  Embedded in compiler;      Minimal core in stdlib;    Decoupled domain packages
  zero external deps.        rich API in package.       managed via alya.toml.
  ─────────────────────────  ─────────────────────────  ─────────────────────────
- • os, fs, path, time       • rand (core LCG PRNG)     • crypto (SHA, HMAC, AES)
- • math, str, mem           • cli  (raw args/flags)    • compress (Brotli, Zstd)
- • collections, sync        • net  (raw TCP/UDP)       • uuid   (v4, v7, ULID)
- • test, console            • log  (console ANSI)      • csv, url, http, jwt...
- • io, process              • json (basic parse/str)   • toml, sqlite, yaml...
+ • os, fs, path, time       • cli  (raw args/flags)    • crypto (SHA, HMAC, AES)
+ • math, str, mem           • net  (raw TCP/UDP)       • compress (Brotli, Zstd)
+ • collections, sync        • log  (console ANSI)      • uuid   (v4, v7, ULID)
+ • test, console            • json (basic parse/str)   • csv, url, http, jwt...
+ • io, process              • toml, sqlite, yaml...
 ```
+Tier 1 additionally embeds `simd`, `hash`, `json`, `cli`, `log`, and `net` (19 modules total; the last four double as Tier 2 hybrid pairs below).
 
 ### Tier 1: Core Standard Library (`std/*`)
-- **Location**: `Src/alya/stdlib/` (14 canonical modules per Chapter 23).
+- **Location**: `Src/alya/stdlib/` (19 embedded modules: `os`, `fs`, `path`, `time`, `math`, `str`, `mem`, `collections`, `sync`, `test`, `console`, `io`, `process`, `simd`, `hash`, `json`, `cli`, `log`, `net`, plus aliases such as `std/color` → `std/console`).
 - **Criteria**: Fundamental OS syscall abstractions and core data structure intrinsics.
 - **Rule**: Never externalized. Zero external dependencies. Highly conservative API stability.
 
 ### Tier 2: Hybrid Modules
 - **Criteria**: Modules where basic scripting needs a trivial built-in tool, but production applications require deep, specialized functionality.
-- **Rule**: The `std/*` version is strictly pruned to **< 100 lines** and wraps only raw OS/libc primitives. The full-featured counterpart lives in `Lib/*` (`alya-lang/*`).
-  - `std/math` (random LCG PRNG) ⟷ `Lib/rand` (SplitMix64, PCG32, distributions, sampling).
+- **Rule**: The `std/*` version keeps only the minimal interface needed for quick scripts. The full-featured counterpart lives in `Lib/*` (`alya-lang/*`).
+  - `std/math` (SplitMix64 PRNG) ⟷ `Lib/rand` (PCG32, distributions, sampling).
   - `std/os` (raw args accessors) ⟷ `Lib/cli` (flags, subcommands, auto-help).
   - `std/net` (~200 lines raw sockets) ⟷ `Lib/http` (HTTP 1.1, routing, middleware).
   - `std/console` (ANSI colors) ⟷ `Lib/logger` (JSON, file rotation).
-  - `std/json` (~120 lines basic parser) ⟷ `Lib/json` (AST DOM, schema, pretty-print).
+  - `std/json` (~300 lines basic parser) ⟷ `Lib/json` (AST DOM, schema, pretty-print).
 
 ### Tier 3: Standalone Domain Packages (`Lib/*` / `alya-lang/*`)
 - **Criteria**: Domain-heavy libraries (cryptography, compression, databases, file formats).
@@ -57,7 +58,7 @@ Alya adheres strictly to the 3-Tier Classification Model:
 
 ## 3. Current Inconsistencies & Duplication Audit
 
-A systematic code audit identified the following 4 areas of overlap across `std/hash`, `std/rand`, `Lib/rand`, `Lib/compress`, and `Lib/crypto`:
+A systematic code audit identified the following 4 areas of overlap across `std/hash`, `std/math` (PRNG), `Lib/rand`, `Lib/compress`, and `Lib/crypto`:
 
 ### Issue A: Hex and Base64 Encoding Duplication
 - **Resolution**:
@@ -77,8 +78,8 @@ A systematic code audit identified the following 4 areas of overlap across `std/
 
 ### Issue D: Randomness & Entropy Delegation
 - **Resolution**:
-  - `std/math`: Lightweight global LCG PRNG (`random()`, `rand_int()`).
-  - `Lib/rand`: Multi-engine PRNG (SplitMix, PCG, Xorshift), statistical distributions, array sampling, and raw byte generation (`bytes(count)`).
+  - `std/math`: SplitMix64 PRNG seeded from hardware cycle counters (`random()`, `rand_int()`).
+  - `Lib/rand`: Multi-engine PRNG (PCG, Xorshift), statistical distributions, array sampling, and raw byte generation (`bytes(count)`).
   - `Lib/crypto`: Cryptographic entropy helpers (`random_bytes(count)`).
 
 ---
@@ -106,11 +107,10 @@ Packages must adhere to a strict top-down dependency hierarchy:
 - Standalone packages can depend on `std/*` and on upstream Tier 3 packages declared in `alya.toml`.
 - Circular dependencies between packages are strictly forbidden.
 
-### Rule 3: The 100-Line Pruning Threshold for Tier 2
+### Rule 3: Minimal Core for Tier 2 Hybrids
 Any hybrid module admitted into `std/*` (e.g. `std/net`, `std/json`):
-- Must not exceed **100-150 lines of code**.
 - Must contain zero external dependencies.
-- Must provide only the absolute minimum interface needed for quick scripts.
+- Must keep only the minimal interface needed for quick scripts (current sizes: `std/cli` ~100 lines, `std/net` ~200, `std/log` ~160, `std/json` ~300).
 - Advanced features (clustering, schemas, distributions, rotation) **must be rejected from stdlib** and directed to the official standalone package.
 
 ### Rule 4: Separation of Hashing and Encoding

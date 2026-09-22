@@ -14,7 +14,7 @@ While most modern languages incur the multi-hundred-megabyte dependency footprin
 - **Triple Target Architecture Support**:
   - **x64 (x86_64)**: Full support for Linux ELF64, Windows PE/COFF (MinGW), and macOS Mach-O.
   - **ARM64 (aarch64)**: First-class Apple Silicon (M1–M4 Darwin Mach-O) and Linux AArch64 ELF emitters.
-  - **x86 (i686)**: 32-bit legacy x86 emitter with `cdecl` calling convention.
+  - **x86 (i686)**: 32-bit legacy x86 emitter with `cdecl` calling convention (32-bit value slots: float loads, stores, and comparisons truncate).
 - **Strict ABI Compliance**:
   - **Microsoft x64 ABI**: Correct 32-byte shadow space allocation, 16-byte stack frame alignment, and `%rcx`, `%rdx`, `%r8`, `%r9` register passing.
   - **System V AMD64 ABI**: Correct standard register convention (`%rdi`, `%rsi`, `%rdx`, `%rcx`, `%r8`, `%r9`).
@@ -61,8 +61,8 @@ Instead of repeatedly walking the AST in a nested loop (500 functions × paramet
 
 Following the pragmatic Go philosophy, `alya` embeds essential developer tooling into a single standalone binary:
 
-- **Built-in Formatter (`alya fmt`)**: Formats Alya source files in-place or checks formatting in CI.
-- **Built-in Test Runner (`alya test`)**: Discovers and runs automated test suites with assertions, color-coded status, and failure backtraces.
+- **Built-in Formatter (`alya fmt`)**: Formats Alya source files in-place or checks formatting in CI; project excludes via `.alyafmt` / `alya.toml` `[fmt]`.
+- **Built-in Test Runner (`alya test`) and Benchmarks (`alya bench`)**: Discover and run automated test suites and benchmarks (by filename and by content) with assertions, color-coded status, and failure backtraces.
 - **Interactive REPL (`alya repl`)**: Instant read-eval-print loop with multi-line input and expression evaluation.
 - **Desktop Application Packaging**:
   - **macOS Bundle (`alya build --bundle`)**: Automatically packages executables into standard `.app` bundles with generated `Info.plist` and multi-resolution Apple `.icns` icons.
@@ -79,14 +79,14 @@ A fully realized, dependency-locking package management subsystem built natively
 - **Cryptographic Lockfile (`alya.lock`)**: Embedded pure Rust SHA-256 verification (FIPS 180-4 / RFC 6234) ensuring strictly reproducible, tamper-proof builds across environments.
 - **Transitive BFS Dependency Resolution**: Automatically resolves nested multi-tier dependency trees and locks them into a flat, deterministic structure.
 - **Global Package Cache (`~/.alya/cache`)**: Centralized repository checkouts with zero-network cloning (`skip_git: true`) for instant local dependency provisioning.
-- **Subcommands**: Complete lifecycle commands (`init`, `add`, `install`, `list`, `update`, `cache clean`).
+- **Subcommands**: Complete lifecycle commands (`init`, `add`, `install`, `update`, `cache`, `clean`).
 
 ---
 
 ## 6. Standard Library Foundation & Core Architecture
 
-- **14 Canonical Core Modules (`std/*`)**:
-  - `std/fs`, `std/path`, `std/os`, `std/process`, `std/io`, `std/net`, `std/sync`, `std/time`, `std/mem`, `std/math`, `std/str`, `std/collections`, `std/console`, `std/test`.
+- **19 Embedded Modules (`std/*`)**:
+  - `std/fs`, `std/path`, `std/os`, `std/process`, `std/io`, `std/net`, `std/sync`, `std/time`, `std/mem`, `std/math`, `std/str`, `std/collections`, `std/console`, `std/test`, `std/simd`, `std/hash`, `std/json`, `std/cli`, `std/log`.
 - **High-Entropy Hardware PRNG**: The runtime PRNG implements the SplitMix64 algorithm seeded from hardware CPU cycle counters (`rdtsc` on x86/x64, `cntvct_el0` on ARM64).
 - **Strict Boundary & Bare-Metal Compatibility**:
   - Core OS syscalls and primitives embedded directly in the `alya` binary.
@@ -116,7 +116,7 @@ A fully realized, dependency-locking package management subsystem built natively
 | Compiler Subsystem | Key Asset | Status | Protection Priority |
 |---|---|:---:|:---:|
 | **Direct Codegen** | Direct GNU/Mach-O assembly (no LLVM) | Stable | 🔴 Critical |
-| **Architectures** | x64, ARM64 (Apple Silicon M1-M4), x86 | Stable | 🔴 Critical |
+| **Architectures** | x64, ARM64 (Apple Silicon M1-M4), x86 (32-bit slots: float ops truncate) | Stable | 🔴 Critical |
 | **Optimizations** | Branch Fusion, Unsigned Bounds Check, Zero-Cycle idioms | Stable | 🔴 Critical |
 | **Inference Engine**| Fixed-point compile-time struct field offset resolution | Stable | 🔴 Critical |
 | **Package Manager** | `alya.toml`, `alya.lock` (SHA-256), global cache | Stable | 🟡 High |

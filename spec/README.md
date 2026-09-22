@@ -104,7 +104,7 @@ Standalone Native Executable (.exe / ELF / Mach-O)
 - **Direct Multi-Target Codegen**: Emits native assembly for:
   - **x64 (x86_64)**: System V AMD64 (Linux, macOS) & Microsoft x64 ABI (Windows MinGW).
   - **ARM64 (aarch64)**: Apple Silicon Mach-O & Linux ELF64.
-  - **x86 (i686)**: 32-bit compatibility mode.
+  - **x86 (i686)**: 32-bit compatibility mode (32-bit value slots: float loads, stores, and comparisons truncate).
 - **Hardware-Aware Codegen Optimizations**:
   - **Branch Fusion**: Fuses comparisons and jumps in conditional paths (`cmp` + `jge`), eliminating redundant intermediate flags.
   - **Single Unsigned Bounds Checks**: Compares array indices with a single unsigned check (`jae` / `b.hs`), capturing negative numbers and overflow in one cycle.
@@ -127,7 +127,7 @@ To ensure compiler binary lightness, rapid community evolution, zero duplicate "
                                     │
         ┌───────────────────────────┴────────────────────────────┐
         ▼                                                        ▼
- [CORE STDLIB (std/*) - 14 MODULES]             [STANDALONE PACKAGES (alya-lang/*)]
+ [CORE STDLIB (std/*) - 19 MODULES]             [STANDALONE PACKAGES (alya-lang/*)]
  Embedded in compiler binary; zero deps.         Decoupled domain packages via alya.toml.
  Fully supports bare-metal with --no-std.        No duplicate "toy" versions in stdlib.
  ───────────────────────────────────────         ─────────────────────────────────────────
@@ -136,6 +136,7 @@ To ensure compiler binary lightness, rapid community evolution, zero duplicate "
  • std/sync, std/time, std/mem                   • cli (argparse, subcommands), logger
  • std/math (with PRNG), std/str                 • json, toml, yaml, csv
  • std/collections, std/console, std/test        • sql (sqlite, postgres), compress (zstd)
+ • std/simd, std/hash, std/json, std/cli, std/log
 ```
 
 1. **Core Standard Library (`std/*`)**:
@@ -148,7 +149,7 @@ To ensure compiler binary lightness, rapid community evolution, zero duplicate "
    - Managed declaratively through `alya.toml`, locked deterministically in `alya.lock` with SHA-256 cryptographic verification.
    - Global package caching in `~/.alya/cache` with zero-network cloning.
 
-> 📖 **Read the Complete Boundary Governance:** [`ECOSYSTEM_ARCHITECTURE.md`](ECOSYSTEM_ARCHITECTURE.md) documents the 3-tier classification model, the 100-line pruning rule, deduplication audit, and the 6 golden anti-duplication rules between `std/*` and `Lib/*`.
+> 📖 **Read the Complete Boundary Governance:** [`ECOSYSTEM_ARCHITECTURE.md`](ECOSYSTEM_ARCHITECTURE.md) documents the 3-tier classification model, the minimal-core hybrid rule, deduplication audit, and the 6 golden anti-duplication rules between `std/*` and `Lib/*`.
 
 ---
 

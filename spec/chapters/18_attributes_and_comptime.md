@@ -47,7 +47,7 @@ function test_addition()
     assert(sum == 4)
 end
 ```
-- The `alya test` command discovers all functions decorated with `@test` across project files and executes them in an isolated test runner.
+- The `alya test` command discovers all functions decorated with `@test` across project files and executes them in an isolated test runner. Discovery is by filename (`test_*`, `*_test`) AND by content (any file declaring `test` blocks or `@test` functions); `alya bench` mirrors this for `bench` blocks and `@bench` functions.
 
 ### 1.5 Introspection & Compile-Time Evaluation (`comptime`)
 - **`sizeof(Type)`**: Returns the exact byte footprint of a type as an immediate compile-time constant integer.

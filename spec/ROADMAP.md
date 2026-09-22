@@ -18,7 +18,7 @@ This roadmap defines the sequenced implementation phases, actionable engineering
 │ [Phase 1] Algorithmic Pipeline & Scalability (O(N) CallIndex, Tree-Shake)
 ├──────────────────────────────────┬─────────────────────────────────────┤
 │                                  ▼
-│ [Phase 2] Standard Library Consolidation & Modern Syntax (14 Modules)  │
+│ [Phase 2] Standard Library Consolidation & Modern Syntax (19 Modules)  │
 ├──────────────────────────────────┬─────────────────────────────────────┤
 │                                  ▼
 │ [Phase 3] Grammar, Lexer & Parser Conformance (Rune, 15-Level Pratt, Main)
@@ -52,15 +52,18 @@ This roadmap defines the sequenced implementation phases, actionable engineering
     - `alya test [path]`
     - `alya bench [path]`
     - `alya fmt [path]`
+    - `alya lint [path]`
+    - `alya lsp`
+    - `alya toolchain [status|install|clean]`
     - `alya repl`
     - `alya doc [path]`
-    - `alya pkg [init|add|install|update|cache]`
+    - `alya pkg [init|add|install|update|cache|clean]`
   - Target files: `src/cli/mod.rs`, `src/driver/mod.rs`.
   - Verification: `alya --help` displays modern unified command list.
 
 - [x] **0.3 Golden Spec Test Harness**
   - Create an end-to-end integration test (`tests/golden_spec_tests.rs`) in `Src/alya`.
-  - The runner iterates over all 25 canonical test fixtures in `Src/spec/syntax/*.alya` and asserts successful compilation/execution.
+  - The runner iterates over all 25 canonical test fixtures in `Src/alya/spec/syntax/*.alya` and asserts successful compilation/execution.
   - Target files: `tests/golden_spec_tests.rs`.
   - Verification: `cargo test --test golden_spec_tests`.
 
@@ -92,7 +95,7 @@ This roadmap defines the sequenced implementation phases, actionable engineering
 
 ---
 
-## 📦 Phase 2: Standard Library Consolidation (14 Core Modules)
+## 📦 Phase 2: Standard Library Consolidation (19 Embedded Modules)
 
 - [x] **2.1 Prune & Decouple High-Level Protocols**
   - Decouple `cli.alya` and `log.alya` from stdlib (relegate to `alya-lang/cli` and `alya-lang/logger`).
@@ -116,14 +119,14 @@ This roadmap defines the sequenced implementation phases, actionable engineering
   - Verification: Compiling with `--no-std` emits assembly with zero libc or stdlib symbols.
 
 - [x] **2.4 Standard Library Modern Syntax Refactoring**
-  - Idiomatically refactor all 14 core standard library modules (`std/fs`, `std/path`, `std/os`, `std/process`, `std/io`, `std/net`, `std/sync`, `std/time`, `std/mem`, `std/math`, `std/str`, `std/collections`, `std/console`, `std/test`) to adopt v1.0 syntax idioms:
+  - Idiomatically refactor all 19 embedded standard library modules (`std/fs`, `std/path`, `std/os`, `std/process`, `std/io`, `std/net`, `std/sync`, `std/time`, `std/mem`, `std/math`, `std/str`, `std/collections`, `std/console`, `std/test`, `std/simd`, `std/hash`, `std/json`, `std/cli`, `std/log`) to adopt v1.0 syntax idioms:
     - Deep destructuring patterns (`let { x, y } = point`, `let [first, ...rest] = list`).
     - Tagged unions for algebraic return types (`type Result[T, E] = Ok(T) | Err(E)`).
     - Comptime evaluations and assertions (`comptime ... end`).
     - Structured exception hierarchies (`try ... catch err: IOError`).
     - Pattern matching with `when` (relational predicates, ranges, value bindings).
   - Target files: `Src/alya/stdlib/*.alya`.
-  - Verification: All stdlib tests and 20 golden spec tests pass with modern syntax without regressions.
+  - Verification: All stdlib tests and 30 golden spec tests pass with modern syntax without regressions.
 
 ---
 
@@ -258,14 +261,14 @@ This roadmap defines the sequenced implementation phases, actionable engineering
 
 - [x] **5.5 Template Repository Modernization (`Lib/template`)**
   - **Prerequisite Archetype**: The `Lib/template` (`alya-lang/template`) repository MUST be revised first before any package repos, as it serves as the official package template and archetype.
-  - Revise `alya.toml` manifest, canonical layout (`src/`, `tests/`), CI GitHub Actions workflows, documentation templates, and idiomatic v1.0 syntax usage.
+  - Revise `alya.toml` manifest, canonical layout (`src/`, `tests/`), CI GitHub Actions workflows, documentation templates, tool configuration files (`.alyalint`, `.alyafmt`, `.alyatest`), and idiomatic v1.0 syntax usage.
   - Target files: `Lib/template/`.
   - Verification: Package generation via `create-package.ps1` produces starter packages matching the modern v1.0 spec standard.
 
 - [ ] **5.6 Ecosystem Standalone Packages Modernization & Clean v0.1.0 Baseline**
-  - **Manifest & CI Alignment (Completed)**: Synchronized all 22 standalone package manifests (`alya.toml` with `version = "0.1.0"`), repository templates, and GitHub Actions workflows with `Lib/template`.
-  - **Test Verification (Completed)**: 100% test suite pass rate across all 22 packages (23 test suites, 2,000+ assertions passed).
-  - **Remote Tag & Release Purge (Completed)**: Purged all 80 legacy remote releases, 80 remote tags, and 80 local tags across all 22 repositories under `alya-lang/*`.
+  - **Manifest & CI Alignment (Completed)**: Synchronized all 23 standalone package manifests (`alya.toml` with `version = "0.1.0"`), repository templates, and GitHub Actions workflows with `Lib/template`.
+  - **Test Verification (Completed)**: 100% test suite pass rate across all 23 packages (23 test suites, 2,000+ assertions passed).
+  - **Remote Tag & Release Purge (Completed)**: Purged all 80 legacy remote releases, 80 remote tags, and 80 local tags across all 23 repositories under `alya-lang/*`.
   - **Pending Syntax Modernization**: Refactoring package source code (`src/*.alya`) to adopt full v1.0 modern syntax features matching `Lib/template` archetype (strict `pub` visibility, `##` docstrings for `alya doc`, type annotations, argumentless `when` cascades, and string interpolation).
   - **Pending Final Baseline Release**: Tagging and publishing fresh `v0.1.0` releases after syntax modernization.
   - Target files: `Lib/*/alya.toml`, `Lib/*/src/`, `Lib/*/tests/`.
@@ -336,7 +339,7 @@ This roadmap defines the sequenced implementation phases, actionable engineering
 |:---:|---|:---:|:---:|
 | **0** | **Foundation & Toolchain Alignment** | 🔴 Immediate | ✅ Complete |
 | **1** | **Algorithmic Pipeline & Scalability (CallIndex, Tree-Shaking)** | 🔴 Immediate | ✅ Complete |
-| **2** | **Standard Library Consolidation & Modern Syntax (14 Modules)** | 🟡 High | ✅ Complete |
+| **2** | **Standard Library Consolidation & Modern Syntax (19 Modules)** | 🟡 High | ✅ Complete |
 | **3** | **Grammar, Lexer & Parser Conformance (Rune, Pratt, Main)** | 🟡 High | ✅ Complete |
 | **4** | **Advanced Systems Runtime (Weak ARC, Fibers, Cycle Collector, Event)** | 🔵 Normal | ✅ Complete |
 | **5** | **Developer Tooling & Ecosystem (Linter, LSP, Resolution, Packages)** | 🟢 Future | 🟡 In Progress |

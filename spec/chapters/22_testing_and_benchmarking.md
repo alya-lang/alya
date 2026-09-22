@@ -16,6 +16,7 @@ Following Go and Zig's philosophy, testing and benchmarking in Alya are first-cl
   ```alya
   assert_eq(actual, expected, "Mismatch in calculated result")
   ```
+- Bare `assert` / `assert_eq` calls with 2 or 3 arguments desugar to builtins, unless a user-defined function with fitting arity shadows them: a custom 2-parameter `assert_eq` wins for 2-argument calls, while a 3-argument call with no matching user function falls back to the throwing builtin.
 
 ### 1.3 Native `test` Blocks
 Dedicated test blocks are declared with `test "<name>"` and closed with `end`:
@@ -29,7 +30,7 @@ test "array push and length growth"
     assert list[0] == 10
 end
 ```
-- Can be placed directly alongside production code or in separate `*_test.alya` files.
+- Can be placed directly alongside production code or in separate `*_test.alya` files. Discovery is by filename AND by content: any file declaring `test` blocks or `@test` functions is a suite (intentionally unparseable `negative/` fixtures are never entered).
 - Executed automatically via `alya test`.
 
 ### 1.4 Native `bench` Blocks

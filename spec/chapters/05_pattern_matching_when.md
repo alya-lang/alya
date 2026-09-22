@@ -42,8 +42,9 @@ end
 ```
 
 ### 1.4 Statement Form vs Expression Form
-- **Statement Form:** Each branch contains one or more statements indented on new lines.
+- **Statement Form:** Each branch contains one or more statements indented on new lines. Multi-statement arms may contain `break`/`continue` when the `when` sits inside a loop.
 - **Expression Form:** Each branch uses `=>` followed by an expression. When used as an expression, the matched arm's evaluated expression becomes the return value of the `when` block.
+- **Inline Arms:** Single-statement arms may stay on one line with `then` (`is 200 then say "OK"`, `else say "Other"`); `then` with an empty remainder still opens a block body.
 
 ```alya
 let message = when status
@@ -128,9 +129,9 @@ end
 WhenStmt       ::= "when" ( Expr )? ( WhenArm )* ( ElseArm )? "end"
 
 WhenArm        ::= ( TargetArm | CondArm )
-TargetArm      ::= "is" PatternList ( "if" Expr )? ( Block | "=>" Expr )
+TargetArm      ::= "is" PatternList ( "if" Expr )? ( Block | "=>" Expr | "then" Statement )
 CondArm        ::= Expr ( Block | "=>" Expr )
-ElseArm        ::= "else" ( Block | "=>" Expr )
+ElseArm        ::= "else" ( Block | "=>" Expr | Statement )
 
 PatternList    ::= Pattern ( "," Pattern )*
 Pattern        ::= Literal

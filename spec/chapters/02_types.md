@@ -8,7 +8,7 @@
 - **Type**: `bool`
 - **Literals**: `true` and `false`.
 - **Strict Type Safety**: Integers `0` and `1` are **not** implicitly converted to `bool` in typed positions (a function expecting `bool` rejects an `int` argument at compile time).
-- **Conditional Truthiness**: In conditional positions (`if`, `while`, `when` guards), the truthiness matrix of Chapter 04 §1.2 applies instead: only `false` and `null` are falsy; `0` is falsy; all other values (including `1`, `-1`, non-empty and empty strings, instantiated objects) are truthy. For strict and robust codebases, explicit comparisons (e.g., `count == 0` or `user is not null`) remain idiomatic and recommended.
+- **Conditional Truthiness**: In conditional positions (`if`, `while`, `when` guards), the truthiness matrix of Chapter 04 §1.2 applies instead: `false`, `null`, and numeric zero (`0`, `0.0`) are falsy; all other values (including `1`, `-1`, non-empty and empty strings, instantiated objects) are truthy. For strict and robust codebases, explicit comparisons (e.g., `count == 0` or `user is not null`) remain idiomatic and recommended.
 
 #### 2. Default Integer (`int`)
 - **Canonical 64-bit Integer**: `int` is the default integer type throughout Alya.
@@ -32,6 +32,8 @@ For low-level systems programming, memory-constrained buffers, and C interop, ex
 #### 4. Floating-Point (`float`)
 - 64-bit IEEE 754 double-precision floating-point number.
 - Single-precision `f32` is available for graphics and FFI interop.
+- Values travel as raw f64 bits in 64-bit value slots, so `std/mem` raw `peek`/`poke` round-trips are exact on 64-bit targets.
+- Comparison and arithmetic fast paths materialize a call/binary-expression left operand from its slot before operating, so e.g. `read_float(p, 0) == 3.14` evaluates correctly. The x86 backend uses 32-bit value slots: float loads, stores, and comparisons truncate there (known limitation).
 
 #### 5. String (`string`)
 - UTF-8 immutable character sequence, reference-counted (ARC) on the heap.
