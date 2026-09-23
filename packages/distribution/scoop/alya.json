@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/alya-lang/alya/releases/download/v0.0.19/alya-v0.0.19-x86_64-windows.zip",
-      "hash": "ca90c03a0ce9acc5de07b5df265bf17243d12867ff43730f99be56dd3ecd582d",
+      "hash": "802d3974090aea58295036ffeffc8bb141cb5abc2fb19dd6e05722fd92b62fcd",
       "extract_dir": "alya-v0.0.19-x86_64-windows"
     }
   },
