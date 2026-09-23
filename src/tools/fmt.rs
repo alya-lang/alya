@@ -1,4 +1,4 @@
-use crate::lexer::Lexer;
+use crate::lexer::{Lexer, Token, TokenType};
 use crate::parser::Parser;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -493,6 +493,408 @@ fn get_block_starter(code: &str, in_extern: bool, in_interface: bool) -> Option<
     None
 }
 
+/// Splits a `function` header line that carries body code after its signature
+/// (`pub function f(...) -> int    if ...`) into `(header, trailing)`.
+///
+/// The formatter is indentation-only and never splits lines, so such a line
+/// would pass through untouched even though the missing newline is almost
+/// always a typo. The parser tolerates it (`skip_newlines` after the return
+/// type), so splitting at exactly that point preserves the token stream and
+/// the AST. Returns `None` when the line is not a function header with
+/// trailing body code — single-line `... end` functions, bare declarations,
+/// and anything unparseable are left alone.
+fn split_function_header_trailing(line: &str) -> Option<(String, String)> {
+    // Work on the code part only; a trailing comment is reattached to the
+    // split-off body line (nothing but a comment can follow it on the line).
+    // NOTE: the single-line `... end` guard below MUST run on the code part:
+    // checking the full line misses `function f() return 1 end  # comment`
+    // and splits it, nesting the rest of the file into the function.
+    let cs = comment_start(line);
+    let (code_part, comment_part) = line.split_at(cs);
+    if code_part.contains("/*") || code_part.contains("*/") {
+        return None;
+    }
+    if ends_with_word_outside_quotes(code_part, "end") {
+        return None;
+    }
+    let mut lexer = Lexer::new(code_part);
+    let tokens = lexer.tokenize().ok()?;
+    let mut i = 0;
+    if matches!(tok_at(&tokens, i), Some(TokenType::Pub)) {
+        i += 1;
+    }
+    // The declaration must open the line: expression positions and anonymous
+    // `function(...)` forms are left alone.
+    if !matches!(tok_at(&tokens, i), Some(TokenType::Function)) {
+        return None;
+    }
+    i += 1;
+    // Name (the parser lets several keywords double as names).
+    if !matches!(
+        tok_at(&tokens, i),
+        Some(TokenType::Identifier(_))
+            | Some(TokenType::Assert)
+            | Some(TokenType::Test)
+            | Some(TokenType::Bench)
+            | Some(TokenType::Comptime)
+            | Some(TokenType::Spawn)
+            | Some(TokenType::Select)
+    ) {
+        return None;
+    }
+    i += 1;
+    if matches!(tok_at(&tokens, i), Some(TokenType::LeftBracket)) {
+        i = skip_balanced(&tokens, i)?;
+    }
+    while matches!(
+        tok_at(&tokens, i),
+        Some(TokenType::ColonColon) | Some(TokenType::Dot)
+    ) {
+        i += 1;
+        if !matches!(
+            tok_at(&tokens, i),
+            Some(TokenType::Identifier(_)) | Some(TokenType::Assert) | Some(TokenType::Test)
+        ) {
+            return None;
+        }
+        i += 1;
+    }
+    if !matches!(tok_at(&tokens, i), Some(TokenType::LeftParen)) {
+        return None;
+    }
+    i = skip_balanced(&tokens, i)?;
+    if matches!(tok_at(&tokens, i), Some(TokenType::Arrow)) {
+        i += 1;
+        i = skip_type_at(&tokens, i)?;
+    }
+    // Anything left before EOF is body code sharing the header line.
+    while matches!(tok_at(&tokens, i), Some(TokenType::Newline)) {
+        i += 1;
+    }
+    if matches!(tok_at(&tokens, i), Some(TokenType::Eof)) {
+        return None;
+    }
+    let off = column_to_byte_offset(code_part, tokens[i].column)?;
+    let header = code_part[..off].trim_end();
+    let mut trailing = code_part[off..].trim().to_string();
+    if header.is_empty() || trailing.is_empty() {
+        return None;
+    }
+    if !comment_part.is_empty() {
+        trailing.push(' ');
+        trailing.push_str(comment_part);
+    }
+    Some((header.to_string(), trailing))
+}
+
+/// Expands `function` headers that share their line with body code into two
+/// lines (see `split_function_header_trailing`). Runs before indentation so
+/// the main loop sees plain one-statement-per-line input. Suppressed regions
+/// and multiline literals/comments pass through byte-identical.
+fn expand_function_headers(source: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut multiline_state: Option<MultilineLiteralState> = None;
+    let mut suppressed = false;
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if trimmed == "# fmt: off" || trimmed == "// fmt: off" {
+            suppressed = true;
+            out.push(line.to_string());
+            continue;
+        }
+        if trimmed == "# fmt: on" || trimmed == "// fmt: on" {
+            suppressed = false;
+            out.push(line.to_string());
+            continue;
+        }
+        if suppressed {
+            out.push(line.to_string());
+            continue;
+        }
+        if let Some(state) = multiline_state {
+            out.push(line.to_string());
+            multiline_state = scan_line_multiline_state(line, Some(state));
+            continue;
+        }
+        if trimmed.is_empty() || strip_line_comment(trimmed).is_empty() {
+            out.push(line.to_string());
+            multiline_state = scan_line_multiline_state(trimmed, None);
+            continue;
+        }
+        let mut parts = vec![trimmed.to_string()];
+        let mut guard = 0;
+        while guard < 8 {
+            guard += 1;
+            let last = parts.last().unwrap().clone();
+            match split_function_header_trailing(&last) {
+                Some((header, trailing)) => {
+                    parts.pop();
+                    parts.push(header);
+                    parts.push(trailing);
+                }
+                None => break,
+            }
+        }
+        for part in &parts {
+            multiline_state = scan_line_multiline_state(part, multiline_state);
+        }
+        out.extend(parts);
+    }
+    let eol = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    out.join(eol)
+}
+
+fn tok_at(tokens: &[Token], i: usize) -> Option<&TokenType> {
+    tokens.get(i).map(|t| &t.token_type)
+}
+
+/// Maps a 1-based char column from the lexer to a byte offset in `s`.
+fn column_to_byte_offset(s: &str, column: usize) -> Option<usize> {
+    if column == 0 {
+        return None;
+    }
+    // The lexer strips a BOM before tokenizing while `s` still carries it.
+    let bias = usize::from(s.starts_with('\u{feff}'));
+    let off = s
+        .char_indices()
+        .nth(column - 1 + bias)
+        .map(|(b, _)| b)
+        .unwrap_or(s.len());
+    if s.is_char_boundary(off) {
+        Some(off)
+    } else {
+        None
+    }
+}
+
+/// Byte index where a trailing `#` / `//` comment starts (outside string
+/// literals), mirroring `strip_line_comment`. Returns `line.len()` when the
+/// line has no comment.
+fn comment_start(line: &str) -> usize {
+    let mut in_str = false;
+    let mut quote = '"';
+    let mut escaped = false;
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if in_str {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == quote as u8 {
+                in_str = false;
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'"' || b == b'`' {
+            in_str = true;
+            quote = b as char;
+            i += 1;
+            continue;
+        }
+        if b == b'#' {
+            return i;
+        }
+        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
+            return i;
+        }
+        i += 1;
+    }
+    bytes.len()
+}
+
+/// Skips a balanced `(`/`[`/`{` group starting at `i` (which must be the
+/// opener); returns the index just past the matching closer, or `None` when
+/// unbalanced. String literals lex as single tokens, so contents inside them
+/// cannot confuse the depth count.
+fn skip_balanced(tokens: &[Token], i: usize) -> Option<usize> {
+    use std::mem::discriminant;
+    let open_d = discriminant(tok_at(tokens, i)?);
+    let (dp, db, dc) = (
+        discriminant(&TokenType::LeftParen),
+        discriminant(&TokenType::LeftBracket),
+        discriminant(&TokenType::LeftBrace),
+    );
+    if open_d != dp && open_d != db && open_d != dc {
+        return None;
+    }
+    let (cp, cb, cc) = (
+        discriminant(&TokenType::RightParen),
+        discriminant(&TokenType::RightBracket),
+        discriminant(&TokenType::RightBrace),
+    );
+    let mut stack = vec![open_d];
+    let mut j = i + 1;
+    while let Some(t) = tok_at(tokens, j) {
+        let d = discriminant(t);
+        if d == dp || d == db || d == dc {
+            stack.push(d);
+        } else if d == cp || d == cb || d == cc {
+            let want = *stack.last()?;
+            let matched =
+                (d == cp && want == dp) || (d == cb && want == db) || (d == cc && want == dc);
+            if !matched {
+                return None;
+            }
+            stack.pop();
+            if stack.is_empty() {
+                return Some(j + 1);
+            }
+        } else if d == discriminant(&TokenType::Eof) {
+            return None;
+        }
+        j += 1;
+    }
+    None
+}
+
+/// Skips one type annotation starting at `i` (mirroring
+/// `Parser::parse_type_annotation`); returns the index just past it, or
+/// `None` when the tokens do not form a type. Any doubt bails out: the
+/// caller then leaves the line untouched.
+fn skip_type_at(tokens: &[Token], mut i: usize) -> Option<usize> {
+    if matches!(tok_at(tokens, i), Some(TokenType::Weak)) {
+        i += 1;
+    }
+    if matches!(
+        tok_at(tokens, i),
+        Some(TokenType::DotDotDot) | Some(TokenType::DotDot)
+    ) {
+        i += 1;
+    }
+    if matches!(tok_at(tokens, i), Some(TokenType::LeftBracket)) {
+        // `[T]` / `[K: V]` (a bare `[]` suffix cannot start a type).
+        i += 1;
+        i = skip_type_at(tokens, i)?;
+        if matches!(tok_at(tokens, i), Some(TokenType::Colon)) {
+            i += 1;
+            i = skip_type_at(tokens, i)?;
+        }
+        if !matches!(tok_at(tokens, i), Some(TokenType::RightBracket)) {
+            return None;
+        }
+        i += 1;
+    } else if matches!(tok_at(tokens, i), Some(TokenType::LeftParen)) {
+        // Tuple `(T1, T2)`.
+        i += 1;
+        loop {
+            i = skip_type_at(tokens, i)?;
+            if matches!(tok_at(tokens, i), Some(TokenType::Comma)) {
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        if !matches!(tok_at(tokens, i), Some(TokenType::RightParen)) {
+            return None;
+        }
+        i += 1;
+    } else if matches!(
+        tok_at(tokens, i),
+        Some(TokenType::BitOr) | Some(TokenType::Or)
+    ) {
+        // Closure type `|T, U| -> R`.
+        let empty = matches!(tok_at(tokens, i), Some(TokenType::Or));
+        i += 1;
+        if !empty {
+            loop {
+                i = skip_type_at(tokens, i)?;
+                if matches!(tok_at(tokens, i), Some(TokenType::Comma)) {
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            if !matches!(tok_at(tokens, i), Some(TokenType::BitOr)) {
+                return None;
+            }
+            i += 1;
+        }
+        if matches!(tok_at(tokens, i), Some(TokenType::Arrow)) {
+            i += 1;
+            i = skip_type_at(tokens, i)?;
+        }
+    } else if matches!(tok_at(tokens, i), Some(TokenType::Identifier(_))) {
+        i += 1;
+        while matches!(
+            tok_at(tokens, i),
+            Some(TokenType::ColonColon) | Some(TokenType::Dot)
+        ) {
+            i += 1;
+            if !matches!(tok_at(tokens, i), Some(TokenType::Identifier(_))) {
+                return None;
+            }
+            i += 1;
+        }
+        // Generic arguments `C[T, E]` (a bare `[]` belongs to the suffix loop).
+        if matches!(tok_at(tokens, i), Some(TokenType::LeftBracket))
+            && !matches!(tok_at(tokens, i + 1), Some(TokenType::RightBracket))
+        {
+            i += 1;
+            loop {
+                i = skip_type_at(tokens, i)?;
+                if matches!(tok_at(tokens, i), Some(TokenType::Comma)) {
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            if !matches!(tok_at(tokens, i), Some(TokenType::RightBracket)) {
+                return None;
+            }
+            i += 1;
+        }
+    } else if matches!(tok_at(tokens, i), Some(TokenType::SelfKw)) {
+        i += 1;
+    } else if matches!(tok_at(tokens, i), Some(TokenType::Function)) {
+        // Function type `fn(T) -> R`.
+        i += 1;
+        if matches!(tok_at(tokens, i), Some(TokenType::LeftParen)) {
+            i += 1;
+            if !matches!(tok_at(tokens, i), Some(TokenType::RightParen)) {
+                loop {
+                    i = skip_type_at(tokens, i)?;
+                    if matches!(tok_at(tokens, i), Some(TokenType::Comma)) {
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            if !matches!(tok_at(tokens, i), Some(TokenType::RightParen)) {
+                return None;
+            }
+            i += 1;
+        }
+        if matches!(tok_at(tokens, i), Some(TokenType::Arrow)) {
+            i += 1;
+            i = skip_type_at(tokens, i)?;
+        }
+    } else {
+        return None;
+    }
+    // Suffixes: `?`, `[]`.
+    loop {
+        if matches!(tok_at(tokens, i), Some(TokenType::Question)) {
+            i += 1;
+        } else if matches!(tok_at(tokens, i), Some(TokenType::LeftBracket))
+            && matches!(tok_at(tokens, i + 1), Some(TokenType::RightBracket))
+        {
+            i += 2;
+        } else {
+            break;
+        }
+    }
+    Some(i)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MultilineLiteralState {
     TripleQuote,
@@ -761,7 +1163,8 @@ fn collapse_empty_declarations(source: &str) -> String {
 /// Formats the given Alya source code string.
 pub fn format_source(source: &str) -> Result<String, String> {
     let preprocessed = collapse_empty_declarations(source);
-    let lines: Vec<&str> = preprocessed.lines().collect();
+    let expanded = expand_function_headers(&preprocessed);
+    let lines: Vec<&str> = expanded.lines().collect();
     let mut formatted_lines: Vec<String> = Vec::new();
     let mut block_stack: Vec<BlockKind> = Vec::new();
     let mut multiline_state: Option<MultilineLiteralState> = None;
@@ -1267,6 +1670,60 @@ end
         let expected =
             "function foo() return 1 end\nfunction bar() return 2 end\nlet x = foo() + bar()\n";
         assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_splits_body_after_function_signature() {
+        let input =
+            "pub function max(a: int, b: int) -> int    if a > b\nreturn a\nend\nreturn b\nend\n";
+        let expected = "pub function max(a: int, b: int) -> int\n    if a > b\n        return a\n    end\n    return b\nend\n";
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_splits_if_after_signature() {
+        let input = "pub function gpu_blit(s: DrawSurface, surf) -> int    if s is null or surf is null\nreturn 0\nend\nreturn 1\nend\n";
+        let expected = "pub function gpu_blit(s: DrawSurface, surf) -> int\n    if s is null or surf is null\n        return 0\n    end\n    return 1\nend\n";
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_splits_body_without_return_type() {
+        let input = "function run()    say \"hi\"\nsay \"bye\"\nend\n";
+        let expected = "function run()\n    say \"hi\"\n    say \"bye\"\nend\n";
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_split_keeps_trailing_comment() {
+        let input = "pub function f() -> int    return 1 # fast path\nreturn 2\nend\n";
+        let expected = "pub function f() -> int\n    return 1 # fast path\n    return 2\nend\n";
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_split_with_generics() {
+        let input = "pub function swap[T](a: T, b: T) -> T    return a\nend\n";
+        let expected = "pub function swap[T](a: T, b: T) -> T\n    return a\nend\n";
+        assert_eq!(format_source(input).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_bare_declaration_untouched() {
+        let input = "pub function max(a: int, b: int) -> int\n    return a\nend\n";
+        assert_eq!(format_source(input).unwrap(), input);
+    }
+
+    #[test]
+    fn test_format_single_line_with_trailing_comment_untouched() {
+        // Regression: the `... end` guard must see past the trailing comment,
+        // or the split nests the rest of the file into the function.
+        let input = "function mode_include() return 1 end  # Whitelist: Only listed apps use VPN\nfunction mode_exclude() return 2 end  # Blacklist: Listed apps bypass VPN\n";
+        assert_eq!(format_source(input).unwrap(), input);
+        let slash = "function f() return 1 end // fast path\n";
+        assert_eq!(format_source(slash).unwrap(), slash);
+        let block = "function f() return 1 end /* note */\n";
+        assert_eq!(format_source(block).unwrap(), block);
     }
 
     #[test]
