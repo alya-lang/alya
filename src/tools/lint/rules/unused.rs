@@ -650,6 +650,19 @@ fn get_exported_symbols_from_module(
     None
 }
 
+/// Reports whether a file acts as a public module surface: it declares `pub`
+/// or `extern` items, so downstream modules may consume symbols through it.
+/// Imports of such files double as re-exports and link roots, which per-file
+/// lint analysis must not treat as dead code.
+fn is_facade_file(tokens: &[Token], import_token_ranges: &[(usize, usize)]) -> bool {
+    tokens.iter().enumerate().any(|(idx, tok)| {
+        let inside_import = import_token_ranges
+            .iter()
+            .any(|&(start, end)| idx >= start && idx < end);
+        !inside_import && matches!(tok.token_type, TokenType::Pub | TokenType::Extern)
+    })
+}
+
 /// Checks for unused import statements or symbols.
 pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagnostic> {
     let mut diags = Vec::new();
@@ -816,6 +829,18 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                 if let Some(exported) = get_exported_symbols_from_module(path, file_path) {
                     if exported.iter().any(|sym| code_idents.contains(sym)) {
                         is_used = true;
+                    } else if !exported.is_empty() && is_facade_file(tokens, &import_token_ranges) {
+                        // Re-export candidate: this file declares `pub`/`extern`
+                        // items, so it acts as a module surface and its imports
+                        // double as re-exports — downstream consumers resolve
+                        // `alias::symbol` through them and the native linker
+                        // needs every directly-imported module compiled in.
+                        // Per-file analysis cannot prove such an import is
+                        // dead, so stay silent instead of risking a
+                        // build-breaking `--fix` (e.g. `src/lib.alya` facades
+                        // importing submodule files whose symbols are only
+                        // referenced downstream).
+                        continue;
                     }
                 }
             }

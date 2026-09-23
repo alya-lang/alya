@@ -166,6 +166,109 @@ end
 }
 
 #[test]
+fn test_lint_unused_import_facade_reexport_suppressed() {
+    // Regression test: `src/lib.alya`-style facades re-export submodule
+    // symbols to downstream `alias::symbol` consumers (and link them in).
+    // An import whose symbols are unused *locally* must NOT be flagged when
+    // the file declares `pub` items — flagging it led `--fix` to strip the
+    // import and break downstream builds with `undefined reference` link
+    // errors (semver `bumper`, term `cursor`/`live` incidents).
+    let tmp = std::env::temp_dir().join(format!("alya_lint_facade_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp);
+    std::fs::write(
+        tmp.join("bumper.alya"),
+        "pub function bump_major(v: int) -> int\n    return v + 1\nend\n",
+    )
+    .unwrap();
+
+    let lib_file = tmp.join("lib.alya");
+    let source = r#"
+import "./bumper.alya"
+
+pub function facade_version() -> int
+    return 1
+end
+"#;
+    let diags = lint_source(source, &lib_file).unwrap();
+    let import_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-import").collect();
+    assert!(
+        import_diags.is_empty(),
+        "facade re-export import must stay silent, got: {:?}",
+        import_diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_lint_unused_import_leaf_still_flagged_with_fix() {
+    // Same shape as the facade test, but the importing file declares no
+    // `pub`/`extern` items, so nobody can consume symbols through it: the
+    // import is genuinely dead and keeps its warning + `--fix`.
+    let tmp = std::env::temp_dir().join(format!("alya_lint_leaf_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp);
+    std::fs::write(
+        tmp.join("bumper.alya"),
+        "pub function bump_major(v: int) -> int\n    return v + 1\nend\n",
+    )
+    .unwrap();
+
+    let caller_file = tmp.join("caller.alya");
+    let source = r#"
+import "./bumper.alya"
+
+function main()
+    say "hi"
+end
+"#;
+    let diags = lint_source(source, &caller_file).unwrap();
+    let import_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-import").collect();
+    assert_eq!(import_diags.len(), 1);
+    assert_eq!(
+        import_diags[0].message,
+        "imported module 'bumper' is never used"
+    );
+    assert!(
+        import_diags[0].fix.is_some(),
+        "leaf-file unused import must keep its auto-fix"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_lint_unused_import_facade_empty_module_still_flagged() {
+    // A facade importing a module that exports nothing has no re-export to
+    // protect: removal cannot break downstream symbol resolution, so the
+    // warning (with fix) is preserved.
+    let tmp = std::env::temp_dir().join(format!("alya_lint_facade_empty_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp);
+    std::fs::write(
+        tmp.join("helper.alya"),
+        "function helper() -> int\n    return 1\nend\n",
+    )
+    .unwrap();
+
+    let lib_file = tmp.join("lib.alya");
+    let source = r#"
+import "./helper.alya"
+
+pub function facade_version() -> int
+    return 2
+end
+"#;
+    let diags = lint_source(source, &lib_file).unwrap();
+    let import_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-import").collect();
+    assert_eq!(import_diags.len(), 1);
+    assert!(
+        import_diags[0].fix.is_some(),
+        "empty-export import removal is safe and must keep its auto-fix"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn test_lint_dead_code_following_return() {
     let source = r#"
 function run()
