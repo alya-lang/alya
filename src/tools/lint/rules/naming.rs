@@ -84,6 +84,80 @@ fn find_ident_token(tokens: &[Token], ident: &str) -> Option<Token> {
     None
 }
 
+/// Locates the definition-site token(s) of `bare` (a `::`-stripped item name)
+/// by scanning for the introducing keyword, instead of the first textual
+/// occurrence — which may be an unrelated call or use site earlier in the
+/// file (e.g. `return time()` on line 16 while `function time__sleep` lives
+/// on line 531). Returns the receiver/name token plus, for `Type.method` /
+/// `Type::member` definitions (which the parser mangles to `Type__member`
+/// in the AST), the method/member token. Returns `None` when the definition
+/// pattern is not found so callers can fall back to `find_ident_token`.
+fn find_def_site_tokens(
+    tokens: &[Token],
+    is_keyword: impl Fn(&TokenType) -> bool,
+    bare: &str,
+) -> Option<(Token, Option<Token>)> {
+    let ident_at = |j: usize| -> Option<&str> {
+        match tokens.get(j).map(|t| &t.token_type) {
+            Some(TokenType::Identifier(n)) => Some(n.as_str()),
+            _ => None,
+        }
+    };
+    let is_dot_at = |j: usize| matches!(tokens.get(j).map(|t| &t.token_type), Some(TokenType::Dot));
+    let is_coloncolon_at = |j: usize| {
+        matches!(
+            tokens.get(j).map(|t| &t.token_type),
+            Some(TokenType::ColonColon)
+        )
+    };
+
+    let mut i = 0;
+    while i < tokens.len() {
+        if is_keyword(&tokens[i].token_type) {
+            let mut j = i + 1;
+            if let Some(n) = ident_at(j) {
+                // Genuine `Type.method` / `Type::member` definition: the
+                // parser mangles both separators to `Type__member`.
+                let sep_is_member = is_dot_at(j + 1) || is_coloncolon_at(j + 1);
+                if sep_is_member {
+                    if let Some(m) = ident_at(j + 2) {
+                        if format!("{}__{}", n, m) == bare || format!("{}.{}", n, m) == bare {
+                            return Some((tokens[j].clone(), Some(tokens[j + 2].clone())));
+                        }
+                    }
+                }
+                if n == bare {
+                    return Some((tokens[j].clone(), None));
+                }
+                // Skip `ns::` qualifiers preceding a plain name.
+                while ident_at(j).is_some() && is_coloncolon_at(j + 1) {
+                    j += 2;
+                }
+                if let Some(n2) = ident_at(j) {
+                    if n2 == bare {
+                        return Some((tokens[j].clone(), None));
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Definition-site span of `bare` introduced by `keyword`, falling back to the
+/// first textual occurrence and finally to (1, 1).
+fn def_span(
+    tokens: &[Token],
+    is_keyword: impl Fn(&TokenType) -> bool,
+    bare: &str,
+) -> (usize, usize) {
+    find_def_site_tokens(tokens, is_keyword, bare)
+        .map(|(tok, _)| (tok.line, tok.column))
+        .or_else(|| find_ident_token(tokens, bare).map(|t| (t.line, t.column)))
+        .unwrap_or((1, 1))
+}
+
 fn check_stmt_naming(
     stmt: &Stmt,
     tokens: &[Token],
@@ -93,74 +167,108 @@ fn check_stmt_naming(
     match stmt.inner_stmt() {
         Stmt::Function { name, body, .. } => {
             let bare = name.rsplit("::").next().unwrap_or(name);
-            if let Some((type_part, method_part)) =
+            // Source shape of the definition (tokens carry the ground truth
+            // the AST erases): a `Type.method` / `Type::member` definition is
+            // mangled to `Type__member` by the parser, exactly like a legacy
+            // single-identifier `xx__yy` alias — only the definition-site
+            // tokens tell them apart.
+            let def_tokens =
+                find_def_site_tokens(tokens, |t| matches!(t, TokenType::Function), bare);
+            let source_is_method = def_tokens
+                .as_ref()
+                .is_some_and(|(_, method)| method.is_some());
+            // Which naming roles this definition plays: genuine methods (or
+            // unknown shapes, preserving legacy behavior) split into
+            // receiver + method; single-identifier legacy aliases
+            // (e.g. `time__sleep`) are exempt; the rest are plain functions.
+            let method_parts: Option<(&str, &str)> = if source_is_method || def_tokens.is_none() {
                 bare.split_once("__").or_else(|| bare.split_once('.'))
-            {
-                if !type_part.starts_with('_') && !is_pascal_case(type_part) {
-                    let tok = find_ident_token(tokens, type_part);
-                    let line = tok.as_ref().map(|t| t.line).unwrap_or(1);
-                    let col = tok.as_ref().map(|t| t.column).unwrap_or(1);
-                    diags.push(LintDiagnostic {
-                        rule: "naming-convention".to_string(),
-                        severity: LintSeverity::Info,
-                        message: format!(
-                            "struct method receiver type '{}' should follow 'PascalCase' naming convention",
-                            type_part
-                        ),
-                        file_path: file_path.to_path_buf(),
-                        line,
-                        col,
-                        end_line: line,
-                        end_col: col + type_part.len(),
-                        help: Some(format!("consider renaming to '{}'", to_pascal_case(type_part))),
-                        fix: None,
-                    });
-                }
-                if !method_part.starts_with('_') && !is_snake_case(method_part) {
-                    let tok = find_ident_token(tokens, method_part);
-                    let line = tok.as_ref().map(|t| t.line).unwrap_or(1);
-                    let col = tok.as_ref().map(|t| t.column).unwrap_or(1);
-                    diags.push(LintDiagnostic {
-                        rule: "naming-convention".to_string(),
-                        severity: LintSeverity::Info,
-                        message: format!(
-                            "method '{}' should follow 'snake_case' naming convention",
-                            method_part
-                        ),
-                        file_path: file_path.to_path_buf(),
-                        line,
-                        col,
-                        end_line: line,
-                        end_col: col + method_part.len(),
-                        help: Some(format!(
-                            "consider renaming to '{}'",
-                            to_snake_case(method_part)
-                        )),
-                        fix: None,
-                    });
-                }
-            } else if !bare.starts_with('_') && !is_snake_case(bare) {
-                let tok = find_ident_token(tokens, bare);
-                let line = tok.as_ref().map(|t| t.line).unwrap_or(1);
-                let col = tok.as_ref().map(|t| t.column).unwrap_or(1);
-                let len = bare.len();
-                let suggested = to_snake_case(bare);
+            } else {
+                None
+            };
+            let is_legacy_alias = !source_is_method && def_tokens.is_some() && bare.contains("__");
+            if !is_legacy_alias {
+                // Definition-site tokens so diagnostic spans point at the
+                // declaration, never at an earlier same-named use.
+                if let Some((type_part, method_part)) = method_parts {
+                    if !type_part.starts_with('_') && !is_pascal_case(type_part) {
+                        let (line, col) = def_tokens
+                            .as_ref()
+                            .map(|(recv, _)| (recv.line, recv.column))
+                            .or_else(|| {
+                                find_ident_token(tokens, type_part).map(|t| (t.line, t.column))
+                            })
+                            .unwrap_or((1, 1));
+                        diags.push(LintDiagnostic {
+                            rule: "naming-convention".to_string(),
+                            severity: LintSeverity::Info,
+                            message: format!(
+                                "struct method receiver type '{}' should follow 'PascalCase' naming convention",
+                                type_part
+                            ),
+                            file_path: file_path.to_path_buf(),
+                            line,
+                            col,
+                            end_line: line,
+                            end_col: col + type_part.len(),
+                            help: Some(format!("consider renaming to '{}'", to_pascal_case(type_part))),
+                            fix: None,
+                        });
+                    }
+                    if !method_part.starts_with('_') && !is_snake_case(method_part) {
+                        let (line, col) = def_tokens
+                            .as_ref()
+                            .and_then(|(_, method)| method.as_ref())
+                            .map(|t| (t.line, t.column))
+                            .or_else(|| {
+                                find_ident_token(tokens, method_part).map(|t| (t.line, t.column))
+                            })
+                            .unwrap_or((1, 1));
+                        diags.push(LintDiagnostic {
+                            rule: "naming-convention".to_string(),
+                            severity: LintSeverity::Info,
+                            message: format!(
+                                "method '{}' should follow 'snake_case' naming convention",
+                                method_part
+                            ),
+                            file_path: file_path.to_path_buf(),
+                            line,
+                            col,
+                            end_line: line,
+                            end_col: col + method_part.len(),
+                            help: Some(format!(
+                                "consider renaming to '{}'",
+                                to_snake_case(method_part)
+                            )),
+                            fix: None,
+                        });
+                    }
+                } else if !bare.starts_with('_') && !is_snake_case(bare) {
+                    let (line, col, len) = def_tokens
+                        .as_ref()
+                        .map(|(recv, _)| (recv.line, recv.column, bare.len()))
+                        .or_else(|| {
+                            find_ident_token(tokens, bare).map(|t| (t.line, t.column, bare.len()))
+                        })
+                        .unwrap_or((1, 1, bare.len()));
+                    let suggested = to_snake_case(bare);
 
-                diags.push(LintDiagnostic {
-                    rule: "naming-convention".to_string(),
-                    severity: LintSeverity::Info,
-                    message: format!(
-                        "function '{}' should follow 'snake_case' naming convention",
-                        bare
-                    ),
-                    file_path: file_path.to_path_buf(),
-                    line,
-                    col,
-                    end_line: line,
-                    end_col: col + len,
-                    help: Some(format!("consider renaming to '{}'", suggested)),
-                    fix: None,
-                });
+                    diags.push(LintDiagnostic {
+                        rule: "naming-convention".to_string(),
+                        severity: LintSeverity::Info,
+                        message: format!(
+                            "function '{}' should follow 'snake_case' naming convention",
+                            bare
+                        ),
+                        file_path: file_path.to_path_buf(),
+                        line,
+                        col,
+                        end_line: line,
+                        end_col: col + len,
+                        help: Some(format!("consider renaming to '{}'", suggested)),
+                        fix: None,
+                    });
+                }
             }
 
             for s in body {
@@ -170,9 +278,7 @@ fn check_stmt_naming(
         Stmt::StructDef { name, .. } => {
             let bare = name.rsplit("::").next().unwrap_or(name);
             if !bare.starts_with('_') && !is_pascal_case(bare) {
-                let tok = find_ident_token(tokens, bare);
-                let line = tok.as_ref().map(|t| t.line).unwrap_or(1);
-                let col = tok.as_ref().map(|t| t.column).unwrap_or(1);
+                let (line, col) = def_span(tokens, |t| matches!(t, TokenType::Struct), bare);
                 let suggested = to_pascal_case(bare);
 
                 diags.push(LintDiagnostic {
@@ -195,9 +301,7 @@ fn check_stmt_naming(
         Stmt::EnumDef { name, .. } => {
             let bare = name.rsplit("::").next().unwrap_or(name);
             if !bare.starts_with('_') && !is_pascal_case(bare) {
-                let tok = find_ident_token(tokens, bare);
-                let line = tok.as_ref().map(|t| t.line).unwrap_or(1);
-                let col = tok.as_ref().map(|t| t.column).unwrap_or(1);
+                let (line, col) = def_span(tokens, |t| matches!(t, TokenType::Enum), bare);
                 let suggested = to_pascal_case(bare);
 
                 diags.push(LintDiagnostic {
@@ -220,9 +324,7 @@ fn check_stmt_naming(
         Stmt::InterfaceDef { name, .. } => {
             let bare = name.rsplit("::").next().unwrap_or(name);
             if !bare.starts_with('_') && !is_pascal_case(bare) {
-                let tok = find_ident_token(tokens, bare);
-                let line = tok.as_ref().map(|t| t.line).unwrap_or(1);
-                let col = tok.as_ref().map(|t| t.column).unwrap_or(1);
+                let (line, col) = def_span(tokens, |t| matches!(t, TokenType::Interface), bare);
                 let suggested = to_pascal_case(bare);
 
                 diags.push(LintDiagnostic {
@@ -245,9 +347,7 @@ fn check_stmt_naming(
         Stmt::Const { name, .. }
             if !name.starts_with('_') && !is_screaming_snake_case(name) && !is_snake_case(name) =>
         {
-            let tok = find_ident_token(tokens, name);
-            let line = tok.as_ref().map(|t| t.line).unwrap_or(1);
-            let col = tok.as_ref().map(|t| t.column).unwrap_or(1);
+            let (line, col) = def_span(tokens, |t| matches!(t, TokenType::Const), name);
 
             diags.push(LintDiagnostic {
                 rule: "naming-convention".to_string(),
@@ -587,6 +687,82 @@ function WORK_IO_ACCEPT() return 5 end
                 .iter()
                 .all(|m| !m.contains("naming-convention") || !m.contains("_internal")),
             "leading-underscore functions should be exempt from naming warning"
+        );
+    }
+
+    // ------------------------------------------------------------------ legacy `__` aliases
+
+    // Regression: `__` marks legacy namespace aliases (e.g. stdlib
+    // `time__sleep`), not struct-method receivers. Lint must not demand a
+    // PascalCase receiver for them.
+    #[test]
+    fn test_legacy_double_underscore_function_exempt() {
+        let src = r#"
+pub function now_millis() -> int
+    return clock_ms()
+end
+
+pub function time__now_millis() -> int
+    return now_millis()
+end
+
+pub function time__sleep(ms: int)
+    sleep(ms)
+end
+"#;
+        let diags = lint_code(src);
+        assert!(
+            diags.is_empty(),
+            "legacy `__` aliases must not produce naming diagnostics, got: {:?}",
+            diag_messages(&diags)
+        );
+    }
+
+    // ------------------------------------------------------------------ definition-site spans
+
+    // Regression: diagnostic spans pointed at the first textual occurrence
+    // of the identifier anywhere in the file (e.g. a `return time()` call on
+    // line 16) instead of the offending definition. Spans must resolve to
+    // the declaration site.
+    #[test]
+    fn test_receiver_span_points_at_definition() {
+        let src = r#"function probe() -> int
+    return mymod.compute(1)
+end
+
+pub function mymod.compute(x) -> int
+    return x
+end
+"#;
+        let diags = lint_code(src);
+        assert_eq!(diags.len(), 1, "expected exactly one naming diagnostic");
+        let d = &diags[0];
+        assert!(
+            d.message.contains("mymod"),
+            "diagnostic should mention the receiver, got: {:?}",
+            d.message
+        );
+        assert_eq!(
+            d.line, 5,
+            "receiver span must point at the definition (line 5), not the use (line 2)"
+        );
+    }
+
+    #[test]
+    fn test_struct_span_points_at_definition() {
+        let src = r#"function make() -> int
+    return widget
+end
+
+struct widget
+    x: int
+end
+"#;
+        let diags = lint_code(src);
+        assert_eq!(diags.len(), 1, "expected exactly one naming diagnostic");
+        assert_eq!(
+            diags[0].line, 5,
+            "struct span must point at the definition (line 5), not the use (line 2)"
         );
     }
 }
