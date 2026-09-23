@@ -143,20 +143,21 @@ entry = "src/lib.alya"
 
 [build]
 c-sources = ["c/gui.c"]
-c-flags-macos = ["-framework", "Cocoa"]
-c-flags-linux = ["-lX11"]
+c-link-flags-macos = ["-framework", "Cocoa"]
+c-link-flags-linux = ["-lX11"]
 "#;
 
     let manifest = parse_manifest(toml).expect("parse per-os flags failed");
     let build = manifest.build.as_ref().expect("build section expected");
-    assert!(build.c_flags_windows.is_empty());
-    assert_eq!(build.c_flags_macos, vec!["-framework", "Cocoa"]);
-    assert_eq!(build.c_flags_linux, vec!["-lX11"]);
+    assert!(build.c_flags.is_empty());
+    assert!(build.c_link_flags_windows.is_empty());
+    assert_eq!(build.c_link_flags_macos, vec!["-framework", "Cocoa"]);
+    assert_eq!(build.c_link_flags_linux, vec!["-lX11"]);
 
     let serialized = serialize_manifest(&manifest);
-    assert!(serialized.contains("c-flags-macos"));
-    assert!(serialized.contains("c-flags-linux"));
-    assert!(!serialized.contains("c-flags-windows"));
+    assert!(serialized.contains("c-link-flags-macos"));
+    assert!(serialized.contains("c-link-flags-linux"));
+    assert!(!serialized.contains("c-link-flags-windows"));
     let manifest2 = parse_manifest(&serialized).expect("roundtrip parse failed");
     assert_eq!(manifest, manifest2);
 }

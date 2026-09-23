@@ -21,11 +21,11 @@ pub struct CBuildPlan {
     pub sources_windows: Vec<PathBuf>,
     pub sources_macos: Vec<PathBuf>,
     pub sources_linux: Vec<PathBuf>,
-    /// Platform-only flags, applied at compile AND link time for the
-    /// matching target OS (`-lX11`, `-framework Cocoa`, ...).
-    pub flags_windows: Vec<String>,
-    pub flags_macos: Vec<String>,
-    pub flags_linux: Vec<String>,
+    /// Link-only flags: shared plus the matching target OS extras.
+    pub link_flags: Vec<String>,
+    pub link_flags_windows: Vec<String>,
+    pub link_flags_macos: Vec<String>,
+    pub link_flags_linux: Vec<String>,
 }
 
 impl CBuildPlan {
@@ -45,13 +45,20 @@ impl CBuildPlan {
         out
     }
 
-    /// Link-time flags for `os` (mirrored to the compile step as well).
+    /// Link-time flags for `os`: shared plus the matching target OS extras.
     pub fn link_flags_for(&self, os: OperatingSystem) -> Vec<String> {
-        match os {
-            OperatingSystem::Windows => self.flags_windows.clone(),
-            OperatingSystem::MacOS => self.flags_macos.clone(),
-            _ => self.flags_linux.clone(),
+        let mut out = self.link_flags.clone();
+        let extra = match os {
+            OperatingSystem::Windows => &self.link_flags_windows,
+            OperatingSystem::MacOS => &self.link_flags_macos,
+            _ => &self.link_flags_linux,
+        };
+        for f in extra {
+            if !out.contains(f) {
+                out.push(f.clone());
+            }
         }
+        out
     }
 }
 
@@ -107,9 +114,10 @@ pub fn discover_c_build_plan(
                                 }
                             }
                             for (list, dst) in [
-                                (build.c_flags_windows, &mut plan.flags_windows),
-                                (build.c_flags_macos, &mut plan.flags_macos),
-                                (build.c_flags_linux, &mut plan.flags_linux),
+                                (build.c_link_flags, &mut plan.link_flags),
+                                (build.c_link_flags_windows, &mut plan.link_flags_windows),
+                                (build.c_link_flags_macos, &mut plan.link_flags_macos),
+                                (build.c_link_flags_linux, &mut plan.link_flags_linux),
                             ] {
                                 for flag in list {
                                     if !dst.contains(&flag) {
@@ -169,13 +177,6 @@ pub fn build_c_objects(
     if sources.is_empty() {
         return Ok(Vec::new());
     }
-    // Effective compile flags: shared plus the target OS extras.
-    let mut eff_flags = plan.flags.clone();
-    for f in plan.link_flags_for(os) {
-        if !eff_flags.contains(&f) {
-            eff_flags.push(f);
-        }
-    }
 
     let _lock = C_BUILD_MUTEX.lock().unwrap();
 
@@ -222,7 +223,7 @@ pub fn build_c_objects(
             arch,
             os
         );
-        for f in &eff_flags {
+        for f in &plan.flags {
             key_data.push_str(f);
         }
         for inc in &plan.include_dirs {
@@ -253,7 +254,7 @@ pub fn build_c_objects(
                 gcc_args.push(format!("-I{}", path_to_gcc_arg(inc)));
             }
 
-            for flag in &eff_flags {
+            for flag in &plan.flags {
                 gcc_args.push(flag.clone());
             }
 
@@ -384,8 +385,8 @@ mod tests {
     #[test]
     fn test_link_flags_for_selects_target_os_only() {
         let plan = CBuildPlan {
-            flags_macos: vec!["-framework".to_string(), "Cocoa".to_string()],
-            flags_linux: vec!["-lX11".to_string()],
+            link_flags_macos: vec!["-framework".to_string(), "Cocoa".to_string()],
+            link_flags_linux: vec!["-lX11".to_string()],
             ..Default::default()
         };
 

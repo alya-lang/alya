@@ -65,9 +65,10 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
     let mut c_sources_windows = Vec::new();
     let mut c_sources_macos = Vec::new();
     let mut c_sources_linux = Vec::new();
-    let mut c_flags_windows = Vec::new();
-    let mut c_flags_macos = Vec::new();
-    let mut c_flags_linux = Vec::new();
+    let mut c_link_flags = Vec::new();
+    let mut c_link_flags_windows = Vec::new();
+    let mut c_link_flags_macos = Vec::new();
+    let mut c_link_flags_linux = Vec::new();
     let mut build_extra = BTreeMap::new();
     let section_extras = collect_section_extras(content);
 
@@ -119,11 +120,16 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                     "c-sources-linux" | "c_sources_linux" => {
                         c_sources_linux = parse_string_array(val)
                     }
-                    "c-flags-windows" | "c_flags_windows" => {
-                        c_flags_windows = parse_string_array(val)
+                    "c-link-flags" | "c_link_flags" => c_link_flags = parse_string_array(val),
+                    "c-link-flags-windows" | "c_link_flags_windows" => {
+                        c_link_flags_windows = parse_string_array(val)
                     }
-                    "c-flags-macos" | "c_flags_macos" => c_flags_macos = parse_string_array(val),
-                    "c-flags-linux" | "c_flags_linux" => c_flags_linux = parse_string_array(val),
+                    "c-link-flags-macos" | "c_link_flags_macos" => {
+                        c_link_flags_macos = parse_string_array(val)
+                    }
+                    "c-link-flags-linux" | "c_link_flags_linux" => {
+                        c_link_flags_linux = parse_string_array(val)
+                    }
                     "c-flags" | "c_flags" => c_flags = parse_string_array(val),
                     "c-include-dirs" | "c_include_dirs" => c_include_dirs = parse_string_array(val),
                     other => {
@@ -184,9 +190,10 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
         || !c_sources_windows.is_empty()
         || !c_sources_macos.is_empty()
         || !c_sources_linux.is_empty()
-        || !c_flags_windows.is_empty()
-        || !c_flags_macos.is_empty()
-        || !c_flags_linux.is_empty()
+        || !c_link_flags.is_empty()
+        || !c_link_flags_windows.is_empty()
+        || !c_link_flags_macos.is_empty()
+        || !c_link_flags_linux.is_empty()
         || build_links.is_some()
         || !build_extra.is_empty()
     {
@@ -198,9 +205,10 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
             c_sources_windows,
             c_sources_macos,
             c_sources_linux,
-            c_flags_windows,
-            c_flags_macos,
-            c_flags_linux,
+            c_link_flags,
+            c_link_flags_windows,
+            c_link_flags_macos,
+            c_link_flags_linux,
             build_extra,
         })
     } else {
@@ -365,9 +373,10 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
             ("c-sources-windows", &b.c_sources_windows),
             ("c-sources-macos", &b.c_sources_macos),
             ("c-sources-linux", &b.c_sources_linux),
-            ("c-flags-windows", &b.c_flags_windows),
-            ("c-flags-macos", &b.c_flags_macos),
-            ("c-flags-linux", &b.c_flags_linux),
+            ("c-link-flags", &b.c_link_flags),
+            ("c-link-flags-windows", &b.c_link_flags_windows),
+            ("c-link-flags-macos", &b.c_link_flags_macos),
+            ("c-link-flags-linux", &b.c_link_flags_linux),
         ] {
             if !sources.is_empty() {
                 let sources_str = sources

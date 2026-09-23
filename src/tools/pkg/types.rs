@@ -72,12 +72,12 @@ pub struct BuildConfig {
     pub c_sources_windows: Vec<String>,
     pub c_sources_macos: Vec<String>,
     pub c_sources_linux: Vec<String>,
-    /// Platform-only C flags, applied at both compile and link time for the
-    /// matching target OS (e.g. `-lX11` on Linux, `-framework Cocoa` on
-    /// macOS). Shared `c_flags` stay compile-only (historic behavior).
-    pub c_flags_windows: Vec<String>,
-    pub c_flags_macos: Vec<String>,
-    pub c_flags_linux: Vec<String>,
+    /// Link-only flags, passed to the final link step and never to C
+    /// compiles: shared plus per-OS variants (`-lX11`, `-framework Cocoa`).
+    pub c_link_flags: Vec<String>,
+    pub c_link_flags_windows: Vec<String>,
+    pub c_link_flags_macos: Vec<String>,
+    pub c_link_flags_linux: Vec<String>,
     /// Unknown `[build]` keys preserved verbatim (`key = raw value`) so
     /// manifest rewrites never drop tool or user configuration.
     pub build_extra: BTreeMap<String, String>,
