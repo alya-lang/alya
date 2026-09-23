@@ -494,6 +494,58 @@ pub function write_int(ptr, offset, val)
     poke_int(ptr, offset, val)
 end
 
+## Reads a 32-bit float at the given offset, widened to a 64-bit float.
+## Widening is exact: every f32 value round-trips through f64 losslessly.
+##
+## ### Parameters
+## - `ptr`: Base raw pointer.
+## - `offset`: Byte offset from `ptr`.
+##
+## ### Returns
+## The float loaded from the 32-bit slot at `ptr + offset`.
+pub function read_f32(ptr, offset) -> float
+    return mem_peek_f32(ptr, offset)
+end
+
+## Writes a float narrowed to 32-bit storage at the given offset.
+## Narrowing uses hardware round-to-nearest-even (`cvtsd2ss` / `fcvt`).
+##
+## ### Parameters
+## - `ptr`: Base raw pointer.
+## - `offset`: Byte offset from `ptr`.
+## - `val`: Float value narrowed to 32 bits before storing.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
+pub function write_f32(ptr, offset, val: float)
+    mem_poke_f32(ptr, offset, val)
+end
+
+## Reads a 32-bit integer at the given offset with sign extension.
+##
+## ### Parameters
+## - `ptr`: Base raw pointer.
+## - `offset`: Byte offset from `ptr`.
+##
+## ### Returns
+## The sign-extended integer loaded from the 32-bit slot at `ptr + offset`.
+pub function read_i32(ptr, offset)
+    return mem_peek_i32(ptr, offset)
+end
+
+## Writes the low 32 bits of an integer value at the given offset.
+##
+## ### Parameters
+## - `ptr`: Base raw pointer.
+## - `offset`: Byte offset from `ptr`.
+## - `val`: Integer value whose low 32 bits are stored.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
+pub function write_i32(ptr, offset, val)
+    mem_poke_i32(ptr, offset, val)
+end
+
 # --- Arena Allocator ---
 
 ## Allocates size bytes from the arena.

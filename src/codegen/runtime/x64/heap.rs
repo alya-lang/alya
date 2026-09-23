@@ -199,6 +199,84 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
+    // fn_mem_peek_f32(ptr, offset) -> float
+    // Loads a 32-bit float and widens it to f64 (exact widening).
+    // Alya floats travel as raw f64 bits in value slots.
+    out.push_str(".global fn_mem_peek_f32\n");
+    out.push_str("fn_mem_peek_f32:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    add %rdx, %rcx\n");
+        out.push_str("    movss (%rcx), %xmm0\n");
+    } else {
+        out.push_str("    add %rsi, %rdi\n");
+        out.push_str("    movss (%rdi), %xmm0\n");
+    }
+    out.push_str("    cvtss2sd %xmm0, %xmm0\n");
+    out.push_str("    movq %xmm0, %rax\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_mem_poke_f32(ptr, offset, val) -> void
+    // Narrows an f64 value-slot float to 32-bit storage (hardware
+    // round-to-nearest-even via cvtsd2ss).
+    out.push_str(".global fn_mem_poke_f32\n");
+    out.push_str("fn_mem_poke_f32:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    movq %r8, %xmm0\n");
+        out.push_str("    cvtsd2ss %xmm0, %xmm0\n");
+        out.push_str("    add %rdx, %rcx\n");
+        out.push_str("    movss %xmm0, (%rcx)\n");
+    } else {
+        out.push_str("    movq %rdx, %xmm0\n");
+        out.push_str("    cvtsd2ss %xmm0, %xmm0\n");
+        out.push_str("    add %rsi, %rdi\n");
+        out.push_str("    movss %xmm0, (%rdi)\n");
+    }
+    out.push_str("    xor %rax, %rax\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_mem_peek_i32(ptr, offset) -> int
+    // Loads a 32-bit int with sign extension into the 64-bit slot.
+    out.push_str(".global fn_mem_peek_i32\n");
+    out.push_str("fn_mem_peek_i32:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    add %rdx, %rcx\n");
+        out.push_str("    movslq (%rcx), %rax\n");
+    } else {
+        out.push_str("    add %rsi, %rdi\n");
+        out.push_str("    movslq (%rdi), %rax\n");
+    }
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_mem_poke_i32(ptr, offset, val) -> void
+    // Stores the low 32 bits of the int value slot.
+    out.push_str(".global fn_mem_poke_i32\n");
+    out.push_str("fn_mem_poke_i32:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    add %rdx, %rcx\n");
+        out.push_str("    movl %r8d, (%rcx)\n");
+    } else {
+        out.push_str("    add %rsi, %rdi\n");
+        out.push_str("    movl %edx, (%rdi)\n");
+    }
+    out.push_str("    xor %rax, %rax\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
     // fn_str_from_ptr
     out.push_str(".global fn_str_from_ptr\n");
     out.push_str("fn_str_from_ptr:\n");

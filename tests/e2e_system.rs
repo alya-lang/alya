@@ -39,6 +39,41 @@ end
 }
 
 #[test]
+fn test_e2e_mem_narrow_roundtrip() {
+    // std/mem read_f32/write_f32/read_i32/write_i32 narrow memory access.
+    // f32 widens exactly to f64; i32 sign-extends into the 64-bit slot.
+    // x86 is excluded: its value slots are 32-bit (known backend limitation).
+    if cfg!(target_arch = "x86") {
+        return;
+    }
+    let code = r#"
+import "std/mem"
+let arena = Arena.new(1024)
+let p = arena.alloc(64)
+write_f32(p, 0, 4.25)
+write_f32(p, 4, -2.5)
+write_f32(p, 8, 0.1)
+write_i32(p, 16, 123456789)
+write_i32(p, 20, -42)
+assert_eq(read_f32(p, 0), 4.25)
+assert_eq(read_f32(p, 4), -2.5)
+assert(read_f32(p, 8) > 0.0999999)
+assert(read_f32(p, 8) < 0.1000001)
+assert_eq(read_i32(p, 16), 123456789)
+assert_eq(read_i32(p, 20), -42)
+assert_eq(read_i32(p, 16) + read_i32(p, 20), 123456747)
+if read_f32(p, 0) == 4.25
+    say "NARROW ROUNDTRIP OK"
+end
+"#;
+
+    if let Some((exit, output)) = run_alya_code_full(code) {
+        assert_eq!(exit, 0, "Failed with code {}\nOutput:\n{}", exit, output);
+        assert!(output.contains("NARROW ROUNDTRIP OK"), "Got:\n{}", output);
+    }
+}
+
+#[test]
 fn test_e2e_builtins() {
     let code = r#"
 say len("Hello, Alya!")

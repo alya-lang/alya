@@ -148,6 +148,73 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
+    // fn_mem_peek_f32(ptr, offset) -> float
+    // Loads a 32-bit float, widens to f64 in %xmm0, and returns it through
+    // the x86 float convention (low 32 bits of the f64 pattern in %eax,
+    // full value in x87 st0) exactly like fn_simd_f64x4_get.
+    out.push_str(".global fn_mem_peek_f32\n");
+    out.push_str("fn_mem_peek_f32:\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    mov 8(%ebp), %edx\n");
+    out.push_str("    mov 12(%ebp), %ecx\n");
+    out.push_str("    add %ecx, %edx\n");
+    out.push_str("    movss (%edx), %xmm0\n");
+    out.push_str("    cvtss2sd %xmm0, %xmm0\n");
+    out.push_str("    sub $8, %esp\n");
+    out.push_str("    movsd %xmm0, (%esp)\n");
+    out.push_str("    mov (%esp), %eax\n");
+    out.push_str("    fldl (%esp)\n");
+    out.push_str("    add $8, %esp\n");
+    out.push_str("    mov %ebp, %esp\n");
+    out.push_str("    pop %ebp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_mem_poke_f32(ptr, offset, val) -> void
+    // Float arguments arrive in %xmm0 as full f64 (x86 call convention);
+    // narrow to 32-bit storage with hardware rounding.
+    out.push_str(".global fn_mem_poke_f32\n");
+    out.push_str("fn_mem_poke_f32:\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    mov 8(%ebp), %edx\n");
+    out.push_str("    mov 12(%ebp), %ecx\n");
+    out.push_str("    add %ecx, %edx\n");
+    out.push_str("    cvtsd2ss %xmm0, %xmm0\n");
+    out.push_str("    movss %xmm0, (%edx)\n");
+    out.push_str("    xor %eax, %eax\n");
+    out.push_str("    mov %ebp, %esp\n");
+    out.push_str("    pop %ebp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_mem_peek_i32(ptr, offset) -> int
+    // x86 value slots are 32-bit, identical to peek_int.
+    out.push_str(".global fn_mem_peek_i32\n");
+    out.push_str("fn_mem_peek_i32:\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    mov 8(%ebp), %edx\n");
+    out.push_str("    mov 12(%ebp), %ecx\n");
+    out.push_str("    add %ecx, %edx\n");
+    out.push_str("    mov (%edx), %eax\n");
+    out.push_str("    mov %ebp, %esp\n");
+    out.push_str("    pop %ebp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_mem_poke_i32(ptr, offset, val) -> void
+    out.push_str(".global fn_mem_poke_i32\n");
+    out.push_str("fn_mem_poke_i32:\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    mov 8(%ebp), %edx\n");
+    out.push_str("    mov 12(%ebp), %ecx\n");
+    out.push_str("    mov 16(%ebp), %eax\n");
+    out.push_str("    add %ecx, %edx\n");
+    out.push_str("    mov %eax, (%edx)\n");
+    out.push_str("    mov %ebp, %esp\n");
+    out.push_str("    pop %ebp\n");
+    out.push_str("    ret\n\n");
+
     // fn_str_from_ptr
     out.push_str(".global fn_str_from_ptr\n");
     out.push_str("fn_str_from_ptr:\n");

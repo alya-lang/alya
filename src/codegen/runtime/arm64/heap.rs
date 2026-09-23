@@ -119,6 +119,46 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x0, #0\n");
     out.push_str("    ret\n\n");
 
+    // fn_mem_peek_f32(x0=ptr, x1=offset) -> float (f64 bits in x0)
+    // Loads a 32-bit float and widens it to f64 (exact widening).
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_mem_peek_f32\n");
+    out.push_str("fn_mem_peek_f32:\n");
+    out.push_str("    add x0, x0, x1\n");
+    out.push_str("    ldr s0, [x0]\n");
+    out.push_str("    fcvt d0, s0\n");
+    out.push_str("    fmov x0, d0\n");
+    out.push_str("    ret\n\n");
+
+    // fn_mem_poke_f32(x0=ptr, x1=offset, x2=f64 bits) -> void
+    // Narrows with hardware round-to-nearest-even (fcvt s0, d0).
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_mem_poke_f32\n");
+    out.push_str("fn_mem_poke_f32:\n");
+    out.push_str("    fmov d0, x2\n");
+    out.push_str("    fcvt s0, d0\n");
+    out.push_str("    add x0, x0, x1\n");
+    out.push_str("    str s0, [x0]\n");
+    out.push_str("    mov x0, #0\n");
+    out.push_str("    ret\n\n");
+
+    // fn_mem_peek_i32(x0=ptr, x1=offset) -> int (sign-extended)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_mem_peek_i32\n");
+    out.push_str("fn_mem_peek_i32:\n");
+    out.push_str("    add x0, x0, x1\n");
+    out.push_str("    ldrsw x0, [x0]\n");
+    out.push_str("    ret\n\n");
+
+    // fn_mem_poke_i32(x0=ptr, x1=offset, x2=val) -> void (low 32 bits)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_mem_poke_i32\n");
+    out.push_str("fn_mem_poke_i32:\n");
+    out.push_str("    add x0, x0, x1\n");
+    out.push_str("    str w2, [x0]\n");
+    out.push_str("    mov x0, #0\n");
+    out.push_str("    ret\n\n");
+
     // fn_str_from_ptr
     out.push_str(".align 2\n");
     out.push_str(".global fn_str_from_ptr\n");
