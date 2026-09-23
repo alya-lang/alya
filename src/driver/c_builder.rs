@@ -46,6 +46,9 @@ impl CBuildPlan {
     }
 
     /// Link-time flags for `os`: shared plus the matching target OS extras.
+    /// Repeated tokens are preserved: pairs like `-framework Cocoa
+    /// -framework Foundation` repeat the flag word legitimately, so any
+    /// exact-string dedup here would corrupt the link command.
     pub fn link_flags_for(&self, os: OperatingSystem) -> Vec<String> {
         let mut out = self.link_flags.clone();
         let extra = match os {
@@ -53,11 +56,7 @@ impl CBuildPlan {
             OperatingSystem::MacOS => &self.link_flags_macos,
             _ => &self.link_flags_linux,
         };
-        for f in extra {
-            if !out.contains(f) {
-                out.push(f.clone());
-            }
-        }
+        out.extend(extra.iter().cloned());
         out
     }
 }
@@ -113,6 +112,9 @@ pub fn discover_c_build_plan(
                                     }
                                 }
                             }
+                            // Flag tokens repeat legitimately across pairs
+                            // (e.g. `-framework Cocoa -framework Foundation`),
+                            // so they are appended without exact-string dedup.
                             for (list, dst) in [
                                 (build.c_link_flags, &mut plan.link_flags),
                                 (build.c_link_flags_windows, &mut plan.link_flags_windows),
@@ -120,15 +122,11 @@ pub fn discover_c_build_plan(
                                 (build.c_link_flags_linux, &mut plan.link_flags_linux),
                             ] {
                                 for flag in list {
-                                    if !dst.contains(&flag) {
-                                        dst.push(flag);
-                                    }
+                                    dst.push(flag);
                                 }
                             }
                             for flag in build.c_flags {
-                                if !plan.flags.contains(&flag) {
-                                    plan.flags.push(flag);
-                                }
+                                plan.flags.push(flag);
                             }
                             for inc in build.c_include_dirs {
                                 let inc_path = canon_manifest_dir.join(&inc);
@@ -398,6 +396,32 @@ mod tests {
         assert_eq!(
             plan.link_flags_for(OperatingSystem::Linux),
             vec!["-lX11".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_link_flags_for_preserves_repeated_tokens() {
+        // Regression: `-framework` repeats legitimately across pairs; an
+        // exact-string dedup dropped the second occurrence, leaving a bare
+        // `Foundation` input file on the clang link line (macOS CI failure).
+        let plan = CBuildPlan {
+            link_flags_macos: vec![
+                "-framework".to_string(),
+                "Cocoa".to_string(),
+                "-framework".to_string(),
+                "Foundation".to_string(),
+            ],
+            ..Default::default()
+        };
+
+        assert_eq!(
+            plan.link_flags_for(OperatingSystem::MacOS),
+            vec![
+                "-framework".to_string(),
+                "Cocoa".to_string(),
+                "-framework".to_string(),
+                "Foundation".to_string(),
+            ]
         );
     }
 }
