@@ -279,7 +279,22 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         let t_gcc = Instant::now();
         let c_plan =
             c_builder::discover_c_build_plan(Path::new(&args.input_file), &imported_files)?;
-        let c_objects = c_builder::build_c_objects(&c_plan, args.arch, args.os)?;
+        let mut c_objects = c_builder::build_c_objects(&c_plan, args.arch, args.os)?;
+        // Windows bundles embed the staged icon as a COFF resource.
+        // An embedded icon (.rsrc section) is unreferenced by code, so
+        // linker section GC would silently drop it: keep all sections only
+        // for icon bundles; every other link keeps --gc-sections.
+        let mut with_icon_resource = false;
+        if let Some(ref opts) = bundle_opts {
+            if let Some(res) = opts.build_windows_icon_resource()? {
+                c_objects.push(res);
+                with_icon_resource = true;
+            }
+        }
+        let mut extra_link_args: Vec<String> = Vec::new();
+        if with_icon_resource {
+            extra_link_args.push("-Wl,--no-gc-sections".to_string());
+        }
         let mut extra_libs = codegen::collect_extern_libraries(&ast);
         extra_libs.retain(|lib| !c_plan.provided_libs.contains(lib));
 
@@ -290,6 +305,7 @@ pub fn run(args: CliArgs) -> Result<(), String> {
             args.os,
             &extra_libs,
             &c_objects,
+            &extra_link_args,
         )?;
         d_gcc = Some(t_gcc.elapsed());
 

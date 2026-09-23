@@ -5,6 +5,10 @@ use crate::codegen::OperatingSystem;
 
 /// Default embedded Apple ICNS icon (Alya Application icon) for standalone zero-dependency bundling.
 const DEFAULT_APP_ICON_ICNS: &[u8] = include_bytes!("../../assets/brand/icons/alya-app-dark.icns");
+/// Default embedded Windows ICO icon for standalone bundling.
+const DEFAULT_APP_ICON_ICO: &[u8] = include_bytes!("../../assets/brand/icons/alya-app-dark.ico");
+/// Default embedded PNG icon for Linux desktop entries.
+const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../../assets/brand/icons/alya-app-dark.png");
 
 /// Target platform for a bundle. `BundleOptions::new` defaults to macOS
 /// (historical behavior of `--bundle`); callers set the real target
@@ -148,7 +152,94 @@ impl BundleOptions {
         fs::write(&manifest_path, manifest)
             .map_err(|e| format!("Failed to write manifest at {:?}: {}", manifest_path, e))?;
 
+        // Stage the icon (.ico) and resource script; the .res is compiled
+        // at link time via `build_windows_icon_resource` (needs windres).
+        self.stage_windows_icon()?;
+        let rc_path = self.bundle_dir.join(format!("{}.rc", self.app_name));
+        fs::write(&rc_path, self.generate_windows_rc())
+            .map_err(|e| format!("Failed to write resource script at {:?}: {}", rc_path, e))?;
+
         Ok(())
+    }
+
+    /// Resolves the Windows icon: copies a user-supplied `.ico` or writes
+    /// the embedded default into the bundle directory. Returns the path.
+    fn stage_windows_icon(&self) -> Result<PathBuf, String> {
+        let target = self.bundle_dir.join(format!("{}.ico", self.app_name));
+        if let Some(ref custom) = self.icon_path {
+            let src = Path::new(custom);
+            if !src.exists() {
+                return Err(format!("Icon file not found: {}", custom));
+            }
+            let is_ico = src
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("ico"));
+            if !is_ico {
+                return Err(format!(
+                    "Windows bundles need a .ico file (got '{}'). Convert it first or omit --icon.",
+                    custom
+                ));
+            }
+            fs::copy(src, &target)
+                .map_err(|e| format!("Failed to copy icon from '{}': {}", custom, e))?;
+        } else {
+            fs::write(&target, DEFAULT_APP_ICON_ICO)
+                .map_err(|e| format!("Failed to write default icon: {}", e))?;
+        }
+        Ok(target)
+    }
+
+    /// Resource script embedding the staged icon as `IDI_ICON1`.
+    pub fn generate_windows_rc(&self) -> String {
+        format!("IDI_ICON1 ICON \"{}.ico\"\n", self.app_name)
+    }
+
+    /// Compiles the staged icon into a COFF `.res` via windres.
+    ///
+    /// Returns the `.res` path for linking, or `None` when windres is
+    /// unavailable (the bundle still builds, without an embedded icon).
+    pub fn build_windows_icon_resource(&self) -> Result<Option<PathBuf>, String> {
+        if self.os != BundleOs::Windows {
+            return Ok(None);
+        }
+        if Self::find_windres().is_none() {
+            eprintln!(
+                "warning: windres not found; Windows bundle will use the default executable icon"
+            );
+            return Ok(None);
+        }
+        let rc_name = format!("{}.rc", self.app_name);
+        let res_name = format!("{}.res", self.app_name);
+        // Run inside the bundle dir so the bare `"name.ico"` reference in
+        // the .rc resolves to the staged icon.
+        let status = std::process::Command::new("windres")
+            .current_dir(&self.bundle_dir)
+            .arg(&rc_name)
+            .arg("-O")
+            .arg("coff")
+            .arg("-o")
+            .arg(&res_name)
+            .status()
+            .map_err(|e| format!("Failed to run windres: {}", e))?;
+        if !status.success() {
+            return Err("windres failed to compile the icon resource".to_string());
+        }
+        let res_path = self.bundle_dir.join(&res_name);
+        if res_path.metadata().map(|m| m.len()).unwrap_or(0) == 0 {
+            return Err("windres produced an empty resource file".to_string());
+        }
+        Ok(Some(res_path))
+    }
+
+    /// Locates `windres` on PATH (ships with mingw-w64 toolchains).
+    fn find_windres() -> Option<PathBuf> {
+        let probe = std::process::Command::new("windres")
+            .arg("--version")
+            .output();
+        match probe {
+            Ok(out) if out.status.success() => Some(PathBuf::from("windres")),
+            _ => None,
+        }
     }
 
     fn create_linux_structure(&self) -> Result<(), String> {
@@ -159,13 +250,37 @@ impl BundleOptions {
             )
         })?;
 
-        // XDG desktop entry pointing at the bundled binary.
-        let desktop = self.generate_desktop_file();
+        // Stage the icon and point the desktop entry at its absolute path.
+        let icon_abs = self.stage_linux_icon()?;
+        let desktop = self.generate_desktop_file(icon_abs.as_deref());
         let desktop_path = self.bundle_dir.join(format!("{}.desktop", self.app_name));
         fs::write(&desktop_path, desktop)
             .map_err(|e| format!("Failed to write desktop entry at {:?}: {}", desktop_path, e))?;
 
         Ok(())
+    }
+
+    /// Resolves the Linux icon: copies a user-supplied image or writes the
+    /// embedded default PNG into the bundle directory. Returns its absolute
+    /// path for the `Icon=` desktop key.
+    fn stage_linux_icon(&self) -> Result<Option<String>, String> {
+        if let Some(ref custom) = self.icon_path {
+            let src = Path::new(custom);
+            if !src.exists() {
+                return Err(format!("Icon file not found: {}", custom));
+            }
+            let file_name = src
+                .file_name()
+                .ok_or_else(|| format!("Invalid icon path: {}", custom))?;
+            let target = self.bundle_dir.join(file_name);
+            fs::copy(src, &target)
+                .map_err(|e| format!("Failed to copy icon from '{}': {}", custom, e))?;
+            return Ok(Some(target.display().to_string()));
+        }
+        let target = self.bundle_dir.join(format!("{}.png", self.app_name));
+        fs::write(&target, DEFAULT_APP_ICON_PNG)
+            .map_err(|e| format!("Failed to write default icon: {}", e))?;
+        Ok(Some(target.display().to_string()))
     }
 
     /// Windows side-by-side application manifest: asInvoker UAC, version
@@ -217,7 +332,10 @@ impl BundleOptions {
     }
 
     /// XDG desktop entry launching the bundled binary.
-    pub fn generate_desktop_file(&self) -> String {
+    ///
+    /// `icon_abs` is the absolute icon path staged next to the binary
+    /// (always `Some` from `create_linux_structure`).
+    pub fn generate_desktop_file(&self, icon_abs: Option<&str>) -> String {
         let categories = if self.gui {
             "Utility;Graphics;"
         } else {
@@ -226,10 +344,15 @@ impl BundleOptions {
         // XDG paths always use forward slashes, even when the bundle is
         // authored on Windows.
         let exec = self.binary_path().display().to_string().replace('\\', "/");
+        let icon_line = match icon_abs {
+            Some(p) => format!("Icon={}\n", p.replace('\\', "/")),
+            None => String::new(),
+        };
         format!(
-            "[Desktop Entry]\nType=Application\nName={name}\nExec={bin}\nIcon={name}\nCategories={cats}\nTerminal=false\n",
+            "[Desktop Entry]\nType=Application\nName={name}\nExec={bin}\n{icon}Categories={cats}\nTerminal=false\n",
             name = self.app_name,
             bin = exec,
+            icon = icon_line,
             cats = categories
         )
     }
@@ -403,12 +526,17 @@ mod tests {
             "linux binary lives in the bundle dir"
         );
 
-        let desktop = opts.generate_desktop_file();
+        let desktop = opts.generate_desktop_file(Some("/tmp/LnxApp/LnxApp.png"));
         assert!(desktop.contains("Type=Application"));
         assert!(desktop.contains("Name=LnxApp"));
         assert!(
             desktop.contains("Graphics;"),
             "gui desktop has Graphics category"
+        );
+        assert!(
+            desktop.contains("Icon=/tmp/LnxApp/LnxApp.png"),
+            "desktop points at the staged icon, got:\n{}",
+            desktop
         );
         assert!(
             !desktop.contains('\\'),

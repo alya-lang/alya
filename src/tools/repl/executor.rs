@@ -53,7 +53,7 @@ pub fn compile_snippet_to_temp_exe(
     fs::write(&temp_asm, &asm_code)
         .map_err(|e| format!("Failed to write temporary assembly: {}", e))?;
 
-    let gcc_res = runner::compile_with_gcc(&temp_asm, &temp_exe, arch, os, &extra_libs, &[]);
+    let gcc_res = runner::compile_with_gcc(&temp_asm, &temp_exe, arch, os, &extra_libs, &[], &[]);
     let _ = fs::remove_file(&temp_asm);
 
     gcc_res?;

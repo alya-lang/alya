@@ -9,6 +9,7 @@ pub fn compile_with_gcc(
     os: OperatingSystem,
     extra_libs: &[String],
     c_objects: &[std::path::PathBuf],
+    extra_link_args: &[String],
 ) -> Result<(), String> {
     let mut gcc_args = vec![asm_file.to_string(), "-o".to_string(), exe_file.to_string()];
 
@@ -40,6 +41,9 @@ pub fn compile_with_gcc(
     gcc_args.push("-L.".to_string());
     for lib in extra_libs {
         gcc_args.push(format!("-l{}", lib));
+    }
+    for arg in extra_link_args {
+        gcc_args.push(arg.clone());
     }
 
     let toolchain = crate::driver::toolchain::resolve_toolchain(arch, os, false)?;

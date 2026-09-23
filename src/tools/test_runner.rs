@@ -506,7 +506,8 @@ pub fn execute_test_file(
 
     let asm_str = temp_asm.to_string_lossy().to_string();
     let exe_str = temp_exe.to_string_lossy().to_string();
-    let gcc_res = runner::compile_with_gcc(&asm_str, &exe_str, arch, os, &extra_libs, &c_objects);
+    let gcc_res =
+        runner::compile_with_gcc(&asm_str, &exe_str, arch, os, &extra_libs, &c_objects, &[]);
     let _ = fs::remove_file(&temp_asm);
     if let Err(err) = gcc_res {
         return Err(format!(
