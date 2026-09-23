@@ -175,6 +175,28 @@ fn test_bundle_flags() {
 }
 
 #[test]
+fn test_gui_flag_implies_bundle() {
+    let args = to_args(&["alya", "build", "game.alya", "--gui"]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    assert!(parsed.gui);
+    assert!(parsed.bundle);
+    assert!(parsed.output_binary);
+    // Historical default preserved: bare --gui still targets macOS.
+    assert_eq!(parsed.os, OperatingSystem::MacOS);
+
+    let args_win = to_args(&["alya", "build", "game.alya", "--gui", "--os", "windows"]);
+    let parsed_win = CliArgs::parse_from(&args_win).unwrap().unwrap();
+    assert!(parsed_win.gui);
+    assert_eq!(parsed_win.os, OperatingSystem::Windows);
+
+    let args_linux = to_args(&["alya", "build", "game.alya", "--bundle", "--os", "linux"]);
+    let parsed_linux = CliArgs::parse_from(&args_linux).unwrap().unwrap();
+    assert!(parsed_linux.bundle);
+    assert!(!parsed_linux.gui);
+    assert_eq!(parsed_linux.os, OperatingSystem::Linux);
+}
+
+#[test]
 fn test_pkg_init_cli() {
     let args = to_args(&["alya", "init", "my_pkg", "--lib"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();

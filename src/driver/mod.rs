@@ -204,7 +204,9 @@ pub fn run(args: CliArgs) -> Result<(), String> {
 
     let bundle_opts = if args.bundle {
         let mut opts =
-            crate::tools::bundle::BundleOptions::new(default_stem, args.output_file.as_deref());
+            crate::tools::bundle::BundleOptions::new(default_stem, args.output_file.as_deref())
+                .with_os(args.os.into())
+                .with_gui(args.gui);
         opts.bundle_id = args.bundle_id.clone();
         opts.icon_path = args.icon_path.clone();
         opts.create_structure()?;
@@ -222,10 +224,8 @@ pub fn run(args: CliArgs) -> Result<(), String> {
             (temp_asm, Some(exe_name))
         } else {
             let asm_name = opts
-                .bundle_dir
-                .join("Contents")
-                .join("MacOS")
-                .join(format!("{}.s", opts.app_name))
+                .binary_path()
+                .with_extension("s")
                 .to_string_lossy()
                 .to_string();
             (asm_name, None)
@@ -270,7 +270,7 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     if let Some(exe_file) = final_output {
         if !args.quiet && args.command != CommandKind::Run {
             if bundle_opts.is_some() {
-                println!("Compiling macOS App Bundle binary: {}", exe_file);
+                println!("Compiling bundle binary: {}", exe_file);
             } else {
                 println!("Compiling to executable: {}", exe_file);
             }
@@ -295,24 +295,57 @@ pub fn run(args: CliArgs) -> Result<(), String> {
 
         if let Some(ref opts) = bundle_opts {
             if !args.quiet {
-                println!(
-                    "✓ Successfully created macOS App Bundle: {}",
-                    opts.bundle_dir.display()
-                );
-                println!("\nBundle contents:");
-                println!(
-                    "  {}",
-                    opts.bundle_dir.join("Contents/Info.plist").display()
-                );
-                println!("  {}", opts.binary_path().display());
-                println!(
-                    "  {}",
-                    opts.bundle_dir
-                        .join("Contents/Resources/AppIcon.icns")
-                        .display()
-                );
-                println!("\nTo launch on macOS:");
-                println!("  open {}", opts.bundle_dir.display());
+                use crate::tools::bundle::BundleOs;
+                match opts.os {
+                    BundleOs::MacOs => {
+                        println!(
+                            "✓ Successfully created macOS App Bundle: {}",
+                            opts.bundle_dir.display()
+                        );
+                        println!("\nBundle contents:");
+                        println!(
+                            "  {}",
+                            opts.bundle_dir.join("Contents/Info.plist").display()
+                        );
+                        println!("  {}", opts.binary_path().display());
+                        println!(
+                            "  {}",
+                            opts.bundle_dir
+                                .join("Contents/Resources/AppIcon.icns")
+                                .display()
+                        );
+                        println!("\nTo launch on macOS:");
+                        println!("  open {}", opts.bundle_dir.display());
+                    }
+                    BundleOs::Windows => {
+                        println!(
+                            "✓ Successfully created Windows bundle: {}",
+                            opts.bundle_dir.display()
+                        );
+                        println!("\nBundle contents:");
+                        println!("  {}", opts.binary_path().display());
+                        println!(
+                            "  {}",
+                            opts.bundle_dir
+                                .join(format!("{}.exe.manifest", opts.app_name))
+                                .display()
+                        );
+                    }
+                    BundleOs::Linux => {
+                        println!(
+                            "✓ Successfully created Linux bundle: {}",
+                            opts.bundle_dir.display()
+                        );
+                        println!("\nBundle contents:");
+                        println!("  {}", opts.binary_path().display());
+                        println!(
+                            "  {}",
+                            opts.bundle_dir
+                                .join(format!("{}.desktop", opts.app_name))
+                                .display()
+                        );
+                    }
+                }
             }
         } else if args.command == CommandKind::Run {
             let t_exec = Instant::now();
@@ -329,19 +362,13 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         }
     } else if let Some(ref opts) = bundle_opts {
         if !args.quiet {
-            println!("✓ Generated macOS App Bundle assembly: {}", asm_file);
-            println!("\nBundle contents:");
-            println!(
-                "  {}",
-                opts.bundle_dir.join("Contents/Info.plist").display()
-            );
-            println!("  {}", asm_file);
-            println!(
-                "  {}",
-                opts.bundle_dir
-                    .join("Contents/Resources/AppIcon.icns")
-                    .display()
-            );
+            use crate::tools::bundle::BundleOs;
+            let kind = match opts.os {
+                BundleOs::MacOs => "macOS App Bundle",
+                BundleOs::Windows => "Windows bundle",
+                BundleOs::Linux => "Linux bundle",
+            };
+            println!("✓ Generated {} assembly: {}", kind, asm_file);
         }
     } else if !args.quiet {
         println!("Compiled successfully to {}", asm_file);

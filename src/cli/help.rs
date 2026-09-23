@@ -51,7 +51,8 @@ pub fn print_usage() {
     println!("  -b, -c, --binary      Compile directly to executable (calls GCC)");
     println!("  -r, --run             Compile and run immediately");
     println!("  -S, --asm             Emit assembly output only");
-    println!("  --bundle, --app       Package output into a macOS .app Application Bundle");
+    println!("  --bundle, --app       Package output into a platform bundle (.app on macOS, exe+manifest on Windows, binary+.desktop on Linux)");
+    println!("  --gui                 GUI application bundle (implies --bundle; enables DPI awareness and desktop integration)");
     println!("  --bundle-id <id>      Set CFBundleIdentifier (default: com.alya.<name>)");
     println!("  --icon <path>         Set custom application icon (.icns) for macOS bundle");
     println!("  --fix                 Automatically apply quick fixes (with lint)");
@@ -86,6 +87,10 @@ pub fn print_usage() {
     println!("  alya run hello.alya                  # Compile & run in one step");
     println!("  alya build hello.alya                # Produce executable (hello.exe / hello)");
     println!("  alya build app.alya --bundle         # Produce macOS Application Bundle (app.app)");
+    println!(
+        "  alya build app.alya --bundle --gui   # GUI bundle (DPI-aware manifest / desktop entry)"
+    );
+    println!("  alya build app.alya --bundle --os windows  # Windows bundle (exe + manifest)");
     println!("  alya hello.alya                      # Produce assembly (hello.s)");
     println!("  alya hello.alya -b -o my_app.exe     # Produce custom named binary");
     println!("  alya fmt hello.alya                  # Format single file");

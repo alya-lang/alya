@@ -47,6 +47,7 @@ pub struct CliArgs {
     pub bundle: bool,
     pub bundle_id: Option<String>,
     pub icon_path: Option<String>,
+    pub gui: bool,
     pub run_args: Vec<String>,
     pub test_jobs: Option<usize>,
     pub no_std: bool,
@@ -95,6 +96,7 @@ impl CliArgs {
                 stats: false,
                 check_only: false,
                 bundle: false,
+                gui: false,
                 bundle_id: None,
                 icon_path: None,
                 run_args: Vec::new(),
@@ -245,6 +247,7 @@ impl CliArgs {
         let mut bundle = false;
         let mut bundle_id = None;
         let mut icon_path = None;
+        let mut gui = false;
         let mut os_explicit = false;
         let mut arch_explicit = false;
         let mut run_args = Vec::new();
@@ -345,6 +348,11 @@ impl CliArgs {
                 "--bundle" | "--app" => {
                     bundle = true;
                     output_binary = true;
+                }
+                "--gui" => {
+                    bundle = true;
+                    output_binary = true;
+                    gui = true;
                 }
                 "--bundle-id" | "--identifier" => {
                     if i + 1 < args.len() {
@@ -451,6 +459,8 @@ impl CliArgs {
         };
 
         if bundle {
+            // Historical default: bare `--bundle` targets macOS, unless the
+            // caller explicitly picked another OS with `--os`.
             if !os_explicit {
                 os = OperatingSystem::MacOS;
             }
@@ -473,6 +483,7 @@ impl CliArgs {
             bundle,
             bundle_id,
             icon_path,
+            gui,
             run_args,
             test_jobs,
             no_std,
@@ -507,6 +518,7 @@ impl CliArgs {
             stats: false,
             check_only: false,
             bundle: false,
+            gui: false,
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
@@ -543,6 +555,7 @@ impl CliArgs {
             stats: false,
             check_only: false,
             bundle: false,
+            gui: false,
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
@@ -579,6 +592,7 @@ impl CliArgs {
             stats: false,
             check_only: false,
             bundle: false,
+            gui: false,
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
