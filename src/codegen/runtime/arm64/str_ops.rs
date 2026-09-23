@@ -424,8 +424,17 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x0, x19\n");
     emit_adrp_add(out, "x1", "alya_fmt_flt_val", os);
     out.push_str("    fmov d0, d8\n");
+    // Variadic ABI: Apple arm64 reads FP varargs from GP regs/stack (never
+    // d-regs), so the double must also ride in x2 and on the stack (Linux
+    // ignores both and reads d0). Without this, sprintf formatted whatever
+    // happened to sit there as `%g` garbage such as 3.04462e-314 for every
+    // str(float) on macOS. Mirrors the proven say.rs macOS spill pattern.
+    out.push_str("    fmov x2, d0\n");
+    out.push_str("    sub sp, sp, #16\n");
+    out.push_str("    str x2, [sp]\n");
     let p = if matches!(os, OperatingSystem::MacOS) { "_" } else { "" };
     out.push_str(&format!("    bl {}sprintf\n", p));
+    out.push_str("    add sp, sp, #16\n");
     out.push_str("    add x20, x20, x0\n");
     out.push_str("    add x20, x20, #1\n");
     out.push_str("    add x20, x20, #7\n");
