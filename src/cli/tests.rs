@@ -146,12 +146,12 @@ fn test_bundle_flags() {
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert!(parsed.bundle);
     assert!(parsed.output_binary);
-    assert_eq!(parsed.os, OperatingSystem::MacOS);
+    assert_eq!(parsed.os, crate::cli::args::host_operating_system());
 
     let args_arm = to_args(&["alya", "build", "game.alya", "--bundle", "--arch", "arm64"]);
     let parsed_arm = CliArgs::parse_from(&args_arm).unwrap().unwrap();
     assert!(parsed_arm.bundle);
-    assert_eq!(parsed_arm.os, OperatingSystem::MacOS);
+    assert_eq!(parsed_arm.os, crate::cli::args::host_operating_system());
     assert_eq!(parsed_arm.arch, Architecture::ARM64);
 
     let args_custom = to_args(&[
@@ -170,7 +170,7 @@ fn test_bundle_flags() {
     assert!(parsed_custom.bundle);
     assert_eq!(parsed_custom.bundle_id, Some("com.mycompany.game".into()));
     assert_eq!(parsed_custom.icon_path, Some("my_icon.icns".into()));
-    assert_eq!(parsed_custom.os, OperatingSystem::MacOS);
+    assert_eq!(parsed_custom.os, crate::cli::args::host_operating_system());
     assert_eq!(parsed_custom.arch, Architecture::X64);
 }
 
@@ -181,8 +181,8 @@ fn test_gui_flag_implies_bundle() {
     assert!(parsed.gui);
     assert!(parsed.bundle);
     assert!(parsed.output_binary);
-    // Historical default preserved: bare --gui still targets macOS.
-    assert_eq!(parsed.os, OperatingSystem::MacOS);
+    // Bare --gui targets the host platform (runnable where built).
+    assert_eq!(parsed.os, crate::cli::args::host_operating_system());
 
     let args_win = to_args(&["alya", "build", "game.alya", "--gui", "--os", "windows"]);
     let parsed_win = CliArgs::parse_from(&args_win).unwrap().unwrap();

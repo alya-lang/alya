@@ -4,6 +4,17 @@ use crate::tools::pkg::PkgCommand;
 use std::env;
 use std::process;
 
+/// Host platform as an `OperatingSystem`: bundle commands default to it.
+pub(crate) fn host_operating_system() -> OperatingSystem {
+    if cfg!(target_os = "windows") {
+        OperatingSystem::Windows
+    } else if cfg!(target_os = "macos") {
+        OperatingSystem::MacOS
+    } else {
+        OperatingSystem::Linux
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandKind {
     Build,
@@ -459,10 +470,11 @@ impl CliArgs {
         };
 
         if bundle {
-            // Historical default: bare `--bundle` targets macOS, unless the
-            // caller explicitly picked another OS with `--os`.
+            // Default to the host platform so `alya build app.alya --gui`
+            // yields a runnable bundle where it runs; cross-bundle with
+            // an explicit `--os windows|linux|macos`.
             if !os_explicit {
-                os = OperatingSystem::MacOS;
+                os = host_operating_system();
             }
             if !arch_explicit && !matches!(arch, Architecture::ARM64 | Architecture::X64) {
                 arch = Architecture::ARM64;
