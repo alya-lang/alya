@@ -6,7 +6,7 @@ in verifying that this package's contents are trustworthy.
    https://github.com/alya-lang/alya/releases/download/v0.0.19/alya-v0.0.19-x86_64-windows.zip
 
 2. Checksum (SHA-256):
-   1027af56f9cbec01c7813c1f3d879e480aa689ea190de0b0b9c78a97418dd42d upon GitHub Release asset generation)
+   5592e6266de5d18c19b201bf333ec6de701a4ee0506ad66c3f8a088e6d2a6ebe upon GitHub Release asset generation)
 
 3. Release verification:
    The official release, release notes, and SHA-256 checksums are published at:
