@@ -31,6 +31,35 @@ fn is_pascal_case(s: &str) -> bool {
     s.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) && !s.contains('_')
 }
 
+/// Hardware SIMD vector type names (`f32x8`, `i64x4`, `u16x8`, …) mirror ISA
+/// and industry spelling (Rust `core::simd`, Intel intrinsics). Forcing
+/// PascalCase (`F32x8`) would break platform convention, so these names are
+/// exempt from type-naming checks — both as declarations and as method
+/// receivers. Pattern: 1+ lowercase letters, 1+ digits, `x`, 1+ digits.
+fn is_simd_vector_name(s: &str) -> bool {
+    let bytes = s.trim_start_matches('_').as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_lowercase() {
+        i += 1;
+    }
+    let letters = i;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if letters == 0 || i == letters {
+        return false;
+    }
+    if i >= bytes.len() || bytes[i] != b'x' {
+        return false;
+    }
+    i += 1;
+    let lanes_start = i;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    i == bytes.len() && i > lanes_start
+}
+
 fn to_snake_case(s: &str) -> String {
     // If the input is already SCREAMING_SNAKE_CASE (e.g. WORK_IO_READ),
     // just lowercase it: work_io_read — don't insert extra underscores.
@@ -191,7 +220,10 @@ fn check_stmt_naming(
                 // Definition-site tokens so diagnostic spans point at the
                 // declaration, never at an earlier same-named use.
                 if let Some((type_part, method_part)) = method_parts {
-                    if !type_part.starts_with('_') && !is_pascal_case(type_part) {
+                    if !type_part.starts_with('_')
+                        && !is_pascal_case(type_part)
+                        && !is_simd_vector_name(type_part)
+                    {
                         let (line, col) = def_tokens
                             .as_ref()
                             .map(|(recv, _)| (recv.line, recv.column))
@@ -277,7 +309,7 @@ fn check_stmt_naming(
         }
         Stmt::StructDef { name, .. } => {
             let bare = name.rsplit("::").next().unwrap_or(name);
-            if !bare.starts_with('_') && !is_pascal_case(bare) {
+            if !bare.starts_with('_') && !is_pascal_case(bare) && !is_simd_vector_name(bare) {
                 let (line, col) = def_span(tokens, |t| matches!(t, TokenType::Struct), bare);
                 let suggested = to_pascal_case(bare);
 
@@ -300,7 +332,7 @@ fn check_stmt_naming(
         }
         Stmt::EnumDef { name, .. } => {
             let bare = name.rsplit("::").next().unwrap_or(name);
-            if !bare.starts_with('_') && !is_pascal_case(bare) {
+            if !bare.starts_with('_') && !is_pascal_case(bare) && !is_simd_vector_name(bare) {
                 let (line, col) = def_span(tokens, |t| matches!(t, TokenType::Enum), bare);
                 let suggested = to_pascal_case(bare);
 
@@ -323,7 +355,7 @@ fn check_stmt_naming(
         }
         Stmt::InterfaceDef { name, .. } => {
             let bare = name.rsplit("::").next().unwrap_or(name);
-            if !bare.starts_with('_') && !is_pascal_case(bare) {
+            if !bare.starts_with('_') && !is_pascal_case(bare) && !is_simd_vector_name(bare) {
                 let (line, col) = def_span(tokens, |t| matches!(t, TokenType::Interface), bare);
                 let suggested = to_pascal_case(bare);
 
@@ -748,6 +780,8 @@ end
         );
     }
 
+    // ------------------------------------------------------------------ SIMD vector names
+
     #[test]
     fn test_struct_span_points_at_definition() {
         let src = r#"function make() -> int
@@ -764,5 +798,67 @@ end
             diags[0].line, 5,
             "struct span must point at the definition (line 5), not the use (line 2)"
         );
+    }
+
+    // Hardware vector types (`f32x8`, `i64x4`, …) follow ISA/industry
+    // spelling: exempt as declarations and as method receivers, while
+    // ordinary lowercase type names must still warn.
+    #[test]
+    fn test_simd_vector_name_detection() {
+        for name in [
+            "f32x8", "f64x4", "i32x8", "i64x4", "u16x8", "f16x8", "i8x32",
+        ] {
+            assert!(
+                is_simd_vector_name(name),
+                "'{}' should be a SIMD vector name",
+                name
+            );
+        }
+        for name in [
+            "F32x8", "f32", "f32x", "fx8", "mymod", "widget", "f32x8y", "vec3",
+        ] {
+            assert!(!is_simd_vector_name(name), "'{}' must NOT match", name);
+        }
+    }
+
+    #[test]
+    fn test_simd_vector_struct_and_receiver_exempt() {
+        let src = r#"pub struct f32x8
+    handle: ptr
+end
+
+pub function f32x8.sum_horizontal(self: f32x8) -> float
+    return 1.0
+end
+"#;
+        let diags = lint_code(src);
+        assert!(
+            diags.is_empty(),
+            "SIMD vector struct and receivers must stay silent, got: {:?}",
+            diag_messages(&diags)
+        );
+    }
+
+    #[test]
+    fn test_ordinary_lowercase_receiver_still_warns() {
+        let src = r#"pub struct widget
+    x: int
+end
+
+pub function widget.render(self: widget) -> int
+    return 1
+end
+"#;
+        let diags = lint_code(src);
+        assert_eq!(
+            diags.len(),
+            2,
+            "struct + receiver must both warn, got: {:?}",
+            diag_messages(&diags)
+        );
+        assert!(diags.iter().any(|d| d.message.contains("struct 'widget'")));
+        assert!(diags
+            .iter()
+            .any(|d| d.message.contains("receiver type 'widget'")));
     }
 }
