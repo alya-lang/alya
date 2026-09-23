@@ -710,3 +710,35 @@ say p
         assert_eq!(output, concat!("8080\n", "19884\n", "19884\n"));
     }
 }
+
+#[test]
+fn test_e2e_spawn_keyword_routes_to_fiber_runtime() {
+    // Regression: the `spawn` keyword parsed fine but emitted an
+    // unresolvable `fn_spawn` stub (link failure). Bare `spawn f(args)`
+    // desugars to a two-argument call shaped exactly like the green-fiber
+    // scheduler entry point; codegen routes it there unless the program
+    // defines its own bare `spawn`.
+    let code = r#"
+function w0()
+    say "w0"
+end
+
+function w1(x)
+    say x
+end
+
+function w2(a, b)
+    say a + b
+end
+
+spawn w0()
+spawn w1(41)
+spawn w2(40, 2)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert!(output.contains("w0\n"), "Got: {}", output);
+        assert!(output.contains("41\n"), "Got: {}", output);
+        assert!(output.contains("42\n"), "Got: {}", output);
+    }
+}

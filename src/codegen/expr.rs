@@ -1184,6 +1184,24 @@ impl CodeGen {
                 let mut resolved_name = name.clone();
                 let mut actual_args = args.clone();
 
+                // Builtin `spawn` keyword (concurrency): the parser desugars
+                // `spawn f(args)` into a two-argument `spawn(fn, arg)` call
+                // shaped exactly like the green-fiber scheduler entry point.
+                // Only an exact bare `spawn` in scope (user-defined) wins;
+                // qualified variants (`sy::spawn`) cannot satisfy a bare
+                // call, so they never block the builtin. Otherwise resolve
+                // directly to the always-linked fiber runtime symbol
+                // (`fn___native_fiber_spawn`) instead of an unresolvable
+                // `fn_spawn` stub.
+                if name == "spawn" && actual_args.len() == 2 {
+                    let user_spawn = self.ctx.functions.contains("spawn")
+                        || self.ctx.extern_functions.contains_key("spawn")
+                        || self.ctx.variables.contains_key("spawn");
+                    if !user_spawn {
+                        resolved_name = "__native_fiber_spawn".to_string();
+                    }
+                }
+
                 // 1. Static struct method call: Point.new(args) -> Point__new(args) or Module.Struct.new(args)
                 let static_type_info = match actual_args.first() {
                     Some(Expr::Identifier(type_name)) => Some((None, type_name.clone())),
