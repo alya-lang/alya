@@ -19,8 +19,11 @@ fn check_token_if_chains(tokens: &[Token], file_path: &Path, diags: &mut Vec<Lin
             let mut depth = 1;
             let mut elif_count = 0;
             let mut has_else = false;
+            // Branch conditions of the head `if` and each `elif`, for the
+            // convertibility check below.
+            let mut conditions: Vec<&[Token]> = vec![condition_slice(&tokens[i + 1..])];
 
-            for next_tok in &tokens[i + 1..] {
+            for (rel, next_tok) in tokens[i + 1..].iter().enumerate() {
                 match next_tok.token_type {
                     TokenType::If
                     | TokenType::While
@@ -42,6 +45,7 @@ fn check_token_if_chains(tokens: &[Token], file_path: &Path, diags: &mut Vec<Lin
                     }
                     TokenType::Elif if depth == 1 => {
                         elif_count += 1;
+                        conditions.push(condition_slice(&tokens[i + 1 + rel + 1..]));
                     }
                     TokenType::Else if depth == 1 => {
                         has_else = true;
@@ -53,26 +57,185 @@ fn check_token_if_chains(tokens: &[Token], file_path: &Path, diags: &mut Vec<Lin
 
             let total_branches = 1 + elif_count + if has_else { 1 } else { 0 };
 
-            // Recommend 'when' if there are 2 or more 'elif' branches
+            // Recommend 'when' if there are 2 or more 'elif' branches — but
+            // only when the chain is actually convertible to statement-form
+            // `when subject is ...`: every branch must test the SAME subject
+            // with `==` against literals. Heterogeneous predicates
+            // (`tlen >= 2 and ...`, `len(v) == 0`, `f(x) == 1`, `!=`, …) have
+            // no statement-`when` equivalent (argumentless `when` is
+            // expression-only), so suggesting a rewrite would be wrong.
             if elif_count >= 2 {
-                diags.push(LintDiagnostic {
-                    rule: "idiomatic-style".to_string(),
-                    severity: LintSeverity::Warning,
-                    message: format!(
-                        "long 'if/elif' chain ({} branches); consider using 'when' pattern matching for clearer branching",
-                        total_branches
-                    ),
-                    file_path: file_path.to_path_buf(),
-                    line: start_line,
-                    col: start_col,
-                    end_line: start_line,
-                    end_col: start_col + 2,
-                    help: Some("rewrite using 'when' pattern matching: 'when x is ... end'".to_string()),
-                    fix: None,
-                });
+                if let Some(subject) = chain_subject(&conditions) {
+                    diags.push(LintDiagnostic {
+                        rule: "idiomatic-style".to_string(),
+                        severity: LintSeverity::Warning,
+                        message: format!(
+                            "long 'if/elif' chain ({} branches) on '{}'; consider using 'when {}' pattern matching for clearer branching",
+                            total_branches, subject, subject
+                        ),
+                        file_path: file_path.to_path_buf(),
+                        line: start_line,
+                        col: start_col,
+                        end_line: start_line,
+                        end_col: start_col + 2,
+                        help: Some(format!(
+                            "rewrite using 'when {}' pattern matching: 'when {} is ... end'",
+                            subject, subject
+                        )),
+                        fix: None,
+                    });
+                }
             }
         }
     }
+}
+
+/// Extracts a branch-condition token slice: from after `if`/`elif` up to the
+/// terminating newline (at bracket depth 0), `then`, `end`, or `Eof`.
+fn condition_slice(tokens: &[Token]) -> &[Token] {
+    let mut depth = 0;
+    let mut len = 0;
+    for tok in tokens {
+        match tok.token_type {
+            TokenType::LeftParen | TokenType::LeftBracket | TokenType::LeftBrace => {
+                depth += 1;
+            }
+            TokenType::RightParen | TokenType::RightBracket | TokenType::RightBrace
+                if depth > 0 =>
+            {
+                depth -= 1;
+            }
+            TokenType::Newline | TokenType::Eof if depth == 0 => break,
+            TokenType::Then if depth == 0 => break,
+            TokenType::End if depth == 0 => break,
+            _ => {}
+        }
+        len += 1;
+    }
+    &tokens[..len]
+}
+
+/// Returns the common subject of a chain when every branch condition is a
+/// top-level `or` of `<subject> == <literal>` tests on the SAME subject
+/// (identifier or dotted path). Anything else — `and`, `!=`, relational
+/// operators, calls, indexing, brackets — yields `None`.
+fn chain_subject(conditions: &[&[Token]]) -> Option<String> {
+    let mut subject: Option<String> = None;
+    for cond in conditions {
+        let cond_subject = condition_subject(cond)?;
+        if let Some(s) = &subject {
+            if *s != cond_subject {
+                return None;
+            }
+        } else {
+            subject = Some(cond_subject);
+        }
+    }
+    subject
+}
+
+fn condition_subject(cond: &[Token]) -> Option<String> {
+    // Brackets mean calls, indexing, or grouping: not a plain equality chain.
+    if cond.iter().any(|t| {
+        matches!(
+            t.token_type,
+            TokenType::LeftParen
+                | TokenType::RightParen
+                | TokenType::LeftBracket
+                | TokenType::RightBracket
+                | TokenType::LeftBrace
+                | TokenType::RightBrace
+        )
+    }) {
+        return None;
+    }
+    // Split top-level `or` operands (no brackets remain, so every `or` is top-level).
+    let mut start = 0;
+    let mut subject: Option<String> = None;
+    for (idx, tok) in cond.iter().enumerate() {
+        if matches!(tok.token_type, TokenType::Or) {
+            let piece_subject = equality_subject(&cond[start..idx])?;
+            if let Some(s) = &subject {
+                if *s != piece_subject {
+                    return None;
+                }
+            } else {
+                subject = Some(piece_subject);
+            }
+            start = idx + 1;
+        }
+    }
+    let piece_subject = equality_subject(&cond[start..])?;
+    if let Some(s) = &subject {
+        if *s != piece_subject {
+            return None;
+        }
+    } else {
+        subject = Some(piece_subject);
+    }
+    subject
+}
+
+/// Matches `<subject> == [-]<literal>` where the subject is an identifier or
+/// dotted path and the literal is a string/number/float/bool/null literal.
+/// Returns the subject text.
+fn equality_subject(operand: &[Token]) -> Option<String> {
+    let mut i = 0;
+    // Subject: identifier or dotted path.
+    let mut subject = String::new();
+    match operand.get(i).map(|t| &t.token_type) {
+        Some(TokenType::Identifier(name)) => {
+            subject.push_str(name);
+            i += 1;
+        }
+        _ => return None,
+    }
+    while matches!(operand.get(i).map(|t| &t.token_type), Some(TokenType::Dot))
+        && matches!(
+            operand.get(i + 1).map(|t| &t.token_type),
+            Some(TokenType::Identifier(_))
+        )
+    {
+        if let Some(TokenType::Identifier(name)) = operand.get(i + 1).map(|t| &t.token_type) {
+            subject.push('.');
+            subject.push_str(name);
+        }
+        i += 2;
+    }
+    // Operator: exactly `==` (negations and relational arms need branch
+    // inversion or guards, which a plain rewrite suggestion cannot assume).
+    if !matches!(
+        operand.get(i).map(|t| &t.token_type),
+        Some(TokenType::Equal)
+    ) {
+        return None;
+    }
+    i += 1;
+    // Optional minus for negative literals (`x == -1`).
+    if matches!(
+        operand.get(i).map(|t| &t.token_type),
+        Some(TokenType::Minus)
+    ) {
+        i += 1;
+    }
+    // Literal right-hand side.
+    match operand.get(i).map(|t| &t.token_type) {
+        Some(
+            TokenType::String(_)
+            | TokenType::Number(_)
+            | TokenType::Float(_)
+            | TokenType::True
+            | TokenType::False
+            | TokenType::Null,
+        ) => {
+            i += 1;
+        }
+        _ => return None,
+    }
+    if i != operand.len() {
+        return None;
+    }
+    Some(subject)
 }
 
 /// Checks AST for redundant boolean returns like `if cond return true else return false`.

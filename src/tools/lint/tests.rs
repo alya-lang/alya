@@ -311,6 +311,89 @@ end
 }
 
 #[test]
+fn test_lint_idiomatic_style_elif_heterogeneous_no_when() {
+    // Chains with heterogeneous predicates have no statement-`when`
+    // equivalent (argumentless `when` is expression-only): no suggestion.
+    let source = r#"
+function parse_tok(tok)
+    let tlen = len(tok)
+    if tlen >= 2 and substring(tok, 0, 2) == "0x"
+        say "hex"
+    elif is_date_or_time(tok) == 1
+        say "date"
+    elif has_char(tok, ".") == 1
+        say "float"
+    else
+        say "int"
+    end
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let style_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "idiomatic-style" && d.message.contains("if/elif"))
+        .collect();
+    assert!(
+        style_diags.is_empty(),
+        "heterogeneous chain must not suggest 'when', got: {:?}",
+        style_diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_lint_idiomatic_style_elif_ne_chain_no_when() {
+    // `!=` arms would need branch inversion: no suggestion.
+    let source = r#"
+function check(v)
+    if v != 1
+        say "a"
+    elif v != 2
+        say "b"
+    elif v != 3
+        say "c"
+    else
+        say "d"
+    end
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let style_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "idiomatic-style" && d.message.contains("if/elif"))
+        .collect();
+    assert!(style_diags.is_empty(), "`!=` chains must stay silent");
+}
+
+#[test]
+fn test_lint_idiomatic_style_elif_dotted_subject_fires() {
+    // Same dotted subject across arms: convertible, names the subject.
+    let source = r#"
+function check(line)
+    if line.indent == 1
+        say "a"
+    elif line.indent == 2
+        say "b"
+    elif line.indent == 3
+        say "c"
+    else
+        say "d"
+    end
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let style_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "idiomatic-style" && d.message.contains("if/elif"))
+        .collect();
+    assert_eq!(style_diags.len(), 1);
+    assert!(
+        style_diags[0].message.contains("line.indent"),
+        "suggestion should name the subject, got: {}",
+        style_diags[0].message
+    );
+}
+
+#[test]
 fn test_lint_apply_fixes() {
     let source = r#"
 function compute(x, unused_param)
