@@ -403,6 +403,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x29, sp\n");
     out.push_str("    stp x19, x20, [sp, #16]\n");
     out.push_str("    stp x21, x22, [sp, #32]\n");
+    // Floats arrive as int-reg bit patterns on arm64 (caller convention);
+    // every other float consumer converts with fmov first (see
+    // native_sin/atan2 above and say.rs:79). str_from_float was the sole
+    // outlier reading a stale d0, which printed pointer bits as `%g`
+    // garbage (e.g. 3.04803e-314) for every str(float) on arm64.
+    out.push_str("    fmov d0, x0\n");
     out.push_str("    fmov d8, d0\n");
     emit_adrp_add(out, "x0", "alya_str_idx", os);
     out.push_str("    ldr x1, [x0]\n");

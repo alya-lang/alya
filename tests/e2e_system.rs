@@ -74,6 +74,23 @@ end
 }
 
 #[test]
+fn test_e2e_str_from_float_exact() {
+    // str(float) must render the argument, not a stale FP register.
+    // Regression: arm64 fn_str_from_float read d0 directly while floats
+    // travel as int-reg bit patterns (every other float consumer converts
+    // with fmov first), printing pointer bits as `%g` garbage such as
+    // 3.04803e-314 for str(1.0).
+    let code = r#"
+say str(1.0)
+say str(2.5)
+say str(-0.5)
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "1\n2.5\n-0.5\n", "Got:\n{}", output);
+    }
+}
+
+#[test]
 fn test_e2e_builtins() {
     let code = r#"
 say len("Hello, Alya!")
