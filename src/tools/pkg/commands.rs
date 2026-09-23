@@ -36,7 +36,7 @@ pub fn run_pkg(cmd: &PkgCommand) -> Result<(), String> {
             branch.as_deref(),
             version.as_deref(),
         ),
-        PkgCommand::Install => run_install(),
+        PkgCommand::Install { strict } => run_install(*strict),
         PkgCommand::List => run_list(),
         PkgCommand::Update { upgrade } => run_update(*upgrade),
         PkgCommand::Cache { clean, .. } => {
@@ -224,6 +224,7 @@ pub fn run_add(
                         branch,
                         None,
                         &cached_pkg_dir,
+                        false,
                     );
                 }
                 if cached_pkg_dir.exists() && !cached_pkg_dir.join(".alya-source").exists() {
@@ -258,15 +259,15 @@ pub fn run_add(
         println!("✓ Added dependency '{}' to alya.toml", resolved_name);
     }
 
-    run_install_in(&manifest_dir)?;
+    run_install_in(&manifest_dir, false)?;
     Ok(())
 }
 
-pub fn run_install() -> Result<(), String> {
+pub fn run_install(strict: bool) -> Result<(), String> {
     let manifest_dir = find_manifest_dir().ok_or_else(|| {
         "Error: Could not find 'alya.toml' in current directory or any parent.".to_string()
     })?;
-    run_install_in(&manifest_dir)
+    run_install_in(&manifest_dir, strict)
 }
 
 fn get_dep_major(dep: &DependencySource, from_dir: &Path) -> Option<u64> {
@@ -297,6 +298,7 @@ fn ensure_dep_cached(
     from_manifest_dir: &Path,
     existing_lock: Option<&PackageLock>,
     reported: &mut HashSet<String>,
+    strict: bool,
 ) -> Result<PathBuf, String> {
     match dep {
         DependencySource::Path { path } => {
@@ -375,6 +377,7 @@ fn ensure_dep_cached(
                     branch.as_deref(),
                     effective_rev.as_deref(),
                     &cached_pkg_dir,
+                    strict,
                 )?;
                 let commit_sha = fs::read_to_string(cached_pkg_dir.join(".alya-rev"))
                     .ok()
@@ -456,6 +459,7 @@ fn ensure_dep_cached(
                     None,
                     None,
                     &cached_pkg_dir,
+                    strict,
                 );
                 if fetch_res.is_err() {
                     if head_cached_dir.exists() && head_cached_dir.join("alya.toml").exists() {
@@ -478,6 +482,7 @@ fn ensure_dep_cached(
                             None,
                             None,
                             &cached_pkg_dir,
+                            strict,
                         ) {
                             if let Ok(manifest_src) =
                                 fs::read_to_string(cached_pkg_dir.join("alya.toml"))
@@ -501,7 +506,7 @@ fn ensure_dep_cached(
     }
 }
 
-pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
+pub fn run_install_in(manifest_dir: &Path, strict: bool) -> Result<(), String> {
     let manifest_path = manifest_dir.join("alya.toml");
     let content = fs::read_to_string(&manifest_path)
         .map_err(|e| format!("Failed to read alya.toml: {}", e))?;
@@ -557,6 +562,7 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
             &from_manifest_dir,
             existing_lock.as_ref(),
             &mut reported,
+            strict,
         ) {
             let sub_manifest_path = source_dir.join("alya.toml");
             if sub_manifest_path.exists() {
@@ -603,6 +609,7 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
             &from_manifest_dir,
             existing_lock.as_ref(),
             &mut reported,
+            strict,
         )?;
         let is_path_dep = matches!(dep, DependencySource::Path { .. });
 
@@ -627,13 +634,19 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
             // Verify content integrity against a previous lock when one pins
             // this package: recompute over the installed tree and reject
             // tampered or unexpectedly swapped checkouts.
+            // A tree installed from the curated release asset is exempt: the
+            // asset is already TLS + SHA-256 verified at fetch time, and it
+            // intentionally omits dev-only trees (tests/, benches/), so its
+            // content checksum legitimately differs from a source-tarball
+            // install. The fresh checksum is still recorded below.
+            let from_asset = dest_dir.join(".alya-asset").exists();
             if let Some(locked) = existing_lock.as_ref().and_then(|l| {
                 l.packages
                     .iter()
                     .find(|p| p.name == folder_name)
                     .or_else(|| l.packages.iter().find(|p| p.name == *name))
             }) {
-                if !locked.checksum.is_empty() {
+                if !locked.checksum.is_empty() && !from_asset {
                     let actual = compute_package_checksum(&dest_dir)?;
                     if actual != locked.checksum {
                         return Err(format!(
@@ -641,6 +654,11 @@ pub fn run_install_in(manifest_dir: &Path) -> Result<(), String> {
                             name, locked.checksum, actual
                         ));
                     }
+                } else if from_asset {
+                    println!(
+                        "  Notice: '{}' installed from verified release asset; lock checksum refreshed (curated tree).",
+                        name
+                    );
                 }
             }
 
@@ -1249,7 +1267,7 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
     }
 
     println!("Resolving and locking updated dependencies...\n");
-    run_install()?;
+    run_install(false)?;
     println!("\n✓ All dependencies updated successfully!");
     Ok(())
 }
@@ -1287,6 +1305,8 @@ pub fn print_pkg_help() {
     println!("  --tag <tag>        Specify Git tag for dependency");
     println!("  --branch <branch>  Specify Git branch for dependency");
     println!("  --version <ver>    Specify semantic version constraint\n");
+    println!("OPTIONS FOR 'install':");
+    println!("  --strict           Fail instead of falling back to source when a release asset is broken\n");
     println!("OPTIONS FOR 'update':");
     println!(
         "  -u, --upgrade      Rewrite alya.toml with latest versions and re-lock dependencies\n"

@@ -16,7 +16,9 @@ pub enum PkgCommand {
         branch: Option<String>,
         version: Option<String>,
     },
-    Install,
+    Install {
+        strict: bool,
+    },
     List,
     Update {
         upgrade: bool,

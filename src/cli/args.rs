@@ -136,7 +136,8 @@ impl CliArgs {
             return Ok(Some(Self::create_pkg_args(pkg_cmd)));
         }
         if first == "install" {
-            return Ok(Some(Self::create_pkg_args(PkgCommand::Install)));
+            let pkg_cmd = parse_pkg_install_args(&args[2..])?;
+            return Ok(Some(Self::create_pkg_args(pkg_cmd)));
         }
         if first == "cache" {
             let pkg_cmd = parse_pkg_cache_args(&args[2..])?;
@@ -163,7 +164,7 @@ impl CliArgs {
             let pkg_cmd = match sub {
                 "init" => parse_pkg_init_args(&args[3..])?,
                 "add" => parse_pkg_add_args(&args[3..])?,
-                "install" => PkgCommand::Install,
+                "install" => parse_pkg_install_args(&args[3..])?,
                 "list" => PkgCommand::List,
                 "update" => parse_pkg_update_args(&args[3..])?,
                 "outdated" => PkgCommand::Update { upgrade: false },
@@ -884,6 +885,23 @@ fn parse_pkg_clean_args(args: &[String]) -> Result<PkgCommand, String> {
         }
     }
     Ok(PkgCommand::Clean { all })
+}
+
+fn parse_pkg_install_args(args: &[String]) -> Result<PkgCommand, String> {
+    let mut strict = false;
+    for arg in args {
+        match arg.as_str() {
+            "--strict" => strict = true,
+            "-h" | "--help" | "help" => return Ok(PkgCommand::Help),
+            other => {
+                return Err(format!(
+                    "Error: Unknown option '{}' for 'install'. Supported flags: --strict",
+                    other
+                ))
+            }
+        }
+    }
+    Ok(PkgCommand::Install { strict })
 }
 
 fn parse_pkg_update_args(args: &[String]) -> Result<PkgCommand, String> {

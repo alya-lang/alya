@@ -364,7 +364,7 @@ fn test_pkg_add_and_install_path_dependency() {
     fs::write(app_dir.join("alya.toml"), serialize_manifest(&app_manifest)).unwrap();
 
     // Run install in app_dir
-    run_install_in(&app_dir).unwrap();
+    run_install_in(&app_dir, false).unwrap();
 
     assert!(app_dir.join("alya.lock").exists());
     let lock = parse_lockfile(&fs::read_to_string(app_dir.join("alya.lock")).unwrap()).unwrap();
@@ -434,6 +434,74 @@ fn test_verify_file_sha256() {
     assert!(!verify_file_sha256(&dir.join("missing.bin"), &expected));
 
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_release_asset_install_from_local_pairs() {
+    // Regression test for the full asset flow (download -> sha256 verify ->
+    // extract -> marker), including target-dir creation: the destination must
+    // NOT pre-exist, mirroring a fresh global-cache install.
+    let base = std::env::temp_dir().join(format!("alya_test_rel_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    let stage = base.join("pkg-stage").join("probe-v7.7.7");
+    fs::create_dir_all(stage.join("src")).unwrap();
+    fs::write(stage.join("alya.toml"), "[package]\nname = \"probe\"\n").unwrap();
+    fs::write(
+        stage.join("src").join("lib.alya"),
+        "pub function hi() return 7 end\n",
+    )
+    .unwrap();
+    let tarball = base.join("alya-pkg.tar.gz");
+    let packed = std::process::Command::new("tar")
+        .arg("-czf")
+        .arg(&tarball)
+        .arg("-C")
+        .arg(base.join("pkg-stage"))
+        .arg("probe-v7.7.7")
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    assert!(packed, "tar CLI must be available to pack the probe asset");
+    let digest = sha256_hex(&fs::read(&tarball).unwrap());
+    // Standard `sha256sum` text format, as published by release.yml.
+    fs::write(
+        base.join("alya-pkg.tar.gz.sha256"),
+        format!("{}  alya-pkg.tar.gz\n", digest),
+    )
+    .unwrap();
+    let to_url =
+        |p: &std::path::Path| format!("file://{}", p.display().to_string().replace('\\', "/"));
+    let pairs = vec![(
+        to_url(&tarball),
+        to_url(&base.join("alya-pkg.tar.gz.sha256")),
+    )];
+
+    let out = base.join("fresh-target");
+    assert!(!out.exists());
+    let res = try_download_release_asset_from_pairs("probe", &pairs, "v7.7.7", &out);
+    assert!(res.is_ok());
+    assert!(res.unwrap(), "complete local asset pair must install");
+    assert!(out.join("alya.toml").is_file());
+    assert!(out.join("src").join("lib.alya").is_file());
+    assert!(!out.join("probe-v7.7.7").exists());
+    let marker = fs::read_to_string(out.join(".alya-asset")).unwrap();
+    assert!(marker.contains(&digest));
+
+    // Tampered tarball must fail verification, never install.
+    let mut bad_bytes = fs::read(&tarball).unwrap();
+    let last = bad_bytes.len() - 1;
+    bad_bytes[last] ^= 0x01;
+    let bad_tar = base.join("bad.tar.gz");
+    fs::write(&bad_tar, &bad_bytes).unwrap();
+    let bad_pairs = vec![(
+        to_url(&bad_tar),
+        to_url(&base.join("alya-pkg.tar.gz.sha256")),
+    )];
+    let bad_out = base.join("bad-target");
+    let bad_res = try_download_release_asset_from_pairs("probe", &bad_pairs, "v7.7.7", &bad_out);
+    assert!(bad_res.is_err(), "checksum mismatch must be an error");
+
+    let _ = fs::remove_dir_all(&base);
 }
 
 #[test]
@@ -661,7 +729,7 @@ fn test_transitive_dependency_resolution() {
     .unwrap();
 
     // Run install in root
-    let res = run_install_in(&root_dir);
+    let res = run_install_in(&root_dir, false);
     assert!(res.is_ok(), "run_install_in failed: {:?}", res.err());
 
     // Verify lockfile contains BOTH pkg_a and pkg_b!
@@ -797,7 +865,7 @@ fn test_version_dependency_resolution_and_locking() {
     )
     .unwrap();
 
-    let res = run_install_in(&app_dir);
+    let res = run_install_in(&app_dir, false);
     assert!(res.is_ok(), "run_install_in failed: {:?}", res.err());
 
     // Verify lockfile
@@ -873,7 +941,7 @@ fn test_duplicate_native_links_rejection() {
     )
     .unwrap();
 
-    let res = run_install_in(&app_dir);
+    let res = run_install_in(&app_dir, false);
     assert!(res.is_err());
     let err_msg = res.err().unwrap();
     assert!(
@@ -1008,7 +1076,7 @@ fn test_major_version_segregation_installation() {
     )
     .unwrap();
 
-    let res = run_install_in(&app_dir);
+    let res = run_install_in(&app_dir, false);
     assert!(res.is_ok(), "run_install_in failed: {:?}", res.err());
 
     let packages_dir = app_dir.join(".alya").join("packages");

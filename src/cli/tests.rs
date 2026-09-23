@@ -269,7 +269,21 @@ fn test_pkg_install_cli() {
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(
         parsed.command,
-        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Install)
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Install { strict: false })
+    );
+
+    let args = to_args(&["alya", "install", "--strict"]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    assert_eq!(
+        parsed.command,
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Install { strict: true })
+    );
+
+    let args = to_args(&["alya", "pkg", "install", "--strict"]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    assert_eq!(
+        parsed.command,
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Install { strict: true })
     );
 }
 

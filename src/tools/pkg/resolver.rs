@@ -368,10 +368,34 @@ pub fn try_download_release_asset(
     tag: &str,
     target_dir: &Path,
 ) -> Result<bool, String> {
-    let pairs = resolve_release_asset_urls(url, tag);
+    try_download_release_asset_from_pairs(
+        name,
+        &resolve_release_asset_urls(url, tag),
+        tag,
+        target_dir,
+    )
+}
+
+/// Inner release-asset installer taking explicit `(tarball, sha256)` URL
+/// pairs. Split out so tests can drive the full download → verify → extract
+/// flow offline via `file://` URLs.
+pub(crate) fn try_download_release_asset_from_pairs(
+    name: &str,
+    pairs: &[(String, String)],
+    tag: &str,
+    target_dir: &Path,
+) -> Result<bool, String> {
     if pairs.is_empty() {
         return Ok(false);
     }
+
+    fs::create_dir_all(target_dir).map_err(|e| {
+        format!(
+            "Failed to create package directory '{}': {}",
+            target_dir.display(),
+            e
+        )
+    })?;
 
     let temp_dir = env::temp_dir();
     let pid = std::process::id();
@@ -392,7 +416,7 @@ pub fn try_download_release_asset(
     };
 
     let mut saw_asset = false;
-    for (tar_url, sha_url) in &pairs {
+    for (tar_url, sha_url) in pairs {
         if !download_file(tar_url, &temp_archive) {
             let _ = fs::remove_file(&temp_archive);
             continue;
@@ -424,6 +448,14 @@ pub fn try_download_release_asset(
 
         if extract_downloaded_archive(&temp_archive, false, target_dir, name, pid, millis) {
             let _ = fs::remove_file(&temp_archive);
+            // Provenance marker: records which verified asset populated this
+            // tree. The curated asset intentionally omits dev-only trees
+            // (tests/, benches/), so lock-content checks must not compare it
+            // byte-for-byte against a source-tarball install.
+            let _ = fs::write(
+                target_dir.join(".alya-asset"),
+                format!("{} {}", tar_url, actual),
+            );
             println!("  Installed '{}' from curated release asset", name);
             return Ok(true);
         }
@@ -573,19 +605,29 @@ pub fn fetch_git_or_archive_dependency(
     branch: Option<&str>,
     rev: Option<&str>,
     target_dir: &Path,
+    strict: bool,
 ) -> Result<(), String> {
     println!("  Resolving dependency '{}' from {}...", name, url);
 
     // 0. Pinned GitHub tags prefer the curated release asset (`alya-pkg.tar.gz`
     // + detached `.sha256`). Branch/rev pins, floating refs, and non-GitHub
     // hosts keep today's source path untouched. A missing asset falls through
-    // silently; a broken one warns and falls back instead of failing.
+    // silently; a broken one warns and falls back — unless `--strict` was
+    // passed, in which case any asset failure is fatal.
     if let Some(t) = tag {
         if branch.is_none() && rev.is_none() {
             match try_download_release_asset(name, url, t, target_dir) {
                 Ok(true) => return Ok(()),
                 Ok(false) => {}
-                Err(e) => println!("  Notice: {} — falling back to source.", e),
+                Err(e) => {
+                    if strict {
+                        return Err(format!(
+                            "Strict mode: refusing source fallback for '{}': {}",
+                            name, e
+                        ));
+                    }
+                    println!("  Notice: {} — falling back to source.", e);
+                }
             }
         }
     }
