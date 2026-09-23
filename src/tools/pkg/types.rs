@@ -67,6 +67,17 @@ pub struct BuildConfig {
     pub c_sources: Vec<String>,
     pub c_flags: Vec<String>,
     pub c_include_dirs: Vec<String>,
+    /// Platform-only C sources, compiled solely for the matching target OS
+    /// (e.g. Win32 backends on Windows, Cocoa on macOS). Empty means none.
+    pub c_sources_windows: Vec<String>,
+    pub c_sources_macos: Vec<String>,
+    pub c_sources_linux: Vec<String>,
+    /// Platform-only C flags, applied at both compile and link time for the
+    /// matching target OS (e.g. `-lX11` on Linux, `-framework Cocoa` on
+    /// macOS). Shared `c_flags` stay compile-only (historic behavior).
+    pub c_flags_windows: Vec<String>,
+    pub c_flags_macos: Vec<String>,
+    pub c_flags_linux: Vec<String>,
     /// Unknown `[build]` keys preserved verbatim (`key = raw value`) so
     /// manifest rewrites never drop tool or user configuration.
     pub build_extra: BTreeMap<String, String>,

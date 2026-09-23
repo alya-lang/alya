@@ -295,6 +295,8 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         if with_icon_resource {
             extra_link_args.push("-Wl,--no-gc-sections".to_string());
         }
+        // Platform link flags from manifests (e.g. -lX11, -framework Cocoa).
+        extra_link_args.extend(c_plan.link_flags_for(args.os));
         let mut extra_libs = codegen::collect_extern_libraries(&ast);
         extra_libs.retain(|lib| !c_plan.provided_libs.contains(lib));
 

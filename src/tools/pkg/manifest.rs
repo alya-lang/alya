@@ -62,6 +62,12 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
     let mut c_sources = Vec::new();
     let mut c_flags = Vec::new();
     let mut c_include_dirs = Vec::new();
+    let mut c_sources_windows = Vec::new();
+    let mut c_sources_macos = Vec::new();
+    let mut c_sources_linux = Vec::new();
+    let mut c_flags_windows = Vec::new();
+    let mut c_flags_macos = Vec::new();
+    let mut c_flags_linux = Vec::new();
     let mut build_extra = BTreeMap::new();
     let section_extras = collect_section_extras(content);
 
@@ -104,6 +110,20 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                 "build" => match key {
                     "links" => build_links = Some(unquote(val)),
                     "c-sources" | "c_sources" => c_sources = parse_string_array(val),
+                    "c-sources-windows" | "c_sources_windows" => {
+                        c_sources_windows = parse_string_array(val)
+                    }
+                    "c-sources-macos" | "c_sources_macos" => {
+                        c_sources_macos = parse_string_array(val)
+                    }
+                    "c-sources-linux" | "c_sources_linux" => {
+                        c_sources_linux = parse_string_array(val)
+                    }
+                    "c-flags-windows" | "c_flags_windows" => {
+                        c_flags_windows = parse_string_array(val)
+                    }
+                    "c-flags-macos" | "c_flags_macos" => c_flags_macos = parse_string_array(val),
+                    "c-flags-linux" | "c_flags_linux" => c_flags_linux = parse_string_array(val),
                     "c-flags" | "c_flags" => c_flags = parse_string_array(val),
                     "c-include-dirs" | "c_include_dirs" => c_include_dirs = parse_string_array(val),
                     other => {
@@ -161,6 +181,12 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
     let build = if !c_sources.is_empty()
         || !c_flags.is_empty()
         || !c_include_dirs.is_empty()
+        || !c_sources_windows.is_empty()
+        || !c_sources_macos.is_empty()
+        || !c_sources_linux.is_empty()
+        || !c_flags_windows.is_empty()
+        || !c_flags_macos.is_empty()
+        || !c_flags_linux.is_empty()
         || build_links.is_some()
         || !build_extra.is_empty()
     {
@@ -169,6 +195,12 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
             c_sources,
             c_flags,
             c_include_dirs,
+            c_sources_windows,
+            c_sources_macos,
+            c_sources_linux,
+            c_flags_windows,
+            c_flags_macos,
+            c_flags_linux,
             build_extra,
         })
     } else {
@@ -328,6 +360,23 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
                 .collect::<Vec<_>>()
                 .join(", ");
             out.push_str(&format!("c-include-dirs = [{}]\n", inc_str));
+        }
+        for (key, sources) in [
+            ("c-sources-windows", &b.c_sources_windows),
+            ("c-sources-macos", &b.c_sources_macos),
+            ("c-sources-linux", &b.c_sources_linux),
+            ("c-flags-windows", &b.c_flags_windows),
+            ("c-flags-macos", &b.c_flags_macos),
+            ("c-flags-linux", &b.c_flags_linux),
+        ] {
+            if !sources.is_empty() {
+                let sources_str = sources
+                    .iter()
+                    .map(|s| format!("\"{}\"", s))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                out.push_str(&format!("{} = [{}]\n", key, sources_str));
+            }
         }
         for (k, v) in &b.build_extra {
             out.push_str(&format!("{} = {}\n", k, v));

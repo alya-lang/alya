@@ -103,6 +103,65 @@ local_lib = {
 }
 
 #[test]
+fn test_manifest_per_os_c_sources() {
+    let toml = r#"
+[package]
+name = "gui"
+version = "0.1.0"
+entry = "src/lib.alya"
+
+[build]
+c-sources = ["c/gui.c"]
+c-sources-windows = ["c/win32_window.c"]
+c-sources-macos = ["c/cocoa_window.c"]
+c-sources-linux = ["c/wayland_window.c"]
+"#;
+
+    let manifest = parse_manifest(toml).expect("parse per-os manifest failed");
+    let build = manifest.build.as_ref().expect("build section expected");
+    assert_eq!(build.c_sources, vec!["c/gui.c"]);
+    assert_eq!(build.c_sources_windows, vec!["c/win32_window.c"]);
+    assert_eq!(build.c_sources_macos, vec!["c/cocoa_window.c"]);
+    assert_eq!(build.c_sources_linux, vec!["c/wayland_window.c"]);
+
+    // Round-trip preserves the per-OS keys (never demoted to build_extra).
+    let serialized = serialize_manifest(&manifest);
+    assert!(serialized.contains("c-sources-windows"));
+    assert!(serialized.contains("c-sources-macos"));
+    assert!(serialized.contains("c-sources-linux"));
+    let manifest2 = parse_manifest(&serialized).expect("roundtrip parse failed");
+    assert_eq!(manifest, manifest2);
+}
+
+#[test]
+fn test_manifest_per_os_c_flags() {
+    let toml = r#"
+[package]
+name = "gui"
+version = "0.1.0"
+entry = "src/lib.alya"
+
+[build]
+c-sources = ["c/gui.c"]
+c-flags-macos = ["-framework", "Cocoa"]
+c-flags-linux = ["-lX11"]
+"#;
+
+    let manifest = parse_manifest(toml).expect("parse per-os flags failed");
+    let build = manifest.build.as_ref().expect("build section expected");
+    assert!(build.c_flags_windows.is_empty());
+    assert_eq!(build.c_flags_macos, vec!["-framework", "Cocoa"]);
+    assert_eq!(build.c_flags_linux, vec!["-lX11"]);
+
+    let serialized = serialize_manifest(&manifest);
+    assert!(serialized.contains("c-flags-macos"));
+    assert!(serialized.contains("c-flags-linux"));
+    assert!(!serialized.contains("c-flags-windows"));
+    let manifest2 = parse_manifest(&serialized).expect("roundtrip parse failed");
+    assert_eq!(manifest, manifest2);
+}
+
+#[test]
 fn test_compiler_compatibility() {
     let toml_ok = r#"
 [package]

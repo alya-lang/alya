@@ -17,6 +17,42 @@ pub struct CBuildPlan {
     pub flags: Vec<String>,
     pub include_dirs: Vec<PathBuf>,
     pub provided_libs: HashSet<String>,
+    /// Platform-only sources, compiled solely for the matching target OS.
+    pub sources_windows: Vec<PathBuf>,
+    pub sources_macos: Vec<PathBuf>,
+    pub sources_linux: Vec<PathBuf>,
+    /// Platform-only flags, applied at compile AND link time for the
+    /// matching target OS (`-lX11`, `-framework Cocoa`, ...).
+    pub flags_windows: Vec<String>,
+    pub flags_macos: Vec<String>,
+    pub flags_linux: Vec<String>,
+}
+
+impl CBuildPlan {
+    /// Shared sources plus the ones matching `os`.
+    pub fn sources_for(&self, os: OperatingSystem) -> Vec<PathBuf> {
+        let mut out = self.sources.clone();
+        let extra = match os {
+            OperatingSystem::Windows => &self.sources_windows,
+            OperatingSystem::MacOS => &self.sources_macos,
+            _ => &self.sources_linux,
+        };
+        for src in extra {
+            if !out.contains(src) {
+                out.push(src.clone());
+            }
+        }
+        out
+    }
+
+    /// Link-time flags for `os` (mirrored to the compile step as well).
+    pub fn link_flags_for(&self, os: OperatingSystem) -> Vec<String> {
+        match os {
+            OperatingSystem::Windows => self.flags_windows.clone(),
+            OperatingSystem::MacOS => self.flags_macos.clone(),
+            _ => self.flags_linux.clone(),
+        }
+    }
 }
 
 /// Discovers all C sources declared in `[build]` sections of `alya.toml`
@@ -57,6 +93,30 @@ pub fn discover_c_build_plan(
                                     plan.sources.push(canon_src);
                                 }
                             }
+                            for (list, dst) in [
+                                (build.c_sources_windows, &mut plan.sources_windows),
+                                (build.c_sources_macos, &mut plan.sources_macos),
+                                (build.c_sources_linux, &mut plan.sources_linux),
+                            ] {
+                                for src in list {
+                                    let src_path = canon_manifest_dir.join(&src);
+                                    let canon_src = clean_canonicalize(&src_path);
+                                    if !dst.contains(&canon_src) {
+                                        dst.push(canon_src);
+                                    }
+                                }
+                            }
+                            for (list, dst) in [
+                                (build.c_flags_windows, &mut plan.flags_windows),
+                                (build.c_flags_macos, &mut plan.flags_macos),
+                                (build.c_flags_linux, &mut plan.flags_linux),
+                            ] {
+                                for flag in list {
+                                    if !dst.contains(&flag) {
+                                        dst.push(flag);
+                                    }
+                                }
+                            }
                             for flag in build.c_flags {
                                 if !plan.flags.contains(&flag) {
                                     plan.flags.push(flag);
@@ -77,7 +137,13 @@ pub fn discover_c_build_plan(
     }
 
     // Determine provided libraries by stem name of C sources (e.g. sqlite3.c provides "sqlite3" and "sqlite")
-    for src in &plan.sources {
+    for src in plan
+        .sources
+        .iter()
+        .chain(plan.sources_windows.iter())
+        .chain(plan.sources_macos.iter())
+        .chain(plan.sources_linux.iter())
+    {
         if let Some(stem) = src.file_stem().and_then(|s| s.to_str()) {
             plan.provided_libs.insert(stem.to_string());
             let stripped = stem.trim_end_matches(|c: char| c.is_ascii_digit());
@@ -97,8 +163,18 @@ pub fn build_c_objects(
     arch: Architecture,
     os: OperatingSystem,
 ) -> Result<Vec<PathBuf>, String> {
-    if plan.sources.is_empty() {
+    // Shared sources plus the ones matching the target OS; other
+    // platforms' files are never compiled (e.g. Win32 backends on Linux).
+    let sources = plan.sources_for(os);
+    if sources.is_empty() {
         return Ok(Vec::new());
+    }
+    // Effective compile flags: shared plus the target OS extras.
+    let mut eff_flags = plan.flags.clone();
+    for f in plan.link_flags_for(os) {
+        if !eff_flags.contains(&f) {
+            eff_flags.push(f);
+        }
     }
 
     let _lock = C_BUILD_MUTEX.lock().unwrap();
@@ -116,7 +192,7 @@ pub fn build_c_objects(
 
     let mut object_files = Vec::new();
 
-    for src in &plan.sources {
+    for src in &sources {
         if !src.exists() {
             return Err(format!(
                 "Declared C source file not found: '{}'",
@@ -146,7 +222,7 @@ pub fn build_c_objects(
             arch,
             os
         );
-        for f in &plan.flags {
+        for f in &eff_flags {
             key_data.push_str(f);
         }
         for inc in &plan.include_dirs {
@@ -177,7 +253,7 @@ pub fn build_c_objects(
                 gcc_args.push(format!("-I{}", path_to_gcc_arg(inc)));
             }
 
-            for flag in &plan.flags {
+            for flag in &eff_flags {
                 gcc_args.push(flag.clone());
             }
 
@@ -278,5 +354,49 @@ mod tests {
 
         let unix = Path::new("/usr/local/include/sqlite3.h");
         assert_eq!(path_to_gcc_arg(unix), "/usr/local/include/sqlite3.h");
+    }
+
+    #[test]
+    fn test_sources_for_selects_target_os_only() {
+        let plan = CBuildPlan {
+            sources: vec![PathBuf::from("c/shared.c")],
+            sources_windows: vec![PathBuf::from("c/win32_window.c")],
+            sources_macos: vec![PathBuf::from("c/cocoa_window.c")],
+            sources_linux: vec![PathBuf::from("c/wayland_window.c")],
+            ..Default::default()
+        };
+
+        let win = plan.sources_for(OperatingSystem::Windows);
+        assert!(win.contains(&PathBuf::from("c/shared.c")));
+        assert!(win.contains(&PathBuf::from("c/win32_window.c")));
+        assert!(!win.contains(&PathBuf::from("c/cocoa_window.c")));
+        assert!(!win.contains(&PathBuf::from("c/wayland_window.c")));
+
+        let mac = plan.sources_for(OperatingSystem::MacOS);
+        assert!(mac.contains(&PathBuf::from("c/cocoa_window.c")));
+        assert!(!mac.contains(&PathBuf::from("c/win32_window.c")));
+
+        let lin = plan.sources_for(OperatingSystem::Linux);
+        assert!(lin.contains(&PathBuf::from("c/wayland_window.c")));
+        assert!(!lin.contains(&PathBuf::from("c/win32_window.c")));
+    }
+
+    #[test]
+    fn test_link_flags_for_selects_target_os_only() {
+        let plan = CBuildPlan {
+            flags_macos: vec!["-framework".to_string(), "Cocoa".to_string()],
+            flags_linux: vec!["-lX11".to_string()],
+            ..Default::default()
+        };
+
+        assert!(plan.link_flags_for(OperatingSystem::Windows).is_empty());
+        assert_eq!(
+            plan.link_flags_for(OperatingSystem::MacOS),
+            vec!["-framework".to_string(), "Cocoa".to_string()]
+        );
+        assert_eq!(
+            plan.link_flags_for(OperatingSystem::Linux),
+            vec!["-lX11".to_string()]
+        );
     }
 }
