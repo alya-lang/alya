@@ -382,6 +382,102 @@ fn test_pkg_add_and_install_path_dependency() {
 }
 
 #[test]
+fn test_resolve_release_asset_urls() {
+    let pairs = resolve_release_asset_urls("https://github.com/alya-lang/json", "v0.2.0");
+    assert_eq!(pairs.len(), 2);
+    assert_eq!(
+        pairs[0].0,
+        "https://github.com/alya-lang/json/releases/download/v0.2.0/alya-pkg.tar.gz"
+    );
+    assert_eq!(
+        pairs[0].1,
+        "https://github.com/alya-lang/json/releases/download/v0.2.0/alya-pkg.tar.gz.sha256"
+    );
+    assert!(pairs[1]
+        .0
+        .contains("/releases/download/0.2.0/alya-pkg.tar.gz"));
+
+    // `.git` suffix and bare tags get the same treatment with swapped alternates.
+    let bare = resolve_release_asset_urls("https://github.com/alya-lang/json.git", "0.2.0");
+    assert_eq!(bare.len(), 2);
+    assert!(bare[0]
+        .0
+        .contains("/releases/download/0.2.0/alya-pkg.tar.gz"));
+    assert!(bare[1]
+        .0
+        .contains("/releases/download/v0.2.0/alya-pkg.tar.gz"));
+
+    // Non-GitHub hosts have no release-asset convention: no candidates.
+    let gl = resolve_release_asset_urls("https://gitlab.com/group/repo", "v1.0.0");
+    assert!(gl.is_empty());
+    let direct = resolve_release_asset_urls("https://example.com/pkg.tar.gz", "v1.0.0");
+    assert!(direct.is_empty());
+}
+
+#[test]
+fn test_verify_file_sha256() {
+    let dir = std::env::temp_dir().join(format!("alya_test_verify_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("payload.bin");
+    fs::write(&file, b"hello alya").unwrap();
+
+    let expected = sha256_hex(b"hello alya");
+    assert!(verify_file_sha256(&file, &expected));
+    // Case-insensitive (e.g. PowerShell Get-FileHash emits uppercase).
+    assert!(verify_file_sha256(&file, &expected.to_uppercase()));
+    // Standard `sha256sum` text format carries the digest as leading token;
+    // callers split it before calling, but trailing noise must still fail.
+    assert!(!verify_file_sha256(&file, "0"));
+    assert!(!verify_file_sha256(&file, ""));
+    assert!(!verify_file_sha256(&file, "deadbeef"));
+    assert!(!verify_file_sha256(&dir.join("missing.bin"), &expected));
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_curated_release_asset_layout_roundtrip() {
+    // Proves the `alya-pkg.tar.gz` layout published by release.yml
+    // (single top-level `<pkg>-<tag>/` dir) extracts correctly through the
+    // shared `tar --strip-components 1` path.
+    let base = std::env::temp_dir().join(format!("alya_test_asset_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    let stage = base.join("pkg-stage").join("probe-v9.9.9");
+    fs::create_dir_all(stage.join("src")).unwrap();
+    fs::write(stage.join("alya.toml"), "[package]\nname = \"probe\"\n").unwrap();
+    fs::write(
+        stage.join("src").join("lib.alya"),
+        "pub function hi() return 1 end\n",
+    )
+    .unwrap();
+    let tarball = base.join("alya-pkg.tar.gz");
+    let packed = std::process::Command::new("tar")
+        .arg("-czf")
+        .arg(&tarball)
+        .arg("-C")
+        .arg(base.join("pkg-stage"))
+        .arg("probe-v9.9.9")
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    assert!(packed, "tar CLI must be available to pack the probe asset");
+
+    let url = format!(
+        "file://{}",
+        tarball.display().to_string().replace('\\', "/")
+    );
+    let out = base.join("out");
+    let res = try_download_and_extract_archive(&[url], &out, "probe");
+    assert!(res.is_ok(), "probe asset must download and extract");
+    assert!(out.join("alya.toml").is_file());
+    assert!(out.join("src").join("lib.alya").is_file());
+    assert!(!out.join("probe-v9.9.9").exists());
+
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
 fn test_resolve_archive_candidates() {
     let gh_branch = resolve_archive_candidates(
         "https://github.com/alya-lang/dotenv",

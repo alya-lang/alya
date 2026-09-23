@@ -1,7 +1,64 @@
+use super::hash::sha256_hex;
 use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
+
+/// Curated per-release source archive published by the standard
+/// `release.yml` workflow (`alya-pkg.tar.gz` + detached SHA-256).
+/// Fixed names (no version embedded): the release tag in the download URL
+/// already scopes them, so installers never face `v`-prefix ambiguity.
+pub const RELEASE_ASSET_TARBALL: &str = "alya-pkg.tar.gz";
+pub const RELEASE_ASSET_CHECKSUM: &str = "alya-pkg.tar.gz.sha256";
+
+/// Splits a repository URL into `(owner, repo)` for `github.com` remotes
+/// (`https://`, `http://`, `git@` forms, optional `.git` suffix).
+/// Returns `None` for any other host.
+fn parse_github_owner_repo(url: &str) -> Option<(String, String)> {
+    let clean = url.trim_end_matches('/').trim_end_matches(".git");
+    let gh_sub = clean
+        .strip_prefix("https://github.com/")
+        .or_else(|| clean.strip_prefix("http://github.com/"))
+        .or_else(|| clean.strip_prefix("git@github.com:"));
+    let sub = gh_sub?;
+    let mut parts = sub.split('/');
+    let owner = parts.next()?;
+    let repo = parts.next()?;
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    Some((owner.to_string(), repo.to_string()))
+}
+
+/// Curated release-asset URL pairs `(tarball, sha256)` for a pinned tag on
+/// a GitHub-hosted package, including the `v`-prefix alternate. Empty for
+/// non-GitHub hosts: assets are a GitHub Releases convention, and branch /
+/// rev pins never have per-release assets by definition.
+pub fn resolve_release_asset_urls(url: &str, tag: &str) -> Vec<(String, String)> {
+    let Some((owner, repo)) = parse_github_owner_repo(url) else {
+        return Vec::new();
+    };
+    let mut tags = vec![tag.to_string()];
+    if !tag.starts_with('v') && !tag.starts_with('V') {
+        tags.push(format!("v{}", tag));
+    } else if let Some(stripped) = tag.strip_prefix('v').or_else(|| tag.strip_prefix('V')) {
+        tags.push(stripped.to_string());
+    }
+    tags.iter()
+        .map(|t| {
+            (
+                format!(
+                    "https://github.com/{}/{}/releases/download/{}/{}",
+                    owner, repo, t, RELEASE_ASSET_TARBALL
+                ),
+                format!(
+                    "https://github.com/{}/{}/releases/download/{}/{}",
+                    owner, repo, t, RELEASE_ASSET_CHECKSUM
+                ),
+            )
+        })
+        .collect()
+}
 
 pub fn resolve_registry_url(name: &str) -> String {
     if let Ok(reg) = env::var("ALYA_REGISTRY") {
@@ -64,78 +121,68 @@ pub fn resolve_archive_candidates(
     let clean = url.trim_end_matches('/').trim_end_matches(".git");
 
     // GitHub repository pattern
-    let gh_sub = clean
-        .strip_prefix("https://github.com/")
-        .or_else(|| clean.strip_prefix("http://github.com/"))
-        .or_else(|| clean.strip_prefix("git@github.com:"));
+    if let Some((owner, repo)) = parse_github_owner_repo(clean) {
+        let mut candidates = Vec::new();
 
-    if let Some(sub) = gh_sub {
-        let parts: Vec<&str> = sub.split('/').collect();
-        if parts.len() >= 2 {
-            let owner = parts[0];
-            let repo = parts[1];
-            let mut candidates = Vec::new();
-
-            if let Some(t) = tag {
+        if let Some(t) = tag {
+            candidates.push(format!(
+                "https://github.com/{}/{}/archive/refs/tags/{}.tar.gz",
+                owner, repo, t
+            ));
+            candidates.push(format!(
+                "https://github.com/{}/{}/archive/refs/tags/{}.zip",
+                owner, repo, t
+            ));
+            let alt = if !t.starts_with('v') && !t.starts_with('V') {
+                Some(format!("v{}", t))
+            } else {
+                t.strip_prefix('v')
+                    .or_else(|| t.strip_prefix('V'))
+                    .map(|s| s.to_string())
+            };
+            if let Some(alt_tag) = alt {
                 candidates.push(format!(
                     "https://github.com/{}/{}/archive/refs/tags/{}.tar.gz",
-                    owner, repo, t
+                    owner, repo, alt_tag
                 ));
                 candidates.push(format!(
                     "https://github.com/{}/{}/archive/refs/tags/{}.zip",
-                    owner, repo, t
-                ));
-                let alt = if !t.starts_with('v') && !t.starts_with('V') {
-                    Some(format!("v{}", t))
-                } else {
-                    t.strip_prefix('v')
-                        .or_else(|| t.strip_prefix('V'))
-                        .map(|s| s.to_string())
-                };
-                if let Some(alt_tag) = alt {
-                    candidates.push(format!(
-                        "https://github.com/{}/{}/archive/refs/tags/{}.tar.gz",
-                        owner, repo, alt_tag
-                    ));
-                    candidates.push(format!(
-                        "https://github.com/{}/{}/archive/refs/tags/{}.zip",
-                        owner, repo, alt_tag
-                    ));
-                }
-            } else if let Some(b) = branch {
-                candidates.push(format!(
-                    "https://github.com/{}/{}/archive/refs/heads/{}.tar.gz",
-                    owner, repo, b
-                ));
-                candidates.push(format!(
-                    "https://github.com/{}/{}/archive/refs/heads/{}.zip",
-                    owner, repo, b
-                ));
-            } else if let Some(r) = rev {
-                candidates.push(format!(
-                    "https://github.com/{}/{}/archive/{}.tar.gz",
-                    owner, repo, r
-                ));
-                candidates.push(format!(
-                    "https://github.com/{}/{}/archive/{}.zip",
-                    owner, repo, r
-                ));
-            } else {
-                candidates.push(format!(
-                    "https://github.com/{}/{}/archive/refs/heads/main.tar.gz",
-                    owner, repo
-                ));
-                candidates.push(format!(
-                    "https://github.com/{}/{}/archive/refs/heads/master.tar.gz",
-                    owner, repo
-                ));
-                candidates.push(format!(
-                    "https://github.com/{}/{}/archive/refs/heads/main.zip",
-                    owner, repo
+                    owner, repo, alt_tag
                 ));
             }
-            return candidates;
+        } else if let Some(b) = branch {
+            candidates.push(format!(
+                "https://github.com/{}/{}/archive/refs/heads/{}.tar.gz",
+                owner, repo, b
+            ));
+            candidates.push(format!(
+                "https://github.com/{}/{}/archive/refs/heads/{}.zip",
+                owner, repo, b
+            ));
+        } else if let Some(r) = rev {
+            candidates.push(format!(
+                "https://github.com/{}/{}/archive/{}.tar.gz",
+                owner, repo, r
+            ));
+            candidates.push(format!(
+                "https://github.com/{}/{}/archive/{}.zip",
+                owner, repo, r
+            ));
+        } else {
+            candidates.push(format!(
+                "https://github.com/{}/{}/archive/refs/heads/main.tar.gz",
+                owner, repo
+            ));
+            candidates.push(format!(
+                "https://github.com/{}/{}/archive/refs/heads/master.tar.gz",
+                owner, repo
+            ));
+            candidates.push(format!(
+                "https://github.com/{}/{}/archive/refs/heads/main.zip",
+                owner, repo
+            ));
         }
+        return candidates;
     }
 
     // GitLab repository pattern
@@ -187,6 +234,214 @@ pub fn copy_dir_contents(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Downloads one file via curl, wget, or PowerShell (Windows-only fallback).
+/// Returns `true` only when the download succeeded and the file is non-empty.
+fn download_file(url: &str, dest: &Path) -> bool {
+    // 1. Download archive using curl, wget, or PowerShell (suppress noise on probe 404s)
+    let mut download_ok = Command::new("curl")
+        .args(["-sSL", "-f", url, "-o"])
+        .arg(dest)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if !download_ok {
+        download_ok = Command::new("wget")
+            .args(["-q", url, "-O"])
+            .arg(dest)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+    }
+
+    if !download_ok && cfg!(windows) {
+        let ps_script = format!(
+            "$ProgressPreference = 'SilentlyContinue'; try {{ Invoke-WebRequest -Uri '{}' -OutFile '{}' -ErrorAction Stop }} catch {{ exit 1 }}",
+            url,
+            dest.display().to_string().replace('\\', "/")
+        );
+        download_ok = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_script])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+    }
+
+    download_ok && dest.exists() && fs::metadata(dest).map(|m| m.len()).unwrap_or(0) > 0
+}
+
+/// Verifies a file against an expected SHA-256 hex digest (case-insensitive).
+pub fn verify_file_sha256(file: &Path, expected_hex: &str) -> bool {
+    let expected = expected_hex.trim();
+    if expected.is_empty() {
+        return false;
+    }
+    match fs::read(file) {
+        Ok(bytes) => sha256_hex(&bytes).eq_ignore_ascii_case(expected),
+        Err(_) => false,
+    }
+}
+
+/// Extracts a downloaded archive into `target_dir` using tar (bsdtar on
+/// Windows / GNU tar on Unix). GitHub tag tarballs and curated release
+/// assets both carry a single top-level directory, hence
+/// `--strip-components 1`. Falls back to PowerShell Expand-Archive for zips
+/// on Windows when tar fails.
+fn extract_downloaded_archive(
+    temp_archive: &Path,
+    is_zip: bool,
+    target_dir: &Path,
+    pkg_name: &str,
+    pid: u32,
+    millis: u128,
+) -> bool {
+    // 2. Extract archive using tar (bsdtar on Windows / GNU tar on Unix)
+    let tar_ok = Command::new("tar")
+        .arg("-xf")
+        .arg(temp_archive)
+        .args(["--strip-components", "1", "-C"])
+        .arg(target_dir)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if tar_ok {
+        return true;
+    }
+
+    // 3. Fallback on Windows with PowerShell Expand-Archive if tar fails
+    if cfg!(windows) && is_zip {
+        let temp_dir = env::temp_dir();
+        let extract_tmp = temp_dir.join(format!("alya_extract_{}_{}_{}", pkg_name, pid, millis));
+        let ps_expand = format!(
+            "$ProgressPreference = 'SilentlyContinue'; Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
+            temp_archive.display().to_string().replace('\\', "/"),
+            extract_tmp.display().to_string().replace('\\', "/")
+        );
+        let ps_ok = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_expand])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+
+        if ps_ok && extract_tmp.exists() {
+            if let Ok(entries) = fs::read_dir(&extract_tmp) {
+                let mut found_dir = None;
+                for e in entries.flatten() {
+                    if e.path().is_dir() {
+                        found_dir = Some(e.path());
+                        break;
+                    }
+                }
+                let source_folder = found_dir.unwrap_or_else(|| extract_tmp.clone());
+                let copy_res = copy_dir_contents(&source_folder, target_dir);
+                let _ = fs::remove_dir_all(&extract_tmp);
+                if copy_res.is_ok() {
+                    return true;
+                }
+            }
+        }
+        let _ = fs::remove_dir_all(&extract_tmp);
+    }
+
+    false
+}
+
+/// Installs a pinned GitHub tag from its curated release asset
+/// (`alya-pkg.tar.gz` + detached `.sha256`, published by the standard
+/// `release.yml` workflow).
+///
+/// Returns `Ok(true)` when the asset verified and installed, `Ok(false)`
+/// when no asset exists for the tag (caller falls through to the source
+/// path silently), and `Err` when an asset exists but is unusable
+/// (checksum mismatch, extraction failure) so the caller can warn and fall
+/// back instead of failing the install.
+pub fn try_download_release_asset(
+    name: &str,
+    url: &str,
+    tag: &str,
+    target_dir: &Path,
+) -> Result<bool, String> {
+    let pairs = resolve_release_asset_urls(url, tag);
+    if pairs.is_empty() {
+        return Ok(false);
+    }
+
+    let temp_dir = env::temp_dir();
+    let pid = std::process::id();
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let temp_archive = temp_dir.join(format!("alya_rel_{}_{}_{}.tar.gz", name, pid, millis));
+    let temp_sha = temp_dir.join(format!("alya_rel_{}_{}_{}.sha256", name, pid, millis));
+
+    // Detached checksum: standard `sha256sum` text format (`<hex>  <file>`);
+    // only the leading hex token is significant.
+    let read_expected_hex = || {
+        fs::read_to_string(&temp_sha)
+            .ok()
+            .and_then(|s| s.split_whitespace().next().map(|t| t.to_string()))
+            .unwrap_or_default()
+    };
+
+    let mut saw_asset = false;
+    for (tar_url, sha_url) in &pairs {
+        if !download_file(tar_url, &temp_archive) {
+            let _ = fs::remove_file(&temp_archive);
+            continue;
+        }
+        if !download_file(sha_url, &temp_sha) {
+            // Tarball present but unverifiable on this tag variant; another
+            // variant may still be complete.
+            let _ = fs::remove_file(&temp_archive);
+            let _ = fs::remove_file(&temp_sha);
+            saw_asset = true;
+            continue;
+        }
+        let expected = read_expected_hex();
+        let _ = fs::remove_file(&temp_sha);
+        let actual = fs::read(&temp_archive)
+            .map(|b| sha256_hex(&b))
+            .unwrap_or_default();
+        if expected.is_empty() || !actual.eq_ignore_ascii_case(&expected) {
+            let _ = fs::remove_file(&temp_archive);
+            return Err(format!(
+                "checksum mismatch for release asset '{}' (tag '{}')",
+                tar_url, tag
+            ));
+        }
+        println!(
+            "  Verified release asset checksum for '{}' (tag '{}')",
+            name, tag
+        );
+
+        if extract_downloaded_archive(&temp_archive, false, target_dir, name, pid, millis) {
+            let _ = fs::remove_file(&temp_archive);
+            println!("  Installed '{}' from curated release asset", name);
+            return Ok(true);
+        }
+        let _ = fs::remove_file(&temp_archive);
+        return Err(format!("failed to extract release asset '{}'", tar_url));
+    }
+
+    let _ = fs::remove_file(&temp_archive);
+    let _ = fs::remove_file(&temp_sha);
+    if saw_asset {
+        return Err(format!(
+            "release asset for '{}' (tag '{}') is present but unusable",
+            name, tag
+        ));
+    }
+    Ok(false)
+}
+
 pub fn try_download_and_extract_archive(
     candidate_urls: &[String],
     target_dir: &Path,
@@ -213,99 +468,14 @@ pub fn try_download_and_extract_archive(
         let temp_archive =
             temp_dir.join(format!("alya_pkg_{}_{}_{}.{}", pkg_name, pid, millis, ext));
 
-        // 1. Download archive using curl, wget, or PowerShell (suppress noise on probe 404s)
-        let mut download_ok = Command::new("curl")
-            .args(["-sSL", "-f", url, "-o"])
-            .arg(&temp_archive)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-
-        if !download_ok {
-            download_ok = Command::new("wget")
-                .args(["-q", url, "-O"])
-                .arg(&temp_archive)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-        }
-
-        if !download_ok && cfg!(windows) {
-            let ps_script = format!(
-                "$ProgressPreference = 'SilentlyContinue'; try {{ Invoke-WebRequest -Uri '{}' -OutFile '{}' -ErrorAction Stop }} catch {{ exit 1 }}",
-                url,
-                temp_archive.display().to_string().replace('\\', "/")
-            );
-            download_ok = Command::new("powershell")
-                .args(["-NoProfile", "-Command", &ps_script])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-        }
-
-        if !download_ok
-            || !temp_archive.exists()
-            || fs::metadata(&temp_archive).map(|m| m.len()).unwrap_or(0) == 0
-        {
+        if !download_file(url, &temp_archive) {
             let _ = fs::remove_file(&temp_archive);
             continue;
         }
 
-        // 2. Extract archive using tar (bsdtar on Windows / GNU tar on Unix)
-        let tar_ok = Command::new("tar")
-            .arg("-xf")
-            .arg(&temp_archive)
-            .args(["--strip-components", "1", "-C"])
-            .arg(target_dir)
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-
-        if tar_ok {
+        if extract_downloaded_archive(&temp_archive, is_zip, target_dir, pkg_name, pid, millis) {
             let _ = fs::remove_file(&temp_archive);
             return Ok(());
-        }
-
-        // 3. Fallback on Windows with PowerShell Expand-Archive if tar fails
-        if cfg!(windows) && is_zip {
-            let extract_tmp =
-                temp_dir.join(format!("alya_extract_{}_{}_{}", pkg_name, pid, millis));
-            let ps_expand = format!(
-                "$ProgressPreference = 'SilentlyContinue'; Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
-                temp_archive.display().to_string().replace('\\', "/"),
-                extract_tmp.display().to_string().replace('\\', "/")
-            );
-            let ps_ok = Command::new("powershell")
-                .args(["-NoProfile", "-Command", &ps_expand])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-
-            if ps_ok && extract_tmp.exists() {
-                if let Ok(entries) = fs::read_dir(&extract_tmp) {
-                    let mut found_dir = None;
-                    for e in entries.flatten() {
-                        if e.path().is_dir() {
-                            found_dir = Some(e.path());
-                            break;
-                        }
-                    }
-                    let source_folder = found_dir.unwrap_or_else(|| extract_tmp.clone());
-                    let copy_res = copy_dir_contents(&source_folder, target_dir);
-                    let _ = fs::remove_dir_all(&extract_tmp);
-                    let _ = fs::remove_file(&temp_archive);
-                    if copy_res.is_ok() {
-                        return Ok(());
-                    }
-                }
-            }
-            let _ = fs::remove_dir_all(&extract_tmp);
         }
 
         let _ = fs::remove_file(&temp_archive);
@@ -405,6 +575,20 @@ pub fn fetch_git_or_archive_dependency(
     target_dir: &Path,
 ) -> Result<(), String> {
     println!("  Resolving dependency '{}' from {}...", name, url);
+
+    // 0. Pinned GitHub tags prefer the curated release asset (`alya-pkg.tar.gz`
+    // + detached `.sha256`). Branch/rev pins, floating refs, and non-GitHub
+    // hosts keep today's source path untouched. A missing asset falls through
+    // silently; a broken one warns and falls back instead of failing.
+    if let Some(t) = tag {
+        if branch.is_none() && rev.is_none() {
+            match try_download_release_asset(name, url, t, target_dir) {
+                Ok(true) => return Ok(()),
+                Ok(false) => {}
+                Err(e) => println!("  Notice: {} — falling back to source.", e),
+            }
+        }
+    }
 
     // 1. Try Git clone first if git CLI is installed
     let git_err = match try_git_clone(url, tag, branch, target_dir) {
