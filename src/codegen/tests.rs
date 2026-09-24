@@ -690,3 +690,56 @@ fn test_arm64_linux_variadic_mixed_float_int_registers() {
     assert!(asm_lin.contains("ldr x16, [sp], #16"));
     assert!(asm_lin.contains("fmov d0, x16"));
 }
+
+#[test]
+fn test_x64_macos_internal_symbols_no_darwin_prefix() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // Regression: On macOS x64 (Darwin), C symbols like printf/calloc require a leading underscore
+    // prefix ("_printf", "_calloc"), but internal assembly functions defined in the same translation
+    // unit (e.g. alya_map_hash, alya_map_key_eq, alya_fat_ptr_new) must NOT be called with a leading
+    // underscore because their .global definition labels do not have one.
+    let code = "function main() let m = {\"key\": 1} say m[\"key\"] end";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_mac = generate(&ast, Architecture::X64, OperatingSystem::MacOS);
+    // Ensure libc symbols DO have the Darwin leading underscore prefix:
+    assert!(asm_mac.contains("call _printf"));
+    // Ensure internal Alya symbols DO NOT have Darwin leading underscore prefix:
+    assert!(asm_mac.contains("call alya_map_hash"));
+    assert!(asm_mac.contains("call alya_map_key_eq"));
+    assert!(!asm_mac.contains("call _alya_map_hash"));
+    assert!(!asm_mac.contains("call _alya_map_key_eq"));
+    assert!(!asm_mac.contains("call _alya_fat_ptr_new"));
+
+    // Also test interface fat pointer dispatch on macOS x64
+    let iface_code = r#"
+interface Greeter
+    function greet(self) -> int
+end
+struct Human
+    id: int
+end
+function Human.greet(self) -> int
+    return 1
+end
+function run_greet(g: Greeter)
+    say g.greet()
+end
+function main()
+    let h = Human{id: 42}
+    run_greet(h)
+end
+"#;
+    let mut lexer2 = Lexer::new(iface_code);
+    let tokens2 = lexer2.tokenize().unwrap();
+    let mut parser2 = Parser::new(tokens2);
+    let ast2 = parser2.parse().unwrap();
+    let asm_iface = generate(&ast2, Architecture::X64, OperatingSystem::MacOS);
+    assert!(asm_iface.contains("call alya_fat_ptr_new"));
+    assert!(!asm_iface.contains("call _alya_fat_ptr_new"));
+}

@@ -507,11 +507,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    jz .L_x64_set_tag_ret\n");
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov %r13, %rcx\n");
-        out.push_str("    call alya_map_hash\n");
     } else {
         out.push_str("    mov %r13, %rdi\n");
-        out.push_str(&format!("    call {}alya_map_hash\n", p));
     }
+    out.push_str("    call alya_map_hash\n");
     out.push_str("    mov 8(%r12), %rdx\n");
     out.push_str("    dec %rdx\n");
     out.push_str("    and %rdx, %rax\n");
@@ -533,12 +532,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov (%r14), %rcx\n");
         out.push_str("    mov %r13, %rdx\n");
-        out.push_str("    call alya_map_key_eq\n");
     } else {
         out.push_str("    mov (%r14), %rdi\n");
         out.push_str("    mov %r13, %rsi\n");
-        out.push_str(&format!("    call {}alya_map_key_eq\n", p));
     }
+    out.push_str("    call alya_map_key_eq\n");
     out.push_str("    test %rax, %rax\n");
     out.push_str("    jnz .L_x64_set_tag_found\n");
     out.push_str(".L_x64_set_tag_next:\n");
