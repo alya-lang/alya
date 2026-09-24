@@ -289,6 +289,73 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x0, #0\n");
     out.push_str("    bl alya_array_new\n");
     out.push_str("    mov x20, x0\n");
+    if is_win {
+        // Windows: FindFirstFileA/FindNextFileA over "dir\*" with
+        // WIN32_FIND_DATAA at [sp, #32] (592 bytes) and the pattern buffer
+        // at [sp, #624] (260 bytes). The 896-byte reservation keeps the
+        // 32-byte home area below external calls free.
+        out.push_str("    sub sp, sp, #896\n");
+        out.push_str("    add x1, sp, #624\n");
+        out.push_str("    cbz x19, .L_arm64_ld_win_dot\n");
+        out.push_str("    ldrb w2, [x19]\n");
+        out.push_str("    cbz w2, .L_arm64_ld_win_dot\n");
+        out.push_str("    mov x2, x19\n");
+        out.push_str("    mov x3, x1\n");
+        out.push_str(".L_arm64_ld_win_cp:\n");
+        out.push_str("    ldrb w4, [x2], #1\n");
+        out.push_str("    cbz w4, .L_arm64_ld_win_cp_done\n");
+        out.push_str("    strb w4, [x3], #1\n");
+        out.push_str("    b .L_arm64_ld_win_cp\n");
+        out.push_str(".L_arm64_ld_win_dot:\n");
+        out.push_str("    mov x3, x1\n");
+        out.push_str("    mov w4, #46\n");
+        out.push_str("    strb w4, [x3], #1\n");
+        out.push_str("    b .L_arm64_ld_win_star\n");
+        out.push_str(".L_arm64_ld_win_cp_done:\n");
+        out.push_str("    ldrb w4, [x3, #-1]\n");
+        out.push_str("    cmp w4, #47\n");
+        out.push_str("    b.eq .L_arm64_ld_win_star\n");
+        out.push_str("    cmp w4, #92\n");
+        out.push_str("    b.eq .L_arm64_ld_win_star\n");
+        out.push_str("    mov w4, #47\n");
+        out.push_str("    strb w4, [x3], #1\n");
+        out.push_str(".L_arm64_ld_win_star:\n");
+        out.push_str("    mov w4, #42\n");
+        out.push_str("    strb w4, [x3], #1\n");
+        out.push_str("    strb wzr, [x3]\n");
+        out.push_str("    mov x0, x1\n");
+        out.push_str("    add x1, sp, #32\n");
+        out.push_str("    bl FindFirstFileA\n");
+        out.push_str("    cmn x0, #1\n"); // INVALID_HANDLE_VALUE
+        out.push_str("    b.eq .L_arm64_ld_win_done\n");
+        out.push_str("    mov x21, x0\n");
+        out.push_str(".L_arm64_ld_win_loop:\n");
+        out.push_str("    add x22, sp, #76\n"); // cFileName = data + 44
+        out.push_str("    ldrb w1, [x22]\n");
+        out.push_str("    cmp w1, #46\n");
+        out.push_str("    b.ne .L_arm64_ld_win_push\n");
+        out.push_str("    ldrb w2, [x22, #1]\n");
+        out.push_str("    cbz w2, .L_arm64_ld_win_next\n");
+        out.push_str("    cmp w2, #46\n");
+        out.push_str("    b.ne .L_arm64_ld_win_push\n");
+        out.push_str("    ldrb w3, [x22, #2]\n");
+        out.push_str("    cbz w3, .L_arm64_ld_win_next\n");
+        out.push_str(".L_arm64_ld_win_push:\n");
+        out.push_str("    mov x0, x22\n");
+        out.push_str("    bl fn_str_clone\n");
+        out.push_str("    mov x1, x0\n");
+        out.push_str("    mov x0, x20\n");
+        out.push_str("    bl alya_array_push\n");
+        out.push_str(".L_arm64_ld_win_next:\n");
+        out.push_str("    mov x0, x21\n");
+        out.push_str("    add x1, sp, #32\n");
+        out.push_str("    bl FindNextFileA\n");
+        out.push_str("    cbnz w0, .L_arm64_ld_win_loop\n");
+        out.push_str("    mov x0, x21\n");
+        out.push_str("    bl FindClose\n");
+        out.push_str(".L_arm64_ld_win_done:\n");
+        out.push_str("    add sp, sp, #896\n");
+    } else {
     out.push_str("    cbz x19, .L_arm64_ld_dot\n");
     out.push_str("    ldrb w1, [x19]\n");
     out.push_str("    cbz w1, .L_arm64_ld_dot\n");
@@ -327,6 +394,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_arm64_ld_close:\n");
     out.push_str("    mov x0, x21\n");
     out.push_str(&format!("    bl {}closedir\n", p));
+    }
     out.push_str(".L_arm64_ld_ret:\n");
     out.push_str("    mov x0, x20\n");
     out.push_str("    ldp x19, x20, [sp, #16]\n");

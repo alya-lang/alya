@@ -73,6 +73,8 @@ fn test_codegen_arm64_windows_net_thread_apis() {
     assert!(asm.contains("bl CreateThread"));
     assert!(asm.contains("bl WaitForSingleObject"));
     assert!(asm.contains("bl CreateMutexA"));
+    assert!(asm.contains("bl FindFirstFileA"));
+    assert!(asm.contains("bl FindNextFileA"));
     assert!(!asm.contains("fcntl"));
     assert!(!asm.contains("pthread"));
 }

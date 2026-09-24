@@ -168,6 +168,9 @@ pub fn emit_header(out: &mut String, os: OperatingSystem) {
         out.push_str(".extern CreateMutexA\n");
         out.push_str(".extern ReleaseMutex\n");
         out.push_str(".extern GetCurrentProcessId\n");
+        out.push_str(".extern FindFirstFileA\n");
+        out.push_str(".extern FindNextFileA\n");
+        out.push_str(".extern FindClose\n");
         out.push_str(".extern getpid\n");
         out.push_str(".extern getcwd\n");
         out.push_str(".extern chdir\n");
