@@ -1,4 +1,5 @@
 use crate::codegen::{Architecture, OperatingSystem};
+use crate::tools::lsp::json::JsonValue;
 use std::env;
 use std::fs;
 use std::io::{self, Write};
@@ -31,6 +32,77 @@ pub struct ToolchainInfo {
     pub compiler_path: PathBuf,
     pub source: ToolchainSource,
     pub version_str: String,
+}
+
+/// Live toolchain manifest: single source of truth for supported platforms.
+/// New toolchain platforms work without a compiler update; the baked-in
+/// table in `install_toolchain` is only an offline fallback.
+const TOOLCHAIN_MANIFEST_URL: &str =
+    "https://github.com/alya-lang/toolchain/releases/latest/download/toolchain.json";
+
+/// Resolves the toolchain archive filename for `triple` from a
+/// toolchain.json manifest document. Pure function over text (no I/O) so it
+/// stays unit-testable without network access.
+fn manifest_archive_for(manifest_text: &str, triple: &str) -> Option<String> {
+    let root = JsonValue::parse(manifest_text).ok()?;
+    root.get("platforms")?
+        .get(triple)?
+        .get("archive")?
+        .get("filename")?
+        .as_str()
+        .map(|s| s.to_string())
+}
+
+/// Fetches the live toolchain manifest. Returns None on any failure
+/// (offline machine, missing curl/wget, rate limits) so callers fall back
+/// to the baked-in platform table.
+fn fetch_toolchain_manifest() -> Option<String> {
+    // 1. Try curl
+    if let Ok(output) = Command::new("curl")
+        .args(["-sSL", "--max-time", "20", TOOLCHAIN_MANIFEST_URL])
+        .output()
+    {
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout).into_owned();
+            if !text.trim().is_empty() {
+                return Some(text);
+            }
+        }
+    }
+
+    // 2. Try wget
+    if let Ok(output) = Command::new("wget")
+        .args(["-qO-", "--timeout=20", TOOLCHAIN_MANIFEST_URL])
+        .output()
+    {
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout).into_owned();
+            if !text.trim().is_empty() {
+                return Some(text);
+            }
+        }
+    }
+
+    // 3. Try powershell on Windows
+    if cfg!(target_os = "windows") {
+        let ps_script = format!(
+            "$ProgressPreference = 'SilentlyContinue'; (Invoke-WebRequest -Uri '{}' -UseBasicParsing).Content",
+            TOOLCHAIN_MANIFEST_URL
+        );
+        if let Ok(output) = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_script])
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout).into_owned();
+                if !text.trim().is_empty() {
+                    return Some(text);
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// Returns standard ~/.alya directory
@@ -266,7 +338,8 @@ pub fn install_toolchain(
     let target_dir = get_local_toolchain_dir()
         .ok_or_else(|| "Error: Cannot resolve ~/.alya home directory".to_string())?;
 
-    let archive_name = match (os, arch) {
+    let triple = get_platform_triple(arch, os);
+    let fallback_name = match (os, arch) {
         (OperatingSystem::Windows, Architecture::X64) => "alya-toolchain-windows-x64.zip",
         (OperatingSystem::Windows, Architecture::ARM64) => "alya-toolchain-windows-arm64.zip",
         (OperatingSystem::Windows, Architecture::X86) => "alya-toolchain-windows-x86.zip",
@@ -280,6 +353,21 @@ pub fn install_toolchain(
                 arch, os
             ));
         }
+    };
+
+    // Prefer the live manifest (single source of truth for supported
+    // platforms); fall back to the baked-in table when offline.
+    let archive_name = match fetch_toolchain_manifest() {
+        Some(text) => match manifest_archive_for(&text, &triple) {
+            Some(name) => name,
+            None => {
+                return Err(format!(
+                    "Error: No pre-built minimal toolchain available for {:?} on {:?} (triple '{}' not listed in toolchain manifest)",
+                    arch, os, triple
+                ));
+            }
+        },
+        None => fallback_name.to_string(),
     };
 
     let download_candidates = if let Ok(custom) = env::var("ALYA_TOOLCHAIN_URL") {
@@ -556,6 +644,42 @@ mod tests {
             get_platform_triple(Architecture::X64, OperatingSystem::MacOS),
             "x86_64-apple-darwin"
         );
+    }
+
+    #[test]
+    fn test_manifest_archive_for() {
+        let manifest = r#"{
+            "name": "alya-toolchain",
+            "version": "1.0.0",
+            "platforms": {
+                "x86_64-pc-windows-gnu": {
+                    "archive": {"filename": "alya-toolchain-windows-x64.zip"}
+                },
+                "aarch64-pc-windows-gnu": {
+                    "archive": {
+                        "filename": "alya-toolchain-windows-arm64.zip",
+                        "sha256": "abc123",
+                        "compressed_size_mb": 89
+                    }
+                }
+            }
+        }"#;
+        assert_eq!(
+            manifest_archive_for(manifest, "aarch64-pc-windows-gnu"),
+            Some("alya-toolchain-windows-arm64.zip".to_string())
+        );
+        assert_eq!(
+            manifest_archive_for(manifest, "x86_64-pc-windows-gnu"),
+            Some("alya-toolchain-windows-x64.zip".to_string())
+        );
+        // Triple absent from manifest
+        assert_eq!(manifest_archive_for(manifest, "i686-pc-windows-gnu"), None);
+        // Malformed manifest
+        assert_eq!(
+            manifest_archive_for("not json{", "x86_64-pc-windows-gnu"),
+            None
+        );
+        assert_eq!(manifest_archive_for("{}", "x86_64-pc-windows-gnu"), None);
     }
 
     #[test]
