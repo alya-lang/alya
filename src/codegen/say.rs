@@ -302,7 +302,9 @@ impl CodeGen {
                             // variable keys) are recorded as Number and would
                             // print string pointers as integers. Classify at
                             // runtime: real integers take the identical %lld
-                            // path, so behavior is unchanged for them.
+                            // path, so behavior is unchanged for them, except
+                            // for integers that numerically fall inside the
+                            // rodata/str-buf windows (documented edge).
                             let l_dyn_str = self.ctx.next_label();
                             let l_dyn_end = self.ctx.next_label();
                             arch::emit_load_var(
