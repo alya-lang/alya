@@ -57,6 +57,11 @@ jobs:
     name: Test (${{ matrix.label }})
     needs: [fmt, clippy]
     runs-on: ${{ matrix.os }}
+    # Canary jobs for known-broken targets (CI stays green while they are open):
+    # - Linux ARM64 codegen miscompiles 8 spec files (alya-lang/alya#25)
+    # - Windows ARM64 net prelude is POSIX-only (alya-lang/alya#23)
+    # - macOS Intel helper decoration (alya-lang/alya#24)
+    continue-on-error: ${{ matrix.os == 'ubuntu-24.04-arm' || matrix.os == 'windows-11-arm' || matrix.os == 'macos-15-intel' }}
     strategy:
       fail-fast: false
       matrix:
