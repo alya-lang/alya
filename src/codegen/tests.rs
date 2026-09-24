@@ -786,4 +786,12 @@ fn test_x64_macos_thread_join_stack_alignment() {
     let asm_mac = generate(&ast, Architecture::X64, OperatingSystem::MacOS);
     assert!(asm_mac.contains("fn___native_thread_join:\n    push %rbp\n    mov %rsp, %rbp\n    push %rbx\n    push %r12\n    sub $16, %rsp"));
     assert!(asm_mac.contains(".L_x64_join_done:\n    add $16, %rsp\n    pop %r12\n    pop %rbx"));
+
+    // Regression: On macOS x86_64, fn_alya_thread_proc must preserve callee-saved
+    // registers (rbx, r12, r13, r14, r15) across the call to user Alya code,
+    // otherwise _pthread_start crashes with SIGSEGV when using rbx upon thread return.
+    assert!(asm_mac.contains("fn_alya_thread_proc:\n    push %rbp\n    mov %rsp, %rbp\n    push %rbx\n    push %r12\n    push %r13\n    push %r14\n    push %r15\n    sub $24, %rsp"));
+    assert!(asm_mac.contains(
+        "add $24, %rsp\n    pop %r15\n    pop %r14\n    pop %r13\n    pop %r12\n    pop %rbx"
+    ));
 }

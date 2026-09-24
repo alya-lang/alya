@@ -11,7 +11,14 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    push %rbp\n");
     out.push_str("    mov %rsp, %rbp\n");
     if is_win {
-        out.push_str("    sub $48, %rsp\n");
+        out.push_str("    push %rbx\n");
+        out.push_str("    push %rsi\n");
+        out.push_str("    push %rdi\n");
+        out.push_str("    push %r12\n");
+        out.push_str("    push %r13\n");
+        out.push_str("    push %r14\n");
+        out.push_str("    push %r15\n");
+        out.push_str("    sub $40, %rsp\n");
         out.push_str("    mov %rcx, 32(%rsp)\n");  // save ctx
         out.push_str("    mov 32(%rcx), %rax\n");  // slot_id
         out.push_str("    mov %rax, %gs:0x28\n");  // store in Windows TEB ArbitraryUserPointer
@@ -22,9 +29,21 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    mov %rax, 24(%r10)\n");  // result
         out.push_str("    movq $0, %gs:0x28\n");   // clear ArbitraryUserPointer
         out.push_str("    xor %rax, %rax\n");
-        out.push_str("    add $48, %rsp\n");
+        out.push_str("    add $40, %rsp\n");
+        out.push_str("    pop %r15\n");
+        out.push_str("    pop %r14\n");
+        out.push_str("    pop %r13\n");
+        out.push_str("    pop %r12\n");
+        out.push_str("    pop %rdi\n");
+        out.push_str("    pop %rsi\n");
+        out.push_str("    pop %rbx\n");
     } else {
-        out.push_str("    sub $16, %rsp\n");
+        out.push_str("    push %rbx\n");
+        out.push_str("    push %r12\n");
+        out.push_str("    push %r13\n");
+        out.push_str("    push %r14\n");
+        out.push_str("    push %r15\n");
+        out.push_str("    sub $24, %rsp\n");
         out.push_str("    mov %rdi, 8(%rsp)\n");   // save ctx
         out.push_str("    mov 8(%rdi), %r11\n");   // func
         out.push_str("    mov 16(%rdi), %rdi\n");  // arg
@@ -32,7 +51,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    mov 8(%rsp), %r10\n");   // reload ctx
         out.push_str("    mov %rax, 24(%r10)\n");  // result
         out.push_str("    xor %rax, %rax\n");
-        out.push_str("    add $16, %rsp\n");
+        out.push_str("    add $24, %rsp\n");
+        out.push_str("    pop %r15\n");
+        out.push_str("    pop %r14\n");
+        out.push_str("    pop %r13\n");
+        out.push_str("    pop %r12\n");
+        out.push_str("    pop %rbx\n");
     }
     out.push_str("    mov %rbp, %rsp\n");
     out.push_str("    pop %rbp\n");
