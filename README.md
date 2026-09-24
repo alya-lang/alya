@@ -143,9 +143,9 @@ Alya is engineered for rapid compilation and high-performance native execution a
 
 | Operating System | x86 (32-bit) | x64 (64-bit) | ARM64 (AArch64) |
 | :--------------- | :----------: | :----------: | :-------------: |
-| **Linux**        | ✅ Supported | ✅ Fully Supported (ELF64) | ✅ Supported |
-| **macOS**        | ❌ Deprecated by Apple | ✅ Fully Supported (Mach-O) | ✅ Fully Supported (Apple Silicon) |
-| **Windows**      | ✅ Supported | ✅ Fully Supported (MinGW-w64) | ⚠️ Cross-compiler required |
+| **Linux**        | ✅ Supported | ✅ Fully Supported (ELF64) | ✅ Fully Supported (ELF64, native CI + release) |
+| **macOS**        | ❌ Deprecated by Apple | ✅ Fully Supported (Mach-O, Intel + Apple Silicon) | ✅ Fully Supported (Apple Silicon) |
+| **Windows**      | ✅ Supported | ✅ Fully Supported (MinGW-w64) | ✅ Fully Supported (native ARM64 toolchain + release) |
 
 ---
 
