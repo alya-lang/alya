@@ -372,14 +372,20 @@ impl CodeGen {
                     if let Expr::Float(n) = &**right {
                         self.generate_expression(left);
                         if !left_is_float && !is_definitely_not_numeric(left, &self.ctx.variables) {
-                            // x64 Index carries tag in %edx: skip int->float
+                            // Index carries kind tag alongside the value
+                            // (x64: %edx, arm64: w1): skip int->float
                             // when the value is already a float.
-                            if matches!(self.arch, Architecture::X64)
+                            if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                                 && matches!(&**left, Expr::Index { .. })
                             {
                                 let l_skip = self.ctx.next_label();
-                                self.output.push_str("    cmpl $2, %edx\n");
-                                self.output.push_str(&format!("    je {}\n", l_skip));
+                                if matches!(self.arch, Architecture::X64) {
+                                    self.output.push_str("    cmpl $2, %edx\n");
+                                    self.output.push_str(&format!("    je {}\n", l_skip));
+                                } else {
+                                    self.output.push_str("    cmp w1, #2\n");
+                                    self.output.push_str(&format!("    b.eq {}\n", l_skip));
+                                }
                                 arch::emit_int_to_float(&mut self.output, self.arch);
                                 self.output.push_str(&format!("{}:\n", l_skip));
                             } else {
@@ -392,12 +398,18 @@ impl CodeGen {
                     if let Expr::Number(n) = &**right {
                         self.generate_expression(left);
                         if !left_is_float && !is_definitely_not_numeric(left, &self.ctx.variables) {
-                            if matches!(self.arch, Architecture::X64)
+                            // Index carries kind tag (x64: %edx, arm64: w1).
+                            if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                                 && matches!(&**left, Expr::Index { .. })
                             {
                                 let l_skip = self.ctx.next_label();
-                                self.output.push_str("    cmpl $2, %edx\n");
-                                self.output.push_str(&format!("    je {}\n", l_skip));
+                                if matches!(self.arch, Architecture::X64) {
+                                    self.output.push_str("    cmpl $2, %edx\n");
+                                    self.output.push_str(&format!("    je {}\n", l_skip));
+                                } else {
+                                    self.output.push_str("    cmp w1, #2\n");
+                                    self.output.push_str(&format!("    b.eq {}\n", l_skip));
+                                }
                                 arch::emit_int_to_float(&mut self.output, self.arch);
                                 self.output.push_str(&format!("{}:\n", l_skip));
                             } else {
@@ -413,12 +425,18 @@ impl CodeGen {
                             if !left_is_float
                                 && !is_definitely_not_numeric(left, &self.ctx.variables)
                             {
-                                if matches!(self.arch, Architecture::X64)
+                                // Index carries kind tag (x64: %edx, arm64: w1).
+                                if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                                     && matches!(&**left, Expr::Index { .. })
                                 {
                                     let l_skip = self.ctx.next_label();
-                                    self.output.push_str("    cmpl $2, %edx\n");
-                                    self.output.push_str(&format!("    je {}\n", l_skip));
+                                    if matches!(self.arch, Architecture::X64) {
+                                        self.output.push_str("    cmpl $2, %edx\n");
+                                        self.output.push_str(&format!("    je {}\n", l_skip));
+                                    } else {
+                                        self.output.push_str("    cmp w1, #2\n");
+                                        self.output.push_str(&format!("    b.eq {}\n", l_skip));
+                                    }
                                     arch::emit_int_to_float(&mut self.output, self.arch);
                                     self.output.push_str(&format!("{}:\n", l_skip));
                                 } else {
@@ -489,12 +507,18 @@ impl CodeGen {
                 if is_float {
                     self.generate_expression(left);
                     if !left_is_float && !is_definitely_not_numeric(left, &self.ctx.variables) {
-                        if matches!(self.arch, Architecture::X64)
+                        // Index carries kind tag (x64: %edx, arm64: w1).
+                        if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                             && matches!(left.as_ref(), Expr::Index { .. })
                         {
                             let l_skip = self.ctx.next_label();
-                            self.output.push_str("    cmpl $2, %edx\n");
-                            self.output.push_str(&format!("    je {}\n", l_skip));
+                            if matches!(self.arch, Architecture::X64) {
+                                self.output.push_str("    cmpl $2, %edx\n");
+                                self.output.push_str(&format!("    je {}\n", l_skip));
+                            } else {
+                                self.output.push_str("    cmp w1, #2\n");
+                                self.output.push_str(&format!("    b.eq {}\n", l_skip));
+                            }
                             arch::emit_int_to_float(&mut self.output, self.arch);
                             self.output.push_str(&format!("{}:\n", l_skip));
                         } else {
@@ -515,12 +539,18 @@ impl CodeGen {
                     self.ctx.stack_offset += float_temp_offset;
                     self.generate_expression(right);
                     if !right_is_float && !is_definitely_not_numeric(right, &self.ctx.variables) {
-                        if matches!(self.arch, Architecture::X64)
+                        // Index carries kind tag (x64: %edx, arm64: w1).
+                        if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                             && matches!(right.as_ref(), Expr::Index { .. })
                         {
                             let l_skip = self.ctx.next_label();
-                            self.output.push_str("    cmpl $2, %edx\n");
-                            self.output.push_str(&format!("    je {}\n", l_skip));
+                            if matches!(self.arch, Architecture::X64) {
+                                self.output.push_str("    cmpl $2, %edx\n");
+                                self.output.push_str(&format!("    je {}\n", l_skip));
+                            } else {
+                                self.output.push_str("    cmp w1, #2\n");
+                                self.output.push_str(&format!("    b.eq {}\n", l_skip));
+                            }
                             arch::emit_int_to_float(&mut self.output, self.arch);
                             self.output.push_str(&format!("{}:\n", l_skip));
                         } else {
@@ -1029,10 +1059,10 @@ impl CodeGen {
                         );
                         return;
                     }
-                    // x64: variable-key map reads carry the entry kind tag
-                    // in %edx (see fn_get). Floats must go through
-                    // str_from_float; everything else uses generic str.
-                    if matches!(self.arch, Architecture::X64)
+                    // Variable-key map reads carry the entry kind tag
+                    // (x64: %edx, arm64: w1; see fn_get). Floats must go
+                    // through str_from_float; everything else uses generic str.
+                    if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                         && matches!(&args[0], Expr::Index { .. })
                     {
                         let initial_stack_offset = self.ctx.stack_offset;
@@ -1040,8 +1070,13 @@ impl CodeGen {
                         arch::emit_push_temp(&mut self.output, self.arch);
                         let l_flt = self.ctx.next_label();
                         let l_end = self.ctx.next_label();
-                        self.output.push_str("    cmpl $2, %edx\n");
-                        self.output.push_str(&format!("    je {}\n", l_flt));
+                        if matches!(self.arch, Architecture::X64) {
+                            self.output.push_str("    cmpl $2, %edx\n");
+                            self.output.push_str(&format!("    je {}\n", l_flt));
+                        } else {
+                            self.output.push_str("    cmp w1, #2\n");
+                            self.output.push_str(&format!("    b.eq {}\n", l_flt));
+                        }
                         arch::emit_function_call(
                             &mut self.output,
                             self.arch,
@@ -2699,53 +2734,112 @@ impl CodeGen {
                 });
             }
             "string" | "str" => {
-                // x64: variable-key map reads carry kind tag in %edx.
-                if matches!(self.arch, Architecture::X64) && matches!(expr, Expr::Index { .. }) {
+                // Variable-key map reads carry kind tag alongside the value
+                // (x64: %edx, arm64: w1). Tag 3 = string.
+                if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                    && matches!(expr, Expr::Index { .. })
+                {
                     self.generate_expression(expr);
-                    // %rax = value (kept for tag==0 fallback below),
-                    // %edx = tag (0 unknown, 3 string).
                     let l_true = self.ctx.next_label();
                     let l_end = self.ctx.next_label();
-                    self.output.push_str("    cmpl $3, %edx\n");
-                    self.output.push_str(&format!("    je {}\n", l_true));
-                    // Unknown tag: fall back to pointer-range string test.
-                    self.output.push_str("    cmpl $0, %edx\n");
-                    self.output.push_str(&format!("    jne {}\n", l_end));
-                    // Reuse the value in %rax for a light string check:
-                    // rodata or str_buf range => string.
-                    let l_str = self.ctx.next_label();
-                    let l_no = self.ctx.next_label();
-                    self.output.push_str("    cmp $65536, %rax\n");
-                    self.output.push_str(&format!("    jb {}\n", l_no));
-                    self.output
-                        .push_str("    lea alya_rodata_start(%rip), %rcx\n");
-                    self.output.push_str("    cmp %rcx, %rax\n");
-                    self.output.push_str(&format!("    jb {}\n", l_no));
-                    self.output
-                        .push_str("    lea alya_rodata_end(%rip), %rcx\n");
-                    self.output.push_str("    cmp %rcx, %rax\n");
-                    self.output.push_str(&format!("    jb {}\n", l_str));
-                    self.output.push_str("    lea alya_str_buf(%rip), %rcx\n");
-                    self.output.push_str("    cmp %rcx, %rax\n");
-                    self.output.push_str(&format!("    jb {}\n", l_no));
-                    self.output.push_str("    lea 67108864(%rcx), %rcx\n");
-                    self.output.push_str("    cmp %rcx, %rax\n");
-                    self.output.push_str(&format!("    jb {}\n", l_str));
-                    self.output.push_str(&format!("{}:\n", l_no));
-                    if negated {
-                        self.output.push_str("    movq $1, %rax\n");
+                    if matches!(self.arch, Architecture::X64) {
+                        // %rax = value (kept for tag==0 fallback below),
+                        // %edx = tag (0 unknown, 3 string).
+                        self.output.push_str("    cmpl $3, %edx\n");
+                        self.output.push_str(&format!("    je {}\n", l_true));
+                        // Unknown tag: fall back to pointer-range string test.
+                        self.output.push_str("    cmpl $0, %edx\n");
+                        self.output.push_str(&format!("    jne {}\n", l_end));
+                        // Reuse the value in %rax for a light string check:
+                        // rodata or str_buf range => string.
+                        let l_str = self.ctx.next_label();
+                        let l_no = self.ctx.next_label();
+                        self.output.push_str("    cmp $65536, %rax\n");
+                        self.output.push_str(&format!("    jb {}\n", l_no));
+                        self.output
+                            .push_str("    lea alya_rodata_start(%rip), %rcx\n");
+                        self.output.push_str("    cmp %rcx, %rax\n");
+                        self.output.push_str(&format!("    jb {}\n", l_no));
+                        self.output
+                            .push_str("    lea alya_rodata_end(%rip), %rcx\n");
+                        self.output.push_str("    cmp %rcx, %rax\n");
+                        self.output.push_str(&format!("    jb {}\n", l_str));
+                        self.output.push_str("    lea alya_str_buf(%rip), %rcx\n");
+                        self.output.push_str("    cmp %rcx, %rax\n");
+                        self.output.push_str(&format!("    jb {}\n", l_no));
+                        self.output.push_str("    lea 67108864(%rcx), %rcx\n");
+                        self.output.push_str("    cmp %rcx, %rax\n");
+                        self.output.push_str(&format!("    jb {}\n", l_str));
+                        self.output.push_str(&format!("{}:\n", l_no));
+                        if negated {
+                            self.output.push_str("    movq $1, %rax\n");
+                        } else {
+                            self.output.push_str("    xor %eax, %eax\n");
+                        }
+                        self.output.push_str(&format!("    jmp {}\n", l_end));
+                        self.output.push_str(&format!("{}:\n", l_str));
+                        self.output.push_str(&format!("{}:\n", l_true));
+                        if negated {
+                            self.output.push_str("    xor %eax, %eax\n");
+                        } else {
+                            self.output.push_str("    movq $1, %rax\n");
+                        }
+                        self.output.push_str(&format!("{}:\n", l_end));
                     } else {
-                        self.output.push_str("    xor %eax, %eax\n");
+                        // arm64: x0 = value, w1 = tag.
+                        self.output.push_str("    cmp w1, #3\n");
+                        self.output.push_str(&format!("    b.eq {}\n", l_true));
+                        self.output.push_str("    cmp w1, #0\n");
+                        self.output.push_str(&format!("    b.ne {}\n", l_end));
+                        let l_str = self.ctx.next_label();
+                        let l_no = self.ctx.next_label();
+                        self.output.push_str("    movz x2, #1, lsl #16\n");
+                        self.output.push_str("    cmp x0, x2\n");
+                        self.output.push_str(&format!("    b.lo {}\n", l_no));
+                        crate::codegen::arch::arm64::emit_adrp_add(
+                            &mut self.output,
+                            "x2",
+                            "alya_rodata_start",
+                            self.os,
+                        );
+                        self.output.push_str("    cmp x0, x2\n");
+                        self.output.push_str(&format!("    b.lo {}\n", l_no));
+                        crate::codegen::arch::arm64::emit_adrp_add(
+                            &mut self.output,
+                            "x3",
+                            "alya_rodata_end",
+                            self.os,
+                        );
+                        self.output.push_str("    cmp x0, x3\n");
+                        self.output.push_str(&format!("    b.lo {}\n", l_str));
+                        crate::codegen::arch::arm64::emit_adrp_add(
+                            &mut self.output,
+                            "x2",
+                            "alya_str_buf",
+                            self.os,
+                        );
+                        self.output.push_str("    cmp x0, x2\n");
+                        self.output.push_str(&format!("    b.lo {}\n", l_no));
+                        self.output.push_str("    movz x3, #1024, lsl #16\n");
+                        self.output.push_str("    add x3, x2, x3\n");
+                        self.output.push_str("    cmp x0, x3\n");
+                        self.output.push_str(&format!("    b.lo {}\n", l_str));
+                        self.output.push_str(&format!("{}:\n", l_no));
+                        if negated {
+                            self.output.push_str("    mov x0, #1\n");
+                        } else {
+                            self.output.push_str("    mov x0, #0\n");
+                        }
+                        self.output.push_str(&format!("    b {}\n", l_end));
+                        self.output.push_str(&format!("{}:\n", l_str));
+                        self.output.push_str(&format!("{}:\n", l_true));
+                        if negated {
+                            self.output.push_str("    mov x0, #0\n");
+                        } else {
+                            self.output.push_str("    mov x0, #1\n");
+                        }
+                        self.output.push_str(&format!("{}:\n", l_end));
                     }
-                    self.output.push_str(&format!("    jmp {}\n", l_end));
-                    self.output.push_str(&format!("{}:\n", l_str));
-                    self.output.push_str(&format!("{}:\n", l_true));
-                    if negated {
-                        self.output.push_str("    xor %eax, %eax\n");
-                    } else {
-                        self.output.push_str("    movq $1, %rax\n");
-                    }
-                    self.output.push_str(&format!("{}:\n", l_end));
                     return;
                 }
                 let is_str = is_string_expr(expr, &self.ctx.variables);
@@ -2795,17 +2889,28 @@ impl CodeGen {
                 }
             }
             "float" => {
-                // x64: Index carries kind tag in %edx (2 = float).
-                if matches!(self.arch, Architecture::X64) && matches!(expr, Expr::Index { .. }) {
+                // Index carries kind tag alongside the value
+                // (x64: %edx, arm64: w1; 2 = float).
+                if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                    && matches!(expr, Expr::Index { .. })
+                {
                     self.generate_expression(expr);
-                    if negated {
-                        self.output.push_str("    cmpl $2, %edx\n");
-                        self.output.push_str("    setne %al\n");
+                    if matches!(self.arch, Architecture::X64) {
+                        if negated {
+                            self.output.push_str("    cmpl $2, %edx\n");
+                            self.output.push_str("    setne %al\n");
+                        } else {
+                            self.output.push_str("    cmpl $2, %edx\n");
+                            self.output.push_str("    sete %al\n");
+                        }
+                        self.output.push_str("    movzbq %al, %rax\n");
+                    } else if negated {
+                        self.output.push_str("    cmp w1, #2\n");
+                        self.output.push_str("    cset x0, ne\n");
                     } else {
-                        self.output.push_str("    cmpl $2, %edx\n");
-                        self.output.push_str("    sete %al\n");
+                        self.output.push_str("    cmp w1, #2\n");
+                        self.output.push_str("    cset x0, eq\n");
                     }
-                    self.output.push_str("    movzbq %al, %rax\n");
                     return;
                 }
                 let is_flt = is_float_expr(expr, &self.ctx.variables);
@@ -2825,28 +2930,51 @@ impl CodeGen {
                 arch::emit_load_num(&mut self.output, self.arch, result);
             }
             "int" | "integer" | "number" => {
-                // x64: Index tag 1=int (0 unknown defaults to int).
-                if matches!(self.arch, Architecture::X64) && matches!(expr, Expr::Index { .. }) {
+                // Index tag 1=int (0 unknown defaults to int).
+                // x64: %edx, arm64: w1.
+                if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                    && matches!(expr, Expr::Index { .. })
+                {
                     self.generate_expression(expr);
                     let l_true = self.ctx.next_label();
                     let l_end = self.ctx.next_label();
-                    self.output.push_str("    cmpl $1, %edx\n");
-                    self.output.push_str(&format!("    je {}\n", l_true));
-                    self.output.push_str("    cmpl $0, %edx\n");
-                    self.output.push_str(&format!("    je {}\n", l_true));
-                    if negated {
-                        self.output.push_str("    movq $1, %rax\n");
+                    if matches!(self.arch, Architecture::X64) {
+                        self.output.push_str("    cmpl $1, %edx\n");
+                        self.output.push_str(&format!("    je {}\n", l_true));
+                        self.output.push_str("    cmpl $0, %edx\n");
+                        self.output.push_str(&format!("    je {}\n", l_true));
+                        if negated {
+                            self.output.push_str("    movq $1, %rax\n");
+                        } else {
+                            self.output.push_str("    xor %eax, %eax\n");
+                        }
+                        self.output.push_str(&format!("    jmp {}\n", l_end));
+                        self.output.push_str(&format!("{}:\n", l_true));
+                        if negated {
+                            self.output.push_str("    xor %eax, %eax\n");
+                        } else {
+                            self.output.push_str("    movq $1, %rax\n");
+                        }
+                        self.output.push_str(&format!("{}:\n", l_end));
                     } else {
-                        self.output.push_str("    xor %eax, %eax\n");
+                        self.output.push_str("    cmp w1, #1\n");
+                        self.output.push_str(&format!("    b.eq {}\n", l_true));
+                        self.output.push_str("    cmp w1, #0\n");
+                        self.output.push_str(&format!("    b.eq {}\n", l_true));
+                        if negated {
+                            self.output.push_str("    mov x0, #1\n");
+                        } else {
+                            self.output.push_str("    mov x0, #0\n");
+                        }
+                        self.output.push_str(&format!("    b {}\n", l_end));
+                        self.output.push_str(&format!("{}:\n", l_true));
+                        if negated {
+                            self.output.push_str("    mov x0, #0\n");
+                        } else {
+                            self.output.push_str("    mov x0, #1\n");
+                        }
+                        self.output.push_str(&format!("{}:\n", l_end));
                     }
-                    self.output.push_str(&format!("    jmp {}\n", l_end));
-                    self.output.push_str(&format!("{}:\n", l_true));
-                    if negated {
-                        self.output.push_str("    xor %eax, %eax\n");
-                    } else {
-                        self.output.push_str("    movq $1, %rax\n");
-                    }
-                    self.output.push_str(&format!("{}:\n", l_end));
                     return;
                 }
                 let is_num = is_number_expr(expr, &self.ctx.variables);

@@ -652,28 +652,42 @@ impl CodeGen {
                         // their pop, i.e. at net-zero depth).
                         self.generate_expression(expr);
                         arch::emit_push_temp(&mut self.output, self.arch);
-                        // x64: fn_get returns the entry kind tag in %edx
-                        // (0 = unknown, 1 = int, 2 = float, 3 = string,
-                        // 4 = array, 5 = map). Tagged values dispatch
+                        // fn_get returns the entry kind tag alongside the value
+                        // (x64: %edx, arm64: w1). Tagged values dispatch
                         // directly; unknown falls through to the legacy
-                        // pointer-range classifier below.
+                        // pointer-range classifier below. x86 stays untagged.
+                        // Tags: 0 unknown, 1 int, 2 float, 3 string,
+                        // 4 array, 5 map.
                         let (l_tag_flt, l_tag_str2, l_tag_arr, l_tag_map, l_tag_int) =
-                            if matches!(self.arch, Architecture::X64) {
+                            if matches!(self.arch, Architecture::X64 | Architecture::ARM64) {
                                 let flt = self.ctx.next_label();
                                 let s2 = self.ctx.next_label();
                                 let arr = self.ctx.next_label();
                                 let mp = self.ctx.next_label();
                                 let it = self.ctx.next_label();
-                                self.output.push_str("    cmpl $2, %edx\n");
-                                self.output.push_str(&format!("    je {}\n", flt));
-                                self.output.push_str("    cmpl $3, %edx\n");
-                                self.output.push_str(&format!("    je {}\n", s2));
-                                self.output.push_str("    cmpl $4, %edx\n");
-                                self.output.push_str(&format!("    je {}\n", arr));
-                                self.output.push_str("    cmpl $5, %edx\n");
-                                self.output.push_str(&format!("    je {}\n", mp));
-                                self.output.push_str("    cmpl $1, %edx\n");
-                                self.output.push_str(&format!("    je {}\n", it));
+                                if matches!(self.arch, Architecture::X64) {
+                                    self.output.push_str("    cmpl $2, %edx\n");
+                                    self.output.push_str(&format!("    je {}\n", flt));
+                                    self.output.push_str("    cmpl $3, %edx\n");
+                                    self.output.push_str(&format!("    je {}\n", s2));
+                                    self.output.push_str("    cmpl $4, %edx\n");
+                                    self.output.push_str(&format!("    je {}\n", arr));
+                                    self.output.push_str("    cmpl $5, %edx\n");
+                                    self.output.push_str(&format!("    je {}\n", mp));
+                                    self.output.push_str("    cmpl $1, %edx\n");
+                                    self.output.push_str(&format!("    je {}\n", it));
+                                } else {
+                                    self.output.push_str("    cmp w1, #2\n");
+                                    self.output.push_str(&format!("    b.eq {}\n", flt));
+                                    self.output.push_str("    cmp w1, #3\n");
+                                    self.output.push_str(&format!("    b.eq {}\n", s2));
+                                    self.output.push_str("    cmp w1, #4\n");
+                                    self.output.push_str(&format!("    b.eq {}\n", arr));
+                                    self.output.push_str("    cmp w1, #5\n");
+                                    self.output.push_str(&format!("    b.eq {}\n", mp));
+                                    self.output.push_str("    cmp w1, #1\n");
+                                    self.output.push_str(&format!("    b.eq {}\n", it));
+                                }
                                 (Some(flt), Some(s2), Some(arr), Some(mp), Some(it))
                             } else {
                                 (None, None, None, None, None)

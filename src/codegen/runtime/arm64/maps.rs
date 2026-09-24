@@ -163,7 +163,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x10, x24, x24, lsl #1\n");
     out.push_str("    add x10, x9, x10, lsl #3\n");
     out.push_str("    ldr x11, [x10, #16]\n");
-    out.push_str("    cmp x11, #1\n");
+    out.push_str("    cmp w11, #1\n");
     out.push_str("    b.ne .L_arm64_rehash_next\n");
     out.push_str("    ldr x0, [x10]\n");
     out.push_str("    bl alya_map_hash\n");
@@ -184,7 +184,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    str x11, [x9]\n");
     out.push_str("    ldr x11, [x10, #8]\n");
     out.push_str("    str x11, [x9, #8]\n");
-    out.push_str("    mov x11, #1\n");
+    out.push_str("    ldr x11, [x10, #16]\n");
     out.push_str("    str x11, [x9, #16]\n");
     out.push_str(".L_arm64_rehash_next:\n");
     out.push_str("    add x24, x24, #1\n");
@@ -224,6 +224,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x10, x23, x23, lsl #1\n");
     out.push_str("    add x10, x9, x10, lsl #3\n");
     out.push_str("    str x21, [x10, #8]\n");
+    out.push_str("    str wzr, [x10, #20]\n");
     out.push_str("    b .L_arm64_set_done\n");
     out.push_str(".L_arm64_set_next:\n");
     out.push_str("    add x25, x25, #1\n");
@@ -308,7 +309,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x10, x9, x10, lsl #3\n");
     out.push_str("    ldr x11, [x10, #16]\n");
     out.push_str("    cbz x11, .L_arm64_get_not_found\n");
-    out.push_str("    cmp x11, #1\n");
+    out.push_str("    cmp w11, #1\n");
     out.push_str("    b.ne .L_arm64_get_next\n");
     out.push_str("    ldr x0, [x10]\n");
     out.push_str("    mov x1, x20\n");
@@ -324,6 +325,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x10, x21, x21, lsl #1\n");
     out.push_str("    add x10, x9, x10, lsl #3\n");
     out.push_str("    ldr x0, [x10, #8]\n");
+    out.push_str("    ldr w1, [x10, #20]\n");
     out.push_str("    b .L_arm64_get_ret\n");
     out.push_str(".L_arm64_get_array:\n");
     out.push_str("    cmp x1, #0\n");
@@ -333,10 +335,65 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    b.ge .L_arm64_get_not_found\n");
     out.push_str("    ldr x10, [x0, #16]\n");
     out.push_str("    ldr x0, [x10, x1, lsl #3]\n");
+    out.push_str("    mov x1, #0\n");
     out.push_str("    b .L_arm64_get_ret\n");
     out.push_str(".L_arm64_get_not_found:\n");
     out.push_str("    mov x0, x24\n");
+    out.push_str("    mov x1, #0\n");
     out.push_str(".L_arm64_get_ret:\n");
+    out.push_str("    ldp x23, x24, [sp, #48]\n");
+    out.push_str("    ldp x21, x22, [sp, #32]\n");
+    out.push_str("    ldp x19, x20, [sp, #16]\n");
+    out.push_str("    ldp x29, x30, [sp], #64\n");
+    out.push_str("    ret\n\n");
+
+    // fn_map_set_tag(map, key, tag): records a value-kind tag in the high
+    // 32 bits of the entry state word (low 32 stay the state code).
+    // Tags: 0 unknown, 1 int, 2 float, 3 string, 4 array, 5 map, 6 struct.
+    // Returns 1 when stored, 0 otherwise. Misses are no-ops.
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_map_set_tag\n");
+    out.push_str("fn_map_set_tag:\n");
+    out.push_str("    stp x29, x30, [sp, #-64]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    stp x19, x20, [sp, #16]\n");
+    out.push_str("    stp x21, x22, [sp, #32]\n");
+    out.push_str("    stp x23, x24, [sp, #48]\n");
+    out.push_str("    mov x19, x0\n");
+    out.push_str("    mov x20, x1\n");
+    out.push_str("    mov w24, w2\n");
+    out.push_str("    mov x0, #0\n");
+    out.push_str("    cbz x19, .L_arm64_set_tag_ret\n");
+    out.push_str("    mov x0, x20\n");
+    out.push_str("    bl alya_map_hash\n");
+    out.push_str("    ldr x9, [x19, #8]\n");
+    out.push_str("    sub x22, x9, #1\n");
+    out.push_str("    and x21, x0, x22\n");
+    out.push_str("    mov x23, #0\n");
+    out.push_str(".L_arm64_set_tag_loop:\n");
+    out.push_str("    ldr x9, [x19, #8]\n");
+    out.push_str("    cmp x23, x9\n");
+    out.push_str("    b.ge .L_arm64_set_tag_ret\n");
+    out.push_str("    ldr x9, [x19, #16]\n");
+    out.push_str("    add x10, x21, x21, lsl #1\n");
+    out.push_str("    add x10, x9, x10, lsl #3\n");
+    out.push_str("    ldr x11, [x10, #16]\n");
+    out.push_str("    cbz x11, .L_arm64_set_tag_ret\n");
+    out.push_str("    cmp w11, #1\n");
+    out.push_str("    b.ne .L_arm64_set_tag_next\n");
+    out.push_str("    ldr x0, [x10]\n");
+    out.push_str("    mov x1, x20\n");
+    out.push_str("    bl alya_map_key_eq\n");
+    out.push_str("    cbz x0, .L_arm64_set_tag_next\n");
+    out.push_str("    str w24, [x10, #20]\n");
+    out.push_str("    mov x0, #1\n");
+    out.push_str("    b .L_arm64_set_tag_ret\n");
+    out.push_str(".L_arm64_set_tag_next:\n");
+    out.push_str("    add x21, x21, #1\n");
+    out.push_str("    and x21, x21, x22\n");
+    out.push_str("    add x23, x23, #1\n");
+    out.push_str("    b .L_arm64_set_tag_loop\n");
+    out.push_str(".L_arm64_set_tag_ret:\n");
     out.push_str("    ldp x23, x24, [sp, #48]\n");
     out.push_str("    ldp x21, x22, [sp, #32]\n");
     out.push_str("    ldp x19, x20, [sp, #16]\n");
@@ -370,7 +427,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x10, x9, x10, lsl #3\n");
     out.push_str("    ldr x11, [x10, #16]\n");
     out.push_str("    cbz x11, .L_arm64_has_not_found\n");
-    out.push_str("    cmp x11, #1\n");
+    out.push_str("    cmp w11, #1\n");
     out.push_str("    b.ne .L_arm64_has_next\n");
     out.push_str("    ldr x0, [x10]\n");
     out.push_str("    mov x1, x20\n");
@@ -420,7 +477,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x10, x9, x10, lsl #3\n");
     out.push_str("    ldr x11, [x10, #16]\n");
     out.push_str("    cbz x11, .L_arm64_rem_not_found\n");
-    out.push_str("    cmp x11, #1\n");
+    out.push_str("    cmp w11, #1\n");
     out.push_str("    b.ne .L_arm64_rem_next\n");
     out.push_str("    ldr x0, [x10]\n");
     out.push_str("    mov x1, x20\n");
@@ -473,7 +530,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x10, x21, x21, lsl #1\n");
     out.push_str("    add x10, x9, x10, lsl #3\n");
     out.push_str("    ldr x11, [x10, #16]\n");
-    out.push_str("    cmp x11, #1\n");
+    out.push_str("    cmp w11, #1\n");
     out.push_str("    b.ne .L_arm64_keys_next\n");
     out.push_str("    mov x0, x20\n");
     out.push_str("    ldr x1, [x10]\n");
@@ -510,7 +567,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x10, x21, x21, lsl #1\n");
     out.push_str("    add x10, x9, x10, lsl #3\n");
     out.push_str("    ldr x11, [x10, #16]\n");
-    out.push_str("    cmp x11, #1\n");
+    out.push_str("    cmp w11, #1\n");
     out.push_str("    b.ne .L_arm64_vals_next\n");
     out.push_str("    mov x0, x20\n");
     out.push_str("    ldr x1, [x10, #8]\n");
@@ -557,7 +614,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x10, x21, x21, lsl #1\n");
     out.push_str("    add x10, x9, x10, lsl #3\n");
     out.push_str("    ldr x11, [x10, #16]\n");
-    out.push_str("    cmp x11, #1\n");
+    out.push_str("    cmp w11, #1\n");
     out.push_str("    b.ne .L_arm64_pmap_next\n");
     out.push_str("    cbz x20, .L_arm64_pmap_print_pair\n");
     emit_adrp_add(out, "x0", "alya_fmt_arr_comma", os);

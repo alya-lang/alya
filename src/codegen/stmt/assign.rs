@@ -1075,8 +1075,9 @@ impl CodeGen {
             // (identifier map, literal key, literal value): re-evaluating
             // anything else could duplicate side effects. Dynamics leave
             // the tag cleared by `set` itself (unknown = 0).
-            // NOTE: x64-only for now; x86/arm64 have no fn_map_set_tag yet.
-            if matches!(self.arch, Architecture::X64) {
+            // NOTE: x64+arm64 have fn_map_set_tag; x86 entries are 12-byte
+            // (no room for packed tags) so x86 stays untagged.
+            if matches!(self.arch, Architecture::X64 | Architecture::ARM64) {
                 if let (Expr::Identifier(_), Expr::String(_)) = (array, index) {
                     let tag_kind: Option<i64> = match value {
                         Expr::String(_) => Some(3),

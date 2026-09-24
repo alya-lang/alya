@@ -80,14 +80,20 @@ impl CodeGen {
                 if left_is_flt || right_is_flt {
                     self.generate_expression(left);
                     if !left_is_flt && !is_definitely_not_numeric(left, &self.ctx.variables) {
-                        // x64 Index carries kind tag in %edx: skip int->float
+                        // Index carries kind tag alongside the value
+                        // (x64: %edx, arm64: w1): skip int->float
                         // when the value is already a float.
-                        if matches!(self.arch, Architecture::X64)
+                        if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                             && matches!(&**left, Expr::Index { .. })
                         {
                             let l_skip = self.ctx.next_label();
-                            self.output.push_str("    cmpl $2, %edx\n");
-                            self.output.push_str(&format!("    je {}\n", l_skip));
+                            if matches!(self.arch, Architecture::X64) {
+                                self.output.push_str("    cmpl $2, %edx\n");
+                                self.output.push_str(&format!("    je {}\n", l_skip));
+                            } else {
+                                self.output.push_str("    cmp w1, #2\n");
+                                self.output.push_str(&format!("    b.eq {}\n", l_skip));
+                            }
                             arch::emit_int_to_float(&mut self.output, self.arch);
                             self.output.push_str(&format!("{}:\n", l_skip));
                         } else {
@@ -116,12 +122,18 @@ impl CodeGen {
                         arch::emit_push_temp(&mut self.output, self.arch);
                         self.generate_expression(right);
                         if !right_is_flt && !is_definitely_not_numeric(right, &self.ctx.variables) {
-                            if matches!(self.arch, Architecture::X64)
+                            // Index carries kind tag (x64: %edx, arm64: w1).
+                            if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                                 && matches!(&**right, Expr::Index { .. })
                             {
                                 let l_skip = self.ctx.next_label();
-                                self.output.push_str("    cmpl $2, %edx\n");
-                                self.output.push_str(&format!("    je {}\n", l_skip));
+                                if matches!(self.arch, Architecture::X64) {
+                                    self.output.push_str("    cmpl $2, %edx\n");
+                                    self.output.push_str(&format!("    je {}\n", l_skip));
+                                } else {
+                                    self.output.push_str("    cmp w1, #2\n");
+                                    self.output.push_str(&format!("    b.eq {}\n", l_skip));
+                                }
                                 arch::emit_int_to_float(&mut self.output, self.arch);
                                 self.output.push_str(&format!("{}:\n", l_skip));
                             } else {
@@ -264,14 +276,20 @@ impl CodeGen {
                 if left_is_flt || right_is_flt {
                     self.generate_expression(left);
                     if !left_is_flt && !is_definitely_not_numeric(left, &self.ctx.variables) {
-                        // x64 Index carries kind tag in %edx: skip int->float
+                        // Index carries kind tag alongside the value
+                        // (x64: %edx, arm64: w1): skip int->float
                         // when the value is already a float.
-                        if matches!(self.arch, Architecture::X64)
+                        if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                             && matches!(&**left, Expr::Index { .. })
                         {
                             let l_skip = self.ctx.next_label();
-                            self.output.push_str("    cmpl $2, %edx\n");
-                            self.output.push_str(&format!("    je {}\n", l_skip));
+                            if matches!(self.arch, Architecture::X64) {
+                                self.output.push_str("    cmpl $2, %edx\n");
+                                self.output.push_str(&format!("    je {}\n", l_skip));
+                            } else {
+                                self.output.push_str("    cmp w1, #2\n");
+                                self.output.push_str(&format!("    b.eq {}\n", l_skip));
+                            }
                             arch::emit_int_to_float(&mut self.output, self.arch);
                             self.output.push_str(&format!("{}:\n", l_skip));
                         } else {
@@ -300,12 +318,18 @@ impl CodeGen {
                         arch::emit_push_temp(&mut self.output, self.arch);
                         self.generate_expression(right);
                         if !right_is_flt && !is_definitely_not_numeric(right, &self.ctx.variables) {
-                            if matches!(self.arch, Architecture::X64)
+                            // Index carries kind tag (x64: %edx, arm64: w1).
+                            if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                                 && matches!(&**right, Expr::Index { .. })
                             {
                                 let l_skip = self.ctx.next_label();
-                                self.output.push_str("    cmpl $2, %edx\n");
-                                self.output.push_str(&format!("    je {}\n", l_skip));
+                                if matches!(self.arch, Architecture::X64) {
+                                    self.output.push_str("    cmpl $2, %edx\n");
+                                    self.output.push_str(&format!("    je {}\n", l_skip));
+                                } else {
+                                    self.output.push_str("    cmp w1, #2\n");
+                                    self.output.push_str(&format!("    b.eq {}\n", l_skip));
+                                }
                                 arch::emit_int_to_float(&mut self.output, self.arch);
                                 self.output.push_str(&format!("{}:\n", l_skip));
                             } else {

@@ -195,7 +195,7 @@ pub fn emit_for_each_load_element(
     out.push_str("    add x4, x2, x2, lsl #1\n");
     out.push_str("    add x4, x3, x4, lsl #3\n");
     out.push_str("    ldr x5, [x4, #16]\n");
-    out.push_str("    cmp x5, #1\n");
+    out.push_str("    cmp w5, #1\n");
     out.push_str(&format!("    b.eq {}\n", found_label));
     out.push_str("    add x2, x2, #1\n");
     out.push_str(&format!("    b {}\n", scan_label));

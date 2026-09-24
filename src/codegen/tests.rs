@@ -33,6 +33,21 @@ fn test_codegen_x86_header_and_footer() {
 }
 
 #[test]
+fn test_codegen_map_entry_tags_present_x64_arm64() {
+    // Packed kind tags must exist in the emitted runtimes that support
+    // them (x64 + arm64, 24-byte entries). x86 entries are 12-byte and
+    // stay untagged.
+    let program = simple_program(Stmt::Say(Expr::Number(42.0)));
+    let asm_x64 = generate(&program, Architecture::X64, OperatingSystem::Windows);
+    assert!(asm_x64.contains("fn_map_set_tag"));
+    assert!(asm_x64.contains("cmpl $1, 16(%r14)"));
+    let asm_arm64 = generate(&program, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(asm_arm64.contains("fn_map_set_tag"));
+    assert!(asm_arm64.contains("cmp w11, #1"));
+    assert!(asm_arm64.contains("ldr w1, [x10, #20]"));
+}
+
+#[test]
 fn test_codegen_arm64_header_and_footer() {
     let program = simple_program(Stmt::Say(Expr::Number(42.0)));
     let asm = generate(&program, Architecture::ARM64, OperatingSystem::Linux);

@@ -162,7 +162,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x24, x23, x23, lsl #1\n");
     out.push_str("    add x24, x21, x24, lsl #3\n");
     out.push_str("    ldr x9, [x24, #16]\n");
-    out.push_str("    cmp x9, #1\n");
+    out.push_str("    cmp w9, #1\n");
     out.push_str("    b.ne .L_arm64_mg_map_next\n");
     out.push_str("    ldr x25, [x24]\n");
     emit_child_mark_gray(out);
@@ -269,7 +269,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x24, x23, x23, lsl #1\n");
     out.push_str("    add x24, x21, x24, lsl #3\n");
     out.push_str("    ldr x9, [x24, #16]\n");
-    out.push_str("    cmp x9, #1\n");
+    out.push_str("    cmp w9, #1\n");
     out.push_str("    b.ne .L_arm64_s_map_next\n");
     out.push_str("    ldr x25, [x24]\n");
     emit_child_scan(out);
@@ -361,7 +361,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x24, x23, x23, lsl #1\n");
     out.push_str("    add x24, x21, x24, lsl #3\n");
     out.push_str("    ldr x9, [x24, #16]\n");
-    out.push_str("    cmp x9, #1\n");
+    out.push_str("    cmp w9, #1\n");
     out.push_str("    b.ne .L_arm64_sb_map_next\n");
     out.push_str("    ldr x25, [x24]\n");
     emit_child_scan_black(out);
@@ -456,7 +456,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x24, x23, x23, lsl #1\n");
     out.push_str("    add x24, x21, x24, lsl #3\n");
     out.push_str("    ldr x9, [x24, #16]\n");
-    out.push_str("    cmp x9, #1\n");
+    out.push_str("    cmp w9, #1\n");
     out.push_str("    b.ne .L_arm64_cw_map_next\n");
     out.push_str("    ldr x25, [x24]\n");
     emit_child_collect_white(out);
