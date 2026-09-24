@@ -1,0 +1,59 @@
+# Auto detect text files and perform LF normalization.
+# Text files are stored with LF in the repository and checked out with
+# native line endings unless pinned below.
+* text=auto
+
+# Language sources and build inputs always use LF, even on Windows checkouts,
+# so compilers, assemblers, shells and golden-file comparisons see stable bytes.
+*.alya text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.s text eol=lf
+*.rs text eol=lf
+*.ts text eol=lf
+*.js text eol=lf
+*.py text eol=lf
+*.ps1 text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.csv text eol=lf
+*.tsv text eol=lf
+*.tr text eol=lf
+*.html text eol=lf
+*.nuspec text eol=lf
+*.svg text eol=lf
+*.lock text eol=lf
+
+# Archives, executables, fonts and images must never be normalized.
+*.zip binary
+*.tar.gz binary
+*.tgz binary
+*.gz binary
+*.7z binary
+*.rar binary
+*.vsix binary
+*.nupkg binary
+*.exe binary
+*.dll binary
+*.lib binary
+*.a binary
+*.so binary
+*.dylib binary
+*.o binary
+*.obj binary
+*.pdb binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
