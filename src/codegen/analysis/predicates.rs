@@ -614,6 +614,22 @@ pub fn is_string_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                 || vars.contains_key(&format!("fn_ret_str_arr:{}", bare))
         }
         Expr::ForceUnwrap(inner) => is_string_array(inner, vars),
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            // Null-transparent AND (see is_string_expr): both non-null arms
+            // must be string arrays for callers to assume string elements.
+            (is_string_array(then_branch, vars) || is_null_expr(then_branch, vars))
+                && (is_string_array(else_branch, vars) || is_null_expr(else_branch, vars))
+                && (is_string_array(then_branch, vars) || is_string_array(else_branch, vars))
+        }
+        Expr::NullCoalesce { value, default } => {
+            (is_string_array(value, vars) || is_null_expr(value, vars))
+                && (is_string_array(default, vars) || is_null_expr(default, vars))
+                && (is_string_array(value, vars) || is_string_array(default, vars))
+        }
         _ => false,
     }
 }

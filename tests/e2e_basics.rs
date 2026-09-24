@@ -1021,3 +1021,30 @@ main()
         assert_eq!(output, "1\nfile:/tmp/x\n");
     }
 }
+
+#[test]
+fn test_e2e_when_array_branches() {
+    // A `when` returning string arrays from every arm must print array
+    // elements as strings (not raw pointers), including element reads.
+    // (Regression test for alya-lang/alya#18a.)
+    let code = r#"
+function pick(lang: string) -> array
+    return when lang
+        is "a" => ["x", "y"]
+        else => ["p", "q"]
+    end
+end
+
+function main()
+    let r = pick("a")
+    say r
+    say r[0]
+    say r[1]
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "[x, y]\nx\ny\n");
+    }
+}

@@ -227,6 +227,20 @@ fn expr_is_string_array(expr: &Expr, known_strings: &HashSet<String>) -> bool {
             ) || known_strings.contains(&format!("fn_ret_str_arr:{}", name))
                 || known_strings.contains(&format!("fn_ret_str_arr:{}", bare))
         }
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            // Both arms must be string arrays; otherwise the outcome is
+            // dynamic and callers must not assume string elements.
+            expr_is_string_array(then_branch, known_strings)
+                && expr_is_string_array(else_branch, known_strings)
+        }
+        Expr::NullCoalesce { value, default } => {
+            expr_is_string_array(value, known_strings)
+                && expr_is_string_array(default, known_strings)
+        }
         Expr::ForceUnwrap(inner) => expr_is_string_array(inner, known_strings),
         _ => false,
     }
