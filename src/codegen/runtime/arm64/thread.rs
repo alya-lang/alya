@@ -32,8 +32,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    stp x21, x22, [sp, #32]\n");
     out.push_str("    mov x19, x0\n");              // func
     out.push_str("    mov x20, x1\n");              // arg
+    out.push_str("    sub sp, sp, #32\n");
     out.push_str("    mov x0, #32\n");              // 32 bytes
     out.push_str(&format!("    bl {}malloc\n", p));
+    out.push_str("    add sp, sp, #32\n");
     out.push_str("    mov x21, x0\n");              // ctx
     out.push_str("    str x19, [x21, #8]\n");       // ctx->func
     out.push_str("    str x20, [x21, #16]\n");      // ctx->arg
@@ -96,7 +98,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     }
     out.push_str("    ldr x20, [x19, #24]\n");      // result
     out.push_str("    mov x0, x19\n");
+    out.push_str("    sub sp, sp, #32\n");
     out.push_str(&format!("    bl {}free\n", p));
+    out.push_str("    add sp, sp, #32\n");
     out.push_str("    mov x0, x20\n");              // return result
     out.push_str("    b .L_arm64_join_done\n");
     out.push_str(".L_arm64_join_null:\n");
