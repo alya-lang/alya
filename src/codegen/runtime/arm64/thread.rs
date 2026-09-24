@@ -43,14 +43,16 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if is_win {
         // Windows: CreateThread(NULL, 0, proc, ctx, 0, NULL).
         // Extra sub keeps the 32-byte home area below the call free.
+        // Windows: CreateThread(NULL, 0, proc, ctx, 0, NULL). Stack args live
+        // AFTER the 32-byte home area ([sp, #32] and [sp, #40]).
         out.push_str("    sub sp, sp, #48\n");
         out.push_str("    mov x0, #0\n");
         out.push_str("    mov x1, #0\n");
         out.push_str("    adrp x2, fn_alya_thread_proc\n");
         out.push_str("    add x2, x2, :lo12:fn_alya_thread_proc\n");
         out.push_str("    mov x3, x21\n");
-        out.push_str("    str xzr, [sp]\n");        // dwCreationFlags = 0
-        out.push_str("    str xzr, [sp, #8]\n");    // lpThreadId = NULL
+        out.push_str("    str xzr, [sp, #32]\n");   // dwCreationFlags = 0
+        out.push_str("    str xzr, [sp, #40]\n");   // lpThreadId = NULL
         out.push_str("    bl CreateThread\n");
         out.push_str("    add sp, sp, #48\n");
         out.push_str("    str x0, [x21]\n");        // ctx->os_handle

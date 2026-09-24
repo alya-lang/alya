@@ -607,15 +607,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
 
     if is_win {
         // Windows: ioctlsocket(sock, FIONBIO, &mode) — no fcntl on Winsock.
-        // The extra sub keeps the 32-byte home area below the call free.
-        out.push_str("    sub sp, sp, #32\n");
+        // The mode slot sits outside the 32-byte home area ([sp, #32]).
+        out.push_str("    sub sp, sp, #48\n");
         out.push_str("    mov x0, x19\n");
         out.push_str("    movz x1, #0x667e\n");
         out.push_str("    movk x1, #0x8004, lsl #16\n"); // FIONBIO = 0x8004667E
-        out.push_str("    mov x2, sp\n");
+        out.push_str("    add x2, sp, #32\n");
         out.push_str("    str w20, [x2]\n");
         out.push_str("    bl ioctlsocket\n");
-        out.push_str("    add sp, sp, #32\n");
+        out.push_str("    add sp, sp, #48\n");
         out.push_str("    cmp w0, #0\n");
         out.push_str("    bne .L_arm64_snb_err\n");
         out.push_str("    mov x0, #0\n");
