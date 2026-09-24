@@ -142,7 +142,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea (%r14, %r14, 2), %rax\n");
     out.push_str("    shl $3, %rax\n");
     out.push_str("    add %r12, %rax\n");
-    out.push_str("    cmpq $1, 16(%rax)\n");
+    out.push_str("    cmpl $1, 16(%rax)\n");
     out.push_str("    jne .L_x64_mg_map_next\n");
     out.push_str("    movq 0(%rax), %r15\n");
     emit_child_mark_gray(out, is_win);
@@ -259,7 +259,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea (%r14, %r14, 2), %rax\n");
     out.push_str("    shl $3, %rax\n");
     out.push_str("    add %r12, %rax\n");
-    out.push_str("    cmpq $1, 16(%rax)\n");
+    out.push_str("    cmpl $1, 16(%rax)\n");
     out.push_str("    jne .L_x64_s_map_next\n");
     out.push_str("    movq 0(%rax), %r15\n");
     emit_child_scan(out, is_win);
@@ -361,7 +361,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea (%r14, %r14, 2), %rax\n");
     out.push_str("    shl $3, %rax\n");
     out.push_str("    add %r12, %rax\n");
-    out.push_str("    cmpq $1, 16(%rax)\n");
+    out.push_str("    cmpl $1, 16(%rax)\n");
     out.push_str("    jne .L_x64_sb_map_next\n");
     out.push_str("    movq 0(%rax), %r15\n");
     emit_child_scan_black(out, is_win);
@@ -465,7 +465,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea (%r14, %r14, 2), %rax\n");
     out.push_str("    shl $3, %rax\n");
     out.push_str("    add %r12, %rax\n");
-    out.push_str("    cmpq $1, 16(%rax)\n");
+    out.push_str("    cmpl $1, 16(%rax)\n");
     out.push_str("    jne .L_x64_cw_map_next\n");
     out.push_str("    movq 0(%rax), %r15\n");
     emit_child_collect_white(out, is_win);

@@ -316,7 +316,7 @@ pub fn emit_for_each_load_element(
     out.push_str("    lea (%rcx, %rcx, 2), %r8\n");
     out.push_str("    shl $3, %r8\n");
     out.push_str("    add 16(%rax), %r8\n");
-    out.push_str("    cmpq $1, 16(%r8)\n");
+    out.push_str("    cmpl $1, 16(%r8)\n");
     out.push_str(&format!("    je {}\n", found_label));
     out.push_str("    inc %rcx\n");
     out.push_str(&format!("    jmp {}\n", scan_label));

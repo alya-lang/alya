@@ -652,6 +652,32 @@ impl CodeGen {
                         // their pop, i.e. at net-zero depth).
                         self.generate_expression(expr);
                         arch::emit_push_temp(&mut self.output, self.arch);
+                        // x64: fn_get returns the entry kind tag in %edx
+                        // (0 = unknown, 1 = int, 2 = float, 3 = string,
+                        // 4 = array, 5 = map). Tagged values dispatch
+                        // directly; unknown falls through to the legacy
+                        // pointer-range classifier below.
+                        let (l_tag_flt, l_tag_str2, l_tag_arr, l_tag_map, l_tag_int) =
+                            if matches!(self.arch, Architecture::X64) {
+                                let flt = self.ctx.next_label();
+                                let s2 = self.ctx.next_label();
+                                let arr = self.ctx.next_label();
+                                let mp = self.ctx.next_label();
+                                let it = self.ctx.next_label();
+                                self.output.push_str("    cmpl $2, %edx\n");
+                                self.output.push_str(&format!("    je {}\n", flt));
+                                self.output.push_str("    cmpl $3, %edx\n");
+                                self.output.push_str(&format!("    je {}\n", s2));
+                                self.output.push_str("    cmpl $4, %edx\n");
+                                self.output.push_str(&format!("    je {}\n", arr));
+                                self.output.push_str("    cmpl $5, %edx\n");
+                                self.output.push_str(&format!("    je {}\n", mp));
+                                self.output.push_str("    cmpl $1, %edx\n");
+                                self.output.push_str(&format!("    je {}\n", it));
+                                (Some(flt), Some(s2), Some(arr), Some(mp), Some(it))
+                            } else {
+                                (None, None, None, None, None)
+                            };
                         self.emit_runtime_classify(self.os);
                         arch::emit_cmp_imm(&mut self.output, self.arch, 3);
                         arch::emit_cond_jump(
@@ -690,6 +716,82 @@ impl CodeGen {
                             self.os,
                         );
                         self.output.push_str(&format!("{}:\n", l_idx_end));
+                        // Tagged fast paths (x64 only). Each pops the saved
+                        // value and prints with the tag-correct runtime.
+                        if let (Some(t_flt), Some(t_str2), Some(t_arr), Some(t_map), Some(t_int)) =
+                            (l_tag_flt, l_tag_str2, l_tag_arr, l_tag_map, l_tag_int)
+                        {
+                            let l_final = self.ctx.next_label();
+                            arch::emit_jump(&mut self.output, self.arch, &l_final);
+                            // float
+                            self.output.push_str(&format!("{}:\n", t_flt));
+                            arch::emit_pop_temp(&mut self.output, self.arch);
+                            let fmt_tag_flt = self.ctx.next_string_label();
+                            self.emit_rodata_section();
+                            self.output.push_str(&format!("{}:\n", fmt_tag_flt));
+                            self.emit_string_directive("%g\\n");
+                            self.output.push_str(".text\n");
+                            arch::emit_say_float(
+                                &mut self.output,
+                                self.arch,
+                                &fmt_tag_flt,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                            arch::emit_jump(&mut self.output, self.arch, &l_final);
+                            // string
+                            self.output.push_str(&format!("{}:\n", t_str2));
+                            arch::emit_pop_temp(&mut self.output, self.arch);
+                            let fmt_tag_str = self.ctx.next_string_label();
+                            self.emit_rodata_section();
+                            self.output.push_str(&format!("{}:\n", fmt_tag_str));
+                            self.emit_string_directive("%s\\n");
+                            self.output.push_str(".text\n");
+                            arch::emit_say_acc(
+                                &mut self.output,
+                                self.arch,
+                                &fmt_tag_str,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                            arch::emit_jump(&mut self.output, self.arch, &l_final);
+                            // array
+                            self.output.push_str(&format!("{}:\n", t_arr));
+                            arch::emit_pop_temp(&mut self.output, self.arch);
+                            arch::emit_print_array(
+                                &mut self.output,
+                                self.arch,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                            arch::emit_jump(&mut self.output, self.arch, &l_final);
+                            // map
+                            self.output.push_str(&format!("{}:\n", t_map));
+                            arch::emit_pop_temp(&mut self.output, self.arch);
+                            arch::emit_print_map(
+                                &mut self.output,
+                                self.arch,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                            arch::emit_jump(&mut self.output, self.arch, &l_final);
+                            // int
+                            self.output.push_str(&format!("{}:\n", t_int));
+                            arch::emit_pop_temp(&mut self.output, self.arch);
+                            let fmt_tag_int = self.ctx.next_string_label();
+                            self.emit_rodata_section();
+                            self.output.push_str(&format!("{}:\n", fmt_tag_int));
+                            self.emit_string_directive("%lld\\n");
+                            self.output.push_str(".text\n");
+                            arch::emit_say_acc(
+                                &mut self.output,
+                                self.arch,
+                                &fmt_tag_int,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                            self.output.push_str(&format!("{}:\n", l_final));
+                        }
                         self.output.push('\n');
                         return;
                     }

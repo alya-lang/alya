@@ -184,7 +184,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
-    // fn_set
+    // fn_set(map, key, value): entry tags are maintained separately via
+    // fn_map_set_tag; overwrite/insert paths keep tag storage coherent
+    // (cleared/zeroed) so untagged writes never leave stale tags.
     out.push_str(".global fn_set\n");
     out.push_str("fn_set:\n");
     out.push_str("    push %rbp\n");
@@ -238,7 +240,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea (%rax, %rax, 2), %rbx\n");
     out.push_str("    shl $3, %rbx\n");
     out.push_str("    add %rcx, %rbx\n");
-    out.push_str("    cmpq $1, 16(%rbx)\n");
+    out.push_str("    cmpl $1, 16(%rbx)\n");
     out.push_str("    jne .L_x64_rehash_next\n");
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov (%rbx), %rcx\n");
@@ -253,7 +255,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea (%rax, %rax, 2), %r8\n");
     out.push_str("    shl $3, %r8\n");
     out.push_str("    add %rdi, %r8\n");
-    out.push_str("    cmpq $0, 16(%r8)\n");
+    out.push_str("    cmpl $0, 16(%r8)\n");
     out.push_str("    je .L_x64_rehash_put\n");
     out.push_str("    inc %rax\n");
     out.push_str("    and 56(%rsp), %rax\n");
@@ -268,7 +270,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov %r9, (%r8)\n");
     out.push_str("    mov 8(%rbx), %r9\n");
     out.push_str("    mov %r9, 8(%r8)\n");
-    out.push_str("    movq $1, 16(%r8)\n");
+    out.push_str("    mov 16(%rbx), %r9\n");
+    out.push_str("    mov %r9, 16(%r8)\n");
     out.push_str(".L_x64_rehash_next:\n");
     out.push_str("    incq 64(%rsp)\n");
     out.push_str("    jmp .L_x64_rehash_loop\n");
@@ -327,6 +330,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    shl $3, %r15\n");
     out.push_str("    add 16(%r12), %r15\n");
     out.push_str("    mov %r14, 8(%r15)\n");
+    out.push_str("    movl $0, 20(%r15)\n");
     out.push_str("    jmp .L_x64_set_done\n");
     out.push_str(".L_x64_set_next:\n");
     out.push_str("    incq 56(%rsp)\n");
@@ -425,9 +429,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea (%rax, %rax, 2), %r14\n");
     out.push_str("    shl $3, %r14\n");
     out.push_str("    add 16(%r12), %r14\n");
-    out.push_str("    cmpq $0, 16(%r14)\n");
+    out.push_str("    cmpl $0, 16(%r14)\n");
     out.push_str("    je .L_x64_get_not_found\n");
-    out.push_str("    cmpq $1, 16(%r14)\n");
+    out.push_str("    cmpl $1, 16(%r14)\n");
     out.push_str("    jne .L_x64_get_next\n");
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov (%r14), %rcx\n");
@@ -449,6 +453,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    jmp .L_x64_get_loop\n");
     out.push_str(".L_x64_get_found:\n");
     out.push_str("    mov 8(%r14), %rax\n");
+    out.push_str("    movl 20(%r14), %edx\n");
     out.push_str("    jmp .L_x64_get_ret\n");
     out.push_str(".L_x64_get_array:\n");
     out.push_str("    test %r13, %r13\n");
@@ -457,10 +462,97 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    jae .L_x64_get_not_found\n");
     out.push_str("    movq 16(%r12), %rax\n");
     out.push_str("    movq (%rax, %r13, 8), %rax\n");
+    out.push_str("    xor %edx, %edx\n");
     out.push_str("    jmp .L_x64_get_ret\n");
     out.push_str(".L_x64_get_not_found:\n");
     out.push_str("    mov %r15, %rax\n");
+    out.push_str("    xor %edx, %edx\n");
     out.push_str(".L_x64_get_ret:\n");
+    out.push_str("    add $56, %rsp\n");
+    out.push_str("    pop %r15\n");
+    out.push_str("    pop %r14\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    pop %rbx\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_map_set_tag(map, key, tag): records a value-kind tag in the high
+    // 32 bits of the entry state word (low 32 bits stay the state code).
+    // Tags: 0 = unknown, 1 = int, 2 = float, 3 = string, 4 = array,
+    // 5 = map, 6 = struct. The compiler passes literal-grounded kinds
+    // only; misses are no-ops. Returns 1 when stored, 0 otherwise.
+    out.push_str(".global fn_map_set_tag\n");
+    out.push_str("fn_map_set_tag:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %rbx\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    out.push_str("    push %r14\n");
+    out.push_str("    push %r15\n");
+    out.push_str("    sub $56, %rsp\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %rcx, %r12\n");
+        out.push_str("    mov %rdx, %r13\n");
+        out.push_str("    mov %r8d, 24(%rsp)\n");
+    } else {
+        out.push_str("    mov %rdi, %r12\n");
+        out.push_str("    mov %rsi, %r13\n");
+        out.push_str("    mov %edx, 24(%rsp)\n");
+    }
+    out.push_str("    xor %eax, %eax\n");
+    out.push_str("    test %r12, %r12\n");
+    out.push_str("    jz .L_x64_set_tag_ret\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r13, %rcx\n");
+        out.push_str("    call alya_map_hash\n");
+    } else {
+        out.push_str("    mov %r13, %rdi\n");
+        out.push_str(&format!("    call {}alya_map_hash\n", p));
+    }
+    out.push_str("    mov 8(%r12), %rdx\n");
+    out.push_str("    dec %rdx\n");
+    out.push_str("    and %rdx, %rax\n");
+    out.push_str("    mov %rax, 32(%rsp)\n");
+    out.push_str("    mov %rdx, 40(%rsp)\n");
+    out.push_str("    movq $0, 48(%rsp)\n");
+    out.push_str(".L_x64_set_tag_loop:\n");
+    out.push_str("    mov 48(%rsp), %rax\n");
+    out.push_str("    cmp 8(%r12), %rax\n");
+    out.push_str("    jge .L_x64_set_tag_ret\n");
+    out.push_str("    mov 32(%rsp), %rax\n");
+    out.push_str("    lea (%rax, %rax, 2), %r14\n");
+    out.push_str("    shl $3, %r14\n");
+    out.push_str("    add 16(%r12), %r14\n");
+    out.push_str("    cmpl $0, 16(%r14)\n");
+    out.push_str("    je .L_x64_set_tag_ret\n");
+    out.push_str("    cmpl $1, 16(%r14)\n");
+    out.push_str("    jne .L_x64_set_tag_next\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov (%r14), %rcx\n");
+        out.push_str("    mov %r13, %rdx\n");
+        out.push_str("    call alya_map_key_eq\n");
+    } else {
+        out.push_str("    mov (%r14), %rdi\n");
+        out.push_str("    mov %r13, %rsi\n");
+        out.push_str(&format!("    call {}alya_map_key_eq\n", p));
+    }
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jnz .L_x64_set_tag_found\n");
+    out.push_str(".L_x64_set_tag_next:\n");
+    out.push_str("    mov 32(%rsp), %rax\n");
+    out.push_str("    inc %rax\n");
+    out.push_str("    and 40(%rsp), %rax\n");
+    out.push_str("    mov %rax, 32(%rsp)\n");
+    out.push_str("    incq 48(%rsp)\n");
+    out.push_str("    jmp .L_x64_set_tag_loop\n");
+    out.push_str(".L_x64_set_tag_found:\n");
+    out.push_str("    mov 24(%rsp), %eax\n");
+    out.push_str("    movl %eax, 20(%r14)\n");
+    out.push_str("    mov $1, %rax\n");
+    out.push_str(".L_x64_set_tag_ret:\n");
     out.push_str("    add $56, %rsp\n");
     out.push_str("    pop %r15\n");
     out.push_str("    pop %r14\n");
@@ -513,9 +605,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea (%rax, %rax, 2), %r14\n");
     out.push_str("    shl $3, %r14\n");
     out.push_str("    add 16(%r12), %r14\n");
-    out.push_str("    cmpq $0, 16(%r14)\n");
+    out.push_str("    cmpl $0, 16(%r14)\n");
     out.push_str("    je .L_x64_has_not_found\n");
-    out.push_str("    cmpq $1, 16(%r14)\n");
+    out.push_str("    cmpl $1, 16(%r14)\n");
     out.push_str("    jne .L_x64_has_next\n");
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov (%r14), %rcx\n");
@@ -593,9 +685,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea (%rax, %rax, 2), %r14\n");
     out.push_str("    shl $3, %r14\n");
     out.push_str("    add 16(%r12), %r14\n");
-    out.push_str("    cmpq $0, 16(%r14)\n");
+    out.push_str("    cmpl $0, 16(%r14)\n");
     out.push_str("    je .L_x64_rem_not_found\n");
-    out.push_str("    cmpq $1, 16(%r14)\n");
+    out.push_str("    cmpl $1, 16(%r14)\n");
     out.push_str("    jne .L_x64_rem_next\n");
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov (%r14), %rcx\n");
@@ -667,7 +759,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea (%rbx, %rbx, 2), %r15\n");
     out.push_str("    shl $3, %r15\n");
     out.push_str("    add %r14, %r15\n");
-    out.push_str("    cmpq $1, 16(%r15)\n");
+    out.push_str("    cmpl $1, 16(%r15)\n");
     out.push_str("    jne .L_x64_keys_next\n");
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov %r13, %rcx\n");
@@ -724,7 +816,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea (%rbx, %rbx, 2), %r15\n");
     out.push_str("    shl $3, %r15\n");
     out.push_str("    add %r14, %r15\n");
-    out.push_str("    cmpq $1, 16(%r15)\n");
+    out.push_str("    cmpl $1, 16(%r15)\n");
     out.push_str("    jne .L_x64_vals_next\n");
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov %r13, %rcx\n");
@@ -785,7 +877,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    lea (%r14, %r14, 2), %rax\n");
         out.push_str("    shl $3, %rax\n");
         out.push_str("    add %r13, %rax\n");
-        out.push_str("    cmpq $1, 16(%rax)\n");
+        out.push_str("    cmpl $1, 16(%rax)\n");
         out.push_str("    jne .L_x64_pmap_next\n");
         out.push_str("    test %rbx, %rbx\n");
         out.push_str("    jz .L_x64_pmap_print_pair\n");
@@ -850,7 +942,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    lea (%r14, %r14, 2), %rax\n");
         out.push_str("    shl $3, %rax\n");
         out.push_str("    add %r13, %rax\n");
-        out.push_str("    cmpq $1, 16(%rax)\n");
+        out.push_str("    cmpl $1, 16(%rax)\n");
         out.push_str("    jne .L_x64_pmap_next\n");
         out.push_str("    test %rbx, %rbx\n");
         out.push_str("    jz .L_x64_pmap_print_pair\n");

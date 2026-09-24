@@ -1106,3 +1106,26 @@ say m["k"]
         assert_eq!(output, "hello\n42\n");
     }
 }
+
+#[test]
+fn test_e2e_map_variable_key_float_tag() {
+    // Variable-key reads of tagged float entries must dispatch via the
+    // entry kind tag (x64 %edx from fn_get) instead of printing raw bits.
+    // Covers say/str/is/== on dynamic keys. (alya-lang/alya#15.)
+    let code = r#"
+let m = map()
+m["pi"] = 3.5
+let key = "pi"
+say m[key]
+say str(m[key])
+if m[key] is float
+    say "is-float ok"
+end
+if m[key] == 3.5
+    say "eq ok"
+end
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "3.5\n3.5\nis-float ok\neq ok\n");
+    }
+}

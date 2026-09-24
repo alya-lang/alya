@@ -1070,6 +1070,50 @@ impl CodeGen {
                 self.ctx.stack_offset,
                 self.os,
             );
+            // Record a value-kind tag for literal writes so variable-key
+            // reads can dispatch on it. Only fully static shapes qualify
+            // (identifier map, literal key, literal value): re-evaluating
+            // anything else could duplicate side effects. Dynamics leave
+            // the tag cleared by `set` itself (unknown = 0).
+            // NOTE: x64-only for now; x86/arm64 have no fn_map_set_tag yet.
+            if matches!(self.arch, Architecture::X64) {
+                if let (Expr::Identifier(_), Expr::String(_)) = (array, index) {
+                    let tag_kind: Option<i64> = match value {
+                        Expr::String(_) => Some(3),
+                        Expr::Float(_) => Some(2),
+                        Expr::Number(n) => Some(if n.fract() != 0.0 { 2 } else { 1 }),
+                        Expr::Array(_) => Some(4),
+                        Expr::Map(_) => Some(5),
+                        Expr::StructInit { .. } => Some(6),
+                        _ => None,
+                    };
+                    if let Some(kind) = tag_kind {
+                        let tag_args = [array.clone(), index.clone(), Expr::Number(kind as f64)];
+                        match self.arch {
+                            Architecture::X86 => {
+                                for arg in tag_args.iter().rev() {
+                                    self.generate_expression(arg);
+                                    arch::emit_push_temp(&mut self.output, self.arch);
+                                }
+                            }
+                            _ => {
+                                for arg in tag_args.iter() {
+                                    self.generate_expression(arg);
+                                    arch::emit_push_temp(&mut self.output, self.arch);
+                                }
+                            }
+                        }
+                        arch::emit_function_call(
+                            &mut self.output,
+                            self.arch,
+                            "map_set_tag",
+                            3,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    }
+                }
+            }
             if is_string_expr(value, &self.ctx.variables) {
                 if let Expr::String(field) = index {
                     self.ctx
