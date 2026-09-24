@@ -761,10 +761,10 @@ fn test_x64_macos_directory_inode64_symbols() {
     let asm_mac = generate(&ast, Architecture::X64, OperatingSystem::MacOS);
     assert!(asm_mac.contains(".extern _opendir$INODE64"));
     assert!(asm_mac.contains(".extern _readdir$INODE64"));
-    assert!(asm_mac.contains(".extern _closedir$INODE64"));
+    assert!(asm_mac.contains(".extern _closedir\n"));
     assert!(asm_mac.contains("call _opendir$INODE64"));
     assert!(asm_mac.contains("call _readdir$INODE64"));
-    assert!(asm_mac.contains("call _closedir$INODE64"));
+    assert!(asm_mac.contains("call _closedir\n"));
     assert!(!asm_mac.contains("call _opendir\n"));
     assert!(!asm_mac.contains("call _readdir\n"));
 }

@@ -5,7 +5,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     let is_win = matches!(os, OperatingSystem::Windows);
     let p = if matches!(os, OperatingSystem::MacOS) { "_" } else { "" };
     let (opendir_fn, readdir_fn, closedir_fn) = if matches!(os, OperatingSystem::MacOS) {
-        ("_opendir$INODE64", "_readdir$INODE64", "_closedir$INODE64")
+        ("_opendir$INODE64", "_readdir$INODE64", "_closedir")
     } else {
         ("opendir", "readdir", "closedir")
     };

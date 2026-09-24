@@ -70,7 +70,7 @@ pub fn emit_header(out: &mut String, os: OperatingSystem) {
         out.push_str(".extern _floor\n");
         out.push_str(".extern _opendir$INODE64\n");
         out.push_str(".extern _readdir$INODE64\n");
-        out.push_str(".extern _closedir$INODE64\n");
+        out.push_str(".extern _closedir\n");
         out.push_str(".extern _pthread_create\n");
         out.push_str(".extern _pthread_join\n");
         out.push_str(".extern _pthread_self\n");
