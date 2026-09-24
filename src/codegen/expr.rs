@@ -3,6 +3,7 @@ use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     escape_string, is_array_expr, is_definitely_not_numeric, is_float_expr, is_map_expr,
     is_map_read_index, is_null_expr, is_number_expr, is_string_expr,
+    struct_field_markers_mixed_vars,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -736,39 +737,48 @@ impl CodeGen {
                         let is_str = is_string_expr(arg, &self.ctx.variables);
                         let is_arr = is_array_expr(arg, &self.ctx.variables);
                         let is_map = is_map_expr(arg, &self.ctx.variables);
-                        if is_str {
-                            self.ctx.variables.insert(
-                                format!("struct_field_str:{}.{}", name, fname),
-                                VarType::StringOffset(0),
-                            );
-                            self.ctx.variables.insert(
-                                format!("struct_field_str:{}", fname),
-                                VarType::StringOffset(0),
-                            );
-                        } else if is_flt {
-                            self.ctx.variables.insert(
-                                format!("struct_field_flt:{}.{}", name, fname),
-                                VarType::Float(0),
-                            );
-                            self.ctx
-                                .variables
-                                .insert(format!("struct_field_flt:{}", fname), VarType::Float(0));
-                        } else if is_arr {
-                            self.ctx.variables.insert(
-                                format!("struct_field_arr:{}.{}", name, fname),
-                                VarType::Array(0),
-                            );
-                            self.ctx
-                                .variables
-                                .insert(format!("struct_field_arr:{}", fname), VarType::Array(0));
-                        } else if is_map {
-                            self.ctx.variables.insert(
-                                format!("struct_field_map:{}.{}", name, fname),
-                                VarType::Map(0),
-                            );
-                            self.ctx
-                                .variables
-                                .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
+                        // Mixed literal kinds for this field (e.g. `Box{value: 1}`
+                        // and `Box{value: "s"}`): no single static marker
+                        // serves every instance, so skip global markers and
+                        // let reads fall back to runtime classification plus
+                        // per-variable keys. Code emission below is unaffected.
+                        if !struct_field_markers_mixed_vars(&self.ctx.variables, name, fname) {
+                            if is_str {
+                                self.ctx.variables.insert(
+                                    format!("struct_field_str:{}.{}", name, fname),
+                                    VarType::StringOffset(0),
+                                );
+                                self.ctx.variables.insert(
+                                    format!("struct_field_str:{}", fname),
+                                    VarType::StringOffset(0),
+                                );
+                            } else if is_flt {
+                                self.ctx.variables.insert(
+                                    format!("struct_field_flt:{}.{}", name, fname),
+                                    VarType::Float(0),
+                                );
+                                self.ctx.variables.insert(
+                                    format!("struct_field_flt:{}", fname),
+                                    VarType::Float(0),
+                                );
+                            } else if is_arr {
+                                self.ctx.variables.insert(
+                                    format!("struct_field_arr:{}.{}", name, fname),
+                                    VarType::Array(0),
+                                );
+                                self.ctx.variables.insert(
+                                    format!("struct_field_arr:{}", fname),
+                                    VarType::Array(0),
+                                );
+                            } else if is_map {
+                                self.ctx.variables.insert(
+                                    format!("struct_field_map:{}.{}", name, fname),
+                                    VarType::Map(0),
+                                );
+                                self.ctx
+                                    .variables
+                                    .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
+                            }
                         }
                         let is_weak = sdef
                             .field_types
@@ -1865,39 +1875,48 @@ impl CodeGen {
                         let is_flt = is_float_expr(fval, &self.ctx.variables);
                         let is_arr = is_array_expr(fval, &self.ctx.variables);
                         let is_map = is_map_expr(fval, &self.ctx.variables);
-                        if is_str {
-                            self.ctx.variables.insert(
-                                format!("struct_field_str:{}.{}", name, fname),
-                                VarType::StringOffset(0),
-                            );
-                            self.ctx.variables.insert(
-                                format!("struct_field_str:{}", fname),
-                                VarType::StringOffset(0),
-                            );
-                        } else if is_flt {
-                            self.ctx.variables.insert(
-                                format!("struct_field_flt:{}.{}", name, fname),
-                                VarType::Float(0),
-                            );
-                            self.ctx
-                                .variables
-                                .insert(format!("struct_field_flt:{}", fname), VarType::Float(0));
-                        } else if is_arr {
-                            self.ctx.variables.insert(
-                                format!("struct_field_arr:{}.{}", name, fname),
-                                VarType::Array(0),
-                            );
-                            self.ctx
-                                .variables
-                                .insert(format!("struct_field_arr:{}", fname), VarType::Array(0));
-                        } else if is_map {
-                            self.ctx.variables.insert(
-                                format!("struct_field_map:{}.{}", name, fname),
-                                VarType::Map(0),
-                            );
-                            self.ctx
-                                .variables
-                                .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
+                        // Mixed literal kinds for this field (e.g. `Box{value: 1}`
+                        // and `Box{value: "s"}`): no single static marker
+                        // serves every instance, so skip global markers and
+                        // let reads fall back to runtime classification plus
+                        // per-variable keys. Code emission below is unaffected.
+                        if !struct_field_markers_mixed_vars(&self.ctx.variables, name, fname) {
+                            if is_str {
+                                self.ctx.variables.insert(
+                                    format!("struct_field_str:{}.{}", name, fname),
+                                    VarType::StringOffset(0),
+                                );
+                                self.ctx.variables.insert(
+                                    format!("struct_field_str:{}", fname),
+                                    VarType::StringOffset(0),
+                                );
+                            } else if is_flt {
+                                self.ctx.variables.insert(
+                                    format!("struct_field_flt:{}.{}", name, fname),
+                                    VarType::Float(0),
+                                );
+                                self.ctx.variables.insert(
+                                    format!("struct_field_flt:{}", fname),
+                                    VarType::Float(0),
+                                );
+                            } else if is_arr {
+                                self.ctx.variables.insert(
+                                    format!("struct_field_arr:{}.{}", name, fname),
+                                    VarType::Array(0),
+                                );
+                                self.ctx.variables.insert(
+                                    format!("struct_field_arr:{}", fname),
+                                    VarType::Array(0),
+                                );
+                            } else if is_map {
+                                self.ctx.variables.insert(
+                                    format!("struct_field_map:{}.{}", name, fname),
+                                    VarType::Map(0),
+                                );
+                                self.ctx
+                                    .variables
+                                    .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
+                            }
                         }
                     }
                 } else {
@@ -1906,39 +1925,48 @@ impl CodeGen {
                         let is_flt = is_float_expr(fval, &self.ctx.variables);
                         let is_arr = is_array_expr(fval, &self.ctx.variables);
                         let is_map = is_map_expr(fval, &self.ctx.variables);
-                        if is_str {
-                            self.ctx.variables.insert(
-                                format!("struct_field_str:{}.{}", name, fname),
-                                VarType::StringOffset(0),
-                            );
-                            self.ctx.variables.insert(
-                                format!("struct_field_str:{}", fname),
-                                VarType::StringOffset(0),
-                            );
-                        } else if is_flt {
-                            self.ctx.variables.insert(
-                                format!("struct_field_flt:{}.{}", name, fname),
-                                VarType::Float(0),
-                            );
-                            self.ctx
-                                .variables
-                                .insert(format!("struct_field_flt:{}", fname), VarType::Float(0));
-                        } else if is_arr {
-                            self.ctx.variables.insert(
-                                format!("struct_field_arr:{}.{}", name, fname),
-                                VarType::Array(0),
-                            );
-                            self.ctx
-                                .variables
-                                .insert(format!("struct_field_arr:{}", fname), VarType::Array(0));
-                        } else if is_map {
-                            self.ctx.variables.insert(
-                                format!("struct_field_map:{}.{}", name, fname),
-                                VarType::Map(0),
-                            );
-                            self.ctx
-                                .variables
-                                .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
+                        // Mixed literal kinds for this field (e.g. `Box{value: 1}`
+                        // and `Box{value: "s"}`): no single static marker
+                        // serves every instance, so skip global markers and
+                        // let reads fall back to runtime classification plus
+                        // per-variable keys. Code emission below is unaffected.
+                        if !struct_field_markers_mixed_vars(&self.ctx.variables, name, fname) {
+                            if is_str {
+                                self.ctx.variables.insert(
+                                    format!("struct_field_str:{}.{}", name, fname),
+                                    VarType::StringOffset(0),
+                                );
+                                self.ctx.variables.insert(
+                                    format!("struct_field_str:{}", fname),
+                                    VarType::StringOffset(0),
+                                );
+                            } else if is_flt {
+                                self.ctx.variables.insert(
+                                    format!("struct_field_flt:{}.{}", name, fname),
+                                    VarType::Float(0),
+                                );
+                                self.ctx.variables.insert(
+                                    format!("struct_field_flt:{}", fname),
+                                    VarType::Float(0),
+                                );
+                            } else if is_arr {
+                                self.ctx.variables.insert(
+                                    format!("struct_field_arr:{}.{}", name, fname),
+                                    VarType::Array(0),
+                                );
+                                self.ctx.variables.insert(
+                                    format!("struct_field_arr:{}", fname),
+                                    VarType::Array(0),
+                                );
+                            } else if is_map {
+                                self.ctx.variables.insert(
+                                    format!("struct_field_map:{}.{}", name, fname),
+                                    VarType::Map(0),
+                                );
+                                self.ctx
+                                    .variables
+                                    .insert(format!("struct_field_map:{}", fname), VarType::Map(0));
+                            }
                         }
                     }
                 }

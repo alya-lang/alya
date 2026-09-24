@@ -422,6 +422,12 @@ impl CodeGen {
                     .variables
                     .insert(s.clone(), VarType::StringOffset(0));
             }
+            // Mixed-literal struct fields: presence-only sentinels consulted
+            // by codegen when emitting global field markers. Never queried
+            // as a value type; the key shape is unmistakable.
+            if s.starts_with("struct_field_mixed:") {
+                self.ctx.variables.insert(s.clone(), VarType::Number(0));
+            }
         }
 
         for s in &inference.known_floats {

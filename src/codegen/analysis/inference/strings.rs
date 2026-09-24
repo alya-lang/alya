@@ -470,9 +470,12 @@ fn scan_expr_for_strings(
                 for (i, arg) in args.iter().enumerate() {
                     if expr_is_definitely_string(arg, known_strings) {
                         if let Some(fname) = fields.get(i) {
-                            known_strings.insert(format!("struct_field_str:{}.{}", name, fname));
-                            if !conflicts.contains(fname) {
-                                known_strings.insert(format!("struct_field_str:{}", fname));
+                            if !struct_field_markers_mixed(known_strings, name, fname) {
+                                known_strings
+                                    .insert(format!("struct_field_str:{}.{}", name, fname));
+                                if !conflicts.contains(fname) {
+                                    known_strings.insert(format!("struct_field_str:{}", fname));
+                                }
                             }
                         }
                     }
@@ -484,7 +487,9 @@ fn scan_expr_for_strings(
         }
         Expr::StructInit { name, fields } => {
             for (fname, fval) in fields {
-                if expr_is_definitely_string(fval, known_strings) {
+                if expr_is_definitely_string(fval, known_strings)
+                    && !struct_field_markers_mixed(known_strings, name, fname)
+                {
                     known_strings.insert(format!("struct_field_str:{}.{}", name, fname));
                     if !conflicts.contains(fname) {
                         known_strings.insert(format!("struct_field_str:{}", fname));
@@ -632,9 +637,12 @@ fn collect_string_vars_from_stmts(
                 {
                     for (fname, fval) in fields {
                         if expr_is_definitely_string(fval, known_strings) {
-                            known_strings.insert(format!("struct_field_str:{}.{}", sname, fname));
-                            if !conflicts.contains(fname) {
-                                known_strings.insert(format!("struct_field_str:{}", fname));
+                            if !struct_field_markers_mixed(known_strings, sname, fname) {
+                                known_strings
+                                    .insert(format!("struct_field_str:{}.{}", sname, fname));
+                                if !conflicts.contains(fname) {
+                                    known_strings.insert(format!("struct_field_str:{}", fname));
+                                }
                             }
                             known_strings.insert(format!("{}.{}", name, fname));
                         }
@@ -645,10 +653,15 @@ fn collect_string_vars_from_stmts(
                         for (i, arg) in args.iter().enumerate() {
                             if expr_is_definitely_string(arg, known_strings) {
                                 if let Some(fname) = fnames.get(i) {
-                                    known_strings
-                                        .insert(format!("struct_field_str:{}.{}", cname, fname));
-                                    if !conflicts.contains(fname) {
-                                        known_strings.insert(format!("struct_field_str:{}", fname));
+                                    if !struct_field_markers_mixed(known_strings, cname, fname) {
+                                        known_strings.insert(format!(
+                                            "struct_field_str:{}.{}",
+                                            cname, fname
+                                        ));
+                                        if !conflicts.contains(fname) {
+                                            known_strings
+                                                .insert(format!("struct_field_str:{}", fname));
+                                        }
                                     }
                                     known_strings.insert(format!("{}.{}", name, fname));
                                 }
@@ -716,9 +729,12 @@ fn collect_string_vars_from_stmts(
                 {
                     for (fname, fval) in fields {
                         if expr_is_definitely_string(fval, known_strings) {
-                            known_strings.insert(format!("struct_field_str:{}.{}", sname, fname));
-                            if !conflicts.contains(fname) {
-                                known_strings.insert(format!("struct_field_str:{}", fname));
+                            if !struct_field_markers_mixed(known_strings, sname, fname) {
+                                known_strings
+                                    .insert(format!("struct_field_str:{}.{}", sname, fname));
+                                if !conflicts.contains(fname) {
+                                    known_strings.insert(format!("struct_field_str:{}", fname));
+                                }
                             }
                             known_strings.insert(format!("{}.{}", name, fname));
                         }
@@ -729,10 +745,15 @@ fn collect_string_vars_from_stmts(
                         for (i, arg) in args.iter().enumerate() {
                             if expr_is_definitely_string(arg, known_strings) {
                                 if let Some(fname) = fnames.get(i) {
-                                    known_strings
-                                        .insert(format!("struct_field_str:{}.{}", cname, fname));
-                                    if !conflicts.contains(fname) {
-                                        known_strings.insert(format!("struct_field_str:{}", fname));
+                                    if !struct_field_markers_mixed(known_strings, cname, fname) {
+                                        known_strings.insert(format!(
+                                            "struct_field_str:{}.{}",
+                                            cname, fname
+                                        ));
+                                        if !conflicts.contains(fname) {
+                                            known_strings
+                                                .insert(format!("struct_field_str:{}", fname));
+                                        }
                                     }
                                     known_strings.insert(format!("{}.{}", name, fname));
                                 }
@@ -754,7 +775,9 @@ fn collect_string_vars_from_stmts(
             } => {
                 scan_expr_for_strings(value, struct_defs, known_strings, conflicts);
                 if expr_is_definitely_string(value, known_strings) {
-                    if !conflicts.contains(field) {
+                    if !conflicts.contains(field)
+                        && !known_strings.contains(&format!("struct_field_mixed:{}", field))
+                    {
                         known_strings.insert(format!("struct_field_str:{}", field));
                     }
                     if let Expr::Identifier(obj_name) = object {
@@ -1043,6 +1066,272 @@ fn conflicting_string_fields(program: &Program) -> HashSet<String> {
         .collect()
 }
 
+/// Literal value kinds observed at struct construction sites, used to
+/// suppress unsound global field markers. A field constructed with two
+/// different literal kinds (e.g. `Box{value: 1}` and `Box{value: "s"}`)
+/// cannot be served by one static marker: the losing instance's reads
+/// miscompile (`%s` on an int segfaults; `%g` on int bits prints
+/// garbage). Kinds: 0 = string, 1 = float, 2 = other literal.
+/// Dynamic values prove nothing and are ignored.
+fn struct_field_lit_kind(expr: &Expr) -> Option<u8> {
+    match expr {
+        Expr::String(_) | Expr::InterpolatedString(_) => Some(0),
+        Expr::Float(_) => Some(1),
+        Expr::Number(n) => Some(if n.fract() != 0.0 { 1 } else { 2 }),
+        Expr::Null | Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. } => Some(2),
+        _ => None,
+    }
+}
+
+#[derive(Default)]
+struct StructFieldLitKinds {
+    /// (struct, field) -> bitmask of observed literal kinds. Structs keyed
+    /// both as-written and bare to cover read-side lookup variations.
+    qualified: HashMap<(String, String), u8>,
+    /// field -> bitmask across all structs plus unattributable field
+    /// assigns. Guards the shared bare markers.
+    bare: HashMap<String, u8>,
+}
+
+fn observe_struct_field_kind(kinds: &mut StructFieldLitKinds, sname: &str, fname: &str, kind: u8) {
+    let bit = 1u8 << kind;
+    let bare_s = sname.rsplit("::").next().unwrap_or(sname);
+    let bare_s = bare_s.rsplit("__").next().unwrap_or(bare_s);
+    *kinds
+        .qualified
+        .entry((sname.to_string(), fname.to_string()))
+        .or_default() |= bit;
+    if bare_s != sname {
+        *kinds
+            .qualified
+            .entry((bare_s.to_string(), fname.to_string()))
+            .or_default() |= bit;
+    }
+    *kinds.bare.entry(fname.to_string()).or_default() |= bit;
+}
+
+fn collect_struct_kinds_from_expr(
+    expr: &Expr,
+    struct_defs: &HashMap<String, Vec<String>>,
+    kinds: &mut StructFieldLitKinds,
+) {
+    match expr {
+        Expr::Call { name, args } => {
+            if let Some(fields) = struct_defs.get(name) {
+                for (i, arg) in args.iter().enumerate() {
+                    if let (Some(fname), Some(k)) = (fields.get(i), struct_field_lit_kind(arg)) {
+                        observe_struct_field_kind(kinds, name, fname, k);
+                    }
+                }
+            }
+            for arg in args {
+                collect_struct_kinds_from_expr(arg, struct_defs, kinds);
+            }
+        }
+        Expr::StructInit { name, fields } => {
+            for (fname, fval) in fields {
+                if let Some(k) = struct_field_lit_kind(fval) {
+                    observe_struct_field_kind(kinds, name, fname, k);
+                }
+                collect_struct_kinds_from_expr(fval, struct_defs, kinds);
+            }
+        }
+        Expr::Binary { left, right, .. } => {
+            collect_struct_kinds_from_expr(left, struct_defs, kinds);
+            collect_struct_kinds_from_expr(right, struct_defs, kinds);
+        }
+        Expr::Unary { expr, .. } => {
+            collect_struct_kinds_from_expr(expr, struct_defs, kinds);
+        }
+        Expr::ForceUnwrap(inner) => {
+            collect_struct_kinds_from_expr(inner, struct_defs, kinds);
+        }
+        Expr::Array(elems) | Expr::InterpolatedString(elems) => {
+            for elem in elems {
+                collect_struct_kinds_from_expr(elem, struct_defs, kinds);
+            }
+        }
+        Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+            collect_struct_kinds_from_expr(array, struct_defs, kinds);
+            collect_struct_kinds_from_expr(index, struct_defs, kinds);
+        }
+        Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+            collect_struct_kinds_from_expr(object, struct_defs, kinds);
+        }
+        Expr::Map(entries) => {
+            for (k, v) in entries {
+                collect_struct_kinds_from_expr(k, struct_defs, kinds);
+                collect_struct_kinds_from_expr(v, struct_defs, kinds);
+            }
+        }
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            collect_struct_kinds_from_expr(condition, struct_defs, kinds);
+            collect_struct_kinds_from_expr(then_branch, struct_defs, kinds);
+            collect_struct_kinds_from_expr(else_branch, struct_defs, kinds);
+        }
+        Expr::NullCoalesce { value, default } => {
+            collect_struct_kinds_from_expr(value, struct_defs, kinds);
+            collect_struct_kinds_from_expr(default, struct_defs, kinds);
+        }
+        Expr::OptionalCall { args, .. } => {
+            for arg in args {
+                collect_struct_kinds_from_expr(arg, struct_defs, kinds);
+            }
+        }
+        Expr::TypeCheck { expr, .. } | Expr::Cast { expr, .. } => {
+            collect_struct_kinds_from_expr(expr, struct_defs, kinds);
+        }
+        _ => {}
+    }
+}
+
+fn collect_struct_field_lit_kinds(
+    stmts: &[Stmt],
+    struct_defs: &HashMap<String, Vec<String>>,
+    kinds: &mut StructFieldLitKinds,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { value, .. } | Stmt::Const { value, .. } | Stmt::Assign { value, .. } => {
+                collect_struct_kinds_from_expr(value, struct_defs, kinds);
+            }
+            Stmt::Say(expr) | Stmt::Expr(expr) => {
+                collect_struct_kinds_from_expr(expr, struct_defs, kinds);
+            }
+            Stmt::Return(expr) | Stmt::Throw(expr) => {
+                if let Some(expr) = expr {
+                    collect_struct_kinds_from_expr(expr, struct_defs, kinds);
+                }
+            }
+            Stmt::If {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                collect_struct_kinds_from_expr(condition, struct_defs, kinds);
+                collect_struct_field_lit_kinds(then_block, struct_defs, kinds);
+                if let Some(eb) = else_block {
+                    collect_struct_field_lit_kinds(eb, struct_defs, kinds);
+                }
+            }
+            Stmt::While { condition, body } => {
+                collect_struct_kinds_from_expr(condition, struct_defs, kinds);
+                collect_struct_field_lit_kinds(body, struct_defs, kinds);
+            }
+            Stmt::Repeat { body } => {
+                collect_struct_field_lit_kinds(body, struct_defs, kinds);
+            }
+            Stmt::For {
+                start, end, body, ..
+            } => {
+                collect_struct_kinds_from_expr(start, struct_defs, kinds);
+                collect_struct_kinds_from_expr(end, struct_defs, kinds);
+                collect_struct_field_lit_kinds(body, struct_defs, kinds);
+            }
+            Stmt::ForEach { iterable, body, .. } => {
+                collect_struct_kinds_from_expr(iterable, struct_defs, kinds);
+                collect_struct_field_lit_kinds(body, struct_defs, kinds);
+            }
+            Stmt::Function { body, defaults, .. } => {
+                for d in defaults.iter().flatten() {
+                    collect_struct_kinds_from_expr(d, struct_defs, kinds);
+                }
+                collect_struct_field_lit_kinds(body, struct_defs, kinds);
+            }
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                collect_struct_field_lit_kinds(try_block, struct_defs, kinds);
+                collect_struct_field_lit_kinds(catch_block, struct_defs, kinds);
+                if let Some(fb) = finally_block {
+                    collect_struct_field_lit_kinds(fb, struct_defs, kinds);
+                }
+            }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                collect_struct_field_lit_kinds(std::slice::from_ref(inner), struct_defs, kinds);
+            }
+            Stmt::FieldAssign {
+                object,
+                field,
+                value,
+            } => {
+                collect_struct_kinds_from_expr(object, struct_defs, kinds);
+                if let Some(k) = struct_field_lit_kind(value) {
+                    *kinds.bare.entry(field.clone()).or_default() |= 1u8 << k;
+                }
+                collect_struct_kinds_from_expr(value, struct_defs, kinds);
+            }
+            Stmt::IndexAssign {
+                array,
+                index,
+                value,
+            } => {
+                collect_struct_kinds_from_expr(array, struct_defs, kinds);
+                collect_struct_kinds_from_expr(index, struct_defs, kinds);
+                collect_struct_kinds_from_expr(value, struct_defs, kinds);
+            }
+            Stmt::StructDef {
+                name,
+                fields,
+                defaults,
+                ..
+            } => {
+                // Declared defaults are possible values when callers omit args.
+                for (f, d) in fields.iter().zip(defaults.iter()) {
+                    if let Some(d) = d {
+                        if let Some(k) = struct_field_lit_kind(d) {
+                            observe_struct_field_kind(kinds, name, f, k);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Sentinel keys marking struct fields constructed with mixed literal
+/// kinds. Both pre-scan inserts and codegen-time marker emission skip
+/// global markers for these fields; reads fall back to runtime
+/// classification (correct for ints/strings) plus per-variable keys.
+fn insert_struct_field_mixed_sentinels(
+    kinds: &StructFieldLitKinds,
+    known_strings: &mut HashSet<String>,
+) {
+    fn is_mixed(mask: u8) -> bool {
+        mask & mask.wrapping_sub(1) != 0
+    }
+    for ((s, f), mask) in &kinds.qualified {
+        if is_mixed(*mask) {
+            known_strings.insert(format!("struct_field_mixed:{}.{}", s, f));
+        }
+    }
+    for (f, mask) in &kinds.bare {
+        if is_mixed(*mask) {
+            known_strings.insert(format!("struct_field_mixed:{}", f));
+        }
+    }
+}
+
+/// True when the global field markers for `(sname, fname)` are unusable:
+/// mixed literal kinds were observed, so no single static type serves
+/// every instance. Checks qualified (as-written + bare struct) and bare
+/// field sentinels.
+fn struct_field_markers_mixed(known: &HashSet<String>, sname: &str, fname: &str) -> bool {
+    let bare_s = sname.rsplit("::").next().unwrap_or(sname);
+    let bare_s = bare_s.rsplit("__").next().unwrap_or(bare_s);
+    known.contains(&format!("struct_field_mixed:{}.{}", sname, fname))
+        || known.contains(&format!("struct_field_mixed:{}.{}", bare_s, fname))
+        || known.contains(&format!("struct_field_mixed:{}", fname))
+}
+
 pub fn collect_known_string_vars_with_index(
     program: &Program,
     call_index: &CallIndex,
@@ -1131,6 +1420,14 @@ pub fn collect_known_string_vars_with_index(
     collect_function_defs(&program.statements, &mut funcs);
     let mut struct_defs = HashMap::new();
     collect_struct_defs(&program.statements, &mut struct_defs);
+    // Mixed literal kinds per struct field (e.g. `Box{value: 1}` and
+    // `Box{value: "s"}`): no single static marker serves every instance,
+    // so global markers for such fields are suppressed everywhere below.
+    // Sentinels live in known_strings so function-body scans (which clone
+    // the set) and codegen (via ctx seeding) see them uniformly.
+    let mut field_kinds = StructFieldLitKinds::default();
+    collect_struct_field_lit_kinds(&program.statements, &struct_defs, &mut field_kinds);
+    insert_struct_field_mixed_sentinels(&field_kinds, &mut known_strings);
     for _ in 0..5 {
         let prev_len = known_strings.len();
         collect_string_vars_from_stmts(

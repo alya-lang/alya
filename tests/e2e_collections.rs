@@ -149,6 +149,62 @@ say "Dot product: {dot}"
 }
 
 #[test]
+fn test_e2e_struct_mixed_field_kinds() {
+    // One untyped field holding different literal kinds across instances
+    // must not poison reads globally: no single static marker serves
+    // every instance, so global markers are dropped and reads fall back
+    // to runtime classification plus per-variable keys.
+    // (Regression test for alya-lang/alya#15.)
+    let code = r#"
+struct Box
+    value
+end
+
+function main()
+    let a = Box { value: 1 }
+    say a.value
+    say str(a.value)
+    let b = Box { value: "Ada" }
+    say b.value
+    say a.value
+    say "a: " + str(a.value) + ", b: " + b.value
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "1\n1\nAda\n1\na: 1, b: Ada\n");
+    }
+}
+
+#[test]
+fn test_e2e_struct_mixed_field_kinds_float() {
+    // Reversed direction: float first, int second. The stale float
+    // marker previously printed int bits as `%g` garbage.
+    // (Regression test for alya-lang/alya#15.)
+    let code = r#"
+struct Box
+    value
+end
+
+function main()
+    let a = Box { value: 3.5 }
+    say a.value
+    let b = Box { value: 1 }
+    say b.value
+    say a.value
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "3.5\n1\n3.5\n");
+    }
+}
+
+#[test]
 fn test_e2e_maps() {
     let code = r#"
 let m = map()

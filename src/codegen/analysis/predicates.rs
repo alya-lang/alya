@@ -572,6 +572,22 @@ pub fn is_map_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     }
 }
 
+/// Codegen-side twin of the inference sentinel check: true when global
+/// field markers for `(sname, fname)` must not be emitted because mixed
+/// literal kinds were observed program-wide. Reads then fall back to
+/// runtime classification plus per-variable keys.
+pub fn struct_field_markers_mixed_vars(
+    vars: &HashMap<String, VarType>,
+    sname: &str,
+    fname: &str,
+) -> bool {
+    let bare_s = sname.rsplit("::").next().unwrap_or(sname);
+    let bare_s = bare_s.rsplit("__").next().unwrap_or(bare_s);
+    vars.contains_key(&format!("struct_field_mixed:{}.{}", sname, fname))
+        || vars.contains_key(&format!("struct_field_mixed:{}.{}", bare_s, fname))
+        || vars.contains_key(&format!("struct_field_mixed:{}", fname))
+}
+
 /// True when an `Index` read routes through `fn_get` (map path) rather
 /// than a direct array load. Mirrors the routing condition in the
 /// expression codegen: map-typed base, string-typed key, or string
