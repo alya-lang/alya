@@ -651,3 +651,19 @@ fn test_codegen_arm64_runtime_symbols() {
     assert!(asm_arm64.contains("fn_runes:"));
     assert!(asm_arm64.contains("b.ls .L_arm64_rc_retain_done"));
 }
+
+#[test]
+fn test_codegen_arm64_string_as_int_cast() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = "function main() let s = \"A\" let c = s as int say c end";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::Windows);
+    assert!(asm_arm64.contains("ldrb w1, [x0]"));
+    assert!(asm_arm64.contains("cmp w1, #0x80"));
+}
