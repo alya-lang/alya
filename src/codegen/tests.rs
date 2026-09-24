@@ -75,6 +75,9 @@ fn test_codegen_arm64_windows_net_thread_apis() {
     assert!(asm.contains("bl CreateMutexA"));
     assert!(asm.contains("bl FindFirstFileA"));
     assert!(asm.contains("bl FindNextFileA"));
+    // CreateThread takes 6 args in x0..x5 under AAPCS64 (no shadow space / stack args)
+    assert!(asm.contains("mov x4, #0"));
+    assert!(asm.contains("mov x5, #0"));
     assert!(!asm.contains("fcntl"));
     assert!(!asm.contains("pthread"));
 }
