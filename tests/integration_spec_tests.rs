@@ -88,7 +88,7 @@ fn run_entry_with_base_dir(source: &str, base_dir: &Path) -> Option<(i32, String
     };
     fs::write(&asm_path, &asm_code).expect("Failed to write temp asm");
 
-    let mut gcc = std::process::Command::new("gcc");
+    let mut gcc = std::process::Command::new(common::harness_gcc());
     gcc.arg(&asm_path).arg("-o").arg(&exe_path);
     if matches!(arch, Architecture::X86) {
         gcc.arg("-m32");

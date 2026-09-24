@@ -1,4 +1,5 @@
 use alya::codegen::{self, Architecture, OperatingSystem};
+use alya::driver::toolchain;
 use alya::lexer::Lexer;
 use alya::parser::Parser;
 pub use std::fs;
@@ -20,6 +21,38 @@ pub fn execution_skip_reason() -> Option<&'static str> {
     } else {
         None
     }
+}
+
+/// Selects the C compiler used to assemble harness-generated binaries.
+/// Mirrors `resolve_toolchain`: a PATH compiler that targets a foreign
+/// architecture (e.g. x64 MinGW on a Windows ARM64 runner) must not shadow
+/// the portable ~/.alya/toolchain compiler. Falls back to plain "gcc" when
+/// neither matches, preserving the old skip/error behavior.
+#[allow(dead_code)]
+pub fn harness_gcc() -> std::path::PathBuf {
+    let os = if cfg!(target_os = "windows") {
+        OperatingSystem::Windows
+    } else if cfg!(target_os = "macos") {
+        OperatingSystem::MacOS
+    } else {
+        OperatingSystem::Linux
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        Architecture::ARM64
+    } else if cfg!(target_arch = "x86") {
+        Architecture::X86
+    } else {
+        Architecture::X64
+    };
+    if let Some(sys) = toolchain::detect_system_toolchain(os) {
+        if toolchain::compiler_matches_arch(&sys.compiler_path, arch) {
+            return sys.compiler_path;
+        }
+    }
+    if let Some(local) = toolchain::detect_local_toolchain(os) {
+        return local.compiler_path;
+    }
+    std::path::PathBuf::from("gcc")
 }
 
 #[allow(dead_code)]
@@ -112,7 +145,7 @@ pub fn run_alya_code_with_options(
 
     fs::write(&asm_path, &asm_code).expect("Failed to write temp asm file");
 
-    let mut gcc = Command::new("gcc");
+    let mut gcc = Command::new(harness_gcc());
     gcc.arg(&asm_path).arg("-o").arg(&exe_path);
     if matches!(arch, Architecture::X86) {
         gcc.arg("-m32");

@@ -190,7 +190,7 @@ fn machine_matches_arch(machine: &str, arch: Architecture) -> bool {
 /// True when the compiler at `path` targets the requested architecture.
 /// An unprobable compiler counts as a match to preserve legacy behavior
 /// (accept first working system compiler).
-fn compiler_matches_arch(path: &Path, arch: Architecture) -> bool {
+pub fn compiler_matches_arch(path: &Path, arch: Architecture) -> bool {
     match compiler_machine_prefix(path) {
         None => true,
         Some(machine) => machine_matches_arch(&machine, arch),
