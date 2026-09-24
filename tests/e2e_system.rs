@@ -2515,6 +2515,27 @@ say "slept: " + str(r)
 }
 
 #[test]
+fn test_e2e_thread_spawn_no_join() {
+    // Spawn without join: the child surely finishes during the sleep. If
+    // this AVs, the child itself crashes; if it passes, join is suspect.
+    let code = r#"
+import "std/thread"
+
+function ident(v)
+    return v
+end
+
+let t = thread_spawn(ident, 11)
+sleep(300)
+say "nojoin done"
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("nojoin done"), "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_thread_spawn_passthrough() {
     // Worker calls nothing and returns its argument untouched: isolates the
     // spawn/proc/join mechanics from any child-executed alya code.
