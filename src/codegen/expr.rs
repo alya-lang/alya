@@ -2,7 +2,7 @@ use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     escape_string, is_array_expr, is_definitely_not_numeric, is_float_expr, is_map_expr,
-    is_null_expr, is_number_expr, is_string_expr,
+    is_map_read_index, is_null_expr, is_number_expr, is_string_expr,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -375,8 +375,10 @@ impl CodeGen {
                             // Index carries kind tag alongside the value
                             // (x64: %edx, arm64: w1): skip int->float
                             // when the value is already a float.
+                            // Direct array loads carry no tag; require map routing.
                             if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                                 && matches!(&**left, Expr::Index { .. })
+                                && is_map_read_index(left, &self.ctx.variables)
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64) {
@@ -399,8 +401,10 @@ impl CodeGen {
                         self.generate_expression(left);
                         if !left_is_float && !is_definitely_not_numeric(left, &self.ctx.variables) {
                             // Index carries kind tag (x64: %edx, arm64: w1).
+                            // Direct array loads carry no tag; require map routing.
                             if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                                 && matches!(&**left, Expr::Index { .. })
+                                && is_map_read_index(left, &self.ctx.variables)
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64) {
@@ -426,8 +430,10 @@ impl CodeGen {
                                 && !is_definitely_not_numeric(left, &self.ctx.variables)
                             {
                                 // Index carries kind tag (x64: %edx, arm64: w1).
+                                // Direct array loads carry no tag; require map routing.
                                 if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                                     && matches!(&**left, Expr::Index { .. })
+                                    && is_map_read_index(left, &self.ctx.variables)
                                 {
                                     let l_skip = self.ctx.next_label();
                                     if matches!(self.arch, Architecture::X64) {
@@ -508,8 +514,10 @@ impl CodeGen {
                     self.generate_expression(left);
                     if !left_is_float && !is_definitely_not_numeric(left, &self.ctx.variables) {
                         // Index carries kind tag (x64: %edx, arm64: w1).
+                        // Direct array loads carry no tag; require map routing.
                         if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                             && matches!(left.as_ref(), Expr::Index { .. })
+                            && is_map_read_index(left, &self.ctx.variables)
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64) {
@@ -540,8 +548,10 @@ impl CodeGen {
                     self.generate_expression(right);
                     if !right_is_float && !is_definitely_not_numeric(right, &self.ctx.variables) {
                         // Index carries kind tag (x64: %edx, arm64: w1).
+                        // Direct array loads carry no tag; require map routing.
                         if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                             && matches!(right.as_ref(), Expr::Index { .. })
+                            && is_map_read_index(right, &self.ctx.variables)
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64) {
@@ -1062,8 +1072,11 @@ impl CodeGen {
                     // Variable-key map reads carry the entry kind tag
                     // (x64: %edx, arm64: w1; see fn_get). Floats must go
                     // through str_from_float; everything else uses generic str.
+                    // Direct array loads carry no tag (tag reg holds the
+                    // index), so require a map-routed read.
                     if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                         && matches!(&args[0], Expr::Index { .. })
+                        && is_map_read_index(&args[0], &self.ctx.variables)
                     {
                         let initial_stack_offset = self.ctx.stack_offset;
                         self.generate_expression(&args[0]);
@@ -2736,8 +2749,10 @@ impl CodeGen {
             "string" | "str" => {
                 // Variable-key map reads carry kind tag alongside the value
                 // (x64: %edx, arm64: w1). Tag 3 = string.
+                // Direct array loads carry no tag, so require map routing.
                 if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                     && matches!(expr, Expr::Index { .. })
+                    && is_map_read_index(expr, &self.ctx.variables)
                 {
                     self.generate_expression(expr);
                     let l_true = self.ctx.next_label();
@@ -2891,8 +2906,10 @@ impl CodeGen {
             "float" => {
                 // Index carries kind tag alongside the value
                 // (x64: %edx, arm64: w1; 2 = float).
+                // Direct array loads carry no tag, so require map routing.
                 if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                     && matches!(expr, Expr::Index { .. })
+                    && is_map_read_index(expr, &self.ctx.variables)
                 {
                     self.generate_expression(expr);
                     if matches!(self.arch, Architecture::X64) {
@@ -2931,9 +2948,11 @@ impl CodeGen {
             }
             "int" | "integer" | "number" => {
                 // Index tag 1=int (0 unknown defaults to int).
-                // x64: %edx, arm64: w1.
+                // x64: %edx, arm64: w1. Direct array loads carry no tag,
+                // so require map routing.
                 if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                     && matches!(expr, Expr::Index { .. })
+                    && is_map_read_index(expr, &self.ctx.variables)
                 {
                     self.generate_expression(expr);
                     let l_true = self.ctx.next_label();

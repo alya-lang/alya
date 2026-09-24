@@ -572,6 +572,22 @@ pub fn is_map_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     }
 }
 
+/// True when an `Index` read routes through `fn_get` (map path) rather
+/// than a direct array load. Mirrors the routing condition in the
+/// expression codegen: map-typed base, string-typed key, or string
+/// literal key. Only `fn_get` returns an entry kind tag (x64: %edx,
+/// arm64: w1); direct array loads leave that register holding the
+/// index/length instead, so tag dispatch must be gated on this.
+pub fn is_map_read_index(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    if let Expr::Index { array, index } = expr {
+        is_map_expr(array, vars)
+            || is_string_expr(index, vars)
+            || matches!(**index, Expr::String(_))
+    } else {
+        false
+    }
+}
+
 pub fn is_string_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::Array(elems) => !elems.is_empty() && elems.iter().all(|e| is_string_expr(e, vars)),

@@ -1,8 +1,8 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
-    escape_string, is_array_expr, is_float_expr, is_map_expr, is_null_expr, is_string_array,
-    is_string_expr,
+    escape_string, is_array_expr, is_float_expr, is_map_expr, is_map_read_index, is_null_expr,
+    is_string_array, is_string_expr,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -658,8 +658,13 @@ impl CodeGen {
                         // pointer-range classifier below. x86 stays untagged.
                         // Tags: 0 unknown, 1 int, 2 float, 3 string,
                         // 4 array, 5 map.
+                        // NOTE: only map-routed reads (fn_get) carry a tag.
+                        // Direct array loads leave the tag register holding
+                        // the index, so they must skip tag dispatch.
                         let (l_tag_flt, l_tag_str2, l_tag_arr, l_tag_map, l_tag_int) =
-                            if matches!(self.arch, Architecture::X64 | Architecture::ARM64) {
+                            if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                                && is_map_read_index(expr, &self.ctx.variables)
+                            {
                                 let flt = self.ctx.next_label();
                                 let s2 = self.ctx.next_label();
                                 let arr = self.ctx.next_label();
