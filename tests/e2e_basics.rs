@@ -1048,3 +1048,22 @@ main()
         assert_eq!(output, "[x, y]\nx\ny\n");
     }
 }
+
+#[test]
+fn test_e2e_say_variable_key_map_read() {
+    // Map reads with variable (runtime) keys must print like literal-key
+    // reads: statically-unknown values are classified at runtime instead
+    // of printing string pointers as integers.
+    // (Regression test for alya-lang/alya#18b.)
+    let code = r#"
+let m = map()
+m["k"] = "hello"
+let key = "k"
+let v = m[key]
+say v
+say m[key]
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "hello\nhello\n");
+    }
+}

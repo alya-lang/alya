@@ -3247,6 +3247,122 @@ impl CodeGen {
         }
     }
 
+    /// Classifies a runtime value for dynamic dispatch: rax/eax/x0 holds
+    /// the value on entry and the tag on exit (1 = int, 3 = string).
+    /// Only consulted for statically-unknown values; every rule is chosen
+    /// to be memory-safe (no unvalidated dereference): small/negative
+    /// integers and everything outside the known string regions
+    /// conservatively report int, matching historical behavior. Integer 0
+    /// reports int (it shares a representation with null, and `say 0`
+    /// must keep printing `0`). Floats are intentionally NOT detected
+    /// (their bits are ambiguous with ints/pointers without tags) and
+    /// land in the int bucket.
+    pub(crate) fn emit_runtime_classify(&mut self, os: OperatingSystem) {
+        let l_str = self.ctx.next_label();
+        let l_int = self.ctx.next_label();
+        let l_not_ro = self.ctx.next_label();
+        let l_end = self.ctx.next_label();
+        match self.arch {
+            Architecture::X64 => {
+                self.output.push_str("    cmp $65536, %rax\n");
+                self.output.push_str(&format!("    jb {}\n", l_int));
+                self.output.push_str("    mov $0x00007fffffffffff, %rdx\n");
+                self.output.push_str("    cmp %rdx, %rax\n");
+                self.output.push_str(&format!("    ja {}\n", l_int));
+                self.output
+                    .push_str("    lea alya_rodata_start(%rip), %rdx\n");
+                self.output.push_str("    cmp %rdx, %rax\n");
+                self.output.push_str(&format!("    jb {}\n", l_not_ro));
+                self.output
+                    .push_str("    lea alya_rodata_end(%rip), %rcx\n");
+                self.output.push_str("    cmp %rcx, %rax\n");
+                self.output.push_str(&format!("    jb {}\n", l_str));
+                self.output.push_str(&format!("{}:\n", l_not_ro));
+                self.output.push_str("    lea alya_str_buf(%rip), %rdx\n");
+                self.output.push_str("    cmp %rdx, %rax\n");
+                self.output.push_str(&format!("    jb {}\n", l_int));
+                self.output.push_str("    lea 67108864(%rdx), %rcx\n");
+                self.output.push_str("    cmp %rcx, %rax\n");
+                self.output.push_str(&format!("    jb {}\n", l_str));
+                self.output.push_str(&format!("{}:\n", l_int));
+                self.output.push_str("    movq $1, %rax\n");
+                self.output.push_str(&format!("    jmp {}\n", l_end));
+                self.output.push_str(&format!("{}:\n", l_str));
+                self.output.push_str("    movq $3, %rax\n");
+                self.output.push_str(&format!("    jmp {}\n", l_end));
+                self.output.push_str(&format!("{}:\n", l_end));
+            }
+            Architecture::X86 => {
+                self.output.push_str("    cmp $65536, %eax\n");
+                self.output.push_str(&format!("    jb {}\n", l_int));
+                self.output.push_str("    lea alya_rodata_start, %edx\n");
+                self.output.push_str("    cmp %edx, %eax\n");
+                self.output.push_str(&format!("    jb {}\n", l_not_ro));
+                self.output.push_str("    lea alya_rodata_end, %ecx\n");
+                self.output.push_str("    cmp %ecx, %eax\n");
+                self.output.push_str(&format!("    jb {}\n", l_str));
+                self.output.push_str(&format!("{}:\n", l_not_ro));
+                self.output.push_str("    lea alya_str_buf, %edx\n");
+                self.output.push_str("    cmp %edx, %eax\n");
+                self.output.push_str(&format!("    jb {}\n", l_int));
+                self.output.push_str("    lea 67108864(%edx), %ecx\n");
+                self.output.push_str("    cmp %ecx, %eax\n");
+                self.output.push_str(&format!("    jb {}\n", l_str));
+                self.output.push_str(&format!("{}:\n", l_int));
+                self.output.push_str("    movl $1, %eax\n");
+                self.output.push_str(&format!("    jmp {}\n", l_end));
+                self.output.push_str(&format!("{}:\n", l_str));
+                self.output.push_str("    movl $3, %eax\n");
+                self.output.push_str(&format!("    jmp {}\n", l_end));
+                self.output.push_str(&format!("{}:\n", l_end));
+            }
+            Architecture::ARM64 => {
+                self.output.push_str("    movz x1, #1, lsl #16\n");
+                self.output.push_str("    cmp x0, x1\n");
+                self.output.push_str(&format!("    b.lo {}\n", l_int));
+                self.output.push_str("    lsr x1, x0, #47\n");
+                self.output.push_str(&format!("    cbnz x1, {}\n", l_int));
+                crate::codegen::arch::arm64::emit_adrp_add(
+                    &mut self.output,
+                    "x1",
+                    "alya_rodata_start",
+                    os,
+                );
+                self.output.push_str("    cmp x0, x1\n");
+                self.output.push_str(&format!("    b.lo {}\n", l_not_ro));
+                crate::codegen::arch::arm64::emit_adrp_add(
+                    &mut self.output,
+                    "x2",
+                    "alya_rodata_end",
+                    os,
+                );
+                self.output.push_str("    cmp x0, x2\n");
+                self.output.push_str(&format!("    b.lo {}\n", l_str));
+                self.output.push_str(&format!("{}:\n", l_not_ro));
+                crate::codegen::arch::arm64::emit_adrp_add(
+                    &mut self.output,
+                    "x1",
+                    "alya_str_buf",
+                    os,
+                );
+                self.output.push_str("    cmp x0, x1\n");
+                self.output.push_str(&format!("    b.lo {}\n", l_int));
+                self.output.push_str("    movz x2, #1024, lsl #16\n");
+                self.output.push_str("    add x2, x1, x2\n");
+                self.output.push_str("    cmp x0, x2\n");
+                self.output.push_str(&format!("    b.lo {}\n", l_str));
+                self.output.push_str(&format!("{}:\n", l_int));
+                self.output.push_str("    mov x0, #1\n");
+                self.output.push_str(&format!("    b {}\n", l_end));
+                self.output.push_str(&format!("{}:\n", l_str));
+                self.output.push_str("    mov x0, #3\n");
+                self.output.push_str(&format!("    b {}\n", l_end));
+                self.output.push_str(&format!("{}:\n", l_end));
+            }
+        }
+        let _ = os;
+    }
+
     pub(crate) fn generate_string_concat(&mut self, left: &Expr, right: &Expr) {
         if is_string_expr(left, &self.ctx.variables) {
             self.generate_expression(left);

@@ -298,21 +298,67 @@ impl CodeGen {
                             self.output.push('\n');
                         }
                         VarType::Number(offset) => {
-                            let fmt_label = self.ctx.next_string_label();
-                            self.emit_rodata_section();
-                            self.output.push_str(&format!("{}:\n", fmt_label));
-                            self.emit_string_directive("%lld\\n");
-
-                            self.output.push_str(".text\n");
-
-                            arch::emit_say_offset(
+                            // Statically-unknown dynamics (e.g. map reads with
+                            // variable keys) are recorded as Number and would
+                            // print string pointers as integers. Classify at
+                            // runtime: real integers take the identical %lld
+                            // path, so behavior is unchanged for them.
+                            let l_dyn_str = self.ctx.next_label();
+                            let l_dyn_end = self.ctx.next_label();
+                            arch::emit_load_var(
                                 &mut self.output,
                                 self.arch,
                                 offset,
                                 self.ctx.stack_offset,
-                                &fmt_label,
+                            );
+                            self.emit_runtime_classify(self.os);
+                            arch::emit_cmp_imm(&mut self.output, self.arch, 3);
+                            arch::emit_cond_jump(
+                                &mut self.output,
+                                self.arch,
+                                BinaryOp::Equal,
+                                false,
+                                &l_dyn_str,
+                            );
+                            let fmt_int_label = self.ctx.next_string_label();
+                            self.emit_rodata_section();
+                            self.output.push_str(&format!("{}:\n", fmt_int_label));
+                            self.emit_string_directive("%lld\\n");
+                            self.output.push_str(".text\n");
+                            arch::emit_load_var(
+                                &mut self.output,
+                                self.arch,
+                                offset,
+                                self.ctx.stack_offset,
+                            );
+                            arch::emit_say_acc(
+                                &mut self.output,
+                                self.arch,
+                                &fmt_int_label,
+                                self.ctx.stack_offset,
                                 self.os,
                             );
+                            arch::emit_jump(&mut self.output, self.arch, &l_dyn_end);
+                            self.output.push_str(&format!("{}:\n", l_dyn_str));
+                            let fmt_dyn_str_label = self.ctx.next_string_label();
+                            self.emit_rodata_section();
+                            self.output.push_str(&format!("{}:\n", fmt_dyn_str_label));
+                            self.emit_string_directive("%s\\n");
+                            self.output.push_str(".text\n");
+                            arch::emit_load_var(
+                                &mut self.output,
+                                self.arch,
+                                offset,
+                                self.ctx.stack_offset,
+                            );
+                            arch::emit_say_acc(
+                                &mut self.output,
+                                self.arch,
+                                &fmt_dyn_str_label,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                            self.output.push_str(&format!("{}:\n", l_dyn_end));
                             self.output.push('\n');
                         }
                         VarType::Float(offset) => {
@@ -581,6 +627,69 @@ impl CodeGen {
                     );
                     self.output.push('\n');
                     return;
+                }
+
+                if let Expr::Index { .. } = expr {
+                    // Index reads whose value type is statically unknown
+                    // (e.g. variable keys into maps) would print heap
+                    // pointers as integers. Classify the value at runtime;
+                    // proven string/array/map results keep their existing
+                    // paths above.
+                    if !is_string_expr(expr, &self.ctx.variables)
+                        && !is_array_expr(expr, &self.ctx.variables)
+                        && !is_map_expr(expr, &self.ctx.variables)
+                    {
+                        let l_idx_str = self.ctx.next_label();
+                        let l_idx_end = self.ctx.next_label();
+                        // NOTE: no stack_offset adjustments here. The push
+                        // below is balanced by exactly one pop on every
+                        // runtime path, and nothing emitted between them
+                        // reads stack_offset, so the tracked value stays
+                        // correct for the print sequences (which run after
+                        // their pop, i.e. at net-zero depth).
+                        self.generate_expression(expr);
+                        arch::emit_push_temp(&mut self.output, self.arch);
+                        self.emit_runtime_classify(self.os);
+                        arch::emit_cmp_imm(&mut self.output, self.arch, 3);
+                        arch::emit_cond_jump(
+                            &mut self.output,
+                            self.arch,
+                            BinaryOp::Equal,
+                            false,
+                            &l_idx_str,
+                        );
+                        arch::emit_pop_temp(&mut self.output, self.arch);
+                        let fmt_idx_int_label = self.ctx.next_string_label();
+                        self.emit_rodata_section();
+                        self.output.push_str(&format!("{}:\n", fmt_idx_int_label));
+                        self.emit_string_directive("%lld\\n");
+                        self.output.push_str(".text\n");
+                        arch::emit_say_acc(
+                            &mut self.output,
+                            self.arch,
+                            &fmt_idx_int_label,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                        arch::emit_jump(&mut self.output, self.arch, &l_idx_end);
+                        self.output.push_str(&format!("{}:\n", l_idx_str));
+                        arch::emit_pop_temp(&mut self.output, self.arch);
+                        let fmt_idx_str_label = self.ctx.next_string_label();
+                        self.emit_rodata_section();
+                        self.output.push_str(&format!("{}:\n", fmt_idx_str_label));
+                        self.emit_string_directive("%s\\n");
+                        self.output.push_str(".text\n");
+                        arch::emit_say_acc(
+                            &mut self.output,
+                            self.arch,
+                            &fmt_idx_str_label,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                        self.output.push_str(&format!("{}:\n", l_idx_end));
+                        self.output.push('\n');
+                        return;
+                    }
                 }
 
                 let is_str = is_string_expr(expr, &self.ctx.variables);
