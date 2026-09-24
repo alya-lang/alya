@@ -947,3 +947,77 @@ say b
         );
     }
 }
+
+#[test]
+fn test_e2e_guard_as_variable_name() {
+    // `guard` is a contextual keyword, not reserved: it must work as a
+    // plain variable, including assignment and compound assignment.
+    // (Regression test for alya-lang/alya#17.)
+    let code = r#"
+let guard = 10
+while guard > 0
+    guard = guard - 1
+end
+say guard
+guard += 5
+say guard
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "0\n5\n");
+    }
+}
+
+#[test]
+fn test_e2e_when_mixed_arms_str() {
+    // `str()` over a `when` with mixed-type arms must convert the taken
+    // arm instead of eliding conversion (which produced empty output).
+    // (Regression test for alya-lang/alya#14.)
+    let code = r#"
+let kind = "i"
+let raw = "36"
+let decoded = when kind
+    is "i" => to_int(raw)
+    else => raw
+end
+say "decoded: " + str(decoded)
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "decoded: 36\n");
+    }
+}
+
+#[test]
+fn test_e2e_method_default_arity_collision() {
+    // A bare function name colliding with a method name must not steal
+    // default-argument expansion when arities differ: `b.touch("a")` has
+    // 2 args, so the 1-param bare `touch` is skipped and the 3-param
+    // `Box__touch` default (`ttl = -1`) is filled.
+    // (Regression test for alya-lang/alya#16.)
+    let code = r#"
+struct Box
+    store: map
+end
+
+function touch(path)
+    return "file:" + path
+end
+
+function Box.touch(self: Box, key, ttl: int = -1) -> int
+    if ttl == -1
+        return 1
+    end
+    return 0
+end
+
+function main()
+    let b = Box { store: map() }
+    say b.touch("a")
+    say touch("/tmp/x")
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "1\nfile:/tmp/x\n");
+    }
+}

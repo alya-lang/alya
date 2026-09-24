@@ -1726,16 +1726,30 @@ fn expand_defaults_in_expr(
                 }
             }
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
-            let target_def = fn_defs.get(name).or_else(|| fn_defs.get(bare)).or_else(|| {
-                let suffix = format!("__{}", name);
-                fn_defs
-                    .iter()
-                    .filter(|(k, (param_count, _, _))| {
-                        k.ends_with(&suffix) && args.len() <= *param_count
-                    })
-                    .map(|(_, v)| v)
-                    .next()
-            });
+            // A definition is only usable when the call fits its arity.
+            // Bare names can collide across modules (e.g. a `touch(path)`
+            // helper vs a `Cache__touch(self, key, ttl)` method); using an
+            // arity-incompatible definition would silently skip default
+            // filling and leave the callee reading garbage for the missing
+            // arguments. Fall through to the suffix search in that case.
+            let arity_ok = |def: &&(usize, Vec<Option<Expr>>, bool)| {
+                let (param_count, _, has_rest) = def;
+                args.len() <= *param_count || *has_rest
+            };
+            let target_def = fn_defs
+                .get(name)
+                .filter(arity_ok)
+                .or_else(|| fn_defs.get(bare).filter(arity_ok))
+                .or_else(|| {
+                    let suffix = format!("__{}", name);
+                    fn_defs
+                        .iter()
+                        .filter(|(k, (param_count, _, _))| {
+                            k.ends_with(&suffix) && args.len() <= *param_count
+                        })
+                        .map(|(_, v)| v)
+                        .next()
+                });
             if let Some((param_count, defaults, has_rest)) = target_def {
                 if *has_rest {
                     let fixed_count = param_count.saturating_sub(1);

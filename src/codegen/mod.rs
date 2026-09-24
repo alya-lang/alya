@@ -586,6 +586,42 @@ impl CodeGen {
                             .variables
                             .insert(format!("fn_ret_arr:{}", mangled_name), VarType::Array(0));
                     }
+                    // Explicit integer return annotations are recorded so
+                    // that method-result classification can authoritatively
+                    // rule out `string` for colliding bare names (e.g. a
+                    // `Box__touch(...) -> int` method vs a `touch(path)`
+                    // string helper). Bare form is deliberately NOT recorded
+                    // to avoid reintroducing the same collisions.
+                    let rt_base = rt.rsplit("::").next().unwrap_or(rt);
+                    let rt_base = rt_base.rsplit("__").next().unwrap_or(rt_base);
+                    if matches!(
+                        rt_base,
+                        "int"
+                            | "i64"
+                            | "isize"
+                            | "uint"
+                            | "u64"
+                            | "usize"
+                            | "i32"
+                            | "i16"
+                            | "i8"
+                            | "u32"
+                            | "u16"
+                            | "u8"
+                            | "byte"
+                    ) {
+                        self.ctx
+                            .variables
+                            .insert(format!("fn_ret_int:{}", name), VarType::Number(0));
+                        let colon_name = name.replace("__", "::");
+                        self.ctx
+                            .variables
+                            .insert(format!("fn_ret_int:{}", colon_name), VarType::Number(0));
+                        let mangled_name = name.replace("::", "__");
+                        self.ctx
+                            .variables
+                            .insert(format!("fn_ret_int:{}", mangled_name), VarType::Number(0));
+                    }
                 }
             }
         }

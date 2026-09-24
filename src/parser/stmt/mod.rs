@@ -65,9 +65,31 @@ impl Parser {
             TokenType::Spawn => self.parse_spawn(),
             TokenType::Select => self.parse_select(),
             TokenType::Identifier(_) | TokenType::SelfKw | TokenType::Test | TokenType::Bench => {
+                // `guard` is a contextual keyword, not a reserved one: only
+                // treat it as a guard statement when it cannot be a plain
+                // assignment to a variable named `guard`. Any assignment
+                // operator following the identifier takes the normal path.
                 if matches!(self.current_token().token_type, TokenType::Identifier(ref s) if s == "guard")
                 {
-                    return self.parse_guard();
+                    let follows_assign = matches!(
+                        self.peek_token().map(|t| &t.token_type),
+                        Some(
+                            TokenType::Assign
+                                | TokenType::PlusAssign
+                                | TokenType::MinusAssign
+                                | TokenType::MultiplyAssign
+                                | TokenType::DivideAssign
+                                | TokenType::ModuloAssign
+                                | TokenType::BitAndAssign
+                                | TokenType::BitOrAssign
+                                | TokenType::BitXorAssign
+                                | TokenType::ShlAssign
+                                | TokenType::ShrAssign
+                        )
+                    );
+                    if !follows_assign {
+                        return self.parse_guard();
+                    }
                 }
 
                 // Check for multi-variable assignment: a, b = 1, 2

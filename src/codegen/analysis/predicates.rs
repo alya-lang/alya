@@ -163,6 +163,22 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     {
                         return true;
                     }
+                    // The receiver is a known struct instance, so this is a
+                    // method call: an explicit integer return annotation on
+                    // the method authoritatively rules out `string`, even
+                    // when an unrelated same-named plain function (e.g.
+                    // `touch(path)`) left bare `fn_ret_str:` markers behind.
+                    // Without such a marker, fall through to the bare
+                    // markers below (status quo for unannotated methods).
+                    if vars.contains_key(&format!("fn_ret_int:{}", c1))
+                        || vars.contains_key(&format!("fn_ret_int:{}", c2))
+                        || vars.keys().any(|k| {
+                            k.starts_with("fn_ret_int:")
+                                && (k.ends_with(&suffix1) || k.ends_with(&suffix2))
+                        })
+                    {
+                        return false;
+                    }
                 }
             }
             if bare == "recv" || bare == "try_recv" {
@@ -260,9 +276,21 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             then_branch,
             else_branch,
             ..
-        } => is_string_expr(then_branch, vars) || is_string_expr(else_branch, vars),
+        } => {
+            // Both arms must be strings: with mixed arms the result is
+            // dynamic, and callers (e.g. `str()` elision) must not assume
+            // a string outcome from a single string arm. Null arms are
+            // transparent (a `when` without `else` desugars to Null).
+            (is_string_expr(then_branch, vars) || is_null_expr(then_branch, vars))
+                && (is_string_expr(else_branch, vars) || is_null_expr(else_branch, vars))
+                && (is_string_expr(then_branch, vars) || is_string_expr(else_branch, vars))
+        }
         Expr::NullCoalesce { value, default } => {
-            is_string_expr(value, vars) || is_string_expr(default, vars)
+            // Same null-transparent rule: `x ?? "lit"` is string-like
+            // unless a non-null arm proves otherwise.
+            (is_string_expr(value, vars) || is_null_expr(value, vars))
+                && (is_string_expr(default, vars) || is_null_expr(default, vars))
+                && (is_string_expr(value, vars) || is_string_expr(default, vars))
         }
         Expr::OptionalFieldAccess { object, field } => is_string_expr(
             &Expr::FieldAccess {
@@ -401,9 +429,17 @@ pub fn is_array_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             then_branch,
             else_branch,
             ..
-        } => is_array_expr(then_branch, vars) || is_array_expr(else_branch, vars),
+        } => {
+            // Null-transparent AND (see is_string_expr): both non-null arms
+            // must be arrays for callers to assume an array outcome.
+            (is_array_expr(then_branch, vars) || is_null_expr(then_branch, vars))
+                && (is_array_expr(else_branch, vars) || is_null_expr(else_branch, vars))
+                && (is_array_expr(then_branch, vars) || is_array_expr(else_branch, vars))
+        }
         Expr::NullCoalesce { value, default } => {
-            is_array_expr(value, vars) || is_array_expr(default, vars)
+            (is_array_expr(value, vars) || is_null_expr(value, vars))
+                && (is_array_expr(default, vars) || is_null_expr(default, vars))
+                && (is_array_expr(value, vars) || is_array_expr(default, vars))
         }
         Expr::OptionalFieldAccess { object, field } => is_array_expr(
             &Expr::FieldAccess {
@@ -498,9 +534,17 @@ pub fn is_map_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             then_branch,
             else_branch,
             ..
-        } => is_map_expr(then_branch, vars) || is_map_expr(else_branch, vars),
+        } => {
+            // Null-transparent AND (see is_string_expr): both non-null arms
+            // must be maps for callers to assume a map outcome.
+            (is_map_expr(then_branch, vars) || is_null_expr(then_branch, vars))
+                && (is_map_expr(else_branch, vars) || is_null_expr(else_branch, vars))
+                && (is_map_expr(then_branch, vars) || is_map_expr(else_branch, vars))
+        }
         Expr::NullCoalesce { value, default } => {
-            is_map_expr(value, vars) || is_map_expr(default, vars)
+            (is_map_expr(value, vars) || is_null_expr(value, vars))
+                && (is_map_expr(default, vars) || is_null_expr(default, vars))
+                && (is_map_expr(value, vars) || is_map_expr(default, vars))
         }
         Expr::OptionalFieldAccess { object, field } => is_map_expr(
             &Expr::FieldAccess {
@@ -835,4 +879,23 @@ pub fn is_number_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         Expr::ForceUnwrap(inner) => is_number_expr(inner, vars),
         _ => false,
     }
+}
+
+/// Returns true when `expr` is provably NOT a plain number (a string,
+/// array, map, or statically-known struct value).
+///
+/// Used to guard int<->float bit conversions: feeding a pointer (string,
+/// array, map, struct) into `cvtsi2sdq`/`cvttsd2siq` silently produces
+/// garbage. Unknown (dynamic) expressions return false so that existing
+/// behavior for them is preserved exactly.
+pub fn is_definitely_not_numeric(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    if is_string_expr(expr, vars) || is_array_expr(expr, vars) || is_map_expr(expr, vars) {
+        return true;
+    }
+    if let Expr::Identifier(name) = expr {
+        if matches!(vars.get(name), Some(VarType::Struct { .. })) {
+            return true;
+        }
+    }
+    false
 }

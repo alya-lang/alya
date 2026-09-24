@@ -1,7 +1,8 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr, Stmt};
 use crate::codegen::analysis::{
-    is_float_array, is_float_expr, is_map_expr, is_string_array, is_string_expr,
+    is_definitely_not_numeric, is_float_array, is_float_expr, is_map_expr, is_string_array,
+    is_string_expr,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -78,7 +79,7 @@ impl CodeGen {
                 let right_is_flt = is_float_expr(right, &self.ctx.variables);
                 if left_is_flt || right_is_flt {
                     self.generate_expression(left);
-                    if !left_is_flt {
+                    if !left_is_flt && !is_definitely_not_numeric(left, &self.ctx.variables) {
                         arch::emit_int_to_float(&mut self.output, self.arch);
                     }
                     if let Expr::Float(n) = &**right {
@@ -102,7 +103,7 @@ impl CodeGen {
                     } else {
                         arch::emit_push_temp(&mut self.output, self.arch);
                         self.generate_expression(right);
-                        if !right_is_flt {
+                        if !right_is_flt && !is_definitely_not_numeric(right, &self.ctx.variables) {
                             arch::emit_int_to_float(&mut self.output, self.arch);
                         }
                         arch::emit_float_binary_op(&mut self.output, self.arch, *op);
@@ -240,7 +241,7 @@ impl CodeGen {
                 let right_is_flt = is_float_expr(right, &self.ctx.variables);
                 if left_is_flt || right_is_flt {
                     self.generate_expression(left);
-                    if !left_is_flt {
+                    if !left_is_flt && !is_definitely_not_numeric(left, &self.ctx.variables) {
                         arch::emit_int_to_float(&mut self.output, self.arch);
                     }
                     if let Expr::Float(n) = &**right {
@@ -264,7 +265,7 @@ impl CodeGen {
                     } else {
                         arch::emit_push_temp(&mut self.output, self.arch);
                         self.generate_expression(right);
-                        if !right_is_flt {
+                        if !right_is_flt && !is_definitely_not_numeric(right, &self.ctx.variables) {
                             arch::emit_int_to_float(&mut self.output, self.arch);
                         }
                         arch::emit_float_binary_op(&mut self.output, self.arch, *op);

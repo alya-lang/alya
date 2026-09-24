@@ -1,8 +1,8 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
-    escape_string, is_array_expr, is_float_expr, is_map_expr, is_null_expr, is_number_expr,
-    is_string_expr,
+    escape_string, is_array_expr, is_definitely_not_numeric, is_float_expr, is_map_expr,
+    is_null_expr, is_number_expr, is_string_expr,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -371,7 +371,7 @@ impl CodeGen {
                 if is_float {
                     if let Expr::Float(n) = &**right {
                         self.generate_expression(left);
-                        if !left_is_float {
+                        if !left_is_float && !is_definitely_not_numeric(left, &self.ctx.variables) {
                             arch::emit_int_to_float(&mut self.output, self.arch);
                         }
                         arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n);
@@ -379,7 +379,7 @@ impl CodeGen {
                     }
                     if let Expr::Number(n) = &**right {
                         self.generate_expression(left);
-                        if !left_is_float {
+                        if !left_is_float && !is_definitely_not_numeric(left, &self.ctx.variables) {
                             arch::emit_int_to_float(&mut self.output, self.arch);
                         }
                         arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n);
@@ -388,7 +388,9 @@ impl CodeGen {
                     if let Expr::Identifier(name) = &**right {
                         if let Some(&VarType::Float(offset)) = self.ctx.variables.get(name) {
                             self.generate_expression(left);
-                            if !left_is_float {
+                            if !left_is_float
+                                && !is_definitely_not_numeric(left, &self.ctx.variables)
+                            {
                                 arch::emit_int_to_float(&mut self.output, self.arch);
                             }
                             arch::emit_load_var_to_scratch(
@@ -454,7 +456,7 @@ impl CodeGen {
 
                 if is_float {
                     self.generate_expression(left);
-                    if !left_is_float {
+                    if !left_is_float && !is_definitely_not_numeric(left, &self.ctx.variables) {
                         arch::emit_int_to_float(&mut self.output, self.arch);
                     }
                     if matches!(self.arch, Architecture::X86) {
@@ -470,7 +472,7 @@ impl CodeGen {
                     };
                     self.ctx.stack_offset += float_temp_offset;
                     self.generate_expression(right);
-                    if !right_is_float {
+                    if !right_is_float && !is_definitely_not_numeric(right, &self.ctx.variables) {
                         arch::emit_int_to_float(&mut self.output, self.arch);
                     }
                     self.ctx.stack_offset -= float_temp_offset;
@@ -536,14 +538,20 @@ impl CodeGen {
                 self.generate_condition_jump_if_false(condition, &else_label);
 
                 self.generate_expression(then_branch);
-                if is_flt && !is_float_expr(then_branch, &self.ctx.variables) {
+                if is_flt
+                    && !is_float_expr(then_branch, &self.ctx.variables)
+                    && !is_definitely_not_numeric(then_branch, &self.ctx.variables)
+                {
                     arch::emit_int_to_float(&mut self.output, self.arch);
                 }
                 arch::emit_jump(&mut self.output, self.arch, &end_label);
 
                 self.output.push_str(&format!("{}:\n", else_label));
                 self.generate_expression(else_branch);
-                if is_flt && !is_float_expr(else_branch, &self.ctx.variables) {
+                if is_flt
+                    && !is_float_expr(else_branch, &self.ctx.variables)
+                    && !is_definitely_not_numeric(else_branch, &self.ctx.variables)
+                {
                     arch::emit_int_to_float(&mut self.output, self.arch);
                 }
 
@@ -566,7 +574,9 @@ impl CodeGen {
                             false,
                             &default_label,
                         );
-                        arch::emit_int_to_float(&mut self.output, self.arch);
+                        if !is_definitely_not_numeric(value, &self.ctx.variables) {
+                            arch::emit_int_to_float(&mut self.output, self.arch);
+                        }
                         arch::emit_jump(&mut self.output, self.arch, &end_label);
                     } else {
                         arch::emit_jump(&mut self.output, self.arch, &end_label);
@@ -574,7 +584,9 @@ impl CodeGen {
 
                     self.output.push_str(&format!("{}:\n", default_label));
                     self.generate_expression(default);
-                    if !is_float_expr(default, &self.ctx.variables) {
+                    if !is_float_expr(default, &self.ctx.variables)
+                        && !is_definitely_not_numeric(default, &self.ctx.variables)
+                    {
                         arch::emit_int_to_float(&mut self.output, self.arch);
                     }
                     self.output.push_str(&format!("{}:\n", end_label));
@@ -895,7 +907,9 @@ impl CodeGen {
                             self.ctx.stack_offset,
                             self.os,
                         );
-                    } else if !is_float_expr(&args[0], &self.ctx.variables) {
+                    } else if !is_float_expr(&args[0], &self.ctx.variables)
+                        && !is_definitely_not_numeric(&args[0], &self.ctx.variables)
+                    {
                         arch::emit_int_to_float(&mut self.output, self.arch);
                     }
                     return;
