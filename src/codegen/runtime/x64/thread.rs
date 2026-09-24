@@ -119,7 +119,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    mov %r12, %rax\n");
         out.push_str("    jmp .L_x64_join_done\n");
     } else {
-        out.push_str("    sub $8, %rsp\n");
+        out.push_str("    sub $16, %rsp\n");
         out.push_str("    mov %rdi, %rbx\n");
         out.push_str("    test %rbx, %rbx\n");
         out.push_str("    jz .L_x64_join_null\n");
@@ -138,7 +138,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if is_win {
         out.push_str("    add $32, %rsp\n");
     } else {
-        out.push_str("    add $8, %rsp\n");
+        out.push_str("    add $16, %rsp\n");
     }
     out.push_str("    pop %r12\n");
     out.push_str("    pop %rbx\n");

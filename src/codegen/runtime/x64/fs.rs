@@ -4,6 +4,11 @@ use crate::codegen::target::OperatingSystem;
 pub fn emit(out: &mut String, os: OperatingSystem) {
     let is_win = matches!(os, OperatingSystem::Windows);
     let p = if matches!(os, OperatingSystem::MacOS) { "_" } else { "" };
+    let (opendir_fn, readdir_fn, closedir_fn) = if matches!(os, OperatingSystem::MacOS) {
+        ("_opendir$INODE64", "_readdir$INODE64", "_closedir$INODE64")
+    } else {
+        ("opendir", "readdir", "closedir")
+    };
     let _ = (is_win, p);
 
     // fn_file_exists
@@ -534,11 +539,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    test %rbx, %rbx\n");
         out.push_str("    jz .L_x64_isdir_no\n");
         out.push_str("    mov %rbx, %rdi\n");
-        out.push_str(&format!("    call {}opendir\n", p));
+        out.push_str(&format!("    call {}\n", opendir_fn));
         out.push_str("    test %rax, %rax\n");
         out.push_str("    jz .L_x64_isdir_no\n");
         out.push_str("    mov %rax, %rdi\n");
-        out.push_str(&format!("    call {}closedir\n", p));
+        out.push_str(&format!("    call {}\n", closedir_fn));
         out.push_str("    mov $1, %rax\n");
         out.push_str("    jmp .L_x64_isdir_end\n");
         out.push_str(".L_x64_isdir_no:\n");
@@ -649,13 +654,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    movw $0x002e, (%rsp)\n");
         out.push_str("    mov %rsp, %rdi\n");
         out.push_str(".L_x64_ld_posix_open:\n");
-        out.push_str(&format!("    call {}opendir\n", p));
+        out.push_str(&format!("    call {}\n", opendir_fn));
         out.push_str("    test %rax, %rax\n");
         out.push_str("    jz .L_x64_ld_posix_ret\n");
         out.push_str("    mov %rax, %r13\n");
         out.push_str(".L_x64_ld_posix_loop:\n");
         out.push_str("    mov %r13, %rdi\n");
-        out.push_str(&format!("    call {}readdir\n", p));
+        out.push_str(&format!("    call {}\n", readdir_fn));
         out.push_str("    test %rax, %rax\n");
         out.push_str("    jz .L_x64_ld_posix_close\n");
         out.push_str(&format!("    lea {}(%rax), %r14\n", d_off));
@@ -676,7 +681,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    jmp .L_x64_ld_posix_loop\n");
         out.push_str(".L_x64_ld_posix_close:\n");
         out.push_str("    mov %r13, %rdi\n");
-        out.push_str(&format!("    call {}closedir\n", p));
+        out.push_str(&format!("    call {}\n", closedir_fn));
         out.push_str(".L_x64_ld_posix_ret:\n");
         out.push_str("    mov %r12, %rax\n");
         out.push_str("    add $24, %rsp\n");

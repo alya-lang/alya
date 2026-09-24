@@ -743,3 +743,47 @@ end
     assert!(asm_iface.contains("call alya_fat_ptr_new"));
     assert!(!asm_iface.contains("call _alya_fat_ptr_new"));
 }
+
+#[test]
+fn test_x64_macos_directory_inode64_symbols() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // Regression: On macOS x86_64, Darwin requires 64-bit inode versioned symbols
+    // (_opendir$INODE64, _readdir$INODE64, _closedir$INODE64) to match the 64-bit
+    // struct dirent layout (where d_name starts at offset 21).
+    let code = "function main() let items = list_dir(\".\") say len(items) end";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_mac = generate(&ast, Architecture::X64, OperatingSystem::MacOS);
+    assert!(asm_mac.contains(".extern _opendir$INODE64"));
+    assert!(asm_mac.contains(".extern _readdir$INODE64"));
+    assert!(asm_mac.contains(".extern _closedir$INODE64"));
+    assert!(asm_mac.contains("call _opendir$INODE64"));
+    assert!(asm_mac.contains("call _readdir$INODE64"));
+    assert!(asm_mac.contains("call _closedir$INODE64"));
+    assert!(!asm_mac.contains("call _opendir\n"));
+    assert!(!asm_mac.contains("call _readdir\n"));
+}
+
+#[test]
+fn test_x64_macos_thread_join_stack_alignment() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // Regression: On macOS x86_64, fn___native_thread_join pushes rbp, rbx, and r12
+    // (making rsp 16-byte aligned). It must subtract 16 bytes (not 8) before calling
+    // pthread_join so that rsp remains 16-byte aligned as required by System V AMD64 ABI.
+    let code = "import \"std/thread\"\nfunction main() end";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_mac = generate(&ast, Architecture::X64, OperatingSystem::MacOS);
+    assert!(asm_mac.contains("fn___native_thread_join:\n    push %rbp\n    mov %rsp, %rbp\n    push %rbx\n    push %r12\n    sub $16, %rsp"));
+    assert!(asm_mac.contains(".L_x64_join_done:\n    add $16, %rsp\n    pop %r12\n    pop %rbx"));
+}
