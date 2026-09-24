@@ -39,7 +39,7 @@ jobs:
             label: Linux ARM64
             bin: alya
             archive: tar.gz
-          - os: macos-latest
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             platform: x86_64-macos
             label: macOS Intel
