@@ -2441,6 +2441,80 @@ ch.free()
 }
 
 #[test]
+fn test_e2e_thread_spawn_join_minimal() {
+    // Granular thread-primitive isolation (bisects Windows-ARM64 AVs in
+    // thread_and_concurrency / bounded_channel / rendezvous tests).
+    let code = r#"
+import "std/thread"
+
+function sq(x)
+    return x * x
+end
+
+let t = thread_spawn(sq, 7)
+let r = thread_join(t)
+say "spawn_join: " + str(r)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("spawn_join: 49"), "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_thread_id_basic() {
+    let code = r#"
+import "std/thread"
+
+let tid = thread_id()
+if tid > 0
+    say "tid: ok"
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("tid: ok"), "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_mutex_basic() {
+    let code = r#"
+import "std/thread"
+
+let m = mutex_new()
+mutex_lock(m)
+mutex_unlock(m)
+mutex_free(m)
+say "mutex: ok"
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("mutex: ok"), "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_thread_spawn_with_sleep() {
+    let code = r#"
+import "std/thread"
+
+function delayed(dummy)
+    sleep(20)
+    return 5
+end
+
+let t = thread_spawn(delayed, 0)
+let r = thread_join(t)
+say "slept: " + str(r)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("slept: 5"), "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_dynamic_interface_querying() {
     let code = r#"
 interface Shape
