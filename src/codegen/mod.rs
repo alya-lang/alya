@@ -1250,6 +1250,11 @@ impl CodeGen {
                     .variables
                     .insert(param.clone(), VarType::Map(self.ctx.stack_offset));
             } else {
+                if param_types.get(i).and_then(|t| t.as_deref()).is_none() {
+                    self.ctx
+                        .variables
+                        .insert(format!("param_is_untyped:{}", param), VarType::Number(0));
+                }
                 self.ctx
                     .variables
                     .insert(param.clone(), VarType::Number(self.ctx.stack_offset));

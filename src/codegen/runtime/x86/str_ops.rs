@@ -443,6 +443,17 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
+    // fn_str_from_int
+    out.push_str(".global fn_str_from_int\n");
+    out.push_str("fn_str_from_int:\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    mov 8(%ebp), %eax\n");
+    out.push_str("    jmp .L_x86_str_convert\n\n");
+
     // fn_str
     out.push_str(".global fn_str\n");
     out.push_str("fn_str:\n");
@@ -451,12 +462,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    push %ebx\n");
     out.push_str("    push %edi\n");
     out.push_str("    push %esi\n");
+    emit_str_buf_load(out, "%ecx", "%ebx", os);
     out.push_str("    mov 8(%ebp), %eax\n");
-    out.push_str("    lea alya_str_buf, %edx\n");
-    out.push_str("    cmp %edx, %eax\n");
-    out.push_str("    jb .L_x86_str_chk_rodata\n");
-    out.push_str("    lea 67108864(%edx), %ecx\n");
     out.push_str("    cmp %ecx, %eax\n");
+    out.push_str("    jb .L_x86_str_chk_rodata\n");
+    out.push_str("    add %ecx, %ebx\n");
+    out.push_str("    cmp %ebx, %eax\n");
     out.push_str("    jae .L_x86_str_chk_rodata\n");
     out.push_str("    pop %esi\n");
     out.push_str("    pop %edi\n");

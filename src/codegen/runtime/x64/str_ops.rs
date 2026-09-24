@@ -576,6 +576,22 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
+    // fn_str_from_int
+    out.push_str(".global fn_str_from_int\n");
+    out.push_str("fn_str_from_int:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %rbx\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    out.push_str("    push %r14\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %rcx, %rax\n");
+    } else {
+        out.push_str("    mov %rdi, %rax\n");
+    }
+    out.push_str("    jmp .L_x64_str_convert\n\n");
+
     // fn_str
     out.push_str(".global fn_str\n");
     out.push_str("fn_str:\n");
@@ -590,11 +606,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     } else {
         out.push_str("    mov %rdi, %rax\n");
     }
-    // If argument is already a string in alya_str_buf, return it directly
-    out.push_str("    lea alya_str_buf(%rip), %r11\n");
-    out.push_str("    cmp %r11, %rax\n");
+    // If argument is already a string in the current thread's alya_str_buf active region, return it directly
+    super::emit_str_buf_ctx(out, os);
+    out.push_str("    cmp %r8, %rax\n");
     out.push_str("    jb .L_x64_str_chk_rodata\n");
-    out.push_str("    lea 67108864(%r11), %r10\n");
+    out.push_str("    mov (%r9), %r10\n");
+    out.push_str("    add %r8, %r10\n");
     out.push_str("    cmp %r10, %rax\n");
     out.push_str("    jae .L_x64_str_chk_rodata\n");
     out.push_str("    pop %r14\n");

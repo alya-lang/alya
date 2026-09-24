@@ -447,6 +447,17 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldp x29, x30, [sp], #48\n");
     out.push_str("    ret\n\n");
 
+    // fn_str_from_int
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_str_from_int\n");
+    out.push_str("fn_str_from_int:\n");
+    out.push_str("    stp x29, x30, [sp, #-48]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    stp x19, x20, [sp, #16]\n");
+    out.push_str("    stp x21, x22, [sp, #32]\n");
+    out.push_str("    mov x19, x0\n");
+    out.push_str("    b .L_arm64_str_convert\n\n");
+
     // fn_str
     out.push_str(".align 2\n");
     out.push_str(".global fn_str\n");
@@ -456,12 +467,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    stp x19, x20, [sp, #16]\n");
     out.push_str("    stp x21, x22, [sp, #32]\n");
     out.push_str("    mov x19, x0\n");
-    emit_adrp_add(out, "x5", "alya_str_buf", os);
-    out.push_str("    cmp x19, x5\n");
+    emit_str_buf_ctx(out, "x1", "x2", "x4", os);
+    out.push_str("    cmp x19, x1\n");
     out.push_str("    b.lo .L_arm64_str_chk_rodata\n");
-    out.push_str("    movz x6, #1024, lsl #16\n");
-    out.push_str("    add x6, x5, x6\n");
-    out.push_str("    cmp x19, x6\n");
+    out.push_str("    ldr x3, [x2]\n");
+    out.push_str("    add x4, x1, x3\n");
+    out.push_str("    cmp x19, x4\n");
     out.push_str("    b.hs .L_arm64_str_chk_rodata\n");
     out.push_str("    mov x0, x19\n");
     out.push_str("    ldp x21, x22, [sp, #32]\n");

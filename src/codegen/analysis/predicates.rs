@@ -894,7 +894,10 @@ pub fn is_null_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
 pub fn is_number_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::Number(_) => true,
-        Expr::Identifier(name) => matches!(vars.get(name), Some(VarType::Number(_))),
+        Expr::Identifier(name) => {
+            !vars.contains_key(&format!("param_is_untyped:{}", name))
+                && matches!(vars.get(name), Some(VarType::Number(_)))
+        }
         Expr::Binary { left, op, right } => match op {
             BinaryOp::Add
             | BinaryOp::Subtract
@@ -937,6 +940,14 @@ pub fn is_number_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             )
         }
         Expr::ForceUnwrap(inner) => is_number_expr(inner, vars),
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => is_number_expr(then_branch, vars) && is_number_expr(else_branch, vars),
+        Expr::NullCoalesce { value, default } => {
+            is_number_expr(value, vars) && is_number_expr(default, vars)
+        }
         _ => false,
     }
 }
