@@ -163,6 +163,27 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
             }
             known_strings.contains(&format!("struct_field_str:{}", field))
         }
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            // Both arms must be strings (mirror the codegen predicate):
+            // with mixed arms the result is dynamic. Null arms are
+            // transparent (a `when` without `else` desugars to Null).
+            let tb = expr_is_definitely_string(then_branch, known_strings);
+            let eb = expr_is_definitely_string(else_branch, known_strings);
+            let tn = matches!(**then_branch, Expr::Null);
+            let en = matches!(**else_branch, Expr::Null);
+            (tb || tn) && (eb || en) && (tb || eb)
+        }
+        Expr::NullCoalesce { value, default } => {
+            let vb = expr_is_definitely_string(value, known_strings);
+            let db = expr_is_definitely_string(default, known_strings);
+            let vn = matches!(**value, Expr::Null);
+            let dn = matches!(**default, Expr::Null);
+            (vb || vn) && (db || dn) && (vb || db)
+        }
         Expr::Index { array, index } => {
             if let Expr::String(field) = &**index {
                 if known_strings.contains(&format!("map_field_str:{}", field)) {
@@ -442,6 +463,22 @@ fn collect_struct_defs(stmts: &[Stmt], map: &mut HashMap<String, Vec<String>>) {
     }
 }
 
+/// Literals that are provably not strings, independent of scope. Used
+/// as negative evidence against existential `fn_param_str` positives:
+/// one such call arg proves the parameter is dynamic. Dynamic-typed
+/// args (identifiers, calls) prove nothing either way and are ignored.
+fn expr_is_definitely_non_string_lit(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::Number(_)
+            | Expr::Float(_)
+            | Expr::Array(_)
+            | Expr::Map(_)
+            | Expr::Null
+            | Expr::StructInit { .. }
+    )
+}
+
 fn scan_expr_for_strings(
     expr: &Expr,
     struct_defs: &HashMap<String, Vec<String>>,
@@ -460,10 +497,19 @@ fn scan_expr_for_strings(
                     known_strings.insert(format!("arr_is_str:{}", arr_name));
                 }
             }
+            // Per-call param evidence (scope-aware: caller locals are
+            // visible here). Positives are existential and MUST be gated
+            // by negatives at consumers: one literal non-string call
+            // proves the parameter is dynamic, so trusting a positive
+            // from another call would fold `is string` to constant-true
+            // and miscompile every other call (`%s` on an int segfaults).
             for (idx, arg) in args.iter().enumerate() {
                 if expr_is_definitely_string(arg, known_strings) {
                     known_strings.insert(format!("fn_param_str:{}:{}", name, idx));
                     known_strings.insert(format!("fn_param_str:{}:{}", bare, idx));
+                } else if expr_is_definitely_non_string_lit(arg) {
+                    known_strings.insert(format!("fn_param_nonstr:{}:{}", name, idx));
+                    known_strings.insert(format!("fn_param_nonstr:{}:{}", bare, idx));
                 }
             }
             if let Some(fields) = struct_defs.get(name) {
@@ -886,8 +932,14 @@ fn collect_string_vars_from_stmts(
                 let bare = bare.rsplit("__").next().unwrap_or(bare);
                 let mut fn_locals = known_strings.clone();
                 for (idx, param) in params.iter().enumerate() {
-                    if known_strings.contains(&format!("fn_param_str:{}:{}", name, idx))
-                        || known_strings.contains(&format!("fn_param_str:{}:{}", bare, idx))
+                    // Same veto as infer_param_is_string_with: a literal
+                    // non-string call proves the parameter is dynamic.
+                    let vetoed = known_strings
+                        .contains(&format!("fn_param_nonstr:{}:{}", name, idx))
+                        || known_strings.contains(&format!("fn_param_nonstr:{}:{}", bare, idx));
+                    if !vetoed
+                        && (known_strings.contains(&format!("fn_param_str:{}:{}", name, idx))
+                            || known_strings.contains(&format!("fn_param_str:{}:{}", bare, idx)))
                     {
                         fn_locals.insert(param.clone());
                     }
@@ -956,6 +1008,7 @@ fn collect_string_vars_from_stmts(
                         || item.starts_with("map_str:")
                         || item.starts_with("struct_field_str:")
                         || item.starts_with("fn_param_str:")
+                        || item.starts_with("fn_param_nonstr:")
                         || item.starts_with("fn_param_str_arr:")
                     {
                         known_strings.insert(item.clone());
@@ -1454,13 +1507,21 @@ pub fn collect_known_string_vars_with_index(
                         known_strings.insert(format!("fn_param_str_arr:{}:{}", bare, idx));
                     }
                 }
+                // Universal (ALL call sites), mirroring the float/array
+                // param rules below and above: one non-string call proves
+                // the parameter is dynamic, so an existential (ANY) rule
+                // would fold `is string` to constant-true and miscompile
+                // every other call (`%s` on an int segfaults).
                 if !known_strings.contains(&format!("fn_param_str:{}:{}", name, idx))
                     && !known_strings.contains(&format!("fn_param_str:{}:{}", bare, idx))
                 {
-                    let is_str_arg = call_index.has_matching_call_arg(name, bare, idx, |arg| {
-                        expr_is_definitely_string(arg, &known_strings)
-                    });
-                    if is_str_arg {
+                    let mut call_args = Vec::new();
+                    call_index.collect_all_call_args(name, bare, idx, &mut call_args);
+                    if !call_args.is_empty()
+                        && call_args
+                            .iter()
+                            .all(|arg| expr_is_definitely_string(arg, &known_strings))
+                    {
                         known_strings.insert(format!("fn_param_str:{}:{}", name, idx));
                         known_strings.insert(format!("fn_param_str:{}:{}", bare, idx));
                     }
@@ -1482,8 +1543,13 @@ pub fn infer_param_is_string_with(
 ) -> bool {
     let bare = func_name.rsplit("::").next().unwrap_or(func_name);
     let bare = bare.rsplit("__").next().unwrap_or(bare);
-    known_strings.contains(&format!("fn_param_str:{}:{}", func_name, param_idx))
-        || known_strings.contains(&format!("fn_param_str:{}:{}", bare, param_idx))
+    // A literal non-string call vetoes the existential positive: the
+    // parameter is dynamic and `is string` must discriminate at runtime.
+    let vetoed = known_strings.contains(&format!("fn_param_nonstr:{}:{}", func_name, param_idx))
+        || known_strings.contains(&format!("fn_param_nonstr:{}:{}", bare, param_idx));
+    !vetoed
+        && (known_strings.contains(&format!("fn_param_str:{}:{}", func_name, param_idx))
+            || known_strings.contains(&format!("fn_param_str:{}:{}", bare, param_idx)))
 }
 
 pub fn infer_param_is_string_array_with(

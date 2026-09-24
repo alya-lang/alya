@@ -2886,20 +2886,62 @@ impl CodeGen {
                     return;
                 }
                 let is_str = is_string_expr(expr, &self.ctx.variables);
-                let result = if is_str {
-                    if negated {
-                        0
-                    } else {
-                        1
-                    }
+                if is_str {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
+                } else if is_float_expr(expr, &self.ctx.variables)
+                    || is_array_expr(expr, &self.ctx.variables)
+                    || is_map_expr(expr, &self.ctx.variables)
+                    || is_null_expr(expr, &self.ctx.variables)
+                    || matches!(expr, Expr::Number(_) | Expr::Float(_))
+                {
+                    // Provably non-string: fold to a constant. (Number/Float
+                    // cover literals; vars and calls stay dynamic below even
+                    // when currently number-typed, since reassignment or an
+                    // unannotated signature may carry a string at runtime.
+                    // The pointer-range test below classifies those
+                    // correctly, including the float-bits land in int bucket
+                    // rule with its documented rodata/str-buf edge.)
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 1 } else { 0 });
                 } else {
-                    if negated {
-                        1
-                    } else {
-                        0
+                    // Truly unknown (unannotated params, unmarked vars and
+                    // calls, struct values): test pointer ranges at runtime.
+                    // Memory-safe: no dereference, only address compares.
+                    self.generate_expression(expr);
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                    self.emit_runtime_classify(self.os);
+                    match self.arch {
+                        Architecture::X64 => {
+                            arch::emit_cmp_imm(&mut self.output, self.arch, 3);
+                            self.output.push_str(if negated {
+                                "    setne %al\n"
+                            } else {
+                                "    sete %al\n"
+                            });
+                            self.output.push_str("    movzbq %al, %rax\n");
+                        }
+                        Architecture::X86 => {
+                            arch::emit_cmp_imm(&mut self.output, self.arch, 3);
+                            self.output.push_str(if negated {
+                                "    setne %al\n"
+                            } else {
+                                "    sete %al\n"
+                            });
+                            self.output.push_str("    movzbl %al, %eax\n");
+                        }
+                        Architecture::ARM64 => {
+                            self.output.push_str("    cmp x0, #3\n");
+                            self.output.push_str(if negated {
+                                "    cset x0, ne\n"
+                            } else {
+                                "    cset x0, eq\n"
+                            });
+                        }
                     }
-                };
-                arch::emit_load_num(&mut self.output, self.arch, result);
+                    // Discard the saved value without touching the boolean
+                    // now in the return register (a pop would overwrite it).
+                    let discard = self.temp_offset();
+                    arch::emit_stack_restore(&mut self.output, self.arch, discard);
+                }
             }
             "array" | "list" => {
                 let is_arr = is_array_expr(expr, &self.ctx.variables);

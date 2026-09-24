@@ -1023,6 +1023,63 @@ main()
 }
 
 #[test]
+fn test_e2e_when_type_patterns_on_dynamic_param() {
+    // `is string` on an unannotated param must discriminate at runtime:
+    // a single string call site must not fold the check to constant-true
+    // for every other call (previously every arm after the first was dead
+    // and ints printed via `%s`). Floats through `any` still read as int
+    // (indistinguishable without value tags) and are not asserted here.
+    // (Regression test for alya-lang/alya#14.)
+    let code = r#"
+function kind(v) -> string
+    return when v
+        is string => "s"
+        is int => "i"
+        is float => "f"
+        else => "?"
+    end
+end
+
+function main()
+    say kind("Ada")
+    say kind(36)
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "s\ni\n");
+    }
+}
+
+#[test]
+fn test_e2e_unannotated_fn_string_result_prints() {
+    // A `when` with all-string arms returns a string even without a return
+    // annotation; callers must print the pointer as `%s`, not `%lld`
+    // garbage. (Regression test for alya-lang/alya#14.)
+    let code = r#"
+function decode(kind: string)
+    return when kind
+        is "s" => "STR"
+        is "i" => "INT"
+        else => "FLT"
+    end
+end
+
+function main()
+    say decode("s")
+    say decode("i")
+    say decode("z")
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "STR\nINT\nFLT\n");
+    }
+}
+
+#[test]
 fn test_e2e_when_array_branches() {
     // A `when` returning string arrays from every arm must print array
     // elements as strings (not raw pointers), including element reads.
