@@ -42,19 +42,18 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    str xzr, [x21, #24]\n");      // ctx->result = 0
     if is_win {
         // Windows: CreateThread(NULL, 0, proc, ctx, 0, NULL).
-        // Extra sub keeps the 32-byte home area below the call free.
-        // Windows: CreateThread(NULL, 0, proc, ctx, 0, NULL). Stack args live
-        // AFTER the 32-byte home area ([sp, #32] and [sp, #40]).
-        out.push_str("    sub sp, sp, #48\n");
+        // Windows ARM64 (AAPCS64) passes the first 8 integer/pointer
+        // arguments in registers (x0..x7), with no shadow/home area.
+        // Stack args are only for 9th arg and beyond.
+        // Arg 5 (dwCreationFlags) -> x4, Arg 6 (lpThreadId) -> x5.
         out.push_str("    mov x0, #0\n");
         out.push_str("    mov x1, #0\n");
         out.push_str("    adrp x2, fn_alya_thread_proc\n");
         out.push_str("    add x2, x2, :lo12:fn_alya_thread_proc\n");
         out.push_str("    mov x3, x21\n");
-        out.push_str("    str xzr, [sp, #32]\n");   // dwCreationFlags = 0
-        out.push_str("    str xzr, [sp, #40]\n");   // lpThreadId = NULL
+        out.push_str("    mov x4, #0\n");           // dwCreationFlags = 0
+        out.push_str("    mov x5, #0\n");           // lpThreadId = NULL
         out.push_str("    bl CreateThread\n");
-        out.push_str("    add sp, sp, #48\n");
         out.push_str("    str x0, [x21]\n");        // ctx->os_handle
     } else {
     out.push_str("    mov x0, x21\n");              // thread*
