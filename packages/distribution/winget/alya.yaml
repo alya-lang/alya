@@ -27,7 +27,7 @@ Installers:
   - Architecture: x64
     InstallerType: zip
     InstallerUrl: https://github.com/alya-lang/alya/releases/download/v0.0.19/alya-v0.0.19-x86_64-windows.zip
-    InstallerSha256: 921c5b4dfded71085482dc6dbb0e84d8a81f139e396dc3536a49635dc4d93bf7
+    InstallerSha256: 899340d324cc645e98d300d0ec1a8749142c6a9656e2c016326ad6e1d91b45a9
     NestedInstallerType: portable
     NestedInstallerFiles:
       - RelativeFilePath: alya-v0.0.19-x86_64-windows/alya.exe
