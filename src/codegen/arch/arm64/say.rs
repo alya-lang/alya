@@ -95,10 +95,10 @@ pub fn emit_say_interpolated_pop_and_call(
     os: OperatingSystem,
 ) {
     let count = is_floats.len();
-    for i in (0..count).rev() {
-        out.push_str(&format!("    ldr x{}, [sp], #16\n", i + 1));
-    }
-    if !matches!(os, OperatingSystem::MacOS) {
+    if matches!(os, OperatingSystem::Windows) {
+        for i in (0..count).rev() {
+            out.push_str(&format!("    ldr x{}, [sp], #16\n", i + 1));
+        }
         let mut d_idx = 0;
         for (i, &is_flt) in is_floats.iter().enumerate() {
             if is_flt && d_idx < 8 {
@@ -106,9 +106,13 @@ pub fn emit_say_interpolated_pop_and_call(
                 d_idx += 1;
             }
         }
-    }
-    emit_adrp_add(out, "x0", fmt_label, os);
-    if matches!(os, OperatingSystem::MacOS) {
+        emit_adrp_add(out, "x0", fmt_label, os);
+        emit_call_printf(out, os);
+    } else if matches!(os, OperatingSystem::MacOS) {
+        for i in (0..count).rev() {
+            out.push_str(&format!("    ldr x{}, [sp], #16\n", i + 1));
+        }
+        emit_adrp_add(out, "x0", fmt_label, os);
         let stack_space = (count * 8).div_ceil(16) * 16;
         out.push_str(&format!("    sub sp, sp, #{}\n", stack_space));
         for i in 0..count {
@@ -117,6 +121,45 @@ pub fn emit_say_interpolated_pop_and_call(
         emit_call_printf(out, os);
         out.push_str(&format!("    add sp, sp, #{}\n", stack_space));
     } else {
+        // Linux and standard AAPCS64:
+        // In standard AAPCS64 variadic calls, general-purpose register arguments
+        // (x1..x7) and floating-point register arguments (d0..d7) advance their
+        // respective register indices independently. A float argument does NOT
+        // consume an integer register slot, and an integer/pointer argument does
+        // NOT consume a float register slot.
+        let mut int_reg_indices = Vec::with_capacity(count);
+        let mut flt_reg_indices = Vec::with_capacity(count);
+        let mut int_count = 0;
+        let mut flt_count = 0;
+        for &is_flt in is_floats {
+            if is_flt {
+                int_reg_indices.push(None);
+                flt_reg_indices.push(Some(flt_count));
+                flt_count += 1;
+            } else {
+                int_reg_indices.push(Some(int_count));
+                flt_reg_indices.push(None);
+                int_count += 1;
+            }
+        }
+
+        for i in (0..count).rev() {
+            if let Some(f_idx) = flt_reg_indices[i] {
+                if f_idx < 8 {
+                    out.push_str("    ldr x16, [sp], #16\n");
+                    out.push_str(&format!("    fmov d{}, x16\n", f_idx));
+                } else {
+                    out.push_str("    ldr xzr, [sp], #16\n");
+                }
+            } else if let Some(i_idx) = int_reg_indices[i] {
+                if i_idx < 7 {
+                    out.push_str(&format!("    ldr x{}, [sp], #16\n", i_idx + 1));
+                } else {
+                    out.push_str("    ldr xzr, [sp], #16\n");
+                }
+            }
+        }
+        emit_adrp_add(out, "x0", fmt_label, os);
         emit_call_printf(out, os);
     }
 }
