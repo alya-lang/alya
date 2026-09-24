@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.platform }})
+    name: Build (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -30,38 +30,45 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             platform: x86_64-linux
+            label: Linux x64
             bin: alya
             archive: tar.gz
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             platform: arm64-linux
+            label: Linux ARM64
             bin: alya
             archive: tar.gz
           - os: macos-latest
             target: x86_64-apple-darwin
             platform: x86_64-macos
+            label: macOS Intel
             bin: alya
             archive: tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
             platform: arm64-macos
+            label: macOS ARM64
             bin: alya
             archive: tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             platform: x86_64-windows
+            label: Windows x64
             bin: alya.exe
             archive: zip
             tc: alya-toolchain-windows-x64.zip
           - os: windows-11-arm
             target: aarch64-pc-windows-msvc
             platform: arm64-windows
+            label: Windows ARM64
             bin: alya.exe
             archive: zip
             tc: alya-toolchain-windows-arm64.zip
           - os: windows-latest
             target: i686-pc-windows-msvc
             platform: x86-windows
+            label: Windows x86
             bin: alya.exe
             archive: zip
             tc: alya-toolchain-windows-x86.zip
