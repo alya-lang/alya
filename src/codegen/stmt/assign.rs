@@ -506,6 +506,18 @@ impl CodeGen {
                                     );
                                 }
                             }
+                            if is_float_expr(v, &self.ctx.variables) {
+                                if let Expr::String(field) = k {
+                                    self.ctx.variables.insert(
+                                        format!("map_field_flt:{}", field),
+                                        VarType::Float(0),
+                                    );
+                                    self.ctx.variables.insert(
+                                        format!("map_flt:{}.{}", name, field),
+                                        VarType::Float(0),
+                                    );
+                                }
+                            }
                         }
                     }
                 } else if is_arr {
@@ -1081,6 +1093,52 @@ impl CodeGen {
                     self.ctx
                         .variables
                         .insert(format!("map_map:{}.{}", map_name, field), VarType::Map(0));
+                }
+            }
+            if is_float_expr(value, &self.ctx.variables) {
+                if let Expr::String(field) = index {
+                    self.ctx
+                        .variables
+                        .insert(format!("map_field_flt:{}", field), VarType::Float(0));
+                }
+                if let (Expr::Identifier(map_name), Expr::String(field)) = (array, index) {
+                    self.ctx
+                        .variables
+                        .insert(format!("map_flt:{}.{}", map_name, field), VarType::Float(0));
+                }
+            }
+            // Literal writes carry ground truth about the stored kind:
+            // drop per-key markers of contradicting families left over
+            // from earlier writes (a stale `map_str` marker miscompiles a
+            // later read, e.g. `%s` on an int segfaults). Dynamic values
+            // leave markers untouched.
+            // Kinds: 0 = string, 1 = float, 2 = map, 3 = other.
+            if let (Expr::Identifier(map_name), Expr::String(field)) = (array, index) {
+                let lit_kind: Option<u8> = match value {
+                    Expr::String(_) => Some(0),
+                    Expr::Float(_) => Some(1),
+                    Expr::Number(n) => Some(if n.fract() != 0.0 { 1 } else { 3 }),
+                    Expr::Map(_) => Some(2),
+                    Expr::Array(_) | Expr::Null | Expr::StructInit { .. } => Some(3),
+                    _ => None,
+                };
+                if let Some(kind) = lit_kind {
+                    let mut drop_keys = Vec::new();
+                    if kind != 0 {
+                        drop_keys.push(format!("map_str:{}.{}", map_name, field));
+                        drop_keys.push(format!("map_field_str:{}", field));
+                    }
+                    if kind != 1 {
+                        drop_keys.push(format!("map_flt:{}.{}", map_name, field));
+                        drop_keys.push(format!("map_field_flt:{}", field));
+                    }
+                    if kind != 2 {
+                        drop_keys.push(format!("map_map:{}.{}", map_name, field));
+                        drop_keys.push(format!("map_field_map:{}", field));
+                    }
+                    for k in drop_keys {
+                        self.ctx.variables.remove(&k);
+                    }
                 }
             }
         } else {

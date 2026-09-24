@@ -705,6 +705,18 @@ pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     return true;
                 }
             }
+            if let Expr::String(field) = &**index {
+                let key = format!("map_field_flt:{}", field);
+                if vars.contains_key(&key) {
+                    return true;
+                }
+            }
+            if let (Expr::Identifier(obj_name), Expr::String(field)) = (&**array, &**index) {
+                let key = format!("map_flt:{}.{}", obj_name, field);
+                if vars.contains_key(&key) {
+                    return true;
+                }
+            }
             is_float_array(array, vars)
         }
         Expr::Call { name, args } => {

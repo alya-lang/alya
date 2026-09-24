@@ -635,11 +635,12 @@ impl CodeGen {
                     // Index reads whose value type is statically unknown
                     // (e.g. variable keys into maps) would print heap
                     // pointers as integers. Classify the value at runtime;
-                    // proven string/array/map results keep their existing
-                    // paths above.
+                    // proven string/array/map/float results keep their
+                    // existing paths above.
                     if !is_string_expr(expr, &self.ctx.variables)
                         && !is_array_expr(expr, &self.ctx.variables)
                         && !is_map_expr(expr, &self.ctx.variables)
+                        && !is_float_expr(expr, &self.ctx.variables)
                     {
                         let l_idx_str = self.ctx.next_label();
                         let l_idx_end = self.ctx.next_label();

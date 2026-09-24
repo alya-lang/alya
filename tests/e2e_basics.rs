@@ -1067,3 +1067,42 @@ say m[key]
         assert_eq!(output, "hello\nhello\n");
     }
 }
+
+#[test]
+fn test_e2e_map_float_roundtrip() {
+    // Float values stored under literal keys round-trip through reads,
+    // equality, str() and `is float` via per-key kind markers.
+    // (Regression test for alya-lang/alya#15.)
+    let code = r#"
+let m = map()
+m["pi"] = 3.5
+say m["pi"]
+if m["pi"] == 3.5
+    say "eq ok"
+end
+say str(m["pi"])
+if m["pi"] is float
+    say "is-float ok"
+end
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "3.5\neq ok\n3.5\nis-float ok\n");
+    }
+}
+
+#[test]
+fn test_e2e_map_rewrite_clears_markers() {
+    // Rewriting a key with a proven-contradictory literal type must drop
+    // stale per-key markers instead of segfaulting on `%s` over an int.
+    // (Regression test for alya-lang/alya#15.)
+    let code = r#"
+let m = map()
+m["k"] = "hello"
+say m["k"]
+m["k"] = 42
+say m["k"]
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "hello\n42\n");
+    }
+}
