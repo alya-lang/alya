@@ -65,13 +65,6 @@ jobs:
             bin: alya.exe
             archive: zip
             tc: alya-toolchain-windows-arm64.zip
-          - os: windows-latest
-            target: i686-pc-windows-msvc
-            platform: x86-windows
-            label: Windows x86
-            bin: alya.exe
-            archive: zip
-            tc: alya-toolchain-windows-x86.zip
 
     steps:
       - name: Checkout repository

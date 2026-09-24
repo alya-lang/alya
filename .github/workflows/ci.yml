@@ -111,26 +111,3 @@ jobs:
           cargo run -- toolchain status
           cargo run -- toolchain help
 
-  test-x86:
-    name: Test (Windows x86 codegen)
-    needs: [fmt, clippy]
-    runs-on: windows-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build and run x86 program (WOW64)
-        shell: pwsh
-        env:
-          ALYA_TOOLCHAIN_AUTO_INSTALL: "1"
-        run: |
-          Set-Content -Path hello32.alya -Value 'say "Hello from x86!"'
-          cargo run -- build hello32.alya --arch x86 -b -o hello32.exe
-          ./hello32.exe
-
