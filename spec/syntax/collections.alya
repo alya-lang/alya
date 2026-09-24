@@ -157,3 +157,15 @@ function test_comprehension_filters()
     assert_eq(odds.length(), 2)
     assert_eq(odds[0], 1)
 end
+
+# ------------------------------------------------------------------------------
+# 8. Variable-Key Map Reads Print Like Literal-Key Reads (Chapter 13 §1)
+# ------------------------------------------------------------------------------
+# Map reads through runtime keys return the same values as literal keys;
+# `say` classifies them at runtime instead of printing raw pointers.
+let probe_map = map()
+probe_map["greet"] = "hello-map"
+let probe_key = "greet"
+let probe_val = probe_map[probe_key]
+say probe_val
+say probe_map[probe_key]

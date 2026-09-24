@@ -278,3 +278,18 @@ function test_when_expression_form()
     end
     assert_eq(g, "many")
 end
+
+# ------------------------------------------------------------------------------
+# 14. Mixed-Type Arms with str() Conversion (Chapter 05 §1.4)
+# ------------------------------------------------------------------------------
+# A `when` expression whose arms yield different types produces a dynamic
+# value; `str()` must convert the taken arm instead of assuming one type.
+function decode_mixed(kind: string, raw: string)
+    return when kind
+        is "i" => to_int(raw)
+        else => raw
+    end
+end
+
+say "Mixed decode int: " + str(decode_mixed("i", "36"))
+say "Mixed decode str: " + str(decode_mixed("s", "hi"))

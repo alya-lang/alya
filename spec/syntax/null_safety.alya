@@ -118,3 +118,16 @@ end
 function test_guard_unwraps()
     parse_and_greet("Ada")
 end
+
+# ------------------------------------------------------------------------------
+# 9. `guard` Is Contextual, Not Reserved (Chapter 00 §1.4)
+# ------------------------------------------------------------------------------
+# `guard` is not in the reserved keywords list, so it works as an ordinary
+# variable name, including plain and compound assignment.
+let guard = 10
+while guard > 0
+    guard = guard - 1
+end
+say f"Guard counter drained: {guard}"
+guard += 5
+say f"Guard counter bumped: {guard}"

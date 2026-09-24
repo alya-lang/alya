@@ -234,6 +234,7 @@ fn test_golden_spec_collections_execution() {
         assert!(output.contains("Comprehension result: 20"));
         assert!(output.contains("Comprehension result: 100"));
         assert!(output.contains("Fruit 'apple' has length 5"));
+        assert!(output.contains("hello-map"));
     }
 }
 
@@ -747,6 +748,8 @@ fn test_golden_spec_when_execution() {
         assert!(output.contains(
             "Calculator evaluator: 15 + 7 = 22, 15 - 7 = 8, 15 * 7 = 105, 15 / 7 = 2, 15 % 7 = 1"
         ));
+        assert!(output.contains("Mixed decode int: 36"));
+        assert!(output.contains("Mixed decode str: hi"));
     }
 }
 
