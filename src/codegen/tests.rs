@@ -60,6 +60,24 @@ fn test_codegen_arm64_header_and_footer() {
 }
 
 #[test]
+fn test_codegen_arm64_windows_net_thread_apis() {
+    // Windows ARM64 must not reference POSIX-only net/thread APIs (#23):
+    // ioctlsocket/closesocket/CreateThread family instead of
+    // fcntl/pthread_*, plus WSAStartup in the main prelude.
+    let program = simple_program(Stmt::Say(Expr::Number(42.0)));
+    let asm = generate(&program, Architecture::ARM64, OperatingSystem::Windows);
+
+    assert!(asm.contains("bl WSAStartup"));
+    assert!(asm.contains("bl ioctlsocket"));
+    assert!(asm.contains("bl closesocket"));
+    assert!(asm.contains("bl CreateThread"));
+    assert!(asm.contains("bl WaitForSingleObject"));
+    assert!(asm.contains("bl CreateMutexA"));
+    assert!(!asm.contains("fcntl"));
+    assert!(!asm.contains("pthread"));
+}
+
+#[test]
 fn test_codegen_arm64_large_stack_offset() {
     let mut stmts = Vec::new();
     for i in 0..20 {
