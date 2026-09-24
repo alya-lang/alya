@@ -60,7 +60,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, windows-11-arm, macos-latest, macos-15-intel]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -70,6 +70,23 @@ jobs:
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
+
+      - name: Provision Windows ARM64 C toolchain
+        if: matrix.os == 'windows-11-arm'
+        shell: pwsh
+        run: |
+          $tcDir = "$env:USERPROFILE/.alya/toolchain"
+          New-Item -ItemType Directory -Force -Path $tcDir | Out-Null
+          $zip = "$env:RUNNER_TEMP/toolchain-arm64.zip"
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          try {
+            Invoke-WebRequest -Uri "https://github.com/alya-lang/toolchain/releases/latest/download/alya-toolchain-windows-arm64.zip" -OutFile $zip -UseBasicParsing
+          } catch {
+            Write-Host "Latest toolchain download failed, falling back to v1.0.0"
+            Invoke-WebRequest -Uri "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-windows-arm64.zip" -OutFile $zip -UseBasicParsing
+          }
+          Expand-Archive -Path $zip -DestinationPath $tcDir -Force
+          Add-Content -Path $env:GITHUB_PATH -Value "$tcDir/bin"
 
       - name: Run test suite
         run: cargo test --verbose

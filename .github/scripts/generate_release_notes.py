@@ -174,19 +174,25 @@ def main():
     # 7. Checksums from dist/
     dist_dir = Path("dist")
     linux_pkg = f"alya-{tag}-x86_64-linux.tar.gz"
+    linux_arm_pkg = f"alya-{tag}-arm64-linux.tar.gz"
     mac_arm_pkg = f"alya-{tag}-arm64-macos.tar.gz"
     mac_x64_pkg = f"alya-{tag}-x86_64-macos.tar.gz"
     win_pkg = f"alya-{tag}-x86_64-windows.zip"
+    win_arm_pkg = f"alya-{tag}-arm64-windows.zip"
 
     linux_sha = get_checksum(dist_dir, linux_pkg)
+    linux_arm_sha = get_checksum(dist_dir, linux_arm_pkg)
     mac_arm_sha = get_checksum(dist_dir, mac_arm_pkg)
     mac_x64_sha = get_checksum(dist_dir, mac_x64_pkg)
     win_sha = get_checksum(dist_dir, win_pkg)
+    win_arm_sha = get_checksum(dist_dir, win_arm_pkg)
 
     linux_sha_short = linux_sha[:8] if linux_sha != "—" else "—"
+    linux_arm_sha_short = linux_arm_sha[:8] if linux_arm_sha != "—" else "—"
     mac_arm_sha_short = mac_arm_sha[:8] if mac_arm_sha != "—" else "—"
     mac_x64_sha_short = mac_x64_sha[:8] if mac_x64_sha != "—" else "—"
     win_sha_short = win_sha[:8] if win_sha != "—" else "—"
+    win_arm_sha_short = win_arm_sha[:8] if win_arm_sha != "—" else "—"
 
     # 8. Load Template
     template_path = Path(".github/release_template.md")
@@ -201,15 +207,19 @@ def main():
             "| Platform | Architecture | Package | Checksum |\n"
             "|:---|:---|:---|:---:|\n"
             f"| Linux | `x86_64` | [{linux_pkg}]({repo_url}/releases/download/{{VERSION}}/{linux_pkg}) | [{{{{LINUX_SHA_SHORT}}}}]({repo_url}/releases/download/{{VERSION}}/{linux_pkg}.sha256) |\n"
+            f"| Linux | `arm64` (AArch64) | [{linux_arm_pkg}]({repo_url}/releases/download/{{VERSION}}/{linux_arm_pkg}) | [{{{{LINUX_ARM_SHA_SHORT}}}}]({repo_url}/releases/download/{{VERSION}}/{linux_arm_pkg}.sha256) |\n"
             f"| macOS | `arm64` (Apple Silicon) | [{mac_arm_pkg}]({repo_url}/releases/download/{{VERSION}}/{mac_arm_pkg}) | [{{{{MAC_ARM_SHA_SHORT}}}}]({repo_url}/releases/download/{{VERSION}}/{mac_arm_pkg}.sha256) |\n"
             f"| macOS | `x86_64` (Intel) | [{mac_x64_pkg}]({repo_url}/releases/download/{{VERSION}}/{mac_x64_pkg}) | [{{{{MAC_X64_SHA_SHORT}}}}]({repo_url}/releases/download/{{VERSION}}/{mac_x64_pkg}.sha256) |\n"
-            f"| Windows | `x86_64` | [{win_pkg}]({repo_url}/releases/download/{{VERSION}}/{win_pkg}) | [{{{{WIN_SHA_SHORT}}}}]({repo_url}/releases/download/{{VERSION}}/{win_pkg}.sha256) |\n\n"
+            f"| Windows | `x86_64` | [{win_pkg}]({repo_url}/releases/download/{{VERSION}}/{win_pkg}) | [{{{{WIN_SHA_SHORT}}}}]({repo_url}/releases/download/{{VERSION}}/{win_pkg}.sha256) |\n"
+            f"| Windows | `arm64` (AArch64) | [{win_arm_pkg}]({repo_url}/releases/download/{{VERSION}}/{win_arm_pkg}) | [{{{{WIN_ARM_SHA_SHORT}}}}]({repo_url}/releases/download/{{VERSION}}/{win_arm_pkg}.sha256) |\n\n"
             "### 🔒 SHA-256 Checksums\n\n"
             "```text\n"
             f"{{{{LINUX_SHA}}}}  {linux_pkg}\n"
+            f"{{{{LINUX_ARM_SHA}}}}  {linux_arm_pkg}\n"
             f"{{{{MAC_ARM_SHA}}}}  {mac_arm_pkg}\n"
             f"{{{{MAC_X64_SHA}}}}  {mac_x64_pkg}\n"
             f"{{{{WIN_SHA}}}}  {win_pkg}\n"
+            f"{{{{WIN_ARM_SHA}}}}  {win_arm_pkg}\n"
             "```\n\n"
             "---\n\n"
             "{{FULL_CHANGELOG}}\n"
@@ -222,13 +232,17 @@ def main():
         "{{REPO}}": repo,
         "{{REPO_URL}}": repo_url,
         "{{LINUX_SHA}}": linux_sha,
+        "{{LINUX_ARM_SHA}}": linux_arm_sha,
         "{{MAC_ARM_SHA}}": mac_arm_sha,
         "{{MAC_X64_SHA}}": mac_x64_sha,
         "{{WIN_SHA}}": win_sha,
+        "{{WIN_ARM_SHA}}": win_arm_sha,
         "{{LINUX_SHA_SHORT}}": linux_sha_short,
+        "{{LINUX_ARM_SHA_SHORT}}": linux_arm_sha_short,
         "{{MAC_ARM_SHA_SHORT}}": mac_arm_sha_short,
         "{{MAC_X64_SHA_SHORT}}": mac_x64_sha_short,
         "{{WIN_SHA_SHORT}}": win_sha_short,
+        "{{WIN_ARM_SHA_SHORT}}": win_arm_sha_short,
         "{{PREV_TAG}}": prev_tag,
         "{{CHANGELOG_COMMITS}}": commits_text,
         "{{FULL_CHANGELOG}}": full_changelog,

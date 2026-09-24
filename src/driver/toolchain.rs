@@ -268,6 +268,8 @@ pub fn install_toolchain(
 
     let archive_name = match (os, arch) {
         (OperatingSystem::Windows, Architecture::X64) => "alya-toolchain-windows-x64.zip",
+        (OperatingSystem::Windows, Architecture::ARM64) => "alya-toolchain-windows-arm64.zip",
+        (OperatingSystem::Windows, Architecture::X86) => "alya-toolchain-windows-x86.zip",
         (OperatingSystem::Linux, Architecture::X64) => "alya-toolchain-linux-x64.tar.gz",
         (OperatingSystem::Linux, Architecture::ARM64) => "alya-toolchain-linux-arm64.tar.gz",
         (OperatingSystem::MacOS, Architecture::ARM64) => "alya-toolchain-macos-arm64.tar.gz",

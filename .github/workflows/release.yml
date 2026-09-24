@@ -32,6 +32,11 @@ jobs:
             platform: x86_64-linux
             bin: alya
             archive: tar.gz
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            platform: arm64-linux
+            bin: alya
+            archive: tar.gz
           - os: macos-latest
             target: x86_64-apple-darwin
             platform: x86_64-macos
@@ -47,6 +52,13 @@ jobs:
             platform: x86_64-windows
             bin: alya.exe
             archive: zip
+            tc: alya-toolchain-windows-x64.zip
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            platform: arm64-windows
+            bin: alya.exe
+            archive: zip
+            tc: alya-toolchain-windows-arm64.zip
 
     steps:
       - name: Checkout repository
@@ -94,7 +106,7 @@ jobs:
           Copy-Item README.md, LICENSE -Destination $StandaloneName
           
           # Download and bundle minimal toolchain (tracking latest release, with fallback)
-          $tcUrl = "https://github.com/alya-lang/toolchain/releases/latest/download/alya-toolchain-windows-x64.zip"
+          $tcUrl = "https://github.com/alya-lang/toolchain/releases/latest/download/${{ matrix.tc }}"
           $tcZip = Join-Path $StandaloneName "toolchain.zip"
           $tcDir = Join-Path $StandaloneName "toolchain"
           try {
@@ -103,7 +115,7 @@ jobs:
                   Invoke-WebRequest -Uri $tcUrl -OutFile $tcZip -UseBasicParsing
               } catch {
                   Write-Host "Latest toolchain download failed, falling back to v1.0.0: $_"
-                  Invoke-WebRequest -Uri "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-windows-x64.zip" -OutFile $tcZip -UseBasicParsing
+                  Invoke-WebRequest -Uri "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/${{ matrix.tc }}" -OutFile $tcZip -UseBasicParsing
               }
               Expand-Archive -Path $tcZip -DestinationPath $tcDir -Force
               Remove-Item -Force $tcZip
