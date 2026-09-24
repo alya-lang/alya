@@ -3318,7 +3318,7 @@ impl CodeGen {
                 self.output.push_str("    tst x0, #7\n");
                 self.output.push_str(&format!("    b.ne {}\n", false_label));
                 self.output.push_str("    cmp x0, #65536\n");
-                self.output.push_str(&format!("    b.lo {}\n", false_label));
+                self.output.push_str(&format!("    b.ls {}\n", false_label));
                 self.output.push_str("    lsr x1, x0, #47\n");
                 self.output
                     .push_str(&format!("    cbnz x1, {}\n", false_label));
@@ -3506,7 +3506,7 @@ impl CodeGen {
                 self.output.push_str("    tst x0, #7\n");
                 self.output.push_str(&format!("    b.ne {}\n", false_label));
                 self.output.push_str("    cmp x0, #65536\n");
-                self.output.push_str(&format!("    b.lo {}\n", false_label));
+                self.output.push_str(&format!("    b.ls {}\n", false_label));
                 self.output.push_str("    lsr x1, x0, #47\n");
                 self.output
                     .push_str(&format!("    cbnz x1, {}\n", false_label));
@@ -3613,7 +3613,7 @@ impl CodeGen {
                 self.output.push_str("    tst x0, #7\n");
                 self.output.push_str(&format!("    b.ne {}\n", false_label));
                 self.output.push_str("    cmp x0, #65536\n");
-                self.output.push_str(&format!("    b.lo {}\n", false_label));
+                self.output.push_str(&format!("    b.ls {}\n", false_label));
                 self.output.push_str("    lsr x1, x0, #47\n");
                 self.output
                     .push_str(&format!("    cbnz x1, {}\n", false_label));
@@ -3708,7 +3708,7 @@ impl CodeGen {
             Architecture::ARM64 => {
                 self.output.push_str("    movz x1, #1, lsl #16\n");
                 self.output.push_str("    cmp x0, x1\n");
-                self.output.push_str(&format!("    b.lo {}\n", l_int));
+                self.output.push_str(&format!("    b.ls {}\n", l_int));
                 self.output.push_str("    lsr x1, x0, #47\n");
                 self.output.push_str(&format!("    cbnz x1, {}\n", l_int));
                 crate::codegen::arch::arm64::emit_adrp_add(

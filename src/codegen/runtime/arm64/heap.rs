@@ -260,7 +260,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    tst x0, #7\n");
     out.push_str("    b.ne .L_arm64_rc_retain_done\n");
     out.push_str("    cmp x0, #65536\n");
-    out.push_str("    b.lo .L_arm64_rc_retain_done\n");
+    out.push_str("    b.ls .L_arm64_rc_retain_done\n");
     out.push_str("    lsr x1, x0, #47\n");
     out.push_str("    cbnz x1, .L_arm64_rc_retain_done\n");
     emit_adrp_add(out, "x1", "alya_rodata_start", os);
@@ -318,7 +318,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    tst x19, #7\n");
     out.push_str("    b.ne .L_arm64_rc_rel_done\n");
     out.push_str("    cmp x19, #65536\n");
-    out.push_str("    b.lo .L_arm64_rc_rel_done\n");
+    out.push_str("    b.ls .L_arm64_rc_rel_done\n");
     out.push_str("    lsr x1, x19, #47\n");
     out.push_str("    cbnz x1, .L_arm64_rc_rel_done\n");
     emit_adrp_add(out, "x1", "alya_rodata_start", os);
@@ -402,7 +402,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    tst x0, #7\n");
     out.push_str("    b.ne .L_arm64_rcc_zero\n");
     out.push_str("    cmp x0, #65536\n");
-    out.push_str("    b.lo .L_arm64_rcc_zero\n");
+    out.push_str("    b.ls .L_arm64_rcc_zero\n");
     out.push_str("    lsr x1, x0, #47\n");
     out.push_str("    cbnz x1, .L_arm64_rcc_zero\n");
     emit_adrp_add(out, "x1", "alya_rodata_start", os);

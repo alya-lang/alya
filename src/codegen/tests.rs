@@ -441,7 +441,7 @@ end
     assert!(asm_arm64.contains("cbz x0"));
     assert!(asm_arm64.contains("tst x0, #7"));
     assert!(asm_arm64.contains("cmp x0, #65536"));
-    assert!(asm_arm64.contains("b.lo"));
+    assert!(asm_arm64.contains("b.ls"));
     assert!(asm_arm64.contains("lsr x1, x0, #47"));
     assert!(asm_arm64.contains("ldur x1, [x0, #-16]"));
 }
@@ -632,4 +632,22 @@ let res = alya_vpn_pump_server_vpn(3)
     // The i32-specific path is guarded by `rt == \"i32\"` check in expr.rs.
     // If return type is i64, sxtw is NOT emitted for this call — confirmed by
     // x64 movslq absence and code-level inspection of the is_i32_ret guard.
+}
+
+#[test]
+fn test_codegen_arm64_runtime_symbols() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = "function main() say 42 end";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::Windows);
+    assert!(asm_arm64.contains("alya_fat_ptr_new:"));
+    assert!(asm_arm64.contains("fn_format_binary:"));
+    assert!(asm_arm64.contains("fn_runes:"));
+    assert!(asm_arm64.contains("b.ls .L_arm64_rc_retain_done"));
 }

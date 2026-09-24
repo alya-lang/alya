@@ -20,7 +20,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    tst x19, #7\n");
     out.push_str("    b.ne .L_arm64_gc_ap_done\n");
     out.push_str("    cmp x19, #65536\n");
-    out.push_str("    b.lo .L_arm64_gc_ap_done\n");
+    out.push_str("    b.ls .L_arm64_gc_ap_done\n");
     out.push_str("    lsr x1, x19, #47\n");
     out.push_str("    cbnz x1, .L_arm64_gc_ap_done\n");
 
@@ -87,7 +87,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    tst x19, #7\n");
     out.push_str("    b.ne .L_arm64_mg_done\n");
     out.push_str("    cmp x19, #65536\n");
-    out.push_str("    b.lo .L_arm64_mg_done\n");
+    out.push_str("    b.ls .L_arm64_mg_done\n");
     out.push_str("    lsr x1, x19, #47\n");
     out.push_str("    cbnz x1, .L_arm64_mg_done\n");
 
@@ -197,7 +197,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    tst x19, #7\n");
     out.push_str("    b.ne .L_arm64_s_done\n");
     out.push_str("    cmp x19, #65536\n");
-    out.push_str("    b.lo .L_arm64_s_done\n");
+    out.push_str("    b.ls .L_arm64_s_done\n");
     out.push_str("    lsr x1, x19, #47\n");
     out.push_str("    cbnz x1, .L_arm64_s_done\n");
 
@@ -304,7 +304,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    tst x19, #7\n");
     out.push_str("    b.ne .L_arm64_sb_done\n");
     out.push_str("    cmp x19, #65536\n");
-    out.push_str("    b.lo .L_arm64_sb_done\n");
+    out.push_str("    b.ls .L_arm64_sb_done\n");
     out.push_str("    lsr x1, x19, #47\n");
     out.push_str("    cbnz x1, .L_arm64_sb_done\n");
 
@@ -396,7 +396,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    tst x19, #7\n");
     out.push_str("    b.ne .L_arm64_cw_done\n");
     out.push_str("    cmp x19, #65536\n");
-    out.push_str("    b.lo .L_arm64_cw_done\n");
+    out.push_str("    b.ls .L_arm64_cw_done\n");
     out.push_str("    lsr x1, x19, #47\n");
     out.push_str("    cbnz x1, .L_arm64_cw_done\n");
 
@@ -638,7 +638,7 @@ fn emit_child_mark_gray(out: &mut String) {
     out.push_str("    tst x25, #7\n");
     out.push_str(&format!("    b.ne {}\n", lbl_next));
     out.push_str("    cmp x25, #65536\n");
-    out.push_str(&format!("    b.lo {}\n", lbl_next));
+    out.push_str(&format!("    b.ls {}\n", lbl_next));
     out.push_str("    lsr x9, x25, #47\n");
     out.push_str(&format!("    cbnz x9, {}\n", lbl_next));
     out.push_str("    ldur w9, [x25, #-16]\n");
@@ -672,7 +672,7 @@ fn emit_child_scan(out: &mut String) {
     out.push_str("    tst x25, #7\n");
     out.push_str(&format!("    b.ne {}\n", lbl_next));
     out.push_str("    cmp x25, #65536\n");
-    out.push_str(&format!("    b.lo {}\n", lbl_next));
+    out.push_str(&format!("    b.ls {}\n", lbl_next));
     out.push_str("    lsr x9, x25, #47\n");
     out.push_str(&format!("    cbnz x9, {}\n", lbl_next));
     out.push_str("    ldur w9, [x25, #-16]\n");
@@ -701,7 +701,7 @@ fn emit_child_scan_black(out: &mut String) {
     out.push_str("    tst x25, #7\n");
     out.push_str(&format!("    b.ne {}\n", lbl_next));
     out.push_str("    cmp x25, #65536\n");
-    out.push_str(&format!("    b.lo {}\n", lbl_next));
+    out.push_str(&format!("    b.ls {}\n", lbl_next));
     out.push_str("    lsr x9, x25, #47\n");
     out.push_str(&format!("    cbnz x9, {}\n", lbl_next));
     out.push_str("    ldur w9, [x25, #-16]\n");
@@ -739,7 +739,7 @@ fn emit_child_collect_white(out: &mut String) {
     out.push_str("    tst x25, #7\n");
     out.push_str(&format!("    b.ne {}\n", lbl_next));
     out.push_str("    cmp x25, #65536\n");
-    out.push_str(&format!("    b.lo {}\n", lbl_next));
+    out.push_str(&format!("    b.ls {}\n", lbl_next));
     out.push_str("    lsr x9, x25, #47\n");
     out.push_str(&format!("    cbnz x9, {}\n", lbl_next));
     out.push_str("    ldur w9, [x25, #-16]\n");

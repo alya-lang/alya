@@ -98,4 +98,38 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldp x29, x30, [sp], #64\n");
     out.push_str("    ret\n\n");
 
+    // alya_fat_ptr_new
+    out.push_str(&format!(".global {}alya_fat_ptr_new\n", p));
+    out.push_str(".align 2\n");
+    out.push_str(&format!("{}alya_fat_ptr_new:\n", p));
+    out.push_str("    stp x29, x30, [sp, #-32]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    stp x19, x20, [sp, #16]\n");
+    out.push_str("    mov x19, x0\n");
+    out.push_str("    mov x20, x1\n");
+    out.push_str("    mov x0, #4\n");
+    out.push_str("    mov x1, #8\n");
+    out.push_str(&format!("    bl {}calloc\n", p));
+    emit_adrp_add(out, "x2", "alya_allocated_bytes", os);
+    out.push_str("    ldr x3, [x2]\n");
+    out.push_str("    add x3, x3, #32\n");
+    out.push_str("    str x3, [x2]\n");
+    out.push_str("    movz x1, #0x0004\n");
+    out.push_str("    movk x1, #0x5A11, lsl #16\n");
+    out.push_str("    str x1, [x0]\n");
+    out.push_str("    mov x1, #1\n");
+    out.push_str("    str x1, [x0, #8]\n");
+    out.push_str("    add x0, x0, #16\n");
+    out.push_str("    str x19, [x0]\n");
+    out.push_str("    str x20, [x0, #8]\n");
+    out.push_str("    mov x1, #32\n");
+    out.push_str("    mov x2, #3\n");
+    out.push_str("    mov x3, #0\n");
+    out.push_str("    stp x0, x1, [sp, #-16]!\n");
+    out.push_str("    bl alya_mem_track_alloc\n");
+    out.push_str("    ldp x0, x1, [sp], #16\n");
+    out.push_str("    ldp x19, x20, [sp, #16]\n");
+    out.push_str("    ldp x29, x30, [sp], #32\n");
+    out.push_str("    ret\n\n");
 }
+

@@ -12,7 +12,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".global alya_map_hash\n");
     out.push_str("alya_map_hash:\n");
     out.push_str("    cmp x0, #65536\n");
-    out.push_str("    b.lo .L_arm64_mhash_int\n");
+    out.push_str("    b.ls .L_arm64_mhash_int\n");
     out.push_str("    mov x9, x0\n");
     out.push_str("    mov x0, #5381\n");
     out.push_str(".L_arm64_mhash_loop:\n");
@@ -35,9 +35,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    cmp x0, x1\n");
     out.push_str("    b.eq .L_arm64_mkeq_true\n");
     out.push_str("    cmp x0, #65536\n");
-    out.push_str("    b.lo .L_arm64_mkeq_false\n");
+    out.push_str("    b.ls .L_arm64_mkeq_false\n");
     out.push_str("    cmp x1, #65536\n");
-    out.push_str("    b.lo .L_arm64_mkeq_false\n");
+    out.push_str("    b.ls .L_arm64_mkeq_false\n");
     out.push_str(".L_arm64_mkeq_str:\n");
     out.push_str("    ldrb w2, [x0], #1\n");
     out.push_str("    ldrb w3, [x1], #1\n");
@@ -59,9 +59,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    cmp x0, x1\n");
     out.push_str("    b.eq .L_arm64_strcmp_eq\n");
     out.push_str("    cmp x0, #65536\n");
-    out.push_str("    b.lo .L_arm64_strcmp_s1_null\n");
+    out.push_str("    b.ls .L_arm64_strcmp_s1_null\n");
     out.push_str("    cmp x1, #65536\n");
-    out.push_str("    b.lo .L_arm64_strcmp_s2_null\n");
+    out.push_str("    b.ls .L_arm64_strcmp_s2_null\n");
     out.push_str(".L_arm64_strcmp_loop:\n");
     out.push_str("    ldrb w9, [x0], #1\n");
     out.push_str("    ldrb w10, [x1], #1\n");
@@ -75,7 +75,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ret\n");
     out.push_str(".L_arm64_strcmp_s1_null:\n");
     out.push_str("    cmp x1, #65536\n");
-    out.push_str("    b.lo .L_arm64_strcmp_eq\n");
+    out.push_str("    b.ls .L_arm64_strcmp_eq\n");
     out.push_str("    mov x0, #-1\n");
     out.push_str("    ret\n");
     out.push_str(".L_arm64_strcmp_s2_null:\n");
@@ -269,7 +269,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x24, x2\n");
     out.push_str("    cbz x0, .L_arm64_get_not_found\n");
     out.push_str("    cmp x0, #65536\n");
-    out.push_str("    b.lo .L_arm64_get_not_found\n");
+    out.push_str("    b.ls .L_arm64_get_not_found\n");
     out.push_str("    tst x0, #7\n");
     out.push_str("    b.ne .L_arm64_get_not_found\n");
     emit_adrp_add(out, "x9", "alya_rodata_start", os);
@@ -689,7 +689,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    b.ne .L_arm64_in_str\n");
     out.push_str("    mov x2, #65536\n");
     out.push_str("    cmp x19, x2\n");
-    out.push_str("    b.lo .L_arm64_in_str\n");
+    out.push_str("    b.ls .L_arm64_in_str\n");
     emit_adrp_add(out, "x2", "alya_rodata_start", os);
     out.push_str("    cmp x19, x2\n");
     out.push_str("    b.lo .L_arm64_in_chk_str_buf\n");

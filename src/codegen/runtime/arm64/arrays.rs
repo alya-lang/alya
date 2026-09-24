@@ -255,7 +255,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("fn_slice:\n");
     out.push_str("    cbz x0, .L_arm64_fn_slice_null\n");
     out.push_str("    cmp x0, #65536\n");
-    out.push_str("    b.lo .L_arm64_fn_slice_null\n");
+    out.push_str("    b.ls .L_arm64_fn_slice_null\n");
     out.push_str("    tst x0, #7\n");
     out.push_str("    b.ne .L_arm64_fn_slice_str\n");
     emit_adrp_add(out, "x3", "alya_rodata_start", os);
