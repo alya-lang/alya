@@ -8,6 +8,11 @@
       "url": "https://github.com/alya-lang/alya/releases/download/v0.0.19/alya-v0.0.19-x86_64-windows.zip",
       "hash": "899340d324cc645e98d300d0ec1a8749142c6a9656e2c016326ad6e1d91b45a9",
       "extract_dir": "alya-v0.0.19-x86_64-windows"
+    },
+    "arm64": {
+      "url": "https://github.com/alya-lang/alya/releases/download/v0.0.19/alya-v0.0.19-arm64-windows.zip",
+      "hash": "eba858015d1488a9c7a06da8e4997f371a0489010f0b50014bf51c060ec559b6",
+      "extract_dir": "alya-v0.0.19-arm64-windows"
     }
   },
   "bin": "alya.exe",
@@ -22,6 +27,10 @@
       "64bit": {
         "url": "https://github.com/alya-lang/alya/releases/download/v$version/alya-v$version-x86_64-windows.zip",
         "extract_dir": "alya-v$version-x86_64-windows"
+      },
+      "arm64": {
+        "url": "https://github.com/alya-lang/alya/releases/download/v$version/alya-v$version-arm64-windows.zip",
+        "extract_dir": "alya-v$version-arm64-windows"
       }
     }
   }

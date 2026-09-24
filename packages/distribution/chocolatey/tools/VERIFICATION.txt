@@ -2,11 +2,13 @@ VERIFICATION
 Verification is intended to assist the Chocolatey moderators and community
 in verifying that this package's contents are trustworthy.
 
-1. The package archive is downloaded directly from the official Alya GitHub release:
-   https://github.com/alya-lang/alya/releases/download/v0.0.19/alya-v0.0.19-x86_64-windows.zip
+1. The package archives are downloaded directly from the official Alya GitHub release:
+   x64:   https://github.com/alya-lang/alya/releases/download/v0.0.19/alya-v0.0.19-x86_64-windows.zip
+   ARM64: https://github.com/alya-lang/alya/releases/download/v0.0.19/alya-v0.0.19-arm64-windows.zip
 
-2. Checksum (SHA-256):
-   899340d324cc645e98d300d0ec1a8749142c6a9656e2c016326ad6e1d91b45a9 upon GitHub Release asset generation)
+2. Checksums (SHA-256, computed upon GitHub Release asset generation):
+   x64:   899340d324cc645e98d300d0ec1a8749142c6a9656e2c016326ad6e1d91b45a9
+   ARM64: eba858015d1488a9c7a06da8e4997f371a0489010f0b50014bf51c060ec559b6
 
 3. Release verification:
    The official release, release notes, and SHA-256 checksums are published at:
