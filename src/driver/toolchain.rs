@@ -162,6 +162,41 @@ fn probe_compiler(path: &Path) -> Option<(ToolchainKind, String)> {
     Some((kind, first_line))
 }
 
+/// Returns the machine prefix reported by `<compiler> -dumpmachine`
+/// (e.g. "x86_64-w64-mingw32" -> "x86_64", "aarch64-w64-mingw32" -> "aarch64").
+fn compiler_machine_prefix(path: &Path) -> Option<String> {
+    let output = Command::new(path).arg("-dumpmachine").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let machine = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    machine
+        .split('-')
+        .next()
+        .map(|s| s.to_lowercase())
+        .filter(|s| !s.is_empty())
+}
+
+/// True when a `machine` prefix (see `compiler_machine_prefix`) can
+/// assemble output for the requested architecture.
+fn machine_matches_arch(machine: &str, arch: Architecture) -> bool {
+    match arch {
+        Architecture::X64 => machine == "x86_64" || machine == "amd64",
+        Architecture::X86 => machine.starts_with('i') && machine.ends_with("86"),
+        Architecture::ARM64 => machine == "aarch64" || machine == "arm64",
+    }
+}
+
+/// True when the compiler at `path` targets the requested architecture.
+/// An unprobable compiler counts as a match to preserve legacy behavior
+/// (accept first working system compiler).
+fn compiler_matches_arch(path: &Path, arch: Architecture) -> bool {
+    match compiler_machine_prefix(path) {
+        None => true,
+        Some(machine) => machine_matches_arch(&machine, arch),
+    }
+}
+
 /// Detects system toolchain via PATH
 pub fn detect_system_toolchain(os: OperatingSystem) -> Option<ToolchainInfo> {
     let candidates: &[&str] = match os {
@@ -241,9 +276,14 @@ pub fn resolve_toolchain(
     os: OperatingSystem,
     quiet: bool,
 ) -> Result<ToolchainInfo, String> {
-    // 1. Check system PATH
+    // 1. Check system PATH, but only when it targets the requested
+    // architecture. A foreign-arch system compiler (e.g. x64 MinGW on a
+    // Windows ARM64 runner) cannot assemble our output and must not shadow
+    // the portable toolchain in ~/.alya/toolchain.
     if let Some(info) = detect_system_toolchain(os) {
-        return Ok(info);
+        if compiler_matches_arch(&info.compiler_path, arch) {
+            return Ok(info);
+        }
     }
 
     // 2. Check ~/.alya/toolchain
@@ -680,6 +720,19 @@ mod tests {
             None
         );
         assert_eq!(manifest_archive_for("{}", "x86_64-pc-windows-gnu"), None);
+    }
+
+    #[test]
+    fn test_machine_matches_arch() {
+        assert!(machine_matches_arch("x86_64", Architecture::X64));
+        assert!(machine_matches_arch("amd64", Architecture::X64));
+        assert!(!machine_matches_arch("aarch64", Architecture::X64));
+        assert!(machine_matches_arch("i686", Architecture::X86));
+        assert!(machine_matches_arch("i386", Architecture::X86));
+        assert!(!machine_matches_arch("x86_64", Architecture::X86));
+        assert!(machine_matches_arch("aarch64", Architecture::ARM64));
+        assert!(machine_matches_arch("arm64", Architecture::ARM64));
+        assert!(!machine_matches_arch("x86_64", Architecture::ARM64));
     }
 
     #[test]
