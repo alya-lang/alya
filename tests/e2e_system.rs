@@ -2515,6 +2515,48 @@ say "slept: " + str(r)
 }
 
 #[test]
+fn test_e2e_thread_spawn_passthrough() {
+    // Worker calls nothing and returns its argument untouched: isolates the
+    // spawn/proc/join mechanics from any child-executed alya code.
+    let code = r#"
+import "std/thread"
+
+function ident(v)
+    return v
+end
+
+let t = thread_spawn(ident, 11)
+thread_join(t)
+say "passthrough done"
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("passthrough done"), "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_thread_spawn_join_ignored_result() {
+    // Result value never touched: isolates result handling (str/int) from
+    // the spawn/join mechanics.
+    let code = r#"
+import "std/thread"
+
+function sq(x)
+    return x * x
+end
+
+let t = thread_spawn(sq, 7)
+thread_join(t)
+say "ignored done"
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("ignored done"), "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_dynamic_interface_querying() {
     let code = r#"
 interface Shape
