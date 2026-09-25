@@ -41,9 +41,44 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
     let has_main = functions_by_bare.contains_key("main");
 
     // If there are no top-level statements and no `main` function, this is a pure
-    // library file compiled in isolation. Keep all definitions to preserve compilation.
+    // library file compiled in isolation. Keep all definitions to preserve
+    // compilation, except unreferenced suite entries (`test_*` / `__test_*` /
+    // `@test` / `@bench` / `__bench_*`): the normal build path never
+    // synthesizes suite calls, so those functions would be dead weight in the
+    // artifact. The `test` / `bench` pipeline keeps entries alive through
+    // synthesized top-level calls instead.
     if top_level.is_empty() && !has_main {
-        return program.clone();
+        let mut referenced: HashSet<String> = HashSet::new();
+        for stmt in function_defs.values() {
+            if let Stmt::Function { body, defaults, .. } = stmt.inner_stmt() {
+                for d in defaults.iter().flatten() {
+                    collect_references_in_expr(d, &mut referenced);
+                }
+                for s in body {
+                    collect_references_in_stmt(s, &mut referenced);
+                }
+            }
+        }
+        let referenced_bare: HashSet<String> = referenced
+            .iter()
+            .map(|r| bare_name(r).to_string())
+            .collect();
+        let mut pruned_statements = Vec::new();
+        for stmt in &program.statements {
+            match stmt.inner_stmt() {
+                Stmt::Function {
+                    name, attributes, ..
+                } if is_suite_entry(name, attributes) => {
+                    if referenced.contains(name) || referenced_bare.contains(bare_name(name)) {
+                        pruned_statements.push(stmt.clone());
+                    }
+                }
+                _ => pruned_statements.push(stmt.clone()),
+            }
+        }
+        return Program {
+            statements: pruned_statements,
+        };
     }
 
     let mut reachable_functions: HashSet<String> = HashSet::new();
@@ -105,10 +140,13 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
             mark_function(m, &mut reachable_functions, &mut worklist);
         }
     } else {
-        // In library or module context without main(), all pub items and test functions are roots
+        // In library or module context without main(), only pub items are
+        // roots. Suite entries (`test_*` / `__test_*` / `@test` / `@bench` /
+        // `__bench_*`) are intentionally not roots: the normal build path
+        // never synthesizes suite calls, and the `test` / `bench` pipeline
+        // keeps entries alive through synthesized top-level calls instead.
         for (name, stmt) in &function_defs {
-            let bare = bare_name(name);
-            if stmt.is_pub() || bare.starts_with("test_") || bare.starts_with("__test_") {
+            if stmt.is_pub() {
                 mark_function(name, &mut reachable_functions, &mut worklist);
             }
         }
@@ -312,6 +350,28 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
 pub(crate) fn bare_name(name: &str) -> &str {
     let bare = name.rsplit("::").next().unwrap_or(name);
     bare.rsplit("__").next().unwrap_or(bare)
+}
+
+/// Returns true for test/bench suite entries: lowered `test` / `bench`
+/// blocks (`__test_*` / `__bench_*`), `@test` / `@bench`-attributed
+/// functions, and `test_*`-named functions. Mirrors the discovery rule in
+/// `tools::test_runner::discover_suite_entry_points`, plus the `test_*`
+/// naming convention.
+pub(crate) fn is_suite_entry(name: &str, attributes: &[Attribute]) -> bool {
+    let segment = name.rsplit("::").next().unwrap_or(name);
+    if segment.starts_with("__test_") || segment.starts_with("__bench_") {
+        return true;
+    }
+    if attributes
+        .iter()
+        .any(|a| a.name == "test" || a.name == "bench")
+        && !name.contains("__")
+    {
+        return true;
+    }
+    // Note: the bare name of a lowered `__test_*` block is `test_*`, so this
+    // also covers lowered test blocks under qualified names.
+    bare_name(name).starts_with("test_")
 }
 
 fn clean_type_name(t: &str) -> String {
@@ -753,7 +813,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dce_library_roots_pub_and_test() {
+    fn test_dce_library_roots_pub_not_suite() {
         let program = Program {
             statements: vec![
                 Stmt::Pub(Box::new(Stmt::Function {
@@ -822,8 +882,116 @@ mod tests {
 
         assert!(fn_names.contains(&"exported_api".to_string()));
         assert!(fn_names.contains(&"internal_used_helper".to_string()));
-        assert!(fn_names.contains(&"test_feature".to_string()));
+        // Unreferenced `test_*` functions are suite entries, not library
+        // roots: only the test/bench pipeline (via synthesized calls) keeps
+        // them alive.
+        assert!(!fn_names.contains(&"test_feature".to_string()));
         assert!(!fn_names.contains(&"internal_dead_helper".to_string()));
+    }
+
+    fn suite_fn(name: &str, attributes: Vec<Attribute>) -> Stmt {
+        Stmt::Function {
+            name: name.into(),
+            type_params: vec![],
+            attributes,
+            params: vec![],
+            param_types: vec![],
+            return_type: None,
+            defaults: vec![],
+            body: vec![Stmt::Say(Expr::Number(1.0))],
+        }
+    }
+
+    fn test_attr() -> Attribute {
+        Attribute {
+            name: "test".into(),
+            args: vec![],
+        }
+    }
+
+    fn pruned_fn_names(program: &Program) -> Vec<String> {
+        eliminate_dead_code(program)
+            .statements
+            .iter()
+            .filter_map(|s| {
+                if let Stmt::Function { name, .. } = s.inner_stmt() {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_dce_pure_library_prunes_suite_entries() {
+        // Mirrors the issue repro: a main-less library keeps helpers but
+        // drops `test_*`, lowered `__test_*` / `__bench_*` blocks, and
+        // `@test`-attributed functions.
+        let program = Program {
+            statements: vec![
+                suite_fn("helper", vec![]),
+                suite_fn("test_keepme", vec![]),
+                suite_fn("__test_block_keepme", vec![]),
+                suite_fn("attr_keepme", vec![test_attr()]),
+                suite_fn("__bench_bench_keepme", vec![]),
+            ],
+        };
+
+        let fn_names = pruned_fn_names(&program);
+        assert_eq!(fn_names, vec!["helper"]);
+    }
+
+    #[test]
+    fn test_dce_pure_library_keeps_referenced_suite_entry() {
+        // A suite-flavored function that is actually called by kept code
+        // must survive: pruning it would leave a dangling reference.
+        let program = Program {
+            statements: vec![
+                Stmt::Function {
+                    name: "helper".into(),
+                    type_params: vec![],
+                    attributes: vec![],
+                    params: vec![],
+                    param_types: vec![],
+                    return_type: None,
+                    defaults: vec![],
+                    body: vec![Stmt::Expr(Expr::Call {
+                        name: "__test_shared".into(),
+                        args: vec![],
+                    })],
+                },
+                suite_fn("__test_shared", vec![]),
+                suite_fn("__test_orphan", vec![]),
+            ],
+        };
+
+        let fn_names = pruned_fn_names(&program);
+        assert!(fn_names.contains(&"helper".to_string()));
+        assert!(fn_names.contains(&"__test_shared".to_string()));
+        assert!(!fn_names.contains(&"__test_orphan".to_string()));
+    }
+
+    #[test]
+    fn test_dce_no_main_with_top_level_prunes_suite_entries() {
+        // Library with top-level statements but no main: suite entries are
+        // not roots either and must be pruned when unreferenced.
+        let program = Program {
+            statements: vec![
+                suite_fn("helper", vec![]),
+                suite_fn("test_keepme", vec![]),
+                suite_fn("__bench_bench_keepme", vec![]),
+                Stmt::Expr(Expr::Call {
+                    name: "helper".into(),
+                    args: vec![],
+                }),
+            ],
+        };
+
+        let fn_names = pruned_fn_names(&program);
+        assert!(fn_names.contains(&"helper".to_string()));
+        assert!(!fn_names.contains(&"test_keepme".to_string()));
+        assert!(!fn_names.contains(&"__bench_bench_keepme".to_string()));
     }
 
     #[test]
