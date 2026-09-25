@@ -3780,7 +3780,10 @@ impl CodeGen {
                 self.output.push_str(&format!("    jb {}\n", l_int));
                 self.output.push_str("    lea 67108864(%rdx), %rcx\n");
                 self.output.push_str("    cmp %rcx, %rax\n");
-                self.output.push_str(&format!("    jb {}\n", l_str));
+                self.output.push_str(&format!("    jae {}\n", l_int));
+                self.output.push_str("    cmpb $0, (%rax)\n");
+                self.output.push_str(&format!("    je {}\n", l_int));
+                self.output.push_str(&format!("    jmp {}\n", l_str));
                 self.output.push_str(&format!("{}:\n", l_int));
                 self.output.push_str("    movq $1, %rax\n");
                 self.output.push_str(&format!("    jmp {}\n", l_end));
@@ -3804,7 +3807,10 @@ impl CodeGen {
                 self.output.push_str(&format!("    jb {}\n", l_int));
                 self.output.push_str("    lea 67108864(%edx), %ecx\n");
                 self.output.push_str("    cmp %ecx, %eax\n");
-                self.output.push_str(&format!("    jb {}\n", l_str));
+                self.output.push_str(&format!("    jae {}\n", l_int));
+                self.output.push_str("    cmpb $0, (%eax)\n");
+                self.output.push_str(&format!("    je {}\n", l_int));
+                self.output.push_str(&format!("    jmp {}\n", l_str));
                 self.output.push_str(&format!("{}:\n", l_int));
                 self.output.push_str("    movl $1, %eax\n");
                 self.output.push_str(&format!("    jmp {}\n", l_end));
@@ -3847,7 +3853,10 @@ impl CodeGen {
                 self.output.push_str("    movz x2, #1024, lsl #16\n");
                 self.output.push_str("    add x2, x1, x2\n");
                 self.output.push_str("    cmp x0, x2\n");
-                self.output.push_str(&format!("    b.lo {}\n", l_str));
+                self.output.push_str(&format!("    b.hs {}\n", l_int));
+                self.output.push_str("    ldrb w2, [x0]\n");
+                self.output.push_str(&format!("    cbz w2, {}\n", l_int));
+                self.output.push_str(&format!("    b {}\n", l_str));
                 self.output.push_str(&format!("{}:\n", l_int));
                 self.output.push_str("    mov x0, #1\n");
                 self.output.push_str(&format!("    b {}\n", l_end));

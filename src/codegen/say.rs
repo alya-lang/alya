@@ -298,6 +298,32 @@ impl CodeGen {
                             self.output.push('\n');
                         }
                         VarType::Number(offset) => {
+                            if self
+                                .ctx
+                                .variables
+                                .contains_key(&format!("var_is_int:{}", name))
+                            {
+                                let fmt_int_label = self.ctx.next_string_label();
+                                self.emit_rodata_section();
+                                self.output.push_str(&format!("{}:\n", fmt_int_label));
+                                self.emit_string_directive("%lld\\n");
+                                self.output.push_str(".text\n");
+                                arch::emit_load_var(
+                                    &mut self.output,
+                                    self.arch,
+                                    offset,
+                                    self.ctx.stack_offset,
+                                );
+                                arch::emit_say_acc(
+                                    &mut self.output,
+                                    self.arch,
+                                    &fmt_int_label,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
+                                self.output.push('\n');
+                                return;
+                            }
                             // Statically-unknown dynamics (e.g. map reads with
                             // variable keys) are recorded as Number and would
                             // print string pointers as integers. Classify at

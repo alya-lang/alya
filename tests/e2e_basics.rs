@@ -1186,3 +1186,25 @@ end
         assert_eq!(output, "3.5\n3.5\nis-float ok\neq ok\n");
     }
 }
+
+#[test]
+fn test_e2e_say_bss_range_integers() {
+    // Numbers in the range [0x400000, 0x4400000] (such as 34992000 and 12776054)
+    // fall within the static str-buf window on non-PIE Linux ELF binaries.
+    // They must still be formatted as integers and not misinterpreted as strings.
+    let code = r#"
+let mat_result = 34992000
+say mat_result
+
+let rc4_result = 12776054
+say rc4_result
+
+fn get_val() -> int
+    return 34992000
+end
+say get_val()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "34992000\n12776054\n34992000\n");
+    }
+}

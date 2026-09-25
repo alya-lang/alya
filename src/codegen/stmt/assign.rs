@@ -2,7 +2,7 @@ use super::CodeGen;
 use crate::ast::Expr;
 use crate::codegen::analysis::{
     escape_string, is_array_expr, is_float_array, is_float_expr, is_map_expr, is_null_expr,
-    is_string_array, is_string_expr, struct_field_markers_mixed_vars,
+    is_number_expr, is_string_array, is_string_expr, struct_field_markers_mixed_vars,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -39,6 +39,24 @@ impl CodeGen {
                     self.ctx.variables.insert(name.clone(), VarType::Float(0));
                 } else {
                     self.ctx.variables.insert(name.clone(), VarType::Number(0));
+                    if matches!(
+                        type_ann,
+                        Some("int")
+                            | Some("i64")
+                            | Some("i32")
+                            | Some("u64")
+                            | Some("u32")
+                            | Some("uint")
+                            | Some("byte")
+                            | Some("char")
+                            | Some("bool")
+                    ) || matches!(value, Expr::Number(_))
+                        || is_number_expr(value, &self.ctx.variables)
+                    {
+                        self.ctx
+                            .variables
+                            .insert(format!("var_is_int:{}", name), VarType::Number(0));
+                    }
                 }
                 if let Some(t) = type_ann {
                     if t.starts_with("Channel[string]") || t.starts_with("Channel[str]") {
@@ -580,6 +598,24 @@ impl CodeGen {
                     self.ctx
                         .variables
                         .insert(name.clone(), VarType::Number(self.ctx.stack_offset));
+                    if matches!(
+                        type_ann,
+                        Some("int")
+                            | Some("i64")
+                            | Some("i32")
+                            | Some("u64")
+                            | Some("u32")
+                            | Some("uint")
+                            | Some("byte")
+                            | Some("char")
+                            | Some("bool")
+                    ) || matches!(value, Expr::Number(_))
+                        || is_number_expr(value, &self.ctx.variables)
+                    {
+                        self.ctx
+                            .variables
+                            .insert(format!("var_is_int:{}", name), VarType::Number(0));
+                    }
                 }
 
                 if let Expr::Identifier(target_fn) = value {

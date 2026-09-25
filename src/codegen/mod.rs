@@ -1254,6 +1254,15 @@ impl CodeGen {
                     self.ctx
                         .variables
                         .insert(format!("param_is_untyped:{}", param), VarType::Number(0));
+                } else if let Some(Some(t)) = param_types.get(i) {
+                    if matches!(
+                        t.as_str(),
+                        "int" | "i64" | "i32" | "u64" | "u32" | "uint" | "byte" | "char" | "bool"
+                    ) {
+                        self.ctx
+                            .variables
+                            .insert(format!("var_is_int:{}", param), VarType::Number(0));
+                    }
                 }
                 self.ctx
                     .variables
