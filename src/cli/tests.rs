@@ -384,3 +384,60 @@ fn test_mem_trace_flag() {
     let parsed2 = CliArgs::parse_from(&args2).unwrap().unwrap();
     assert!(!parsed2.mem_trace);
 }
+
+#[test]
+fn test_per_command_help_returns_none() {
+    for cmd in [
+        "repl",
+        "run",
+        "build",
+        "check",
+        "ast",
+        "tokens",
+        "fmt",
+        "test",
+        "bench",
+        "lint",
+        "doc",
+        "pkg",
+        "toolchain",
+        "lsp",
+        "dap",
+        "init",
+        "add",
+        "install",
+        "update",
+        "outdated",
+        "cache",
+        "clean",
+    ] {
+        assert_eq!(
+            CliArgs::parse_from(&to_args(&["alya", cmd, "--help"])),
+            Ok(None),
+            "cmd: {}",
+            cmd
+        );
+    }
+    // Pkg subcommand help and `-h` alias.
+    assert_eq!(
+        CliArgs::parse_from(&to_args(&["alya", "pkg", "add", "--help"])),
+        Ok(None)
+    );
+    assert_eq!(
+        CliArgs::parse_from(&to_args(&["alya", "test", "-h"])),
+        Ok(None)
+    );
+}
+
+#[test]
+fn test_help_topic_dispatch() {
+    assert_eq!(
+        CliArgs::parse_from(&to_args(&["alya", "help", "build"])),
+        Ok(None)
+    );
+    assert_eq!(
+        CliArgs::parse_from(&to_args(&["alya", "help", "--all"])),
+        Ok(None)
+    );
+    assert!(CliArgs::parse_from(&to_args(&["alya", "help", "bogus"])).is_err());
+}

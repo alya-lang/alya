@@ -1273,51 +1273,5 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
 }
 
 pub fn print_pkg_help() {
-    println!("Alya Package Manager (alya pkg)");
-    println!("Manage project dependencies, manifests (alya.toml), and lockfiles (alya.lock).\n");
-    println!("USAGE:");
-    println!("  alya pkg <COMMAND> [OPTIONS]");
-    println!("  alya init [path] [OPTIONS]          # Shortcut for pkg init");
-    println!("  alya add <name> [OPTIONS]           # Shortcut for pkg add");
-    println!("  alya install                        # Shortcut for pkg install");
-    println!("  alya update [-u | --upgrade]        # Shortcut for pkg update");
-    println!("  alya outdated                       # Shortcut for pkg outdated");
-    println!("  alya cache                          # Shortcut for pkg cache");
-    println!("  alya clean                          # Shortcut for pkg clean\n");
-    println!("COMMANDS:");
-    println!("  init [path]        Initialize a new Alya package in [path] (default: .)");
-    println!("  add <name>         Add a new dependency to alya.toml");
-    println!("  install            Resolve and lock all dependencies specified in alya.toml");
-    println!("  list               List project dependencies and lock integrity status");
-    println!(
-        "  update [-u]        Check or upgrade dependencies (-u rewrites alya.toml & re-locks)"
-    );
-    println!("  outdated           Check for newer versions of dependencies without upgrading");
-    println!("  cache [clean]      Inspect package cache directory, size, and installed packages");
-    println!("  clean [--all]      Remove cached dependencies and reclaim disk space");
-    println!("  help               Show this help message\n");
-    println!("OPTIONS FOR 'init':");
-    println!("  --name <name>      Override package name (default: directory name)");
-    println!("  --lib              Initialize as a library (src/lib.alya) instead of binary\n");
-    println!("OPTIONS FOR 'add':");
-    println!("  --path <path>      Add dependency from local file system path");
-    println!("  --git <url>        Add dependency from remote Git repository");
-    println!("  --tag <tag>        Specify Git tag for dependency");
-    println!("  --branch <branch>  Specify Git branch for dependency");
-    println!("  --version <ver>    Specify semantic version constraint\n");
-    println!("OPTIONS FOR 'install':");
-    println!("  --strict           Fail instead of falling back to source when a release asset is broken\n");
-    println!("OPTIONS FOR 'update':");
-    println!(
-        "  -u, --upgrade      Rewrite alya.toml with latest versions and re-lock dependencies\n"
-    );
-    println!("EXAMPLES:");
-    println!("  alya init my_app");
-    println!("  alya add http                       # Add official package via short-name");
-    println!("  alya install                        # Install & lock dependencies");
-    println!("  alya update                         # Check for newer package versions");
-    println!("  alya update -u                      # Upgrade alya.toml and re-lock");
-    println!("  alya pkg outdated                   # Check outdated packages (read-only)");
-    println!("  alya pkg cache");
-    println!("  alya pkg clean");
+    crate::cli::help::print_pkg_help();
 }

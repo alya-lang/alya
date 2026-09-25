@@ -4,6 +4,10 @@ use crate::tools::pkg::PkgCommand;
 use std::env;
 use std::process;
 
+fn wants_help(args: &[String]) -> bool {
+    args.iter().any(|a| a == "-h" || a == "--help")
+}
+
 /// Host platform as an `OperatingSystem`: bundle commands default to it.
 pub(crate) fn host_operating_system() -> OperatingSystem {
     if cfg!(target_os = "windows") {
@@ -118,9 +122,38 @@ impl CliArgs {
         }
 
         let first = args[1].as_str();
-        if first == "-h" || first == "--help" || first == "help" {
+        if first == "-h" || first == "--help" {
             Self::print_usage();
             return Ok(None);
+        }
+        if first == "help" {
+            if args.len() < 3 {
+                Self::print_usage();
+                return Ok(None);
+            }
+            let topic = args[2].as_str();
+            if topic == "--all" || topic == "-a" || topic == "all" {
+                Self::print_full_usage();
+                return Ok(None);
+            }
+            if topic == "-h" || topic == "--help" {
+                crate::cli::help::print_help_help();
+                return Ok(None);
+            }
+            // Support `alya help pkg <sub>` and `alya help toolchain <sub>`.
+            if (topic == "pkg" || topic == "toolchain") && args.len() > 3 {
+                let sub = args[3].as_str();
+                if sub != "--all" && crate::cli::help::print_command_help(sub) {
+                    return Ok(None);
+                }
+            }
+            if crate::cli::help::print_command_help(topic) {
+                return Ok(None);
+            }
+            return Err(format!(
+                "Error: Unknown help topic '{}'. Run 'alya --help' for usage.",
+                topic
+            ));
         }
         if first == "-v" || first == "--version" || first == "version" {
             Self::print_version();
@@ -128,37 +161,82 @@ impl CliArgs {
         }
 
         if first == "init" {
+            if wants_help(&args[2..]) {
+                crate::cli::help::print_init_help();
+                return Ok(None);
+            }
             let pkg_cmd = parse_pkg_init_args(&args[2..])?;
             return Ok(Some(Self::create_pkg_args(pkg_cmd)));
         }
         if first == "add" {
+            if wants_help(&args[2..]) {
+                crate::cli::help::print_add_help();
+                return Ok(None);
+            }
             let pkg_cmd = parse_pkg_add_args(&args[2..])?;
             return Ok(Some(Self::create_pkg_args(pkg_cmd)));
         }
         if first == "install" {
+            if wants_help(&args[2..]) {
+                crate::cli::help::print_install_help();
+                return Ok(None);
+            }
             let pkg_cmd = parse_pkg_install_args(&args[2..])?;
             return Ok(Some(Self::create_pkg_args(pkg_cmd)));
         }
         if first == "cache" {
+            if wants_help(&args[2..]) {
+                crate::cli::help::print_cache_help();
+                return Ok(None);
+            }
             let pkg_cmd = parse_pkg_cache_args(&args[2..])?;
             return Ok(Some(Self::create_pkg_args(pkg_cmd)));
         }
         if first == "clean" {
+            if wants_help(&args[2..]) {
+                crate::cli::help::print_clean_help();
+                return Ok(None);
+            }
             let pkg_cmd = parse_pkg_clean_args(&args[2..])?;
             return Ok(Some(Self::create_pkg_args(pkg_cmd)));
         }
         if first == "update" {
+            if wants_help(&args[2..]) {
+                crate::cli::help::print_update_help();
+                return Ok(None);
+            }
             let pkg_cmd = parse_pkg_update_args(&args[2..])?;
             return Ok(Some(Self::create_pkg_args(pkg_cmd)));
         }
         if first == "outdated" {
+            if wants_help(&args[2..]) {
+                crate::cli::help::print_outdated_help();
+                return Ok(None);
+            }
             return Ok(Some(Self::create_pkg_args(PkgCommand::Update {
                 upgrade: false,
             })));
         }
         if first == "pkg" {
             if args.len() < 3 || args[2] == "-h" || args[2] == "--help" || args[2] == "help" {
-                return Ok(Some(Self::create_pkg_args(PkgCommand::Help)));
+                // `alya pkg help <sub>` shows the subcommand help.
+                if args.len() > 3
+                    && (args[2] == "help" || args[2] == "-h" || args[2] == "--help")
+                    && crate::cli::help::print_command_help(args[3].as_str())
+                {
+                    return Ok(None);
+                }
+                crate::cli::help::print_pkg_help();
+                return Ok(None);
+            }
+            // `alya pkg <sub> --help` shows focused subcommand help.
+            if wants_help(&args[3..]) {
+                let sub_help = args[2].as_str();
+                if crate::cli::help::print_command_help(sub_help) {
+                    return Ok(None);
+                }
+                crate::cli::help::print_pkg_help();
+                return Ok(None);
             }
             let sub = args[2].as_str();
             let pkg_cmd = match sub {
@@ -182,26 +260,84 @@ impl CliArgs {
         }
 
         if first == "toolchain" {
+            if wants_help(&args[2..]) {
+                crate::cli::help::print_toolchain_help();
+                return Ok(None);
+            }
+            // `alya toolchain help` already maps to Help; keep it working.
             let tc_cmd = parse_toolchain_args(&args[2..])?;
             return Ok(Some(Self::create_toolchain_args(tc_cmd)));
         }
 
         if first == "lsp" {
+            if wants_help(&args[2..]) {
+                crate::cli::help::print_lsp_help();
+                return Ok(None);
+            }
             return Ok(Some(Self::create_simple_args(CommandKind::Lsp)));
         }
 
         if first == "dap" {
+            if wants_help(&args[2..]) {
+                crate::cli::help::print_dap_help();
+                return Ok(None);
+            }
             return Ok(Some(Self::create_simple_args(CommandKind::Dap)));
         }
 
         if first == "doc" {
+            if wants_help(&args[2..]) {
+                crate::cli::help::print_doc_help();
+                return Ok(None);
+            }
             let doc_cmd = parse_doc_args(&args[2..])?;
             return Ok(Some(Self::create_simple_args(doc_cmd)));
         }
 
         if first == "lint" {
+            if wants_help(&args[2..]) {
+                crate::cli::help::print_lint_help();
+                return Ok(None);
+            }
             let lint_cmd = parse_lint_args(&args[2..])?;
             return Ok(Some(Self::create_simple_args(lint_cmd)));
+        }
+
+        if first == "repl" && wants_help(&args[2..]) {
+            crate::cli::help::print_repl_help();
+            return Ok(None);
+        }
+        if first == "run" && wants_help(&args[2..]) {
+            crate::cli::help::print_run_help();
+            return Ok(None);
+        }
+        if first == "build" && wants_help(&args[2..]) {
+            crate::cli::help::print_build_help();
+            return Ok(None);
+        }
+        if first == "check" && wants_help(&args[2..]) {
+            crate::cli::help::print_check_help();
+            return Ok(None);
+        }
+        if first == "ast" && wants_help(&args[2..]) {
+            crate::cli::help::print_ast_help();
+            return Ok(None);
+        }
+        if first == "tokens" && wants_help(&args[2..]) {
+            crate::cli::help::print_tokens_help();
+            return Ok(None);
+        }
+        if first == "fmt" && wants_help(&args[2..]) {
+            crate::cli::help::print_fmt_help();
+            return Ok(None);
+        }
+        if first == "test" && wants_help(&args[2..]) {
+            crate::cli::help::print_test_help();
+            return Ok(None);
+        }
+        if first == "bench" && wants_help(&args[2..]) {
+            crate::cli::help::print_bench_help();
+            return Ok(None);
         }
 
         let mut command = CommandKind::Build;
@@ -289,7 +425,23 @@ impl CliArgs {
                     break;
                 }
                 "-h" | "--help" => {
-                    Self::print_usage();
+                    match command {
+                        CommandKind::Run => crate::cli::help::print_run_help(),
+                        CommandKind::Build => crate::cli::help::print_build_help(),
+                        CommandKind::Check => crate::cli::help::print_check_help(),
+                        CommandKind::EmitAst => crate::cli::help::print_ast_help(),
+                        CommandKind::EmitTokens => crate::cli::help::print_tokens_help(),
+                        CommandKind::Fmt => crate::cli::help::print_fmt_help(),
+                        CommandKind::Test => crate::cli::help::print_test_help(),
+                        CommandKind::Bench => crate::cli::help::print_bench_help(),
+                        CommandKind::Repl => crate::cli::help::print_repl_help(),
+                        CommandKind::Doc { .. } => crate::cli::help::print_doc_help(),
+                        CommandKind::Lint { .. } => crate::cli::help::print_lint_help(),
+                        CommandKind::Pkg(_) => crate::cli::help::print_pkg_help(),
+                        CommandKind::Toolchain(_) => crate::cli::help::print_toolchain_help(),
+                        CommandKind::Lsp => crate::cli::help::print_lsp_help(),
+                        CommandKind::Dap => crate::cli::help::print_dap_help(),
+                    }
                     return Ok(None);
                 }
                 "-v" | "--version" => {
@@ -621,6 +773,10 @@ impl CliArgs {
 
     pub fn print_usage() {
         crate::cli::help::print_usage();
+    }
+
+    pub fn print_full_usage() {
+        crate::cli::help::print_full_usage();
     }
 }
 

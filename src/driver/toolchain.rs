@@ -638,13 +638,7 @@ pub fn run_toolchain_cmd(
             }
         }
         ToolchainCommand::Help => {
-            println!("Alya Toolchain Manager");
-            println!("Usage: alya toolchain <command>\n");
-            println!("Commands:");
-            println!("  status     Show active compiler, version, and location");
-            println!("  install    Pre-emptively download and configure portable toolchain");
-            println!("  clean      Purge ~/.alya/toolchain to reclaim disk space");
-            println!("  help       Show this help message");
+            crate::cli::help::print_toolchain_help();
         }
     }
     Ok(())
