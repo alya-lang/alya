@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::codegen::OperatingSystem;
+use crate::codegen::{Architecture, OperatingSystem};
 
 /// Default embedded Apple ICNS icon (Alya Application icon) for standalone zero-dependency bundling.
 const DEFAULT_APP_ICON_ICNS: &[u8] = include_bytes!("../../assets/brand/icons/alya-app-dark.icns");
@@ -39,6 +39,9 @@ pub struct BundleOptions {
     pub bundle_version: Option<String>,
     pub icon_path: Option<String>,
     pub os: BundleOs,
+    /// Target architecture for arch-sensitive bundle steps (Windows icon
+    /// resource machine type). `None` preserves legacy arch-unaware behavior.
+    pub arch: Option<Architecture>,
     /// GUI application: enables PerMonitorV2 DPI awareness (Windows
     /// manifest) and desktop integration hints (Linux `.desktop`).
     pub gui: bool,
@@ -69,6 +72,7 @@ impl BundleOptions {
             bundle_version: None,
             icon_path: None,
             os: BundleOs::MacOs,
+            arch: None,
             gui: false,
         }
     }
@@ -86,6 +90,12 @@ impl BundleOptions {
     /// Marks the bundle as a GUI application (DPI awareness, desktop hints).
     pub fn with_gui(mut self, gui: bool) -> Self {
         self.gui = gui;
+        self
+    }
+
+    /// Sets the target architecture for arch-sensitive bundle steps.
+    pub fn with_arch(mut self, arch: Architecture) -> Self {
+        self.arch = Some(arch);
         self
     }
 
@@ -198,6 +208,14 @@ impl BundleOptions {
     ///
     /// Returns the `.res` path for linking, or `None` when windres is
     /// unavailable (the bundle still builds, without an embedded icon).
+    ///
+    /// A bare `windres` invocation targets the toolchain default (x64),
+    /// which the linker rejects for ARM64 binaries (`machine type x64
+    /// conflicts with arm64`). When the target arch is known ARM64, explicit
+    /// `--target` candidates are tried first (GNU and LLVM spellings); a
+    /// produced resource whose COFF machine still mismatches is skipped with
+    /// a warning instead of failing the link, mirroring the missing-windres
+    /// degradation.
     pub fn build_windows_icon_resource(&self) -> Result<Option<PathBuf>, String> {
         if self.os != BundleOs::Windows {
             return Ok(None);
@@ -212,23 +230,89 @@ impl BundleOptions {
         let res_name = format!("{}.res", self.app_name);
         // Run inside the bundle dir so the bare `"name.ico"` reference in
         // the .rc resolves to the staged icon.
-        let status = std::process::Command::new("windres")
-            .current_dir(&self.bundle_dir)
-            .arg(&rc_name)
-            .arg("-O")
-            .arg("coff")
-            .arg("-o")
-            .arg(&res_name)
-            .status()
-            .map_err(|e| format!("Failed to run windres: {}", e))?;
-        if !status.success() {
-            return Err("windres failed to compile the icon resource".to_string());
+        let mut attempts: Vec<Option<&str>> = Vec::new();
+        if matches!(self.arch, Some(Architecture::ARM64)) {
+            attempts.push(Some("pe-aarch64"));
+            attempts.push(Some("aarch64-w64-windows-gnu"));
         }
-        let res_path = self.bundle_dir.join(&res_name);
-        if res_path.metadata().map(|m| m.len()).unwrap_or(0) == 0 {
+        attempts.push(None);
+        let mut last_err = String::new();
+        for target in attempts {
+            let mut cmd = std::process::Command::new("windres");
+            cmd.current_dir(&self.bundle_dir).arg(&rc_name);
+            if let Some(t) = target {
+                cmd.arg("--target").arg(t);
+            }
+            cmd.arg("-O").arg("coff").arg("-o").arg(&res_name);
+            match cmd.status() {
+                Ok(status) if status.success() => {
+                    let res_path = self.bundle_dir.join(&res_name);
+                    if res_path.metadata().map(|m| m.len()).unwrap_or(0) == 0 {
+                        last_err = "windres produced an empty resource file".to_string();
+                        continue;
+                    }
+                    match Self::check_resource_machine(&res_path, self.arch) {
+                        Ok(()) => return Ok(Some(res_path)),
+                        Err(e) => {
+                            last_err = e;
+                            continue;
+                        }
+                    }
+                }
+                Ok(status) => {
+                    last_err =
+                        format!("windres exited with status {}", status.code().unwrap_or(-1));
+                    continue;
+                }
+                Err(e) => {
+                    last_err = format!("Failed to run windres: {}", e);
+                    continue;
+                }
+            }
+        }
+        // Every windres spelling failed or produced a wrong-arch resource.
+        // Skipping the icon keeps the bundle buildable (same degradation as
+        // a missing windres) instead of failing later at link time.
+        if matches!(self.arch, Some(Architecture::ARM64)) {
+            eprintln!(
+                "warning: {} Windows bundle will use the default executable icon",
+                last_err
+            );
+            return Ok(None);
+        }
+        Err(last_err)
+    }
+
+    /// Expected COFF machine type for a target architecture.
+    fn expected_coff_machine(arch: Option<Architecture>) -> Option<u16> {
+        match arch {
+            Some(Architecture::X64) => Some(0x8664),
+            Some(Architecture::ARM64) => Some(0xAA64),
+            Some(Architecture::X86) => Some(0x014C),
+            None => None,
+        }
+    }
+
+    /// Verifies the COFF machine type at the start of a windres-produced
+    /// `.res`. Unknown expected arch skips the check (legacy behavior).
+    fn check_resource_machine(res_path: &Path, arch: Option<Architecture>) -> Result<(), String> {
+        let Some(expected) = Self::expected_coff_machine(arch) else {
+            return Ok(());
+        };
+        let bytes =
+            std::fs::read(res_path).map_err(|e| format!("Failed to read resource file: {}", e))?;
+        if bytes.len() < 2 {
             return Err("windres produced an empty resource file".to_string());
         }
-        Ok(Some(res_path))
+        let machine = u16::from_le_bytes([bytes[0], bytes[1]]);
+        if machine == expected {
+            Ok(())
+        } else {
+            Err(format!(
+                "windres produced machine type {:#06x}, expected {:#06x} for the target architecture",
+                machine, expected
+            ))
+        }
     }
 
     /// Locates `windres` on PATH (ships with mingw-w64 toolchains).
@@ -561,5 +645,49 @@ mod tests {
 
         let lnx = BundleOptions::new("App", None).with_os(BundleOs::Linux);
         assert_eq!(lnx.bundle_dir, PathBuf::from("App"));
+    }
+
+    #[test]
+    fn test_windows_resource_machine_check() {
+        use std::io::Write;
+
+        let temp_dir =
+            std::env::temp_dir().join(format!("alya_test_winres_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // Synthetic COFF headers: machine type in the first two bytes (LE).
+        let mut x64 = fs::File::create(temp_dir.join("x64.res")).unwrap();
+        x64.write_all(&[0x64, 0x86, 0x00, 0x00]).unwrap();
+        let mut arm64 = fs::File::create(temp_dir.join("arm64.res")).unwrap();
+        arm64.write_all(&[0x64, 0xAA, 0x00, 0x00]).unwrap();
+        fs::File::create(temp_dir.join("empty.res")).unwrap();
+
+        assert!(BundleOptions::check_resource_machine(
+            &temp_dir.join("x64.res"),
+            Some(Architecture::X64)
+        )
+        .is_ok());
+        assert!(BundleOptions::check_resource_machine(
+            &temp_dir.join("arm64.res"),
+            Some(Architecture::ARM64)
+        )
+        .is_ok());
+        // The win-ARM64 CI failure: x64 resource linked into an ARM64 binary.
+        assert!(BundleOptions::check_resource_machine(
+            &temp_dir.join("x64.res"),
+            Some(Architecture::ARM64)
+        )
+        .is_err());
+        // Unknown arch skips the check (legacy behavior).
+        assert!(BundleOptions::check_resource_machine(&temp_dir.join("x64.res"), None).is_ok());
+        // Empty files are rejected, not linked.
+        assert!(BundleOptions::check_resource_machine(
+            &temp_dir.join("empty.res"),
+            Some(Architecture::X64)
+        )
+        .is_err());
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

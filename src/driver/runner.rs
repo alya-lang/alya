@@ -119,8 +119,42 @@ pub fn execute_binary(
 
     if !status.success() {
         let code = status.code().unwrap_or(1);
+        // A Unix child killed by a signal reports no exit code; without this
+        // branch that death is indistinguishable from a silent `exit(1)`
+        // (e.g. the tensor macOS ARM64 bench abort). Report it explicitly.
+        #[cfg(unix)]
+        if status.code().is_none() {
+            use std::os::unix::process::ExitStatusExt;
+            match status.signal() {
+                Some(sig) => eprintln!(
+                    "Error: program terminated by signal {} ({})",
+                    sig,
+                    signal_name(sig)
+                ),
+                None => eprintln!("Error: program terminated abnormally"),
+            }
+        }
         std::process::exit(code);
     }
 
     Ok(())
+}
+
+#[cfg(unix)]
+fn signal_name(sig: i32) -> &'static str {
+    match sig {
+        1 => "SIGHUP",
+        2 => "SIGINT",
+        3 => "SIGQUIT",
+        4 => "SIGILL",
+        6 => "SIGABRT",
+        8 => "SIGFPE",
+        9 => "SIGKILL",
+        10 => "SIGBUS",
+        11 => "SIGSEGV",
+        13 => "SIGPIPE",
+        14 => "SIGALRM",
+        15 => "SIGTERM",
+        _ => "unknown signal",
+    }
 }

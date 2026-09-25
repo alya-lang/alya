@@ -208,6 +208,7 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         let mut opts =
             crate::tools::bundle::BundleOptions::new(default_stem, args.output_file.as_deref())
                 .with_os(args.os.into())
+                .with_arch(args.arch)
                 .with_gui(args.gui);
         opts.bundle_id = args.bundle_id.clone();
         opts.icon_path = args.icon_path.clone();
