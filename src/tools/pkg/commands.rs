@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 
 use super::cache::{get_global_cache_dir, run_cache, run_clean};
 use super::discovery::{find_manifest_dir, find_package_entry};
-use super::hash::{compute_cache_key, compute_cache_key_rev, compute_package_checksum};
+use super::hash::{
+    compute_cache_key, compute_cache_key_rev, compute_package_checksum, verify_package_checksum,
+    ChecksumVerdict,
+};
 use super::lock::{format_git_source, parse_git_source_rev, parse_lockfile, serialize_lockfile};
 use super::manifest::{check_compiler_compatibility, parse_manifest, serialize_manifest};
 use super::resolver::{
@@ -647,12 +650,22 @@ pub fn run_install_in(manifest_dir: &Path, strict: bool) -> Result<(), String> {
                     .or_else(|| l.packages.iter().find(|p| p.name == *name))
             }) {
                 if !locked.checksum.is_empty() && !from_asset {
-                    let actual = compute_package_checksum(&dest_dir)?;
-                    if actual != locked.checksum {
-                        return Err(format!(
-                            "Checksum mismatch for '{}': installed content does not match alya.lock (locked {}, got {}). Delete the lock or reinstall to proceed.",
-                            name, locked.checksum, actual
-                        ));
+                    let lock_version = existing_lock.as_ref().map(|l| l.version).unwrap_or(1);
+                    match verify_package_checksum(&dest_dir, &locked.checksum, lock_version)? {
+                        ChecksumVerdict::Match => {}
+                        ChecksumVerdict::LegacyHealed => {
+                            println!(
+                                "  Notice: '{}' lock checksum healed to platform-independent digest (lockfile v1 -> v2).",
+                                name
+                            );
+                        }
+                        ChecksumVerdict::Mismatch => {
+                            let actual = compute_package_checksum(&dest_dir)?;
+                            return Err(format!(
+                                "Checksum mismatch for '{}': installed content does not match alya.lock (locked {}, got {}). Delete the lock or reinstall to proceed.",
+                                name, locked.checksum, actual
+                            ));
+                        }
                     }
                 } else if from_asset {
                     println!(
@@ -748,7 +761,10 @@ pub fn run_install_in(manifest_dir: &Path, strict: bool) -> Result<(), String> {
     }
 
     let lock = PackageLock {
-        version: 1,
+        // v2 checksums are line-ending normalized (platform-independent).
+        // v1 locks keep verifying (legacy first, normalized fallback) and
+        // are rewritten as v2 here, completing the migration on install.
+        version: 2,
         packages: locked_packages,
     };
 
@@ -846,9 +862,12 @@ pub fn run_list() -> Result<(), String> {
                 if !installed_dir.exists() {
                     "integrity: not installed"
                 } else {
-                    match compute_package_checksum(&installed_dir) {
-                        Ok(actual) if actual == lp.checksum => "integrity: ok",
-                        Ok(_) => "integrity: MISMATCH",
+                    let lock_version = lock.as_ref().map(|l| l.version).unwrap_or(1);
+                    match verify_package_checksum(&installed_dir, &lp.checksum, lock_version) {
+                        Ok(ChecksumVerdict::Match) | Ok(ChecksumVerdict::LegacyHealed) => {
+                            "integrity: ok"
+                        }
+                        Ok(ChecksumVerdict::Mismatch) => "integrity: MISMATCH",
                         Err(_) => "integrity: unreadable",
                     }
                 }

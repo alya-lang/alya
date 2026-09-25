@@ -1185,3 +1185,146 @@ fn test_git_source_rev_accepts_short_sha() {
         None
     );
 }
+
+fn write_eol_fixture(dir: &std::path::Path, crlf: bool) {
+    let body = "function hello()\n    say \"hi\"\nend\n";
+    let bytes = if crlf {
+        body.replace('\n', "\r\n")
+    } else {
+        body.to_string()
+    };
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::write(dir.join("src").join("lib.alya"), bytes).unwrap();
+}
+
+fn eol_temp_dir(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "alya_pkg_eol_{}_{}_{}",
+        tag,
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn test_checksum_v2_platform_independent() {
+    let lf_dir = eol_temp_dir("lf");
+    let crlf_dir = eol_temp_dir("crlf");
+    write_eol_fixture(&lf_dir, false);
+    write_eol_fixture(&crlf_dir, true);
+
+    // Normalized digests agree across line endings ...
+    assert_eq!(
+        compute_package_checksum(&lf_dir).unwrap(),
+        compute_package_checksum(&crlf_dir).unwrap()
+    );
+    // ... while legacy raw-byte digests diverge (the original skew).
+    assert_ne!(
+        compute_package_checksum_legacy(&lf_dir).unwrap(),
+        compute_package_checksum_legacy(&crlf_dir).unwrap()
+    );
+
+    let _ = fs::remove_dir_all(&lf_dir);
+    let _ = fs::remove_dir_all(&crlf_dir);
+}
+
+#[test]
+fn test_verify_v1_crlf_lock_heals_on_lf_tree() {
+    let lf_dir = eol_temp_dir("lf2");
+    let crlf_dir = eol_temp_dir("crlf2");
+    write_eol_fixture(&lf_dir, false);
+    write_eol_fixture(&crlf_dir, true);
+
+    // Simulate a Windows-born v1 lock, verify on an LF checkout.
+    let crlf_lock = compute_package_checksum_legacy(&crlf_dir).unwrap();
+    assert_eq!(
+        verify_package_checksum(&lf_dir, &crlf_lock, 1).unwrap(),
+        ChecksumVerdict::LegacyHealed
+    );
+
+    let _ = fs::remove_dir_all(&lf_dir);
+    let _ = fs::remove_dir_all(&crlf_dir);
+}
+
+#[test]
+fn test_verify_v1_lf_lock_heals_on_crlf_tree() {
+    let lf_dir = eol_temp_dir("lf3");
+    let crlf_dir = eol_temp_dir("crlf3");
+    write_eol_fixture(&lf_dir, false);
+    write_eol_fixture(&crlf_dir, true);
+
+    // Mirror direction: Linux-born v1 lock verified on a CRLF checkout.
+    let lf_lock = compute_package_checksum_legacy(&lf_dir).unwrap();
+    assert_eq!(
+        verify_package_checksum(&crlf_dir, &lf_lock, 1).unwrap(),
+        ChecksumVerdict::LegacyHealed
+    );
+
+    let _ = fs::remove_dir_all(&lf_dir);
+    let _ = fs::remove_dir_all(&crlf_dir);
+}
+
+#[test]
+fn test_verify_rejects_tampered_content() {
+    let dir = eol_temp_dir("tamper");
+    write_eol_fixture(&dir, false);
+    let v1_lock = compute_package_checksum_legacy(&dir).unwrap();
+    let v2_lock = compute_package_checksum(&dir).unwrap();
+
+    // Genuine content change must fail every digest path.
+    fs::write(
+        dir.join("src").join("lib.alya"),
+        "function hello()\n    say \"bye\"\nend\n",
+    )
+    .unwrap();
+    assert_eq!(
+        verify_package_checksum(&dir, &v1_lock, 1).unwrap(),
+        ChecksumVerdict::Mismatch
+    );
+    assert_eq!(
+        verify_package_checksum(&dir, &v2_lock, 2).unwrap(),
+        ChecksumVerdict::Mismatch
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_verify_v2_exact_match() {
+    let lf_dir = eol_temp_dir("lf4");
+    let crlf_dir = eol_temp_dir("crlf4");
+    write_eol_fixture(&lf_dir, false);
+    write_eol_fixture(&crlf_dir, true);
+
+    let v2_lock = compute_package_checksum(&lf_dir).unwrap();
+    assert_eq!(
+        verify_package_checksum(&lf_dir, &v2_lock, 2).unwrap(),
+        ChecksumVerdict::Match
+    );
+    assert_eq!(
+        verify_package_checksum(&crlf_dir, &v2_lock, 2).unwrap(),
+        ChecksumVerdict::Match
+    );
+
+    let _ = fs::remove_dir_all(&lf_dir);
+    let _ = fs::remove_dir_all(&crlf_dir);
+}
+
+#[test]
+fn test_lockfile_version2_roundtrip() {
+    let lock = PackageLock {
+        version: 2,
+        packages: vec![],
+    };
+    let text = serialize_lockfile(&lock);
+    assert!(text.contains("version = 2\n"));
+    assert_eq!(parse_lockfile(&text).unwrap().version, 2);
+    // Unversioned files keep defaulting to v1.
+    assert_eq!(parse_lockfile("[[package]]\n").unwrap().version, 1);
+}

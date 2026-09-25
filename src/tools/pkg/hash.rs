@@ -193,6 +193,67 @@ pub fn compute_cache_key_rev(
 }
 
 pub fn compute_package_checksum(dir: &Path) -> Result<String, String> {
+    checksum_with(dir, EolMode::Lf)
+}
+
+/// Legacy (lockfile v1) digest over raw file bytes. Line-ending sensitive:
+/// identical revisions check out as CRLF on Windows without an LF pin and as
+/// LF elsewhere, so v1 checksums are platform-polluted. Kept solely to
+/// verify pre-existing v1 locks during migration.
+pub fn compute_package_checksum_legacy(dir: &Path) -> Result<String, String> {
+    checksum_with(dir, EolMode::Raw)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EolMode {
+    Raw,
+    Lf,
+    Crlf,
+}
+
+/// Normalizes line endings for hashing: CRLF and lone CR become LF.
+/// Operates on raw bytes; CR/LF are ASCII singletons that never appear inside
+/// UTF-8 multibyte sequences, so this is encoding-safe.
+fn normalize_newlines(data: &[u8]) -> Vec<u8> {
+    if !data.contains(&b'\r') {
+        return data.to_vec();
+    }
+    let mut out = Vec::with_capacity(data.len());
+    let mut i = 0;
+    while i < data.len() {
+        if data[i] == b'\r' {
+            out.push(b'\n');
+            if i + 1 < data.len() && data[i + 1] == b'\n' {
+                i += 1;
+            }
+        } else {
+            out.push(data[i]);
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Converts LF to CRLF (via the normalized form, so mixed endings collapse
+/// deterministically). Used to recognize v1 locks hashed from Windows
+/// checkouts: CRLF-ifying the current tree and legacy-hashing it reproduces
+/// the lock-time digest when the logical content is unchanged.
+fn to_crlf_bytes(data: &[u8]) -> Vec<u8> {
+    let lf = normalize_newlines(data);
+    if !lf.contains(&b'\n') {
+        return lf;
+    }
+    let mut out = Vec::with_capacity(lf.len() + 8);
+    for b in lf {
+        if b == b'\n' {
+            out.push(b'\r');
+        }
+        out.push(b);
+    }
+    out
+}
+
+fn checksum_with(dir: &Path, mode: EolMode) -> Result<String, String> {
     let mut files = Vec::new();
     collect_alya_files(dir, dir, &mut files)?;
     files.sort_by(|a, b| a.0.cmp(&b.0));
@@ -213,8 +274,56 @@ pub fn compute_package_checksum(dir: &Path) -> Result<String, String> {
                 e
             )
         })?;
-        hasher.update(&content);
+        match mode {
+            EolMode::Raw => hasher.update(&content),
+            EolMode::Lf => hasher.update(&normalize_newlines(&content)),
+            EolMode::Crlf => hasher.update(&to_crlf_bytes(&content)),
+        }
     }
     let digest = sha256_hex(&hasher.finalize());
     Ok(format!("sha256:{}", digest))
+}
+
+/// Outcome of verifying an installed tree against a locked checksum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChecksumVerdict {
+    /// Digest matches under the lock's native algorithm.
+    Match,
+    /// Lock v1 whose raw-byte digest no longer matches (line-ending skew
+    /// across platforms) but whose LF- or CRLF-canonicalized digest does.
+    /// The install proceeds and the lock is rewritten as v2, self-healing
+    /// the stale entry.
+    LegacyHealed,
+    /// No digest matches: genuine content drift or tampering.
+    Mismatch,
+}
+
+/// Verifies an installed tree against a locked checksum.
+///
+/// - Lock v2+: normalized digest must match exactly.
+/// - Lock v1 (or unversioned): the raw-byte digest is tried first to preserve
+///   the original integrity guarantee; LF- and CRLF-canonicalized digests
+///   are accepted as fallbacks so platform-polluted v1 locks (CRLF-born
+///   locks verified on LF checkouts and vice versa) self-heal instead of
+///   hard-failing. Every accepted path is an exact digest match, so tampered
+///   content still fails all three and is rejected.
+pub fn verify_package_checksum(
+    dir: &Path,
+    locked: &str,
+    lock_version: u32,
+) -> Result<ChecksumVerdict, String> {
+    if lock_version >= 2 {
+        return Ok(if checksum_with(dir, EolMode::Lf)? == locked {
+            ChecksumVerdict::Match
+        } else {
+            ChecksumVerdict::Mismatch
+        });
+    }
+    if checksum_with(dir, EolMode::Raw)? == locked {
+        return Ok(ChecksumVerdict::Match);
+    }
+    if checksum_with(dir, EolMode::Lf)? == locked || checksum_with(dir, EolMode::Crlf)? == locked {
+        return Ok(ChecksumVerdict::LegacyHealed);
+    }
+    Ok(ChecksumVerdict::Mismatch)
 }
