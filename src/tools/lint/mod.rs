@@ -16,7 +16,7 @@ use crate::parser::Parser;
 pub use config::*;
 pub use fix::*;
 pub use rules::*;
-pub use sarif::{render_sarif, sarif_log};
+pub use sarif::{render_sarif, render_sarif_with_invocation, sarif_log, SarifInvocation};
 pub use suppression::*;
 pub use types::*;
 
@@ -83,7 +83,11 @@ pub fn run_lint_cli(
 
     if files.is_empty() {
         if format == LintFormat::Sarif {
-            let payload = render_sarif(&LintReport::default());
+            let invocation = SarifInvocation {
+                command_line: std::env::args().collect::<Vec<_>>().join(" "),
+                exit_code: 0,
+            };
+            let payload = render_sarif_with_invocation(&LintReport::default(), Some(&invocation));
             match output {
                 Some(out) => {
                     fs::write(out, &payload).map_err(|e| {
@@ -158,7 +162,14 @@ pub fn run_lint_cli(
     }
 
     if format == LintFormat::Sarif {
-        let payload = render_sarif(&report);
+        // The artifact records the exit code the check gate is about to
+        // produce, so the report is self-describing in CI.
+        let failure_count = report.warning_count + report.error_count;
+        let invocation = SarifInvocation {
+            command_line: std::env::args().collect::<Vec<_>>().join(" "),
+            exit_code: if check && failure_count > 0 { 1 } else { 0 },
+        };
+        let payload = render_sarif_with_invocation(&report, Some(&invocation));
         match output {
             Some(out) => {
                 fs::write(out, &payload).map_err(|e| {
@@ -172,7 +183,6 @@ pub fn run_lint_cli(
             None => println!("{}", payload),
         }
         // The artifact is written first; the check gate keeps CI semantics.
-        let failure_count = report.warning_count + report.error_count;
         if check && failure_count > 0 {
             return Err(format!(
                 "Lint check failed: {} warning(s)/error(s) detected across {} file(s).",

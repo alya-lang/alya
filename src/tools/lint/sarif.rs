@@ -4,20 +4,39 @@ use std::path::Path;
 use super::types::{LintDiagnostic, LintReport, LintSeverity};
 
 /// Short rule metadata for the SARIF `rules` dictionary: rule id,
-/// human-readable description, and default severity.
-fn rule_metadata(rule: &str) -> (&'static str, &'static str) {
+/// human-readable description, default severity, and classification tags.
+fn rule_metadata(rule: &str) -> (&'static str, &'static str, &'static [&'static str]) {
     match rule {
-        "unused-var" => ("Unused variable", "warning"),
-        "unused-param" => ("Unused function parameter", "warning"),
-        "unused-import" => ("Unused import", "warning"),
-        "dead-code" => ("Dead or unreachable code", "warning"),
-        "idiomatic-style" => ("Unidiomatic style or anti-pattern", "warning"),
-        "self-comparison" => ("Suspicious self-comparison", "warning"),
-        "constant-condition" => ("Constant condition", "warning"),
-        "useless-expression" => ("Useless expression", "warning"),
-        "naming-convention" => ("Naming convention violation", "note"),
-        _ => ("Alya lint finding", "warning"),
+        "unused-var" => ("Unused variable", "warning", &["maintainability"]),
+        "unused-param" => ("Unused function parameter", "warning", &["maintainability"]),
+        "unused-import" => ("Unused import", "warning", &["maintainability"]),
+        "dead-code" => ("Dead or unreachable code", "warning", &["maintainability"]),
+        "idiomatic-style" => (
+            "Unidiomatic style or anti-pattern",
+            "warning",
+            &["maintainability"],
+        ),
+        "self-comparison" => ("Suspicious self-comparison", "warning", &["correctness"]),
+        "constant-condition" => ("Constant condition", "warning", &["correctness"]),
+        "useless-expression" => ("Useless expression", "warning", &["maintainability"]),
+        "naming-convention" => ("Naming convention violation", "note", &["maintainability"]),
+        _ => ("Alya lint finding", "warning", &["maintainability"]),
     }
+}
+
+/// Documentation URI for a rule, anchored to the lint rule catalog.
+fn rule_help_uri(rule: &str) -> String {
+    format!(
+        "https://github.com/alya-lang/alya/blob/main/docs/lint-rules.md#{}",
+        rule
+    )
+}
+
+/// Describes one analyzer invocation for the SARIF `invocations` array.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SarifInvocation {
+    pub command_line: String,
+    pub exit_code: i32,
 }
 
 fn sarif_level(severity: LintSeverity) -> &'static str {
@@ -81,7 +100,16 @@ fn result_object(diag: &LintDiagnostic) -> serde_json::Value {
 /// Builds a SARIF v2.1.0 log for a lint report. The `rules` dictionary
 /// covers every rule id present in the report; an empty report still yields
 /// a valid log with empty `rules` and `results` (accepted by code scanning).
+/// Pass invocation details to record the `invocations` array; `None` omits it.
 pub fn sarif_log(report: &LintReport, tool_version: &str) -> serde_json::Value {
+    sarif_log_with_invocation(report, tool_version, None)
+}
+
+pub fn sarif_log_with_invocation(
+    report: &LintReport,
+    tool_version: &str,
+    invocation: Option<&SarifInvocation>,
+) -> serde_json::Value {
     let mut rule_ids: BTreeSet<&str> = BTreeSet::new();
     for d in &report.diagnostics {
         rule_ids.insert(d.rule.as_str());
@@ -91,36 +119,57 @@ pub fn sarif_log(report: &LintReport, tool_version: &str) -> serde_json::Value {
     let rules: Vec<serde_json::Value> = rule_ids
         .iter()
         .map(|id| {
-            let (description, default_level) = rule_metadata(id);
+            let (description, default_level, tags) = rule_metadata(id);
             serde_json::json!({
                 "id": id,
                 "shortDescription": { "text": description },
+                "helpUri": rule_help_uri(id),
+                "properties": { "tags": tags },
                 "defaultConfiguration": { "level": default_level },
             })
         })
         .collect();
     let results: Vec<serde_json::Value> = report.diagnostics.iter().map(result_object).collect();
+    let mut run = serde_json::json!({
+        "tool": {
+            "driver": {
+                "name": "Alya Linter",
+                "version": tool_version,
+                "informationUri": "https://github.com/alya-lang/alya",
+                "rules": rules,
+            }
+        },
+        "results": results,
+    });
+    if let Some(inv) = invocation {
+        run["invocations"] = serde_json::json!([{
+            "executionSuccessful": true,
+            "commandLine": inv.command_line,
+            "exitCode": inv.exit_code,
+        }]);
+    }
     serde_json::json!({
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
         "version": "2.1.0",
-        "runs": [{
-            "tool": {
-                "driver": {
-                    "name": "Alya Linter",
-                    "version": tool_version,
-                    "informationUri": "https://github.com/alya-lang/alya",
-                    "rules": rules,
-                }
-            },
-            "results": results,
-        }]
+        "runs": [run]
     })
 }
 
 /// Renders a lint report as pretty-printed SARIF JSON.
 pub fn render_sarif(report: &LintReport) -> String {
-    serde_json::to_string_pretty(&sarif_log(report, env!("CARGO_PKG_VERSION")))
-        .unwrap_or_else(|_| "{\"version\":\"2.1.0\",\"runs\":[]}".to_string())
+    render_sarif_with_invocation(report, None)
+}
+
+pub fn render_sarif_with_invocation(
+    report: &LintReport,
+    invocation: Option<&SarifInvocation>,
+) -> String {
+    serde_json::to_string_pretty(&sarif_log_with_invocation(
+        report,
+        env!("CARGO_PKG_VERSION"),
+        invocation,
+    ))
+    .unwrap_or_else(|_| "{\"version\":\"2.1.0\",\"runs\":[]}".to_string())
 }
 
 #[cfg(test)]
@@ -212,7 +261,29 @@ mod tests {
             assert!(!r["shortDescription"]["text"].as_str().unwrap().is_empty());
             assert!(["error", "warning", "note"]
                 .contains(&r["defaultConfiguration"]["level"].as_str().unwrap()));
+            assert!(r["helpUri"]
+                .as_str()
+                .unwrap()
+                .ends_with(&format!("#{}", r["id"].as_str().unwrap())));
+            assert!(!r["properties"]["tags"].as_array().unwrap().is_empty());
         }
+    }
+
+    #[test]
+    fn test_sarif_invocation() {
+        // Absent by default ...
+        let plain = sarif_log(&sample_report(), "0.0.19");
+        assert!(plain["runs"][0].get("invocations").is_none());
+        // ... and recorded when details are provided.
+        let inv = SarifInvocation {
+            command_line: "alya lint . --format sarif".to_string(),
+            exit_code: 1,
+        };
+        let log = sarif_log_with_invocation(&sample_report(), "0.0.19", Some(&inv));
+        let recorded = &log["runs"][0]["invocations"][0];
+        assert_eq!(recorded["executionSuccessful"], true);
+        assert_eq!(recorded["commandLine"], "alya lint . --format sarif");
+        assert_eq!(recorded["exitCode"], 1);
     }
 
     #[test]
