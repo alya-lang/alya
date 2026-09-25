@@ -11,5 +11,5 @@ repository = "https://github.com/alya-lang/alya"
 keywords = ["alya", "alya-lang", "package", "snake", "game", "arcade", "autopilot", "cli"]
 
 [dependencies]
-term = { git = "https://github.com/alya-lang/term", branch = "main" }
-rand = { git = "https://github.com/alya-lang/rand", branch = "main" }
+term = { git = "https://github.com/alya-lang/term", tag = "v0.1.0" }
+rand = { git = "https://github.com/alya-lang/rand", tag = "v0.1.0" }

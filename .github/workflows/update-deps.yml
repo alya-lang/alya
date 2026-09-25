@@ -1,0 +1,37 @@
+name: Update Alya app dependencies
+
+on:
+  schedule:
+    - cron: '0 3 * * 1' # Weekly on Monday at 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    name: Update (${{ matrix.dir }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir:
+          - apps/game_of_life
+          - apps/http_bench
+          - apps/http_server
+          - apps/port_scanner
+          - apps/snake
+          - apps/tictactoe
+          - apps/todo
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Alya
+        uses: alya-lang/setup-alya@v1
+
+      - name: Bump Alya dependencies
+        uses: alya-lang/update-alya@v1
+        with:
+          package-dir: ${{ matrix.dir }}
