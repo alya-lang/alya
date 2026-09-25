@@ -1,0 +1,24 @@
+name: Cleanup Dependency Branches
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    name: Delete PR branch
+    runs-on: ubuntu-latest
+    if: |
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.head_ref, 'alya-deps/')
+    steps:
+      - name: Delete merged or closed branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          echo "Cleaning up branch $BRANCH for closed/merged PR #${{ github.event.pull_request.number }}..."
+          gh api --method DELETE "repos/${{ github.repository }}/git/refs/heads/${BRANCH}" || true

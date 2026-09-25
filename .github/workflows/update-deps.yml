@@ -1,4 +1,4 @@
-name: Update Alya app dependencies
+name: Update Alya dependencies
 
 on:
   schedule:
@@ -11,27 +11,14 @@ permissions:
 
 jobs:
   update:
-    name: Update (${{ matrix.dir }})
+    name: Bump Alya dependencies
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        dir:
-          - apps/game_of_life
-          - apps/http_bench
-          - apps/http_server
-          - apps/port_scanner
-          - apps/snake
-          - apps/tictactoe
-          - apps/todo
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Set up Alya
+      - name: Set up Alya Compiler
         uses: alya-lang/setup-alya@v1
 
-      - name: Bump Alya dependencies
+      - name: Bump dependencies
         uses: alya-lang/update-alya@v1
-        with:
-          package-dir: ${{ matrix.dir }}
