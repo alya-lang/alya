@@ -22,3 +22,7 @@ jobs:
 
       - name: Bump dependencies
         uses: alya-lang/update-alya@v1
+        with:
+          # Target the branch this workflow runs on (main on schedule,
+          # develop on manual dispatch) instead of always opening PRs to main.
+          base: ${{ github.ref_name }}
