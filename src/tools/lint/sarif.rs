@@ -209,7 +209,7 @@ mod tests {
         assert!(ids.contains(&"unused-var"));
         assert!(ids.contains(&"naming-convention"));
         for r in rules {
-            assert!(r["shortDescription"]["text"].as_str().unwrap().len() > 0);
+            assert!(!r["shortDescription"]["text"].as_str().unwrap().is_empty());
             assert!(["error", "warning", "note"]
                 .contains(&r["defaultConfiguration"]["level"].as_str().unwrap()));
         }

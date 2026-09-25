@@ -465,7 +465,7 @@ fn test_lint_cli_sarif_output() {
     fs::create_dir_all(&temp_dir).unwrap();
 
     fs::write(
-        &temp_dir.join("main.alya"),
+        temp_dir.join("main.alya"),
         "function main()\n    let unused_sarif_var = 99\n    say \"hello\"\nend\n",
     )
     .unwrap();
