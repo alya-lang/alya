@@ -16,6 +16,7 @@ categories = ["compilers", "development-tools"]
 exclude = [".github/", "tests/", "temp_*", "*.s"]
 
 [dependencies]
+serde_json = "1"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"

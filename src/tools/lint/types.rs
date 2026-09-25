@@ -17,6 +17,23 @@ impl std::fmt::Display for LintSeverity {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LintFormat {
+    #[default]
+    Text,
+    Sarif,
+}
+
+impl LintFormat {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "text" => Some(LintFormat::Text),
+            "sarif" => Some(LintFormat::Sarif),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LintFix {
     pub description: String,

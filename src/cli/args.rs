@@ -44,6 +44,8 @@ pub enum CommandKind {
         path: Option<String>,
         fix: bool,
         check: bool,
+        format: crate::tools::lint::LintFormat,
+        output: Option<String>,
     },
 }
 
@@ -846,22 +848,19 @@ fn parse_doc_args(args: &[String]) -> Result<CommandKind, String> {
 }
 
 fn parse_lint_args(args: &[String]) -> Result<CommandKind, String> {
+    use crate::tools::lint::LintFormat;
+
     let mut path = None;
     let mut fix = false;
     let mut check = false;
+    let mut format = LintFormat::Text;
+    let mut output = None;
 
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "-h" | "--help" => {
-                println!("Usage: alya lint [path] [options]");
-                println!();
-                println!("Performs static semantic analysis and code smell detection.");
-                println!();
-                println!("Options:");
-                println!("  --fix      Automatically refactor and clean up safe warnings in-place");
-                println!("  --check    Exit with non-zero status if warnings are detected (CI quality gate)");
-                println!("  -h, --help Show help");
+                crate::cli::help::print_lint_help();
                 process::exit(0);
             }
             "--fix" => {
@@ -869,6 +868,27 @@ fn parse_lint_args(args: &[String]) -> Result<CommandKind, String> {
             }
             "--check" => {
                 check = true;
+            }
+            "--format" => {
+                if i + 1 < args.len() {
+                    format = LintFormat::parse(&args[i + 1]).ok_or_else(|| {
+                        format!(
+                            "Error: Unknown lint format '{}'. Supported: text, sarif",
+                            args[i + 1]
+                        )
+                    })?;
+                    i += 1;
+                } else {
+                    return Err("Error: Missing argument for '--format'".to_string());
+                }
+            }
+            "-o" | "--output" => {
+                if i + 1 < args.len() {
+                    output = Some(args[i + 1].clone());
+                    i += 1;
+                } else {
+                    return Err("Error: Missing argument for '-o/--output'".to_string());
+                }
             }
             other if !other.starts_with('-') => {
                 if path.is_none() {
@@ -884,7 +904,20 @@ fn parse_lint_args(args: &[String]) -> Result<CommandKind, String> {
         i += 1;
     }
 
-    Ok(CommandKind::Lint { path, fix, check })
+    if fix && format == LintFormat::Sarif {
+        return Err("Error: '--fix' cannot be combined with '--format sarif'".to_string());
+    }
+    if output.is_some() && format != LintFormat::Sarif {
+        return Err("Error: '-o/--output' requires '--format sarif'".to_string());
+    }
+
+    Ok(CommandKind::Lint {
+        path,
+        fix,
+        check,
+        format,
+        output,
+    })
 }
 
 fn parse_pkg_init_args(args: &[String]) -> Result<PkgCommand, String> {

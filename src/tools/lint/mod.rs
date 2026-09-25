@@ -1,6 +1,7 @@
 pub mod config;
 pub mod fix;
 pub mod rules;
+pub mod sarif;
 pub mod suppression;
 pub mod types;
 
@@ -15,6 +16,7 @@ use crate::parser::Parser;
 pub use config::*;
 pub use fix::*;
 pub use rules::*;
+pub use sarif::{render_sarif, sarif_log};
 pub use suppression::*;
 pub use types::*;
 
@@ -53,7 +55,18 @@ pub fn find_lint_files(path: &Path) -> Vec<PathBuf> {
 }
 
 /// Executes the CLI `alya lint` command.
-pub fn run_lint_cli(path_opt: Option<&str>, fix: bool, check: bool) -> Result<(), String> {
+///
+/// In SARIF mode no human-readable text is printed: the JSON payload goes to
+/// `output` (a file) or stdout, so stdout stays machine-parseable. The
+/// `--check` gate still applies afterwards, so CI keeps its exit-code
+/// semantics while the artifact is always written first.
+pub fn run_lint_cli(
+    path_opt: Option<&str>,
+    fix: bool,
+    check: bool,
+    format: LintFormat,
+    output: Option<&str>,
+) -> Result<(), String> {
     let target_str = path_opt.unwrap_or(".");
     let target_path = Path::new(target_str);
     if !target_path.exists() {
@@ -69,6 +82,19 @@ pub fn run_lint_cli(path_opt: Option<&str>, fix: bool, check: bool) -> Result<()
         .collect();
 
     if files.is_empty() {
+        if format == LintFormat::Sarif {
+            let payload = render_sarif(&LintReport::default());
+            match output {
+                Some(out) => {
+                    fs::write(out, &payload).map_err(|e| {
+                        format!("Error: Failed to write SARIF report to '{}': {}", out, e)
+                    })?;
+                    println!("✓ Wrote SARIF report to '{}' (0 finding(s)).", out);
+                }
+                None => println!("{}", payload),
+            }
+            return Ok(());
+        }
         println!("No .alya files found in '{}'.", target_str);
         return Ok(());
     }
@@ -106,7 +132,9 @@ pub fn run_lint_cli(path_opt: Option<&str>, fix: bool, check: bool) -> Result<()
                     LintSeverity::Error => report.error_count += 1,
                     LintSeverity::Info => report.info_count += 1,
                 }
-                print!("{}", d.render(&content));
+                if format == LintFormat::Text {
+                    print!("{}", d.render(&content));
+                }
             }
 
             if fix {
@@ -124,7 +152,34 @@ pub fn run_lint_cli(path_opt: Option<&str>, fix: bool, check: bool) -> Result<()
                     }
                 }
             }
+
+            report.diagnostics.extend(diags);
         }
+    }
+
+    if format == LintFormat::Sarif {
+        let payload = render_sarif(&report);
+        match output {
+            Some(out) => {
+                fs::write(out, &payload).map_err(|e| {
+                    format!("Error: Failed to write SARIF report to '{}': {}", out, e)
+                })?;
+                println!(
+                    "✓ Wrote SARIF report to '{}' ({} finding(s)).",
+                    out, report.total_diagnostics
+                );
+            }
+            None => println!("{}", payload),
+        }
+        // The artifact is written first; the check gate keeps CI semantics.
+        let failure_count = report.warning_count + report.error_count;
+        if check && failure_count > 0 {
+            return Err(format!(
+                "Lint check failed: {} warning(s)/error(s) detected across {} file(s).",
+                failure_count, report.files_with_issues
+            ));
+        }
+        return Ok(());
     }
 
     if report.total_diagnostics == 0 {

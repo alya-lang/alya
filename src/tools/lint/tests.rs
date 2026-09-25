@@ -422,19 +422,79 @@ fn test_lint_cli_check_gate() {
     .unwrap();
 
     // Check mode should fail because there is an unused var
-    let check_res = run_lint_cli(Some(temp_dir.to_str().unwrap()), false, true);
+    let check_res = run_lint_cli(
+        Some(temp_dir.to_str().unwrap()),
+        false,
+        true,
+        LintFormat::Text,
+        None,
+    );
     assert!(check_res.is_err(), "CI check gate should fail on warnings");
 
     // Fix mode should apply the fix
-    let fix_res = run_lint_cli(Some(temp_dir.to_str().unwrap()), true, false);
+    let fix_res = run_lint_cli(
+        Some(temp_dir.to_str().unwrap()),
+        true,
+        false,
+        LintFormat::Text,
+        None,
+    );
     assert!(fix_res.is_ok(), "Fix mode should succeed");
 
     let fixed_content = fs::read_to_string(&file_path).unwrap();
     assert!(fixed_content.contains("_unused_test_var"));
 
     // Now check mode should succeed
-    let check_res_after = run_lint_cli(Some(temp_dir.to_str().unwrap()), false, true);
+    let check_res_after = run_lint_cli(
+        Some(temp_dir.to_str().unwrap()),
+        false,
+        true,
+        LintFormat::Text,
+        None,
+    );
     assert!(check_res_after.is_ok(), "Check should pass once fixed");
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_lint_cli_sarif_output() {
+    let temp_dir =
+        std::env::temp_dir().join(format!("alya_test_lint_sarif_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    fs::write(
+        &temp_dir.join("main.alya"),
+        "function main()\n    let unused_sarif_var = 99\n    say \"hello\"\nend\n",
+    )
+    .unwrap();
+    let sarif_path = temp_dir.join("alya-lint.sarif");
+
+    // SARIF artifact is written even though --check fails: CI uploads first.
+    let res = run_lint_cli(
+        Some(temp_dir.to_str().unwrap()),
+        false,
+        true,
+        LintFormat::Sarif,
+        Some(sarif_path.to_str().unwrap()),
+    );
+    assert!(res.is_err(), "Check gate must still fail on warnings");
+
+    let payload = fs::read_to_string(&sarif_path).unwrap();
+    let log: serde_json::Value = serde_json::from_str(&payload).unwrap();
+    assert_eq!(log["version"], "2.1.0");
+    let results = log["runs"][0]["results"].as_array().unwrap();
+    assert!(!results.is_empty());
+    assert!(results.iter().any(|r| r["ruleId"] == "unused-var"));
+    for r in results {
+        assert!(
+            r["locations"][0]["physicalLocation"]["region"]["startLine"]
+                .as_u64()
+                .unwrap()
+                >= 1
+        );
+    }
 
     let _ = fs::remove_dir_all(&temp_dir);
 }

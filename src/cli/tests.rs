@@ -430,6 +430,47 @@ fn test_per_command_help_returns_none() {
 }
 
 #[test]
+fn test_lint_format_options() {
+    use crate::tools::lint::LintFormat;
+
+    let parsed = CliArgs::parse_from(&to_args(&["alya", "lint"]))
+        .unwrap()
+        .unwrap();
+    match parsed.command {
+        CommandKind::Lint { format, output, .. } => {
+            assert_eq!(format, LintFormat::Text);
+            assert_eq!(output, None);
+        }
+        _ => panic!("Expected Lint"),
+    }
+
+    let parsed = CliArgs::parse_from(&to_args(&[
+        "alya",
+        "lint",
+        ".",
+        "--format",
+        "sarif",
+        "-o",
+        "out.sarif",
+    ]))
+    .unwrap()
+    .unwrap();
+    match parsed.command {
+        CommandKind::Lint { format, output, .. } => {
+            assert_eq!(format, LintFormat::Sarif);
+            assert_eq!(output, Some("out.sarif".to_string()));
+        }
+        _ => panic!("Expected Lint"),
+    }
+
+    assert!(CliArgs::parse_from(&to_args(&["alya", "lint", "--format", "xml"])).is_err());
+    assert!(
+        CliArgs::parse_from(&to_args(&["alya", "lint", "--fix", "--format", "sarif"])).is_err()
+    );
+    assert!(CliArgs::parse_from(&to_args(&["alya", "lint", "-o", "x.sarif"])).is_err());
+}
+
+#[test]
 fn test_help_topic_dispatch() {
     assert_eq!(
         CliArgs::parse_from(&to_args(&["alya", "help", "build"])),

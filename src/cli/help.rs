@@ -299,11 +299,15 @@ pub fn print_lint_help() {
     println!("  [path]              File or directory to lint (default: .)\n");
     println!("OPTIONS:");
     println!("  --fix               Automatically refactor and clean up safe warnings in-place");
-    println!("  --check             Exit non-zero on warnings (CI quality gate)\n");
+    println!("  --check             Exit non-zero on warnings (CI quality gate)");
+    println!("  --format <fmt>      Output format: text (default) or sarif (v2.1.0 JSON)");
+    println!("  -o, --output <file> Write SARIF output to <file> (requires --format sarif;\n");
+    println!("                      default: stdout)\n");
     println!("EXAMPLES:");
     println!("  alya lint                            # Lint the current project");
     println!("  alya lint src --fix                  # Auto-fix safe warnings");
     println!("  alya lint . --check                  # CI gate: fail on warnings");
+    println!("  alya lint . --format sarif -o alya-lint.sarif  # SARIF for code scanning");
 }
 
 pub fn print_doc_help() {
