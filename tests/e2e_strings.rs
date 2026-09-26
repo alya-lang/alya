@@ -297,6 +297,37 @@ say len(json_parse("\"\\uD800\""))
 }
 
 #[test]
+fn test_e2e_say_letbound_json_dynamics() {
+    // `let v = json_parse(...)` folds to map statically but returns any
+    // JSON type at runtime. `say v` must verify before printing instead
+    // of feeding scalars into alya_print_map (issue #43 follow-up).
+    // Float/large-int dynamics stay a known #39 boundary and are out of
+    // scope here.
+    let code = r#"
+import "std/json"
+
+let s = json_parse("\"\\u20AC\"")
+say s
+let n = json_parse("42")
+say n
+let b = json_parse("true")
+say b
+let z = json_parse("null")
+say z
+let o = json_parse("{\"a\": 1}")
+say o
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "€\n42\n1\nnull\n{a: 1}\n");
+    }
+}
+
+#[test]
 fn test_e2e_str_conversion_and_concat() {
     let code = r#"
 let a = 12345
