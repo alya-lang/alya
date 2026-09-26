@@ -634,13 +634,120 @@ impl CodeGen {
                 }
 
                 if is_map_expr(expr, &self.ctx.variables) {
+                    // Statically-typed maps print directly, but dynamically-typed
+                    // values folded to map (e.g. bare `json_parse`, which returns
+                    // any JSON type) must be verified at runtime: feeding a scalar
+                    // into alya_print_map faults. Guard: null prints "null";
+                    // header magic 0x5A110002 at the object header prints as map;
+                    // anything else falls back to runtime classification
+                    // (string -> %s, otherwise -> %lld). Large-int and float
+                    // dynamics can still fault on the header read: without value
+                    // tags they are indistinguishable from heap pointers.
                     self.generate_expression(expr);
+                    let l_dyn = self.ctx.next_label();
+                    let l_str = self.ctx.next_label();
+                    let l_null = self.ctx.next_label();
+                    let l_end = self.ctx.next_label();
+                    match self.arch {
+                        Architecture::X64 => {
+                            self.output.push_str("    test %rax, %rax\n");
+                            self.output.push_str(&format!("    jz {}\n", l_null));
+                            self.output.push_str("    cmp $65536, %rax\n");
+                            self.output.push_str(&format!("    jb {}\n", l_dyn));
+                            self.output.push_str("    mov $0x00007fffffffffff, %rdx\n");
+                            self.output.push_str("    cmp %rdx, %rax\n");
+                            self.output.push_str(&format!("    ja {}\n", l_dyn));
+                            self.output.push_str("    movl -16(%rax), %edx\n");
+                            self.output.push_str("    cmpl $0x5A110002, %edx\n");
+                            self.output.push_str(&format!("    jne {}\n", l_dyn));
+                        }
+                        Architecture::X86 => {
+                            self.output.push_str("    test %eax, %eax\n");
+                            self.output.push_str(&format!("    jz {}\n", l_null));
+                            self.output.push_str("    cmp $65536, %eax\n");
+                            self.output.push_str(&format!("    jb {}\n", l_dyn));
+                            self.output.push_str("    movl -8(%eax), %ecx\n");
+                            self.output.push_str("    cmpl $0x5A110002, %ecx\n");
+                            self.output.push_str(&format!("    jne {}\n", l_dyn));
+                        }
+                        Architecture::ARM64 => {
+                            self.output.push_str(&format!("    cbz x0, {}\n", l_null));
+                            self.output.push_str("    movz x1, #1, lsl #16\n");
+                            self.output.push_str("    cmp x0, x1\n");
+                            self.output.push_str(&format!("    b.ls {}\n", l_dyn));
+                            self.output.push_str("    ldr x1, [x0, #-16]\n");
+                            self.output.push_str("    movz x2, #0x0002\n");
+                            self.output.push_str("    movk x2, #0x5A11, lsl #16\n");
+                            self.output.push_str("    cmp x1, x2\n");
+                            self.output.push_str(&format!("    b.ne {}\n", l_dyn));
+                        }
+                    }
                     arch::emit_print_map(
                         &mut self.output,
                         self.arch,
                         self.ctx.stack_offset,
                         self.os,
                     );
+                    self.output.push('\n');
+                    arch::emit_jump(&mut self.output, self.arch, &l_end);
+                    // Null prints as "null" (mirrors the VarType::Null arm).
+                    self.output.push_str(&format!("{}:\n", l_null));
+                    let fmt_null_label = self.ctx.next_string_label();
+                    self.emit_rodata_section();
+                    self.output.push_str(&format!("{}:\n", fmt_null_label));
+                    self.emit_string_directive("null\\n");
+                    self.output.push_str(".text\n");
+                    arch::emit_say_str_lit(
+                        &mut self.output,
+                        self.arch,
+                        &fmt_null_label,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                    self.output.push('\n');
+                    arch::emit_jump(&mut self.output, self.arch, &l_end);
+                    // Dynamic fallback: classify at runtime (string -> %s,
+                    // anything else -> %lld). One push, one pop per path.
+                    self.output.push_str(&format!("{}:\n", l_dyn));
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                    self.emit_runtime_classify(self.os);
+                    arch::emit_cmp_imm(&mut self.output, self.arch, 3);
+                    arch::emit_cond_jump(
+                        &mut self.output,
+                        self.arch,
+                        BinaryOp::Equal,
+                        false,
+                        &l_str,
+                    );
+                    arch::emit_pop_temp(&mut self.output, self.arch);
+                    let fmt_dyn_int_label = self.ctx.next_string_label();
+                    self.emit_rodata_section();
+                    self.output.push_str(&format!("{}:\n", fmt_dyn_int_label));
+                    self.emit_string_directive("%lld\\n");
+                    self.output.push_str(".text\n");
+                    arch::emit_say_acc(
+                        &mut self.output,
+                        self.arch,
+                        &fmt_dyn_int_label,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                    arch::emit_jump(&mut self.output, self.arch, &l_end);
+                    self.output.push_str(&format!("{}:\n", l_str));
+                    arch::emit_pop_temp(&mut self.output, self.arch);
+                    let fmt_dyn_str_label = self.ctx.next_string_label();
+                    self.emit_rodata_section();
+                    self.output.push_str(&format!("{}:\n", fmt_dyn_str_label));
+                    self.emit_string_directive("%s\\n");
+                    self.output.push_str(".text\n");
+                    arch::emit_say_acc(
+                        &mut self.output,
+                        self.arch,
+                        &fmt_dyn_str_label,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                    self.output.push_str(&format!("{}:\n", l_end));
                     self.output.push('\n');
                     return;
                 }

@@ -195,6 +195,25 @@ function _json_hex_val(ch: string) -> int
     end
 end
 
+function _json_chr_utf8(code: int) -> string
+    if code < 0
+        return ""
+    end
+    if code < 128
+        return chr(code)
+    end
+    if code < 2048
+        return chr(192 + code / 64) + chr(128 + code % 64)
+    end
+    if code < 65536
+        return chr(224 + code / 4096) + chr(128 + (code / 64) % 64) + chr(128 + code % 64)
+    end
+    if code < 1114112
+        return chr(240 + code / 262144) + chr(128 + (code / 4096) % 64) + chr(128 + (code / 64) % 64) + chr(128 + code % 64)
+    end
+    return ""
+end
+
 function _json_parse_array(s: string, pos: int[], slen: int)
     pos[0] = pos[0] + 1
     let arr = []
@@ -310,8 +329,23 @@ function _json_parse_string(s: string, pos: int[], slen: int) -> string
                             let h1: int = _json_hex_val(char_at(s, pos[0] + 2))
                             let h2: int = _json_hex_val(char_at(s, pos[0] + 3))
                             let h3: int = _json_hex_val(char_at(s, pos[0] + 4))
-                            let code: int = h0 * 4096 + h1 * 256 + h2 * 16 + h3
-                            res = res + chr(code)
+                            let pcode: int = h0 * 4096 + h1 * 256 + h2 * 16 + h3
+                            if pcode >= 55296 and pcode <= 56319 and pos[0] + 10 < slen and char_at(s, pos[0] + 5) == "\\" and char_at(s, pos[0] + 6) == "u"
+                                let l0: int = _json_hex_val(char_at(s, pos[0] + 7))
+                                let l1: int = _json_hex_val(char_at(s, pos[0] + 8))
+                                let l2: int = _json_hex_val(char_at(s, pos[0] + 9))
+                                let l3: int = _json_hex_val(char_at(s, pos[0] + 10))
+                                let plo: int = l0 * 4096 + l1 * 256 + l2 * 16 + l3
+                                if plo >= 56320 and plo <= 57343
+                                    pcode = 65536 + (pcode - 55296) * 1024 + (plo - 56320)
+                                    pos[0] = pos[0] + 6
+                                else
+                                    pcode = 65533
+                                end
+                            elif (pcode >= 55296 and pcode <= 56319) or (pcode >= 56320 and pcode <= 57343)
+                                pcode = 65533
+                            end
+                            res = res + _json_chr_utf8(pcode)
                             pos[0] = pos[0] + 4
                         end
                     else

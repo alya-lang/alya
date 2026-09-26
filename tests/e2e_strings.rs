@@ -272,6 +272,31 @@ say len(chr(1114111))
 }
 
 #[test]
+fn test_e2e_std_json_unicode_escapes() {
+    // stdlib json must decode \u escapes as UTF-8 with surrogate-pair
+    // combining (stdlib/json.alya). BMP singles already work via the
+    // fixed fn_chr runtime; pairs and lone surrogates do not yet.
+    let code = r#"
+import "std/json"
+
+say json_parse("\"\\u00E9\"")
+say json_parse("\"\\u20AC\"")
+say json_parse("\"\\uD83D\\uDE00\"")
+say len(json_parse("\"\\uD83D\\uDE00\""))
+say json_parse("\"\\uD800\"")
+say len(json_parse("\"\\uD800\""))
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "é\n€\n😀\n4\n�\n3\n");
+    }
+}
+
+#[test]
 fn test_e2e_str_conversion_and_concat() {
     let code = r#"
 let a = 12345
