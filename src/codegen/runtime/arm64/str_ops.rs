@@ -358,9 +358,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ret\n\n");
 
     // fn_chr / fn_char_from_code
-    // Codes 1..0x10FFFF are UTF-8 encoded (bytes in w5..w8, length in
-    // w9). Larger values keep the legacy pointer behavior (first byte
-    // of the pointed string), so chr("AB") == "A" still holds.
+    // Codes 1..255 yield a single byte (legacy); 256..0x10FFFF are UTF-8
+    // encoded (bytes in w5..w8, length in w9). Larger values keep the
+    // legacy pointer behavior (first byte of the pointed string), so
+    // chr("AB") == "A" still holds.
     out.push_str(".align 2\n");
     out.push_str("fn_char_from_code:\n");
     out.push_str("fn_chr:\n");
@@ -372,7 +373,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movz x5, #0x11, lsl #16\n"); // 0x110000
     out.push_str("    cmp x19, x5\n");
     out.push_str("    b.hs .L_arm64_chr_ptr\n");
-    out.push_str("    cmp x19, #128\n");
+    out.push_str("    cmp x19, #256\n");
     out.push_str("    b.lo .L_arm64_chr_1b\n");
     out.push_str("    cmp x19, #2048\n");
     out.push_str("    b.lo .L_arm64_chr_2b\n");
@@ -438,7 +439,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    b.lo .L_arm64_chr_adv\n");
     out.push_str("    strb w8, [x0, #3]\n");
     out.push_str(".L_arm64_chr_adv:\n");
-    out.push_str("    strb wzr, [x0, x9, sxtw]\n");
+    out.push_str("    strb wzr, [x0, w9, sxtw]\n");
     out.push_str("    add x3, x3, x9\n");
     out.push_str("    add x3, x3, #1\n");
     out.push_str("    add x3, x3, #7\n");

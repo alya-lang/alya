@@ -476,10 +476,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ret\n\n");
 
     // fn_chr / fn_char_from_code
-    // Codes 1..0x10FFFF are UTF-8 encoded. Previously only 1..255 took
-    // the code path and anything larger was dereferenced as a pointer,
-    // segfaulting on e.g. chr(8364). Larger values keep the legacy
-    // pointer behavior (first byte of the pointed string), so
+    // Codes 1..255 yield a single byte (legacy); 256..0x10FFFF are UTF-8
+    // encoded. Previously anything above 255 was dereferenced as a
+    // pointer, segfaulting on e.g. chr(8364). Larger values keep the
+    // legacy pointer behavior (first byte of the pointed string), so
     // chr("AB") == "A" still holds.
     out.push_str("fn_char_from_code:\n");
     out.push_str("fn_chr:\n");
@@ -497,7 +497,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    jz .L_x64_chr_end\n");
     out.push_str("    cmp $0x110000, %rdx\n");
     out.push_str("    jae .L_x64_chr_ptr\n");
-    out.push_str("    cmp $128, %rdx\n");
+    out.push_str("    cmp $256, %rdx\n");
     out.push_str("    jb .L_x64_chr_1b\n");
     out.push_str("    cmp $2048, %rdx\n");
     out.push_str("    jb .L_x64_chr_2b\n");

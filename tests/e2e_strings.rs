@@ -236,14 +236,18 @@ say "neg: [{out2}]"
 
 #[test]
 fn test_e2e_chr_unicode() {
-    // chr() must UTF-8 encode codepoints 1..0x10FFFF. Previously any
-    // code above 255 was dereferenced as a pointer (segfault).
-    // Values above 0x10FFFF keep the legacy pointer behavior.
+    // chr() keeps single bytes for 1..255 (chr(ord(b)) round-trips, and
+    // byte-oriented packages rely on it) and UTF-8 encodes 256..0x10FFFF.
+    // Previously any code above 255 was dereferenced as a pointer
+    // (segfault). Values above 0x10FFFF keep the legacy pointer behavior.
     let code = r#"
 say chr(65)
 say chr(0) == ""
 say chr("AB")
-say chr(233) == "é"
+say ord(chr(233))
+say len(chr(233))
+say len(chr(255))
+say len(chr(256))
 say chr(8364) == "€"
 say chr(20013) == "中"
 say chr(128512) == "😀"
@@ -260,8 +264,8 @@ say len(chr(1114111))
         assert_eq!(
             output,
             concat!(
-                "A\n", "1\n", "A\n", "1\n", "1\n", "1\n", "1\n", "1\n", "2\n", "2\n", "3\n", "3\n",
-                "4\n", "4\n",
+                "A\n", "1\n", "A\n", "233\n", "1\n", "1\n", "2\n", "1\n", "1\n", "1\n", "1\n",
+                "1\n", "2\n", "3\n", "3\n", "4\n", "4\n",
             )
         );
     }

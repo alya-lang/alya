@@ -371,9 +371,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ret\n\n");
 
     // fn_chr / fn_char_from_code
-    // Codes 1..0x10FFFF are UTF-8 encoded (packed little-endian in edx,
-    // length in eax). Larger values keep the legacy pointer behavior,
-    // so chr("AB") == "A" still holds.
+    // Codes 1..255 yield a single byte (legacy); 256..0x10FFFF are UTF-8
+    // encoded (packed little-endian in edx, length in eax). Larger values
+    // keep the legacy pointer behavior, so chr("AB") == "A" still holds.
     out.push_str("fn_char_from_code:\n");
     out.push_str("fn_chr:\n");
     out.push_str("    push %ebp\n");
@@ -387,7 +387,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    jz .L_x86_chr_end\n");
     out.push_str("    cmp $0x110000, %edx\n");
     out.push_str("    jae .L_x86_chr_ptr\n");
-    out.push_str("    cmp $128, %edx\n");
+    out.push_str("    cmp $256, %edx\n");
     out.push_str("    jb .L_x86_chr_1b\n");
     out.push_str("    cmp $2048, %edx\n");
     out.push_str("    jb .L_x86_chr_2b\n");
