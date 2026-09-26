@@ -5,9 +5,9 @@ $version     = '0.0.19'
 $toolsDir    = "$(Split-Path -parent $MyInvocation.MyCommand.Definition)"
 
 $url64        = "https://github.com/alya-lang/alya/releases/download/v$version/alya-v$version-x86_64-windows.zip"
-$checksum64   = '82677ee3cc71b28faede32efc12ab5045bedb3956db9675405edf27659a1e21d'
+$checksum64   = '23cfecaaf2cff7c6d3da00f25b2f8ce113329e82925d315b09c2d874188b9c52'
 $urlArm64      = "https://github.com/alya-lang/alya/releases/download/v$version/alya-v$version-arm64-windows.zip"
-$checksumArm64 = '5e7b89daf72ceab7cf56d4da306aef0707279bf1db1ccfc4caf1f2bd486fd98c'
+$checksumArm64 = '93bdecf1d6d6280138e489c20b8440b848c984332209d40926f831e950685eb8'
 $checksumType  = 'sha256'
 
 $packageArgs = @{
