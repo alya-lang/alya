@@ -358,6 +358,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ret\n\n");
 
     // fn_chr / fn_char_from_code
+    // Codes 1..0x10FFFF are UTF-8 encoded (bytes in w5..w8, length in
+    // w9). Larger values keep the legacy pointer behavior (first byte
+    // of the pointed string), so chr("AB") == "A" still holds.
     out.push_str(".align 2\n");
     out.push_str("fn_char_from_code:\n");
     out.push_str("fn_chr:\n");
@@ -366,12 +369,55 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    stp x19, x20, [sp, #16]\n");
     out.push_str("    mov x19, x0\n");
     out.push_str("    cbz x19, .L_arm64_chr_empty\n");
-    out.push_str("    cmp x19, #256\n");
-    out.push_str("    b.lo .L_arm64_chr_byte\n");
+    out.push_str("    movz x5, #0x11, lsl #16\n"); // 0x110000
+    out.push_str("    cmp x19, x5\n");
+    out.push_str("    b.hs .L_arm64_chr_ptr\n");
+    out.push_str("    cmp x19, #128\n");
+    out.push_str("    b.lo .L_arm64_chr_1b\n");
+    out.push_str("    cmp x19, #2048\n");
+    out.push_str("    b.lo .L_arm64_chr_2b\n");
+    out.push_str("    movz x5, #1, lsl #16\n"); // 0x10000
+    out.push_str("    cmp x19, x5\n");
+    out.push_str("    b.lo .L_arm64_chr_3b\n");
+    out.push_str("    lsr x5, x19, #18\n");
+    out.push_str("    add x5, x5, #0xF0\n");
+    out.push_str("    lsr x6, x19, #12\n");
+    out.push_str("    and x6, x6, #63\n");
+    out.push_str("    add x6, x6, #0x80\n");
+    out.push_str("    lsr x7, x19, #6\n");
+    out.push_str("    and x7, x7, #63\n");
+    out.push_str("    add x7, x7, #0x80\n");
+    out.push_str("    and x8, x19, #63\n");
+    out.push_str("    add x8, x8, #0x80\n");
+    out.push_str("    mov w9, #4\n");
+    out.push_str("    b .L_arm64_chr_write\n");
+    out.push_str(".L_arm64_chr_3b:\n");
+    out.push_str("    lsr x5, x19, #12\n");
+    out.push_str("    add x5, x5, #0xE0\n");
+    out.push_str("    lsr x6, x19, #6\n");
+    out.push_str("    and x6, x6, #63\n");
+    out.push_str("    add x6, x6, #0x80\n");
+    out.push_str("    and x7, x19, #63\n");
+    out.push_str("    add x7, x7, #0x80\n");
+    out.push_str("    mov w9, #3\n");
+    out.push_str("    b .L_arm64_chr_write\n");
+    out.push_str(".L_arm64_chr_2b:\n");
+    out.push_str("    lsr x5, x19, #6\n");
+    out.push_str("    add x5, x5, #0xC0\n");
+    out.push_str("    and x6, x19, #63\n");
+    out.push_str("    add x6, x6, #0x80\n");
+    out.push_str("    mov w9, #2\n");
+    out.push_str("    b .L_arm64_chr_write\n");
+    out.push_str(".L_arm64_chr_1b:\n");
+    out.push_str("    mov w5, w19\n");
+    out.push_str("    mov w9, #1\n");
+    out.push_str("    b .L_arm64_chr_write\n");
+    out.push_str(".L_arm64_chr_ptr:\n");
     out.push_str("    ldrb w19, [x19]\n");
-    out.push_str(".L_arm64_chr_byte:\n");
-    out.push_str("    and w19, w19, #255\n");
     out.push_str("    cbz w19, .L_arm64_chr_empty\n");
+    out.push_str("    mov w5, w19\n");
+    out.push_str("    mov w9, #1\n");
+    out.push_str(".L_arm64_chr_write:\n");
     emit_str_buf_ctx(out, "x1", "x2", "x4", os);
     out.push_str("    ldr x3, [x2]\n");
     out.push_str("    movz x4, #16960\n");
@@ -381,9 +427,20 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x3, #0\n");
     out.push_str(".L_arm64_chr_buf_ok:\n");
     out.push_str("    add x0, x1, x3\n");
-    out.push_str("    strb w19, [x0]\n");
-    out.push_str("    strb wzr, [x0, #1]\n");
-    out.push_str("    add x3, x3, #2\n");
+    out.push_str("    strb w5, [x0]\n");
+    out.push_str("    cmp w9, #2\n");
+    out.push_str("    b.lo .L_arm64_chr_adv\n");
+    out.push_str("    strb w6, [x0, #1]\n");
+    out.push_str("    cmp w9, #3\n");
+    out.push_str("    b.lo .L_arm64_chr_adv\n");
+    out.push_str("    strb w7, [x0, #2]\n");
+    out.push_str("    cmp w9, #4\n");
+    out.push_str("    b.lo .L_arm64_chr_adv\n");
+    out.push_str("    strb w8, [x0, #3]\n");
+    out.push_str(".L_arm64_chr_adv:\n");
+    out.push_str("    strb wzr, [x0, x9, sxtw]\n");
+    out.push_str("    add x3, x3, x9\n");
+    out.push_str("    add x3, x3, #1\n");
     out.push_str("    add x3, x3, #7\n");
     out.push_str("    and x3, x3, #~7\n");
     out.push_str("    str x3, [x2]\n");

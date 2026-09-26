@@ -476,6 +476,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ret\n\n");
 
     // fn_chr / fn_char_from_code
+    // Codes 1..0x10FFFF are UTF-8 encoded. Previously only 1..255 took
+    // the code path and anything larger was dereferenced as a pointer,
+    // segfaulting on e.g. chr(8364). Larger values keep the legacy
+    // pointer behavior (first byte of the pointed string), so
+    // chr("AB") == "A" still holds.
     out.push_str("fn_char_from_code:\n");
     out.push_str("fn_chr:\n");
     out.push_str("    push %rbp\n");
@@ -490,12 +495,76 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea alya_str_empty(%rip), %rax\n");
     out.push_str("    test %rdx, %rdx\n");
     out.push_str("    jz .L_x64_chr_end\n");
-    out.push_str("    cmp $256, %rdx\n");
-    out.push_str("    jb .L_x64_chr_code\n");
+    out.push_str("    cmp $0x110000, %rdx\n");
+    out.push_str("    jae .L_x64_chr_ptr\n");
+    out.push_str("    cmp $128, %rdx\n");
+    out.push_str("    jb .L_x64_chr_1b\n");
+    out.push_str("    cmp $2048, %rdx\n");
+    out.push_str("    jb .L_x64_chr_2b\n");
+    out.push_str("    cmp $65536, %rdx\n");
+    out.push_str("    jb .L_x64_chr_3b\n");
+    // 4-byte sequence: F0..F4 followed by three continuation bytes.
+    // Encoded bytes are packed little-endian in r10d (r11 is clobbered
+    // by emit_str_buf_ctx below); length goes in eax.
+    out.push_str("    mov %rdx, %r10\n");
+    out.push_str("    shr $18, %r10\n");
+    out.push_str("    add $0xF0, %r10\n");
+    out.push_str("    mov %rdx, %r11\n");
+    out.push_str("    shr $12, %r11\n");
+    out.push_str("    and $63, %r11\n");
+    out.push_str("    add $0x80, %r11\n");
+    out.push_str("    shl $8, %r11\n");
+    out.push_str("    or %r11, %r10\n");
+    out.push_str("    mov %rdx, %r11\n");
+    out.push_str("    shr $6, %r11\n");
+    out.push_str("    and $63, %r11\n");
+    out.push_str("    add $0x80, %r11\n");
+    out.push_str("    shl $16, %r11\n");
+    out.push_str("    or %r11, %r10\n");
+    out.push_str("    and $63, %rdx\n");
+    out.push_str("    add $0x80, %rdx\n");
+    out.push_str("    shl $24, %rdx\n");
+    out.push_str("    or %rdx, %r10\n");
+    out.push_str("    mov $4, %eax\n");
+    out.push_str("    jmp .L_x64_chr_write\n");
+    out.push_str(".L_x64_chr_3b:\n");
+    out.push_str("    mov %rdx, %r10\n");
+    out.push_str("    shr $12, %r10\n");
+    out.push_str("    add $0xE0, %r10\n");
+    out.push_str("    mov %rdx, %r11\n");
+    out.push_str("    shr $6, %r11\n");
+    out.push_str("    and $63, %r11\n");
+    out.push_str("    add $0x80, %r11\n");
+    out.push_str("    shl $8, %r11\n");
+    out.push_str("    or %r11, %r10\n");
+    out.push_str("    and $63, %rdx\n");
+    out.push_str("    add $0x80, %rdx\n");
+    out.push_str("    shl $16, %rdx\n");
+    out.push_str("    or %rdx, %r10\n");
+    out.push_str("    mov $3, %eax\n");
+    out.push_str("    jmp .L_x64_chr_write\n");
+    out.push_str(".L_x64_chr_2b:\n");
+    out.push_str("    mov %rdx, %r10\n");
+    out.push_str("    shr $6, %r10\n");
+    out.push_str("    add $0xC0, %r10\n");
+    out.push_str("    and $63, %rdx\n");
+    out.push_str("    add $0x80, %rdx\n");
+    out.push_str("    shl $8, %rdx\n");
+    out.push_str("    or %rdx, %r10\n");
+    out.push_str("    mov $2, %eax\n");
+    out.push_str("    jmp .L_x64_chr_write\n");
+    out.push_str(".L_x64_chr_1b:\n");
+    out.push_str("    mov %rdx, %r10\n");
+    out.push_str("    mov $1, %eax\n");
+    out.push_str("    jmp .L_x64_chr_write\n");
+    out.push_str(".L_x64_chr_ptr:\n");
     out.push_str("    movzbl (%rdx), %edx\n");
-    out.push_str(".L_x64_chr_code:\n");
     out.push_str("    and $255, %edx\n");
     out.push_str("    jz .L_x64_chr_end\n");
+    out.push_str("    mov %rdx, %r10\n");
+    out.push_str("    mov $1, %eax\n");
+    out.push_str(".L_x64_chr_write:\n");
+    out.push_str("    push %rax\n");
     super::emit_str_buf_ctx(out, os);
     out.push_str("    mov (%r9), %rbx\n");
     out.push_str("    cmp $950000, %rbx\n");
@@ -504,9 +573,23 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_x64_chr_buf_ok:\n");
     out.push_str("    lea (%r8, %rbx), %r12\n");
     out.push_str("    mov %r12, %rax\n");
-    out.push_str("    movb %dl, (%r12)\n");
-    out.push_str("    movb $0, 1(%r12)\n");
-    out.push_str("    add $2, %r12\n");
+    out.push_str("    movb %r10b, (%r12)\n");
+    out.push_str("    pop %rcx\n");
+    out.push_str("    cmp $2, %ecx\n");
+    out.push_str("    jb .L_x64_chr_adv\n");
+    out.push_str("    shr $8, %r10\n");
+    out.push_str("    movb %r10b, 1(%r12)\n");
+    out.push_str("    cmp $3, %ecx\n");
+    out.push_str("    jb .L_x64_chr_adv\n");
+    out.push_str("    shr $8, %r10\n");
+    out.push_str("    movb %r10b, 2(%r12)\n");
+    out.push_str("    cmp $4, %ecx\n");
+    out.push_str("    jb .L_x64_chr_adv\n");
+    out.push_str("    shr $8, %r10\n");
+    out.push_str("    movb %r10b, 3(%r12)\n");
+    out.push_str(".L_x64_chr_adv:\n");
+    out.push_str("    movb $0, (%r12, %rcx)\n");
+    out.push_str("    lea 1(%r12, %rcx), %r12\n");
     out.push_str("    sub %r8, %r12\n");
     out.push_str("    add $7, %r12\n");
     out.push_str("    and $-8, %r12\n");
