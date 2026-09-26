@@ -516,3 +516,101 @@ end
         );
     }
 }
+
+#[test]
+fn test_e2e_dynamic_equality_function_scope() {
+    // `==`/`!=` on array elements inside function scope must compare by
+    // value: untyped operands previously fell back to pointer compare
+    // (issue #41). Mixed int/float-vs-string shapes previously crashed
+    // outright instead of returning false.
+    let code = r#"
+function t1(a, b) -> int
+    return a[0] == b[1]
+end
+function tne(a, b) -> int
+    return a[0] != b[0]
+end
+function teq(a, b) -> int
+    return a[0] == b[0]
+end
+function main()
+    let s = ["h2"]
+    let c = ["http/1.1", "h2"]
+    say str(t1(s, c))
+    say str(tne(s, c))
+    say str(teq([1, 2], [1, 3]))
+    say str(teq(["a", "b"], ["a", "c"]))
+    say str(tne(["a"], ["b"]))
+    let h = 123456789012345
+    say str(h == "x")
+    say str(h != "x")
+    let f = 3.14
+    say str(f == "x")
+    say str("x" == 3.14)
+    say str(5 == "x")
+end
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "1\n1\n1\n1\n1\n0\n1\n0\n0\n0\n");
+    }
+}
+
+#[test]
+fn test_e2e_dynamic_equality_method_collision() {
+    // Bare-name inference markers collide across functions
+    // (`expected: string` in `assert_str_eq` mis-marks an int
+    // `expected` elsewhere). Dynamic equality must verify both sides
+    // at runtime instead of trusting one marking (issue #41).
+    let code = r#"
+import "std/test"
+function main()
+    let runner = runner_new()
+    runner.assert_eq(5, 5, "equality check")
+    say "done"
+end
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert!(output.contains("done"), "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_say_unknown_call_result() {
+    // `say` of a call with statically-unknown return type must classify
+    // at runtime instead of printing the raw pointer (issue #44).
+    let code = r#"
+function first_a(arr, name)
+    for kid in arr
+        if kid == name
+            return kid
+        end
+    end
+    return null
+end
+function main()
+    let arr = ["x", "a", "b"]
+    say first_a(arr, "a")
+end
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "a\n");
+    }
+}

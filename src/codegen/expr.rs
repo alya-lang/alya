@@ -1,8 +1,8 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
-    escape_string, is_array_expr, is_definitely_not_numeric, is_float_expr, is_map_expr,
-    is_map_read_index, is_null_expr, is_number_expr, is_string_expr,
+    eq_operand_is_dynamic, escape_string, is_array_expr, is_definitely_not_numeric, is_float_expr,
+    is_map_expr, is_map_read_index, is_null_expr, is_number_expr, is_string_expr,
     struct_field_markers_mixed_vars,
 };
 use crate::codegen::arch;
@@ -345,6 +345,44 @@ impl CodeGen {
                                 return;
                             }
                         }
+                    }
+                }
+
+                // Dynamic equality (issues #41/#44): operands that are not
+                // both proven strings are verified at runtime (string ->
+                // content compare, otherwise -> word compare). Static
+                // string markings are trusted only when BOTH sides carry
+                // them: bare-name inference markers can collide across
+                // functions (e.g. `expected: string` in `assert_str_eq`
+                // mis-marks an int `expected` elsewhere), so a singly
+                // marked side is re-verified instead of trusted.
+                // Literals, floats, maps, arrays, nulls, and proven
+                // integers keep their existing paths exactly.
+                if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
+                    && !left_is_num
+                    && !right_is_num
+                {
+                    let left_str = is_string_expr(left, &self.ctx.variables);
+                    let right_str = is_string_expr(right, &self.ctx.variables);
+                    if left_str && right_str {
+                        self.generate_string_equality(left, right, *op);
+                        return;
+                    }
+                    if left_str
+                        || right_str
+                        || (!is_float_expr(left, &self.ctx.variables)
+                            && !is_float_expr(right, &self.ctx.variables)
+                            && !is_map_expr(left, &self.ctx.variables)
+                            && !is_map_expr(right, &self.ctx.variables)
+                            && !is_array_expr(left, &self.ctx.variables)
+                            && !is_array_expr(right, &self.ctx.variables)
+                            && !is_null_expr(left, &self.ctx.variables)
+                            && !is_null_expr(right, &self.ctx.variables)
+                            && (eq_operand_is_dynamic(left, &self.ctx.variables)
+                                || eq_operand_is_dynamic(right, &self.ctx.variables)))
+                    {
+                        self.generate_dynamic_equality(left, right, *op);
+                        return;
                     }
                 }
 
@@ -3909,6 +3947,127 @@ impl CodeGen {
             self.ctx.stack_offset,
             self.os,
         );
+    }
+
+    /// Equality with runtime classification for operands without a proven
+    /// static type (issues #41/#44).
+    ///
+    /// Both values are pushed (stack top-first: right, left), then each
+    /// side is classified (class 3 from `emit_runtime_classify` means
+    /// string). Both strings -> content compare via `fn_strcmp`;
+    /// otherwise -> word compare. Both sides are always verified because
+    /// a singly-marked string side cannot be trusted: bare-name inference
+    /// markers collide across functions, so the marking may be wrong and
+    /// trusting it would fold a true equality to constant-false.
+    /// Pushes and pops balance on every path; `stack_offset` accounting
+    /// mirrors `generate_string_equality` so call padding stays correct.
+    pub(crate) fn generate_dynamic_equality(&mut self, left: &Expr, right: &Expr, op: BinaryOp) {
+        let is_eq = matches!(op, BinaryOp::Equal);
+        self.generate_expression(left);
+        arch::emit_push_temp(&mut self.output, self.arch);
+        let temp_offset = self.temp_offset();
+        self.ctx.stack_offset += temp_offset;
+
+        self.generate_expression(right);
+        self.ctx.stack_offset -= temp_offset;
+        arch::emit_push_temp(&mut self.output, self.arch);
+
+        let l_not_str = self.ctx.next_label();
+        let l_end = self.ctx.next_label();
+        match self.arch {
+            Architecture::X64 => {
+                self.output.push_str("    movq (%rsp), %rax\n");
+                self.emit_runtime_classify(self.os);
+                self.output.push_str("    movq %rax, %rbx\n");
+                self.output.push_str("    movq 8(%rsp), %rax\n");
+                self.emit_runtime_classify(self.os);
+                self.output.push_str("    cmp $3, %rax\n");
+                self.output.push_str(&format!("    jne {}\n", l_not_str));
+                self.output.push_str("    cmp $3, %rbx\n");
+                self.output.push_str(&format!("    jne {}\n", l_not_str));
+                self.output.push_str("    pop %rax\n");
+                arch::emit_string_equality_call(
+                    &mut self.output,
+                    self.arch,
+                    op,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+                arch::emit_jump(&mut self.output, self.arch, &l_end);
+                self.output.push_str(&format!("{}:\n", l_not_str));
+                self.output.push_str("    pop %rbx\n");
+                self.output.push_str("    pop %rax\n");
+                self.output.push_str("    cmp %rbx, %rax\n");
+                if is_eq {
+                    self.output.push_str("    sete %al\n");
+                } else {
+                    self.output.push_str("    setne %al\n");
+                }
+                self.output.push_str("    movzbq %al, %rax\n");
+                self.output.push_str(&format!("{}:\n", l_end));
+            }
+            Architecture::X86 => {
+                self.output.push_str("    movl (%esp), %eax\n");
+                self.emit_runtime_classify(self.os);
+                self.output.push_str("    movl %eax, %ebx\n");
+                self.output.push_str("    movl 4(%esp), %eax\n");
+                self.emit_runtime_classify(self.os);
+                self.output.push_str("    cmp $3, %eax\n");
+                self.output.push_str(&format!("    jne {}\n", l_not_str));
+                self.output.push_str("    cmp $3, %ebx\n");
+                self.output.push_str(&format!("    jne {}\n", l_not_str));
+                self.output.push_str("    pop %eax\n");
+                arch::emit_string_equality_call(
+                    &mut self.output,
+                    self.arch,
+                    op,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+                arch::emit_jump(&mut self.output, self.arch, &l_end);
+                self.output.push_str(&format!("{}:\n", l_not_str));
+                self.output.push_str("    pop %ebx\n");
+                self.output.push_str("    pop %eax\n");
+                self.output.push_str("    cmp %ebx, %eax\n");
+                if is_eq {
+                    self.output.push_str("    sete %al\n");
+                } else {
+                    self.output.push_str("    setne %al\n");
+                }
+                self.output.push_str("    movzbl %al, %eax\n");
+                self.output.push_str(&format!("{}:\n", l_end));
+            }
+            Architecture::ARM64 => {
+                self.output.push_str("    ldr x0, [sp]\n");
+                self.emit_runtime_classify(self.os);
+                self.output.push_str("    mov x9, x0\n");
+                self.output.push_str("    ldr x0, [sp, #16]\n");
+                self.emit_runtime_classify(self.os);
+                self.output.push_str("    cmp x0, #3\n");
+                self.output.push_str(&format!("    b.ne {}\n", l_not_str));
+                self.output.push_str("    cmp x9, #3\n");
+                self.output.push_str(&format!("    b.ne {}\n", l_not_str));
+                self.output.push_str("    ldr x0, [sp], #16\n");
+                arch::emit_string_equality_call(
+                    &mut self.output,
+                    self.arch,
+                    op,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+                arch::emit_jump(&mut self.output, self.arch, &l_end);
+                self.output.push_str(&format!("{}:\n", l_not_str));
+                self.output.push_str("    ldr x1, [sp], #16\n");
+                self.output.push_str("    ldr x0, [sp], #16\n");
+                self.output.push_str("    cmp x0, x1\n");
+                if is_eq {
+                    self.output.push_str("    cset x0, eq\n");
+                } else {
+                    self.output.push_str("    cset x0, ne\n");
+                }
+                self.output.push_str(&format!("{}:\n", l_end));
+            }
+        }
     }
 
     pub(crate) fn resolve_struct_field_index(&self, object: &Expr, field: &str) -> usize {

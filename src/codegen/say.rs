@@ -1,8 +1,8 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
-    escape_string, is_array_expr, is_float_expr, is_map_expr, is_map_read_index, is_null_expr,
-    is_string_array, is_string_expr,
+    call_returns_known_int, escape_string, is_array_expr, is_float_expr, is_map_expr,
+    is_map_read_index, is_null_expr, is_string_array, is_string_expr,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -952,7 +952,69 @@ impl CodeGen {
 
                 let is_str = is_string_expr(expr, &self.ctx.variables);
                 let is_flt = is_float_expr(expr, &self.ctx.variables);
+                // Calls with statically-unknown returns (e.g. a user
+                // function returning an array element) may produce strings;
+                // printing the raw pointer with %lld corrupts output (issue
+                // #44). Classify at runtime like unknown dynamics. Calls
+                // proven to return ints keep the direct %lld path.
+                let unknown_call = match expr {
+                    Expr::Call { name, .. } => {
+                        !is_str
+                            && !is_flt
+                            && !is_map_expr(expr, &self.ctx.variables)
+                            && !is_array_expr(expr, &self.ctx.variables)
+                            && !is_null_expr(expr, &self.ctx.variables)
+                            && !call_returns_known_int(name, &self.ctx.variables)
+                    }
+                    _ => false,
+                };
                 self.generate_expression(expr);
+
+                if unknown_call {
+                    let l_call_str = self.ctx.next_label();
+                    let l_call_end = self.ctx.next_label();
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                    self.emit_runtime_classify(self.os);
+                    arch::emit_cmp_imm(&mut self.output, self.arch, 3);
+                    arch::emit_cond_jump(
+                        &mut self.output,
+                        self.arch,
+                        BinaryOp::Equal,
+                        false,
+                        &l_call_str,
+                    );
+                    arch::emit_pop_temp(&mut self.output, self.arch);
+                    let fmt_call_int_label = self.ctx.next_string_label();
+                    self.emit_rodata_section();
+                    self.output.push_str(&format!("{}:\n", fmt_call_int_label));
+                    self.emit_string_directive("%lld\\n");
+                    self.output.push_str(".text\n");
+                    arch::emit_say_acc(
+                        &mut self.output,
+                        self.arch,
+                        &fmt_call_int_label,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                    arch::emit_jump(&mut self.output, self.arch, &l_call_end);
+                    self.output.push_str(&format!("{}:\n", l_call_str));
+                    arch::emit_pop_temp(&mut self.output, self.arch);
+                    let fmt_call_str_label = self.ctx.next_string_label();
+                    self.emit_rodata_section();
+                    self.output.push_str(&format!("{}:\n", fmt_call_str_label));
+                    self.emit_string_directive("%s\\n");
+                    self.output.push_str(".text\n");
+                    arch::emit_say_acc(
+                        &mut self.output,
+                        self.arch,
+                        &fmt_call_str_label,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                    self.output.push_str(&format!("{}:\n", l_call_end));
+                    self.output.push('\n');
+                    return;
+                }
 
                 let fmt_label = self.ctx.next_string_label();
                 self.emit_rodata_section();

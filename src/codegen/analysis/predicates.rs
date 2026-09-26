@@ -970,3 +970,50 @@ pub fn is_definitely_not_numeric(expr: &Expr, vars: &HashMap<String, VarType>) -
     }
     false
 }
+
+/// True when a call is proven to return an integer: an explicit `-> int`
+/// annotation marker, or a builtin known to produce integers.
+///
+/// Used to keep equality/say fast paths for known integers. The error
+/// direction is safe: a false positive only preserves today's behavior.
+pub fn call_returns_known_int(name: &str, vars: &HashMap<String, VarType>) -> bool {
+    let bare = name.rsplit("::").next().unwrap_or(name);
+    let bare = bare.rsplit("__").next().unwrap_or(bare);
+    if matches!(
+        bare,
+        "int"
+            | "len"
+            | "arr_len"
+            | "ord"
+            | "time"
+            | "clock_ms"
+            | "rand"
+            | "rand_int"
+            | "abs"
+            | "abs_val"
+    ) {
+        return true;
+    }
+    vars.contains_key(&format!("fn_ret_int:{}", name))
+        || vars.contains_key(&format!("fn_ret_int:{}", bare))
+        || vars.keys().any(|k| {
+            k.starts_with("fn_ret_int:")
+                && (k.ends_with(&format!("__{}", bare)) || k.ends_with(&format!("::{}", bare)))
+        })
+}
+
+/// True when an `==`/`!=` operand has no proven static type for equality:
+/// not a literal, not proven string/float/map/array, and not a proven
+/// integer (annotated variable or known int-returning call).
+///
+/// Callers exclude literals and typed expressions first; what remains is
+/// array indexing into untyped collections, untyped locals/params, struct
+/// fields, and calls with unknown returns. Such operands are classified
+/// at runtime (string -> content compare, otherwise -> word compare).
+pub fn eq_operand_is_dynamic(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    match expr {
+        Expr::Identifier(name) => !vars.contains_key(&format!("var_is_int:{}", name)),
+        Expr::Call { name, .. } => !call_returns_known_int(name, vars),
+        _ => true,
+    }
+}
