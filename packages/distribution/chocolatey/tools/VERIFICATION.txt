@@ -7,8 +7,8 @@ in verifying that this package's contents are trustworthy.
    ARM64: https://github.com/alya-lang/alya/releases/download/v0.0.19/alya-v0.0.19-arm64-windows.zip
 
 2. Checksums (SHA-256, computed upon GitHub Release asset generation):
-   x64:   6f71242bca72c9edefd0e3df67b273d0cc353389d713861b459656626982ac0e
-   ARM64: 3c808da40ceabf0d59180b24242b6e7964a4156a313de387e9a153c8a6b10f8e
+   x64:   82677ee3cc71b28faede32efc12ab5045bedb3956db9675405edf27659a1e21d
+   ARM64: 5e7b89daf72ceab7cf56d4da306aef0707279bf1db1ccfc4caf1f2bd486fd98c
 
 3. Release verification:
    The official release, release notes, and SHA-256 checksums are published at:
