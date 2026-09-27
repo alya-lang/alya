@@ -1145,7 +1145,7 @@ fn emit_simd_primitives(out: &mut String, os: OperatingSystem) {
     out.push_str("    vpshufd $0xB1, %xmm0, %xmm1\n");
     out.push_str("    vpaddd %xmm1, %xmm0, %xmm0\n");
     out.push_str("    movd %xmm0, %eax\n");
-    out.push_str("    movsxd %eax, %rax\n");
+    out.push_str("    movslq %eax, %rax\n");
     out.push_str("    mov %rbp, %rsp\n");
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
@@ -1167,7 +1167,7 @@ fn emit_simd_primitives(out: &mut String, os: OperatingSystem) {
     out.push_str("    vpshufd $0xB1, %xmm0, %xmm1\n");
     out.push_str("    vpminsd %xmm1, %xmm0, %xmm0\n");
     out.push_str("    movd %xmm0, %eax\n");
-    out.push_str("    movsxd %eax, %rax\n");
+    out.push_str("    movslq %eax, %rax\n");
     out.push_str("    mov %rbp, %rsp\n");
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
@@ -1189,7 +1189,7 @@ fn emit_simd_primitives(out: &mut String, os: OperatingSystem) {
     out.push_str("    vpshufd $0xB1, %xmm0, %xmm1\n");
     out.push_str("    vpmaxsd %xmm1, %xmm0, %xmm0\n");
     out.push_str("    movd %xmm0, %eax\n");
-    out.push_str("    movsxd %eax, %rax\n");
+    out.push_str("    movslq %eax, %rax\n");
     out.push_str("    mov %rbp, %rsp\n");
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
@@ -1369,7 +1369,7 @@ fn emit_simd_primitives(out: &mut String, os: OperatingSystem) {
     // r10 = b_off, r11 = b_step, r12 = acc_ptr from here on.
     out.push_str("    movq 0(%rsp), %rax\n");
     out.push_str("    add 8(%rsp), %rax\n");
-    out.push_str("    cmp $8, 16(%rsp)\n");
+    out.push_str("    cmpq $8, 16(%rsp)\n");
     out.push_str("    jne .L_x64_dotf64_gather_a\n");
     out.push_str("    vmovupd (%rax), %ymm0\n");
     out.push_str("    jmp .L_x64_dotf64_have_a\n");
@@ -1441,7 +1441,7 @@ fn emit_simd_primitives(out: &mut String, os: OperatingSystem) {
     }
     out.push_str("    movq 0(%rsp), %rax\n");
     out.push_str("    add 8(%rsp), %rax\n");
-    out.push_str("    cmp $4, 16(%rsp)\n");
+    out.push_str("    cmpq $4, 16(%rsp)\n");
     out.push_str("    jne .L_x64_dotf32_gather_a\n");
     out.push_str("    vmovups (%rax), %ymm0\n");
     out.push_str("    jmp .L_x64_dotf32_have_a\n");

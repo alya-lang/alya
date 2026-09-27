@@ -1432,6 +1432,12 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    mov %ebx, %eax\n");
     out.push_str("    mov %ecx, %edx\n");
     out.push_str(".L_x86_i64max_s3:\n");
+    out.push_str("    pop %esi\n");
+    out.push_str("    pop %ebx\n");
+    out.push_str("    mov %ebp, %esp\n");
+    out.push_str("    pop %ebp\n");
+    out.push_str("    ret\n\n");
+
     // 40. fn_simd_f32x8_new(a0..a7) -> ptr (32 bytes; mirrors
     // fn_simd_f64x4_new slot convention + f64 -> f32 narrow)
     out.push_str(".global fn_simd_f32x8_new\n");
