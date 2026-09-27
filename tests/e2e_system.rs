@@ -1661,6 +1661,42 @@ tcp_close(srv)
 }
 
 #[test]
+fn test_e2e_udp_bytes_loopback() {
+    // Binary-safe UDP round-trip (issue #42): datagrams with embedded
+    // zeros cross intact via sendto/recvfrom.
+    let code = r#"
+import "std/net"
+import "std/str"
+
+let rsock = udp_socket()
+say "bind: " + str(udp_bind(rsock, 19896) == 0)
+let ssock = udp_socket()
+let payload = [72, 0, 105, 0]
+let sent = udp_send_bytes(ssock, "127.0.0.1", 19896, payload)
+say "sent4: " + str(sent == 4)
+udp_set_timeout(rsock, 3000)
+let got = udp_recv_bytes(rsock, 64)
+say "len4: " + str(len(got) == 4)
+say "u0: " + str(got[0])
+say "u1zero: " + str(got[1] == 0)
+say "u3zero: " + str(got[3] == 0)
+say "ueq: " + str(bytes_equal(got, payload))
+udp_close(rsock)
+udp_close(ssock)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert!(output.contains("bind: 1"), "Got: {}", output);
+        assert!(output.contains("sent4: 1"), "Got: {}", output);
+        assert!(output.contains("len4: 1"), "Got: {}", output);
+        assert!(output.contains("u0: 72"), "Got: {}", output);
+        assert!(output.contains("u1zero: 1"), "Got: {}", output);
+        assert!(output.contains("u3zero: 1"), "Got: {}", output);
+        assert!(output.contains("ueq: 1"), "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_pool_and_str_clone_stdlib() {
     let code = r#"
 import "std/mem"

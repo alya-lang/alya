@@ -1097,6 +1097,277 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
+    // fn_net_udp_send_bytes: net_udp_send_bytes(sock, host, port, array).
+    // Sends exactly len(array) bytes via sendto (low byte of each slot);
+    // embedded zeros are preserved (no strlen). Null host fails (-1);
+    // null/non-array/empty input sends nothing (0); malloc failure (-1).
+    out.push_str(".global fn_net_udp_send_bytes\n");
+    out.push_str("fn_net_udp_send_bytes:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %rbx\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    out.push_str("    push %r14\n");
+    out.push_str("    push %r15\n");
+    out.push_str("    sub $72, %rsp\n");
+    if is_win {
+        out.push_str("    mov %rcx, %rbx\n");
+        out.push_str("    mov %rdx, %r12\n");
+        out.push_str("    mov %r8, %r13\n");
+        out.push_str("    mov %r9, %r14\n");
+    } else {
+        out.push_str("    mov %rdi, %rbx\n");
+        out.push_str("    mov %rsi, %r12\n");
+        out.push_str("    mov %rdx, %r13\n");
+        out.push_str("    mov %rcx, %r14\n");
+    }
+    out.push_str("    test %r12, %r12\n");
+    out.push_str("    jz .L_x64_usendb_fail\n");
+    out.push_str("    test %r14, %r14\n");
+    out.push_str("    jz .L_x64_usendb_zero\n");
+    out.push_str("    movl -16(%r14), %eax\n");
+    out.push_str("    cmp $0x5A110001, %eax\n");
+    out.push_str("    jne .L_x64_usendb_err\n");
+    out.push_str("    movq (%r14), %r15\n"); // len
+    out.push_str("    test %r15, %r15\n");
+    out.push_str("    jz .L_x64_usendb_zero\n");
+    out.push_str("    movq $0, 48(%rsp)\n");
+    out.push_str("    movq $0, 56(%rsp)\n");
+    if is_mac {
+        out.push_str("    movb $16, 48(%rsp)\n");
+        out.push_str("    movb $2, 49(%rsp)\n");
+    } else {
+        out.push_str("    movw $2, 48(%rsp)\n");
+    }
+    out.push_str("    mov %r13w, %ax\n");
+    out.push_str("    xchg %al, %ah\n");
+    out.push_str("    mov %ax, 50(%rsp)\n");
+    if is_win {
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    call inet_addr\n");
+    } else {
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str(&format!("    call {}inet_addr\n", p));
+    }
+    out.push_str("    cmp $0xffffffff, %eax\n");
+    out.push_str("    jne .L_x64_usendb_have_ip\n");
+    if is_win {
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    call gethostbyname\n");
+    } else {
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str(&format!("    call {}gethostbyname\n", p));
+    }
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jz .L_x64_usendb_fail\n");
+    out.push_str("    mov 24(%rax), %rax\n");
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jz .L_x64_usendb_fail\n");
+    out.push_str("    mov (%rax), %rax\n");
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jz .L_x64_usendb_fail\n");
+    out.push_str("    movl (%rax), %eax\n");
+    out.push_str(".L_x64_usendb_have_ip:\n");
+    out.push_str("    movl %eax, 52(%rsp)\n");
+    if is_win {
+        out.push_str("    mov %r15, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call malloc\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %r15, %rdi\n");
+        out.push_str(&format!("    call {}malloc\n", p));
+    }
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jz .L_x64_usendb_err\n");
+    out.push_str("    mov %rax, 24(%rsp)\n"); // tmp
+    // NOTE: data reloads after malloc (calls clobber r10).
+    out.push_str("    movq 16(%r14), %r10\n"); // data
+    out.push_str("    mov 24(%rsp), %rdx\n");
+    out.push_str("    xor %ecx, %ecx\n");
+    out.push_str(".L_x64_usendb_pack:\n");
+    out.push_str("    cmp %r15, %rcx\n");
+    out.push_str("    jge .L_x64_usendb_call\n");
+    out.push_str("    movzbq (%r10, %rcx, 8), %rax\n");
+    out.push_str("    mov %al, (%rdx, %rcx)\n");
+    out.push_str("    inc %rcx\n");
+    out.push_str("    jmp .L_x64_usendb_pack\n");
+    out.push_str(".L_x64_usendb_call:\n");
+    if is_win {
+        out.push_str("    mov %rbx, %rcx\n");
+        out.push_str("    mov 24(%rsp), %rdx\n");
+        out.push_str("    mov %r15, %r8\n");
+        out.push_str("    xor %r9, %r9\n");
+        out.push_str("    lea 48(%rsp), %rax\n");
+        out.push_str("    movq %rax, 32(%rsp)\n");
+        out.push_str("    movq $16, 40(%rsp)\n");
+        out.push_str("    call sendto\n");
+    } else {
+        out.push_str("    mov %rbx, %rdi\n");
+        out.push_str("    mov 24(%rsp), %rsi\n");
+        out.push_str("    mov %r15, %rdx\n");
+        out.push_str("    xor %rcx, %rcx\n");
+        out.push_str("    lea 48(%rsp), %r8\n");
+        out.push_str("    mov $16, %r9d\n");
+        out.push_str(&format!("    call {}sendto\n", p));
+    }
+    out.push_str("    mov %rax, %r14\n"); // sent
+    if is_win {
+        out.push_str("    mov 24(%rsp), %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call free\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov 24(%rsp), %rdi\n");
+        out.push_str(&format!("    call {}free\n", p));
+    }
+    out.push_str("    mov %r14, %rax\n");
+    out.push_str("    cltq\n");
+    out.push_str("    jmp .L_x64_usendb_ret\n");
+    out.push_str(".L_x64_usendb_err:\n");
+    out.push_str("    mov $-1, %rax\n");
+    out.push_str("    jmp .L_x64_usendb_ret\n");
+    out.push_str(".L_x64_usendb_fail:\n");
+    out.push_str("    mov $-1, %rax\n");
+    out.push_str("    jmp .L_x64_usendb_ret\n");
+    out.push_str(".L_x64_usendb_zero:\n");
+    out.push_str("    xor %rax, %rax\n");
+    out.push_str(".L_x64_usendb_ret:\n");
+    out.push_str("    add $72, %rsp\n");
+    out.push_str("    pop %r15\n");
+    out.push_str("    pop %r14\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    pop %rbx\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_net_udp_recv_bytes: net_udp_recv_bytes(sock, max_bytes).
+    // Receives one datagram (up to max_bytes) and expands each byte into
+    // an array slot (0-255 as ints). Embedded zeros preserved. Close,
+    // errors, and malloc failure all yield an empty array.
+    out.push_str(".global fn_net_udp_recv_bytes\n");
+    out.push_str("fn_net_udp_recv_bytes:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %rbx\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    out.push_str("    push %r14\n");
+    out.push_str("    push %r15\n");
+    out.push_str("    sub $48, %rsp\n");
+    if is_win {
+        out.push_str("    mov %rcx, %rbx\n"); // sock
+        out.push_str("    mov %rdx, %r13\n"); // max_bytes
+    } else {
+        out.push_str("    mov %rdi, %rbx\n"); // sock
+        out.push_str("    mov %rsi, %r13\n"); // max_bytes
+    }
+    out.push_str("    cmp $0, %r13\n");
+    out.push_str("    jg .L_x64_urecvb_chk\n");
+    out.push_str("    mov $4096, %r13\n");
+    out.push_str(".L_x64_urecvb_chk:\n");
+    out.push_str("    cmp $524288, %r13\n");
+    out.push_str("    jle .L_x64_urecvb_alloc\n");
+    out.push_str("    mov $524288, %r13\n");
+    out.push_str(".L_x64_urecvb_alloc:\n");
+    if is_win {
+        out.push_str("    mov %r13, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call malloc\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %r13, %rdi\n");
+        out.push_str(&format!("    call {}malloc\n", p));
+    }
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jz .L_x64_urecvb_empty_nomem\n");
+    out.push_str("    mov %rax, %r12\n"); // tmp
+    if is_win {
+        out.push_str("    mov %rbx, %rcx\n");
+        out.push_str("    mov %r12, %rdx\n");
+        out.push_str("    mov %r13, %r8\n");
+        out.push_str("    xor %r9, %r9\n");
+        out.push_str("    movq $0, 32(%rsp)\n");
+        out.push_str("    movq $0, 40(%rsp)\n");
+        out.push_str("    call recvfrom\n");
+    } else {
+        out.push_str("    mov %rbx, %rdi\n");
+        out.push_str("    mov %r12, %rsi\n");
+        out.push_str("    mov %r13, %rdx\n");
+        out.push_str("    xor %rcx, %rcx\n");
+        out.push_str("    xor %r8, %r8\n");
+        out.push_str("    xor %r9, %r9\n");
+        out.push_str(&format!("    call {}recvfrom\n", p));
+    }
+    out.push_str("    cmp $0, %eax\n");
+    out.push_str("    jle .L_x64_urecvb_empty\n");
+    out.push_str("    cltq\n");
+    out.push_str("    mov %rax, %r14\n"); // n
+    if is_win {
+        out.push_str("    mov %r14, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_array_new\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %r14, %rdi\n");
+        out.push_str("    call alya_array_new\n");
+    }
+    out.push_str("    mov %rax, %r15\n"); // handle
+    out.push_str("    movq 16(%r15), %r13\n"); // data
+    out.push_str("    xor %ecx, %ecx\n");
+    out.push_str(".L_x64_urecvb_fill:\n");
+    out.push_str("    cmp %r14, %rcx\n");
+    out.push_str("    jge .L_x64_urecvb_done_fill\n");
+    out.push_str("    movzbq (%r12, %rcx), %rax\n");
+    out.push_str("    mov %rax, (%r13, %rcx, 8)\n");
+    out.push_str("    inc %rcx\n");
+    out.push_str("    jmp .L_x64_urecvb_fill\n");
+    out.push_str(".L_x64_urecvb_done_fill:\n");
+    if is_win {
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call free\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str(&format!("    call {}free\n", p));
+    }
+    out.push_str("    mov %r15, %rax\n");
+    out.push_str("    jmp .L_x64_urecvb_done\n");
+    out.push_str(".L_x64_urecvb_empty:\n");
+    if is_win {
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call free\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str(&format!("    call {}free\n", p));
+    }
+    out.push_str(".L_x64_urecvb_empty_nomem:\n");
+    if is_win {
+        out.push_str("    xor %ecx, %ecx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_array_new\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    xor %edi, %edi\n");
+        out.push_str("    call alya_array_new\n");
+    }
+    out.push_str(".L_x64_urecvb_done:\n");
+    out.push_str("    add $48, %rsp\n");
+    out.push_str("    pop %r15\n");
+    out.push_str("    pop %r14\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    pop %rbx\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
     // fn_net_set_nonblocking: net_set_nonblocking(sock, mode) -> 0 or -1
     out.push_str(".global fn_net_set_nonblocking\n");
     out.push_str("fn_net_set_nonblocking:\n");

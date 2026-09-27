@@ -430,6 +430,181 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
+    // fn_net_udp_send_bytes: net_udp_send_bytes(sock, host, port, array).
+    // Sends exactly len(array) bytes via sendto (low byte of each slot);
+    // embedded zeros are preserved (no strlen). Null host fails (-1);
+    // null/non-array/empty input sends nothing (0); malloc failure (-1).
+    out.push_str(".global fn_net_udp_send_bytes\n");
+    out.push_str("fn_net_udp_send_bytes:\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    sub $28, %esp\n");
+    out.push_str("    mov 12(%ebp), %esi\n"); // host
+    out.push_str("    test %esi, %esi\n");
+    out.push_str("    jz .L_x86_usendb_fail\n");
+    out.push_str("    mov 20(%ebp), %eax\n"); // array
+    out.push_str("    test %eax, %eax\n");
+    out.push_str("    jz .L_x86_usendb_zero\n");
+    out.push_str("    movl -8(%eax), %ecx\n");
+    out.push_str("    cmpl $0x5A110001, %ecx\n");
+    out.push_str("    jne .L_x86_usendb_err\n");
+    out.push_str("    movl (%eax), %ecx\n"); // len
+    out.push_str("    test %ecx, %ecx\n");
+    out.push_str("    jz .L_x86_usendb_zero\n");
+    out.push_str("    movl 8(%eax), %edi\n"); // data
+    out.push_str("    mov %ecx, -4(%ebp)\n");
+    out.push_str("    movl $0, -28(%ebp)\n");
+    out.push_str("    movl $0, -24(%ebp)\n");
+    out.push_str("    movl $0, -20(%ebp)\n");
+    out.push_str("    movl $0, -16(%ebp)\n");
+    out.push_str("    movw $2, -28(%ebp)\n");
+    out.push_str("    mov 16(%ebp), %ax\n");
+    out.push_str("    xchg %al, %ah\n");
+    out.push_str("    mov %ax, -26(%ebp)\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    call inet_addr\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    cmp $0xffffffff, %eax\n");
+    out.push_str("    jne .L_x86_usendb_have_ip\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    call gethostbyname\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    test %eax, %eax\n");
+    out.push_str("    jz .L_x86_usendb_fail\n");
+    out.push_str("    mov 16(%eax), %eax\n");
+    out.push_str("    test %eax, %eax\n");
+    out.push_str("    jz .L_x86_usendb_fail\n");
+    out.push_str("    mov (%eax), %eax\n");
+    out.push_str("    test %eax, %eax\n");
+    out.push_str("    jz .L_x86_usendb_fail\n");
+    out.push_str("    movl (%eax), %eax\n");
+    out.push_str(".L_x86_usendb_have_ip:\n");
+    out.push_str("    movl %eax, -24(%ebp)\n");
+    out.push_str("    push -4(%ebp)\n");
+    out.push_str("    call malloc\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    test %eax, %eax\n");
+    out.push_str("    jz .L_x86_usendb_err\n");
+    out.push_str("    mov %eax, -8(%ebp)\n"); // tmp
+    out.push_str("    mov -8(%ebp), %edx\n");
+    out.push_str("    xor %ecx, %ecx\n");
+    out.push_str(".L_x86_usendb_pack:\n");
+    out.push_str("    cmp -4(%ebp), %ecx\n");
+    out.push_str("    jge .L_x86_usendb_call\n");
+    out.push_str("    movzbl (%edi, %ecx, 4), %eax\n");
+    out.push_str("    mov %al, (%edx, %ecx)\n");
+    out.push_str("    inc %ecx\n");
+    out.push_str("    jmp .L_x86_usendb_pack\n");
+    out.push_str(".L_x86_usendb_call:\n");
+    out.push_str("    push $16\n");
+    out.push_str("    lea -28(%ebp), %eax\n");
+    out.push_str("    push %eax\n");
+    out.push_str("    push $0\n");
+    out.push_str("    push -4(%ebp)\n");
+    out.push_str("    push %edx\n");
+    out.push_str("    push 8(%ebp)\n");
+    out.push_str("    call sendto\n");
+    out.push_str("    add $24, %esp\n");
+    out.push_str("    mov %eax, %ecx\n"); // sent
+    out.push_str("    mov -8(%ebp), %edx\n");
+    out.push_str("    push %edx\n");
+    out.push_str("    call free\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    mov %ecx, %eax\n");
+    out.push_str("    jmp .L_x86_usendb_ret\n");
+    out.push_str(".L_x86_usendb_err:\n");
+    out.push_str("    mov $-1, %eax\n");
+    out.push_str("    jmp .L_x86_usendb_ret\n");
+    out.push_str(".L_x86_usendb_fail:\n");
+    out.push_str("    mov $-1, %eax\n");
+    out.push_str("    jmp .L_x86_usendb_ret\n");
+    out.push_str(".L_x86_usendb_zero:\n");
+    out.push_str("    xor %eax, %eax\n");
+    out.push_str(".L_x86_usendb_ret:\n");
+    out.push_str("    mov %ebp, %esp\n");
+    out.push_str("    pop %edi\n");
+    out.push_str("    pop %esi\n");
+    out.push_str("    pop %ebx\n");
+    out.push_str("    pop %ebp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_net_udp_recv_bytes: net_udp_recv_bytes(sock, max_bytes).
+    // Receives one datagram (up to max_bytes) and expands each byte into
+    // an array slot (0-255 as ints). Embedded zeros preserved. Errors
+    // and malloc failure yield an empty array.
+    out.push_str(".global fn_net_udp_recv_bytes\n");
+    out.push_str("fn_net_udp_recv_bytes:\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    sub $16, %esp\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    mov 8(%ebp), %ebx\n");  // sock
+    out.push_str("    mov 12(%ebp), %esi\n"); // max_bytes
+    out.push_str("    cmp $0, %esi\n");
+    out.push_str("    jg .L_x86_urecvb_chk\n");
+    out.push_str("    mov $4096, %esi\n");
+    out.push_str(".L_x86_urecvb_chk:\n");
+    out.push_str("    cmp $524288, %esi\n");
+    out.push_str("    jle .L_x86_urecvb_alloc\n");
+    out.push_str("    mov $524288, %esi\n");
+    out.push_str(".L_x86_urecvb_alloc:\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    call malloc\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    test %eax, %eax\n");
+    out.push_str("    jz .L_x86_urecvb_empty_nomem\n");
+    out.push_str("    mov %eax, %edi\n"); // tmp
+    out.push_str("    push $0\n"); // addrlen = NULL
+    out.push_str("    push $0\n"); // src_addr = NULL
+    out.push_str("    push $0\n"); // flags = 0
+    out.push_str("    push %esi\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    call recvfrom\n");
+    out.push_str("    add $24, %esp\n");
+    out.push_str("    cmp $0, %eax\n");
+    out.push_str("    jle .L_x86_urecvb_empty\n");
+    out.push_str("    mov %eax, %esi\n"); // n
+    out.push_str("    push %esi\n");
+    out.push_str("    call alya_array_new\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    mov %eax, %edx\n"); // handle
+    out.push_str("    mov 8(%edx), %ebx\n"); // data
+    out.push_str("    xor %ecx, %ecx\n");
+    out.push_str(".L_x86_urecvb_fill:\n");
+    out.push_str("    cmp %esi, %ecx\n");
+    out.push_str("    jge .L_x86_urecvb_done_fill\n");
+    out.push_str("    movzbl (%edi, %ecx), %eax\n");
+    out.push_str("    mov %eax, (%ebx, %ecx, 4)\n");
+    out.push_str("    inc %ecx\n");
+    out.push_str("    jmp .L_x86_urecvb_fill\n");
+    out.push_str(".L_x86_urecvb_done_fill:\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    call free\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    mov %edx, %eax\n");
+    out.push_str("    jmp .L_x86_urecvb_done\n");
+    out.push_str(".L_x86_urecvb_empty:\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    call free\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str(".L_x86_urecvb_empty_nomem:\n");
+    out.push_str("    push $0\n");
+    out.push_str("    call alya_array_new\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str(".L_x86_urecvb_done:\n");
+    out.push_str("    pop %edi\n");
+    out.push_str("    pop %esi\n");
+    out.push_str("    pop %ebx\n");
+    out.push_str("    mov %ebp, %esp\n");
+    out.push_str("    pop %ebp\n");
+    out.push_str("    ret\n\n");
+
     // fn_net_close: net_close(sock) -> 0
     out.push_str(".global fn_net_close\n");
     out.push_str("fn_net_close:\n");

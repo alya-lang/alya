@@ -122,6 +122,11 @@ function net.poll(sock: Socket, timeout_ms: int) -> bool
 function net.send_bytes(sock: Socket, data: u8[]) -> int
 function net.recv_bytes(sock: Socket, max_bytes: int) -> u8[]
 ```
+- Datagrams use the same byte path per datagram:
+```alya
+function net.udp_send_bytes(sock: Socket, host: string, port: int, data: u8[]) -> int
+function net.udp_recv_bytes(sock: Socket, max_bytes: int) -> u8[]
+```
 
 #### 7. `std/sync` (Threads & Concurrency Primitives)
 Unifies native OS worker threads and synchronization structures:

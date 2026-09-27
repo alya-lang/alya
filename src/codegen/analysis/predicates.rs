@@ -396,6 +396,8 @@ pub fn is_array_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "parse_array"
                     | "tcp_recv_bytes"
                     | "net_recv_bytes"
+                    | "udp_recv_bytes"
+                    | "net_udp_recv_bytes"
             ) || (bare == "slice" && !args.is_empty() && is_array_expr(&args[0], vars))
                 || vars.contains_key(&format!("fn_ret_arr:{}", name))
                 || vars.contains_key(&format!("fn_ret_arr:{}", bare))

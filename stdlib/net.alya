@@ -335,6 +335,25 @@ pub function udp_recv(sock: int, max_bytes: int = 4096) -> string
     return net_udp_recv(sock, bytes_limit)
 end
 
+## Receives one datagram from a UDP socket as an integer array.
+## Unlike `udp_recv`, embedded zeros are preserved: each received byte
+## becomes one array element (0-255). Datagrams arrive whole (no
+## TCP-style splitting), so `len()` is the datagram size.
+##
+## ### Parameters
+## - `sock`: UDP socket handle.
+## - `max_bytes`: Maximum byte count to receive (defaults to 4096; values <= 0 fall back to 4096).
+##
+## ### Returns
+## Integer array of received bytes; empty array on error/empty datagram.
+pub function udp_recv_bytes(sock: int, max_bytes: int = 4096) -> array
+    let bytes_limit: int = max_bytes
+    if bytes_limit <= 0
+        bytes_limit = 4096
+    end
+    return net_udp_recv_bytes(sock, bytes_limit)
+end
+
 ## Sends a datagram to host:port over a UDP socket, returning bytes sent or -1 on error.
 ##
 ## ### Parameters
@@ -347,6 +366,22 @@ end
 ## Bytes sent, or -1 on error.
 pub function udp_send(sock: int, host: string, port: int, data: string) -> int
     return net_udp_send(sock, host, port, data)
+end
+
+## Sends a datagram with exact bytes to host:port, preserving zeros.
+## Unlike `udp_send`, the length comes from the array (not a terminator).
+## Each element contributes its low byte; longer values are masked.
+##
+## ### Parameters
+## - `sock`: UDP socket handle.
+## - `host`: Destination host name or IP address.
+## - `port`: Destination port number.
+## - `data`: Integer array payload (each element 0-255; others masked).
+##
+## ### Returns
+## Bytes sent, 0 for null/empty/non-array input, or -1 on error.
+pub function udp_send_bytes(sock: int, host: string, port: int, data) -> int
+    return net_udp_send_bytes(sock, host, port, data)
 end
 
 ## Sets non-blocking mode on a UDP socket (1 non-blocking, 0 blocking).

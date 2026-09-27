@@ -398,6 +398,163 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldp x29, x30, [sp], #64\n");
     out.push_str("    ret\n\n");
 
+    // fn_net_udp_send_bytes: net_udp_send_bytes(sock, host, port, array).
+    // Sends exactly len(array) bytes via sendto (low byte of each slot);
+    // embedded zeros are preserved (no strlen). Null host fails (-1);
+    // null/non-array/empty input sends nothing (0); malloc failure (-1).
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_net_udp_send_bytes\n");
+    out.push_str("fn_net_udp_send_bytes:\n");
+    out.push_str("    stp x29, x30, [sp, #-96]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    stp x19, x20, [sp, #16]\n");
+    out.push_str("    stp x21, x22, [sp, #32]\n");
+    out.push_str("    stp x23, x24, [sp, #48]\n");
+    out.push_str("    mov x19, x0\n"); // sock
+    out.push_str("    mov x20, x1\n"); // host
+    out.push_str("    mov x21, x2\n"); // port
+    out.push_str("    mov x22, x3\n"); // array
+    out.push_str("    cbz x20, .L_arm64_usendb_fail\n");
+    out.push_str("    cbz x22, .L_arm64_usendb_zero\n");
+    out.push_str("    ldr x9, [x22, #-16]\n");
+    out.push_str("    movz x10, #0x0001\n");
+    out.push_str("    movk x10, #0x5A11, lsl #16\n");
+    out.push_str("    cmp x9, x10\n");
+    out.push_str("    b.ne .L_arm64_usendb_err\n");
+    out.push_str("    ldr x23, [x22]\n"); // len
+    out.push_str("    cbz x23, .L_arm64_usendb_zero\n");
+    out.push_str("    ldr x24, [x22, #16]\n"); // data
+    out.push_str("    str xzr, [sp, #64]\n");
+    out.push_str("    str xzr, [sp, #72]\n");
+    if is_mac {
+        out.push_str("    mov w2, #0x0210\n");
+        out.push_str("    strh w2, [sp, #64]\n");
+    } else {
+        out.push_str("    mov w2, #2\n");
+        out.push_str("    strh w2, [sp, #64]\n");
+    }
+    out.push_str("    rev16 w2, w21\n");
+    out.push_str("    strh w2, [sp, #66]\n");
+    out.push_str("    mov x0, x20\n");
+    out.push_str(&format!("    bl {}inet_addr\n", p));
+    out.push_str("    cmn w0, #1\n");
+    out.push_str("    bne .L_arm64_usendb_have_ip\n");
+    out.push_str("    mov x0, x20\n");
+    out.push_str(&format!("    bl {}gethostbyname\n", p));
+    out.push_str("    cbz x0, .L_arm64_usendb_fail\n");
+    out.push_str("    ldr x0, [x0, #24]\n");
+    out.push_str("    cbz x0, .L_arm64_usendb_fail\n");
+    out.push_str("    ldr x0, [x0]\n");
+    out.push_str("    cbz x0, .L_arm64_usendb_fail\n");
+    out.push_str("    ldr w0, [x0]\n");
+    out.push_str(".L_arm64_usendb_have_ip:\n");
+    out.push_str("    str w0, [sp, #68]\n");
+    out.push_str("    mov x0, x23\n");
+    out.push_str(&format!("    bl {}malloc\n", p));
+    out.push_str("    cbz x0, .L_arm64_usendb_err\n");
+    out.push_str("    str x0, [sp, #56]\n"); // tmp
+    out.push_str("    ldr x11, [sp, #56]\n");
+    out.push_str("    mov x9, #0\n");
+    out.push_str(".L_arm64_usendb_pack:\n");
+    out.push_str("    cmp x9, x23\n");
+    out.push_str("    b.hs .L_arm64_usendb_call\n");
+    out.push_str("    ldr x10, [x24, x9, lsl #3]\n");
+    out.push_str("    strb w10, [x11, x9]\n");
+    out.push_str("    add x9, x9, #1\n");
+    out.push_str("    b .L_arm64_usendb_pack\n");
+    out.push_str(".L_arm64_usendb_call:\n");
+    out.push_str("    mov x0, x19\n");
+    out.push_str("    ldr x1, [sp, #56]\n");
+    out.push_str("    mov x2, x23\n");
+    out.push_str("    mov x3, #0\n");
+    out.push_str("    add x4, sp, #64\n");
+    out.push_str("    mov x5, #16\n");
+    out.push_str(&format!("    bl {}sendto\n", p));
+    out.push_str("    mov x24, x0\n"); // sent
+    out.push_str("    ldr x0, [sp, #56]\n");
+    out.push_str(&format!("    bl {}free\n", p));
+    out.push_str("    mov x0, x24\n");
+    out.push_str("    b .L_arm64_usendb_ret\n");
+    out.push_str(".L_arm64_usendb_err:\n");
+    out.push_str("    mvn x0, xzr\n");
+    out.push_str("    b .L_arm64_usendb_ret\n");
+    out.push_str(".L_arm64_usendb_fail:\n");
+    out.push_str("    mvn x0, xzr\n");
+    out.push_str("    b .L_arm64_usendb_ret\n");
+    out.push_str(".L_arm64_usendb_zero:\n");
+    out.push_str("    mov x0, #0\n");
+    out.push_str(".L_arm64_usendb_ret:\n");
+    out.push_str("    ldp x23, x24, [sp, #48]\n");
+    out.push_str("    ldp x21, x22, [sp, #32]\n");
+    out.push_str("    ldp x19, x20, [sp, #16]\n");
+    out.push_str("    ldp x29, x30, [sp], #96\n");
+    out.push_str("    ret\n\n");
+
+    // fn_net_udp_recv_bytes: net_udp_recv_bytes(sock, max_bytes).
+    // Receives one datagram (up to max_bytes) and expands each byte into
+    // an array slot (0-255 as ints). Embedded zeros preserved. Errors
+    // and malloc failure yield an empty array.
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_net_udp_recv_bytes\n");
+    out.push_str("fn_net_udp_recv_bytes:\n");
+    out.push_str("    stp x29, x30, [sp, #-64]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    stp x19, x20, [sp, #16]\n");
+    out.push_str("    stp x21, x22, [sp, #32]\n");
+    out.push_str("    stp x23, x24, [sp, #48]\n");
+    out.push_str("    mov x19, x0\n"); // sock
+    out.push_str("    mov x20, x1\n"); // max_bytes
+    out.push_str("    cmp x20, #0\n");
+    out.push_str("    b.gt .L_arm64_urecvb_chk\n");
+    out.push_str("    mov x20, #4096\n");
+    out.push_str(".L_arm64_urecvb_chk:\n");
+    out.push_str("    movz x2, #8, lsl #16\n"); // 524288 (0x80000)
+    out.push_str("    cmp x20, x2\n");
+    out.push_str("    csel x20, x2, x20, gt\n");
+    out.push_str("    mov x0, x20\n");
+    out.push_str(&format!("    bl {}malloc\n", p));
+    out.push_str("    cbz x0, .L_arm64_urecvb_empty_nomem\n");
+    out.push_str("    mov x21, x0\n"); // tmp
+    out.push_str("    mov x0, x19\n");
+    out.push_str("    mov x1, x21\n");
+    out.push_str("    mov x2, x20\n");
+    out.push_str("    mov x3, #0\n");
+    out.push_str("    mov x4, #0\n");
+    out.push_str("    mov x5, #0\n");
+    out.push_str(&format!("    bl {}recvfrom\n", p));
+    out.push_str("    cmp x0, #0\n");
+    out.push_str("    ble .L_arm64_urecvb_empty\n");
+    out.push_str("    mov x22, x0\n"); // n
+    out.push_str("    mov x0, x22\n");
+    out.push_str("    bl alya_array_new\n");
+    out.push_str("    mov x23, x0\n"); // handle
+    out.push_str("    ldr x24, [x23, #16]\n"); // data
+    out.push_str("    mov x9, #0\n");
+    out.push_str(".L_arm64_urecvb_fill:\n");
+    out.push_str("    cmp x9, x22\n");
+    out.push_str("    b.hs .L_arm64_urecvb_done_fill\n");
+    out.push_str("    ldrb w10, [x21, x9]\n");
+    out.push_str("    str x10, [x24, x9, lsl #3]\n");
+    out.push_str("    add x9, x9, #1\n");
+    out.push_str("    b .L_arm64_urecvb_fill\n");
+    out.push_str(".L_arm64_urecvb_done_fill:\n");
+    out.push_str("    mov x0, x21\n");
+    out.push_str(&format!("    bl {}free\n", p));
+    out.push_str("    mov x0, x23\n");
+    out.push_str("    b .L_arm64_urecvb_done\n");
+    out.push_str(".L_arm64_urecvb_empty:\n");
+    out.push_str("    mov x0, x21\n");
+    out.push_str(&format!("    bl {}free\n", p));
+    out.push_str(".L_arm64_urecvb_empty_nomem:\n");
+    out.push_str("    mov x0, #0\n");
+    out.push_str("    bl alya_array_new\n");
+    out.push_str(".L_arm64_urecvb_done:\n");
+    out.push_str("    ldp x23, x24, [sp, #48]\n");
+    out.push_str("    ldp x21, x22, [sp, #32]\n");
+    out.push_str("    ldp x19, x20, [sp, #16]\n");
+    out.push_str("    ldp x29, x30, [sp], #64\n");
+    out.push_str("    ret\n\n");
+
     // fn_net_close: net_close(sock) -> 0
     out.push_str(".align 2\n");
     out.push_str(".global fn_net_close\n");
