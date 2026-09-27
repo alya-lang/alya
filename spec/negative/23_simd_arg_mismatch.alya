@@ -1,0 +1,5 @@
+# EXPECT-FAIL: check: Type mismatch for argument 1
+# Chapter 23 (stdlib contracts): std/simd vector builtins are
+# statically typed; an int is not assignable to a float lane value.
+import "std/simd"
+say f32x8_splat(5)

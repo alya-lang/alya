@@ -593,4 +593,398 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    stp q0, q1, [x0]\n");
     out.push_str("    ldp x29, x30, [sp], #48\n");
     out.push_str("    ret\n\n");
+
+    // 23. fn_simd_f32x8_sub(a, b)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_f32x8_sub\n");
+    out.push_str("fn_simd_f32x8_sub:\n");
+    out.push_str("    stp x29, x30, [sp, #-48]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    ldp q2, q3, [x1]\n");
+    out.push_str("    fsub v0.4s, v0.4s, v2.4s\n");
+    out.push_str("    fsub v1.4s, v1.4s, v3.4s\n");
+    out.push_str("    stp q0, q1, [sp, #16]\n");
+    out.push_str("    mov x0, #32\n");
+    out.push_str("    bl fn_alloc\n");
+    out.push_str("    ldp q0, q1, [sp, #16]\n");
+    out.push_str("    stp q0, q1, [x0]\n");
+    out.push_str("    ldp x29, x30, [sp], #48\n");
+    out.push_str("    ret\n\n");
+
+    // 24. fn_simd_f32x8_div(a, b)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_f32x8_div\n");
+    out.push_str("fn_simd_f32x8_div:\n");
+    out.push_str("    stp x29, x30, [sp, #-48]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    ldp q2, q3, [x1]\n");
+    out.push_str("    fdiv v0.4s, v0.4s, v2.4s\n");
+    out.push_str("    fdiv v1.4s, v1.4s, v3.4s\n");
+    out.push_str("    stp q0, q1, [sp, #16]\n");
+    out.push_str("    mov x0, #32\n");
+    out.push_str("    bl fn_alloc\n");
+    out.push_str("    ldp q0, q1, [sp, #16]\n");
+    out.push_str("    stp q0, q1, [x0]\n");
+    out.push_str("    ldp x29, x30, [sp], #48\n");
+    out.push_str("    ret\n\n");
+
+    // 25. fn_simd_f32x8_load(ptr, offset) -> x0
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_f32x8_load\n");
+    out.push_str("fn_simd_f32x8_load:\n");
+    out.push_str("    stp x29, x30, [sp, #-48]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    add x0, x0, x1\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    stp q0, q1, [sp, #16]\n");
+    out.push_str("    mov x0, #32\n");
+    out.push_str("    bl fn_alloc\n");
+    out.push_str("    ldp q0, q1, [sp, #16]\n");
+    out.push_str("    stp q0, q1, [x0]\n");
+    out.push_str("    ldp x29, x30, [sp], #48\n");
+    out.push_str("    ret\n\n");
+
+    // 26. fn_simd_f32x8_store(ptr, offset, vec)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_f32x8_store\n");
+    out.push_str("fn_simd_f32x8_store:\n");
+    out.push_str("    add x0, x0, x1\n");
+    out.push_str("    ldp q0, q1, [x2]\n");
+    out.push_str("    stp q0, q1, [x0]\n");
+    out.push_str("    mov x0, #0\n");
+    out.push_str("    ret\n\n");
+
+    // 27. fn_simd_f32x8_get(a, idx) -> x0 (f32 lane widened to f64 bits)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_f32x8_get\n");
+    out.push_str("fn_simd_f32x8_get:\n");
+    out.push_str("    ldr w1, [x0, x1, lsl #2]\n");
+    out.push_str("    fmov s0, w1\n");
+    out.push_str("    fcvt d0, s0\n");
+    out.push_str("    fmov x0, d0\n");
+    out.push_str("    ret\n\n");
+
+    // 28. fn_simd_f32x8_set(a, idx, val) -> x0 (f64 bits in x2 narrowed to f32 lane)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_f32x8_set\n");
+    out.push_str("fn_simd_f32x8_set:\n");
+    out.push_str("    fmov d0, x2\n");
+    out.push_str("    fcvt s0, d0\n");
+    out.push_str("    fmov w3, s0\n");
+    out.push_str("    str w3, [x0, x1, lsl #2]\n");
+    out.push_str("    ret\n\n");
+
+    // 29. fn_simd_f32x8_min(a) -> float in x0 (horizontal minimum)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_f32x8_min\n");
+    out.push_str("fn_simd_f32x8_min:\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    fmin v0.4s, v0.4s, v1.4s\n");
+    out.push_str("    fminv s0, v0.4s\n");
+    out.push_str("    fcvt d0, s0\n");
+    out.push_str("    fmov x0, d0\n");
+    out.push_str("    ret\n\n");
+
+    // 30. fn_simd_f32x8_max(a) -> float in x0 (horizontal maximum)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_f32x8_max\n");
+    out.push_str("fn_simd_f32x8_max:\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    fmax v0.4s, v0.4s, v1.4s\n");
+    out.push_str("    fmaxv s0, v0.4s\n");
+    out.push_str("    fcvt d0, s0\n");
+    out.push_str("    fmov x0, d0\n");
+    out.push_str("    ret\n\n");
+
+    // 31. fn_simd_i32x8_sub(a, b)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_i32x8_sub\n");
+    out.push_str("fn_simd_i32x8_sub:\n");
+    out.push_str("    stp x29, x30, [sp, #-48]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    ldp q2, q3, [x1]\n");
+    out.push_str("    sub v0.4s, v0.4s, v2.4s\n");
+    out.push_str("    sub v1.4s, v1.4s, v3.4s\n");
+    out.push_str("    stp q0, q1, [sp, #16]\n");
+    out.push_str("    mov x0, #32\n");
+    out.push_str("    bl fn_alloc\n");
+    out.push_str("    ldp q0, q1, [sp, #16]\n");
+    out.push_str("    stp q0, q1, [x0]\n");
+    out.push_str("    ldp x29, x30, [sp], #48\n");
+    out.push_str("    ret\n\n");
+
+    // 32. fn_simd_i32x8_mul(a, b)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_i32x8_mul\n");
+    out.push_str("fn_simd_i32x8_mul:\n");
+    out.push_str("    stp x29, x30, [sp, #-48]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    ldp q2, q3, [x1]\n");
+    out.push_str("    mul v0.4s, v0.4s, v2.4s\n");
+    out.push_str("    mul v1.4s, v1.4s, v3.4s\n");
+    out.push_str("    stp q0, q1, [sp, #16]\n");
+    out.push_str("    mov x0, #32\n");
+    out.push_str("    bl fn_alloc\n");
+    out.push_str("    ldp q0, q1, [sp, #16]\n");
+    out.push_str("    stp q0, q1, [x0]\n");
+    out.push_str("    ldp x29, x30, [sp], #48\n");
+    out.push_str("    ret\n\n");
+
+    // 33. fn_simd_i32x8_sum(a) -> int in x0 (horizontal sum, sign-extended)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_i32x8_sum\n");
+    out.push_str("fn_simd_i32x8_sum:\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    add v0.4s, v0.4s, v1.4s\n");
+    out.push_str("    addv s0, v0.4s\n");
+    out.push_str("    fmov w0, s0\n");
+    out.push_str("    sxtw x0, w0\n");
+    out.push_str("    ret\n\n");
+
+    // 34. fn_simd_i32x8_min(a) -> int in x0 (horizontal minimum, sign-extended)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_i32x8_min\n");
+    out.push_str("fn_simd_i32x8_min:\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    smin v0.4s, v0.4s, v1.4s\n");
+    out.push_str("    sminv s0, v0.4s\n");
+    out.push_str("    fmov w0, s0\n");
+    out.push_str("    sxtw x0, w0\n");
+    out.push_str("    ret\n\n");
+
+    // 35. fn_simd_i32x8_max(a) -> int in x0 (horizontal maximum, sign-extended)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_i32x8_max\n");
+    out.push_str("fn_simd_i32x8_max:\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    smax v0.4s, v0.4s, v1.4s\n");
+    out.push_str("    smaxv s0, v0.4s\n");
+    out.push_str("    fmov w0, s0\n");
+    out.push_str("    sxtw x0, w0\n");
+    out.push_str("    ret\n\n");
+
+    // 36. fn_simd_i64x4_sub(a, b)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_i64x4_sub\n");
+    out.push_str("fn_simd_i64x4_sub:\n");
+    out.push_str("    stp x29, x30, [sp, #-48]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    ldp q2, q3, [x1]\n");
+    out.push_str("    sub v0.2d, v0.2d, v2.2d\n");
+    out.push_str("    sub v1.2d, v1.2d, v3.2d\n");
+    out.push_str("    stp q0, q1, [sp, #16]\n");
+    out.push_str("    mov x0, #32\n");
+    out.push_str("    bl fn_alloc\n");
+    out.push_str("    ldp q0, q1, [sp, #16]\n");
+    out.push_str("    stp q0, q1, [x0]\n");
+    out.push_str("    ldp x29, x30, [sp], #48\n");
+    out.push_str("    ret\n\n");
+
+    // 37. fn_simd_i64x4_sum(a) -> int in x0 (horizontal sum)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_i64x4_sum\n");
+    out.push_str("fn_simd_i64x4_sum:\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    add v0.2d, v0.2d, v1.2d\n");
+    out.push_str("    addp d0, v0.2d\n");
+    out.push_str("    fmov x0, d0\n");
+    out.push_str("    ret\n\n");
+
+    // 38. fn_simd_i64x4_min(a) -> int in x0. NEON has no 64-bit integer
+    // min: pairwise-select the two halves (cmgt+bsl), then a scalar
+    // fold of the remaining two lanes. (ARM syntax: explicit operands,
+    // no AT&T reversal trap as with x86 vpandn.)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_i64x4_min\n");
+    out.push_str("fn_simd_i64x4_min:\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    cmgt v4.2d, v0.2d, v1.2d\n");
+    out.push_str("    bsl v4.16b, v1.16b, v0.16b\n");
+    out.push_str("    umov x1, v4.d[0]\n");
+    out.push_str("    umov x2, v4.d[1]\n");
+    out.push_str("    cmp x1, x2\n");
+    out.push_str("    csel x0, x1, x2, lt\n");
+    out.push_str("    ret\n\n");
+
+    // 39. fn_simd_i64x4_max(a) -> int in x0 (same cmgt+bsl recipe)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_i64x4_max\n");
+    out.push_str("fn_simd_i64x4_max:\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    cmgt v4.2d, v0.2d, v1.2d\n");
+    out.push_str("    bsl v4.16b, v0.16b, v1.16b\n");
+    // 40. fn_simd_f32x8_new(a0..a7: f64 bits in x0..x7) -> x0 (ptr).
+    // Narrow each lane f64 -> f32, pack low half into v0, high into v1.
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_f32x8_new\n");
+    out.push_str("fn_simd_f32x8_new:\n");
+    out.push_str("    stp x29, x30, [sp, #-80]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    stp x0, x1, [sp, #16]\n");
+    out.push_str("    stp x2, x3, [sp, #32]\n");
+    out.push_str("    stp x4, x5, [sp, #48]\n");
+    out.push_str("    stp x6, x7, [sp, #64]\n");
+    out.push_str("    mov x0, #32\n");
+    out.push_str("    bl fn_alloc\n");
+    out.push_str("    ldr x1, [sp, #16]\n");
+    out.push_str("    fmov d0, x1\n");
+    out.push_str("    fcvt s0, d0\n");
+    out.push_str("    fmov w1, s0\n");
+    out.push_str("    mov v0.s[0], w1\n");
+    out.push_str("    ldr x1, [sp, #24]\n");
+    out.push_str("    fmov d0, x1\n");
+    out.push_str("    fcvt s0, d0\n");
+    out.push_str("    fmov w1, s0\n");
+    out.push_str("    mov v0.s[1], w1\n");
+    out.push_str("    ldr x1, [sp, #32]\n");
+    out.push_str("    fmov d0, x1\n");
+    out.push_str("    fcvt s0, d0\n");
+    out.push_str("    fmov w1, s0\n");
+    out.push_str("    mov v0.s[2], w1\n");
+    out.push_str("    ldr x1, [sp, #40]\n");
+    out.push_str("    fmov d0, x1\n");
+    out.push_str("    fcvt s0, d0\n");
+    out.push_str("    fmov w1, s0\n");
+    out.push_str("    mov v0.s[3], w1\n");
+    out.push_str("    ldr x1, [sp, #48]\n");
+    out.push_str("    fmov d0, x1\n");
+    out.push_str("    fcvt s0, d0\n");
+    out.push_str("    fmov w1, s0\n");
+    out.push_str("    mov v1.s[0], w1\n");
+    out.push_str("    ldr x1, [sp, #56]\n");
+    out.push_str("    fmov d0, x1\n");
+    out.push_str("    fcvt s0, d0\n");
+    out.push_str("    fmov w1, s0\n");
+    out.push_str("    mov v1.s[1], w1\n");
+    out.push_str("    ldr x1, [sp, #64]\n");
+    out.push_str("    fmov d0, x1\n");
+    out.push_str("    fcvt s0, d0\n");
+    out.push_str("    fmov w1, s0\n");
+    out.push_str("    mov v1.s[2], w1\n");
+    out.push_str("    ldr x1, [sp, #72]\n");
+    out.push_str("    fmov d0, x1\n");
+    out.push_str("    fcvt s0, d0\n");
+    out.push_str("    fmov w1, s0\n");
+    out.push_str("    mov v1.s[3], w1\n");
+    out.push_str("    stp q0, q1, [x0]\n");
+    out.push_str("    ldp x29, x30, [sp], #80\n");
+    out.push_str("    ret\n\n");
+
+    // 43. fn_simd_dot_f64x4(a_ptr, a_off, a_step, b_ptr, b_off, b_step,
+    // acc_ptr) in x0..x6: acc[0..4] += A[0..4] * B[0..4], zero
+    // allocations. Byte units. Leaf function: only caller-saved
+    // registers, no frame needed.
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_dot_f64x4\n");
+    out.push_str("fn_simd_dot_f64x4:\n");
+    out.push_str("    add x0, x0, x1\n");
+    out.push_str("    cmp x2, #8\n");
+    out.push_str("    b.ne .L_d64_gather_a\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    b .L_d64_have_a\n");
+    out.push_str(".L_d64_gather_a:\n");
+    out.push_str("    ldr x7, [x0]\n");
+    out.push_str("    add x0, x0, x2\n");
+    out.push_str("    ldr x8, [x0]\n");
+    out.push_str("    add x0, x0, x2\n");
+    out.push_str("    ldr x9, [x0]\n");
+    out.push_str("    add x0, x0, x2\n");
+    out.push_str("    ldr x10, [x0]\n");
+    out.push_str("    mov v0.d[0], x7\n");
+    out.push_str("    mov v0.d[1], x8\n");
+    out.push_str("    mov v1.d[0], x9\n");
+    out.push_str("    mov v1.d[1], x10\n");
+    out.push_str(".L_d64_have_a:\n");
+    out.push_str("    add x3, x3, x4\n");
+    out.push_str("    ldr x7, [x3]\n");
+    out.push_str("    add x3, x3, x5\n");
+    out.push_str("    ldr x8, [x3]\n");
+    out.push_str("    add x3, x3, x5\n");
+    out.push_str("    ldr x9, [x3]\n");
+    out.push_str("    add x3, x3, x5\n");
+    out.push_str("    ldr x10, [x3]\n");
+    out.push_str("    mov v2.d[0], x7\n");
+    out.push_str("    mov v2.d[1], x8\n");
+    out.push_str("    mov v3.d[0], x9\n");
+    out.push_str("    mov v3.d[1], x10\n");
+    out.push_str("    fmul v0.2d, v0.2d, v2.2d\n");
+    out.push_str("    fmul v1.2d, v1.2d, v3.2d\n");
+    out.push_str("    ldp q4, q5, [x6]\n");
+    out.push_str("    fadd v4.2d, v4.2d, v0.2d\n");
+    out.push_str("    fadd v5.2d, v5.2d, v1.2d\n");
+    out.push_str("    stp q4, q5, [x6]\n");
+    out.push_str("    mov x0, #0\n");
+    out.push_str("    ret\n\n");
+
+    // 44. fn_simd_dot_f32x8: same shape with 4-byte lanes (8-wide).
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_simd_dot_f32x8\n");
+    out.push_str("fn_simd_dot_f32x8:\n");
+    out.push_str("    add x0, x0, x1\n");
+    out.push_str("    cmp x2, #4\n");
+    out.push_str("    b.ne .L_d32_gather_a\n");
+    out.push_str("    ldp q0, q1, [x0]\n");
+    out.push_str("    b .L_d32_have_a\n");
+    out.push_str(".L_d32_gather_a:\n");
+    out.push_str("    ldr w7, [x0]\n");
+    out.push_str("    add x0, x0, x2\n");
+    out.push_str("    ldr w8, [x0]\n");
+    out.push_str("    add x0, x0, x2\n");
+    out.push_str("    ldr w9, [x0]\n");
+    out.push_str("    add x0, x0, x2\n");
+    out.push_str("    ldr w10, [x0]\n");
+    out.push_str("    add x0, x0, x2\n");
+    out.push_str("    ldr w11, [x0]\n");
+    out.push_str("    add x0, x0, x2\n");
+    out.push_str("    ldr w12, [x0]\n");
+    out.push_str("    add x0, x0, x2\n");
+    out.push_str("    ldr w14, [x0]\n");
+    out.push_str("    add x0, x0, x2\n");
+    out.push_str("    ldr w15, [x0]\n");
+    out.push_str("    mov v0.s[0], w7\n");
+    out.push_str("    mov v0.s[1], w8\n");
+    out.push_str("    mov v0.s[2], w9\n");
+    out.push_str("    mov v0.s[3], w10\n");
+    out.push_str("    mov v1.s[0], w11\n");
+    out.push_str("    mov v1.s[1], w12\n");
+    out.push_str("    mov v1.s[2], w14\n");
+    out.push_str("    mov v1.s[3], w15\n");
+    out.push_str(".L_d32_have_a:\n");
+    out.push_str("    add x3, x3, x4\n");
+    out.push_str("    ldr w7, [x3]\n");
+    out.push_str("    add x3, x3, x5\n");
+    out.push_str("    ldr w8, [x3]\n");
+    out.push_str("    add x3, x3, x5\n");
+    out.push_str("    ldr w9, [x3]\n");
+    out.push_str("    add x3, x3, x5\n");
+    out.push_str("    ldr w10, [x3]\n");
+    out.push_str("    add x3, x3, x5\n");
+    out.push_str("    ldr w11, [x3]\n");
+    out.push_str("    add x3, x3, x5\n");
+    out.push_str("    ldr w12, [x3]\n");
+    out.push_str("    add x3, x3, x5\n");
+    out.push_str("    ldr w14, [x3]\n");
+    out.push_str("    add x3, x3, x5\n");
+    out.push_str("    ldr w15, [x3]\n");
+    out.push_str("    mov v2.s[0], w7\n");
+    out.push_str("    mov v2.s[1], w8\n");
+    out.push_str("    mov v2.s[2], w9\n");
+    out.push_str("    mov v2.s[3], w10\n");
+    out.push_str("    mov v3.s[0], w11\n");
+    out.push_str("    mov v3.s[1], w12\n");
+    out.push_str("    mov v3.s[2], w14\n");
+    out.push_str("    mov v3.s[3], w15\n");
+    out.push_str("    fmul v0.4s, v0.4s, v2.4s\n");
+    out.push_str("    fmul v1.4s, v1.4s, v3.4s\n");
+    out.push_str("    ldp q4, q5, [x6]\n");
+    out.push_str("    fadd v4.4s, v4.4s, v0.4s\n");
+    out.push_str("    fadd v5.4s, v5.4s, v1.4s\n");
+    out.push_str("    stp q4, q5, [x6]\n");
+    out.push_str("    mov x0, #0\n");
+    out.push_str("    ret\n\n");
 }

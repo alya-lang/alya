@@ -578,6 +578,79 @@ say v_rev.get(3)
 }
 
 #[test]
+fn test_e2e_simd_f32_and_int_vectors() {
+    let code = r#"
+import "std/simd"
+import "std/mem"
+
+# f32x8: sub/div/get/set/min/max/load/store
+let a = f32x8_splat(10.0)
+let b = f32x8_splat(4.0)
+say (a - b).sum_horizontal()
+say (a / b).sum_horizontal()
+say a.get(0)
+say a.get(7)
+a.set(0, 99.0)
+say a.get(0)
+say a.min()
+say a.max()
+
+let constructed = f32x8_new(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0)
+say constructed.sum_horizontal()
+say constructed.get(7)
+say constructed.min()
+say constructed.max()
+
+let arena = Arena.new(256)
+let p = arena.alloc(64)
+let v = f32x8_splat(7.0)
+v.store(p, 0)
+let w = f32x8_load(p, 0)
+say w.sum_horizontal()
+
+# i32x8: sub/mul/sum/min/max (incl. negative lanes via sub)
+let e = i32x8_splat(20)
+let f = i32x8_splat(6)
+say (e - f).sum_horizontal()
+say (e * f).sum_horizontal()
+say e.sum_horizontal()
+say e.min()
+say e.max()
+let neg = f - e
+say neg.sum_horizontal()
+say neg.min()
+say neg.max()
+
+# i64x4: sub/sum/min/max (incl. negative lanes via sub)
+let h = i64x4_splat(100)
+let k = i64x4_splat(30)
+say (h - k).sum_horizontal()
+say h.sum_horizontal()
+say h.min()
+say h.max()
+let hn = k - h
+say hn.sum_horizontal()
+say hn.min()
+say hn.max()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(
+            output,
+            concat!(
+                "48\n", "20\n", "10\n", "10\n", "99\n", "10\n", "99\n", "36\n", "8\n", "1\n",
+                "8\n", "56\n", "112\n", "960\n", "160\n", "20\n", "20\n", "-112\n", "-14\n",
+                "-14\n", "280\n", "400\n", "100\n", "100\n", "-280\n", "-70\n", "-70\n",
+            )
+        );
+    }
+}
+
+#[test]
 fn test_e2e_time_and_test_stdlib() {
     let code = r#"
 import "std/time"
@@ -934,6 +1007,92 @@ say m::is_even(4)
             code, output
         );
         assert_eq!(output, "1\n2\n10\n1\n");
+    }
+}
+
+#[test]
+fn test_e2e_aliased_method_global_collision() {
+    // A struct method sharing its bare name with a module global must
+    // resolve by receiver under an import alias: `b.sum()` and
+    // `self.sum()` hit the method, bare `sum(arr)` still hits the global.
+    // Regression test for the alias-rewrite binding every method call to
+    // the global (tensor's `Tensor.mean` calling math's `sum` and
+    // crashing).
+    let code = r#"
+import "tests/fixtures/modules/collide/lib.alya" as m
+
+let b = m::make_box(21.0)
+say b.sum()
+say b.half_total()
+say m::sum([1.0])
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "42\n21\n999\n");
+    }
+}
+
+#[test]
+fn test_e2e_simd_fused_dot() {
+    // Fused in-place dot kernels (tensor GEMM fast path): zero-allocation
+    // accumulation verified lane by lane, incl. strided gathers.
+    let code = r#"
+import "std/simd"
+import "std/mem"
+
+let arena = Arena.new(512)
+let abuf = arena.alloc(64)
+write_float(abuf, 0, 1.0)
+write_float(abuf, 8, 2.0)
+write_float(abuf, 16, 3.0)
+write_float(abuf, 24, 4.0)
+write_float(abuf, 32, 5.0)
+write_float(abuf, 40, 6.0)
+
+let bbuf = arena.alloc(128)
+write_float(bbuf, 0, 1.0)
+write_float(bbuf, 24, 2.0)
+write_float(bbuf, 48, 3.0)
+write_float(bbuf, 72, 4.0)
+write_float(bbuf, 96, 5.0)
+
+let acc = f64x4_splat(0.0)
+simd_dot_f64x4(abuf, 0, 8, bbuf, 0, 24, acc.handle)
+say acc.sum_horizontal()
+
+let sbuf = arena.alloc(64)
+write_f32(sbuf, 0, 1.0)
+write_f32(sbuf, 4, 2.0)
+write_f32(sbuf, 8, 3.0)
+write_f32(sbuf, 12, 4.0)
+write_f32(sbuf, 16, 5.0)
+write_f32(sbuf, 20, 6.0)
+write_f32(sbuf, 24, 7.0)
+write_f32(sbuf, 28, 8.0)
+let sbb = arena.alloc(128)
+write_f32(sbb, 0, 1.0)
+write_f32(sbb, 8, 1.0)
+write_f32(sbb, 16, 1.0)
+write_f32(sbb, 24, 1.0)
+write_f32(sbb, 32, 1.0)
+write_f32(sbb, 40, 1.0)
+write_f32(sbb, 48, 1.0)
+write_f32(sbb, 56, 1.0)
+let acc8 = f32x8_splat(0.0)
+simd_dot_f32x8(sbuf, 0, 4, sbb, 0, 8, acc8.handle)
+say acc8.sum_horizontal()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "30\n36\n");
     }
 }
 

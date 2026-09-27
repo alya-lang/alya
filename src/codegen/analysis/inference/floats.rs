@@ -418,7 +418,11 @@ fn collect_float_vars_from_stmts(
                 }
             }
             Stmt::Function {
-                name, params, body, ..
+                name,
+                params,
+                body,
+                return_type,
+                ..
             } => {
                 let bare = name.rsplit("::").next().unwrap_or(name.as_str());
                 let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -438,7 +442,32 @@ fn collect_float_vars_from_stmts(
                 collect_float_vars_from_stmts(body, &mut fn_locals, known_floats, false);
                 collect_tuple_returns_float(body, &fn_locals, name, known_floats);
                 collect_tuple_returns_float(body, &fn_locals, bare, known_floats);
-                if stmts_return_float(body, &fn_locals) {
+                // An explicit integer return annotation vetoes body-based
+                // float marking: integer SIMD methods (e.g. `-> int`) share
+                // call shapes with float code, and the body inference alone
+                // cannot tell them apart.
+                let annotated_int = return_type.as_deref().is_some_and(|rt| {
+                    let base = rt.rsplit("::").next().unwrap_or(rt);
+                    let base = base.rsplit("__").next().unwrap_or(base);
+                    matches!(
+                        base.trim(),
+                        "int"
+                            | "i64"
+                            | "isize"
+                            | "uint"
+                            | "u64"
+                            | "usize"
+                            | "i32"
+                            | "i16"
+                            | "i8"
+                            | "u32"
+                            | "u16"
+                            | "u8"
+                            | "byte"
+                            | "bool"
+                    )
+                });
+                if !annotated_int && stmts_return_float(body, &fn_locals) {
                     known_floats.insert(format!("fn_ret_flt:{}", name));
                     known_floats.insert(format!("fn_ret_flt:{}", bare));
                 }

@@ -1,0 +1,27 @@
+## Fixture: method/global name collision under an import alias.
+##
+## Mirrors the tensor package shape that exposed the alias-rewrite bug:
+## a struct method (`Box.sum`) shares its bare name with a module-global
+## function (`sum`). Method calls on values (`b.sum()`, `self.sum()`)
+## must resolve to the method; bare global calls (`sum(arr)`) must still
+## reach the global.
+
+pub struct Box
+    val: float
+end
+
+pub function make_box(v: float) -> Box
+    return Box { val: v }
+end
+
+pub function Box.sum(self: Box) -> float
+    return self.val * 2.0
+end
+
+pub function Box.half_total(self: Box) -> float
+    return self.sum() / 2.0
+end
+
+pub function sum(arr) -> float
+    return 999.0
+end

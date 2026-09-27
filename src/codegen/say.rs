@@ -704,10 +704,26 @@ impl CodeGen {
                     } else if self.ctx.functions.contains(&cand2) {
                         Some(cand2)
                     } else {
+                        // Prefer the value's own struct overload (aliased
+                        // imports duplicate helpers under a namespace
+                        // prefix that may use `::`; normalize before
+                        // comparing); fall back to any `__to_string` only
+                        // when the struct defines none of its own.
+                        let want1 = format!("__{}__to_string", sname);
+                        let want2 = format!("__{}__to_string", bare_sname);
                         self.ctx
                             .functions
                             .iter()
-                            .find(|f| f.ends_with("__to_string"))
+                            .find(|f| {
+                                let n = f.replace("::", "__");
+                                n.ends_with(&want1) || n.ends_with(&want2)
+                            })
+                            .or_else(|| {
+                                self.ctx
+                                    .functions
+                                    .iter()
+                                    .find(|f| f.ends_with("__to_string"))
+                            })
                             .cloned()
                     };
                     if let Some(call_name) = matched {

@@ -775,10 +775,28 @@ fn prefix_stmt(stmt: &mut Stmt, alias: &str, local_fns: &std::collections::HashS
     }
 }
 
+/// True when `name` is method-ambiguous inside an aliased module: some
+/// visible definition is a method with that bare name (`*__{name}`), so a
+/// bare `name(...)` call site may be either a global call or a UFCS method
+/// call and must NOT be alias-prefixed here. Prefixing it would bind every
+/// method call to the global (e.g. `self.sum()` inside `Tensor.mean`
+/// rewritten to math's global `sum`, crashing on a Tensor argument).
+/// Codegen disambiguates the bare form by receiver (struct-qualified
+/// markers first, fewest-segments global fallback second).
+fn is_method_ambiguous(name: &str, local_fns: &std::collections::HashSet<String>) -> bool {
+    if name.contains("::") || name.contains("__") {
+        return false;
+    }
+    let suffix = format!("__{}", name);
+    local_fns
+        .iter()
+        .any(|f| f != name && (f.ends_with(&suffix) || f.ends_with(&suffix.replace("__", "::"))))
+}
+
 fn prefix_expr(expr: &mut Expr, alias: &str, local_fns: &std::collections::HashSet<String>) {
     match expr {
         Expr::Call { name, args } => {
-            if local_fns.contains(name) {
+            if local_fns.contains(name) && !is_method_ambiguous(name, local_fns) {
                 *name = format!("{}::{}", alias, name);
             }
             for arg in args {
@@ -837,7 +855,7 @@ fn prefix_expr(expr: &mut Expr, alias: &str, local_fns: &std::collections::HashS
             prefix_expr(default, alias, local_fns);
         }
         Expr::OptionalCall { callee, args } => {
-            if local_fns.contains(callee) {
+            if local_fns.contains(callee) && !is_method_ambiguous(callee, local_fns) {
                 *callee = format!("{}::{}", alias, callee);
             }
             for arg in args {

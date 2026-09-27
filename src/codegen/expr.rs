@@ -287,10 +287,30 @@ impl CodeGen {
                         } else if self.ctx.functions.contains(&cand2) {
                             Some(cand2.clone())
                         } else {
+                            // Struct-qualified fallback first: aliased imports
+                            // duplicate operator overloads under a namespace
+                            // prefix that may use either separator
+                            // (`tensor__f64x4__...` or `tensor::f64x4__...`),
+                            // so a bare `__operator*` suffix match would
+                            // lottery-pick across vector types. Normalize
+                            // separators before comparing, then prefer the
+                            // receiver's own overload; keep the unqualified
+                            // search only for structs without a visible
+                            // overload.
+                            let want1 = format!("__{}__{}{}", sname, "operator", op_sym);
+                            let want2 = format!("__{}__{}{}", bare_sname, "operator", op_sym);
                             self.ctx
                                 .functions
                                 .iter()
-                                .find(|f| f.ends_with(&format!("__{}{}", "operator", op_sym)))
+                                .find(|f| {
+                                    let n = f.replace("::", "__");
+                                    n.ends_with(&want1) || n.ends_with(&want2)
+                                })
+                                .or_else(|| {
+                                    self.ctx.functions.iter().find(|f| {
+                                        f.ends_with(&format!("__{}{}", "operator", op_sym))
+                                    })
+                                })
                                 .cloned()
                         };
                         if let Some(call_name) = matched {
@@ -1597,10 +1617,15 @@ impl CodeGen {
                         } else if self.ctx.functions.contains(&candidate2) {
                             resolved_name = candidate2;
                         } else if let Some(matched) = self.ctx.functions.iter().find(|f| {
-                            f.ends_with(&suffix1)
-                                || f.ends_with(&suffix2)
-                                || f.ends_with(&suffix3)
-                                || f.ends_with(&suffix4)
+                            // Normalize separators: aliased imports duplicate
+                            // methods under a namespace prefix that may use
+                            // `::` (`tensor::f64x4__min`), which never matches
+                            // a `__`-style suffix literally.
+                            let n = f.replace("::", "__");
+                            n.ends_with(&suffix1)
+                                || n.ends_with(&suffix2)
+                                || n.ends_with(&suffix3.replace("::", "__"))
+                                || n.ends_with(&suffix4.replace("::", "__"))
                         }) {
                             resolved_name = matched.clone();
                         }
@@ -1640,6 +1665,68 @@ impl CodeGen {
                 } else {
                     resolved_name
                 };
+                // 3b. Bare-global fallback for method-ambiguous names left
+                // unprefixed by aliased imports (see `is_method_ambiguous`
+                // in the parser): a bare `sum` call must still reach the
+                // namespaced `tensor::sum` global rather than emitting an
+                // undefined `fn_sum` symbol. Among suffix matches prefer the
+                // fewest qualifier segments so the global wins over a
+                // same-bare method (`tensor::sum` over
+                // `tensor::Tensor__sum`). Fire ONLY for namespaced hits
+                // (containing `::`, the mark of aliasing): otherwise a
+                // native/by-construction resolution (`arena_alloc`,
+                // `fn_free`) or a loud link error for genuinely unknown
+                // names must be preserved. In particular this never fires
+                // in unaliased programs.
+                let mut call_name_str = call_name_str;
+                {
+                    let bare_check = call_name_str.rsplit("::").next().unwrap_or(&call_name_str);
+                    let bare_check = bare_check.rsplit("__").next().unwrap_or(bare_check);
+                    let is_bare = !call_name_str.contains("::") && !call_name_str.contains("__");
+                    let ambiguous = self.ctx.functions.iter().any(|f| {
+                        let n = f.replace("::", "__");
+                        n != call_name_str && n.ends_with(&format!("__{}", bare_check))
+                    });
+                    if is_bare
+                        && ambiguous
+                        && !self.ctx.functions.contains(&call_name_str)
+                        && !self
+                            .ctx
+                            .extern_functions
+                            .contains_key(call_name_str.as_str())
+                        && !self.ctx.structs.contains_key(&call_name_str)
+                    {
+                        let suffix = format!("__{}", bare_check);
+                        // Fewest qualifier segments first, namespaced (`::`)
+                        // spellings before their plain `__` twins: every def
+                        // is stored in both spellings, so an unordered pick
+                        // would flip between processes (hash order).
+                        let mut best: Option<(usize, bool, String)> = None;
+                        for f in self.ctx.functions.iter() {
+                            let n = f.replace("::", "__");
+                            if n.ends_with(&suffix) {
+                                let segs = n.split("__").count();
+                                let plain = !f.contains("::");
+                                let take = match &best {
+                                    Some((bs, bp, _)) => (segs, plain) < (*bs, *bp),
+                                    None => true,
+                                };
+                                if take {
+                                    best = Some((segs, plain, f.clone()));
+                                }
+                            }
+                        }
+                        // Fire only for a namespaced GLOBAL (exactly two
+                        // segments, e.g. `tensor::sum`): anything deeper is
+                        // a method (`tensor::Pool__free`) that must keep its
+                        // legacy resolution (natives like `fn_free`, link
+                        // errors for unknowns). This also keeps the fallback
+                        // silent in unaliased programs.
+                        if let Some((2, false, hit)) = best {
+                            call_name_str = hit;
+                        }
+                    }
+                }
                 let call_name = call_name_str.as_str();
 
                 let initial_stack_offset = self.ctx.stack_offset;

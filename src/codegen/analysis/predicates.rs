@@ -2,6 +2,111 @@ use crate::ast::*;
 use crate::codegen::context::VarType;
 use std::collections::HashMap;
 
+/// Resolves the struct type of a method-call receiver using only the
+/// variable table (mirrors `CodeGen::get_expr_struct_name` for the
+/// shapes method receivers take: identifiers, same-type arithmetic,
+/// chained calls, and struct field paths).
+fn receiver_struct_name(expr: &Expr, vars: &HashMap<String, VarType>) -> Option<String> {
+    match expr {
+        Expr::Identifier(id) => match vars.get(id) {
+            Some(VarType::Struct { struct_name, .. }) => Some(struct_name.clone()),
+            _ => None,
+        },
+        Expr::Binary {
+            left,
+            op:
+                BinaryOp::Add
+                | BinaryOp::Subtract
+                | BinaryOp::Multiply
+                | BinaryOp::Divide
+                | BinaryOp::Modulo,
+            ..
+        } => {
+            let s = receiver_struct_name(left, vars)?;
+            let bare_s = s.rsplit("::").next().unwrap_or(&s);
+            let bare_s = bare_s.rsplit("__").next().unwrap_or(bare_s);
+            let sym = match expr {
+                Expr::Binary {
+                    op: BinaryOp::Add, ..
+                } => "+",
+                Expr::Binary {
+                    op: BinaryOp::Subtract,
+                    ..
+                } => "-",
+                Expr::Binary {
+                    op: BinaryOp::Multiply,
+                    ..
+                } => "*",
+                Expr::Binary {
+                    op: BinaryOp::Divide,
+                    ..
+                } => "/",
+                _ => "%",
+            };
+            for cand in [
+                format!("{}__operator{}", s, sym),
+                format!("{}__operator{}", bare_s, sym),
+            ] {
+                if let Some(VarType::Struct { struct_name, .. }) =
+                    vars.get(&format!("fn_ret_struct:{}", cand))
+                {
+                    return Some(struct_name.clone());
+                }
+            }
+            None
+        }
+        Expr::Call { name, args } => {
+            if let Some(first) = args.first() {
+                if let Some(s) = receiver_struct_name(first, vars) {
+                    let bare_s = s.rsplit("::").next().unwrap_or(&s);
+                    let bare_s = bare_s.rsplit("__").next().unwrap_or(bare_s);
+                    let bare_c = name.rsplit("::").next().unwrap_or(name.as_str());
+                    let bare_c = bare_c.rsplit("__").next().unwrap_or(bare_c);
+                    for ss in [s.as_str(), bare_s] {
+                        for cc in [name.as_str(), bare_c] {
+                            for key in [
+                                format!("fn_ret_struct:{}__{}", ss, cc),
+                                format!("fn_ret_struct:{}::{}", ss, cc),
+                            ] {
+                                if let Some(VarType::Struct { struct_name, .. }) = vars.get(&key) {
+                                    return Some(struct_name.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            for key in [
+                format!("fn_ret_struct:{}", name),
+                format!("fn_ret_struct:{}", bare),
+            ] {
+                if let Some(VarType::Struct { struct_name, .. }) = vars.get(&key) {
+                    return Some(struct_name.clone());
+                }
+            }
+            None
+        }
+        Expr::FieldAccess { object, field } => {
+            let p = receiver_struct_name(object, vars)?;
+            let bare_p = p.rsplit("::").next().unwrap_or(&p);
+            let bare_p = bare_p.rsplit("__").next().unwrap_or(bare_p);
+            for key in [
+                format!("struct_field_struct:{}.{}", p, field),
+                format!("struct_field_struct:{}.{}", bare_p, field),
+            ] {
+                if let Some(VarType::Struct { struct_name, .. }) = vars.get(&key) {
+                    return Some(struct_name.clone());
+                }
+            }
+            None
+        }
+        Expr::ForceUnwrap(inner) => receiver_struct_name(inner, vars),
+        _ => None,
+    }
+}
+
 pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::String(_) => true,
@@ -760,6 +865,39 @@ pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             if bare == "get" && args.len() >= 3 && is_float_expr(&args[2], vars) {
                 return true;
+            }
+            // Receiver-qualified override: method names like `min` or
+            // `sum_horizontal` are shared between float vectors (f32x8,
+            // f64x4) and integer vectors (i32x8, i64x4), so the bare
+            // `fn_ret_flt:{method}` marker cannot decide them. When the
+            // receiver resolves to a struct, the qualified markers are
+            // authoritative: an exact integer-marker match rules out
+            // float even if a bare float marker exists (and vice versa).
+            // Qualified integer evidence is precise (never recorded
+            // bare), so it wins ties.
+            if let Some(first) = args.first() {
+                if let Some(sname) = receiver_struct_name(first, vars) {
+                    let bare_s = sname.rsplit("::").next().unwrap_or(&sname);
+                    let bare_s = bare_s.rsplit("__").next().unwrap_or(bare_s);
+                    for ss in [sname.as_str(), bare_s] {
+                        for cc in [name.as_str(), bare] {
+                            if vars.contains_key(&format!("fn_ret_int:{}__{}", ss, cc))
+                                || vars.contains_key(&format!("fn_ret_int:{}::{}", ss, cc))
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                    for ss in [sname.as_str(), bare_s] {
+                        for cc in [name.as_str(), bare] {
+                            if vars.contains_key(&format!("fn_ret_flt:{}__{}", ss, cc))
+                                || vars.contains_key(&format!("fn_ret_flt:{}::{}", ss, cc))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                }
             }
             matches!(
                 bare,
