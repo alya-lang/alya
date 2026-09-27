@@ -436,14 +436,20 @@ pub struct FileImport {
     pub alias: Option<String>,
     /// Byte offset of the alias token on the line (when `as alias` present).
     pub alias_start: usize,
+    /// True for `from "..." import ...` lines (bare symbols enter scope).
+    pub is_from: bool,
 }
 
 /// Where a go-to-definition request should land.
 pub enum DefinitionTarget {
     /// Same document, at the given position (existing symbol behavior).
     SameFile(Position),
-    /// A different file on disk; clients open it at its start.
-    ExternalFile(std::path::PathBuf),
+    /// A different file on disk; `pos` is the symbol position when known,
+    /// otherwise clients open the file at its start.
+    ExternalFile {
+        path: std::path::PathBuf,
+        pos: Option<Position>,
+    },
 }
 
 /// Scans `import` / `from ... import` statements without a full parse.
@@ -504,6 +510,7 @@ pub fn parse_file_imports(source: &str) -> Vec<FileImport> {
             path_end,
             alias,
             alias_start,
+            is_from,
         });
     }
     out
@@ -623,67 +630,19 @@ pub fn resolve_import_to_file(
     None
 }
 
-/// Go-to-definition with import awareness.
-///
-/// - Cursor inside an import path string: the resolved target file.
-/// - Cursor on an `alias` used as `alias::x` / `alias.x`: the import line.
-/// - Otherwise: the existing same-file symbol scan.
-pub fn get_definition_target(
-    source: &str,
-    pos: &Position,
-    file_dir: Option<&std::path::Path>,
-) -> Option<DefinitionTarget> {
-    let imports = parse_file_imports(source);
-    let line = source.lines().nth(pos.line as usize)?;
-    let col = pos.character as usize;
-
-    // 1. Cursor on an import path literal -> target file.
-    for imp in &imports {
-        if imp.line == pos.line && col >= imp.path_start && col < imp.path_end {
-            let target = resolve_import_to_file(&imp.path, file_dir)?;
-            return Some(DefinitionTarget::ExternalFile(target));
-        }
-    }
-
-    // 2. Cursor on an alias used as a qualifier -> the import statement.
-    if let Some((start, end)) = word_range_at(line, col) {
-        let word = &line[start..end];
-        let after: String = line[end..]
-            .chars()
-            .skip_while(|c| c.is_whitespace())
-            .collect();
-        let is_qualifier = after.starts_with("::")
-            || (after.starts_with('.')
-                && after[1..]
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_alphanumeric() || c == '_'));
-        if is_qualifier {
-            for imp in &imports {
-                if imp.alias.as_deref() == Some(word) {
-                    // The alias token itself is not a usage; don't self-jump.
-                    if imp.line == pos.line
-                        && col >= imp.alias_start
-                        && col < imp.alias_start + word.len()
-                    {
-                        return None;
-                    }
-                    return Some(DefinitionTarget::SameFile(Position::new(
-                        imp.line,
-                        imp.alias_start as u32,
-                    )));
-                }
-            }
-        }
-    }
-
-    // 3. Existing same-file behavior.
-    get_definition_pos(source, pos).map(DefinitionTarget::SameFile)
+/// Declaration kind of a symbol found by the text scan.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SymbolKind {
+    Function,
+    Struct,
+    Interface,
+    Enum,
+    Let,
 }
 
-pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
-    let word = get_word_at_pos(source, pos)?;
-
+/// Same-file text scan for a declared symbol name: functions (including
+/// `Type.method` methods), structs, interfaces, enums, `let`/`const`.
+pub fn find_symbol_in_source(source: &str, word: &str) -> Option<(Position, SymbolKind)> {
     for (line_idx, line) in source.lines().enumerate() {
         let mut trimmed = line.trim_start();
         if let Some(rest) = trimmed.strip_prefix("pub ") {
@@ -699,8 +658,11 @@ pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
                 || fn_name.ends_with(&format!(".{}", word))
                 || fn_name.ends_with(&format!("__{}", word))
             {
-                let char_idx = line.find(&word).unwrap_or(0) as u32;
-                return Some(Position::new(line_idx as u32, char_idx));
+                let char_idx = line.find(word).unwrap_or(0) as u32;
+                return Some((
+                    Position::new(line_idx as u32, char_idx),
+                    SymbolKind::Function,
+                ));
             }
         } else if let Some(rest) = trimmed.strip_prefix("struct ") {
             let rest = rest.trim_start();
@@ -709,8 +671,8 @@ pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
                 .take_while(|c| c.is_alphanumeric() || *c == '_')
                 .collect();
             if st_name == word {
-                let char_idx = line.find(&word).unwrap_or(0) as u32;
-                return Some(Position::new(line_idx as u32, char_idx));
+                let char_idx = line.find(word).unwrap_or(0) as u32;
+                return Some((Position::new(line_idx as u32, char_idx), SymbolKind::Struct));
             }
         } else if let Some(rest) = trimmed.strip_prefix("interface ") {
             let rest = rest.trim_start();
@@ -719,8 +681,11 @@ pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
                 .take_while(|c| c.is_alphanumeric() || *c == '_')
                 .collect();
             if if_name == word {
-                let char_idx = line.find(&word).unwrap_or(0) as u32;
-                return Some(Position::new(line_idx as u32, char_idx));
+                let char_idx = line.find(word).unwrap_or(0) as u32;
+                return Some((
+                    Position::new(line_idx as u32, char_idx),
+                    SymbolKind::Interface,
+                ));
             }
         } else if let Some(rest) = trimmed.strip_prefix("enum ") {
             let rest = rest.trim_start();
@@ -729,8 +694,8 @@ pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
                 .take_while(|c| c.is_alphanumeric() || *c == '_')
                 .collect();
             if en_name == word {
-                let char_idx = line.find(&word).unwrap_or(0) as u32;
-                return Some(Position::new(line_idx as u32, char_idx));
+                let char_idx = line.find(word).unwrap_or(0) as u32;
+                return Some((Position::new(line_idx as u32, char_idx), SymbolKind::Enum));
             }
         } else if let Some(rest) = trimmed
             .strip_prefix("let ")
@@ -742,13 +707,314 @@ pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
                 .take_while(|c| c.is_alphanumeric() || *c == '_')
                 .collect();
             if var_name == word {
-                let char_idx = line.find(&word).unwrap_or(0) as u32;
-                return Some(Position::new(line_idx as u32, char_idx));
+                let char_idx = line.find(word).unwrap_or(0) as u32;
+                return Some((Position::new(line_idx as u32, char_idx), SymbolKind::Let));
             }
         }
     }
 
     None
+}
+
+/// Locates `variant` inside the `enum enum_name` block (same-file scan).
+pub fn find_enum_variant_in_source(
+    source: &str,
+    enum_name: &str,
+    variant: &str,
+) -> Option<Position> {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let mut trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("pub ") {
+            trimmed = rest.trim_start();
+        }
+        if let Some(rest) = trimmed.strip_prefix("enum ") {
+            let name: String = rest
+                .trim_start()
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if name == enum_name {
+                i += 1;
+                while i < lines.len() {
+                    let vline = lines[i];
+                    let vt = vline.trim_start();
+                    if vt == "end" || vt.starts_with("end ") || vt.starts_with("end\t") {
+                        break;
+                    }
+                    // Ignore trailing comments; the head token must be the
+                    // full identifier, so `Active` never matches `ActiveX`.
+                    let code = vt.split('#').next().unwrap_or("");
+                    let head: String = code
+                        .chars()
+                        .take_while(|c| c.is_alphanumeric() || *c == '_')
+                        .collect();
+                    if !head.is_empty() && head == variant {
+                        let char_idx = vline.find(variant).unwrap_or(0) as u32;
+                        return Some(Position::new(i as u32, char_idx));
+                    }
+                    i += 1;
+                }
+                return None;
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Parses the `a::b.c` qualifier chain around the cursor (whitespace around
+/// separators tolerated). Returns the segments and the index of the segment
+/// under the cursor. All slice points are ASCII bytes, so this is
+/// panic-free on non-ASCII lines.
+pub fn qualifier_chain_at(line: &str, col: usize) -> Option<(Vec<String>, usize)> {
+    let (start, end) = word_range_at(line, col)?;
+    let bytes = line.as_bytes();
+    let is_word_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut segments = vec![line[start..end].to_string()];
+    let mut cursor_idx = 0usize;
+    // Expand left over `[ws] (:: | .) [ws] ident`.
+    let mut pos = start;
+    loop {
+        let mut p = pos;
+        while p > 0 && bytes[p - 1].is_ascii_whitespace() {
+            p -= 1;
+        }
+        let sep_len = if p >= 2 && bytes[p - 2] == b':' && bytes[p - 1] == b':' {
+            2
+        } else if p >= 1 && bytes[p - 1] == b'.' {
+            1
+        } else {
+            break;
+        };
+        let mut q = p - sep_len;
+        while q > 0 && bytes[q - 1].is_ascii_whitespace() {
+            q -= 1;
+        }
+        let mut s = q;
+        while s > 0 && is_word_byte(bytes[s - 1]) {
+            s -= 1;
+        }
+        if s == q {
+            break;
+        }
+        segments.insert(0, line[s..q].to_string());
+        cursor_idx += 1;
+        pos = s;
+    }
+    // Expand right over ident `[ws] (:: | .) [ws]`.
+    let mut pos = end;
+    loop {
+        let mut p = pos;
+        while p < bytes.len() && bytes[p].is_ascii_whitespace() {
+            p += 1;
+        }
+        let sep_len = if p + 1 < bytes.len() && bytes[p] == b':' && bytes[p + 1] == b':' {
+            2
+        } else if p < bytes.len() && bytes[p] == b'.' {
+            1
+        } else {
+            break;
+        };
+        let mut q = p + sep_len;
+        while q < bytes.len() && bytes[q].is_ascii_whitespace() {
+            q += 1;
+        }
+        let mut e = q;
+        while e < bytes.len() && is_word_byte(bytes[e]) {
+            e += 1;
+        }
+        if e == q {
+            break;
+        }
+        segments.push(line[q..e].to_string());
+        pos = e;
+    }
+    Some((segments, cursor_idx))
+}
+
+/// Searches `name` in the given file and, when absent, in the files its
+/// scope-merging (unaliased + `from`) imports point to. Returns the file
+/// where the symbol was found, its position, and its kind.
+///
+/// This mirrors how facades work: `pkg::X` often names a symbol declared in
+/// a module the facade itself imports. Cycles terminate via `visited`, and
+/// depth is capped (import chains in practice are a few levels).
+fn find_first_seg(
+    search_path: &std::path::Path,
+    name: &str,
+    depth: u32,
+    visited: &mut std::collections::HashSet<std::path::PathBuf>,
+) -> Option<(std::path::PathBuf, Position, SymbolKind)> {
+    if depth > 4 || !visited.insert(search_path.to_path_buf()) {
+        return None;
+    }
+    let src = std::fs::read_to_string(search_path).ok()?;
+    if let Some((pos, kind)) = find_symbol_in_source(&src, name) {
+        return Some((search_path.to_path_buf(), pos, kind));
+    }
+    let dir = search_path.parent()?;
+    for imp in parse_file_imports(&src) {
+        if imp.alias.is_some() {
+            continue;
+        }
+        let next = match resolve_import_to_file(&imp.path, Some(dir)) {
+            Some(p) => p,
+            None => continue,
+        };
+        if let Some(hit) = find_first_seg(&next, name, depth + 1, visited) {
+            return Some(hit);
+        }
+    }
+    None
+}
+
+/// Go-to-definition with import awareness.
+///
+/// - Cursor inside an import path string: the resolved target file.
+/// - Cursor on an `alias` used as `alias::x` / `alias.x`: the import line.
+/// - Cursor on `x` in `alias::x` / `alias.x`: the symbol in the target file
+///   (enum variants resolve to their variant line).
+/// - Cursor on `Variant` in `Enum::Variant`: the variant line.
+/// - Bare words first use the same-file scan, then unaliased imports in
+///   order (aliased imports do not merge bare names into scope, so they
+///   are skipped there).
+pub fn get_definition_target(
+    source: &str,
+    pos: &Position,
+    file_dir: Option<&std::path::Path>,
+) -> Option<DefinitionTarget> {
+    let imports = parse_file_imports(source);
+    let line = source.lines().nth(pos.line as usize)?;
+    let col = pos.character as usize;
+
+    // 1. Cursor on an import path literal -> target file.
+    for imp in &imports {
+        if imp.line == pos.line && col >= imp.path_start && col < imp.path_end {
+            let target = resolve_import_to_file(&imp.path, file_dir)?;
+            return Some(DefinitionTarget::ExternalFile {
+                path: target,
+                pos: None,
+            });
+        }
+    }
+
+    // Word under the cursor (via chain when qualified, plain otherwise).
+    let (segments, cursor_idx) = qualifier_chain_at(line, col)
+        .map(|(s, i)| (s, Some(i)))
+        .unwrap_or_else(|| {
+            (
+                get_word_at_pos(source, pos).map_or(Vec::new(), |w| vec![w]),
+                None,
+            )
+        });
+    if segments.is_empty() {
+        return None;
+    }
+    let word = segments[cursor_idx.unwrap_or(0)].clone();
+
+    // 2. Qualified by an import alias.
+    if segments.len() > 1 {
+        if let Some(head) = segments.first() {
+            if let Some(imp) = imports
+                .iter()
+                .find(|i| i.alias.as_deref() == Some(head.as_str()))
+            {
+                if cursor_idx == Some(0) {
+                    // The alias token itself is not a usage; don't self-jump.
+                    if imp.line == pos.line
+                        && col >= imp.alias_start
+                        && col < imp.alias_start + head.len()
+                    {
+                        return None;
+                    }
+                    return Some(DefinitionTarget::SameFile(Position::new(
+                        imp.line,
+                        imp.alias_start as u32,
+                    )));
+                }
+                // Deep jump: resolve `alias::seg...` inside the target file,
+                // stopping at the segment under the cursor (scope-merging
+                // imports are followed, so facade re-exports resolve). A
+                // qualified cursor is explicit cross-file intent: failure
+                // yields no jump rather than a same-file guess.
+                let target = resolve_import_to_file(&imp.path, file_dir)?;
+                let end = cursor_idx.expect("alias qualifier") + 1;
+                let segs = &segments[1..end];
+                let mut visited = std::collections::HashSet::new();
+                let (def_file, mut sym_pos, mut kind) =
+                    find_first_seg(&target, &segs[0], 0, &mut visited)?;
+                let def_src = std::fs::read_to_string(&def_file).ok()?;
+                let mut prev_name = segs[0].clone();
+                for next in &segs[1..] {
+                    match kind {
+                        SymbolKind::Enum => {
+                            sym_pos = find_enum_variant_in_source(&def_src, &prev_name, next)?;
+                            kind = SymbolKind::Let;
+                        }
+                        _ => {
+                            // Best effort (e.g. `Type::method` falls back to
+                            // the flat scan, which matches `Type.method`).
+                            let (p, k) = find_symbol_in_source(&def_src, next)?;
+                            sym_pos = p;
+                            kind = k;
+                        }
+                    }
+                    prev_name = next.clone();
+                }
+                return Some(DefinitionTarget::ExternalFile {
+                    path: def_file,
+                    pos: Some(sym_pos),
+                });
+            }
+        }
+    }
+
+    // 3. Non-alias qualifier: `Enum::Variant` in the same file.
+    if let Some(idx) = cursor_idx {
+        if segments.len() > 1 && idx > 0 {
+            let prev = &segments[idx - 1];
+            if let Some((_, SymbolKind::Enum)) = find_symbol_in_source(source, prev) {
+                if let Some(vpos) = find_enum_variant_in_source(source, prev, &word) {
+                    return Some(DefinitionTarget::SameFile(vpos));
+                }
+            }
+        }
+    }
+
+    // 4. Existing same-file behavior.
+    if let Some(def_pos) = get_definition_pos(source, pos) {
+        return Some(DefinitionTarget::SameFile(def_pos));
+    }
+
+    // 5. Bare words fall back to unaliased imports in order (followed
+    // transitively, like the qualified case). Aliased imports are skipped:
+    // they do not merge bare names into scope.
+    let mut visited = std::collections::HashSet::new();
+    for imp in &imports {
+        if imp.alias.is_some() {
+            continue;
+        }
+        let target = match resolve_import_to_file(&imp.path, file_dir) {
+            Some(t) => t,
+            None => continue,
+        };
+        if let Some((def_file, p, _)) = find_first_seg(&target, &word, 0, &mut visited) {
+            return Some(DefinitionTarget::ExternalFile {
+                path: def_file,
+                pos: Some(p),
+            });
+        }
+    }
+
+    None
+}
+
+pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
+    let word = get_word_at_pos(source, pos)?;
+    find_symbol_in_source(source, &word).map(|(p, _)| p)
 }
 
 pub fn get_word_at_pos(source: &str, pos: &Position) -> Option<String> {

@@ -367,9 +367,10 @@ impl ServerState {
             .map(|p| p.to_path_buf());
         match get_definition_target(source, &pos, file_dir.as_deref())? {
             DefinitionTarget::SameFile(def_pos) => Some((uri.to_string(), def_pos)),
-            DefinitionTarget::ExternalFile(path) => {
-                Some((super::protocol::path_to_uri(&path), Position::new(0, 0)))
-            }
+            DefinitionTarget::ExternalFile { path, pos } => Some((
+                super::protocol::path_to_uri(&path),
+                pos.unwrap_or(Position::new(0, 0)),
+            )),
         }
     }
 

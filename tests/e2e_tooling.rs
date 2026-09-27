@@ -496,44 +496,159 @@ fn lsp_definition(
 fn test_lsp_definition_import_alias_and_path() {
     let dir = env::temp_dir().join(format!("alya-lsp-import-{}", std::process::id()));
     fs::create_dir_all(&dir).expect("temp dir");
-    fs::write(
-        dir.join("helper.alya"),
-        "pub function helper_fn() -> int\n    return 1\nend\n",
-    )
-    .expect("helper file");
-    // Line 0: import ... as h | Line 3: h::helper_fn() usage
-    let source = "import \"./helper.alya\" as h\nimport \"std/nope_xyz_module\"\n\nfunction main()\n    say h::helper_fn()\nend\nmain()\n";
+    let helper_src = "pub function helper_fn() -> int\n    return 1\nend\npub enum Status\n    Active,\n    Closed\nend\npub struct Point\n    x: int\nend\n";
+    fs::write(dir.join("helper.alya"), helper_src).expect("helper file");
+    // Facade: re-exports helper through an unaliased import (transitive case).
+    let facade_src =
+        "import \"./helper.alya\"\n\npub function facade_fn() -> int\n    return 2\nend\n";
+    fs::write(dir.join("facade.alya"), facade_src).expect("facade file");
+    // 0: facade import | 1: aliased | 2: unaliased | 3: from | 4: unresolvable
+    // 6-9: local enum | 12-18: usages
+    let source = "import \"./facade.alya\" as f\nimport \"./helper.alya\" as h\nimport \"./helper.alya\"\nfrom \"./helper.alya\" import helper_fn\nimport \"std/nope_xyz_module\"\n\npub enum Local\n    On,\n    Off\nend\n\nfunction main()\n    say h::helper_fn()\n    say h::Status::Active\n    say h::Point()\n    say Local::On\n    say helper_fn()\n    say f::Status::Closed\n    say f::facade_fn()\nend\nmain()\n";
     let main_path = dir.join("main.alya");
     fs::write(&main_path, source).expect("main file");
     let uri = lsp_test_file_uri(&main_path);
     let helper_uri = lsp_test_file_uri(&dir.join("helper.alya"));
+    let facade_uri = lsp_test_file_uri(&dir.join("facade.alya"));
 
     let mut server = ServerState::new();
     lsp_did_open(&mut server, &uri, source);
+    let src_lines: Vec<&str> = source.lines().collect();
+    let helper_lines: Vec<&str> = helper_src.lines().collect();
+    let facade_lines: Vec<&str> = facade_src.lines().collect();
 
     // 1. Alias qualifier usage -> the import statement's alias token.
-    let first_line = source.lines().next().unwrap();
-    let alias_char = first_line.find("as h").unwrap() as u32 + 3;
-    let got = lsp_definition(&mut server, &uri, 4, 8).expect("alias jump");
+    let alias_line = src_lines[1];
+    let alias_char = alias_line.find("as h").unwrap() as u32 + 3;
+    let got = lsp_definition(&mut server, &uri, 12, 8).expect("alias jump");
     assert_eq!(got.0, uri, "alias usage stays in the importing file");
-    assert_eq!(got.1, 0, "alias usage lands on the import line");
+    assert_eq!(got.1, 1, "alias usage lands on the import line");
     assert_eq!(got.2, alias_char, "alias usage lands on the alias token");
 
     // 2. Cursor on the import path literal -> the resolved target file.
-    let got = lsp_definition(&mut server, &uri, 0, 10).expect("path jump");
+    let got = lsp_definition(&mut server, &uri, 1, 10).expect("path jump");
     assert_eq!(got.0, helper_uri, "path literal jumps to the target file");
     assert_eq!((got.1, got.2), (0, 0), "file jump lands at file start");
 
     // 3. Alias token on its own import line is not a usage -> no jump.
     assert!(
-        lsp_definition(&mut server, &uri, 0, alias_char).is_none(),
+        lsp_definition(&mut server, &uri, 1, alias_char).is_none(),
         "alias definition site must not self-jump"
     );
 
     // 4. Unresolvable path (no on-disk std module) -> no jump, no crash.
     assert!(
-        lsp_definition(&mut server, &uri, 1, 10).is_none(),
+        lsp_definition(&mut server, &uri, 4, 10).is_none(),
         "unresolvable import path yields null"
+    );
+
+    // 5. `h::helper_fn` with cursor on the symbol -> function in target file.
+    let use_fn = src_lines[12].find("helper_fn").unwrap() as u32;
+    let want_fn_line = helper_lines
+        .iter()
+        .position(|l| l.contains("function helper_fn"))
+        .unwrap() as u32;
+    let want_fn_char = helper_lines[want_fn_line as usize]
+        .find("helper_fn")
+        .unwrap() as u32;
+    let got = lsp_definition(&mut server, &uri, 12, use_fn).expect("deep fn jump");
+    assert_eq!(got.0, helper_uri, "qualified symbol jumps to target file");
+    assert_eq!(
+        (got.1, got.2),
+        (want_fn_line, want_fn_char),
+        "qualified symbol lands on the function"
+    );
+
+    // 6. `h::Status` with cursor on the type -> enum in target file.
+    let use_status = src_lines[13].find("Status").unwrap() as u32;
+    let want_enum_line = helper_lines
+        .iter()
+        .position(|l| l.contains("enum Status"))
+        .unwrap() as u32;
+    let got = lsp_definition(&mut server, &uri, 13, use_status).expect("deep enum jump");
+    assert_eq!(got.0, helper_uri);
+    assert_eq!(got.1, want_enum_line, "qualified type lands on the enum");
+
+    // 7. `h::Status::Active` with cursor on the variant -> variant line.
+    let use_active = src_lines[13].find("Active").unwrap() as u32;
+    let want_var_line = helper_lines
+        .iter()
+        .position(|l| l.contains("Active,"))
+        .unwrap() as u32;
+    let got = lsp_definition(&mut server, &uri, 13, use_active).expect("deep variant jump");
+    assert_eq!(got.0, helper_uri);
+    assert_eq!(
+        got.1, want_var_line,
+        "qualified variant lands on the variant line"
+    );
+    assert_eq!(got.2, 4, "variant column points at the variant token");
+
+    // 8. `h::Point` with cursor on the struct -> struct in target file.
+    let use_point = src_lines[14].find("Point").unwrap() as u32;
+    let want_struct_line = helper_lines
+        .iter()
+        .position(|l| l.contains("struct Point"))
+        .unwrap() as u32;
+    let got = lsp_definition(&mut server, &uri, 14, use_point).expect("deep struct jump");
+    assert_eq!(got.0, helper_uri);
+    assert_eq!(
+        got.1, want_struct_line,
+        "qualified struct lands on the struct"
+    );
+
+    // 9. Same-file `Local::On` with cursor on the variant -> variant line.
+    let use_on = src_lines[15].find("On").unwrap() as u32;
+    let got = lsp_definition(&mut server, &uri, 15, use_on).expect("local variant jump");
+    assert_eq!(got.0, uri, "local variant stays in file");
+    assert_eq!(got.1, 7, "local variant lands on the variant line");
+
+    // 10. Bare `helper_fn()` resolves through the unaliased import.
+    let use_bare = src_lines[16].find("helper_fn").unwrap() as u32;
+    let got = lsp_definition(&mut server, &uri, 16, use_bare).expect("bare fallback jump");
+    assert_eq!(
+        got.0, helper_uri,
+        "bare word falls back to unaliased imports"
+    );
+    assert_eq!(
+        (got.1, got.2),
+        (want_fn_line, want_fn_char),
+        "bare word lands on the imported function"
+    );
+
+    // 11. `from` import path literal links like a plain import.
+    let got = lsp_definition(&mut server, &uri, 3, 8).expect("from path jump");
+    assert_eq!(
+        got.0, helper_uri,
+        "from-import path jumps to the target file"
+    );
+
+    // 12. Facade re-export: `f::Status::Closed` follows into helper.alya.
+    let use_closed = src_lines[17].find("Closed").unwrap() as u32;
+    let want_closed_line = helper_lines
+        .iter()
+        .position(|l| l.contains("Closed"))
+        .unwrap() as u32;
+    let got = lsp_definition(&mut server, &uri, 17, use_closed).expect("facade variant jump");
+    assert_eq!(
+        got.0, helper_uri,
+        "facade re-export follows into the real file"
+    );
+    assert_eq!(
+        got.1, want_closed_line,
+        "facade variant lands on the variant line"
+    );
+
+    // 13. Direct facade hit wins over transitive search.
+    let use_ff = src_lines[18].find("facade_fn").unwrap() as u32;
+    let want_ff_line = facade_lines
+        .iter()
+        .position(|l| l.contains("function facade_fn"))
+        .unwrap() as u32;
+    let got = lsp_definition(&mut server, &uri, 18, use_ff).expect("facade fn jump");
+    assert_eq!(got.0, facade_uri, "direct hit stays in the facade file");
+    assert_eq!(
+        got.1, want_ff_line,
+        "direct hit lands on the facade function"
     );
 
     let _ = fs::remove_dir_all(&dir);
