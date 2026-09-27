@@ -496,7 +496,7 @@ fn lsp_definition(
 fn test_lsp_definition_import_alias_and_path() {
     let dir = env::temp_dir().join(format!("alya-lsp-import-{}", std::process::id()));
     fs::create_dir_all(&dir).expect("temp dir");
-    let helper_src = "pub function helper_fn() -> int\n    return 1\nend\npub enum Status\n    Active,\n    Closed\nend\npub struct Point\n    x: int\nend\npub struct Config\n    flag: int\n    name: string\nend\n";
+    let helper_src = "pub function helper_fn() -> int\n    return 1\nend\npub enum Status\n    Active,\n    Closed\nend\npub struct Point\n    x: int\nend\npub struct Config\n    flag: int\n    name: string\nend\npub function helper_two() -> int\n    return 2\nend\n";
     fs::write(dir.join("helper.alya"), helper_src).expect("helper file");
     // Facade: re-exports helper through an unaliased import (transitive case).
     let facade_src =
@@ -504,7 +504,7 @@ fn test_lsp_definition_import_alias_and_path() {
     fs::write(dir.join("facade.alya"), facade_src).expect("facade file");
     // 0: facade import | 1: aliased | 2: unaliased | 3: from | 4: unresolvable
     // 6-9: local enum | 12-18: usages
-    let source = "import \"./facade.alya\" as f\nimport \"./helper.alya\" as h\nimport \"./helper.alya\"\nfrom \"./helper.alya\" import helper_fn\nimport \"std/nope_xyz_module\"\n\npub enum Local\n    On,\n    Off\nend\n\nfunction main()\n    say h::helper_fn()\n    say h::Status::Active\n    say h::Point()\n    say Local::On\n    say helper_fn()\n    say f::Status::Closed\n    say f::facade_fn()\n    say Status::Closed\n    let cfg = Config { flag: 1 }\n    let multi = Config {\n        flag: 2\n    }\n    say (1 == 1 ? alice : bob)\nend\nmain()\n";
+    let source = "import \"./facade.alya\" as f\nimport \"./helper.alya\" as h\nimport \"./helper.alya\"\nfrom \"./helper.alya\" import helper_fn, helper_two as h2\nimport \"std/nope_xyz_module\"\n\npub enum Local\n    On,\n    Off\nend\n\nfunction main()\n    say h::helper_fn()\n    say h::Status::Active\n    say h::Point()\n    say Local::On\n    say helper_fn()\n    say f::Status::Closed\n    say f::facade_fn()\n    say Status::Closed\n    let cfg = Config { flag: 1 }\n    let multi = Config {\n        flag: 2\n    }\n    say (1 == 1 ? alice : bob)\n    say h2()\n    say f\"two {h2()}\"\nend\nmain()\n";
     let main_path = dir.join("main.alya");
     fs::write(&main_path, source).expect("main file");
     let uri = lsp_test_file_uri(&main_path);
@@ -602,17 +602,16 @@ fn test_lsp_definition_import_alias_and_path() {
     assert_eq!(got.0, uri, "local variant stays in file");
     assert_eq!(got.1, 7, "local variant lands on the variant line");
 
-    // 10. Bare `helper_fn()` resolves through the unaliased import.
+    // 10. Bare `helper_fn()` resolves to the `from` line (two-hop UX:
+    // usage -> from line -> target file via path/symbol hops).
     let use_bare = src_lines[16].find("helper_fn").unwrap() as u32;
-    let got = lsp_definition(&mut server, &uri, 16, use_bare).expect("bare fallback jump");
-    assert_eq!(
-        got.0, helper_uri,
-        "bare word falls back to unaliased imports"
-    );
+    let want_from_sym = src_lines[3].find("import helper_fn").unwrap() as u32 + 7;
+    let got = lsp_definition(&mut server, &uri, 16, use_bare).expect("bare from jump");
+    assert_eq!(got.0, uri, "bare from-symbol stays in file");
     assert_eq!(
         (got.1, got.2),
-        (want_fn_line, want_fn_char),
-        "bare word lands on the imported function"
+        (3, want_from_sym),
+        "bare from-symbol lands on the from line"
     );
 
     // 11. `from` import path literal links like a plain import.
@@ -690,6 +689,54 @@ fn test_lsp_definition_import_alias_and_path() {
     assert!(
         lsp_definition(&mut server, &uri, 24, use_alice).is_none(),
         "ternary branch must not jump to struct fields"
+    );
+
+    // 18. `from` symbol name on the from line -> target file symbol.
+    let from_line = src_lines[3];
+    let use_sym_name = from_line.find("helper_two").unwrap() as u32;
+    let want_two_line = helper_lines
+        .iter()
+        .position(|l| l.contains("function helper_two"))
+        .unwrap() as u32;
+    let want_two_char = helper_lines[want_two_line as usize]
+        .find("helper_two")
+        .unwrap() as u32;
+    let got = lsp_definition(&mut server, &uri, 3, use_sym_name).expect("from name jump");
+    assert_eq!(got.0, helper_uri, "from name jumps to target file");
+    assert_eq!(
+        (got.1, got.2),
+        (want_two_line, want_two_char),
+        "from name lands on the target function"
+    );
+
+    // 19. `from` alias on the from line -> same target symbol.
+    let use_alias = from_line.find("as h2").unwrap() as u32 + 3;
+    let got = lsp_definition(&mut server, &uri, 3, use_alias).expect("from alias jump");
+    assert_eq!(got.0, helper_uri, "from alias jumps to target file");
+    assert_eq!(
+        (got.1, got.2),
+        (want_two_line, want_two_char),
+        "from alias lands on the target function"
+    );
+
+    // 20. Bare aliased use `h2()` -> the from line alias token.
+    let use_h2 = src_lines[25].find("h2").unwrap() as u32;
+    let got = lsp_definition(&mut server, &uri, 25, use_h2).expect("bare alias jump");
+    assert_eq!(got.0, uri, "bare alias stays in file");
+    assert_eq!(
+        (got.1, got.2),
+        (3, use_alias),
+        "bare alias lands on the from line"
+    );
+
+    // 21. Use inside f-string interpolation -> the from line too.
+    let use_h2_fstr = src_lines[26].find("h2").unwrap() as u32;
+    let got = lsp_definition(&mut server, &uri, 26, use_h2_fstr).expect("interpolation jump");
+    assert_eq!(got.0, uri, "interpolation use stays in file");
+    assert_eq!(
+        (got.1, got.2),
+        (3, use_alias),
+        "interpolation use lands on the from line"
     );
 
     let _ = fs::remove_dir_all(&dir);

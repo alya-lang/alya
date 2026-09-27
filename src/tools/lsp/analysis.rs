@@ -438,6 +438,16 @@ pub struct FileImport {
     pub alias_start: usize,
     /// True for `from "..." import ...` lines (bare symbols enter scope).
     pub is_from: bool,
+    /// Symbols of a `from` import: name, alias, and their byte offsets.
+    pub symbols: Vec<FileImportSymbol>,
+}
+
+/// One `name [as alias]` entry of a `from "..." import ...` statement.
+pub struct FileImportSymbol {
+    pub name: String,
+    pub alias: Option<String>,
+    pub name_start: usize,
+    pub alias_start: usize,
 }
 
 /// Where a go-to-definition request should land.
@@ -511,6 +521,96 @@ pub fn parse_file_imports(source: &str) -> Vec<FileImport> {
             alias,
             alias_start,
             is_from,
+            symbols: if is_from {
+                parse_from_symbols(line, path_end + 1)
+            } else {
+                Vec::new()
+            },
+        });
+    }
+    out
+}
+
+/// Parses the `import a, b as c, ...` symbol list of a `from` line,
+/// starting the scan at byte offset `from`. Records byte offsets of each
+/// name and alias token. `*` entries are skipped (no word to click).
+fn parse_from_symbols(line: &str, from: usize) -> Vec<FileImportSymbol> {
+    let bytes = line.as_bytes();
+    // The symbol list starts after the `import` keyword following the path.
+    let mut i = from;
+    // Skip to end of the `import` keyword: first identifier-like word that
+    // is exactly `import`.
+    let mut found = false;
+    while i < bytes.len() {
+        while i < bytes.len() && !(bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+            i += 1;
+        }
+        let start = i;
+        while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+            i += 1;
+        }
+        if start < i && &line[start..i] == "import" {
+            found = true;
+            break;
+        }
+        if start == i {
+            i += 1;
+        }
+    }
+    if !found {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    loop {
+        while i < bytes.len() && (bytes[i].is_ascii_whitespace() || bytes[i] == b',') {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+        if bytes[i] == b'*' {
+            i += 1;
+            continue;
+        }
+        if !(bytes[i].is_ascii_alphabetic() || bytes[i] == b'_') {
+            break;
+        }
+        let name_start = i;
+        while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+            i += 1;
+        }
+        let name = line[name_start..i].to_string();
+        let mut alias = None;
+        let mut alias_start = name_start;
+        let save = i;
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if line[i..].starts_with("as")
+            && (i + 2 >= bytes.len()
+                || !(bytes[i + 2].is_ascii_alphanumeric() || bytes[i + 2] == b'_'))
+        {
+            i += 2;
+            while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            if i < bytes.len() && (bytes[i].is_ascii_alphabetic() || bytes[i] == b'_') {
+                alias_start = i;
+                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                    i += 1;
+                }
+                alias = Some(line[alias_start..i].to_string());
+            } else {
+                i = save;
+            }
+        } else {
+            i = save;
+        }
+        out.push(FileImportSymbol {
+            name,
+            alias,
+            name_start,
+            alias_start,
         });
     }
     out
@@ -1000,6 +1100,10 @@ fn enclosing_struct_literal(source: &str, pos: &Position) -> Option<String> {
 ///   (enum variants resolve to their variant line).
 /// - Cursor on `Variant` in `Enum::Variant`: the variant line (the enum may
 ///   itself live in an imported file).
+/// - Cursor on a `from` symbol (name or `as` alias): the symbol in the
+///   target file.
+/// - Bare use of a `from`-imported symbol (f-string interpolations
+///   included): the symbol on the `from` line.
 /// - Cursor on a `field:` key inside a `Type { ... }` literal: the field
 ///   line of the struct (same file or imports).
 /// - Bare words first use the same-file scan, then unaliased imports in
@@ -1022,6 +1126,29 @@ pub fn get_definition_target(
                 path: target,
                 pos: None,
             });
+        }
+    }
+
+    // 1b. Cursor on a `from` symbol (name or `as` alias) -> the symbol in
+    // the target file. Unresolvable paths (embedded stdlib) yield no jump.
+    for imp in &imports {
+        if imp.line != pos.line {
+            continue;
+        }
+        for sym in &imp.symbols {
+            let on_name = col >= sym.name_start && col < sym.name_start + sym.name.len();
+            let alias_len = sym.alias.as_ref().map_or(0, |a| a.len());
+            let on_alias =
+                alias_len > 0 && col >= sym.alias_start && col < sym.alias_start + alias_len;
+            if on_name || on_alias {
+                let target = resolve_import_to_file(&imp.path, file_dir)?;
+                let target_src = std::fs::read_to_string(&target).ok()?;
+                let (sym_pos, _) = find_symbol_in_source(&target_src, &sym.name)?;
+                return Some(DefinitionTarget::ExternalFile {
+                    path: target,
+                    pos: Some(sym_pos),
+                });
+            }
         }
     }
 
@@ -1145,6 +1272,30 @@ pub fn get_definition_target(
     // 5. Existing same-file behavior.
     if let Some(def_pos) = get_definition_pos(source, pos) {
         return Some(DefinitionTarget::SameFile(def_pos));
+    }
+
+    // 5b. Bare use of a `from`-imported symbol (or its `as` alias) -> the
+    // symbol on the `from` line. Mirrors the alias -> import line jump;
+    // from here the path/symbol hops reach the target file. Shadowing
+    // locals already won in step 5. Effective name: alias if present.
+    for imp in &imports {
+        for sym in &imp.symbols {
+            let effective = sym.alias.as_ref().unwrap_or(&sym.name);
+            if effective == &word {
+                let (tok_start, tok_len) = match &sym.alias {
+                    Some(a) => (sym.alias_start, a.len()),
+                    None => (sym.name_start, sym.name.len()),
+                };
+                // The symbol's own tokens on the from line are not usages.
+                if imp.line == pos.line && col >= tok_start && col < tok_start + tok_len {
+                    return None;
+                }
+                return Some(DefinitionTarget::SameFile(Position::new(
+                    imp.line,
+                    tok_start as u32,
+                )));
+            }
+        }
     }
 
     // 6. Bare qualified use (`Prev.word`) where `Prev` is an enum reachable
