@@ -1380,8 +1380,10 @@ fn flush_import_run(run: Vec<RunItem>, sort_imports: bool) -> Vec<String> {
         return out;
     }
 
-    // Sort mode: loose blocks attach to the next unit (or trail at end),
-    // blanks are dropped and groups are re-separated by one blank.
+    // Sort mode: loose blocks between units attach to the next unit (or
+    // trail at end), interior blanks are dropped and groups re-separated
+    // by one blank. Leading/trailing edges of the run pass through
+    // verbatim, so separation from surrounding code never collapses.
     let mut order: Vec<usize> = (0..units.len()).collect();
     let keys: Vec<(u8, String, String, String)> = units
         .iter()
@@ -1397,11 +1399,19 @@ fn flush_import_run(run: Vec<RunItem>, sort_imports: bool) -> Vec<String> {
         .collect();
     order.sort_by(|&a, &b| keys[a].cmp(&keys[b]));
     // Attach loose blocks: each block goes to the next unit in ORIGINAL
-    // order, so comments keep traveling with nearby code; trailing lines
-    // without a following unit stay at the end.
+    // order, so comments keep traveling with nearby code; blocks after the
+    // last unit trail at the end verbatim.
     let mut carry: Vec<String> = Vec::new();
     let mut prepend: Vec<Vec<String>> = vec![Vec::new(); units.len()];
     let mut trailing: Vec<String> = Vec::new();
+    // Slots after the last unit are the run's trailing edge: keep verbatim.
+    let mut tail_start = compact.len();
+    for (idx, slot) in compact.iter().enumerate() {
+        if matches!(slot, Slot::Unit(_)) {
+            tail_start = idx + 1;
+        }
+    }
+    let tail: Vec<Slot> = compact.split_off(tail_start);
     for slot in &compact {
         match slot {
             Slot::LooseBlock(lines) => carry.extend(lines.iter().cloned()),
@@ -1412,6 +1422,13 @@ fn flush_import_run(run: Vec<RunItem>, sort_imports: bool) -> Vec<String> {
         }
     }
     trailing.extend(carry);
+    for slot in tail {
+        match slot {
+            Slot::LooseBlock(lines) => trailing.extend(lines),
+            Slot::Blanks => trailing.push(String::new()),
+            Slot::Unit(_) => unreachable!(),
+        }
+    }
     let mut out = Vec::new();
     let mut last_group: Option<u8> = None;
     for (pos, &i) in order.iter().enumerate() {
@@ -1457,38 +1474,48 @@ pub fn organize_imports(source: &str, sort_imports: bool) -> String {
         let items = std::mem::take(run);
         out.extend(flush_import_run(items, sort_imports));
     };
+    // Flushes a run boundary: pending comments collected while a run was
+    // active trail the run (they came after its imports); with no active
+    // run they are ordinary lines and pass through verbatim. Reversing
+    // this order would move imports down past their own trailing comments.
+    let flush_all = |pending: &mut Vec<String>,
+                     run: &mut Vec<RunItem>,
+                     out: &mut Vec<String>,
+                     in_run: &mut bool| {
+        if run.is_empty() {
+            flush_pending_as_raw(pending, out);
+        } else {
+            for c in pending.drain(..) {
+                run.push(RunItem::Loose(c));
+            }
+            flush_run(run, out);
+        }
+        *in_run = false;
+    };
 
     for line in &lines {
         let trimmed = line.trim();
         if trimmed == "# fmt: off" || trimmed == "// fmt: off" {
-            flush_pending_as_raw(&mut pending, &mut out);
-            flush_run(&mut run, &mut out);
-            in_run = false;
+            flush_all(&mut pending, &mut run, &mut out, &mut in_run);
             suppressed = true;
             out.push(line.to_string());
             continue;
         }
         if trimmed == "# fmt: on" || trimmed == "// fmt: on" {
-            flush_pending_as_raw(&mut pending, &mut out);
-            flush_run(&mut run, &mut out);
-            in_run = false;
+            flush_all(&mut pending, &mut run, &mut out, &mut in_run);
             suppressed = false;
             out.push(line.to_string());
             continue;
         }
         if suppressed {
-            flush_pending_as_raw(&mut pending, &mut out);
-            flush_run(&mut run, &mut out);
-            in_run = false;
+            flush_all(&mut pending, &mut run, &mut out, &mut in_run);
             out.push(line.to_string());
             continue;
         }
         let in_multiline = ml_state.is_some();
         ml_state = scan_line_multiline_state(line, ml_state);
         if in_multiline {
-            flush_pending_as_raw(&mut pending, &mut out);
-            flush_run(&mut run, &mut out);
-            in_run = false;
+            flush_all(&mut pending, &mut run, &mut out, &mut in_run);
             out.push(line.to_string());
             continue;
         }
@@ -1521,13 +1548,10 @@ pub fn organize_imports(source: &str, sort_imports: bool) -> String {
             in_run = true;
             continue;
         }
-        flush_pending_as_raw(&mut pending, &mut out);
-        flush_run(&mut run, &mut out);
-        in_run = false;
+        flush_all(&mut pending, &mut run, &mut out, &mut in_run);
         out.push(line.to_string());
     }
-    flush_pending_as_raw(&mut pending, &mut out);
-    flush_run(&mut run, &mut out);
+    flush_all(&mut pending, &mut run, &mut out, &mut in_run);
 
     let mut result = out.join(eol);
     if has_trailing && !result.is_empty() {
@@ -2071,6 +2095,15 @@ mod tests {
     fn test_format_source_default_never_reorders() {
         let input = "import \"./z.alya\"\nimport \"std/fs\"\n";
         assert_eq!(format_source(input).unwrap(), input);
+    }
+
+    #[test]
+    fn test_organize_imports_trailing_comments_stay_put() {
+        // Regression: trailing comments of a run must never pull the
+        // import down (default), and a lone import is a sort no-op.
+        let input = "import \"std/str\"\n\n# --- Types ---\n\n## Doc block line one.\n## Doc block line two.\npub enum E\n    A = 1\nend\n";
+        assert_eq!(organize_imports(input, false), input);
+        assert_eq!(organize_imports(input, true), input);
     }
 
     #[test]
