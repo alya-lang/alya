@@ -807,3 +807,87 @@ fn test_x64_macos_thread_join_stack_alignment() {
         "add $24, %rsp\n    pop %r15\n    pop %r14\n    pop %r13\n    pop %r12\n    pop %rbx"
     ));
 }
+
+#[test]
+fn test_codegen_arm64_float_annotated_return_syncs_d0() {
+    // Regression test for alya-lang/alya#51: a `-> float` function must
+    // place its return value in d0 even when the returned expression is
+    // not itself inferred float (e.g. an array element read). Callers
+    // sync the result via `fmov x0, d0`, so a missing sync reads stale d0.
+    use crate::ast::Attribute;
+    let getf = Stmt::Function {
+        name: "getf".into(),
+        params: vec!["w".into(), "idx".into()],
+        param_types: vec![None, None],
+        return_type: Some("float".into()),
+        defaults: vec![],
+        body: vec![Stmt::Return(Some(Expr::Index {
+            array: Box::new(Expr::Identifier("w".into())),
+            index: Box::new(Expr::Identifier("idx".into())),
+        }))],
+        type_params: vec![],
+        attributes: Vec::<Attribute>::new(),
+    };
+    // NOTE: the call passes an int array on purpose: with a float
+    // array, inference already marks the read float and the sync is
+    // emitted even without the fix. The bug bites exactly when inference
+    // cannot prove floatness and only the `-> float` annotation knows.
+    let call = Stmt::Say(Expr::Call {
+        name: "getf".into(),
+        args: vec![Expr::Array(vec![Expr::Number(7)]), Expr::Number(0)],
+    });
+    let program = Program {
+        statements: vec![getf, call],
+    };
+    let asm = generate(&program, Architecture::ARM64, OperatingSystem::Linux);
+    let start = asm.find("fn_getf:").expect("fn_getf emitted");
+    let region = &asm[start..];
+    let end = region
+        .find("\nret")
+        .or_else(|| region.find("\n.global "))
+        .unwrap_or(region.len());
+    assert!(
+        region[..end].contains("fmov d0, x0"),
+        "float-annotated return must sync d0, got:\n{}",
+        &region[..end]
+    );
+}
+
+#[test]
+fn test_codegen_arm64_int_return_skips_d0_sync() {
+    // Guard against over-application: an `-> int` function must not gain
+    // a float sync on its return path.
+    use crate::ast::Attribute;
+    let geti = Stmt::Function {
+        name: "geti".into(),
+        params: vec!["w".into(), "idx".into()],
+        param_types: vec![None, None],
+        return_type: Some("int".into()),
+        defaults: vec![],
+        body: vec![Stmt::Return(Some(Expr::Index {
+            array: Box::new(Expr::Identifier("w".into())),
+            index: Box::new(Expr::Identifier("idx".into())),
+        }))],
+        type_params: vec![],
+        attributes: Vec::<Attribute>::new(),
+    };
+    let call = Stmt::Say(Expr::Call {
+        name: "geti".into(),
+        args: vec![Expr::Array(vec![Expr::Number(7)]), Expr::Number(0)],
+    });
+    let program = Program {
+        statements: vec![geti, call],
+    };
+    let asm = generate(&program, Architecture::ARM64, OperatingSystem::Linux);
+    let start = asm.find("fn_geti:").expect("fn_geti emitted");
+    let region = &asm[start..];
+    let end = region
+        .find("\nret")
+        .or_else(|| region.find("\n.global "))
+        .unwrap_or(region.len());
+    assert!(
+        !region[..end].contains("fmov d0, x0"),
+        "int return must not sync d0, got:\n{}",
+        &region[..end]
+    );
+}

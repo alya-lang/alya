@@ -76,7 +76,26 @@ impl CodeGen {
             Stmt::Return(opt_expr) => {
                 let mut skip_offset = None;
                 if let Some(expr) = opt_expr {
-                    let is_flt = crate::codegen::analysis::is_float_expr(expr, &self.ctx.variables);
+                    let is_flt = crate::codegen::analysis::is_float_expr(expr, &self.ctx.variables)
+                        || {
+                            // A `-> float` function promises its result in
+                            // the float return register even when the
+                            // returned expression is not itself inferred
+                            // float (e.g. an array element read). Callers
+                            // sync via `fn_ret_flt` unconditionally, so the
+                            // callee must honor the same marking or callers
+                            // read stale d0/xmm0 (alya-lang/alya#51).
+                            let cur = self.ctx.current_fn_name.clone();
+                            let bare = cur.rsplit("::").next().unwrap_or(&cur);
+                            let bare = bare.rsplit("__").next().unwrap_or(bare);
+                            self.ctx
+                                .variables
+                                .contains_key(&format!("fn_ret_flt:{}", cur))
+                                || self
+                                    .ctx
+                                    .variables
+                                    .contains_key(&format!("fn_ret_flt:{}", bare))
+                        };
                     if let Expr::Identifier(id) = expr {
                         if let Some(
                             VarType::Array(off)
