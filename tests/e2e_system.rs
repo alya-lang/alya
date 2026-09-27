@@ -2063,11 +2063,7 @@ end
         assert!(output.contains("2:33.000"), "Got: {}", output);
         assert!(output.contains("1:30:25"), "Got: {}", output);
         assert!(output.contains("2024-01-01T00:00:00Z"), "Got: {}", output);
-        assert!(
-            output.contains("2024-07-15T23:30:45Z"),
-            "Got: {}",
-            output
-        );
+        assert!(output.contains("2024-07-15T23:30:45Z"), "Got: {}", output);
         assert!(output.contains("caught-1"), "Got: {}", output);
         assert!(output.contains("caught-2"), "Got: {}", output);
         assert!(output.contains("caught-3"), "Got: {}", output);
