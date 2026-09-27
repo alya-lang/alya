@@ -462,7 +462,7 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    mov x0, #0\n");
     out.push_str("    ret\n\n");
 
-    // 15. fn_simd_f32x8_splat(val)
+    // 15. fn_simd_f32x8_splat(val: f64 bits in x0) -> f32x8 (f64 -> f32 convert + broadcast)
     out.push_str(".align 2\n");
     out.push_str(".global fn_simd_f32x8_splat\n");
     out.push_str("fn_simd_f32x8_splat:\n");
@@ -471,7 +471,10 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    str x0, [sp, #16]\n");
     out.push_str("    mov x0, #32\n");
     out.push_str("    bl fn_alloc\n");
-    out.push_str("    ldr w1, [sp, #16]\n");
+    out.push_str("    ldr x1, [sp, #16]\n");
+    out.push_str("    fmov d0, x1\n");
+    out.push_str("    fcvt s0, d0\n");
+    out.push_str("    fmov w1, s0\n");
     out.push_str("    dup v0.4s, w1\n");
     out.push_str("    stp q0, q0, [x0]\n");
     out.push_str("    ldp x29, x30, [sp], #32\n");

@@ -343,7 +343,7 @@ pub fn resolve_imports_with_sources_ext(
     let mut module_stems = std::collections::HashSet::new();
     for std_mod in [
         "math", "time", "fs", "os", "path", "net", "sync", "color", "env", "process", "io",
-        "crypto", "json", "random",
+        "crypto", "json", "random", "simd",
     ] {
         module_stems.insert(std_mod.to_string());
     }
@@ -1358,6 +1358,7 @@ pub fn expand_default_args(program: &mut Program) {
         "bench",
         "thread",
         "hash",
+        "simd",
     ] {
         module_stems.insert(std_mod.to_string());
     }

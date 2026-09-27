@@ -638,6 +638,70 @@ impl TypeChecker {
                 return_type: Type::Void,
             },
         );
+        self.functions.insert(
+            "simd_f32x8_splat".to_string(),
+            FnSig {
+                name: "simd_f32x8_splat".to_string(),
+                param_types: vec![Type::Float],
+                return_type: Type::Ptr,
+            },
+        );
+        self.functions.insert(
+            "simd_f32x8_add".to_string(),
+            FnSig {
+                name: "simd_f32x8_add".to_string(),
+                param_types: vec![Type::Ptr, Type::Ptr],
+                return_type: Type::Ptr,
+            },
+        );
+        self.functions.insert(
+            "simd_f32x8_mul".to_string(),
+            FnSig {
+                name: "simd_f32x8_mul".to_string(),
+                param_types: vec![Type::Ptr, Type::Ptr],
+                return_type: Type::Ptr,
+            },
+        );
+        self.functions.insert(
+            "simd_f32x8_sum".to_string(),
+            FnSig {
+                name: "simd_f32x8_sum".to_string(),
+                param_types: vec![Type::Ptr],
+                return_type: Type::Float,
+            },
+        );
+        self.functions.insert(
+            "simd_i32x8_splat".to_string(),
+            FnSig {
+                name: "simd_i32x8_splat".to_string(),
+                param_types: vec![Type::Int],
+                return_type: Type::Ptr,
+            },
+        );
+        self.functions.insert(
+            "simd_i32x8_add".to_string(),
+            FnSig {
+                name: "simd_i32x8_add".to_string(),
+                param_types: vec![Type::Ptr, Type::Ptr],
+                return_type: Type::Ptr,
+            },
+        );
+        self.functions.insert(
+            "simd_i64x4_splat".to_string(),
+            FnSig {
+                name: "simd_i64x4_splat".to_string(),
+                param_types: vec![Type::Int],
+                return_type: Type::Ptr,
+            },
+        );
+        self.functions.insert(
+            "simd_i64x4_add".to_string(),
+            FnSig {
+                name: "simd_i64x4_add".to_string(),
+                param_types: vec![Type::Ptr, Type::Ptr],
+                return_type: Type::Ptr,
+            },
+        );
     }
 
     fn push_scope(&mut self) {

@@ -693,7 +693,7 @@ fn emit_simd_primitives(out: &mut String, os: OperatingSystem) {
     out.push_str("    ret\n\n");
 
     // --- f32x8 Primitives ---
-    // 15. fn_simd_f32x8_splat(val)
+    // 15. fn_simd_f32x8_splat(val: f64 bits) -> f32x8 (f64 -> f32 convert + broadcast)
     out.push_str(".global fn_simd_f32x8_splat\n");
     out.push_str("fn_simd_f32x8_splat:\n");
     out.push_str("    push %rbp\n");
@@ -708,14 +708,10 @@ fn emit_simd_primitives(out: &mut String, os: OperatingSystem) {
     }
     out.push_str("    call fn_alloc\n");
     out.push_str("    movq 0(%rsp), %r10\n");
-    out.push_str("    mov %r10d, 0(%rax)\n");
-    out.push_str("    mov %r10d, 4(%rax)\n");
-    out.push_str("    mov %r10d, 8(%rax)\n");
-    out.push_str("    mov %r10d, 12(%rax)\n");
-    out.push_str("    mov %r10d, 16(%rax)\n");
-    out.push_str("    mov %r10d, 20(%rax)\n");
-    out.push_str("    mov %r10d, 24(%rax)\n");
-    out.push_str("    mov %r10d, 28(%rax)\n");
+    out.push_str("    movq %r10, %xmm0\n");
+    out.push_str("    cvtsd2ss %xmm0, %xmm0\n");
+    out.push_str("    vbroadcastss %xmm0, %ymm0\n");
+    out.push_str("    vmovups %ymm0, (%rax)\n");
     out.push_str("    mov %rbp, %rsp\n");
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
