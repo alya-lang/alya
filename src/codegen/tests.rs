@@ -607,12 +607,24 @@ let res = alya_vpn_pump_server_vpn(3)
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().unwrap();
 
-    // x64: movslq is only emitted by the i32 sign-extension path.
+    // x64: movslq is only emitted by i32 sign-extension paths. Since the
+    // shared SIMD runtime now also legitimately uses movslq (i32x8
+    // horizontal reductions), scope the check to the extern call site:
+    // no sign-extension may follow the call itself.
     // An i64-returning extern fn must NOT trigger it.
     let asm_x64 = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    let lines: Vec<&str> = asm_x64.lines().collect();
+    let call_idx = lines
+        .iter()
+        .position(|l| l.trim_start().starts_with("call alya_vpn_pump_server_vpn"))
+        .expect("x64: extern call missing");
     assert!(
-        !asm_x64.contains("movslq %eax, %rax"),
-        "x64: i64-returning extern fn must NOT emit movslq sign-extension"
+        !lines
+            .iter()
+            .skip(call_idx + 1)
+            .take(6)
+            .any(|l| l.contains("movslq")),
+        "x64: i64-returning extern fn must NOT emit movslq sign-extension at the call site"
     );
 
     // ARM64: confirm the i32-specific sign-extension instruction is absent
