@@ -180,6 +180,9 @@ end
 
 ## Receives up to max_bytes from a TCP socket, returning the string or "" on close/EOF.
 ##
+## TEXT-ONLY: strings cannot hold NUL bytes, so binary payloads truncate.
+## Use `tcp_recv_bytes` for binary frames.
+##
 ## ### Parameters
 ## - `sock`: Connected socket handle.
 ## - `max_bytes`: Maximum byte count to receive (defaults to 4096; values <= 0 fall back to 4096).
@@ -213,6 +216,9 @@ pub function tcp_recv_bytes(sock: int, max_bytes: int = 4096) -> array
 end
 
 ## Sends a string over a connected TCP socket, returning bytes sent or -1 on error.
+##
+## TEXT-ONLY: strings cannot hold NUL bytes, so binary payloads truncate.
+## Use `tcp_send_bytes` for binary frames.
 ##
 ## ### Parameters
 ## - `sock`: Connected socket handle.
