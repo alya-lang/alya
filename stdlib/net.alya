@@ -194,6 +194,24 @@ pub function tcp_recv(sock: int, max_bytes: int = 4096) -> string
     return net_recv(sock, bytes_limit)
 end
 
+## Receives up to max_bytes from a TCP socket as an integer array.
+## Unlike `tcp_recv`, embedded zeros are preserved: each received byte
+## becomes one array element (0-255). Use `len()` to size the result.
+##
+## ### Parameters
+## - `sock`: Connected socket handle.
+## - `max_bytes`: Maximum byte count to receive (defaults to 4096; values <= 0 fall back to 4096).
+##
+## ### Returns
+## Integer array of received bytes; empty array on close/EOF or error.
+pub function tcp_recv_bytes(sock: int, max_bytes: int = 4096) -> array
+    let bytes_limit: int = max_bytes
+    if bytes_limit <= 0
+        bytes_limit = 4096
+    end
+    return net_recv_bytes(sock, bytes_limit)
+end
+
 ## Sends a string over a connected TCP socket, returning bytes sent or -1 on error.
 ##
 ## ### Parameters
@@ -204,6 +222,21 @@ end
 ## Bytes sent, or -1 on error.
 pub function tcp_send(sock: int, data: string) -> int
     return net_send(sock, data)
+end
+
+## Sends exact bytes over a connected TCP socket, preserving embedded zeros.
+## Unlike `tcp_send`, the length comes from the array (not a terminator),
+## so binary frames (TLS records, length-prefixed messages) cross intact.
+## Each element contributes its low byte; longer values are masked to 0-255.
+##
+## ### Parameters
+## - `sock`: Connected socket handle.
+## - `data`: Integer array payload (each element 0-255; others masked).
+##
+## ### Returns
+## Bytes sent, 0 for null/empty/non-array input, or -1 on error.
+pub function tcp_send_bytes(sock: int, data) -> int
+    return net_send_bytes(sock, data)
 end
 
 ## Sets non-blocking mode on a socket (1 non-blocking, 0 blocking), returning 0 or -1 on error.

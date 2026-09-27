@@ -54,6 +54,17 @@ Alya string interpolation supports formatting specifiers via the `:spec` suffix:
 - Convention: use the `f` prefix whenever a hole contains quotes or a
   `:spec` suffix; plain strings suffice for simple variable and field holes.
 
+### 1.9 Text-Only Contract (Binary Data)
+- Strings are UTF-8 **text**: the runtime representation is
+  null-terminated, so embedded `\0` bytes truncate values
+  (`"a\0b"` behaves as `"a"`; see `spec/syntax/lexical.alya` §8).
+- Binary protocols must not route frames through `string`. Use the
+  explicit-length byte path instead: `b"..."` literals and integer
+  arrays (`u8[]`) preserve every byte including zeros, with
+  `std/net` `send_bytes`/`recv_bytes` for transport and `std/str`
+  `bytes_from_string` / `bytes_to_hex` / `hex_to_bytes` /
+  `bytes_equal` for conversion and comparison.
+
 ---
 
 ## 2. Formal Grammar (EBNF Snippet)

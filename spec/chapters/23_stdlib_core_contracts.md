@@ -114,6 +114,14 @@ function net.recv(sock: Socket, max_bytes: int) -> string
 function net.close(sock: Socket)
 function net.poll(sock: Socket, timeout_ms: int) -> bool
 ```
+- **Text vs binary**: `send`/`recv` carry UTF-8 text; strings are
+  null-terminated at runtime, so embedded `\0` bytes do not survive
+  (Chapter 21 §1.9). Binary frames must use the explicit-length byte
+  path, which preserves zeros end to end:
+```alya
+function net.send_bytes(sock: Socket, data: u8[]) -> int
+function net.recv_bytes(sock: Socket, max_bytes: int) -> u8[]
+```
 
 #### 7. `std/sync` (Threads & Concurrency Primitives)
 Unifies native OS worker threads and synchronization structures:

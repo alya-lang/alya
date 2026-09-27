@@ -786,6 +786,101 @@ pub function is_hex(s: string) -> int
     return 1
 end
 
+# --- Byte Arrays (binary-safe integer arrays) ---
+
+## Converts a string to its byte values as an integer array (0-255 each).
+## Byte-oriented like `ord`: multibyte UTF-8 sequences contribute one
+## element per encoded byte only for ASCII; prefer `hex_to_bytes` for
+## arbitrary binary round-trips. NUL-free by construction (strings cannot
+## hold NUL bytes): every element is a valid single byte.
+##
+## ### Parameters
+## - `s`: String to convert.
+##
+## ### Returns
+## Integer array of byte values, empty for "".
+pub function bytes_from_string(s: string) -> array
+    let res = []
+    let i: int = 0
+    let n: int = len(s)
+    while i < n
+        res.push(ord(char_at(s, i)))
+        i += 1
+    end
+    return res
+end
+
+## Encodes a byte array as lowercase hex (two characters per element).
+## Each element contributes its low byte; longer values are masked.
+##
+## ### Parameters
+## - `b`: Integer array to encode.
+##
+## ### Returns
+## Lowercase hex string, "" for an empty array.
+pub function bytes_to_hex(b) -> string
+    let hex_chars: string = "0123456789abcdef"
+    let res: string = ""
+    let i: int = 0
+    let n: int = len(b)
+    let c: int = 0
+    while i < n
+        c = bit_and(b[i], 255)
+        res = res + char_at(hex_chars, bit_and(bit_shr(c, 4), 15)) + char_at(hex_chars, bit_and(c, 15))
+        i += 1
+    end
+    return res
+end
+
+## Decodes a hex string into a byte array (NUL-safe `hex_decode` twin).
+## Unlike `hex_decode` (which builds a string and cannot hold NUL bytes),
+## zero bytes survive as 0 elements. A trailing lone nibble is dropped.
+##
+## ### Parameters
+## - `h`: Hex string with two characters per byte.
+##
+## ### Returns
+## Integer array of byte values.
+pub function hex_to_bytes(h: string) -> array
+    let hlen: int = len(h)
+    let res = []
+    let i: int = 0
+    let hi: int = 0
+    let lo: int = 0
+    while i + 1 < hlen
+        hi = _hex_val(char_at(h, i))
+        lo = _hex_val(char_at(h, i + 1))
+        res.push(bit_or(bit_shl(hi, 4), lo))
+        i += 2
+    end
+    return res
+end
+
+## Compares two byte arrays element-wise, returning 1 when equal.
+## Unlike `==` on arrays (handle compare), content is compared, so two
+## separately received buffers with identical bytes compare equal.
+##
+## ### Parameters
+## - `a`: First byte array.
+## - `b`: Second byte array.
+##
+## ### Returns
+## 1 when lengths and all elements match, otherwise 0.
+pub function bytes_equal(a, b) -> int
+    let n: int = len(a)
+    if n != len(b)
+        return 0
+    end
+    let i: int = 0
+    while i < n
+        if bit_and(a[i], 255) != bit_and(b[i], 255)
+            return 0
+        end
+        i += 1
+    end
+    return 1
+end
+
 # --- Base64 Encoding ---
 
 function _b64_val(ch: string) -> int

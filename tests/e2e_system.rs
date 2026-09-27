@@ -1612,6 +1612,55 @@ end
 }
 
 #[test]
+fn test_e2e_tcp_bytes_loopback() {
+    // Binary-safe TCP round-trip (issue #42): a TLS-alert-shaped payload
+    // with embedded zeros must cross intact. No threads needed: connect
+    // + send complete against the backlog, then accept + recv.
+    let code = r#"
+import "std/net"
+import "std/str"
+
+let srv = tcp_listen(19895, 5)
+say "srv_ok: " + str(srv >= 0)
+let cli = tcp_connect("127.0.0.1", 19895)
+say "cli_ok: " + str(cli >= 0)
+let payload = [21, 3, 3, 0, 2, 1, 0]
+let sent = tcp_send_bytes(cli, payload)
+say "sent7: " + str(sent == 7)
+let acc = tcp_accept(srv)
+say "acc_ok: " + str(acc >= 0)
+let got = tcp_recv_bytes(acc, 64)
+say "len7: " + str(len(got) == 7)
+say "b0: " + str(got[0])
+say "b3zero: " + str(got[3] == 0)
+say "b6zero: " + str(got[6] == 0)
+say "eq: " + str(bytes_equal(got, payload))
+say "hex: " + bytes_to_hex(got)
+let back = hex_to_bytes(bytes_to_hex(got))
+say "rt: " + str(bytes_equal(back, payload))
+say "fromstr: " + str(bytes_equal(bytes_from_string("AB"), [65, 66]))
+tcp_close(acc)
+tcp_close(cli)
+tcp_close(srv)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert!(output.contains("srv_ok: 1"), "Got: {}", output);
+        assert!(output.contains("cli_ok: 1"), "Got: {}", output);
+        assert!(output.contains("sent7: 1"), "Got: {}", output);
+        assert!(output.contains("acc_ok: 1"), "Got: {}", output);
+        assert!(output.contains("len7: 1"), "Got: {}", output);
+        assert!(output.contains("b0: 21"), "Got: {}", output);
+        assert!(output.contains("b3zero: 1"), "Got: {}", output);
+        assert!(output.contains("b6zero: 1"), "Got: {}", output);
+        assert!(output.contains("eq: 1"), "Got: {}", output);
+        assert!(output.contains("hex: 15030300020100"), "Got: {}", output);
+        assert!(output.contains("rt: 1"), "Got: {}", output);
+        assert!(output.contains("fromstr: 1"), "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_pool_and_str_clone_stdlib() {
     let code = r#"
 import "std/mem"

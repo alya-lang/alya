@@ -292,6 +292,144 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
+    // fn_net_send_bytes: net_send_bytes(sock, array) -> bytes_sent or -1.
+    // Sends exactly len(array) bytes (low byte of each element slot);
+    // embedded zeros are preserved (no strlen). Null/non-array/empty
+    // input sends nothing and returns 0; malloc failure returns -1.
+    out.push_str(".global fn_net_send_bytes\n");
+    out.push_str("fn_net_send_bytes:\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    sub $16, %esp\n");
+    out.push_str("    mov 8(%ebp), %ebx\n");  // sock
+    out.push_str("    mov 12(%ebp), %esi\n"); // array
+    out.push_str("    test %esi, %esi\n");
+    out.push_str("    jz .L_x86_sendb_zero\n");
+    out.push_str("    movl -8(%esi), %eax\n");
+    out.push_str("    cmpl $0x5A110001, %eax\n");
+    out.push_str("    jne .L_x86_sendb_err\n");
+    out.push_str("    movl (%esi), %ecx\n"); // len
+    out.push_str("    test %ecx, %ecx\n");
+    out.push_str("    jz .L_x86_sendb_zero\n");
+    out.push_str("    movl 8(%esi), %edi\n"); // data
+    out.push_str("    mov %ecx, -4(%ebp)\n");
+    out.push_str("    push %ecx\n");
+    out.push_str("    call malloc\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    test %eax, %eax\n");
+    out.push_str("    jz .L_x86_sendb_err\n");
+    out.push_str("    mov %eax, -8(%ebp)\n"); // tmp
+    out.push_str("    mov -8(%ebp), %edx\n");
+    out.push_str("    xor %ecx, %ecx\n");
+    out.push_str(".L_x86_sendb_pack:\n");
+    out.push_str("    cmp -4(%ebp), %ecx\n");
+    out.push_str("    jge .L_x86_sendb_do\n");
+    out.push_str("    movzbl (%edi, %ecx, 4), %eax\n");
+    out.push_str("    mov %al, (%edx, %ecx)\n");
+    out.push_str("    inc %ecx\n");
+    out.push_str("    jmp .L_x86_sendb_pack\n");
+    out.push_str(".L_x86_sendb_do:\n");
+    out.push_str("    push $0\n");
+    out.push_str("    push -4(%ebp)\n");
+    out.push_str("    push %edx\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    call send\n");
+    out.push_str("    add $16, %esp\n");
+    out.push_str("    mov %eax, %ecx\n"); // sent
+    out.push_str("    mov -8(%ebp), %edx\n");
+    out.push_str("    push %edx\n");
+    out.push_str("    call free\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    mov %ecx, %eax\n");
+    out.push_str("    jmp .L_x86_sendb_ret\n");
+    out.push_str(".L_x86_sendb_err:\n");
+    out.push_str("    mov $-1, %eax\n");
+    out.push_str("    jmp .L_x86_sendb_ret\n");
+    out.push_str(".L_x86_sendb_zero:\n");
+    out.push_str("    xor %eax, %eax\n");
+    out.push_str(".L_x86_sendb_ret:\n");
+    out.push_str("    mov %ebp, %esp\n");
+    out.push_str("    pop %edi\n");
+    out.push_str("    pop %esi\n");
+    out.push_str("    pop %ebx\n");
+    out.push_str("    pop %ebp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_net_recv_bytes: net_recv_bytes(sock, max_bytes) -> int array.
+    // Receives up to max_bytes into a scratch buffer, then expands each
+    // byte into an array slot (0-255 as ints). Embedded zeros preserved.
+    // Close/EOF, errors, and malloc failure all yield an empty array.
+    out.push_str(".global fn_net_recv_bytes\n");
+    out.push_str("fn_net_recv_bytes:\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    sub $16, %esp\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    mov 8(%ebp), %ebx\n");  // sock
+    out.push_str("    mov 12(%ebp), %esi\n"); // max_bytes
+    out.push_str("    cmp $0, %esi\n");
+    out.push_str("    jg .L_x86_recvb_chk\n");
+    out.push_str("    mov $4096, %esi\n");
+    out.push_str(".L_x86_recvb_chk:\n");
+    out.push_str("    cmp $524288, %esi\n");
+    out.push_str("    jle .L_x86_recvb_alloc\n");
+    out.push_str("    mov $524288, %esi\n");
+    out.push_str(".L_x86_recvb_alloc:\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    call malloc\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    test %eax, %eax\n");
+    out.push_str("    jz .L_x86_recvb_empty_nomem\n");
+    out.push_str("    mov %eax, %edi\n"); // tmp
+    out.push_str("    push $0\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    call recv\n");
+    out.push_str("    add $16, %esp\n");
+    out.push_str("    cmp $0, %eax\n");
+    out.push_str("    jle .L_x86_recvb_empty\n");
+    out.push_str("    mov %eax, %esi\n"); // n
+    out.push_str("    push %esi\n");
+    out.push_str("    call alya_array_new\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    mov %eax, %edx\n"); // handle
+    out.push_str("    mov 8(%edx), %ebx\n"); // data
+    out.push_str("    xor %ecx, %ecx\n");
+    out.push_str(".L_x86_recvb_fill:\n");
+    out.push_str("    cmp %esi, %ecx\n");
+    out.push_str("    jge .L_x86_recvb_done_fill\n");
+    out.push_str("    movzbl (%edi, %ecx), %eax\n");
+    out.push_str("    mov %eax, (%ebx, %ecx, 4)\n");
+    out.push_str("    inc %ecx\n");
+    out.push_str("    jmp .L_x86_recvb_fill\n");
+    out.push_str(".L_x86_recvb_done_fill:\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    call free\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    mov %edx, %eax\n");
+    out.push_str("    jmp .L_x86_recvb_done\n");
+    out.push_str(".L_x86_recvb_empty:\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    call free\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str(".L_x86_recvb_empty_nomem:\n");
+    out.push_str("    push $0\n");
+    out.push_str("    call alya_array_new\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str(".L_x86_recvb_done:\n");
+    out.push_str("    pop %edi\n");
+    out.push_str("    pop %esi\n");
+    out.push_str("    pop %ebx\n");
+    out.push_str("    mov %ebp, %esp\n");
+    out.push_str("    pop %ebp\n");
+    out.push_str("    ret\n\n");
+
     // fn_net_close: net_close(sock) -> 0
     out.push_str(".global fn_net_close\n");
     out.push_str("fn_net_close:\n");
