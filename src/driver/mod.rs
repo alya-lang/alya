@@ -26,7 +26,8 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     }
 
     if args.command == CommandKind::Fmt {
-        crate::tools::fmt::run_fmt(&args.input_file, args.check_only).map(|_| ())?;
+        crate::tools::fmt::run_fmt_ext(&args.input_file, args.check_only, args.sort_imports)
+            .map(|_| ())?;
         return Ok(());
     }
 

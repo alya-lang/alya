@@ -42,6 +42,23 @@ fn test_flag_run_and_quiet() {
 }
 
 #[test]
+fn test_fmt_sort_imports_flag() {
+    let args = to_args(&["alya", "fmt", ".", "--sort-imports"]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    assert_eq!(parsed.command, CommandKind::Fmt);
+    assert!(parsed.sort_imports);
+    assert!(!parsed.check_only);
+
+    let args = to_args(&["alya", "fmt", "."]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    assert!(!parsed.sort_imports);
+
+    // Only valid with `fmt`.
+    let args = to_args(&["alya", "run", "main.alya", "--sort-imports"]);
+    assert!(CliArgs::parse_from(&args).is_err());
+}
+
+#[test]
 fn test_target_arch_and_os() {
     let args = to_args(&["alya", "test.alya", "--arch", "arm64", "--os", "linux"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();

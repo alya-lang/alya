@@ -255,14 +255,19 @@ pub fn print_tokens_help() {
 pub fn print_fmt_help() {
     println!("alya fmt - Format Alya source code in-place\n");
     println!("USAGE:");
-    println!("  alya fmt [path] [--check]\n");
+    println!("  alya fmt [path] [--check] [--sort-imports]\n");
     println!("ARGS:");
     println!("  [path]              File or directory to format (default: .)\n");
     println!("OPTIONS:");
-    println!("  --check             Check without modifying (CI mode)\n");
+    println!("  --check             Check without modifying (CI mode)");
+    println!("  --sort-imports      Also sort import blocks into std / packages /");
+    println!("                      relative groups (default off: import order is");
+    println!("                      semantically observable, so sorting can change");
+    println!("                      behavior when imports have side effects)\n");
     println!("EXAMPLES:");
     println!("  alya fmt hello.alya                  # Format single file");
     println!("  alya fmt . --check                   # Check formatting for entire codebase");
+    println!("  alya fmt . --sort-imports            # Also sort import blocks");
 }
 
 pub fn print_test_help() {

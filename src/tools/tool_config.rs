@@ -75,6 +75,17 @@ pub fn parse_section_entries(content: &str, section: &str) -> Vec<(String, Strin
     entries
 }
 
+/// Parses a `key = true|false` boolean under a `[section]` header.
+/// Anything other than a case-insensitive `true` reads as false.
+pub fn parse_section_bool(content: &str, section: &str, key: &str) -> bool {
+    for (k, v) in parse_section_entries(content, section) {
+        if k == key {
+            return v.trim().eq_ignore_ascii_case("true");
+        }
+    }
+    false
+}
+
 /// Parses a `key = ["a", "b"]` string list under a `[section]` header from
 /// TOML-ish content (same minimal dialect as the lint config parser:
 /// `#` comments, `[section]` headers, `key = value` pairs).
@@ -123,10 +134,18 @@ pub fn parse_string_list(val: &str) -> Vec<String> {
 /// always apply on top; `exclude` only *adds* project-specific entries.
 /// Inline `# fmt: off` / `# fmt: on` ranges keep working independently —
 /// they suppress formatting line-wise, while `exclude` skips whole files.
+/// Project-level configuration for `alya fmt` discovery.
+///
+/// Sources (first hit wins): `.alyafmt`, then `alya.toml`, `[fmt]` section.
 #[derive(Debug, Default, Clone)]
 pub struct FmtConfig {
     /// Extra relative path patterns or directories to skip while formatting.
     pub exclude: Vec<String>,
+    /// Sort import blocks into `std` / packages / relative groups.
+    /// Off by default: import order is semantically observable in Alya
+    /// (imported files' top-level statements run in order). Also enabled
+    /// per-run with `alya fmt --sort-imports`.
+    pub sort_imports: bool,
 }
 
 impl FmtConfig {
@@ -135,6 +154,7 @@ impl FmtConfig {
         let mut config = Self::default();
         if let Some(content) = discover_config_content(start_path, ".alyafmt") {
             config.exclude = parse_section_string_list(&content, "fmt", "exclude");
+            config.sort_imports = parse_section_bool(&content, "fmt", "sort_imports");
         }
         config
     }
@@ -236,6 +256,42 @@ exclude = ["slow"]
             parse_section_string_list(single, "fmt", "exclude"),
             vec!["a".to_string(), "b".to_string()]
         );
+    }
+
+    #[test]
+    fn test_fmt_sort_imports_bool() {
+        assert!(parse_section_bool(
+            "[fmt]\nsort_imports = true\n",
+            "fmt",
+            "sort_imports"
+        ));
+        assert!(parse_section_bool(
+            "[fmt]\nsort_imports = True\n",
+            "fmt",
+            "sort_imports"
+        ));
+        assert!(!parse_section_bool(
+            "[fmt]\nsort_imports = false\n",
+            "fmt",
+            "sort_imports"
+        ));
+        assert!(!parse_section_bool(
+            "[fmt]\nexclude = [\"x\"]\n",
+            "fmt",
+            "sort_imports"
+        ));
+        assert!(!parse_section_bool(
+            "[lint]\nsort_imports = true\n",
+            "fmt",
+            "sort_imports"
+        ));
+
+        let dir = unique_temp_dir("fmt-sort");
+        fs::write(dir.join(".alyafmt"), "[fmt]\nsort_imports = true\n").unwrap();
+        let cfg = FmtConfig::discover(&dir);
+        assert!(cfg.sort_imports);
+        assert!(!FmtConfig::default().sort_imports);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

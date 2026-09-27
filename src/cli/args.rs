@@ -61,6 +61,7 @@ pub struct CliArgs {
     pub time: bool,
     pub stats: bool,
     pub check_only: bool,
+    pub sort_imports: bool,
     pub bundle: bool,
     pub bundle_id: Option<String>,
     pub icon_path: Option<String>,
@@ -112,6 +113,7 @@ impl CliArgs {
                 time: false,
                 stats: false,
                 check_only: false,
+                sort_imports: false,
                 bundle: false,
                 gui: false,
                 bundle_id: None,
@@ -394,6 +396,7 @@ impl CliArgs {
         let mut time = false;
         let mut stats = false;
         let mut check_only = false;
+        let mut sort_imports = false;
         let mut bundle = false;
         let mut bundle_id = None;
         let mut icon_path = None;
@@ -473,6 +476,15 @@ impl CliArgs {
                         check_only = true;
                     } else {
                         command = CommandKind::Check;
+                    }
+                }
+                "--sort-imports" => {
+                    if command == CommandKind::Fmt {
+                        sort_imports = true;
+                    } else {
+                        return Err(
+                            "Error: '--sort-imports' is only valid with 'alya fmt'.".to_string()
+                        );
                     }
                 }
                 "--ast" => {
@@ -647,6 +659,7 @@ impl CliArgs {
             time,
             stats,
             check_only,
+            sort_imports,
             bundle,
             bundle_id,
             icon_path,
@@ -684,6 +697,7 @@ impl CliArgs {
             time: false,
             stats: false,
             check_only: false,
+            sort_imports: false,
             bundle: false,
             gui: false,
             bundle_id: None,
@@ -721,6 +735,7 @@ impl CliArgs {
             time: false,
             stats: false,
             check_only: false,
+            sort_imports: false,
             bundle: false,
             gui: false,
             bundle_id: None,
@@ -758,6 +773,7 @@ impl CliArgs {
             time: false,
             stats: false,
             check_only: false,
+            sort_imports: false,
             bundle: false,
             gui: false,
             bundle_id: None,

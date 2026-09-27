@@ -163,7 +163,19 @@ alya fmt .
 # 3. Check formatting without modifying files (useful in CI)
 alya fmt . --check
 
-# 4. Discover and execute test suites across the project
+# 4. Also sort import blocks into std / packages / relative groups
+alya fmt . --sort-imports
+
+# 5. Discover and execute test suites across the project
 alya test
 ```
+
+> [!NOTE]
+> `alya fmt` never reorders imports by default: import order is semantically
+> observable (imported files' top-level statements run in order). Sorting is
+> opt-in per run (`--sort-imports`) or per project (`[fmt] sort_imports = true`
+> in `.alyafmt` / `alya.toml`). Only enable it when your imports are
+> side-effect free. The formatter always dedups identical imports,
+> normalizes `\` separators in import paths, and collapses blank lines
+> inside import blocks.
 

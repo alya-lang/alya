@@ -1160,9 +1160,392 @@ fn collapse_empty_declarations(source: &str) -> String {
     result_lines.join(eol)
 }
 
+// ── Import block organization ─────────────────────────────────────
+// Text-level pass that runs before indentation formatting:
+//
+// - Always on: backslashes inside import paths become `/` (identical to
+//   compiler resolution), exact-duplicate import lines in the same run
+//   collapse to one, and blank runs inside import blocks collapse to a
+//   single blank. Statement order never changes.
+// - Opt-in (`sort_imports`): import statements in each contiguous run are
+//   stably sorted into `std` / packages / relative groups, alphabetical
+//   by path (case-insensitive). Comments travel with their import.
+//   WARNING: import order is semantically observable in Alya (imported
+//   files' top-level statements run in order), so sorting can change
+//   program behavior when imports have side effects.
+//
+// A run is a maximal run of top-level (column 0) import / comment / blank
+// lines. `# fmt: off` regions, multiline strings/comments, and indented
+// lines are never touched and always break runs.
+
+/// One import statement plus the comment lines attached above it.
+struct ImportUnit {
+    code: String,
+    comments: Vec<String>,
+}
+
+enum RunItem {
+    Unit(ImportUnit),
+    /// Standalone comment or blank line inside a run.
+    Loose(String),
+    Blank,
+}
+
+fn is_import_line(trimmed: &str) -> bool {
+    trimmed.starts_with("import ")
+        || trimmed.starts_with("import\t")
+        || trimmed.starts_with("from ")
+        || trimmed.starts_with("from\t")
+}
+
+fn is_comment_line(trimmed: &str) -> bool {
+    trimmed.starts_with('#') || trimmed.starts_with("//")
+}
+
+/// Splits `import "PATH" [as ALIAS]` / `from "PATH" import ...`.
+/// Unrecognized shapes yield ("", None) and sort last, keeping place.
+fn parse_import_parts(code: &str) -> (String, Option<String>) {
+    let bytes = code.as_bytes();
+    let mut open: Option<usize> = None;
+    let mut quote = b'"';
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'"' || b == b'\'' {
+            open = Some(i);
+            quote = b;
+            break;
+        }
+    }
+    let open = match open {
+        Some(i) => i,
+        None => return (String::new(), None),
+    };
+    let rest = &code[open + 1..];
+    let close_rel = match rest.find(quote as char) {
+        Some(r) => r,
+        None => return (String::new(), None),
+    };
+    let path = rest[..close_rel].to_string();
+    let mut alias = None;
+    let trimmed = code.trim_start();
+    if trimmed.starts_with("import ") || trimmed.starts_with("import\t") {
+        let after = &rest[close_rel + 1..];
+        let ab = after.as_bytes();
+        let mut j = 0;
+        while j + 2 <= ab.len() {
+            if ab[j] == b'a'
+                && ab[j + 1] == b's'
+                && (j == 0 || !(ab[j - 1].is_ascii_alphanumeric() || ab[j - 1] == b'_'))
+                && (j + 2 >= ab.len() || !(ab[j + 2].is_ascii_alphanumeric() || ab[j + 2] == b'_'))
+            {
+                let name: String = after[j + 2..]
+                    .trim_start()
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if !name.is_empty() {
+                    alias = Some(name);
+                }
+                break;
+            }
+            j += 1;
+        }
+    }
+    (path, alias)
+}
+
+/// Sort group for an import path: `std` < packages < relative.
+/// Mirrors goimports/isort grouping (outside-in dependency direction).
+fn import_group(path: &str) -> u8 {
+    if path.starts_with("std/") || path.starts_with("std::") {
+        0
+    } else if path.starts_with("./")
+        || path.starts_with("../")
+        || std::path::Path::new(path).is_absolute()
+    {
+        2
+    } else if path.is_empty() {
+        3
+    } else {
+        1
+    }
+}
+
+/// Replaces `\` with `/` inside the first quoted span of an import line.
+fn normalize_import_separators(code: &str) -> String {
+    let bytes = code.as_bytes();
+    let mut open: Option<usize> = None;
+    let mut quote = b'"';
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'"' || b == b'\'' {
+            open = Some(i);
+            quote = b;
+            break;
+        }
+    }
+    let open = match open {
+        Some(i) => i,
+        None => return code.to_string(),
+    };
+    let rest = &code[open + 1..];
+    match rest.find(quote as char) {
+        Some(r) => {
+            let fixed = rest[..r].replace('\\', "/");
+            format!("{}{}{}", &code[..open + 1], fixed, &rest[r..])
+        }
+        None => code.to_string(),
+    }
+}
+
+fn flush_import_run(run: Vec<RunItem>, sort_imports: bool) -> Vec<String> {
+    if !run.iter().any(|it| matches!(it, RunItem::Unit(_))) {
+        return run
+            .into_iter()
+            .map(|it| match it {
+                RunItem::Loose(line) => line,
+                RunItem::Blank => String::new(),
+                RunItem::Unit(_) => unreachable!(),
+            })
+            .collect();
+    }
+    // Normalize separators and drop exact-duplicate units (first wins,
+    // with its comments; later copies add nothing: the compiler dedups
+    // identical imports through its visited set).
+    let mut units: Vec<ImportUnit> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Loose items keep their positions in default mode; in sort mode they
+    // attach to the next unit (or trail at the end).
+    let mut pending_loose: Vec<String> = Vec::new();
+    // First pass: collect units + loose runs in order.
+    enum Slot {
+        Unit(usize),
+        LooseBlock(Vec<String>),
+        Blanks,
+    }
+    let mut slots: Vec<Slot> = Vec::new();
+    for item in run {
+        match item {
+            RunItem::Unit(mut u) => {
+                u.code = normalize_import_separators(&u.code);
+                if seen.insert(u.code.clone()) {
+                    if !pending_loose.is_empty() {
+                        slots.push(Slot::LooseBlock(std::mem::take(&mut pending_loose)));
+                    }
+                    slots.push(Slot::Unit(units.len()));
+                    units.push(u);
+                } else if !pending_loose.is_empty() {
+                    // Duplicate unit (with its attached comments) is dropped;
+                    // comments seen since the last unit stay as loose lines.
+                    slots.push(Slot::LooseBlock(std::mem::take(&mut pending_loose)));
+                }
+            }
+            RunItem::Loose(line) => pending_loose.push(line),
+            RunItem::Blank => {
+                if !pending_loose.is_empty() {
+                    slots.push(Slot::LooseBlock(std::mem::take(&mut pending_loose)));
+                }
+                slots.push(Slot::Blanks);
+            }
+        }
+    }
+    if !pending_loose.is_empty() {
+        slots.push(Slot::LooseBlock(pending_loose));
+    }
+    // Collapse consecutive blanks (the main loop also caps separation at
+    // one blank, so keeping a single separator preserves current output).
+    let mut compact: Vec<Slot> = Vec::new();
+    for slot in slots {
+        match slot {
+            Slot::Blanks => {
+                if !matches!(compact.last(), Some(Slot::Blanks)) {
+                    compact.push(Slot::Blanks);
+                }
+            }
+            other => compact.push(other),
+        }
+    }
+
+    if !sort_imports {
+        let mut out = Vec::new();
+        for slot in compact {
+            match slot {
+                Slot::Unit(i) => {
+                    let u = &units[i];
+                    out.extend(u.comments.iter().cloned());
+                    out.push(u.code.clone());
+                }
+                Slot::LooseBlock(lines) => out.extend(lines),
+                Slot::Blanks => out.push(String::new()),
+            }
+        }
+        return out;
+    }
+
+    // Sort mode: loose blocks attach to the next unit (or trail at end),
+    // blanks are dropped and groups are re-separated by one blank.
+    let mut order: Vec<usize> = (0..units.len()).collect();
+    let keys: Vec<(u8, String, String, String)> = units
+        .iter()
+        .map(|u| {
+            let (path, alias) = parse_import_parts(&u.code);
+            (
+                import_group(&path),
+                path.to_lowercase(),
+                alias.unwrap_or_default().to_lowercase(),
+                u.code.clone(),
+            )
+        })
+        .collect();
+    order.sort_by(|&a, &b| keys[a].cmp(&keys[b]));
+    // Attach loose blocks: each block goes to the next unit in ORIGINAL
+    // order, so comments keep traveling with nearby code; trailing lines
+    // without a following unit stay at the end.
+    let mut carry: Vec<String> = Vec::new();
+    let mut prepend: Vec<Vec<String>> = vec![Vec::new(); units.len()];
+    let mut trailing: Vec<String> = Vec::new();
+    for slot in &compact {
+        match slot {
+            Slot::LooseBlock(lines) => carry.extend(lines.iter().cloned()),
+            Slot::Unit(i) => {
+                prepend[*i].append(&mut carry);
+            }
+            Slot::Blanks => {}
+        }
+    }
+    trailing.extend(carry);
+    let mut out = Vec::new();
+    let mut last_group: Option<u8> = None;
+    for (pos, &i) in order.iter().enumerate() {
+        let group = keys[i].0;
+        if pos > 0 && Some(group) != last_group {
+            out.push(String::new());
+        }
+        last_group = Some(group);
+        out.extend(prepend[i].iter().cloned());
+        let u = &units[i];
+        out.extend(u.comments.iter().cloned());
+        out.push(u.code.clone());
+    }
+    out.extend(trailing);
+    out
+}
+
+/// Organizes import blocks: always-on safe normalizations, plus stable
+/// grouped sorting when `sort_imports` is set. Infallible and idempotent;
+/// unknown shapes pass through byte-for-byte.
+pub fn organize_imports(source: &str, sort_imports: bool) -> String {
+    let eol = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let has_trailing = source.ends_with('\n');
+    let lines: Vec<&str> = source.lines().collect();
+    let mut out: Vec<String> = Vec::new();
+    let mut run: Vec<RunItem> = Vec::new();
+    let mut in_run = false;
+    let mut pending: Vec<String> = Vec::new();
+    let mut suppressed = false;
+    let mut ml_state: Option<MultilineLiteralState> = None;
+
+    let flush_pending_as_raw = |pending: &mut Vec<String>, out: &mut Vec<String>| {
+        out.append(pending);
+    };
+    let flush_run = |run: &mut Vec<RunItem>, out: &mut Vec<String>| {
+        if run.is_empty() {
+            return;
+        }
+        let items = std::mem::take(run);
+        out.extend(flush_import_run(items, sort_imports));
+    };
+
+    for line in &lines {
+        let trimmed = line.trim();
+        if trimmed == "# fmt: off" || trimmed == "// fmt: off" {
+            flush_pending_as_raw(&mut pending, &mut out);
+            flush_run(&mut run, &mut out);
+            in_run = false;
+            suppressed = true;
+            out.push(line.to_string());
+            continue;
+        }
+        if trimmed == "# fmt: on" || trimmed == "// fmt: on" {
+            flush_pending_as_raw(&mut pending, &mut out);
+            flush_run(&mut run, &mut out);
+            in_run = false;
+            suppressed = false;
+            out.push(line.to_string());
+            continue;
+        }
+        if suppressed {
+            flush_pending_as_raw(&mut pending, &mut out);
+            flush_run(&mut run, &mut out);
+            in_run = false;
+            out.push(line.to_string());
+            continue;
+        }
+        let in_multiline = ml_state.is_some();
+        ml_state = scan_line_multiline_state(line, ml_state);
+        if in_multiline {
+            flush_pending_as_raw(&mut pending, &mut out);
+            flush_run(&mut run, &mut out);
+            in_run = false;
+            out.push(line.to_string());
+            continue;
+        }
+        let at_col0 = !line.is_empty() && !line.as_bytes()[0].is_ascii_whitespace();
+        if trimmed.is_empty() {
+            if in_run {
+                if !pending.is_empty() {
+                    let rest = std::mem::take(&mut pending);
+                    for c in rest {
+                        run.push(RunItem::Loose(c));
+                    }
+                }
+                run.push(RunItem::Blank);
+            } else {
+                flush_pending_as_raw(&mut pending, &mut out);
+                out.push(line.to_string());
+            }
+            continue;
+        }
+        if at_col0 && is_comment_line(trimmed) {
+            pending.push(line.to_string());
+            continue;
+        }
+        if at_col0 && is_import_line(trimmed) {
+            let comments = std::mem::take(&mut pending);
+            run.push(RunItem::Unit(ImportUnit {
+                code: line.to_string(),
+                comments,
+            }));
+            in_run = true;
+            continue;
+        }
+        flush_pending_as_raw(&mut pending, &mut out);
+        flush_run(&mut run, &mut out);
+        in_run = false;
+        out.push(line.to_string());
+    }
+    flush_pending_as_raw(&mut pending, &mut out);
+    flush_run(&mut run, &mut out);
+
+    let mut result = out.join(eol);
+    if has_trailing && !result.is_empty() {
+        result.push_str(eol);
+    }
+    result
+}
+
 /// Formats the given Alya source code string.
 pub fn format_source(source: &str) -> Result<String, String> {
-    let preprocessed = collapse_empty_declarations(source);
+    format_source_ext(source, false)
+}
+
+/// Formatting with explicit import organization: safe normalizations
+/// always run; grouped import sorting only when `sort_imports` is set.
+pub fn format_source_ext(source: &str, sort_imports: bool) -> Result<String, String> {
+    let staged = organize_imports(source, sort_imports);
+    let preprocessed = collapse_empty_declarations(&staged);
     let expanded = expand_function_headers(&preprocessed);
     let lines: Vec<&str> = expanded.lines().collect();
     let mut formatted_lines: Vec<String> = Vec::new();
@@ -1497,6 +1880,16 @@ pub fn find_alya_files(path: &Path) -> Vec<PathBuf> {
 /// discovery; an explicitly named single file is always honored. Built-in
 /// fixture skips (`negative`, `fixtures`, …) always apply on top.
 pub fn run_fmt(path_str: &str, check_only: bool) -> Result<usize, String> {
+    run_fmt_ext(path_str, check_only, false)
+}
+
+/// Directory/directory-tree formatting. Import sorting is enabled by the
+/// `--sort-imports` CLI flag or `[fmt] sort_imports` project config.
+pub fn run_fmt_ext(
+    path_str: &str,
+    check_only: bool,
+    sort_imports_flag: bool,
+) -> Result<usize, String> {
     let root = Path::new(path_str);
     let files = find_alya_files(root);
 
@@ -1506,11 +1899,17 @@ pub fn run_fmt(path_str: &str, check_only: bool) -> Result<usize, String> {
     }
 
     // Config-based excludes only narrow directory walks, never an explicit file.
+    // `sort_imports`, however, describes HOW to format and applies everywhere:
+    // an explicitly named file still honors the project setting.
     let config = if root.is_file() {
-        super::tool_config::FmtConfig::default()
+        super::tool_config::FmtConfig {
+            sort_imports: super::tool_config::FmtConfig::discover(root).sort_imports,
+            ..Default::default()
+        }
     } else {
         super::tool_config::FmtConfig::discover(root)
     };
+    let sort_imports = sort_imports_flag || config.sort_imports;
     let files: Vec<PathBuf> = files
         .into_iter()
         .filter(|p| !config.is_path_excluded(p))
@@ -1527,7 +1926,7 @@ pub fn run_fmt(path_str: &str, check_only: bool) -> Result<usize, String> {
         let content = fs::read_to_string(file)
             .map_err(|e| format!("Error reading '{}': {}", display_path, e))?;
 
-        let formatted = format_source(&content)
+        let formatted = format_source_ext(&content, sort_imports)
             .map_err(|e| format!("Error formatting '{}': {}", display_path, e))?;
 
         if formatted != content {
@@ -1570,6 +1969,109 @@ pub fn run_fmt(path_str: &str, check_only: bool) -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_organize_imports_default_keeps_order() {
+        let input = "import \"./zeta.alya\"\nimport \"cache\"\nimport \"std/fs\"\n";
+        assert_eq!(organize_imports(input, false), input);
+    }
+
+    #[test]
+    fn test_organize_imports_dedups_identical_lines() {
+        let input = "import \"std/fs\"\n# duplicate below\nimport \"std/fs\"\nimport \"std/fs\" as fs\nsay 1\n";
+        let expected = "import \"std/fs\"\nimport \"std/fs\" as fs\nsay 1\n";
+        assert_eq!(organize_imports(input, false), expected);
+    }
+
+    #[test]
+    fn test_organize_imports_normalizes_separators() {
+        let input = "import \".\\lib\\x.alya\"\n";
+        let expected = "import \"./lib/x.alya\"\n";
+        assert_eq!(organize_imports(input, false), expected);
+    }
+
+    #[test]
+    fn test_organize_imports_collapses_inner_blanks() {
+        let input = "import \"std/a\"\n\n\nimport \"std/b\"\n\nsay 1\n";
+        let expected = "import \"std/a\"\n\nimport \"std/b\"\n\nsay 1\n";
+        assert_eq!(organize_imports(input, false), expected);
+    }
+
+    #[test]
+    fn test_organize_imports_respects_fmt_off() {
+        let input = "import \"std/b\"\n# fmt: off\nimport \"std/a\"\n# fmt: on\n";
+        assert_eq!(organize_imports(input, true), input);
+    }
+
+    #[test]
+    fn test_organize_imports_ignores_multiline_strings() {
+        let input = "let s = \"\"\"\nimport \"std/zzz\"\n\"\"\"\nimport \"std/a\"\n";
+        assert_eq!(organize_imports(input, true), input);
+    }
+
+    #[test]
+    fn test_organize_imports_ignores_indented_lines() {
+        let input = "import \"std/b\"\n    import \"std/a\"\nimport \"std/c\"\n";
+        let expected = "import \"std/b\"\n    import \"std/a\"\nimport \"std/c\"\n";
+        assert_eq!(organize_imports(input, true), expected);
+    }
+
+    #[test]
+    fn test_organize_imports_sorts_groups() {
+        let input = "import \"./zeta.alya\"\nimport \"cache\"\nimport \"std/fs\"\nimport \"./apple.alya\" as a\nimport \"std/env\"\nimport \"aaa\"\n";
+        let expected = "import \"std/env\"\nimport \"std/fs\"\n\nimport \"aaa\"\nimport \"cache\"\n\nimport \"./apple.alya\" as a\nimport \"./zeta.alya\"\n";
+        assert_eq!(organize_imports(input, true), expected);
+    }
+
+    #[test]
+    fn test_organize_imports_sort_alpha_case_insensitive_and_alias() {
+        let input = "import \"B\"\nimport \"a\"\nimport \"m\" as z\nimport \"m\" as a\n";
+        let expected = "import \"a\"\nimport \"B\"\nimport \"m\" as a\nimport \"m\" as z\n";
+        assert_eq!(organize_imports(input, true), expected);
+    }
+
+    #[test]
+    fn test_organize_imports_sort_moves_attached_comments() {
+        let input = "# net stuff\nimport \"std/net\"\nimport \"std/fs\"\n";
+        let expected = "import \"std/fs\"\n# net stuff\nimport \"std/net\"\n";
+        assert_eq!(organize_imports(input, true), expected);
+    }
+
+    #[test]
+    fn test_organize_imports_sort_unknown_shapes_last() {
+        let input = "import \"std/b\"\nimport foo\nimport \"std/a\"\n";
+        let expected = "import \"std/a\"\nimport \"std/b\"\n\nimport foo\n";
+        assert_eq!(organize_imports(input, true), expected);
+    }
+
+    #[test]
+    fn test_organize_imports_sort_is_idempotent() {
+        let input =
+            "import \"./z.alya\" as z\n# c\nimport \"std/b\"\nimport \"a\"\n\nimport \"std/a\"\n";
+        let once = organize_imports(input, true);
+        assert_eq!(organize_imports(&once, true), once);
+    }
+
+    #[test]
+    fn test_organize_imports_preserves_crlf() {
+        let input = "import \"std/b\"\r\nimport \"std/a\"\r\n";
+        let expected = "import \"std/a\"\r\nimport \"std/b\"\r\n";
+        assert_eq!(organize_imports(input, true), expected);
+    }
+
+    #[test]
+    fn test_format_source_ext_sort_end_to_end() {
+        let input = "import \"./z.alya\"\nimport \"std/fs\"\nfunction main()\nsay 1\nend\nmain()\n";
+        let expected =
+            "import \"std/fs\"\n\nimport \"./z.alya\"\nfunction main()\n    say 1\nend\nmain()\n";
+        assert_eq!(format_source_ext(input, true).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_format_source_default_never_reorders() {
+        let input = "import \"./z.alya\"\nimport \"std/fs\"\n";
+        assert_eq!(format_source(input).unwrap(), input);
+    }
 
     #[test]
     fn test_format_try_catch_bare() {
@@ -2202,6 +2704,56 @@ say "nested"
         // Excluded file untouched.
         let gen = fs::read_to_string(dir.join("generated").join("gen.alya")).unwrap();
         assert_eq!(gen, "function g()\nlet y = 2\nend\n");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_run_fmt_ext_sort_imports_flag_and_config() {
+        let dir = std::env::temp_dir().join(format!(
+            "alya_fmt_sort_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let unsorted = "import \"./z.alya\"\nimport \"std/fs\"\n";
+        let sorted = "import \"std/fs\"\n\nimport \"./z.alya\"\n";
+
+        // CLI flag sorts without any config.
+        fs::write(dir.join("a.alya"), unsorted).unwrap();
+        run_fmt_ext(dir.join("a.alya").to_str().unwrap(), false, true).unwrap();
+        assert_eq!(fs::read_to_string(dir.join("a.alya")).unwrap(), sorted);
+
+        // Project config sorts directory runs and explicit files alike,
+        // while excludes still never apply to an explicitly named file.
+        fs::write(
+            dir.join(".alyafmt"),
+            "[fmt]\nsort_imports = true\nexclude = [\"skip\"]\n",
+        )
+        .unwrap();
+        fs::create_dir_all(dir.join("skip")).unwrap();
+        fs::write(dir.join("b.alya"), unsorted).unwrap();
+        fs::write(dir.join("skip").join("c.alya"), unsorted).unwrap();
+        let changed = run_fmt_ext(dir.to_str().unwrap(), false, false).unwrap();
+        assert_eq!(changed, 1);
+        assert_eq!(fs::read_to_string(dir.join("b.alya")).unwrap(), sorted);
+        assert_eq!(
+            fs::read_to_string(dir.join("skip").join("c.alya")).unwrap(),
+            unsorted
+        );
+        run_fmt_ext(
+            dir.join("skip").join("c.alya").to_str().unwrap(),
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join("skip").join("c.alya")).unwrap(),
+            sorted
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }
