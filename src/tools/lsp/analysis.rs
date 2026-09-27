@@ -2406,6 +2406,142 @@ fn token_length(tok: &Token, line_str: Option<&str>) -> usize {
     }
 }
 
+/// Declaration name sets collected from the file AST, shared by semantic
+/// classification of identifiers and f-string interpolation contents.
+struct SemanticNameSets<'a> {
+    struct_names: &'a HashSet<String>,
+    enum_names: &'a HashSet<String>,
+    interface_names: &'a HashSet<String>,
+    function_names: &'a HashSet<String>,
+    variant_names: &'a HashSet<String>,
+    field_names: &'a HashSet<String>,
+    param_names: &'a HashSet<String>,
+    const_names: &'a HashSet<String>,
+}
+
+/// Classifies a used (never declared) identifier: types, known declarations,
+/// then the plain variable fallback. Mirrors the usage branch of the
+/// `Identifier` arm in `get_semantic_tokens`.
+fn classify_usage_ident(name: &str, sets: &SemanticNameSets) -> (u32, u32) {
+    match name {
+        "int" | "float" | "string" | "bool" | "void" | "any" | "byte" | "char" | "Fiber"
+        | "Channel" | "Mutex" | "WaitGroup" | "f64x4" | "f32x8" | "i32x8" | "i64x4" | "Tensor" => {
+            (0, 8)
+        }
+        _ if sets.struct_names.contains(name) => (4, 0),
+        _ if sets.enum_names.contains(name) => (2, 0),
+        _ if sets.interface_names.contains(name) => (3, 0),
+        _ if sets.function_names.contains(name) => (10, 0),
+        _ if sets.variant_names.contains(name) => (9, 0),
+        _ if sets.field_names.contains(name) => (8, 0),
+        _ if sets.param_names.contains(name) => (6, 0),
+        _ if sets.const_names.contains(name) => (7, 4),
+        _ => (7, 0),
+    }
+}
+
+/// Returns true when the string token starting at byte column `col_0` on
+/// `line` is an f-string literal (`f"..."` / `f"""..."""`). The token column
+/// points at the `f` prefix; an adjacent `f"` preceded by a non-identifier
+/// byte identifies it. Byte compares only: never panics, degrades to false.
+fn is_fstring_at(line: &str, col_0: u32) -> bool {
+    let b = line.as_bytes();
+    let c = col_0 as usize;
+    if b.len() < c + 2 || b[c] != b'f' || b[c + 1] != b'"' {
+        return false;
+    }
+    if c > 0 && (b[c - 1].is_ascii_alphanumeric() || b[c - 1] == b'_') {
+        return false;
+    }
+    true
+}
+
+/// One identifier found inside an f-string interpolation span, with its
+/// absolute column on the line.
+struct FstringIdent {
+    col: u32,
+    len: u32,
+    name: String,
+}
+
+/// Scans one source line of an f-string literal for interpolation contents,
+/// starting at byte offset `from` (just past `f"` / `f"""`). Tracks `{{` /
+/// `}}` escapes, nested quotes, and brace depth; stops at the closing quote
+/// or end of line (later lines of multiline literals are skipped).
+/// Keywords and digit-led fragments (`{x:.2f}`) are not usages.
+fn scan_fstring_line(line: &str, from: usize) -> Vec<FstringIdent> {
+    let b = line.as_bytes();
+    let mut i = from.min(b.len());
+    let mut depth = 0u32;
+    let mut out = Vec::new();
+    // Byte offset -> char column (UTF-16-safe for BMP text).
+    let col_of = |idx: usize| line[..idx.min(line.len())].chars().count() as u32;
+    while i < b.len() {
+        let c = b[i];
+        if depth == 0 {
+            if c == b'"' {
+                break;
+            }
+            if c == b'{' {
+                if i + 1 < b.len() && b[i + 1] == b'{' {
+                    i += 2;
+                    continue;
+                }
+                depth = 1;
+            }
+            i += 1;
+            continue;
+        }
+        if c == b'"' || c == b'\'' {
+            let q = c;
+            i += 1;
+            while i < b.len() && b[i] != q {
+                if b[i] == b'\\' {
+                    i += 1;
+                }
+                i += 1;
+            }
+            i += 1;
+            continue;
+        }
+        if c == b'{' {
+            depth += 1;
+            i += 1;
+            continue;
+        }
+        if c == b'}' {
+            depth -= 1;
+            i += 1;
+            continue;
+        }
+        if c.is_ascii_alphabetic() || c == b'_' {
+            if i > 0 && b[i - 1].is_ascii_digit() {
+                // Digit-led fragment (`{x:.2f}`): skip the whole run.
+                while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
+                    i += 1;
+                }
+                continue;
+            }
+            let mut j = i + 1;
+            while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_') {
+                j += 1;
+            }
+            let name = line[i..j].to_string();
+            if !is_keyword(&name) {
+                out.push(FstringIdent {
+                    col: col_of(i),
+                    len: (j - i) as u32,
+                    name,
+                });
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
 /// Discovers AST-driven semantic token classification and delta encoding.
 pub fn get_semantic_tokens(source: &str) -> SemanticTokens {
     let mut raw_tokens = Vec::new();
@@ -2461,12 +2597,49 @@ pub fn get_semantic_tokens(source: &str) -> SemanticTokens {
     }
 
     let source_lines: Vec<&str> = source.lines().collect();
+    let name_sets = SemanticNameSets {
+        struct_names: &struct_names,
+        enum_names: &enum_names,
+        interface_names: &interface_names,
+        function_names: &function_names,
+        variant_names: &variant_names,
+        field_names: &field_names,
+        param_names: &param_names,
+        const_names: &const_names,
+    };
 
     for i in 0..tokens.len() {
         let tok = &tokens[i];
         let line_0 = tok.line.saturating_sub(1) as u32;
         let col_0 = tok.column.saturating_sub(1) as u32;
         let cur_line = source_lines.get(line_0 as usize).copied();
+
+        // F-strings: drop the blanket string token (it would paint over
+        // the interpolations) and emit the interpolation contents with
+        // their real kinds instead. TextMate paints the literal parts.
+        if let TokenType::String(_) = &tok.token_type {
+            if let Some(line_text) = cur_line {
+                if is_fstring_at(line_text, col_0) {
+                    // Past `f"` (or `f"""`): scan this line's spans.
+                    let lb = line_text.as_bytes();
+                    let mut from = col_0 as usize + 2;
+                    if lb.get(from) == Some(&b'"') && lb.get(from + 1) == Some(&b'"') {
+                        from += 2;
+                    }
+                    for ident in scan_fstring_line(line_text, from) {
+                        let (tt, mods) = classify_usage_ident(&ident.name, &name_sets);
+                        raw_tokens.push(RawSemanticToken {
+                            line: line_0,
+                            start_col: ident.col,
+                            length: ident.len,
+                            token_type: tt,
+                            token_modifiers: mods,
+                        });
+                    }
+                    continue;
+                }
+            }
+        }
 
         let (token_type, token_modifiers, length) = match &tok.token_type {
             TokenType::Function
@@ -2539,20 +2712,7 @@ pub fn get_semantic_tokens(source: &str) -> SemanticTokens {
                     Some(TokenType::Enum) => (2, 1 | 2),
                     Some(TokenType::Interface) => (3, 1 | 2),
                     Some(TokenType::Const) => (7, 1 | 4),
-                    _ => match name.as_str() {
-                        "int" | "float" | "string" | "bool" | "void" | "any" | "byte" | "char"
-                        | "Fiber" | "Channel" | "Mutex" | "WaitGroup" | "f64x4" | "f32x8"
-                        | "i32x8" | "i64x4" | "Tensor" => (0, 8),
-                        _ if struct_names.contains(name) => (4, 0),
-                        _ if enum_names.contains(name) => (2, 0),
-                        _ if interface_names.contains(name) => (3, 0),
-                        _ if function_names.contains(name) => (10, 0),
-                        _ if variant_names.contains(name) => (9, 0),
-                        _ if field_names.contains(name) => (8, 0),
-                        _ if param_names.contains(name) => (6, 0),
-                        _ if const_names.contains(name) => (7, 4),
-                        _ => (7, 0),
-                    },
+                    _ => classify_usage_ident(name, &name_sets),
                 };
                 (tt, mods, name.len())
             }
@@ -2576,6 +2736,56 @@ pub fn get_semantic_tokens(source: &str) -> SemanticTokens {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_semantic_tokens_fstring_interpolation() {
+        // `floor` is imported, not declared: both the bare call and the
+        // interpolation land on the variable fallback (7, 0) — the point
+        // is they MATCH, and no blanket string token covers the spans.
+        let src = "from \"std/math\" import floor\nsay f\"v: {floor(7.9)} and {missing}\"\nsay floor(1.0)\nsay \"plain\"\n";
+        let toks = get_semantic_tokens(src);
+        assert_eq!(toks.data.len() % 5, 0);
+        let mut decoded: Vec<(u32, u32, u32, u32, u32)> = Vec::new();
+        let mut line = 0u32;
+        let mut col = 0u32;
+        for chunk in toks.data.chunks(5) {
+            line += chunk[0];
+            if chunk[0] == 0 {
+                col += chunk[1];
+            } else {
+                col = chunk[1];
+            }
+            decoded.push((line, col, chunk[2], chunk[3], chunk[4]));
+        }
+        // Interpolation idents: same kind as bare usage.
+        assert!(
+            decoded.contains(&(1, 10, 5, 7, 0)),
+            "floor in f-string: {:?}",
+            decoded
+        );
+        assert!(
+            decoded.contains(&(1, 27, 7, 7, 0)),
+            "missing in f-string: {:?}",
+            decoded
+        );
+        assert!(
+            decoded.contains(&(2, 4, 5, 7, 0)),
+            "bare floor call: {:?}",
+            decoded
+        );
+        // No string token touches line 1 (the f-string line); the plain
+        // string on line 3 keeps its blanket token.
+        assert!(
+            !decoded.iter().any(|&(l, _, _, t, _)| l == 1 && t == 14),
+            "no blanket string on f-string line: {:?}",
+            decoded
+        );
+        assert!(
+            decoded.iter().any(|&(l, _, _, t, _)| l == 3 && t == 14),
+            "plain string keeps token: {:?}",
+            decoded
+        );
+    }
 
     #[test]
     fn test_resolve_import_to_file_returns_absolute_paths() {
