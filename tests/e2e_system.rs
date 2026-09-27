@@ -3373,3 +3373,31 @@ say "stress_100k_status: [OK] 100000 fibers scheduled successfully"
         );
     }
 }
+
+#[test]
+fn test_e2e_aliased_pub_let_value_and_state() {
+    // Regression test for alya-lang/alya#48: `m::X` must read the
+    // module-level value (not empty/zero), internal reads follow it, and
+    // reassignment through the module updates the same cell.
+    let code = r#"
+import "tests/fixtures/modules/publet/lib.alya" as m
+
+say m::X
+say m::get_x()
+say m::bump()
+say m::X
+say m::C
+say m::double_c()
+say m::MSG
+say m::F
+say m::X + m::C
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "30\n30\n31\n31\n7\n14\nhi\n2.5\n38\n");
+    }
+}

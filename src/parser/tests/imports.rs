@@ -655,3 +655,75 @@ say color_blue("world")
         esc_count
     );
 }
+
+#[test]
+fn test_aliased_pub_let_renamed() {
+    // Regression test for alya-lang/alya#48: a `pub let` imported under
+    // an alias must be renamed to `alias::name` like functions are,
+    // otherwise `m::X` references dangle (read as zero/empty).
+    use std::fs;
+    let temp_dir = std::env::temp_dir().join(format!("alya_alias_let_test_{}", std::process::id()));
+    let _ = fs::create_dir_all(&temp_dir);
+
+    let helper_path = temp_dir.join("a.alya");
+    fs::write(
+        &helper_path,
+        "pub let X: int = 30\n\npub function get_x() -> int\n    return X\nend\n\npub function bump() -> int\n    X = X + 1\n    return X\nend\n",
+    )
+    .unwrap();
+
+    let main_source = "import \"./a.alya\" as m\nsay m::X";
+    let mut lexer = crate::lexer::Lexer::new(main_source);
+    let tokens = lexer.tokenize().expect("Failed to tokenize");
+    let mut parser = Parser::new(tokens);
+    let mut program = parser.parse().expect("Failed to parse");
+
+    resolve_imports(&mut program, &temp_dir).expect("Failed to resolve imports");
+
+    // The `pub let` definition itself must carry the alias prefix.
+    let def = program.statements.iter().find(|s| match s.inner_stmt() {
+        Stmt::Let { name, .. } => name == "m::X",
+        _ => false,
+    });
+    assert!(
+        def.is_some(),
+        "expected a `Stmt::Let` named `m::X`, got {:?}",
+        program
+            .statements
+            .iter()
+            .map(|s| format!("{:?}", s.inner_stmt()))
+            .collect::<Vec<_>>()
+    );
+
+    // Internal references (reads and reassignment targets) follow it.
+    let mut saw_prefixed_read = false;
+    let mut saw_prefixed_assign = false;
+    fn scan(expr: &Expr, read: &mut bool) {
+        match expr {
+            Expr::Identifier(name) if name == "m::X" => *read = true,
+            Expr::Binary { left, right, .. } => {
+                scan(left, read);
+                scan(right, read);
+            }
+            _ => {}
+        }
+    }
+    for s in &program.statements {
+        if let Stmt::Function { body, .. } = s.inner_stmt() {
+            for b in body {
+                match b.inner_stmt() {
+                    Stmt::Return(Some(e)) => scan(e, &mut saw_prefixed_read),
+                    Stmt::Assign { name, .. } if name == "m::X" => saw_prefixed_assign = true,
+                    _ => {}
+                }
+            }
+        }
+    }
+    assert!(saw_prefixed_read, "expected an internal `m::X` read");
+    assert!(
+        saw_prefixed_assign,
+        "expected an internal `m::X` assign target"
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}

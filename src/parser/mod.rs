@@ -681,8 +681,24 @@ fn prefix_stmt(stmt: &mut Stmt, alias: &str, local_fns: &std::collections::HashS
         }
         Stmt::Say(expr) => prefix_expr(expr, alias, local_fns),
         Stmt::Expr(expr) => prefix_expr(expr, alias, local_fns),
-        Stmt::Let { value, .. } => prefix_expr(value, alias, local_fns),
-        Stmt::Assign { value, .. } => prefix_expr(value, alias, local_fns),
+        Stmt::Let { name, value, .. } => {
+            prefix_expr(value, alias, local_fns);
+            // Top-level `let` definitions take the alias prefix like
+            // functions do (alya-lang/alya#48). Nested lets are safe:
+            // the Function arm strips subtree locals from the set, so
+            // only module-level names still match here.
+            if local_fns.contains(name) {
+                *name = format!("{}::{}", alias, name);
+            }
+        }
+        Stmt::Assign { name, value } => {
+            prefix_expr(value, alias, local_fns);
+            // Reassignment targets follow their definition for the same
+            // reason (same shadowing discipline as above).
+            if local_fns.contains(name) {
+                *name = format!("{}::{}", alias, name);
+            }
+        }
         Stmt::If {
             condition,
             then_block,
@@ -1104,7 +1120,9 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                                 None
                             } else {
                                 match s.inner_stmt() {
-                                    Stmt::Function { name, .. } => Some(name.clone()),
+                                    Stmt::Function { name, .. }
+                                    | Stmt::Const { name, .. }
+                                    | Stmt::Let { name, .. } => Some(name.clone()),
                                     _ => None,
                                 }
                             }

@@ -890,9 +890,10 @@ impl CodeGen {
                 ".quad"
             };
             for (symbol, _) in self.ctx.globals.values() {
+                let mangled = crate::codegen::arch::control::mangle_symbol_name(symbol);
                 self.output.push_str(&format!(
                     ".global {}\n{}:\n    {} 0\n",
-                    symbol, symbol, word_dir
+                    mangled, mangled, word_dir
                 ));
             }
             self.output.push_str(".text\n");

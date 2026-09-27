@@ -1,0 +1,20 @@
+pub let X: int = 30
+
+pub function get_x() -> int
+    return X
+end
+
+pub function bump() -> int
+    X = X + 1
+    return X
+end
+
+pub const C: int = 7
+
+pub function double_c() -> int
+    return C * 2
+end
+
+pub let MSG = "hi"
+
+pub let F = 2.5

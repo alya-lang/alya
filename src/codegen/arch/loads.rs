@@ -98,17 +98,21 @@ pub fn emit_pop_temp(out: &mut String, arch: Architecture) {
 }
 
 pub fn emit_load_global(out: &mut String, arch: Architecture, symbol: &str, os: OperatingSystem) {
+    // Aliased module globals carry `::` (e.g. `m::X`), which assemblers
+    // reject: mangle exactly like function symbols (alya-lang/alya#48).
+    let mangled = super::control::mangle_symbol_name(symbol);
     match arch {
-        Architecture::ARM64 => arm64::loads::emit_load_global(out, symbol, os),
-        Architecture::X64 => x64::loads::emit_load_global(out, symbol),
-        Architecture::X86 => x86::loads::emit_load_global(out, symbol),
+        Architecture::ARM64 => arm64::loads::emit_load_global(out, &mangled, os),
+        Architecture::X64 => x64::loads::emit_load_global(out, &mangled),
+        Architecture::X86 => x86::loads::emit_load_global(out, &mangled),
     }
 }
 
 pub fn emit_store_global(out: &mut String, arch: Architecture, symbol: &str, os: OperatingSystem) {
+    let mangled = super::control::mangle_symbol_name(symbol);
     match arch {
-        Architecture::ARM64 => arm64::loads::emit_store_global(out, symbol, os),
-        Architecture::X64 => x64::loads::emit_store_global(out, symbol),
-        Architecture::X86 => x86::loads::emit_store_global(out, symbol),
+        Architecture::ARM64 => arm64::loads::emit_store_global(out, &mangled, os),
+        Architecture::X64 => x64::loads::emit_store_global(out, &mangled),
+        Architecture::X86 => x86::loads::emit_store_global(out, &mangled),
     }
 }

@@ -369,6 +369,86 @@ impl CodeGen {
                 self.output.push('\n');
             }
             Expr::Identifier(name) => {
+                // Shared module globals live in BSS; the variables map
+                // only carries kind markers with stale stack offsets for
+                // them, so resolve globals before the offset-based paths
+                // below (alya-lang/alya#48).
+                if self.ctx.globals.contains_key(name) {
+                    let is_int = self
+                        .ctx
+                        .variables
+                        .contains_key(&format!("var_is_int:{}", name));
+                    let kind = self.ctx.variables.get(name).cloned();
+                    let fmt_label = self.ctx.next_string_label();
+                    self.emit_rodata_section();
+                    self.output.push_str(&format!("{}:\n", fmt_label));
+                    match kind {
+                        Some(VarType::Float(_)) => {
+                            self.emit_string_directive("%g\\n");
+                            self.output.push_str(".text\n");
+                            if let Some((symbol, _)) = self.ctx.globals.get(name).cloned() {
+                                arch::emit_load_global(
+                                    &mut self.output,
+                                    self.arch,
+                                    &symbol,
+                                    self.os,
+                                );
+                            }
+                            arch::emit_say_float(
+                                &mut self.output,
+                                self.arch,
+                                &fmt_label,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                            self.output.push('\n');
+                            return;
+                        }
+                        Some(VarType::StringOffset(_)) | Some(VarType::StringLabel(_)) => {
+                            self.emit_string_directive("%s\\n");
+                            self.output.push_str(".text\n");
+                            if let Some((symbol, _)) = self.ctx.globals.get(name).cloned() {
+                                arch::emit_load_global(
+                                    &mut self.output,
+                                    self.arch,
+                                    &symbol,
+                                    self.os,
+                                );
+                            }
+                            arch::emit_say_acc(
+                                &mut self.output,
+                                self.arch,
+                                &fmt_label,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                            self.output.push('\n');
+                            return;
+                        }
+                        _ if is_int => {
+                            self.emit_string_directive("%lld\\n");
+                            self.output.push_str(".text\n");
+                            if let Some((symbol, _)) = self.ctx.globals.get(name).cloned() {
+                                arch::emit_load_global(
+                                    &mut self.output,
+                                    self.arch,
+                                    &symbol,
+                                    self.os,
+                                );
+                            }
+                            arch::emit_say_acc(
+                                &mut self.output,
+                                self.arch,
+                                &fmt_label,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                            self.output.push('\n');
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
                 if let Some(var_type) = self.ctx.variables.get(name).cloned() {
                     match var_type {
                         VarType::StringLabel(label) => {
