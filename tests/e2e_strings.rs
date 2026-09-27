@@ -572,6 +572,7 @@ import "std/test"
 function main()
     let runner = runner_new()
     runner.assert_eq(5, 5, "equality check")
+    runner.assert_eq(5, 6, "mismatch check")
     say "done"
 end
 main()
@@ -583,6 +584,7 @@ main()
             code, output
         );
         assert!(output.contains("done"), "Got: {}", output);
+        assert!(output.contains("expected: 6"), "Got: {}", output);
     }
 }
 

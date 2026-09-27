@@ -1481,6 +1481,25 @@ pub fn collect_known_string_vars_with_index(
     let mut field_kinds = StructFieldLitKinds::default();
     collect_struct_field_lit_kinds(&program.statements, &struct_defs, &mut field_kinds);
     insert_struct_field_mixed_sentinels(&field_kinds, &mut known_strings);
+    // Negative evidence first (issue #45): a literal non-string call arg
+    // proves the parameter is dynamic no matter where the call sits, but
+    // the fixpoint loop below scans statements in order — a positive
+    // derived early (e.g. from a same-bare forwarding call) lands before
+    // its veto is seen, persists monotonically, and the veto (recorded
+    // under the call's bare name) never matches the positive's resolved
+    // name at consumption. Veto insertion is purely syntactic, hence
+    // order-independent, so seeding all vetoes up front is semantics-
+    // preserving and closes the ordering hole. Only `fn_param_nonstr:*`
+    // markers are merged; positives from the pre-scan are discarded.
+    {
+        let mut pre = HashSet::new();
+        collect_string_vars_from_stmts(&program.statements, &struct_defs, &mut pre, &conflicts);
+        for m in pre {
+            if m.starts_with("fn_param_nonstr:") {
+                known_strings.insert(m);
+            }
+        }
+    }
     for _ in 0..5 {
         let prev_len = known_strings.len();
         collect_string_vars_from_stmts(
