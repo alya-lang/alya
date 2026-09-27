@@ -631,7 +631,10 @@ impl ServerState {
             None => return default_empty,
         };
         if let Some(source) = self.documents.get(uri) {
-            get_semantic_tokens(source)
+            let dir = super::protocol::uri_to_path(uri)
+                .parent()
+                .map(|p| p.to_path_buf());
+            get_semantic_tokens(source, dir.as_deref())
         } else {
             default_empty
         }

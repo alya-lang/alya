@@ -479,6 +479,7 @@ pub const SEMANTIC_TOKEN_TYPES: &[&str] = &[
     "string",        // 14
     "number",        // 15
     "operator",      // 16
+    "namespace",     // 17
 ];
 
 pub const SEMANTIC_TOKEN_MODIFIERS: &[&str] = &[

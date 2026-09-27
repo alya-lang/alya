@@ -2417,27 +2417,127 @@ struct SemanticNameSets<'a> {
     field_names: &'a HashSet<String>,
     param_names: &'a HashSet<String>,
     const_names: &'a HashSet<String>,
+    /// Import aliases (`import "p" as a`): namespace qualifiers.
+    aliases: &'a HashSet<String>,
+    /// Names the compiler merges into scope from imports, with the token
+    /// kind of their declaration (`from` symbols transitively, plain
+    /// unaliased imports single-level). File-locals shadow these.
+    scope_kinds: &'a HashMap<String, (u32, u32)>,
 }
 
-/// Classifies a used (never declared) identifier: types, known declarations,
-/// then the plain variable fallback. Mirrors the usage branch of the
-/// `Identifier` arm in `get_semantic_tokens`.
-fn classify_usage_ident(name: &str, sets: &SemanticNameSets) -> (u32, u32) {
+/// Known-kind classification: primitives, file-local declarations, import
+/// aliases (namespaces), then imported-scope kinds. `None` means unknown
+/// (plain variable fallback, or function when called).
+fn classify_known_ident(name: &str, sets: &SemanticNameSets) -> Option<(u32, u32)> {
     match name {
         "int" | "float" | "string" | "bool" | "void" | "any" | "byte" | "char" | "Fiber"
         | "Channel" | "Mutex" | "WaitGroup" | "f64x4" | "f32x8" | "i32x8" | "i64x4" | "Tensor" => {
-            (0, 8)
+            Some((0, 8))
         }
-        _ if sets.struct_names.contains(name) => (4, 0),
-        _ if sets.enum_names.contains(name) => (2, 0),
-        _ if sets.interface_names.contains(name) => (3, 0),
-        _ if sets.function_names.contains(name) => (10, 0),
-        _ if sets.variant_names.contains(name) => (9, 0),
-        _ if sets.field_names.contains(name) => (8, 0),
-        _ if sets.param_names.contains(name) => (6, 0),
-        _ if sets.const_names.contains(name) => (7, 4),
-        _ => (7, 0),
+        _ if sets.struct_names.contains(name) => Some((4, 0)),
+        _ if sets.enum_names.contains(name) => Some((2, 0)),
+        _ if sets.interface_names.contains(name) => Some((3, 0)),
+        _ if sets.function_names.contains(name) => Some((10, 0)),
+        _ if sets.variant_names.contains(name) => Some((9, 0)),
+        _ if sets.field_names.contains(name) => Some((8, 0)),
+        _ if sets.param_names.contains(name) => Some((6, 0)),
+        _ if sets.const_names.contains(name) => Some((7, 4)),
+        _ if sets.aliases.contains(name) => Some((17, 0)),
+        _ => sets.scope_kinds.get(name).copied(),
     }
+}
+
+/// Maps a declaration kind to its semantic token type for imported names.
+fn symbol_kind_token(kind: SymbolKind) -> (u32, u32) {
+    match kind {
+        SymbolKind::Function => (10, 0),
+        SymbolKind::Struct => (4, 0),
+        SymbolKind::Enum => (2, 0),
+        SymbolKind::Interface => (3, 0),
+        SymbolKind::Let => (7, 0),
+    }
+}
+
+/// Enumerates top-level declared symbols of a module source. When the
+/// module declares any `pub` item, only `pub` items merge into importers
+/// (mirroring the compiler); otherwise everything is visible.
+fn declared_symbols_in_source(source: &str) -> Vec<(String, SymbolKind)> {
+    struct Raw {
+        name: String,
+        kind: SymbolKind,
+        is_pub: bool,
+    }
+    let mut all: Vec<Raw> = Vec::new();
+    for line in source.lines() {
+        let mut trimmed = line.trim_start();
+        let is_pub = if let Some(rest) = trimmed.strip_prefix("pub ") {
+            trimmed = rest.trim_start();
+            true
+        } else {
+            false
+        };
+        let (name, kind) = if let Some(rest) = trimmed.strip_prefix("function ") {
+            let head: String = rest
+                .trim_start()
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            // `Type.method` declares the method, not the head.
+            let after: String = rest.trim_start()[head.len()..]
+                .trim_start()
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
+                .collect();
+            let name = after
+                .rsplit('.')
+                .next()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&head)
+                .to_string();
+            (name, SymbolKind::Function)
+        } else if let Some(rest) = trimmed.strip_prefix("struct ") {
+            let n: String = rest
+                .trim_start()
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            (n, SymbolKind::Struct)
+        } else if let Some(rest) = trimmed.strip_prefix("enum ") {
+            let n: String = rest
+                .trim_start()
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            (n, SymbolKind::Enum)
+        } else if let Some(rest) = trimmed.strip_prefix("interface ") {
+            let n: String = rest
+                .trim_start()
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            (n, SymbolKind::Interface)
+        } else if let Some(rest) = trimmed
+            .strip_prefix("let ")
+            .or_else(|| trimmed.strip_prefix("const "))
+        {
+            let n: String = rest
+                .trim_start()
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            (n, SymbolKind::Let)
+        } else {
+            continue;
+        };
+        if !name.is_empty() {
+            all.push(Raw { name, kind, is_pub });
+        }
+    }
+    let gated = all.iter().any(|r| r.is_pub);
+    all.into_iter()
+        .filter(|r| !gated || r.is_pub)
+        .map(|r| (r.name, r.kind))
+        .collect()
 }
 
 /// Returns true when the string token starting at byte column `col_0` on
@@ -2457,11 +2557,12 @@ fn is_fstring_at(line: &str, col_0: u32) -> bool {
 }
 
 /// One identifier found inside an f-string interpolation span, with its
-/// absolute column on the line.
+/// absolute column on the line and whether it is called (`name(`).
 struct FstringIdent {
     col: u32,
     len: u32,
     name: String,
+    is_call: bool,
 }
 
 /// Scans one source line of an f-string literal for interpolation contents,
@@ -2528,10 +2629,15 @@ fn scan_fstring_line(line: &str, from: usize) -> Vec<FstringIdent> {
             }
             let name = line[i..j].to_string();
             if !is_keyword(&name) {
+                let mut k = j;
+                while k < b.len() && (b[k] == b' ' || b[k] == b'\t') {
+                    k += 1;
+                }
                 out.push(FstringIdent {
                     col: col_of(i),
                     len: (j - i) as u32,
                     name,
+                    is_call: k < b.len() && b[k] == b'(',
                 });
             }
             i = j;
@@ -2543,7 +2649,11 @@ fn scan_fstring_line(line: &str, from: usize) -> Vec<FstringIdent> {
 }
 
 /// Discovers AST-driven semantic token classification and delta encoding.
-pub fn get_semantic_tokens(source: &str) -> SemanticTokens {
+///
+/// `file_dir` (the document's directory) lets imported scopes resolve for
+/// relative paths; without it only cwd-absolute targets (e.g. stdlib next
+/// to the server cwd) and the current file classify.
+pub fn get_semantic_tokens(source: &str, file_dir: Option<&std::path::Path>) -> SemanticTokens {
     let mut raw_tokens = Vec::new();
     let mut lexer = Lexer::new(source);
     let tokens = match lexer.tokenize() {
@@ -2597,6 +2707,48 @@ pub fn get_semantic_tokens(source: &str) -> SemanticTokens {
     }
 
     let source_lines: Vec<&str> = source.lines().collect();
+
+    // Import scope: aliases act as namespaces; `from` symbols and plain
+    // unaliased imports contribute their declaration kinds (single-level
+    // for plain imports, transitive for explicit `from` names).
+    let file_imports = parse_file_imports(source);
+    let mut aliases = HashSet::new();
+    for imp in &file_imports {
+        if let Some(a) = &imp.alias {
+            aliases.insert(a.clone());
+        }
+    }
+    let mut scope_kinds: HashMap<String, (u32, u32)> = HashMap::new();
+    if file_imports
+        .iter()
+        .any(|im| !im.symbols.is_empty() || (!im.is_from && im.alias.is_none()))
+    {
+        let mut visited = HashSet::new();
+        for imp in &file_imports {
+            let target = match resolve_import_to_file(&imp.path, file_dir) {
+                Some(t) => t,
+                None => continue,
+            };
+            if imp.is_from {
+                for sym in &imp.symbols {
+                    let eff = sym.alias.as_ref().unwrap_or(&sym.name).clone();
+                    if scope_kinds.contains_key(&eff) {
+                        continue;
+                    }
+                    if let Some((_, _, kind)) = find_first_seg(&target, &sym.name, 0, &mut visited)
+                    {
+                        scope_kinds.insert(eff, symbol_kind_token(kind));
+                    }
+                }
+            } else if imp.alias.is_none() {
+                if let Ok(target_src) = std::fs::read_to_string(&target) {
+                    for (name, kind) in declared_symbols_in_source(&target_src) {
+                        scope_kinds.entry(name).or_insert(symbol_kind_token(kind));
+                    }
+                }
+            }
+        }
+    }
     let name_sets = SemanticNameSets {
         struct_names: &struct_names,
         enum_names: &enum_names,
@@ -2606,6 +2758,8 @@ pub fn get_semantic_tokens(source: &str) -> SemanticTokens {
         field_names: &field_names,
         param_names: &param_names,
         const_names: &const_names,
+        aliases: &aliases,
+        scope_kinds: &scope_kinds,
     };
 
     for i in 0..tokens.len() {
@@ -2627,7 +2781,8 @@ pub fn get_semantic_tokens(source: &str) -> SemanticTokens {
                         from += 2;
                     }
                     for ident in scan_fstring_line(line_text, from) {
-                        let (tt, mods) = classify_usage_ident(&ident.name, &name_sets);
+                        let (tt, mods) = classify_known_ident(&ident.name, &name_sets)
+                            .unwrap_or(if ident.is_call { (10, 0) } else { (7, 0) });
                         raw_tokens.push(RawSemanticToken {
                             line: line_0,
                             start_col: ident.col,
@@ -2712,7 +2867,19 @@ pub fn get_semantic_tokens(source: &str) -> SemanticTokens {
                     Some(TokenType::Enum) => (2, 1 | 2),
                     Some(TokenType::Interface) => (3, 1 | 2),
                     Some(TokenType::Const) => (7, 1 | 4),
-                    _ => classify_usage_ident(name, &name_sets),
+                    _ => classify_known_ident(name, &name_sets).unwrap_or_else(|| {
+                        // Unknown `name(` is a call: mirrors the TextMate
+                        // function-call rule so both layers agree.
+                        let is_call = matches!(
+                            tokens.get(i + 1).map(|t| &t.token_type),
+                            Some(TokenType::LeftParen)
+                        );
+                        if is_call {
+                            (10, 0)
+                        } else {
+                            (7, 0)
+                        }
+                    }),
                 };
                 (tt, mods, name.len())
             }
@@ -2739,11 +2906,13 @@ mod tests {
 
     #[test]
     fn test_semantic_tokens_fstring_interpolation() {
-        // `floor` is imported, not declared: both the bare call and the
-        // interpolation land on the variable fallback (7, 0) — the point
-        // is they MATCH, and no blanket string token covers the spans.
-        let src = "from \"std/math\" import floor\nsay f\"v: {floor(7.9)} and {missing}\"\nsay floor(1.0)\nsay \"plain\"\n";
-        let toks = get_semantic_tokens(src);
+        // Import-aware kinds: `floor` resolves through the `from` import to
+        // a function, `text_ops` is a namespace alias, unknown calls fall
+        // back to function, plain unknown words to variable. The point is
+        // interpolation matches bare usage, with no blanket string token
+        // covering the spans.
+        let src = "from \"std/math\" import floor, nosuchfn as nf\nimport \"std/str\" as text_ops\nsay f\"v: {floor(7.9)} q: {text_ops} r: {nf(1)} s: {nosuchfn()} t: {plainvar}\"\nsay \"plain\"\n";
+        let toks = get_semantic_tokens(src, None);
         assert_eq!(toks.data.len() % 5, 0);
         let mut decoded: Vec<(u32, u32, u32, u32, u32)> = Vec::new();
         let mut line = 0u32;
@@ -2757,26 +2926,35 @@ mod tests {
             }
             decoded.push((line, col, chunk[2], chunk[3], chunk[4]));
         }
-        // Interpolation idents: same kind as bare usage.
         assert!(
-            decoded.contains(&(1, 10, 5, 7, 0)),
-            "floor in f-string: {:?}",
+            decoded.contains(&(2, 10, 5, 10, 0)),
+            "from-imported floor call: {:?}",
             decoded
         );
         assert!(
-            decoded.contains(&(1, 27, 7, 7, 0)),
-            "missing in f-string: {:?}",
+            decoded.contains(&(2, 26, 8, 17, 0)),
+            "alias qualifier is namespace: {:?}",
             decoded
         );
         assert!(
-            decoded.contains(&(2, 4, 5, 7, 0)),
-            "bare floor call: {:?}",
+            decoded.contains(&(2, 40, 2, 10, 0)),
+            "unresolved alias call: {:?}",
             decoded
         );
-        // No string token touches line 1 (the f-string line); the plain
+        assert!(
+            decoded.contains(&(2, 51, 8, 10, 0)),
+            "unknown call: {:?}",
+            decoded
+        );
+        assert!(
+            decoded.contains(&(2, 67, 8, 7, 0)),
+            "plain unknown word: {:?}",
+            decoded
+        );
+        // No string token touches line 2 (the f-string line); the plain
         // string on line 3 keeps its blanket token.
         assert!(
-            !decoded.iter().any(|&(l, _, _, t, _)| l == 1 && t == 14),
+            !decoded.iter().any(|&(l, _, _, t, _)| l == 2 && t == 14),
             "no blanket string on f-string line: {:?}",
             decoded
         );
