@@ -27,6 +27,7 @@ fn entry_files() -> Vec<String> {
         "01_toml_mini.alya".to_string(),
         "02_facade_main.alya".to_string(),
         "03_ffi_struct.alya".to_string(),
+        "04_float_return_index.alya".to_string(),
     ]
 }
 
@@ -254,6 +255,20 @@ fn test_integration_03_ffi_struct_output() {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("integration 03_ffi_struct: OK"));
         assert!(output.contains("abs(-42) via libc: 42"));
+    }
+}
+
+#[test]
+fn test_integration_04_float_return_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 04_float_ret: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("04_float_return_index.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 04_float_ret: OK (6)"));
     }
 }
 

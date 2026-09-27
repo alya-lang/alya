@@ -1,0 +1,17 @@
+# ==============================================================================
+# Alya Integration Fixture 04 (entry): float return register sync
+# Distilled from: Lib/math/src/matrix.alya `_mat_at` (alya-lang/alya#51)
+# Guards: a `-> float` function returning an array element read must place
+#         the value in the float return register. Callers sync via the
+#         `fn_ret_flt` marking unconditionally; a missing sync reads stale
+#         d0/xmm0 (denormal garbage on ARM64).
+# ==============================================================================
+
+function f_at(w, idx: int) -> float
+    return w[idx]
+end
+
+let row = [2.0, 4.0]
+let total = f_at(row, 0) + f_at(row, 1)
+
+say f"integration 04_float_ret: OK ({total})"

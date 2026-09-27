@@ -19,6 +19,7 @@
 # | `01_toml_mini.alya` | `Lib/toml/src/parser.alya` + `types.alya` | recursion + tuple destructure + map/array mutation + `continue`/`break` in `while` |
 # | `02_facade_types.alya` + `02_facade_main.alya` | `Lib/template/src/*`, `Lib/toml/src/lib.alya`, `App/vpn/src/main.alya` | relative `import "./x"` + `as` alias + `from ... import` + `pub`/private boundary |
 # | `03_ffi_struct.alya` | `Lib/sqlite/src/ffi.alya`, `spec/syntax/ffi.alya` + `structs.alya` | `extern "C"` + `@repr(C)` struct + safe wrapper + tuple return + null safety |
+# | `04_float_return_index.alya` | `Lib/math/src/matrix.alya` `_mat_at` | `-> float` function returning `w[idx]` must sync the float return register |
 #
 # ## Known collision (deliberate rename)
 #
