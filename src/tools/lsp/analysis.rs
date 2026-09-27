@@ -686,10 +686,14 @@ pub fn resolve_import_to_file(
 ) -> Option<std::path::PathBuf> {
     let normalized = import_path.replace('\\', "/");
     let path = std::path::Path::new(&normalized);
+    // NOTE: every branch below must yield an absolute path (or None):
+    // relative results would produce bogus `file://` URIs downstream.
     let target = if path.is_absolute() {
         path.to_path_buf()
     } else if let Some(dir) = file_dir {
         dir.join(path)
+    } else if let Ok(cwd) = std::env::current_dir() {
+        cwd.join(path)
     } else {
         path.to_path_buf()
     };
@@ -710,7 +714,11 @@ pub fn resolve_import_to_file(
         if let Some(dir) = file_dir {
             roots.push(dir.join("stdlib").join(canonical));
         }
-        roots.push(std::path::PathBuf::from("stdlib").join(canonical));
+        // Process-cwd root, joined absolutely: a bare `stdlib/...` result
+        // would otherwise escape as a relative `file://` URI.
+        if let Ok(cwd) = std::env::current_dir() {
+            roots.push(cwd.join("stdlib").join(canonical));
+        }
         for root in roots {
             if root.exists() {
                 return Some(root);
@@ -2563,4 +2571,28 @@ pub fn get_semantic_tokens(source: &str) -> SemanticTokens {
     }
 
     SemanticTokens::from_raw_tokens(raw_tokens)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_import_to_file_returns_absolute_paths() {
+        // Temp dir without a local stdlib: `std/*` can only resolve via
+        // the process cwd (the crate dir, which ships `stdlib/`). The
+        // result must still be absolute — relative results escape as
+        // bogus `file://` URIs downstream.
+        let dir = std::env::temp_dir().join(format!("alya-lsp-abs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let hit = resolve_import_to_file("std/str", Some(&dir))
+            .expect("crate stdlib resolves via process cwd");
+        assert!(hit.is_absolute(), "must be absolute, got {}", hit.display());
+        assert!(hit.exists());
+        // Same guarantee for plain relative imports.
+        std::fs::write(dir.join("a.alya"), "say 1\n").unwrap();
+        let rel = resolve_import_to_file("./a.alya", Some(&dir)).expect("relative resolves");
+        assert!(rel.is_absolute(), "must be absolute, got {}", rel.display());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
