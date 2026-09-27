@@ -108,7 +108,7 @@ Always ensure that all unit tests and integration tests pass:
 cargo test
 
 # Run end-to-end compiler execution tests specifically
-cargo test --test e2e_execution
+cargo test --test e2e_system
 
 # Verify canonical language specification tests and execution
 cargo test --test golden_spec_tests
