@@ -424,6 +424,263 @@ pub fn get_hover(source: &str, pos: &Position) -> Option<String> {
     None
 }
 
+/// One `import "..." [as alias]` / `from "..." import ...` statement found by
+/// line scan. Positions are byte offsets into the line (import lines are
+/// matched on ASCII structure, so byte == char here in practice).
+pub struct FileImport {
+    pub line: u32,
+    pub path: String,
+    /// Byte range of the path text inside its quotes.
+    pub path_start: usize,
+    pub path_end: usize,
+    pub alias: Option<String>,
+    /// Byte offset of the alias token on the line (when `as alias` present).
+    pub alias_start: usize,
+}
+
+/// Where a go-to-definition request should land.
+pub enum DefinitionTarget {
+    /// Same document, at the given position (existing symbol behavior).
+    SameFile(Position),
+    /// A different file on disk; clients open it at its start.
+    ExternalFile(std::path::PathBuf),
+}
+
+/// Scans `import` / `from ... import` statements without a full parse.
+///
+/// Only double- or single-quoted module paths are collected; `from`
+/// statements with bare-identifier paths are skipped (rare, and the
+/// compiler resolves them through the same machinery as quoted ones).
+pub fn parse_file_imports(source: &str) -> Vec<FileImport> {
+    let mut out = Vec::new();
+    for (line_idx, line) in source.lines().enumerate() {
+        let trimmed = line.trim_start();
+        let is_import = trimmed.starts_with("import ") || trimmed.starts_with("import\t");
+        let is_from = trimmed.starts_with("from ") || trimmed.starts_with("from\t");
+        if !is_import && !is_from {
+            continue;
+        }
+        let bytes = line.as_bytes();
+        // First quoted span on the line is the module path.
+        let mut span: Option<(usize, usize, String)> = None;
+        let mut i = 0;
+        while i < bytes.len() {
+            let q = bytes[i];
+            if q == b'"' || q == b'\'' {
+                if let Some(end) = line[i + 1..].find(q as char) {
+                    span = Some((i + 1, i + 1 + end, line[i + 1..i + 1 + end].to_string()));
+                    break;
+                }
+            }
+            i += 1;
+        }
+        let (path_start, path_end, path) = match span {
+            Some(s) => s,
+            None => continue,
+        };
+        // Optional `as alias` after the closing quote (plain `import` form).
+        let mut alias: Option<String> = None;
+        let mut alias_start = 0usize;
+        if is_import {
+            let rest = &line[path_end + 1..];
+            if let Some(as_pos) = find_as_keyword(rest) {
+                let after = rest[as_pos + 2..].trim_start();
+                let name: String = after
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if !name.is_empty() {
+                    let leading_ws =
+                        rest[as_pos + 2..].len() - rest[as_pos + 2..].trim_start().len();
+                    alias_start = path_end + 1 + as_pos + 2 + leading_ws;
+                    alias = Some(name);
+                }
+            }
+        }
+        out.push(FileImport {
+            line: line_idx as u32,
+            path,
+            path_start,
+            path_end,
+            alias,
+            alias_start,
+        });
+    }
+    out
+}
+
+/// Finds a standalone `as` keyword in `rest` (not part of an identifier).
+fn find_as_keyword(rest: &str) -> Option<usize> {
+    let bytes = rest.as_bytes();
+    let mut i = 0;
+    while i + 2 <= bytes.len() {
+        if &bytes[i..i + 2] == b"as"
+            && (i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_'))
+            && (i + 2 >= bytes.len()
+                || !(bytes[i + 2].is_ascii_alphanumeric() || bytes[i + 2] == b'_'))
+        {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Byte range of the identifier-like word under `col` on `line`.
+fn word_range_at(line: &str, col: usize) -> Option<(usize, usize)> {
+    let bytes = line.as_bytes();
+    if bytes.is_empty() || col >= bytes.len() {
+        return None;
+    }
+    let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    if !is_word(bytes[col.min(bytes.len() - 1)]) {
+        return None;
+    }
+    let mut start = col.min(bytes.len() - 1);
+    while start > 0 && is_word(bytes[start - 1]) {
+        start -= 1;
+    }
+    let mut end = start;
+    while end < bytes.len() && is_word(bytes[end]) {
+        end += 1;
+    }
+    Some((start, end))
+}
+
+/// Lexically normalizes `.` / `..` segments without touching the filesystem
+/// (unlike `fs::canonicalize`, this never produces `\\?\`-style paths, so
+/// the result stays usable for `file://` URIs).
+fn lexical_normalize(path: std::path::PathBuf) -> std::path::PathBuf {
+    use std::path::Component;
+    let mut out = std::path::PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(out.components().next_back(), Some(Component::Normal(_))) {
+                    out.pop();
+                } else {
+                    out.push(comp.as_os_str());
+                }
+            }
+            _ => out.push(comp.as_os_str()),
+        }
+    }
+    out
+}
+/// Resolves an import path string to a file on disk, mirroring the
+/// compiler's resolution order (`parser::resolve_stmt_imports_ext_with_rewrites`):
+/// relative path (against the importing file's directory), `std/...` against
+/// nearby `stdlib/` roots, otherwise the installed package entry. Returns
+/// `None` for embedded-stdlib modules, which have no on-disk file.
+pub fn resolve_import_to_file(
+    import_path: &str,
+    file_dir: Option<&std::path::Path>,
+) -> Option<std::path::PathBuf> {
+    let normalized = import_path.replace('\\', "/");
+    let path = std::path::Path::new(&normalized);
+    let target = if path.is_absolute() {
+        path.to_path_buf()
+    } else if let Some(dir) = file_dir {
+        dir.join(path)
+    } else {
+        path.to_path_buf()
+    };
+    if target.exists() {
+        return Some(lexical_normalize(target));
+    }
+    if target.with_extension("alya").exists() {
+        return Some(lexical_normalize(target.with_extension("alya")));
+    }
+    if normalized.starts_with("std/") || normalized.starts_with("std::") {
+        let clean = normalized
+            .strip_prefix("std/")
+            .or_else(|| normalized.strip_prefix("std::"))
+            .unwrap_or(&normalized);
+        let clean = clean.strip_suffix(".alya").unwrap_or(clean);
+        let canonical = crate::parser::canonical_stdlib_module(clean);
+        let mut roots: Vec<std::path::PathBuf> = Vec::new();
+        if let Some(dir) = file_dir {
+            roots.push(dir.join("stdlib").join(canonical));
+        }
+        roots.push(std::path::PathBuf::from("stdlib").join(canonical));
+        for root in roots {
+            if root.exists() {
+                return Some(root);
+            }
+            if root.with_extension("alya").exists() {
+                return Some(root.with_extension("alya"));
+            }
+        }
+        // Falls back to embedded stdlib inside the compiler: no file.
+        return None;
+    }
+    if let Some(dir) = file_dir {
+        if let Ok(Some(pkg_path)) = crate::tools::pkg::resolve_package_import(&normalized, dir) {
+            return Some(lexical_normalize(pkg_path));
+        }
+    }
+    None
+}
+
+/// Go-to-definition with import awareness.
+///
+/// - Cursor inside an import path string: the resolved target file.
+/// - Cursor on an `alias` used as `alias::x` / `alias.x`: the import line.
+/// - Otherwise: the existing same-file symbol scan.
+pub fn get_definition_target(
+    source: &str,
+    pos: &Position,
+    file_dir: Option<&std::path::Path>,
+) -> Option<DefinitionTarget> {
+    let imports = parse_file_imports(source);
+    let line = source.lines().nth(pos.line as usize)?;
+    let col = pos.character as usize;
+
+    // 1. Cursor on an import path literal -> target file.
+    for imp in &imports {
+        if imp.line == pos.line && col >= imp.path_start && col < imp.path_end {
+            let target = resolve_import_to_file(&imp.path, file_dir)?;
+            return Some(DefinitionTarget::ExternalFile(target));
+        }
+    }
+
+    // 2. Cursor on an alias used as a qualifier -> the import statement.
+    if let Some((start, end)) = word_range_at(line, col) {
+        let word = &line[start..end];
+        let after: String = line[end..]
+            .chars()
+            .skip_while(|c| c.is_whitespace())
+            .collect();
+        let is_qualifier = after.starts_with("::")
+            || (after.starts_with('.')
+                && after[1..]
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_alphanumeric() || c == '_'));
+        if is_qualifier {
+            for imp in &imports {
+                if imp.alias.as_deref() == Some(word) {
+                    // The alias token itself is not a usage; don't self-jump.
+                    if imp.line == pos.line
+                        && col >= imp.alias_start
+                        && col < imp.alias_start + word.len()
+                    {
+                        return None;
+                    }
+                    return Some(DefinitionTarget::SameFile(Position::new(
+                        imp.line,
+                        imp.alias_start as u32,
+                    )));
+                }
+            }
+        }
+    }
+
+    // 3. Existing same-file behavior.
+    get_definition_pos(source, pos).map(DefinitionTarget::SameFile)
+}
+
 pub fn get_definition_pos(source: &str, pos: &Position) -> Option<Position> {
     let word = get_word_at_pos(source, pos)?;
 

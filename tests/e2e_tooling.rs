@@ -433,6 +433,112 @@ end
     assert!(server.is_shutdown);
 }
 
+fn lsp_test_file_uri(p: &std::path::Path) -> String {
+    let s = p.to_string_lossy().replace('\\', "/");
+    if s.starts_with('/') {
+        format!("file://{}", s)
+    } else {
+        format!("file:///{}", s)
+    }
+}
+
+fn lsp_did_open(server: &mut ServerState, uri: &str, source: &str) {
+    let mut doc_info = BTreeMap::new();
+    doc_info.insert("uri".to_string(), JsonValue::String(uri.to_string()));
+    doc_info.insert("text".to_string(), JsonValue::String(source.to_string()));
+    let mut params = BTreeMap::new();
+    params.insert("textDocument".to_string(), JsonValue::Object(doc_info));
+    let mut req = BTreeMap::new();
+    req.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    req.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/didOpen".to_string()),
+    );
+    req.insert("params".to_string(), JsonValue::Object(params));
+    server.handle_message(&JsonValue::Object(req));
+}
+
+fn lsp_definition(
+    server: &mut ServerState,
+    uri: &str,
+    line: u32,
+    character: u32,
+) -> Option<(String, u32, u32)> {
+    let mut doc = BTreeMap::new();
+    doc.insert("uri".to_string(), JsonValue::String(uri.to_string()));
+    let mut params = BTreeMap::new();
+    params.insert("textDocument".to_string(), JsonValue::Object(doc));
+    params.insert(
+        "position".to_string(),
+        Position::new(line, character).to_json(),
+    );
+    let mut req = BTreeMap::new();
+    req.insert("jsonrpc".to_string(), JsonValue::String("2.0".to_string()));
+    req.insert("id".to_string(), JsonValue::Number(1.0));
+    req.insert(
+        "method".to_string(),
+        JsonValue::String("textDocument/definition".to_string()),
+    );
+    req.insert("params".to_string(), JsonValue::Object(params));
+    let resp = server.handle_message(&JsonValue::Object(req))?;
+    let result = resp.get("result")?;
+    if result == &JsonValue::Null {
+        return None;
+    }
+    let target_uri = result.get("uri")?.as_str()?.to_string();
+    let start = result.get("range")?.get("start")?;
+    let sl = start.get("line")?.as_f64()? as u32;
+    let sc = start.get("character")?.as_f64()? as u32;
+    Some((target_uri, sl, sc))
+}
+
+#[test]
+fn test_lsp_definition_import_alias_and_path() {
+    let dir = env::temp_dir().join(format!("alya-lsp-import-{}", std::process::id()));
+    fs::create_dir_all(&dir).expect("temp dir");
+    fs::write(
+        dir.join("helper.alya"),
+        "pub function helper_fn() -> int\n    return 1\nend\n",
+    )
+    .expect("helper file");
+    // Line 0: import ... as h | Line 3: h::helper_fn() usage
+    let source = "import \"./helper.alya\" as h\nimport \"std/nope_xyz_module\"\n\nfunction main()\n    say h::helper_fn()\nend\nmain()\n";
+    let main_path = dir.join("main.alya");
+    fs::write(&main_path, source).expect("main file");
+    let uri = lsp_test_file_uri(&main_path);
+    let helper_uri = lsp_test_file_uri(&dir.join("helper.alya"));
+
+    let mut server = ServerState::new();
+    lsp_did_open(&mut server, &uri, source);
+
+    // 1. Alias qualifier usage -> the import statement's alias token.
+    let first_line = source.lines().next().unwrap();
+    let alias_char = first_line.find("as h").unwrap() as u32 + 3;
+    let got = lsp_definition(&mut server, &uri, 4, 8).expect("alias jump");
+    assert_eq!(got.0, uri, "alias usage stays in the importing file");
+    assert_eq!(got.1, 0, "alias usage lands on the import line");
+    assert_eq!(got.2, alias_char, "alias usage lands on the alias token");
+
+    // 2. Cursor on the import path literal -> the resolved target file.
+    let got = lsp_definition(&mut server, &uri, 0, 10).expect("path jump");
+    assert_eq!(got.0, helper_uri, "path literal jumps to the target file");
+    assert_eq!((got.1, got.2), (0, 0), "file jump lands at file start");
+
+    // 3. Alias token on its own import line is not a usage -> no jump.
+    assert!(
+        lsp_definition(&mut server, &uri, 0, alias_char).is_none(),
+        "alias definition site must not self-jump"
+    );
+
+    // 4. Unresolvable path (no on-disk std module) -> no jump, no crash.
+    assert!(
+        lsp_definition(&mut server, &uri, 1, 10).is_none(),
+        "unresolvable import path yields null"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn test_lsp_milestone1_features() {
     let mut server = ServerState::new();

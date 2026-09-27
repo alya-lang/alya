@@ -621,3 +621,16 @@ pub fn uri_to_path(uri: &str) -> std::path::PathBuf {
 
     std::path::PathBuf::from(path_str)
 }
+
+/// Converts an absolute filesystem path to an LSP `file://` URI.
+///
+/// Inverse of [`uri_to_path`]: backslashes become forward slashes and the
+/// result is prefixed so `uri_to_path` round-trips it back.
+pub fn path_to_uri(path: &std::path::Path) -> String {
+    let s = path.to_string_lossy().replace('\\', "/");
+    if s.starts_with('/') {
+        format!("file://{}", s)
+    } else {
+        format!("file:///{}", s)
+    }
+}

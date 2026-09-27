@@ -2,9 +2,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{self, BufRead, Write};
 
 use super::analysis::{
-    check_document, find_references_for_word, format_document, get_completions, get_definition_pos,
-    get_document_symbols, get_folding_ranges, get_hover, get_inlay_hints, get_semantic_tokens,
-    get_signature_help, get_word_at_pos, prepare_rename, rename_symbol,
+    check_document, find_references_for_word, format_document, get_completions,
+    get_definition_target, get_document_symbols, get_folding_ranges, get_hover, get_inlay_hints,
+    get_semantic_tokens, get_signature_help, get_word_at_pos, prepare_rename, rename_symbol,
+    DefinitionTarget,
 };
 use super::json::JsonValue;
 use super::protocol::{make_error, make_notification, make_response, Position, Range, TextEdit};
@@ -361,8 +362,15 @@ impl ServerState {
         let uri = params.get("textDocument")?.get("uri")?.as_str()?;
         let pos = Position::from_json(params.get("position")?)?;
         let source = self.documents.get(uri)?;
-        let def_pos = get_definition_pos(source, &pos)?;
-        Some((uri.to_string(), def_pos))
+        let file_dir = super::protocol::uri_to_path(uri)
+            .parent()
+            .map(|p| p.to_path_buf());
+        match get_definition_target(source, &pos, file_dir.as_deref())? {
+            DefinitionTarget::SameFile(def_pos) => Some((uri.to_string(), def_pos)),
+            DefinitionTarget::ExternalFile(path) => {
+                Some((super::protocol::path_to_uri(&path), Position::new(0, 0)))
+            }
+        }
     }
 
     fn handle_code_action(&self, params: Option<&JsonValue>) -> Vec<super::protocol::CodeAction> {
