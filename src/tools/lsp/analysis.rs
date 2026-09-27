@@ -362,9 +362,9 @@ pub fn get_hover(source: &str, pos: &Position) -> Option<String> {
         "Mutex" => Some("**struct Mutex**: Mutual exclusion primitive from `std/sync`."),
         "WaitGroup" => Some("**struct WaitGroup**: Thread synchronization counter from `std/sync`."),
         "f64x4" => Some("**struct f64x4**: 256-bit hardware SIMD vector containing 4x 64-bit IEEE 754 floating-point numbers (`std/simd`).\n\nSupports single-cycle parallel arithmetic (`+`, `-`, `*`, `/`), fused multiply-add (`.fma()`), and horizontal reductions (`.sum_horizontal()`, `.min()`, `.max()`)."),
-        "f32x8" => Some("**struct f32x8**: 256-bit hardware SIMD vector containing 8x 32-bit single-precision floating-point numbers (`std/simd`).\n\nSupports parallel arithmetic and horizontal sum reduction."),
-        "i32x8" => Some("**struct i32x8**: 256-bit hardware SIMD vector containing 8x 32-bit signed integers (`std/simd`).\n\nSupports 8-lane parallel integer addition."),
-        "i64x4" => Some("**struct i64x4**: 256-bit hardware SIMD vector containing 4x 64-bit signed integers (`std/simd`).\n\nSupports 4-lane parallel 64-bit integer addition."),
+        "f32x8" => Some("**struct f32x8**: 256-bit hardware SIMD vector containing 8x 32-bit single-precision floating-point numbers (`std/simd`).\n\nSupports parallel arithmetic (`+`, `-`, `*`, `/`), lane access (`.get()`, `.set()`), memory transfer (`.load()`, `.store()`), and horizontal reductions (`.sum_horizontal()`, `.min()`, `.max()`)."),
+        "i32x8" => Some("**struct i32x8**: 256-bit hardware SIMD vector containing 8x 32-bit signed integers (`std/simd`).\n\nSupports 8-lane parallel integer arithmetic (`+`, `-`, `*`) and horizontal reductions (`.sum_horizontal()`, `.min()`, `.max()`)."),
+        "i64x4" => Some("**struct i64x4**: 256-bit hardware SIMD vector containing 4x 64-bit signed integers (`std/simd`).\n\nSupports 4-lane parallel 64-bit integer arithmetic (`+`, `-`) and horizontal reductions (`.sum_horizontal()`, `.min()`, `.max()`)."),
         "Tensor" => Some("**struct Tensor**: Multi-dimensional contiguous numeric tensor with SIMD acceleration support (`alya-lang/tensor`)."),
         _ => None,
     };
@@ -2540,23 +2540,7 @@ fn declared_symbols_in_source(source: &str) -> Vec<(String, SymbolKind)> {
         .collect()
 }
 
-/// Returns true when the string token starting at byte column `col_0` on
-/// `line` is an f-string literal (`f"..."` / `f"""..."""`). The token column
-/// points at the `f` prefix; an adjacent `f"` preceded by a non-identifier
-/// byte identifies it. Byte compares only: never panics, degrades to false.
-fn is_fstring_at(line: &str, col_0: u32) -> bool {
-    let b = line.as_bytes();
-    let c = col_0 as usize;
-    if b.len() < c + 2 || b[c] != b'f' || b[c + 1] != b'"' {
-        return false;
-    }
-    if c > 0 && (b[c - 1].is_ascii_alphanumeric() || b[c - 1] == b'_') {
-        return false;
-    }
-    true
-}
-
-/// One identifier found inside an f-string interpolation span, with its
+/// One identifier found inside a string interpolation span, with its
 /// absolute column on the line and whether it is called (`name(`).
 struct FstringIdent {
     col: u32,
@@ -2565,11 +2549,11 @@ struct FstringIdent {
     is_call: bool,
 }
 
-/// Scans one source line of an f-string literal for interpolation contents,
-/// starting at byte offset `from` (just past `f"` / `f"""`). Tracks `{{` /
-/// `}}` escapes, nested quotes, and brace depth; stops at the closing quote
-/// or end of line (later lines of multiline literals are skipped).
-/// Keywords and digit-led fragments (`{x:.2f}`) are not usages.
+/// Scans one source line of a string literal for interpolation contents,
+/// starting at byte offset `from` (just past the opening quotes). Tracks
+/// `{{` / `}}` escapes, nested quotes, and brace depth; stops at the
+/// closing quote or end of line (later lines of multiline literals are
+/// skipped). Keywords and digit-led fragments (`{x:.2f}`) are not usages.
 fn scan_fstring_line(line: &str, from: usize) -> Vec<FstringIdent> {
     let b = line.as_bytes();
     let mut i = from.min(b.len());
@@ -2768,17 +2752,30 @@ pub fn get_semantic_tokens(source: &str, file_dir: Option<&std::path::Path>) -> 
         let col_0 = tok.column.saturating_sub(1) as u32;
         let cur_line = source_lines.get(line_0 as usize).copied();
 
-        // F-strings: drop the blanket string token (it would paint over
-        // the interpolations) and emit the interpolation contents with
-        // their real kinds instead. TextMate paints the literal parts.
-        if let TokenType::String(_) = &tok.token_type {
-            if let Some(line_text) = cur_line {
-                if is_fstring_at(line_text, col_0) {
-                    // Past `f"` (or `f"""`): scan this line's spans.
+        // Interpolated spans: every string kind (`f"`, `"`, `"""`, `r"`,
+        // backtick) interpolates at runtime, so the blanket string token
+        // is dropped and interpolation contents get their real kinds.
+        // TextMate paints the literal parts.
+        if let TokenType::String(value) = &tok.token_type {
+            if value.as_bytes().contains(&b'{') {
+                if let Some(line_text) = cur_line {
+                    // Past optional `f`/`r`/`b` prefixes and opening quotes.
                     let lb = line_text.as_bytes();
-                    let mut from = col_0 as usize + 2;
-                    if lb.get(from) == Some(&b'"') && lb.get(from + 1) == Some(&b'"') {
-                        from += 2;
+                    let mut from = col_0 as usize;
+                    while from < lb.len() && lb[from].is_ascii_alphabetic() {
+                        from += 1;
+                    }
+                    let mut quotes = 0;
+                    while from < lb.len() && lb[from] == b'"' && quotes < 3 {
+                        from += 1;
+                        quotes += 1;
+                    }
+                    if quotes == 0 {
+                        // Backtick raw string (or untraceable opening).
+                        while from < lb.len() && lb[from] != b'`' {
+                            from += 1;
+                        }
+                        from += 1;
                     }
                     for ident in scan_fstring_line(line_text, from) {
                         let (tt, mods) = classify_known_ident(&ident.name, &name_sets)
@@ -2961,6 +2958,37 @@ mod tests {
         assert!(
             decoded.iter().any(|&(l, _, _, t, _)| l == 3 && t == 14),
             "plain string keeps token: {:?}",
+            decoded
+        );
+    }
+
+    #[test]
+    fn test_semantic_tokens_plain_string_interpolation() {
+        // Plain strings interpolate at runtime too: `{floor}` gets the
+        // from-imported function kind, not string color.
+        let src = "from \"std/math\" import floor\nsay \"v: {floor} done\"\n";
+        let toks = get_semantic_tokens(src, None);
+        let mut decoded: Vec<(u32, u32, u32, u32, u32)> = Vec::new();
+        let mut line = 0u32;
+        let mut col = 0u32;
+        for chunk in toks.data.chunks(5) {
+            line += chunk[0];
+            if chunk[0] == 0 {
+                col += chunk[1];
+            } else {
+                col = chunk[1];
+            }
+            decoded.push((line, col, chunk[2], chunk[3], chunk[4]));
+        }
+        // `say "v: {floor} done"`: `{` at col 8, `floor` at 9..14.
+        assert!(
+            decoded.contains(&(1, 9, 5, 10, 0)),
+            "plain-string interpolation: {:?}",
+            decoded
+        );
+        assert!(
+            !decoded.iter().any(|&(l, _, _, t, _)| l == 1 && t == 14),
+            "no blanket string: {:?}",
             decoded
         );
     }

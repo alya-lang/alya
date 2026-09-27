@@ -65,38 +65,6 @@ fn fstring_interpolation_idents(value: &str) -> Vec<String> {
     out
 }
 
-/// Returns true when the string token at (`line`, `col`, 1-based) is an
-/// f-string literal (`f"..."` / `f"""..."""`). The token column points at
-/// the `f` prefix, so an adjacent `f"` preceded by a non-identifier byte
-/// identifies it. Needs the source line; `None` (unreadable file) falls
-/// back to treating every string as a potential format string — the safe
-/// direction for this lint (a missed dead import beats a deleted live one).
-fn is_format_string_token(src_lines: Option<&[String]>, line: usize, col: usize) -> bool {
-    let lines = match src_lines {
-        Some(l) => l,
-        None => return true,
-    };
-    let text = match lines.get(line.saturating_sub(1)) {
-        Some(t) => t,
-        None => return true,
-    };
-    let b = text.as_bytes();
-    // col is 1-based: b[col-1] must be `f`, b[col] the opening quote.
-    if col == 0 || col >= b.len() {
-        return false;
-    }
-    if b[col - 1] != b'f' || b[col] != b'"' {
-        return false;
-    }
-    if col >= 2 {
-        let prev = b[col - 2];
-        if prev.is_ascii_alphanumeric() || prev == b'_' {
-            return false;
-        }
-    }
-    true
-}
-
 /// Collects all read identifiers from an expression.
 fn collect_expr_identifiers(expr: &Expr, idents: &mut HashSet<String>) {
     match expr {
@@ -883,11 +851,11 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
         return diags;
     }
 
-    // 2. Gather all identifier tokens outside of import lines.
-    // Source lines are read lazily (once) to tell f-strings apart from
-    // plain strings; without source, every string is scanned (safe side).
-    let mut src_lines: Option<Vec<String>> = None;
-    let mut src_attempted = false;
+    // 2. Gather all identifier tokens outside of import lines, plus
+    // identifiers inside string interpolation spans. Every string kind
+    // (`f"`, `"`, `"""`, `r"`, backtick) interpolates `{...}` at runtime,
+    // so all of them count as usage — the safe direction for a lint with
+    // auto-fix (a missed dead import beats a deleted live one).
     let mut code_idents = HashSet::new();
     for (idx, tok) in tokens.iter().enumerate() {
         let inside_import = import_token_ranges
@@ -902,16 +870,8 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                     if !value.as_bytes().contains(&b'{') {
                         continue;
                     }
-                    if !src_attempted {
-                        src_attempted = true;
-                        src_lines = std::fs::read_to_string(file_path)
-                            .ok()
-                            .map(|c| c.lines().map(|l| l.to_string()).collect());
-                    }
-                    if is_format_string_token(src_lines.as_deref(), tok.line, tok.column) {
-                        for name in fstring_interpolation_idents(value) {
-                            code_idents.insert(name);
-                        }
+                    for name in fstring_interpolation_idents(value) {
+                        code_idents.insert(name);
                     }
                 }
                 TokenType::Test => {
