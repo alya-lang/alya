@@ -71,13 +71,13 @@ pub(crate) fn build_pattern_condition(subject: &Expr, pattern: WhenPattern) -> E
                     args: vec![subject.clone()],
                 }),
                 op: BinaryOp::Equal,
-                right: Box::new(Expr::Number(min_len as f64)),
+                right: Box::new(Expr::Number(min_len as i128)),
             };
             for (idx, lit) in literal_checks {
                 let eq = Expr::Binary {
                     left: Box::new(Expr::Index {
                         array: Box::new(subject.clone()),
-                        index: Box::new(Expr::Number(idx as f64)),
+                        index: Box::new(Expr::Number(idx as i128)),
                     }),
                     op: BinaryOp::Equal,
                     right: Box::new(lit),
@@ -108,7 +108,7 @@ pub(crate) fn get_pattern_bindings(subject: &Expr, pattern: &WhenPattern) -> Vec
                         name.clone(),
                         Expr::Index {
                             array: Box::new(subject.clone()),
-                            index: Box::new(Expr::Number(i as f64)),
+                            index: Box::new(Expr::Number(i as i128)),
                         },
                     ));
                 }

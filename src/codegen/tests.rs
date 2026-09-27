@@ -10,7 +10,7 @@ fn simple_program(stmt: Stmt) -> Program {
 
 #[test]
 fn test_codegen_x64_windows_header_and_footer() {
-    let program = simple_program(Stmt::Say(Expr::Number(42.0)));
+    let program = simple_program(Stmt::Say(Expr::Number(42)));
     let asm = generate(&program, Architecture::X64, OperatingSystem::Windows);
 
     assert!(asm.contains(".global main"));
@@ -22,7 +22,7 @@ fn test_codegen_x64_windows_header_and_footer() {
 
 #[test]
 fn test_codegen_x86_header_and_footer() {
-    let program = simple_program(Stmt::Say(Expr::Number(42.0)));
+    let program = simple_program(Stmt::Say(Expr::Number(42)));
     let asm = generate(&program, Architecture::X86, OperatingSystem::Linux);
 
     assert!(asm.contains(".global main"));
@@ -37,7 +37,7 @@ fn test_codegen_map_entry_tags_present_x64_arm64() {
     // Packed kind tags must exist in the emitted runtimes that support
     // them (x64 + arm64, 24-byte entries). x86 entries are 12-byte and
     // stay untagged.
-    let program = simple_program(Stmt::Say(Expr::Number(42.0)));
+    let program = simple_program(Stmt::Say(Expr::Number(42)));
     let asm_x64 = generate(&program, Architecture::X64, OperatingSystem::Windows);
     assert!(asm_x64.contains("fn_map_set_tag"));
     assert!(asm_x64.contains("cmpl $1, 16(%r14)"));
@@ -49,7 +49,7 @@ fn test_codegen_map_entry_tags_present_x64_arm64() {
 
 #[test]
 fn test_codegen_arm64_header_and_footer() {
-    let program = simple_program(Stmt::Say(Expr::Number(42.0)));
+    let program = simple_program(Stmt::Say(Expr::Number(42)));
     let asm = generate(&program, Architecture::ARM64, OperatingSystem::Linux);
 
     assert!(asm.contains(".global main"));
@@ -64,7 +64,7 @@ fn test_codegen_arm64_windows_net_thread_apis() {
     // Windows ARM64 must not reference POSIX-only net/thread APIs (#23):
     // ioctlsocket/closesocket/CreateThread family instead of
     // fcntl/pthread_*, plus WSAStartup in the main prelude.
-    let program = simple_program(Stmt::Say(Expr::Number(42.0)));
+    let program = simple_program(Stmt::Say(Expr::Number(42)));
     let asm = generate(&program, Architecture::ARM64, OperatingSystem::Windows);
 
     assert!(asm.contains("bl WSAStartup"));
@@ -89,7 +89,7 @@ fn test_codegen_arm64_large_stack_offset() {
         stmts.push(Stmt::Let {
             name: format!("var_{}", i),
             type_ann: None,
-            value: Expr::Number(i as f64),
+            value: Expr::Number(i as i128),
         });
     }
     stmts.push(Stmt::Say(Expr::Identifier("var_19".into())));
@@ -118,9 +118,9 @@ fn test_codegen_let_and_binary_op() {
                 name: "x".into(),
                 type_ann: None,
                 value: Expr::Binary {
-                    left: Box::new(Expr::Number(10.0)),
+                    left: Box::new(Expr::Number(10)),
                     op: BinaryOp::Add,
-                    right: Box::new(Expr::Number(20.0)),
+                    right: Box::new(Expr::Number(20)),
                 },
             },
             Stmt::Say(Expr::Identifier("x".into())),
@@ -178,7 +178,7 @@ fn test_codegen_macos_x64_header_and_sections() {
 
 #[test]
 fn test_codegen_arm64_large_number_immediate() {
-    let program = simple_program(Stmt::Say(Expr::Number(424242.0)));
+    let program = simple_program(Stmt::Say(Expr::Number(424242)));
     let asm = generate(&program, Architecture::ARM64, OperatingSystem::MacOS);
 
     assert!(asm.contains("movz x1, #31026"));
@@ -191,7 +191,7 @@ fn test_codegen_arm64_large_number_expr() {
     let program = simple_program(Stmt::Let {
         name: "num".into(),
         type_ann: None,
-        value: Expr::Number(424242.0),
+        value: Expr::Number(424242),
     });
     let asm = generate(&program, Architecture::ARM64, OperatingSystem::Linux);
 
@@ -202,7 +202,7 @@ fn test_codegen_arm64_large_number_expr() {
 
 #[test]
 fn test_codegen_arm64_runtime_immediates_valid() {
-    let program = simple_program(Stmt::Say(Expr::Number(1.0)));
+    let program = simple_program(Stmt::Say(Expr::Number(1)));
     let asm = generate(&program, Architecture::ARM64, OperatingSystem::MacOS);
 
     assert!(!asm.contains("mov x4, #1000000"));

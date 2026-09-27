@@ -592,7 +592,7 @@ mod tests {
                     param_types: vec![],
                     return_type: None,
                     defaults: vec![],
-                    body: vec![Stmt::Say(Expr::Number(42.0))],
+                    body: vec![Stmt::Say(Expr::Number(42))],
                 },
                 Stmt::Function {
                     name: "dead_fn".into(),
@@ -602,7 +602,7 @@ mod tests {
                     param_types: vec![],
                     return_type: None,
                     defaults: vec![],
-                    body: vec![Stmt::Say(Expr::Number(99.0))],
+                    body: vec![Stmt::Say(Expr::Number(99))],
                 },
                 Stmt::Expr(Expr::Call {
                     name: "used_fn".into(),
@@ -652,7 +652,7 @@ mod tests {
                     param_types: vec![],
                     return_type: None,
                     defaults: vec![],
-                    body: vec![Stmt::Say(Expr::Number(1.0))],
+                    body: vec![Stmt::Say(Expr::Number(1))],
                 },
                 Stmt::Function {
                     name: "unreachable_fn".into(),
@@ -757,10 +757,7 @@ mod tests {
                 },
                 Stmt::Expr(Expr::StructInit {
                     name: "ActivePoint".into(),
-                    fields: vec![
-                        ("x".into(), Expr::Number(1.0)),
-                        ("y".into(), Expr::Number(2.0)),
-                    ],
+                    fields: vec![("x".into(), Expr::Number(1)), ("y".into(), Expr::Number(2))],
                 }),
             ],
         };
@@ -862,7 +859,7 @@ mod tests {
                 Stmt::Let {
                     name: "config".into(),
                     type_ann: None,
-                    value: Expr::Number(100.0),
+                    value: Expr::Number(100),
                 },
             ],
         };
@@ -898,7 +895,7 @@ mod tests {
             param_types: vec![],
             return_type: None,
             defaults: vec![],
-            body: vec![Stmt::Say(Expr::Number(1.0))],
+            body: vec![Stmt::Say(Expr::Number(1))],
         }
     }
 
@@ -1071,7 +1068,7 @@ mod tests {
                     param_types: vec![],
                     return_type: None,
                     defaults: vec![],
-                    body: vec![Stmt::Say(Expr::Number(42.0))],
+                    body: vec![Stmt::Say(Expr::Number(42))],
                 },
             ],
         };

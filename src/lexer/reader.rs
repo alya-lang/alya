@@ -1,9 +1,27 @@
+use super::token::TokenType;
 use super::Lexer;
 
 impl Lexer {
-    pub(crate) fn read_number(&mut self) -> Result<(f64, bool), String> {
+    /// Reads a numeric literal and returns its token directly.
+    ///
+    /// Integer literals (decimal, `0x`/`0b`/`0o`) are parsed exactly and
+    /// must fit `u64` (the widest integer type); larger values are a lex
+    /// error instead of silently rounding through `f64`
+    /// (alya-lang/alya#49). Dotted and exponent forms stay `f64` floats.
+    pub(crate) fn read_number(&mut self) -> Result<TokenType, String> {
         let start_line = self.line;
         let start_col = self.column;
+        // Digit scanners above only accept valid digits, so a radix parse
+        // failure here means overflow, not bad input.
+        let range_err = |s: &str| {
+            format!(
+                "Integer literal '{}' out of range (max {}) at line {}, column {}",
+                s,
+                u64::MAX,
+                start_line,
+                start_col
+            )
+        };
 
         // Check for 0x (hex), 0b (binary), 0o (octal)
         if self.current_char() == Some('0') {
@@ -36,13 +54,11 @@ impl Lexer {
                             ));
                         }
                     }
-                    let val = u64::from_str_radix(&s, 16).map_err(|_| {
-                        format!(
-                            "Invalid hexadecimal number '0x{}' at line {}, column {}",
-                            s, start_line, start_col
-                        )
-                    })?;
-                    return Ok((val as f64, false));
+                    let val = u128::from_str_radix(&s, 16).map_err(|_| range_err(&s))?;
+                    if val > u64::MAX as u128 {
+                        return Err(range_err(&s));
+                    }
+                    return Ok(TokenType::Number(val as i128));
                 } else if p == 'b' || p == 'B' {
                     self.advance(); // skip '0'
                     self.advance(); // skip 'b'
@@ -71,13 +87,11 @@ impl Lexer {
                             ));
                         }
                     }
-                    let val = u64::from_str_radix(&s, 2).map_err(|_| {
-                        format!(
-                            "Invalid binary number '0b{}' at line {}, column {}",
-                            s, start_line, start_col
-                        )
-                    })?;
-                    return Ok((val as f64, false));
+                    let val = u128::from_str_radix(&s, 2).map_err(|_| range_err(&s))?;
+                    if val > u64::MAX as u128 {
+                        return Err(range_err(&s));
+                    }
+                    return Ok(TokenType::Number(val as i128));
                 } else if p == 'o' || p == 'O' {
                     self.advance(); // skip '0'
                     self.advance(); // skip 'o'
@@ -106,13 +120,11 @@ impl Lexer {
                             ));
                         }
                     }
-                    let val = u64::from_str_radix(&s, 8).map_err(|_| {
-                        format!(
-                            "Invalid octal number '0o{}' at line {}, column {}",
-                            s, start_line, start_col
-                        )
-                    })?;
-                    return Ok((val as f64, false));
+                    let val = u128::from_str_radix(&s, 8).map_err(|_| range_err(&s))?;
+                    if val > u64::MAX as u128 {
+                        return Err(range_err(&s));
+                    }
+                    return Ok(TokenType::Number(val as i128));
                 }
             }
         }
@@ -152,13 +164,20 @@ impl Lexer {
             }
         }
 
-        let val = s.parse::<f64>().map_err(|_| {
-            format!(
-                "Invalid number '{}' at line {}, column {}",
-                s, start_line, start_col
-            )
-        })?;
-        Ok((val, has_dot))
+        if has_dot {
+            let val = s.parse::<f64>().map_err(|_| {
+                format!(
+                    "Invalid number '{}' at line {}, column {}",
+                    s, start_line, start_col
+                )
+            })?;
+            return Ok(TokenType::Float(val));
+        }
+        let val: u128 = s.parse().map_err(|_| range_err(&s))?;
+        if val > u64::MAX as u128 {
+            return Err(range_err(&s));
+        }
+        Ok(TokenType::Number(val as i128))
     }
 
     pub(crate) fn read_string(&mut self) -> Result<String, String> {

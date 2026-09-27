@@ -339,53 +339,92 @@ pub fn eval_comptime_expr(expr: &Expr) -> Expr {
             let folded_left = eval_comptime_expr(left);
             let folded_right = eval_comptime_expr(right);
             match (&folded_left, *op, &folded_right) {
-                (Expr::Number(l), BinaryOp::Add, Expr::Number(r)) => Expr::Number(l + r),
-                (Expr::Number(l), BinaryOp::Subtract, Expr::Number(r)) => Expr::Number(l - r),
-                (Expr::Number(l), BinaryOp::Multiply, Expr::Number(r)) => Expr::Number(l * r),
-                (Expr::Number(l), BinaryOp::Divide, Expr::Number(r)) if *r != 0.0 => {
-                    Expr::Number(l / r)
-                }
-                (Expr::Number(l), BinaryOp::Modulo, Expr::Number(r)) if *r != 0.0 => {
-                    Expr::Number(l % r)
-                }
-                (Expr::Number(l), BinaryOp::BitAnd, Expr::Number(r)) => {
-                    Expr::Number((*l as i64 & *r as i64) as f64)
-                }
-                (Expr::Number(l), BinaryOp::BitOr, Expr::Number(r)) => {
-                    Expr::Number((*l as i64 | *r as i64) as f64)
-                }
-                (Expr::Number(l), BinaryOp::BitXor, Expr::Number(r)) => {
-                    Expr::Number((*l as i64 ^ *r as i64) as f64)
-                }
+                (Expr::Number(l), BinaryOp::Add, Expr::Number(r)) => match l.checked_add(*r) {
+                    Some(v) => Expr::Number(v),
+                    None => Expr::Binary {
+                        left: Box::new(folded_left),
+                        op: *op,
+                        right: Box::new(folded_right),
+                    },
+                },
+                (Expr::Number(l), BinaryOp::Subtract, Expr::Number(r)) => match l.checked_sub(*r) {
+                    Some(v) => Expr::Number(v),
+                    None => Expr::Binary {
+                        left: Box::new(folded_left),
+                        op: *op,
+                        right: Box::new(folded_right),
+                    },
+                },
+                (Expr::Number(l), BinaryOp::Multiply, Expr::Number(r)) => match l.checked_mul(*r) {
+                    Some(v) => Expr::Number(v),
+                    None => Expr::Binary {
+                        left: Box::new(folded_left),
+                        op: *op,
+                        right: Box::new(folded_right),
+                    },
+                },
+                (Expr::Number(l), BinaryOp::Divide, Expr::Number(r)) => match l.checked_div(*r) {
+                    Some(v) => Expr::Number(v),
+                    None => Expr::Binary {
+                        left: Box::new(folded_left),
+                        op: *op,
+                        right: Box::new(folded_right),
+                    },
+                },
+                (Expr::Number(l), BinaryOp::Modulo, Expr::Number(r)) => match l.checked_rem(*r) {
+                    Some(v) => Expr::Number(v),
+                    None => Expr::Binary {
+                        left: Box::new(folded_left),
+                        op: *op,
+                        right: Box::new(folded_right),
+                    },
+                },
+                (Expr::Number(l), BinaryOp::BitAnd, Expr::Number(r)) => Expr::Number(*l & *r),
+                (Expr::Number(l), BinaryOp::BitOr, Expr::Number(r)) => Expr::Number(*l | *r),
+                (Expr::Number(l), BinaryOp::BitXor, Expr::Number(r)) => Expr::Number(*l ^ *r),
                 (Expr::Number(l), BinaryOp::Shl, Expr::Number(r)) => {
-                    Expr::Number(((*l as i64) << (*r as i64)) as f64)
+                    match (*r).try_into().ok().and_then(|s| l.checked_shl(s)) {
+                        Some(v) => Expr::Number(v),
+                        None => Expr::Binary {
+                            left: Box::new(folded_left),
+                            op: *op,
+                            right: Box::new(folded_right),
+                        },
+                    }
                 }
                 (Expr::Number(l), BinaryOp::Shr, Expr::Number(r)) => {
-                    Expr::Number(((*l as i64) >> (*r as i64)) as f64)
+                    match (*r).try_into().ok().and_then(|s| l.checked_shr(s)) {
+                        Some(v) => Expr::Number(v),
+                        None => Expr::Binary {
+                            left: Box::new(folded_left),
+                            op: *op,
+                            right: Box::new(folded_right),
+                        },
+                    }
                 }
                 (Expr::Number(l), BinaryOp::Equal, Expr::Number(r)) => {
-                    Expr::Number(if l == r { 1.0 } else { 0.0 })
+                    Expr::Number(if l == r { 1 } else { 0 })
                 }
                 (Expr::Number(l), BinaryOp::NotEqual, Expr::Number(r)) => {
-                    Expr::Number(if l != r { 1.0 } else { 0.0 })
+                    Expr::Number(if l != r { 1 } else { 0 })
                 }
                 (Expr::Number(l), BinaryOp::Less, Expr::Number(r)) => {
-                    Expr::Number(if l < r { 1.0 } else { 0.0 })
+                    Expr::Number(if l < r { 1 } else { 0 })
                 }
                 (Expr::Number(l), BinaryOp::LessEqual, Expr::Number(r)) => {
-                    Expr::Number(if l <= r { 1.0 } else { 0.0 })
+                    Expr::Number(if l <= r { 1 } else { 0 })
                 }
                 (Expr::Number(l), BinaryOp::Greater, Expr::Number(r)) => {
-                    Expr::Number(if l > r { 1.0 } else { 0.0 })
+                    Expr::Number(if l > r { 1 } else { 0 })
                 }
                 (Expr::Number(l), BinaryOp::GreaterEqual, Expr::Number(r)) => {
-                    Expr::Number(if l >= r { 1.0 } else { 0.0 })
+                    Expr::Number(if l >= r { 1 } else { 0 })
                 }
                 (Expr::Number(l), BinaryOp::And, Expr::Number(r)) => {
-                    Expr::Number(if *l != 0.0 && *r != 0.0 { 1.0 } else { 0.0 })
+                    Expr::Number(if *l != 0 && *r != 0 { 1 } else { 0 })
                 }
                 (Expr::Number(l), BinaryOp::Or, Expr::Number(r)) => {
-                    Expr::Number(if *l != 0.0 || *r != 0.0 { 1.0 } else { 0.0 })
+                    Expr::Number(if *l != 0 || *r != 0 { 1 } else { 0 })
                 }
 
                 (Expr::Float(l), BinaryOp::Add, Expr::Float(r)) => Expr::Float(l + r),
@@ -408,14 +447,18 @@ pub fn eval_comptime_expr(expr: &Expr) -> Expr {
         Expr::Unary { op, expr: inner } => {
             let folded_inner = eval_comptime_expr(inner);
             match (*op, &folded_inner) {
-                (crate::ast::UnaryOp::Negate, Expr::Number(n)) => Expr::Number(-n),
+                (crate::ast::UnaryOp::Negate, Expr::Number(n)) => match n.checked_neg() {
+                    Some(v) => Expr::Number(v),
+                    None => Expr::Unary {
+                        op: *op,
+                        expr: Box::new(folded_inner),
+                    },
+                },
                 (crate::ast::UnaryOp::Negate, Expr::Float(n)) => Expr::Float(-n),
                 (crate::ast::UnaryOp::Not, Expr::Number(n)) => {
-                    Expr::Number(if *n == 0.0 { 1.0 } else { 0.0 })
+                    Expr::Number(if *n == 0 { 1 } else { 0 })
                 }
-                (crate::ast::UnaryOp::BitNot, Expr::Number(n)) => {
-                    Expr::Number((!(*n as i64)) as f64)
-                }
+                (crate::ast::UnaryOp::BitNot, Expr::Number(n)) => Expr::Number(!*n),
                 _ => Expr::Unary {
                     op: *op,
                     expr: Box::new(folded_inner),

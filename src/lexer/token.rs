@@ -47,7 +47,7 @@ pub enum TokenType {
     At,        // @
 
     // Literals
-    Number(f64),
+    Number(i128),
     Float(f64),
     String(String),
     Rune(char),

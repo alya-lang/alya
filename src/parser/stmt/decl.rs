@@ -347,7 +347,7 @@ impl Parser {
                                 type_ann,
                                 value: Expr::Index {
                                     array: Box::new(Expr::Identifier(tmp_name.clone())),
-                                    index: Box::new(Expr::Number(i as f64)),
+                                    index: Box::new(Expr::Number(i as i128)),
                                 },
                             });
                         }
@@ -1357,7 +1357,7 @@ fn generate_destructure_bindings(
                         name: "slice".to_string(),
                         args: vec![
                             target.clone(),
-                            Expr::Number(i as f64),
+                            Expr::Number(i as i128),
                             Expr::Call {
                                 name: "len".to_string(),
                                 args: vec![target.clone()],
@@ -1373,7 +1373,7 @@ fn generate_destructure_bindings(
                 }
                 let sub_expr = Expr::Index {
                     array: Box::new(target.clone()),
-                    index: Box::new(Expr::Number(i as f64)),
+                    index: Box::new(Expr::Number(i as i128)),
                 };
                 generate_destructure_bindings(item, &sub_expr, stmts);
             }

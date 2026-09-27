@@ -1144,14 +1144,14 @@ impl CodeGen {
                     let tag_kind: Option<i64> = match value {
                         Expr::String(_) => Some(3),
                         Expr::Float(_) => Some(2),
-                        Expr::Number(n) => Some(if n.fract() != 0.0 { 2 } else { 1 }),
+                        Expr::Number(_) => Some(1),
                         Expr::Array(_) => Some(4),
                         Expr::Map(_) => Some(5),
                         Expr::StructInit { .. } => Some(6),
                         _ => None,
                     };
                     if let Some(kind) = tag_kind {
-                        let tag_args = [array.clone(), index.clone(), Expr::Number(kind as f64)];
+                        let tag_args = [array.clone(), index.clone(), Expr::Number(kind as i128)];
                         match self.arch {
                             Architecture::X86 => {
                                 for arg in tag_args.iter().rev() {
@@ -1224,7 +1224,7 @@ impl CodeGen {
                 let lit_kind: Option<u8> = match value {
                     Expr::String(_) => Some(0),
                     Expr::Float(_) => Some(1),
-                    Expr::Number(n) => Some(if n.fract() != 0.0 { 1 } else { 3 }),
+                    Expr::Number(_) => Some(3),
                     Expr::Map(_) => Some(2),
                     Expr::Array(_) | Expr::Null | Expr::StructInit { .. } => Some(3),
                     _ => None,

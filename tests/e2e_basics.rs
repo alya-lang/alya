@@ -1208,3 +1208,25 @@ say get_val()
         assert_eq!(output, "34992000\n12776054\n34992000\n");
     }
 }
+
+#[test]
+fn test_e2e_integer_literal_precision() {
+    // Regression test for alya-lang/alya#49: integer literals above 2^53
+    // must print exactly.
+    // Note: u64-range literals keep exact bits (lexer-tested) but print
+    // through the signed `%lld` say path; unsigned say formatting is
+    // separate scope.
+    let code = r#"
+say 2305843009213693951
+say 4611686018427387903
+say 9223372036854775807
+say 0xFF
+say 1_000_000
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "2305843009213693951\n4611686018427387903\n9223372036854775807\n255\n1000000\n"
+        );
+    }
+}

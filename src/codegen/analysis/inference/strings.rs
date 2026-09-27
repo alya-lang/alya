@@ -1130,7 +1130,7 @@ fn struct_field_lit_kind(expr: &Expr) -> Option<u8> {
     match expr {
         Expr::String(_) | Expr::InterpolatedString(_) => Some(0),
         Expr::Float(_) => Some(1),
-        Expr::Number(n) => Some(if n.fract() != 0.0 { 1 } else { 2 }),
+        Expr::Number(_) => Some(2),
         Expr::Null | Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. } => Some(2),
         _ => None,
     }

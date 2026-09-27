@@ -379,13 +379,7 @@ fn infer_param_from_arg(arg: &Expr, known_vars: &HashMap<String, String>) -> Opt
 
 fn infer_concrete_type(expr: &Expr, known_vars: &HashMap<String, String>) -> Option<String> {
     match expr {
-        Expr::Number(n) => {
-            if n.fract() == 0.0 {
-                Some("int".to_string())
-            } else {
-                Some("float".to_string())
-            }
-        }
+        Expr::Number(_) => Some("int".to_string()),
         Expr::Float(_) => Some("float".to_string()),
         Expr::String(_) | Expr::InterpolatedString(_) => Some("string".to_string()),
         Expr::Array(_) => Some("array".to_string()),

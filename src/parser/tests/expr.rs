@@ -7,7 +7,7 @@ fn test_parse_binary_precedence() {
 
     match &program.statements[0] {
         Stmt::Say(Expr::Binary { left, op, right }) => {
-            assert_eq!(**left, Expr::Number(1.0));
+            assert_eq!(**left, Expr::Number(1));
             assert_eq!(*op, BinaryOp::Add);
             match &**right {
                 Expr::Binary {
@@ -15,9 +15,9 @@ fn test_parse_binary_precedence() {
                     op: rop,
                     right: rright,
                 } => {
-                    assert_eq!(**rleft, Expr::Number(2.0));
+                    assert_eq!(**rleft, Expr::Number(2));
                     assert_eq!(*rop, BinaryOp::Multiply);
-                    assert_eq!(**rright, Expr::Number(3.0));
+                    assert_eq!(**rright, Expr::Number(3));
                 }
                 other => panic!("Expected multiplication on right, got {:?}", other),
             }
@@ -33,16 +33,16 @@ fn test_parse_parentheses_precedence() {
     match &program.statements[0] {
         Stmt::Say(Expr::Binary { left, op, right }) => {
             assert_eq!(*op, BinaryOp::Multiply);
-            assert_eq!(**right, Expr::Number(3.0));
+            assert_eq!(**right, Expr::Number(3));
             match &**left {
                 Expr::Binary {
                     left: lleft,
                     op: lop,
                     right: lright,
                 } => {
-                    assert_eq!(**lleft, Expr::Number(1.0));
+                    assert_eq!(**lleft, Expr::Number(1));
                     assert_eq!(*lop, BinaryOp::Add);
-                    assert_eq!(**lright, Expr::Number(2.0));
+                    assert_eq!(**lright, Expr::Number(2));
                 }
                 other => panic!("Expected addition inside parens, got {:?}", other),
             }
@@ -59,7 +59,7 @@ fn test_parse_unary_not_and_negate() {
     match &program.statements[0] {
         Stmt::Say(Expr::Unary { op, expr }) => {
             assert_eq!(*op, UnaryOp::Negate);
-            assert_eq!(**expr, Expr::Number(5.0));
+            assert_eq!(**expr, Expr::Number(5));
         }
         other => panic!("Expected negate unary, got {:?}", other),
     }
@@ -67,7 +67,7 @@ fn test_parse_unary_not_and_negate() {
     match &program.statements[1] {
         Stmt::Say(Expr::Unary { op, expr }) => {
             assert_eq!(*op, UnaryOp::Not);
-            assert_eq!(**expr, Expr::Number(1.0)); // true is parsed as 1.0
+            assert_eq!(**expr, Expr::Number(1)); // true is parsed as 1.0
         }
         other => panic!("Expected not unary, got {:?}", other),
     }
@@ -86,7 +86,7 @@ fn test_parse_compound_assignments() {
             value: Expr::Binary {
                 left: Box::new(Expr::Identifier("x".into())),
                 op: BinaryOp::Add,
-                right: Box::new(Expr::Number(5.0)),
+                right: Box::new(Expr::Number(5)),
             }
         }
     );
@@ -98,7 +98,7 @@ fn test_parse_compound_assignments() {
             value: Expr::Binary {
                 left: Box::new(Expr::Identifier("y".into())),
                 op: BinaryOp::Subtract,
-                right: Box::new(Expr::Number(3.0)),
+                right: Box::new(Expr::Number(3)),
             }
         }
     );
@@ -110,7 +110,7 @@ fn test_parse_compound_assignments() {
             value: Expr::Binary {
                 left: Box::new(Expr::Identifier("z".into())),
                 op: BinaryOp::Multiply,
-                right: Box::new(Expr::Number(2.0)),
+                right: Box::new(Expr::Number(2)),
             }
         }
     );
@@ -122,7 +122,7 @@ fn test_parse_compound_assignments() {
             value: Expr::Binary {
                 left: Box::new(Expr::Identifier("w".into())),
                 op: BinaryOp::Divide,
-                right: Box::new(Expr::Number(4.0)),
+                right: Box::new(Expr::Number(4)),
             }
         }
     );
@@ -154,13 +154,13 @@ end
                     left: Box::new(Expr::Binary {
                         left: Box::new(Expr::Identifier("a".into())),
                         op: BinaryOp::Greater,
-                        right: Box::new(Expr::Number(0.0)),
+                        right: Box::new(Expr::Number(0)),
                     }),
                     op: BinaryOp::And,
                     right: Box::new(Expr::Binary {
                         left: Box::new(Expr::Identifier("b".into())),
                         op: BinaryOp::Greater,
-                        right: Box::new(Expr::Number(0.0)),
+                        right: Box::new(Expr::Number(0)),
                     }),
                 }
             );
@@ -206,9 +206,9 @@ fn test_parse_arrays() {
             match value {
                 Expr::Array(elements) => {
                     assert_eq!(elements.len(), 3);
-                    assert_eq!(elements[0], Expr::Number(1.0));
-                    assert_eq!(elements[1], Expr::Number(2.0));
-                    assert_eq!(elements[2], Expr::Number(3.0));
+                    assert_eq!(elements[0], Expr::Number(1));
+                    assert_eq!(elements[1], Expr::Number(2));
+                    assert_eq!(elements[2], Expr::Number(3));
                 }
                 other => panic!("Expected Expr::Array, got {:?}", other),
             }
@@ -220,7 +220,7 @@ fn test_parse_arrays() {
     match &program.statements[1] {
         Stmt::Say(Expr::Index { array, index }) => {
             assert_eq!(**array, Expr::Identifier("arr".into()));
-            assert_eq!(**index, Expr::Number(0.0));
+            assert_eq!(**index, Expr::Number(0));
         }
         other => panic!("Expected Stmt::Say(Expr::Index), got {:?}", other),
     }
@@ -233,8 +233,8 @@ fn test_parse_arrays() {
             value,
         } => {
             assert_eq!(*array, Expr::Identifier("arr".into()));
-            assert_eq!(*index, Expr::Number(1.0));
-            assert_eq!(*value, Expr::Number(42.0));
+            assert_eq!(*index, Expr::Number(1));
+            assert_eq!(*value, Expr::Number(42));
         }
         other => panic!("Expected Stmt::IndexAssign, got {:?}", other),
     }
@@ -252,12 +252,12 @@ fn test_parse_arrays() {
                     index: inner_index,
                 } => {
                     assert_eq!(**inner_array, Expr::Identifier("matrix".into()));
-                    assert_eq!(**inner_index, Expr::Number(0.0));
+                    assert_eq!(**inner_index, Expr::Number(0));
                 }
                 other => panic!("Expected Expr::Index, got {:?}", other),
             }
-            assert_eq!(*index, Expr::Number(1.0));
-            assert_eq!(*value, Expr::Number(99.0));
+            assert_eq!(*index, Expr::Number(1));
+            assert_eq!(*value, Expr::Number(99));
         }
         other => panic!("Expected Stmt::IndexAssign, got {:?}", other),
     }
@@ -311,7 +311,7 @@ fn test_parse_struct_and_field_access() {
         } => {
             assert_eq!(*object, Expr::Identifier("p".into()));
             assert_eq!(field, "x");
-            assert_eq!(*value, Expr::Number(99.0));
+            assert_eq!(*value, Expr::Number(99));
         }
         other => panic!("Expected Stmt::FieldAssign, got {:?}", other),
     }
@@ -356,7 +356,7 @@ fn test_parse_map_literal() {
                         entries[0],
                         (Expr::String("name".into()), Expr::String("Alya".into()))
                     );
-                    assert_eq!(entries[1], (Expr::String("age".into()), Expr::Number(1.0)));
+                    assert_eq!(entries[1], (Expr::String("age".into()), Expr::Number(1)));
                 }
                 other => panic!("Expected Expr::Map, got {:?}", other),
             }
@@ -371,10 +371,7 @@ fn test_parse_map_literal() {
             match value {
                 Expr::Map(entries) => {
                     assert_eq!(entries.len(), 1);
-                    assert_eq!(
-                        entries[0],
-                        (Expr::String("active".into()), Expr::Number(1.0))
-                    );
+                    assert_eq!(entries[0], (Expr::String("active".into()), Expr::Number(1)));
                 }
                 other => panic!("Expected Expr::Map, got {:?}", other),
             }
@@ -410,7 +407,7 @@ fn test_parse_bitwise_operators_and_precedence() {
     match &program.statements[0] {
         Stmt::Say(Expr::Binary { left, op, right }) => {
             assert_eq!(*op, BinaryOp::BitOr);
-            assert_eq!(**left, Expr::Number(1.0));
+            assert_eq!(**left, Expr::Number(1));
             match &**right {
                 Expr::Binary {
                     left: xleft,
@@ -418,7 +415,7 @@ fn test_parse_bitwise_operators_and_precedence() {
                     right: xright,
                 } => {
                     assert_eq!(*xop, BinaryOp::BitXor);
-                    assert_eq!(**xleft, Expr::Number(2.0));
+                    assert_eq!(**xleft, Expr::Number(2));
                     match &**xright {
                         Expr::Binary {
                             left: aleft,
@@ -426,8 +423,8 @@ fn test_parse_bitwise_operators_and_precedence() {
                             right: aright,
                         } => {
                             assert_eq!(*aop, BinaryOp::BitAnd);
-                            assert_eq!(**aleft, Expr::Number(3.0));
-                            assert_eq!(**aright, Expr::Number(4.0));
+                            assert_eq!(**aleft, Expr::Number(3));
+                            assert_eq!(**aright, Expr::Number(4));
                         }
                         other => panic!("Expected BitAnd, got {:?}", other),
                     }
@@ -443,7 +440,7 @@ fn test_parse_bitwise_operators_and_precedence() {
     match &program_not.statements[0] {
         Stmt::Say(Expr::Unary { op, expr }) => {
             assert_eq!(*op, UnaryOp::BitNot);
-            assert_eq!(**expr, Expr::Number(5.0));
+            assert_eq!(**expr, Expr::Number(5));
         }
         other => panic!("Expected Unary BitNot, got {:?}", other),
     }
@@ -453,7 +450,7 @@ fn test_parse_bitwise_operators_and_precedence() {
     match &program_shift.statements[0] {
         Stmt::Say(Expr::Binary { left, op, right }) => {
             assert_eq!(*op, BinaryOp::Shl);
-            assert_eq!(**left, Expr::Number(1.0));
+            assert_eq!(**left, Expr::Number(1));
             match &**right {
                 Expr::Binary { op: top, .. } => assert_eq!(*top, BinaryOp::Add),
                 other => panic!("Expected Add on right of shift, got {:?}", other),
@@ -480,8 +477,8 @@ fn test_parse_ternary_and_inline_if() {
                     ..
                 }
             ));
-            assert_eq!(**then_branch, Expr::Number(1.0));
-            assert_eq!(**else_branch, Expr::Number(2.0));
+            assert_eq!(**then_branch, Expr::Number(1));
+            assert_eq!(**else_branch, Expr::Number(2));
         }
         other => panic!("Expected Expr::Ternary, got {:?}", other),
     }
@@ -501,8 +498,8 @@ fn test_parse_ternary_and_inline_if() {
                     ..
                 }
             ));
-            assert_eq!(**then_branch, Expr::Number(1.0));
-            assert_eq!(**else_branch, Expr::Number(2.0));
+            assert_eq!(**then_branch, Expr::Number(1));
+            assert_eq!(**else_branch, Expr::Number(2));
         }
         other => panic!("Expected Expr::Ternary, got {:?}", other),
     }
@@ -514,7 +511,7 @@ fn test_parse_null_coalesce() {
     match &program.statements[0] {
         Stmt::Say(Expr::NullCoalesce { value, default }) => {
             assert_eq!(**value, Expr::Identifier("port".into()));
-            assert_eq!(**default, Expr::Number(8080.0));
+            assert_eq!(**default, Expr::Number(8080));
         }
         other => panic!("Expected Expr::NullCoalesce, got {:?}", other),
     }
@@ -523,7 +520,7 @@ fn test_parse_null_coalesce() {
     let program2 = parse_code("say a ?? b ?? 10").expect("Parse failed");
     match &program2.statements[0] {
         Stmt::Say(Expr::NullCoalesce { value, default }) => {
-            assert_eq!(**default, Expr::Number(10.0));
+            assert_eq!(**default, Expr::Number(10));
             match &**value {
                 Expr::NullCoalesce {
                     value: v1,
@@ -547,11 +544,7 @@ fn test_parse_tuple_literal() {
             assert_eq!(name, "t");
             assert_eq!(
                 *value,
-                Expr::Array(vec![
-                    Expr::Number(1.0),
-                    Expr::Number(2.0),
-                    Expr::Number(3.0),
-                ])
+                Expr::Array(vec![Expr::Number(1), Expr::Number(2), Expr::Number(3),])
             );
         }
         other => panic!("Expected Stmt::Let, got {:?}", other),
@@ -627,5 +620,18 @@ fn test_interpolated_string_unterminated_hole() {
             );
         }
         other => panic!("Expected InterpolatedString, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parse_integer_precision() {
+    // Regression test for alya-lang/alya#49: large integer literals must
+    // reach the AST exactly, not rounded through f64.
+    let program = parse_code("say 2305843009213693951").expect("Parse failed");
+    match &program.statements[0] {
+        Stmt::Say(expr) => {
+            assert_eq!(*expr, Expr::Number(2305843009213693951));
+        }
+        other => panic!("Expected Say, got {:?}", other),
     }
 }

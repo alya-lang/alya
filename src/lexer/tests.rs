@@ -7,10 +7,10 @@ fn test_tokenize_numbers() {
     let mut lexer = Lexer::new(source);
     let tokens = lexer.tokenize().expect("Tokenization failed");
 
-    assert_eq!(tokens[0].token_type, TokenType::Number(42.0));
+    assert_eq!(tokens[0].token_type, TokenType::Number(42));
     assert_eq!(tokens[1].token_type, TokenType::Float(3.75));
-    assert_eq!(tokens[2].token_type, TokenType::Number(0.0));
-    assert_eq!(tokens[3].token_type, TokenType::Number(100.0));
+    assert_eq!(tokens[2].token_type, TokenType::Number(0));
+    assert_eq!(tokens[3].token_type, TokenType::Number(100));
     assert_eq!(tokens[4].token_type, TokenType::Float(0.5));
     assert_eq!(tokens[5].token_type, TokenType::Eof);
 }
@@ -120,7 +120,7 @@ fn test_tokenize_comments() {
         vec![
             TokenType::Newline,
             TokenType::Say,
-            TokenType::Number(42.0),
+            TokenType::Number(42),
             TokenType::Newline,
             TokenType::Eof,
         ]
@@ -148,9 +148,9 @@ fn test_tokenize_slash_and_multiline_comments() {
         vec![
             TokenType::Newline,
             TokenType::Say,
-            TokenType::Number(10.0),
+            TokenType::Number(10),
             TokenType::Plus,
-            TokenType::Number(20.0),
+            TokenType::Number(20),
             TokenType::Newline,
             TokenType::Eof,
         ]
@@ -191,15 +191,15 @@ fn test_tokenize_brackets() {
         types,
         vec![
             TokenType::LeftBracket,
-            TokenType::Number(1.0),
+            TokenType::Number(1),
             TokenType::Comma,
-            TokenType::Number(2.0),
+            TokenType::Number(2),
             TokenType::Comma,
-            TokenType::Number(3.0),
+            TokenType::Number(3),
             TokenType::RightBracket,
             TokenType::Identifier("arr".into()),
             TokenType::LeftBracket,
-            TokenType::Number(0.0),
+            TokenType::Number(0),
             TokenType::RightBracket,
             TokenType::Eof,
         ]
@@ -220,12 +220,12 @@ fn test_tokenize_struct() {
             TokenType::Newline,
             TokenType::Identifier("x".into()),
             TokenType::Colon,
-            TokenType::Number(10.0),
+            TokenType::Number(10),
             TokenType::Comma,
             TokenType::Newline,
             TokenType::Identifier("y".into()),
             TokenType::Colon,
-            TokenType::Number(20.0),
+            TokenType::Number(20),
             TokenType::Newline,
             TokenType::End,
             TokenType::Eof,
@@ -415,7 +415,7 @@ fn test_tokenize_runes_attributes_and_prefixes() {
             TokenType::Rune('M'),
             TokenType::Rune('🚀'),
             TokenType::Rune('\n'),
-            TokenType::Number(65.0),
+            TokenType::Number(65),
             TokenType::String("val: {x}".into()),
             TokenType::String("raw\\n".into()),
             TokenType::String("bytes".into()),
@@ -424,4 +424,69 @@ fn test_tokenize_runes_attributes_and_prefixes() {
             TokenType::Eof,
         ]
     );
+}
+
+#[test]
+fn test_tokenize_integer_precision() {
+    // Regression test for alya-lang/alya#49: integer literals above 2^53
+    // must not round through f64.
+    let source = "2305843009213693951 4611686018427387903 9223372036854775807 1_000_000 0xFF 0b101";
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().expect("Tokenization failed");
+
+    assert_eq!(tokens[0].token_type, TokenType::Number(2305843009213693951));
+    assert_eq!(tokens[1].token_type, TokenType::Number(4611686018427387903));
+    assert_eq!(tokens[2].token_type, TokenType::Number(9223372036854775807));
+    assert_eq!(tokens[3].token_type, TokenType::Number(1000000));
+    assert_eq!(tokens[4].token_type, TokenType::Number(255));
+    assert_eq!(tokens[5].token_type, TokenType::Number(5));
+}
+
+#[test]
+fn test_tokenize_u64_max_literal() {
+    // The language supports u64 literals up to u64::MAX (spec syntax/types).
+    let source = "9223372036854775808 18446744073709551615 0xFFFFFFFFFFFFFFFF";
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().expect("Tokenization failed");
+
+    assert_eq!(tokens[0].token_type, TokenType::Number(9223372036854775808));
+    assert_eq!(
+        tokens[1].token_type,
+        TokenType::Number(18446744073709551615)
+    );
+    assert_eq!(
+        tokens[2].token_type,
+        TokenType::Number(18446744073709551615)
+    );
+}
+
+#[test]
+fn test_tokenize_integer_out_of_range() {
+    for source in [
+        "18446744073709551616",
+        "0x10000000000000000",
+        "0b11111111111111111111111111111111111111111111111111111111111111111",
+    ] {
+        let mut lexer = Lexer::new(source);
+        let err = lexer
+            .tokenize()
+            .expect_err("expected out-of-range integer literal to fail");
+        assert!(
+            err.contains("out of range"),
+            "unexpected error for '{}': {}",
+            source,
+            err
+        );
+    }
+}
+
+#[test]
+fn test_tokenize_float_untouched() {
+    let source = "2.71 1e3 0.5";
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().expect("Tokenization failed");
+
+    assert_eq!(tokens[0].token_type, TokenType::Float(2.71));
+    assert_eq!(tokens[1].token_type, TokenType::Float(1000.0));
+    assert_eq!(tokens[2].token_type, TokenType::Float(0.5));
 }

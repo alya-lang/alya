@@ -43,11 +43,7 @@ impl CodeGen {
                 }
             }
             Expr::Number(n) => {
-                if n.fract() != 0.0 {
-                    arch::emit_load_float(&mut self.output, self.arch, *n);
-                } else {
-                    arch::emit_load_num(&mut self.output, self.arch, *n as i64);
-                }
+                arch::emit_load_num(&mut self.output, self.arch, *n as i64);
             }
             Expr::Float(n) => {
                 arch::emit_load_float(&mut self.output, self.arch, *n);
@@ -479,7 +475,7 @@ impl CodeGen {
                                 arch::emit_int_to_float(&mut self.output, self.arch);
                             }
                         }
-                        arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n);
+                        arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n as f64);
                         return;
                     }
                     if let Expr::Identifier(name) = &**right {
@@ -789,7 +785,7 @@ impl CodeGen {
                         } else if let Some(Some(def_val)) = sdef.defaults.get(i) {
                             def_val
                         } else {
-                            &Expr::Number(0.0)
+                            &Expr::Number(0)
                         };
                         let is_flt = is_float_expr(arg, &self.ctx.variables);
                         let is_str = is_string_expr(arg, &self.ctx.variables);
@@ -1002,7 +998,7 @@ impl CodeGen {
 
                 if name == "get" && args.len() == 2 && !is_struct_receiver {
                     let mut three_args = args.clone();
-                    three_args.push(Expr::Number(0.0));
+                    three_args.push(Expr::Number(0));
                     self.generate_expression(&Expr::Call {
                         name: name.clone(),
                         args: three_args,
@@ -1647,7 +1643,7 @@ impl CodeGen {
                 let call_name_str = if (resolved_name == "substring" || resolved_name == "substr")
                     && actual_args.len() == 2
                 {
-                    actual_args.push(Expr::Number(-1.0));
+                    actual_args.push(Expr::Number(-1));
                     "substring".to_string()
                 } else if resolved_name == "substr" {
                     "substring".to_string()
@@ -2117,7 +2113,7 @@ impl CodeGen {
                             } else if let Some(Some(def_val)) = sdef.defaults.get(i) {
                                 def_val
                             } else {
-                                &Expr::Number(0.0)
+                                &Expr::Number(0)
                             };
                         let is_weak = sdef
                             .field_types
@@ -2399,7 +2395,7 @@ impl CodeGen {
                     || is_string_expr(index, &self.ctx.variables)
                     || matches!(**index, Expr::String(_))
                 {
-                    let default_val = Expr::Number(0.0);
+                    let default_val = Expr::Number(0);
                     let actual_args = [array.as_ref(), index.as_ref(), &default_val];
                     let initial_stack_offset = self.ctx.stack_offset;
                     let word_size: i32 = match self.arch {
@@ -2450,7 +2446,7 @@ impl CodeGen {
                                         right: left.clone(),
                                     }),
                                     op: BinaryOp::Add,
-                                    right: Box::new(Expr::Number(1.0)),
+                                    right: Box::new(Expr::Number(1)),
                                 },
                                 _ => unreachable!(),
                             };

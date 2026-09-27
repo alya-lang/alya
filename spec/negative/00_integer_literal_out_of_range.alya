@@ -1,0 +1,3 @@
+# EXPECT-FAIL: lex: out of range
+# Chapter 00 §1.5: integer literals must fit u64 (max 18446744073709551615).
+let x = 18446744073709551616

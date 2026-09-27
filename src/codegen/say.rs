@@ -659,39 +659,21 @@ impl CodeGen {
                 self.output.push('\n');
             }
             Expr::Number(n) => {
-                if n.fract() != 0.0 {
-                    let fmt_label = self.ctx.next_string_label();
-                    self.emit_rodata_section();
-                    self.output.push_str(&format!("{}:\n", fmt_label));
-                    self.emit_string_directive("%g\\n");
-                    self.output.push_str(".text\n");
+                let fmt_label = self.ctx.next_string_label();
+                self.emit_rodata_section();
+                self.output.push_str(&format!("{}:\n", fmt_label));
+                self.emit_string_directive("%lld\\n");
+                self.output.push_str(".text\n");
 
-                    arch::emit_load_float(&mut self.output, self.arch, *n);
-                    arch::emit_say_float(
-                        &mut self.output,
-                        self.arch,
-                        &fmt_label,
-                        self.ctx.stack_offset,
-                        self.os,
-                    );
-                    self.output.push('\n');
-                } else {
-                    let fmt_label = self.ctx.next_string_label();
-                    self.emit_rodata_section();
-                    self.output.push_str(&format!("{}:\n", fmt_label));
-                    self.emit_string_directive("%lld\\n");
-                    self.output.push_str(".text\n");
-
-                    arch::emit_say_num_const(
-                        &mut self.output,
-                        self.arch,
-                        *n as i64,
-                        &fmt_label,
-                        self.ctx.stack_offset,
-                        self.os,
-                    );
-                    self.output.push('\n');
-                }
+                arch::emit_say_num_const(
+                    &mut self.output,
+                    self.arch,
+                    *n as i64,
+                    &fmt_label,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+                self.output.push('\n');
             }
             _ => {
                 if let Some(sname) = self.get_expr_struct_name(expr) {

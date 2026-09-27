@@ -99,8 +99,8 @@ fn check_expr_self_comparison(
 
 fn is_constant_bool(expr: &Expr) -> Option<bool> {
     match expr {
-        Expr::Number(n) if *n == 1.0 => Some(true),
-        Expr::Number(n) if *n == 0.0 => Some(false),
+        Expr::Number(n) if *n == 1 => Some(true),
+        Expr::Number(n) if *n == 0 => Some(false),
         Expr::Identifier(s) if s == "true" => Some(true),
         Expr::Identifier(s) if s == "false" => Some(false),
         _ => None,

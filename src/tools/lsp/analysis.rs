@@ -2187,13 +2187,7 @@ pub fn get_inlay_hints(source: &str) -> Vec<InlayHint> {
                     && i + 3 < tokens.len()
                 {
                     let inferred = match &tokens[i + 3].token_type {
-                        TokenType::Number(n) => {
-                            if n.fract() == 0.0 {
-                                Some(": int")
-                            } else {
-                                Some(": float")
-                            }
-                        }
+                        TokenType::Number(_) => Some(": int"),
                         TokenType::Float(_) => Some(": float"),
                         TokenType::String(_) => Some(": string"),
                         TokenType::True | TokenType::False => Some(": bool"),

@@ -6,7 +6,7 @@ use std::collections::HashSet;
 fn expr_is_definitely_float(expr: &Expr, known_floats: &HashSet<String>) -> bool {
     match expr {
         Expr::Float(_) => true,
-        Expr::Number(n) => n.fract() != 0.0,
+        Expr::Number(_) => false,
         Expr::Identifier(name) => known_floats.contains(name),
         Expr::Binary {
             left,

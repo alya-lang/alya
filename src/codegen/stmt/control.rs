@@ -105,7 +105,7 @@ impl CodeGen {
                     if let Expr::Float(n) = &**right {
                         arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n);
                     } else if let Expr::Number(n) = &**right {
-                        arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n);
+                        arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n as f64);
                     } else if let Some(&VarType::Float(offset)) = match &**right {
                         Expr::Identifier(var_name) => self.ctx.variables.get(var_name),
                         _ => None,
@@ -305,7 +305,7 @@ impl CodeGen {
                     if let Expr::Float(n) = &**right {
                         arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n);
                     } else if let Expr::Number(n) = &**right {
-                        arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n);
+                        arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n as f64);
                     } else if let Some(&VarType::Float(offset)) = match &**right {
                         Expr::Identifier(var_name) => self.ctx.variables.get(var_name),
                         _ => None,

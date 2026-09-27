@@ -10,7 +10,7 @@ fn test_parse_let_and_assign() {
         Stmt::Let {
             name: "score".into(),
             type_ann: None,
-            value: Expr::Number(100.0)
+            value: Expr::Number(100)
         }
     );
 
@@ -21,7 +21,7 @@ fn test_parse_let_and_assign() {
             value: Expr::Binary {
                 left: Box::new(Expr::Identifier("score".into())),
                 op: BinaryOp::Add,
-                right: Box::new(Expr::Number(10.0))
+                right: Box::new(Expr::Number(10))
             }
         }
     );
@@ -36,7 +36,7 @@ fn test_parse_multi_let_single_value() {
         Stmt::Let {
             name: "idx".into(),
             type_ann: None,
-            value: Expr::Number(0.0)
+            value: Expr::Number(0)
         }
     );
     assert_eq!(
@@ -44,7 +44,7 @@ fn test_parse_multi_let_single_value() {
         Stmt::Let {
             name: "val".into(),
             type_ann: None,
-            value: Expr::Number(0.0)
+            value: Expr::Number(0)
         }
     );
 }
@@ -58,7 +58,7 @@ fn test_parse_multi_let_multiple_values() {
         Stmt::Let {
             name: "idx".into(),
             type_ann: None,
-            value: Expr::Number(0.0)
+            value: Expr::Number(0)
         }
     );
     assert_eq!(
@@ -66,7 +66,7 @@ fn test_parse_multi_let_multiple_values() {
         Stmt::Let {
             name: "val".into(),
             type_ann: None,
-            value: Expr::Number(1.0)
+            value: Expr::Number(1)
         }
     );
 }
@@ -105,7 +105,7 @@ end
                 Expr::Binary {
                     left: Box::new(Expr::Identifier("x".into())),
                     op: BinaryOp::Greater,
-                    right: Box::new(Expr::Number(0.0)),
+                    right: Box::new(Expr::Number(0)),
                 }
             );
             assert_eq!(then_block.len(), 1);
@@ -139,7 +139,7 @@ end
                 Expr::Binary {
                     left: Box::new(Expr::Identifier("count".into())),
                     op: BinaryOp::Less,
-                    right: Box::new(Expr::Number(5.0)),
+                    right: Box::new(Expr::Number(5)),
                 }
             );
             assert_eq!(body.len(), 2);
@@ -188,8 +188,8 @@ end
             body,
         } => {
             assert_eq!(var, "i");
-            assert_eq!(*start, Expr::Number(1.0));
-            assert_eq!(*end, Expr::Number(10.0));
+            assert_eq!(*start, Expr::Number(1));
+            assert_eq!(*end, Expr::Number(10));
             assert!(!*inclusive);
             assert_eq!(body.len(), 1);
         }
@@ -236,11 +236,7 @@ end
             assert_eq!(*value_var, None);
             assert_eq!(
                 *iterable,
-                Expr::Array(vec![
-                    Expr::Number(1.0),
-                    Expr::Number(2.0),
-                    Expr::Number(3.0)
-                ])
+                Expr::Array(vec![Expr::Number(1), Expr::Number(2), Expr::Number(3)])
             );
             assert_eq!(body.len(), 1);
         }
@@ -285,7 +281,7 @@ let result = multiply(6, 7)
             type_ann: None,
             value: Expr::Call {
                 name: "multiply".into(),
-                args: vec![Expr::Number(6.0), Expr::Number(7.0)],
+                args: vec![Expr::Number(6), Expr::Number(7)],
             }
         }
     );
@@ -503,8 +499,8 @@ fn test_parse_multi_return() {
             match &body[0] {
                 Stmt::Return(Some(Expr::Array(elements))) => {
                     assert_eq!(elements.len(), 2);
-                    assert_eq!(elements[0], Expr::Number(10.0));
-                    assert_eq!(elements[1], Expr::Number(20.0));
+                    assert_eq!(elements[0], Expr::Number(10));
+                    assert_eq!(elements[1], Expr::Number(20));
                 }
                 other => panic!("Expected Return(Some(Array)), got {:?}", other),
             }

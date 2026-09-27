@@ -453,11 +453,7 @@ fn format_function_signature(
 pub fn expr_to_string(expr: &Expr) -> String {
     match expr {
         Expr::Number(n) => {
-            if n.fract() == 0.0 {
-                format!("{}", *n as i64)
-            } else {
-                format!("{}", n)
-            }
+            format!("{}", n)
         }
         Expr::Float(f) => format!("{}", f),
         Expr::String(s) => format!("\"{}\"", s),

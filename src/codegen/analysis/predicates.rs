@@ -802,7 +802,7 @@ pub fn is_float_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
 pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::Float(_) => true,
-        Expr::Number(n) => n.fract() != 0.0,
+        Expr::Number(_) => false,
         Expr::Identifier(name) => {
             matches!(vars.get(name), Some(VarType::Float(_)))
         }

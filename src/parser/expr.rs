@@ -284,7 +284,7 @@ impl Parser {
                     | TokenType::RightBrace
                     | TokenType::Eof
             ) {
-                Expr::Number(-1.0)
+                Expr::Number(-1)
             } else {
                 self.parse_shift()?
             };
@@ -423,14 +423,14 @@ impl Parser {
                     self.advance();
                     let end = if matches!(self.current_token().token_type, TokenType::RightBracket)
                     {
-                        Expr::Number(-1.0)
+                        Expr::Number(-1)
                     } else {
                         self.parse_expression()?
                     };
                     self.expect(TokenType::RightBracket)?;
                     expr = Expr::Call {
                         name: "slice".into(),
-                        args: vec![expr, Expr::Number(0.0), end],
+                        args: vec![expr, Expr::Number(0), end],
                     };
                 } else {
                     let first = self.parse_expression()?;
@@ -452,7 +452,7 @@ impl Parser {
                         self.advance();
                         let end =
                             if matches!(self.current_token().token_type, TokenType::RightBracket) {
-                                Expr::Number(-1.0)
+                                Expr::Number(-1)
                             } else {
                                 self.parse_expression()?
                             };
@@ -487,7 +487,7 @@ impl Parser {
                     self.advance();
                     expr = Expr::Index {
                         array: Box::new(expr),
-                        index: Box::new(Expr::Number(idx as f64)),
+                        index: Box::new(Expr::Number(idx as i128)),
                     };
                     continue;
                 }
@@ -548,14 +548,14 @@ impl Parser {
                         self.advance();
                         let end =
                             if matches!(self.current_token().token_type, TokenType::RightBracket) {
-                                Expr::Number(-1.0)
+                                Expr::Number(-1)
                             } else {
                                 self.parse_expression()?
                             };
                         self.expect(TokenType::RightBracket)?;
                         expr = Expr::OptionalCall {
                             callee: "slice".into(),
-                            args: vec![expr, Expr::Number(0.0), end],
+                            args: vec![expr, Expr::Number(0), end],
                         };
                     } else {
                         let first = self.parse_expression()?;
@@ -579,7 +579,7 @@ impl Parser {
                                 self.current_token().token_type,
                                 TokenType::RightBracket
                             ) {
-                                Expr::Number(-1.0)
+                                Expr::Number(-1)
                             } else {
                                 self.parse_expression()?
                             };
@@ -996,18 +996,18 @@ impl Parser {
             }
             TokenType::True => {
                 self.advance();
-                Ok(Expr::Number(1.0))
+                Ok(Expr::Number(1))
             }
             TokenType::False => {
                 self.advance();
-                Ok(Expr::Number(0.0))
+                Ok(Expr::Number(0))
             }
             TokenType::Null => {
                 self.advance();
                 Ok(Expr::Null)
             }
             TokenType::Rune(c) => {
-                let val = *c as u32 as f64;
+                let val = *c as i128;
                 self.advance();
                 Ok(Expr::Number(val))
             }

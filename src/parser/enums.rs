@@ -8,18 +8,18 @@ pub fn resolve_enums(program: &mut Program) {
     for stmt in &program.statements {
         if let Stmt::EnumDef { name, variants } = stmt.inner_stmt() {
             let mut variant_map = HashMap::new();
-            let mut next_auto_int = 0.0;
+            let mut next_auto_int = 0i128;
             for (vname, val_opt) in variants {
                 let expr = match val_opt {
                     Some(e) => {
                         if let Expr::Number(n) = e {
-                            next_auto_int = n + 1.0;
+                            next_auto_int = n + 1;
                         }
                         e.clone()
                     }
                     None => {
                         let e = Expr::Number(next_auto_int);
-                        next_auto_int += 1.0;
+                        next_auto_int += 1;
                         e
                     }
                 };

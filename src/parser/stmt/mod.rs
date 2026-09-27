@@ -502,7 +502,7 @@ impl Parser {
                     name,
                     value: Expr::Index {
                         array: Box::new(Expr::Identifier(tmp_name.clone())),
-                        index: Box::new(Expr::Number(i as f64)),
+                        index: Box::new(Expr::Number(i as i128)),
                     },
                 });
             }
@@ -680,11 +680,7 @@ impl Parser {
         fn scalar_text(tok: &Token) -> Option<String> {
             match &tok.token_type {
                 TokenType::String(s) | TokenType::Identifier(s) => Some(s.clone()),
-                TokenType::Number(n) => Some(if n.fract() == 0.0 {
-                    format!("{}", *n as i64)
-                } else {
-                    format!("{}", n)
-                }),
+                TokenType::Number(n) => Some(format!("{}", n)),
                 TokenType::True => Some("true".to_string()),
                 TokenType::False => Some("false".to_string()),
                 _ => None,
@@ -854,7 +850,7 @@ impl Parser {
                     let thunk_args: Vec<Expr> = (0..args.len())
                         .map(|i| Expr::Index {
                             array: Box::new(Expr::Identifier(pack_ident.clone())),
-                            index: Box::new(Expr::Number(i as f64)),
+                            index: Box::new(Expr::Number(i as i128)),
                         })
                         .collect();
                     let thunk_fn = Stmt::Function {
@@ -1011,7 +1007,7 @@ impl Parser {
         stmts.push(Stmt::Let {
             name: matched_var.clone(),
             type_ann: Some("int".into()),
-            value: Expr::Number(0.0),
+            value: Expr::Number(0),
         });
 
         if let Some((ref t_expr, _)) = timeout_clause {
@@ -1050,7 +1046,7 @@ impl Parser {
             if_val_present.extend(c.body.clone());
             if_val_present.push(Stmt::Assign {
                 name: matched_var.clone(),
-                value: Expr::Number(1.0),
+                value: Expr::Number(1),
             });
             case_inner.push(Stmt::If {
                 condition: Expr::Binary {
@@ -1066,7 +1062,7 @@ impl Parser {
                 condition: Expr::Binary {
                     left: Box::new(Expr::Identifier(matched_var.clone())),
                     op: BinaryOp::Equal,
-                    right: Box::new(Expr::Number(0.0)),
+                    right: Box::new(Expr::Number(0)),
                 },
                 then_block: case_inner,
                 else_block: None,
@@ -1091,11 +1087,11 @@ impl Parser {
             let mut timeout_block = t_body.clone();
             timeout_block.push(Stmt::Assign {
                 name: matched_var.clone(),
-                value: Expr::Number(1.0),
+                value: Expr::Number(1),
             });
             let else_block = vec![Stmt::Expr(Expr::Call {
                 name: "sleep".into(),
-                args: vec![Expr::Number(1.0)],
+                args: vec![Expr::Number(1)],
             })];
             after_cases.push(Stmt::If {
                 condition: timed_out_cond,
@@ -1106,13 +1102,13 @@ impl Parser {
             let mut non_blocking_block = e_body.clone();
             non_blocking_block.push(Stmt::Assign {
                 name: matched_var.clone(),
-                value: Expr::Number(1.0),
+                value: Expr::Number(1),
             });
             after_cases.extend(non_blocking_block);
         } else {
             after_cases.push(Stmt::Expr(Expr::Call {
                 name: "sleep".into(),
-                args: vec![Expr::Number(1.0)],
+                args: vec![Expr::Number(1)],
             }));
         }
 
@@ -1120,7 +1116,7 @@ impl Parser {
             condition: Expr::Binary {
                 left: Box::new(Expr::Identifier(matched_var.clone())),
                 op: BinaryOp::Equal,
-                right: Box::new(Expr::Number(0.0)),
+                right: Box::new(Expr::Number(0)),
             },
             then_block: after_cases,
             else_block: None,
@@ -1130,7 +1126,7 @@ impl Parser {
             condition: Expr::Binary {
                 left: Box::new(Expr::Identifier(matched_var)),
                 op: BinaryOp::Equal,
-                right: Box::new(Expr::Number(0.0)),
+                right: Box::new(Expr::Number(0)),
             },
             body: loop_body,
         });
