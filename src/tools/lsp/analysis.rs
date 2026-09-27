@@ -871,13 +871,137 @@ fn find_first_seg(
     None
 }
 
+/// Searches `name` through the scope-merging (unaliased + `from`) imports
+/// of the current file, transitively. Aliased imports are skipped: they do
+/// not merge bare names into scope.
+fn find_in_unaliased_imports(
+    imports: &[FileImport],
+    name: &str,
+    file_dir: Option<&std::path::Path>,
+    visited: &mut std::collections::HashSet<std::path::PathBuf>,
+) -> Option<(std::path::PathBuf, Position, SymbolKind)> {
+    for imp in imports {
+        if imp.alias.is_some() {
+            continue;
+        }
+        let target = resolve_import_to_file(&imp.path, file_dir)?;
+        if let Some(hit) = find_first_seg(&target, name, 0, visited) {
+            return Some(hit);
+        }
+    }
+    None
+}
+
+/// Locates `field` inside the `struct struct_name` block (same-file scan).
+pub fn find_struct_field_in_source(
+    source: &str,
+    struct_name: &str,
+    field: &str,
+) -> Option<Position> {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let mut trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("pub ") {
+            trimmed = rest.trim_start();
+        }
+        if let Some(rest) = trimmed.strip_prefix("struct ") {
+            let name: String = rest
+                .trim_start()
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if name == struct_name {
+                i += 1;
+                while i < lines.len() {
+                    let fline = lines[i];
+                    let ft = fline.trim_start();
+                    if ft == "end" || ft.starts_with("end ") || ft.starts_with("end\t") {
+                        break;
+                    }
+                    let code = ft.split('#').next().unwrap_or("");
+                    let head: String = code
+                        .chars()
+                        .take_while(|c| c.is_alphanumeric() || *c == '_')
+                        .collect();
+                    if !head.is_empty() && head == field {
+                        let char_idx = fline.find(field).unwrap_or(0) as u32;
+                        return Some(Position::new(i as u32, char_idx));
+                    }
+                    i += 1;
+                }
+                return None;
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Returns the identifier immediately before the last `{` in `code`
+/// (e.g. `TlsServer` in `return TlsServer {`), if any.
+fn opener_type_before_brace(code: &str) -> Option<String> {
+    let brace = code.rfind('{')?;
+    let before = &code[..brace];
+    let ident: String = before
+        .chars()
+        .rev()
+        .skip_while(|c| c.is_whitespace())
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    let ident: String = ident.chars().rev().collect();
+    if ident.is_empty() {
+        None
+    } else {
+        Some(ident)
+    }
+}
+
+/// Finds the struct literal enclosing the cursor (`Type { ... field ... }`),
+/// returning the literal's type name. Handles same-line literals and
+/// multi-line literals via brace-depth tracking upward (capped). Returns
+/// `None` outside struct literals.
+fn enclosing_struct_literal(source: &str, pos: &Position) -> Option<String> {
+    let lines: Vec<&str> = source.lines().collect();
+    let line_idx = pos.line as usize;
+    if line_idx >= lines.len() {
+        return None;
+    }
+    let col = (pos.character as usize).min(lines[line_idx].len());
+    // Same-line rule: inside an unclosed `{` on this line before the cursor.
+    let prefix = &lines[line_idx][..col];
+    let opens = prefix.matches('{').count();
+    let closes = prefix.matches('}').count();
+    if opens > closes {
+        let no_comment = prefix.split('#').next().unwrap_or(prefix);
+        if let Some(t) = opener_type_before_brace(no_comment) {
+            return Some(t);
+        }
+    }
+    // Multi-line rule: walk upward tracking depth; the line that opens the
+    // block containing the cursor names the type.
+    let mut depth: i32 = 0;
+    for l in lines[..line_idx].iter().rev().take(80) {
+        let code = l.split('#').next().unwrap_or("");
+        depth += code.matches('}').count() as i32 - code.matches('{').count() as i32;
+        if depth < 0 {
+            return opener_type_before_brace(code);
+        }
+    }
+    None
+}
+///
 /// Go-to-definition with import awareness.
 ///
 /// - Cursor inside an import path string: the resolved target file.
 /// - Cursor on an `alias` used as `alias::x` / `alias.x`: the import line.
 /// - Cursor on `x` in `alias::x` / `alias.x`: the symbol in the target file
 ///   (enum variants resolve to their variant line).
-/// - Cursor on `Variant` in `Enum::Variant`: the variant line.
+/// - Cursor on `Variant` in `Enum::Variant`: the variant line (the enum may
+///   itself live in an imported file).
+/// - Cursor on a `field:` key inside a `Type { ... }` literal: the field
+///   line of the struct (same file or imports).
 /// - Bare words first use the same-file scan, then unaliased imports in
 ///   order (aliased imports do not merge bare names into scope, so they
 ///   are skipped there).
@@ -984,29 +1108,77 @@ pub fn get_definition_target(
         }
     }
 
-    // 4. Existing same-file behavior.
+    // 4. Struct literal field keys (`Type { ... field: ... }`). Guarded by
+    // the `field:` shape (not `::`), the enclosing literal, and the field
+    // actually existing: anything else falls through to the scans below.
+    if let Some((start, end)) = word_range_at(line, col) {
+        let after_key = &line[end..];
+        let mut chars = after_key.chars().skip_while(|c| c.is_whitespace());
+        let is_key = matches!(chars.next(), Some(':')) && !matches!(chars.next(), Some(':'));
+        if is_key {
+            let field = line[start..end].to_string();
+            if let Some(type_name) = enclosing_struct_literal(source, pos) {
+                if let Some((_, SymbolKind::Struct)) = find_symbol_in_source(source, &type_name) {
+                    if let Some(fpos) = find_struct_field_in_source(source, &type_name, &field) {
+                        return Some(DefinitionTarget::SameFile(fpos));
+                    }
+                } else {
+                    let mut visited = std::collections::HashSet::new();
+                    if let Some((def_file, _, SymbolKind::Struct)) =
+                        find_in_unaliased_imports(&imports, &type_name, file_dir, &mut visited)
+                    {
+                        let def_src = std::fs::read_to_string(&def_file).ok().unwrap_or_default();
+                        if let Some(fpos) =
+                            find_struct_field_in_source(&def_src, &type_name, &field)
+                        {
+                            return Some(DefinitionTarget::ExternalFile {
+                                path: def_file,
+                                pos: Some(fpos),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. Existing same-file behavior.
     if let Some(def_pos) = get_definition_pos(source, pos) {
         return Some(DefinitionTarget::SameFile(def_pos));
     }
 
-    // 5. Bare words fall back to unaliased imports in order (followed
+    // 6. Bare qualified use (`Prev.word`) where `Prev` is an enum reachable
+    // through unaliased imports: jump to the variant line. Variants are not
+    // top-level symbols, so the flat search below cannot find them.
+    if let Some(idx) = cursor_idx {
+        if segments.len() > 1 && idx > 0 {
+            let prev = &segments[idx - 1];
+            let mut visited = std::collections::HashSet::new();
+            if let Some((def_file, _, SymbolKind::Enum)) =
+                find_in_unaliased_imports(&imports, prev, file_dir, &mut visited)
+            {
+                let def_src = std::fs::read_to_string(&def_file).ok().unwrap_or_default();
+                if let Some(vpos) = find_enum_variant_in_source(&def_src, prev, &word) {
+                    return Some(DefinitionTarget::ExternalFile {
+                        path: def_file,
+                        pos: Some(vpos),
+                    });
+                }
+            }
+        }
+    }
+
+    // 7. Bare words fall back to unaliased imports in order (followed
     // transitively, like the qualified case). Aliased imports are skipped:
     // they do not merge bare names into scope.
     let mut visited = std::collections::HashSet::new();
-    for imp in &imports {
-        if imp.alias.is_some() {
-            continue;
-        }
-        let target = match resolve_import_to_file(&imp.path, file_dir) {
-            Some(t) => t,
-            None => continue,
-        };
-        if let Some((def_file, p, _)) = find_first_seg(&target, &word, 0, &mut visited) {
-            return Some(DefinitionTarget::ExternalFile {
-                path: def_file,
-                pos: Some(p),
-            });
-        }
+    if let Some((def_file, p, _)) =
+        find_in_unaliased_imports(&imports, &word, file_dir, &mut visited)
+    {
+        return Some(DefinitionTarget::ExternalFile {
+            path: def_file,
+            pos: Some(p),
+        });
     }
 
     None

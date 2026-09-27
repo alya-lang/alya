@@ -496,7 +496,7 @@ fn lsp_definition(
 fn test_lsp_definition_import_alias_and_path() {
     let dir = env::temp_dir().join(format!("alya-lsp-import-{}", std::process::id()));
     fs::create_dir_all(&dir).expect("temp dir");
-    let helper_src = "pub function helper_fn() -> int\n    return 1\nend\npub enum Status\n    Active,\n    Closed\nend\npub struct Point\n    x: int\nend\n";
+    let helper_src = "pub function helper_fn() -> int\n    return 1\nend\npub enum Status\n    Active,\n    Closed\nend\npub struct Point\n    x: int\nend\npub struct Config\n    flag: int\n    name: string\nend\n";
     fs::write(dir.join("helper.alya"), helper_src).expect("helper file");
     // Facade: re-exports helper through an unaliased import (transitive case).
     let facade_src =
@@ -504,7 +504,7 @@ fn test_lsp_definition_import_alias_and_path() {
     fs::write(dir.join("facade.alya"), facade_src).expect("facade file");
     // 0: facade import | 1: aliased | 2: unaliased | 3: from | 4: unresolvable
     // 6-9: local enum | 12-18: usages
-    let source = "import \"./facade.alya\" as f\nimport \"./helper.alya\" as h\nimport \"./helper.alya\"\nfrom \"./helper.alya\" import helper_fn\nimport \"std/nope_xyz_module\"\n\npub enum Local\n    On,\n    Off\nend\n\nfunction main()\n    say h::helper_fn()\n    say h::Status::Active\n    say h::Point()\n    say Local::On\n    say helper_fn()\n    say f::Status::Closed\n    say f::facade_fn()\nend\nmain()\n";
+    let source = "import \"./facade.alya\" as f\nimport \"./helper.alya\" as h\nimport \"./helper.alya\"\nfrom \"./helper.alya\" import helper_fn\nimport \"std/nope_xyz_module\"\n\npub enum Local\n    On,\n    Off\nend\n\nfunction main()\n    say h::helper_fn()\n    say h::Status::Active\n    say h::Point()\n    say Local::On\n    say helper_fn()\n    say f::Status::Closed\n    say f::facade_fn()\n    say Status::Closed\n    let cfg = Config { flag: 1 }\n    let multi = Config {\n        flag: 2\n    }\n    say (1 == 1 ? alice : bob)\nend\nmain()\n";
     let main_path = dir.join("main.alya");
     fs::write(&main_path, source).expect("main file");
     let uri = lsp_test_file_uri(&main_path);
@@ -649,6 +649,47 @@ fn test_lsp_definition_import_alias_and_path() {
     assert_eq!(
         got.1, want_ff_line,
         "direct hit lands on the facade function"
+    );
+
+    // 14. Bare `Status::Closed` (the reported shape): enum found through
+    // the unaliased import, cursor lands on the variant line.
+    let use_bare_closed = src_lines[19].find("Closed").unwrap() as u32;
+    let got = lsp_definition(&mut server, &uri, 19, use_bare_closed)
+        .expect("bare qualified variant jump");
+    assert_eq!(got.0, helper_uri, "bare enum resolves through imports");
+    assert_eq!(
+        got.1, want_closed_line,
+        "bare qualified variant lands on the variant line"
+    );
+
+    // 15. Single-line struct literal field key -> field line in helper.
+    let use_flag = src_lines[20].find("flag").unwrap() as u32;
+    let want_flag_line = helper_lines
+        .iter()
+        .position(|l| l.contains("flag:"))
+        .unwrap() as u32;
+    let got = lsp_definition(&mut server, &uri, 20, use_flag).expect("literal field jump");
+    assert_eq!(got.0, helper_uri, "literal field resolves through imports");
+    assert_eq!(
+        got.1, want_flag_line,
+        "literal field lands on the field line"
+    );
+    assert_eq!(got.2, 4, "field column points at the field token");
+
+    // 16. Multi-line struct literal field key -> same field line.
+    let use_flag_ml = src_lines[22].find("flag").unwrap() as u32;
+    let got = lsp_definition(&mut server, &uri, 22, use_flag_ml).expect("multiline field jump");
+    assert_eq!(got.0, helper_uri);
+    assert_eq!(
+        got.1, want_flag_line,
+        "multiline field lands on the field line"
+    );
+
+    // 17. Ternary `? a : b` is not a struct literal: no jump.
+    let use_alice = src_lines[24].find("alice").unwrap() as u32;
+    assert!(
+        lsp_definition(&mut server, &uri, 24, use_alice).is_none(),
+        "ternary branch must not jump to struct fields"
     );
 
     let _ = fs::remove_dir_all(&dir);
