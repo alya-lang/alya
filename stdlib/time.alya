@@ -518,6 +518,373 @@ pub function time_now() -> string
     return format_time_hhmmss(time())
 end
 
+# --- Durations (millisecond-based) ---
+
+## Builds a millisecond duration from a second count.
+##
+## ### Parameters
+## - `s`: Duration in seconds.
+##
+## ### Returns
+## The matching duration in milliseconds.
+pub function duration_from_seconds(s: int) -> int
+    return s * 1000
+end
+
+## Builds a millisecond duration from a minute count.
+##
+## ### Parameters
+## - `m`: Duration in minutes.
+##
+## ### Returns
+## The matching duration in milliseconds.
+pub function duration_from_minutes(m: int) -> int
+    return m * 60000
+end
+
+## Builds a millisecond duration from an hour count.
+##
+## ### Parameters
+## - `h`: Duration in hours.
+##
+## ### Returns
+## The matching duration in milliseconds.
+pub function duration_from_hours(h: int) -> int
+    return h * 3600000
+end
+
+## Builds a millisecond duration from a day count.
+##
+## ### Parameters
+## - `d`: Duration in days.
+##
+## ### Returns
+## The matching duration in milliseconds.
+pub function duration_from_days(d: int) -> int
+    return d * 86400000
+end
+
+## Converts a millisecond duration to whole seconds (truncated).
+##
+## ### Parameters
+## - `ms`: Duration in milliseconds.
+##
+## ### Returns
+## Whole seconds in the duration.
+pub function duration_to_seconds(ms: int) -> int
+    return ms / 1000
+end
+
+## Converts a millisecond duration to whole minutes (truncated).
+##
+## ### Parameters
+## - `ms`: Duration in milliseconds.
+##
+## ### Returns
+## Whole minutes in the duration.
+pub function duration_to_minutes(ms: int) -> int
+    return ms / 60000
+end
+
+## Converts a millisecond duration to whole hours (truncated).
+##
+## ### Parameters
+## - `ms`: Duration in milliseconds.
+##
+## ### Returns
+## Whole hours in the duration.
+pub function duration_to_hours(ms: int) -> int
+    return ms / 3600000
+end
+
+## Converts a millisecond duration to whole days (truncated).
+##
+## ### Parameters
+## - `ms`: Duration in milliseconds.
+##
+## ### Returns
+## Whole days in the duration.
+pub function duration_to_days(ms: int) -> int
+    return ms / 86400000
+end
+
+## Formats a millisecond duration as a human-readable string.
+## Hours render as `H:MM:SS`, minutes as `M:SS.mmm`, seconds as `S.mmm s`,
+## and sub-second values as `Nms` (negative durations keep a `-` prefix).
+##
+## ### Parameters
+## - `ms`: Duration in milliseconds (may be negative).
+##
+## ### Returns
+## The human-readable duration string.
+pub function duration_str(ms: int) -> string
+    let sign: string = ""
+    let t: int = ms
+    if t < 0
+        sign = "-"
+        t = 0 - t
+    end
+    let hr: int = t / 3600000
+    let rem: int = t - hr * 3600000
+    let mn: int = rem / 60000
+    rem = rem - mn * 60000
+    let sc: int = rem / 1000
+    let msl: int = rem - sc * 1000
+    if hr > 0
+        return f"{sign}{hr}:{_time_pad2(mn)}:{_time_pad2(sc)}"
+    end
+    if mn > 0
+        return f"{sign}{mn}:{_time_pad2(sc)}.{_time_pad3(msl)}"
+    end
+    if sc > 0
+        return f"{sign}{sc}.{_time_pad3(msl)}s"
+    end
+    return f"{sign}{t}ms"
+end
+
+function _time_pad3(n: int) -> string
+    if n < 10
+        return f"00{n}"
+    end
+    if n < 100
+        return f"0{n}"
+    end
+    return str(n)
+end
+
+# --- Stopwatch ---
+
+## Monotonic stopwatch handle: the `clock_ms()` reading at creation.
+##
+## ### Fields
+## - `start_ms`: Monotonic clock reading in milliseconds taken by `stopwatch_new`.
+pub struct Stopwatch
+    start_ms: int
+end
+
+## Starts a new monotonic stopwatch.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## A Stopwatch capturing the current monotonic clock reading.
+pub function stopwatch_new() -> Stopwatch
+    return Stopwatch { start_ms: clock_ms() }
+end
+
+## Returns milliseconds elapsed since the stopwatch was started (or restarted).
+##
+## ### Parameters
+## - `self`: Stopwatch measured.
+##
+## ### Returns
+## Milliseconds elapsed since `start_ms`.
+pub function Stopwatch.elapsed(self: Stopwatch) -> int
+    return clock_ms() - self.start_ms
+end
+
+## Restarts the stopwatch from the current monotonic clock reading.
+##
+## ### Parameters
+## - `self`: Stopwatch restarted.
+##
+## ### Returns
+## Nothing.
+pub function Stopwatch.restart(self: Stopwatch)
+    self.start_ms = clock_ms()
+end
+
+# --- Parsing (ISO 8601 / RFC 3339) ---
+
+## Error thrown when a date/time string cannot be parsed.
+##
+## ### Fields
+## - `message`: Human-readable parse failure description.
+pub struct TimeParseError
+    message: string
+end
+
+function _time_is_digits(s: string) -> int
+    if len(s) == 0
+        return 0
+    end
+    let i: int = 0
+    while i < len(s)
+        let c: int = ord(char_at(s, i))
+        if c < 48 or c > 57
+            return 0
+        end
+        i += 1
+    end
+    return 1
+end
+
+function _time_num(s: string, pos: int, count: int) -> int
+    if pos < 0 or count <= 0 or pos + count > len(s)
+        return -1
+    end
+    let part: string = substring(s, pos, count)
+    if _time_is_digits(part) == 0
+        return -1
+    end
+    return to_int(part)
+end
+
+function _time_parse_datetime(s: string, allow_bare: int) -> int
+    let n: int = len(s)
+    if n < 10
+        throw TimeParseError { message: f"Invalid datetime (too short): {s}" }
+    end
+    let year: int = _time_num(s, 0, 4)
+    let month: int = _time_num(s, 5, 2)
+    let day: int = _time_num(s, 8, 2)
+    if year < 0 or char_at(s, 4) != "-" or char_at(s, 7) != "-"
+        throw TimeParseError { message: f"Invalid date (expected YYYY-MM-DD): {s}" }
+    end
+    if month < 0 or day < 0
+        throw TimeParseError { message: f"Invalid date (expected YYYY-MM-DD): {s}" }
+    end
+    if day < 1 or day > days_in_month(month, year)
+        throw TimeParseError { message: f"Invalid calendar date: {s}" }
+    end
+    if n == 10
+        if allow_bare == 0
+            throw TimeParseError { message: f"Missing time and zone (RFC 3339 requires full timestamp): {s}" }
+        end
+        return date_ymd_to_epoch(year, month, day)
+    end
+    let sep: string = char_at(s, 10)
+    if sep != "T" and sep != "t" and sep != " "
+        throw TimeParseError { message: f"Invalid separator (expected T): {s}" }
+    end
+    if n < 19
+        throw TimeParseError { message: f"Invalid time (expected HH:MM:SS): {s}" }
+    end
+    let hour: int = _time_num(s, 11, 2)
+    let minute: int = _time_num(s, 14, 2)
+    let second: int = _time_num(s, 17, 2)
+    if hour < 0 or char_at(s, 13) != ":" or char_at(s, 16) != ":"
+        throw TimeParseError { message: f"Invalid time (expected HH:MM:SS): {s}" }
+    end
+    if minute < 0 or second < 0
+        throw TimeParseError { message: f"Invalid time (expected HH:MM:SS): {s}" }
+    end
+    if hour > 23 or minute > 59 or second > 59
+        throw TimeParseError { message: f"Time out of range: {s}" }
+    end
+    let pos: int = 19
+    if pos < n and char_at(s, pos) == "."
+        pos += 1
+        let frac_start: int = pos
+        while pos < n and _time_is_digits(char_at(s, pos)) == 1
+            pos += 1
+        end
+        if pos == frac_start
+            throw TimeParseError { message: f"Invalid fraction (digits expected after .): {s}" }
+        end
+    end
+    let offset_sec: int = 0
+    if pos >= n
+        if allow_bare == 0
+            throw TimeParseError { message: f"Missing zone (RFC 3339 requires Z or offset): {s}" }
+        end
+    else
+        let z: string = char_at(s, pos)
+        if z == "Z" or z == "z"
+            pos += 1
+        elif z == "+" or z == "-"
+            let sign: int = 1
+            if z == "-"
+                sign = 0 - 1
+            end
+            let oh: int = _time_num(s, pos + 1, 2)
+            if oh < 0
+                throw TimeParseError { message: f"Invalid zone offset hour: {s}" }
+            end
+            if oh > 23
+                throw TimeParseError { message: f"Zone offset hour out of range: {s}" }
+            end
+            let om: int = 0
+            let rest: int = n - (pos + 3)
+            if rest == 0
+                om = 0
+                pos = n
+            elif rest == 3 and char_at(s, pos + 3) == ":"
+                om = _time_num(s, pos + 4, 2)
+                if om < 0 or om > 59
+                    throw TimeParseError { message: f"Invalid zone offset minute: {s}" }
+                end
+                pos = n
+            elif rest == 2
+                om = _time_num(s, pos + 3, 2)
+                if om < 0 or om > 59
+                    throw TimeParseError { message: f"Invalid zone offset minute: {s}" }
+                end
+                pos = n
+            else
+                throw TimeParseError { message: f"Invalid zone offset (expected HH, HHMM or HH:MM): {s}" }
+            end
+            offset_sec = sign * (oh * 3600 + om * 60)
+        else
+            throw TimeParseError { message: f"Invalid zone (expected Z or offset): {s}" }
+        end
+    end
+    if pos != n
+        throw TimeParseError { message: f"Trailing characters: {s}" }
+    end
+    return date_ymd_to_epoch(year, month, day) + (hour * 3600) + (minute * 60) + second - offset_sec
+end
+
+## Parses an ISO 8601 string into UTC epoch seconds.
+## Accepts `YYYY-MM-DD`, `YYYY-MM-DDTHH:MM:SS` (UTC when the zone is
+## absent), an optional fraction (`.mmm`, ignored beyond seconds), and a
+## zone of `Z` or `+-HH[:][MM]`. The `T` may be lowercase or a space.
+##
+## ### Parameters
+## - `s`: ISO 8601 date/time string.
+##
+## ### Returns
+## UTC epoch seconds.
+##
+## ### Throws
+## `TimeParseError` when the string is not a supported ISO 8601 shape.
+pub function parse_iso8601(s: string) -> int
+    return _time_parse_datetime(s, 1)
+end
+
+## Parses an RFC 3339 string into UTC epoch seconds.
+## Requires a full timestamp with a zone: `YYYY-MM-DDTHH:MM:SSZ` or
+## `YYYY-MM-DDTHH:MM:SS+-HH:MM` (lowercase `t`/`z` accepted, `+-HHMM` and
+## `+-HH` also accepted). Calendar fields keep wall time; the result is the
+## absolute UTC instant, so `format_rfc3339` of it renders in UTC.
+##
+## ### Parameters
+## - `s`: RFC 3339 date/time string.
+##
+## ### Returns
+## UTC epoch seconds.
+##
+## ### Throws
+## `TimeParseError` when the string is not RFC 3339 (bare or zone-less
+## inputs are rejected, unlike `parse_iso8601`).
+pub function parse_rfc3339(s: string) -> int
+    return _time_parse_datetime(s, 0)
+end
+
+## Formats epoch seconds as an RFC 3339 UTC string.
+## UTC profile (`YYYY-MM-DDTHH:MM:SSZ`); identical to `format_iso` because
+## epoch resolution is seconds (see `parse_rfc3339` for the reverse).
+##
+## ### Parameters
+## - `epoch_sec`: UTC epoch time in seconds.
+##
+## ### Returns
+## The date/time formatted as an RFC 3339 UTC string.
+pub function format_rfc3339(epoch_sec: int) -> string
+    return format_iso(epoch_sec)
+end
+
 # --- Legacy Aliases ---
 
 ## Legacy alias returning the monotonic clock in milliseconds.

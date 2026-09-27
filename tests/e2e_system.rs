@@ -2003,6 +2003,79 @@ say "weekday: " + weekday_name(4)
 }
 
 #[test]
+fn test_e2e_stdlib_time_parsing() {
+    let code = r#"
+import "std/time"
+
+say duration_from_seconds(90)
+say duration_from_minutes(2)
+say duration_from_hours(1)
+say duration_from_days(1)
+say duration_to_seconds(90000)
+say duration_str(33015)
+say duration_str(153000)
+say duration_str(5425000)
+
+say parse_iso8601("1970-01-01T00:00:00Z")
+say parse_iso8601("2024-01-01")
+say parse_iso8601("2024-01-01T08:00:00+08:00")
+say parse_rfc3339("2024-07-15T18:30:45-05:00")
+say format_rfc3339(parse_iso8601("2024-01-01T08:00:00+08:00"))
+say format_rfc3339(parse_rfc3339("2024-07-15T18:30:45-05:00"))
+
+let bad = 0
+try
+    parse_iso8601("not-a-date")
+    bad += 1
+catch err
+    say "caught-1"
+end
+try
+    parse_rfc3339("2024-01-01")
+    bad += 1
+catch err
+    say "caught-2"
+end
+try
+    parse_iso8601("2023-02-29T00:00:00Z")
+    bad += 1
+catch err
+    say "caught-3"
+end
+say bad
+
+let sw = stopwatch_new()
+delay(30)
+if sw.elapsed() >= 20
+    say "sw-ok"
+else
+    say "sw-small"
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert!(output.contains("90000\n"), "Got: {}", output);
+        assert!(output.contains("120000\n"), "Got: {}", output);
+        assert!(output.contains("3600000\n"), "Got: {}", output);
+        assert!(output.contains("86400000\n"), "Got: {}", output);
+        assert!(output.contains("90\n"), "Got: {}", output);
+        assert!(output.contains("33.015s"), "Got: {}", output);
+        assert!(output.contains("2:33.000"), "Got: {}", output);
+        assert!(output.contains("1:30:25"), "Got: {}", output);
+        assert!(output.contains("2024-01-01T00:00:00Z"), "Got: {}", output);
+        assert!(
+            output.contains("2024-07-15T23:30:45Z"),
+            "Got: {}",
+            output
+        );
+        assert!(output.contains("caught-1"), "Got: {}", output);
+        assert!(output.contains("caught-2"), "Got: {}", output);
+        assert!(output.contains("caught-3"), "Got: {}", output);
+        assert!(output.contains("sw-ok"), "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_stdlib_os_upgrades() {
     let code = r#"
 import "std/os"
