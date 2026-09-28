@@ -125,6 +125,14 @@ jobs:
         if: matrix.target != ''
         run: cargo build --release --verbose --target ${{ matrix.target }}
 
+      - name: Run self-hosted test suites
+        if: matrix.target == ''
+        run: cargo run -- test tests/
+
+      - name: Run self-hosted test suites (32-bit)
+        if: matrix.target != ''
+        run: cargo run --target ${{ matrix.target }} -- test tests/
+
       - name: Verify Toolchain Commands
         run: |
           cargo run -- toolchain status
