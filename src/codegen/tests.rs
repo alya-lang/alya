@@ -891,3 +891,38 @@ fn test_codegen_arm64_int_return_skips_d0_sync() {
         &region[..end]
     );
 }
+
+#[test]
+fn test_codegen_arm64_float_binop_syncs_right_operand() {
+    // Regression test for alya-lang/alya#50 (ARM64 half): the
+    // two-dynamic-operand float path must sync the right operand from
+    // x0. Trusting a stale d0 returned the left operand for
+    // `a[0] + a[1]` (literal float arrays included).
+    use crate::ast::BinaryOp;
+    let prog = Program {
+        statements: vec![
+            Stmt::Let {
+                name: "a".into(),
+                type_ann: None,
+                value: Expr::Array(vec![Expr::Float(1.5), Expr::Float(2.5)]),
+            },
+            Stmt::Say(Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::Index {
+                    array: Box::new(Expr::Identifier("a".into())),
+                    index: Box::new(Expr::Number(0)),
+                }),
+                right: Box::new(Expr::Index {
+                    array: Box::new(Expr::Identifier("a".into())),
+                    index: Box::new(Expr::Number(1)),
+                }),
+            }),
+        ],
+    };
+    let asm = generate(&prog, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(
+        asm.contains("fmov d0, x0\n    ldr d1, [sp], #16"),
+        "float binop must sync right operand from x0, got:\n{}",
+        asm
+    );
+}

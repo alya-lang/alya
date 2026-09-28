@@ -316,6 +316,13 @@ pub fn emit_float_binary_op_imm(out: &mut String, op: BinaryOp, val: f64) {
 }
 
 pub fn emit_float_binary_op(out: &mut String, op: BinaryOp) {
+    // Same contract as x64 (which moves both sides through integer
+    // registers): the right operand arrives as raw f64 bits in x0
+    // (index loads, call results and arithmetic results never touch
+    // d0), so sync it explicitly instead of trusting a stale d0
+    // (alya-lang/alya#50 exposed this: `a[0] + a[1]` returned the left
+    // operand on ARM64, for literal arrays too).
+    out.push_str("    fmov d0, x0\n");
     out.push_str("    ldr d1, [sp], #16\n");
     match op {
         BinaryOp::Add => {
