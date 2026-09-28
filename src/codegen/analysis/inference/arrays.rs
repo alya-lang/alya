@@ -65,7 +65,6 @@ fn expr_is_definitely_array(
     }
 }
 
-#[allow(dead_code)]
 fn expr_is_definitely_non_array(expr: &Expr) -> bool {
     match expr {
         Expr::Number(_)
@@ -554,6 +553,14 @@ pub fn collect_known_array_vars_with_index(
 
                 let mut call_args = Vec::new();
                 call_index.collect_all_call_args_scoped(name, bare, idx, &mut call_args);
+                // alya-lang/alya#47: heap unless proven scalar. Requiring
+                // ALL call args to be provably arrays dropped entry
+                // retains when a single arg was merely unclassifiable
+                // (e.g. a map index), causing use-after-free with
+                // run-varying garbage. Over-retaining is safe (retain +
+                // release are paired and the runtime guards non-heap
+                // values); under-retaining is catastrophic. Proven
+                // scalars still block the marking.
                 if !call_args.is_empty()
                     && call_args.iter().any(|(caller_scope, arg)| {
                         expr_is_definitely_array(arg, *caller_scope, &known_arrays)
@@ -561,6 +568,7 @@ pub fn collect_known_array_vars_with_index(
                     && call_args.iter().all(|(caller_scope, arg)| {
                         matches!(arg, Expr::Null)
                             || expr_is_definitely_array(arg, *caller_scope, &known_arrays)
+                            || !expr_is_definitely_non_array(arg)
                     })
                 {
                     known_arrays.insert(format!("fn_param_arr:{}:{}", name, idx));

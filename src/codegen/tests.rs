@@ -926,3 +926,78 @@ fn test_codegen_arm64_float_binop_syncs_right_operand() {
         asm
     );
 }
+
+#[test]
+fn test_codegen_untyped_array_param_retained_despite_unknown_callsite() {
+    // Regression test for alya-lang/alya#47: entry retains for an
+    // untyped array param must not depend on proving ALL call args
+    // arrays. One unclassifiable arg (here a map index) dropped the
+    // retains, causing use-after-free with run-varying garbage that
+    // depended on which other calls existed in the binary.
+    use crate::ast::Attribute;
+    let first = Stmt::Function {
+        name: "first".into(),
+        params: vec!["a".into()],
+        param_types: vec![None],
+        return_type: None,
+        defaults: vec![],
+        body: vec![
+            Stmt::Let {
+                name: "r".into(),
+                type_ann: None,
+                value: Expr::Identifier("a".into()),
+            },
+            Stmt::Return(Some(Expr::Index {
+                array: Box::new(Expr::Identifier("r".into())),
+                index: Box::new(Expr::Number(0)),
+            })),
+        ],
+        type_params: vec![],
+        attributes: Vec::<Attribute>::new(),
+    };
+    let main = Stmt::Function {
+        name: "main".into(),
+        params: vec![],
+        param_types: vec![],
+        return_type: None,
+        defaults: vec![],
+        body: vec![
+            Stmt::Let {
+                name: "m".into(),
+                type_ann: None,
+                value: Expr::Map(vec![(
+                    Expr::String("k".into()),
+                    Expr::Array(vec![Expr::Number(1), Expr::Number(2)]),
+                )]),
+            },
+            Stmt::Say(Expr::Call {
+                name: "first".into(),
+                args: vec![Expr::Array(vec![Expr::Number(7), Expr::Number(8)])],
+            }),
+            Stmt::Say(Expr::Call {
+                name: "first".into(),
+                args: vec![Expr::Index {
+                    array: Box::new(Expr::Identifier("m".into())),
+                    index: Box::new(Expr::String("k".into())),
+                }],
+            }),
+        ],
+        type_params: vec![],
+        attributes: Vec::<Attribute>::new(),
+    };
+    let program = Program {
+        statements: vec![first, main],
+    };
+    let asm = generate(&program, Architecture::X64, OperatingSystem::Windows);
+    let start = asm.find("fn_first:").expect("fn_first emitted");
+    let region = &asm[start..];
+    let end = region
+        .find("\nfn_")
+        .or_else(|| region.find("\n.global "))
+        .unwrap_or(region.len());
+    assert!(
+        region[..end].contains("call fn_rc_retain"),
+        "untyped array param must be retained on entry, got:\n{}",
+        &region[..end]
+    );
+}
