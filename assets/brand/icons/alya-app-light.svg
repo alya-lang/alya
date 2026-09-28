@@ -2,9 +2,9 @@
   <defs>
     <!-- Chassis Surface Gradient (Light Theme) -->
     <linearGradient id="chassis-surface-light" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" />
-      <stop offset="50%" stop-color="#f8fafc" />
-      <stop offset="100%" stop-color="#f1f5f9" />
+      <stop offset="0%" stop-color="#f3e8ff" />
+      <stop offset="50%" stop-color="#ede9fe" />
+      <stop offset="100%" stop-color="#e0f2fe" />
     </linearGradient>
 
     <!-- Chassis Outer Stroke Gradient -->
@@ -13,12 +13,6 @@
       <stop offset="35%" stop-color="#6366f1" stop-opacity="0.35" />
       <stop offset="70%" stop-color="#0284c7" stop-opacity="0.55" />
       <stop offset="100%" stop-color="#cbd5e1" stop-opacity="0.8" />
-    </linearGradient>
-
-    <!-- App Viewport Header Surface (Light Theme) -->
-    <linearGradient id="header-surface-light" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="rgba(15, 23, 42, 0.03)" />
-      <stop offset="100%" stop-color="rgba(15, 23, 42, 0.01)" />
     </linearGradient>
 
     <!-- Left Wing (Deep Rich Amethyst) -->
@@ -58,17 +52,6 @@
       <stop offset="100%" stop-color="#0284c7" />
     </linearGradient>
 
-    <!-- App Chip Gradients (Light Theme) -->
-    <linearGradient id="app-chip-bg-light" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="rgba(147, 51, 234, 0.08)" />
-      <stop offset="100%" stop-color="rgba(2, 132, 199, 0.08)" />
-    </linearGradient>
-
-    <linearGradient id="app-chip-border-light" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#9333ea" stop-opacity="0.5" />
-      <stop offset="100%" stop-color="#0284c7" stop-opacity="0.5" />
-    </linearGradient>
-
     <!-- Filters -->
     <filter id="chassis-shadow-light" x="-20%" y="-20%" width="140%" height="140%">
       <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#0f172a" flood-opacity="0.14" />
@@ -99,28 +82,6 @@
 
   <!-- Clipped App Canvas Interior -->
   <g clip-path="url(#chassis-clip-light)">
-    <!-- App Window Viewport Header -->
-    <rect x="36" y="36" width="440" height="56" fill="url(#header-surface-light)" />
-    <line x1="36" y1="92" x2="476" y2="92" stroke="rgba(15, 23, 42, 0.08)" stroke-width="1.2" />
-
-    <!-- App Identity Jewel (Diamond Spark) -->
-    <polygon points="76,57 83,64 76,71 69,64" fill="#0284c7" />
-    <polygon points="76,60 80,64 76,68 72,64" fill="#ffffff" />
-    <circle cx="76" cy="64" r="8" fill="#0284c7" opacity="0.15" />
-
-    <!-- App Segment Tab (UI Architecture nodes) -->
-    <g transform="translate(256, 64)">
-      <rect x="-42" y="-11" width="84" height="22" rx="5" fill="rgba(15, 23, 42, 0.03)" stroke="rgba(15, 23, 42, 0.08)" stroke-width="1" />
-      <!-- 3 UI Architecture Nodes -->
-      <rect x="-26" y="-3" width="12" height="6" rx="1.5" fill="#7e22ce" opacity="0.75" />
-      <rect x="-6" y="-3" width="12" height="6" rx="1.5" fill="#0284c7" opacity="0.75" />
-      <rect x="14" y="-3" width="12" height="6" rx="1.5" fill="#16a34a" opacity="0.75" />
-    </g>
-
-    <!-- Runtime Active LED Node -->
-    <circle cx="436" cy="64" r="3.5" fill="#0284c7" />
-    <circle cx="436" cy="64" r="7.5" fill="#0284c7" opacity="0.18" />
-
     <!-- Precision Application Blueprint / Geometry Alignment Guides -->
     <g opacity="0.05" stroke="#0f172a" stroke-width="1">
       <!-- Crosshairs -->
@@ -144,8 +105,8 @@
   <!-- ALYA PRISM EMBLEM -->
   <g transform="translate(0, 16)">
     <!-- Subtle Ambient Shading (Light Theme) -->
-    <ellipse cx="256" cy="226" rx="85" ry="80" fill="#9333ea" opacity="0.08" />
-    <ellipse cx="256" cy="226" rx="60" ry="55" fill="#0284c7" opacity="0.09" />
+    <ellipse cx="256" cy="226" rx="95" ry="90" fill="#9333ea" opacity="0.08" />
+    <ellipse cx="256" cy="226" rx="65" ry="60" fill="#0284c7" opacity="0.09" />
 
     <!-- The 'A' Structure -->
     <g id="alya-prism">
@@ -174,41 +135,11 @@
     </g>
   </g>
 
-  <!-- APP IDENTITY BADGE PILL (ALYA APP) -->
+  <!-- APP MARKER: 4-tile matrix glyph, no text -->
   <g transform="translate(256, 412)">
-    <!-- Pill Container -->
-    <rect x="-106" y="-19" width="212" height="38" rx="19"
-          fill="url(#app-chip-bg-light)"
-          stroke="url(#app-chip-border-light)"
-          stroke-width="1.5" />
-
-    <!-- 4-Tile Application Matrix Glyph -->
-    <g transform="translate(-86, -6)">
-      <rect x="0" y="0" width="5.5" height="5.5" rx="1.5" fill="#7e22ce" />
-      <rect x="7.5" y="0" width="5.5" height="5.5" rx="1.5" fill="#0284c7" />
-      <rect x="0" y="7.5" width="5.5" height="5.5" rx="1.5" fill="#0284c7" />
-      <rect x="7.5" y="7.5" width="5.5" height="5.5" rx="1.5" fill="#7e22ce" />
-    </g>
-
-    <!-- Pure Vector Letterforms for ALYA APP (Light Theme: Dark Slate) -->
-    <g fill="#0f172a">
-      <!-- A -->
-      <path d="M -56 9 L -47.5 -9 L -39 9 L -43.5 9 L -45 5.2 L -50 5.2 L -51.5 9 Z M -47.5 -4.5 L -49 2 L -46 2 Z" />
-      <!-- L -->
-      <path d="M -33 -9 L -28.5 -9 L -28.5 5 L -21 5 L -21 9 L -33 9 Z" />
-      <!-- Y -->
-      <path d="M -16 -9 L -11.5 -9 L -8.5 -2.5 L -5.5 -9 L -1 -9 L -6 0.5 L -6 9 L -10.5 9 L -10.5 0.5 Z" />
-      <!-- A -->
-      <path d="M 4 9 L 12.5 -9 L 21 9 L 16.5 9 L 15 5.2 L 10 5.2 L 8.5 9 Z M 12.5 -4.5 L 11 2 L 14 2 Z" />
-
-      <!-- Word Gap -->
-
-      <!-- A -->
-      <path d="M 29 9 L 37.5 -9 L 46 9 L 41.5 9 L 40 5.2 L 35 5.2 L 33.5 9 Z M 37.5 -4.5 L 36 2 L 39 2 Z" />
-      <!-- P -->
-      <path d="M 51 9 L 51 -9 L 60.5 -9 C 64.5 -9 66 -6.5 66 -3.5 C 66 -0.5 64.5 2 60.5 2 L 55.5 2 L 55.5 9 Z M 55.5 -5.2 L 60.5 -5.2 C 61.8 -5.2 61.8 -1.8 60.5 -1.8 L 55.5 -1.8 Z" />
-      <!-- P -->
-      <path d="M 70 9 L 70 -9 L 79.5 -9 C 83.5 -9 85 -6.5 85 -3.5 C 85 -0.5 83.5 2 79.5 2 L 74.5 2 L 74.5 9 Z M 74.5 -5.2 L 79.5 -5.2 C 80.8 -5.2 80.8 -1.8 79.5 -1.8 L 74.5 -1.8 Z" />
-    </g>
+    <rect x="-17" y="-17" width="14" height="14" rx="4" fill="#7e22ce" />
+    <rect x="3" y="-17" width="14" height="14" rx="4" fill="#0284c7" />
+    <rect x="-17" y="3" width="14" height="14" rx="4" fill="#0284c7" />
+    <rect x="3" y="3" width="14" height="14" rx="4" fill="#7e22ce" />
   </g>
 </svg>

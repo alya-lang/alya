@@ -110,9 +110,11 @@
     <!-- Compiler Circuit Bus Traces -->
     <path d="M 36 295 H 85 L 115 325 H 135" stroke="#9333ea" stroke-width="1.4" opacity="0.22" fill="none" stroke-dasharray="4 3" />
     <circle cx="135" cy="325" r="2.5" fill="#9333ea" opacity="0.4" />
+    <circle cx="135" cy="325" r="5" fill="#9333ea" opacity="0.2" />
 
     <path d="M 476 295 H 427 L 397 325 H 377" stroke="#0284c7" stroke-width="1.4" opacity="0.22" fill="none" stroke-dasharray="4 3" />
     <circle cx="377" cy="325" r="2.5" fill="#0284c7" opacity="0.4" />
+    <circle cx="377" cy="325" r="5" fill="#0284c7" opacity="0.2" />
   </g>
 
   <!-- ALYA PRISM EMBLEM (Light Theme - Rich High-Contrast Facets) -->

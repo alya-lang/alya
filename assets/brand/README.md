@@ -65,16 +65,15 @@ assets/brand/
 - **Native Dimensions**: **`424 × 512 px`** (Height: 512px, Width: 424px, tightly bounded with no empty side gaps).
 
 ### 2. Compiler & CLI Application Icons (`icons/alya-*`)
-- **Silhouette**: Modern squircle terminal container with macOS/Linux traffic light window controls, frosted shell tab, active compiler status LED, and high-tech circuit bus traces.
-- **Centerpiece**: Precision 3D Alya Delta Prism with luminous speed chevron.
-- **Badge**: Bottom interactive CLI command pill `>_ alya` with a terminal prompt chevron, glowing cursor, and 100% vector-drawn letterforms.
+- **Silhouette**: Modern squircle container with gradient chassis stroke and high-tech circuit bus traces.
+- **Centerpiece**: Precision 3D Alya Delta Prism with luminous speed chevron, vertically centered.
 - **Native Dimensions**: **`512 × 512 px`** (Square 1:1, perfectly engineered for embedding directly into `alya.exe` binaries via Windows Resource tools or system application launchers).
 
 ### 3. Application Package Icons (`icons/alya-app-*`)
-- **Silhouette**: Universal desktop squircle app container with glassmorphism elevation shadow, frosted viewport header bar, app identity jewel (`◆`), and runtime execution status LED.
+- **Silhouette**: Universal desktop squircle app container with glassmorphism elevation shadow.
 - **Stage Layout**: Precision application blueprint alignment crosshairs and concentric geometry calibration rings (`0.04` opacity).
 - **Centerpiece**: Full-glory 3D Alya Delta Prism with supersonic speed chevron and glowing core spark.
-- **Badge**: Bottom native application pill `▦ ALYA APP` with a 4-tile UI architecture matrix glyph in alternating amethyst violet and azure cyan.
+- **Badge**: Bottom 4-tile UI architecture matrix glyph in alternating amethyst violet and azure cyan (no text — legible at all resolutions).
 - **Native Dimensions**: **`512 × 512 px`** (Square 1:1, default embedded icon for macOS `.app` bundles via `alya build --bundle` and desktop application packages).
 
 ### 4. Standalone Emblems (`logos/`)
