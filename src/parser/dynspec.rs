@@ -222,24 +222,28 @@ fn collect_candidates(program: &Program) -> HashMap<String, Candidate> {
 fn rewrite_calls(
     stmts: &mut [Stmt],
     candidates: &HashMap<String, Candidate>,
+    binds: &HashMap<String, HashMap<String, BindVal>>,
+    scope: Option<&str>,
     versions: &mut HashMap<String, usize>,
     new_clones: &mut Vec<Stmt>,
 ) {
     for stmt in stmts.iter_mut() {
-        rewrite_stmt_calls(stmt, candidates, versions, new_clones);
+        rewrite_stmt_calls(stmt, candidates, binds, scope, versions, new_clones);
     }
 }
 
 fn rewrite_expr_calls(
     expr: &mut Expr,
     candidates: &HashMap<String, Candidate>,
+    binds: &HashMap<String, HashMap<String, BindVal>>,
+    scope: Option<&str>,
     versions: &mut HashMap<String, usize>,
     new_clones: &mut Vec<Stmt>,
 ) {
     match expr {
         Expr::Call { name, args } => {
             for arg in args.iter_mut() {
-                rewrite_expr_calls(arg, candidates, versions, new_clones);
+                rewrite_expr_calls(arg, candidates, binds, scope, versions, new_clones);
             }
             if name.contains("__spk__") {
                 return;
@@ -263,8 +267,9 @@ fn rewrite_expr_calls(
                 return;
             }
             let mut codes = String::new();
+            let scope_binds = scope.and_then(|s| binds.get(s));
             for &i in &cand.open_idx {
-                match args.get(i).and_then(arg_kind_code) {
+                match args.get(i).and_then(|a| classify_arg(a, scope_binds)) {
                     Some(c) => codes.push(c),
                     None => return,
                 }
@@ -282,54 +287,54 @@ fn rewrite_expr_calls(
             }
         }
         Expr::Binary { left, right, .. } => {
-            rewrite_expr_calls(left, candidates, versions, new_clones);
-            rewrite_expr_calls(right, candidates, versions, new_clones);
+            rewrite_expr_calls(left, candidates, binds, scope, versions, new_clones);
+            rewrite_expr_calls(right, candidates, binds, scope, versions, new_clones);
         }
         Expr::Unary { expr: inner, .. } | Expr::ForceUnwrap(inner) => {
-            rewrite_expr_calls(inner, candidates, versions, new_clones);
+            rewrite_expr_calls(inner, candidates, binds, scope, versions, new_clones);
         }
         Expr::Array(items) | Expr::InterpolatedString(items) => {
             for item in items {
-                rewrite_expr_calls(item, candidates, versions, new_clones);
+                rewrite_expr_calls(item, candidates, binds, scope, versions, new_clones);
             }
         }
         Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
-            rewrite_expr_calls(array, candidates, versions, new_clones);
-            rewrite_expr_calls(index, candidates, versions, new_clones);
+            rewrite_expr_calls(array, candidates, binds, scope, versions, new_clones);
+            rewrite_expr_calls(index, candidates, binds, scope, versions, new_clones);
         }
         Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
-            rewrite_expr_calls(object, candidates, versions, new_clones);
+            rewrite_expr_calls(object, candidates, binds, scope, versions, new_clones);
         }
         Expr::Ternary {
             condition,
             then_branch,
             else_branch,
         } => {
-            rewrite_expr_calls(condition, candidates, versions, new_clones);
-            rewrite_expr_calls(then_branch, candidates, versions, new_clones);
-            rewrite_expr_calls(else_branch, candidates, versions, new_clones);
+            rewrite_expr_calls(condition, candidates, binds, scope, versions, new_clones);
+            rewrite_expr_calls(then_branch, candidates, binds, scope, versions, new_clones);
+            rewrite_expr_calls(else_branch, candidates, binds, scope, versions, new_clones);
         }
         Expr::NullCoalesce { value, default } => {
-            rewrite_expr_calls(value, candidates, versions, new_clones);
-            rewrite_expr_calls(default, candidates, versions, new_clones);
+            rewrite_expr_calls(value, candidates, binds, scope, versions, new_clones);
+            rewrite_expr_calls(default, candidates, binds, scope, versions, new_clones);
         }
         Expr::StructInit { fields, .. } => {
             for (_, v) in fields {
-                rewrite_expr_calls(v, candidates, versions, new_clones);
+                rewrite_expr_calls(v, candidates, binds, scope, versions, new_clones);
             }
         }
         Expr::Map(pairs) => {
             for (k, v) in pairs {
-                rewrite_expr_calls(k, candidates, versions, new_clones);
-                rewrite_expr_calls(v, candidates, versions, new_clones);
+                rewrite_expr_calls(k, candidates, binds, scope, versions, new_clones);
+                rewrite_expr_calls(v, candidates, binds, scope, versions, new_clones);
             }
         }
         Expr::Cast { expr: inner, .. } => {
-            rewrite_expr_calls(inner, candidates, versions, new_clones);
+            rewrite_expr_calls(inner, candidates, binds, scope, versions, new_clones);
         }
         Expr::OptionalCall { args, .. } => {
             for arg in args {
-                rewrite_expr_calls(arg, candidates, versions, new_clones);
+                rewrite_expr_calls(arg, candidates, binds, scope, versions, new_clones);
             }
         }
         _ => {}
@@ -373,6 +378,8 @@ fn clone_for_codes(cand: &Candidate, spec_name: &str) -> Stmt {
 fn rewrite_stmt_calls(
     stmt: &mut Stmt,
     candidates: &HashMap<String, Candidate>,
+    binds: &HashMap<String, HashMap<String, BindVal>>,
+    scope: Option<&str>,
     versions: &mut HashMap<String, usize>,
     new_clones: &mut Vec<Stmt>,
 ) {
@@ -382,46 +389,52 @@ fn rewrite_stmt_calls(
         | Stmt::Say(value)
         | Stmt::Expr(value)
         | Stmt::Return(Some(value))
-        | Stmt::Throw(Some(value)) => rewrite_expr_calls(value, candidates, versions, new_clones),
-        Stmt::Const { value, .. } => rewrite_expr_calls(value, candidates, versions, new_clones),
+        | Stmt::Throw(Some(value)) => {
+            rewrite_expr_calls(value, candidates, binds, scope, versions, new_clones)
+        }
+        Stmt::Const { value, .. } => {
+            rewrite_expr_calls(value, candidates, binds, scope, versions, new_clones)
+        }
         Stmt::IndexAssign {
             array,
             index,
             value,
         } => {
-            rewrite_expr_calls(array, candidates, versions, new_clones);
-            rewrite_expr_calls(index, candidates, versions, new_clones);
-            rewrite_expr_calls(value, candidates, versions, new_clones);
+            rewrite_expr_calls(array, candidates, binds, scope, versions, new_clones);
+            rewrite_expr_calls(index, candidates, binds, scope, versions, new_clones);
+            rewrite_expr_calls(value, candidates, binds, scope, versions, new_clones);
         }
         Stmt::FieldAssign { object, .. } => {
-            rewrite_expr_calls(object, candidates, versions, new_clones)
+            rewrite_expr_calls(object, candidates, binds, scope, versions, new_clones)
         }
         Stmt::If {
             condition,
             then_block,
             else_block,
         } => {
-            rewrite_expr_calls(condition, candidates, versions, new_clones);
-            rewrite_calls(then_block, candidates, versions, new_clones);
+            rewrite_expr_calls(condition, candidates, binds, scope, versions, new_clones);
+            rewrite_calls(then_block, candidates, binds, scope, versions, new_clones);
             if let Some(eb) = else_block {
-                rewrite_calls(eb, candidates, versions, new_clones);
+                rewrite_calls(eb, candidates, binds, scope, versions, new_clones);
             }
         }
         Stmt::While { condition, body } => {
-            rewrite_expr_calls(condition, candidates, versions, new_clones);
-            rewrite_calls(body, candidates, versions, new_clones);
+            rewrite_expr_calls(condition, candidates, binds, scope, versions, new_clones);
+            rewrite_calls(body, candidates, binds, scope, versions, new_clones);
         }
-        Stmt::Repeat { body } => rewrite_calls(body, candidates, versions, new_clones),
+        Stmt::Repeat { body } => {
+            rewrite_calls(body, candidates, binds, scope, versions, new_clones)
+        }
         Stmt::For {
             start, end, body, ..
         } => {
-            rewrite_expr_calls(start, candidates, versions, new_clones);
-            rewrite_expr_calls(end, candidates, versions, new_clones);
-            rewrite_calls(body, candidates, versions, new_clones);
+            rewrite_expr_calls(start, candidates, binds, scope, versions, new_clones);
+            rewrite_expr_calls(end, candidates, binds, scope, versions, new_clones);
+            rewrite_calls(body, candidates, binds, scope, versions, new_clones);
         }
         Stmt::ForEach { iterable, body, .. } => {
-            rewrite_expr_calls(iterable, candidates, versions, new_clones);
-            rewrite_calls(body, candidates, versions, new_clones);
+            rewrite_expr_calls(iterable, candidates, binds, scope, versions, new_clones);
+            rewrite_calls(body, candidates, binds, scope, versions, new_clones);
         }
         Stmt::TryCatch {
             try_block,
@@ -429,17 +442,145 @@ fn rewrite_stmt_calls(
             finally_block,
             ..
         } => {
-            rewrite_calls(try_block, candidates, versions, new_clones);
-            rewrite_calls(catch_block, candidates, versions, new_clones);
+            rewrite_calls(try_block, candidates, binds, scope, versions, new_clones);
+            rewrite_calls(catch_block, candidates, binds, scope, versions, new_clones);
             if let Some(fb) = finally_block {
-                rewrite_calls(fb, candidates, versions, new_clones);
+                rewrite_calls(fb, candidates, binds, scope, versions, new_clones);
             }
         }
         Stmt::Defer(inner) | Stmt::Pub(inner) => {
-            rewrite_stmt_calls(inner, candidates, versions, new_clones)
+            rewrite_stmt_calls(inner, candidates, binds, scope, versions, new_clones)
         }
-        Stmt::Function { body, .. } => rewrite_calls(body, candidates, versions, new_clones),
+        // Nested definitions close over unknown bindings: no scope map.
+        Stmt::Function { body, .. } => {
+            rewrite_calls(body, candidates, binds, None, versions, new_clones)
+        }
         _ => {}
+    }
+}
+
+/// A single-assignment binding: either a proven kind or a literal
+/// array whose constant indexes classify per element.
+#[derive(Clone)]
+enum BindVal {
+    Kind(char),
+    LitArray(Vec<Expr>),
+}
+
+fn count_assigns(stmts: &[Stmt], counts: &mut HashMap<String, usize>) {
+    for s in stmts {
+        match s.inner_stmt() {
+            Stmt::Let { name, .. } | Stmt::Assign { name, .. } => {
+                *counts.entry(name.clone()).or_insert(0) += 1;
+            }
+            Stmt::For { var, body, .. } => {
+                *counts.entry(var.clone()).or_insert(0) += 1;
+                count_assigns(body, counts);
+            }
+            Stmt::ForEach {
+                var,
+                value_var,
+                body,
+                ..
+            } => {
+                *counts.entry(var.clone()).or_insert(0) += 1;
+                if let Some(v) = value_var {
+                    *counts.entry(v.clone()).or_insert(0) += 1;
+                }
+                count_assigns(body, counts);
+            }
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                count_assigns(then_block, counts);
+                if let Some(eb) = else_block {
+                    count_assigns(eb, counts);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body } => count_assigns(body, counts),
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                count_assigns(try_block, counts);
+                count_assigns(catch_block, counts);
+                if let Some(fb) = finally_block {
+                    count_assigns(fb, counts);
+                }
+            }
+            Stmt::Defer(inner) | Stmt::Pub(inner) => {
+                count_assigns(std::slice::from_ref(inner), counts)
+            }
+            // Nested definitions are separate scopes: never counted here.
+            _ => {}
+        }
+    }
+}
+
+fn literal_binds(stmts: &[Stmt], counts: &HashMap<String, usize>) -> HashMap<String, BindVal> {
+    let mut out = HashMap::new();
+    // Pass 1: direct literals.
+    for s in stmts {
+        if let Stmt::Let { name, value, .. } = s.inner_stmt() {
+            if counts.get(name).copied().unwrap_or(0) != 1 {
+                continue;
+            }
+            match value {
+                Expr::Array(elems) => {
+                    out.insert(name.clone(), BindVal::LitArray(elems.clone()));
+                }
+                other => {
+                    if let Some(c) = arg_kind_code(other) {
+                        out.insert(name.clone(), BindVal::Kind(c));
+                    }
+                }
+            }
+        }
+    }
+    // Pass 2: single-level aliases (`let x = y`).
+    for s in stmts {
+        if let Stmt::Let { name, value, .. } = s.inner_stmt() {
+            if counts.get(name).copied().unwrap_or(0) != 1 {
+                continue;
+            }
+            if let Expr::Identifier(src) = value {
+                if let Some(BindVal::Kind(c)) = out.get(src) {
+                    out.insert(name.clone(), BindVal::Kind(*c));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Classify a call argument: literals always; identifiers and constant
+/// indexes through single-assignment bindings; anything else stays
+/// generic (sound fallback).
+fn classify_arg(arg: &Expr, binds: Option<&HashMap<String, BindVal>>) -> Option<char> {
+    if let Some(c) = arg_kind_code(arg) {
+        return Some(c);
+    }
+    let binds = binds?;
+    match arg {
+        Expr::Identifier(name) => match binds.get(name) {
+            Some(BindVal::Kind(c)) => Some(*c),
+            _ => None,
+        },
+        Expr::Index { array, index } => {
+            if let (Expr::Identifier(arr), Expr::Number(idx)) = (&**array, &**index) {
+                if let Some(BindVal::LitArray(elems)) = binds.get(arr) {
+                    if let Some(elem) = elems.get(*idx as usize) {
+                        return arg_kind_code(elem);
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
     }
 }
 
@@ -450,12 +591,40 @@ pub fn resolve_dynspec(program: &mut Program) {
     if candidates.is_empty() {
         return;
     }
+    // Per-scope single-assignment literal bindings (`fn name` or `""`
+    // for top level). Reassignment anywhere in the scope voids the
+    // entry, so routing stays sound. Nested function bodies get no
+    // map (shadowing would be unsound); their calls use literals only.
+    let mut binds: HashMap<String, HashMap<String, BindVal>> = HashMap::new();
+    {
+        let mut top_counts = HashMap::new();
+        count_assigns(&program.statements, &mut top_counts);
+        binds.insert(
+            String::new(),
+            literal_binds(&program.statements, &top_counts),
+        );
+    }
+    for stmt in &program.statements {
+        if let Stmt::Function { name, body, .. } = stmt.inner_stmt() {
+            let mut counts = HashMap::new();
+            count_assigns(body, &mut counts);
+            binds.insert(name.clone(), literal_binds(body, &counts));
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            if bare != name {
+                binds.insert(
+                    bare.to_string(),
+                    binds.get(name).cloned().unwrap_or_default(),
+                );
+            }
+        }
+    }
     let mut versions: HashMap<String, usize> = HashMap::new();
     let mut round = 0;
     loop {
         let mut new_clones: Vec<Stmt> = Vec::new();
         for stmt in program.statements.iter_mut() {
-            rewrite_stmt_calls(stmt, &candidates, &mut versions, &mut new_clones);
+            walk_top_stmt(stmt, &candidates, &binds, &mut versions, &mut new_clones);
         }
         if new_clones.is_empty() {
             break;
@@ -463,12 +632,52 @@ pub fn resolve_dynspec(program: &mut Program) {
         // Visit nested calls inside the new clones before publishing,
         // so chains resolve within the round budget.
         for mut clone in new_clones {
-            rewrite_stmt_calls(&mut clone, &candidates, &mut versions, &mut Vec::new());
+            walk_top_stmt(
+                &mut clone,
+                &candidates,
+                &binds,
+                &mut versions,
+                &mut Vec::new(),
+            );
             program.statements.push(clone);
         }
         round += 1;
         if round >= MAX_ROUNDS {
             break;
         }
+    }
+}
+
+/// Walks one top-level statement: function bodies use their own scope
+/// map (clones reuse their origin's); everything else uses the
+/// top-level map.
+fn walk_top_stmt(
+    stmt: &mut Stmt,
+    candidates: &HashMap<String, Candidate>,
+    binds: &HashMap<String, HashMap<String, BindVal>>,
+    versions: &mut HashMap<String, usize>,
+    new_clones: &mut Vec<Stmt>,
+) {
+    let scope: Option<String> = match stmt.inner_stmt() {
+        Stmt::Function { name, .. } => {
+            if binds.contains_key(name as &str) {
+                Some(name.clone())
+            } else {
+                let origin = name.split("__spk__").next().unwrap_or(name);
+                binds.get_key_value(origin).map(|(k, _)| k.clone())
+            }
+        }
+        _ => Some(String::new()),
+    };
+    match stmt.inner_stmt_mut() {
+        Stmt::Function { body, .. } => rewrite_calls(
+            body,
+            candidates,
+            binds,
+            scope.as_deref(),
+            versions,
+            new_clones,
+        ),
+        _ => rewrite_stmt_calls(stmt, candidates, binds, Some(""), versions, new_clones),
     }
 }

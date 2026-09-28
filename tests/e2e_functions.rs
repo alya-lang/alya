@@ -773,3 +773,35 @@ main()
         assert_eq!(output, "s\ni\nf\n?\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_kind_dispatch_bound_names_and_indexes() {
+    // alya-lang/alya#39 Phase 2b: single-assignment let-bound literals
+    // and constant indexes into literal arrays also specialize.
+    let code = r#"
+function kind(v) -> string
+    return when v
+        is string => "s"
+        is int => "i"
+        is float => "f"
+        else => "?"
+    end
+end
+
+function main()
+    let name = "Ada"
+    say kind(name)
+    let vals = ["a", 1]
+    say kind(vals[0])
+    say kind(vals[1])
+    let n = 36
+    say kind(n)
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "s\ns\ni\ni\n", "Got: {}", output);
+    }
+}
