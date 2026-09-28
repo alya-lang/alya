@@ -70,7 +70,7 @@ fn run_platform(cmd: &IconsCommand) -> Result<(), String> {
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn run_platform(_cmd: &IconsCommand) -> Result<(), String> {
-    Err("Error: 'alya icons' supports Windows and Linux. On macOS file icons belong to the owning application bundle and cannot be registered from the CLI.".to_string())
+    Err("Error: 'alya icons' supports Windows and Linux. On macOS file icons belong to the owning application bundle: use 'alya build --bundle --os macos --doc-type <ext>:<uti>[:icon]'.".to_string())
 }
 
 #[cfg(target_os = "windows")]

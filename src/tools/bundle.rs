@@ -10,6 +10,15 @@ const DEFAULT_APP_ICON_ICO: &[u8] = include_bytes!("../../assets/brand/icons/aly
 /// Default embedded PNG icon for Linux desktop entries.
 const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../../assets/brand/icons/alya-app-dark.png");
 
+/// A macOS document type claimed by a bundle: file extension, exported UTI,
+/// and an optional `.icns` staged as the type icon.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocType {
+    pub extension: String,
+    pub uti: String,
+    pub icon_path: Option<String>,
+}
+
 /// Target platform for a bundle. `BundleOptions::new` defaults to macOS
 /// (historical behavior of `--bundle`); callers set the real target
 /// explicitly for Windows/Linux output.
@@ -45,6 +54,11 @@ pub struct BundleOptions {
     /// GUI application: enables PerMonitorV2 DPI awareness (Windows
     /// manifest) and desktop integration hints (Linux `.desktop`).
     pub gui: bool,
+    /// macOS only: document types claimed by this bundle
+    /// (`CFBundleDocumentTypes` + exported UTIs + staged type icons).
+    /// Opt-in via repeatable `--doc-type`; empty by default because a claim
+    /// can take double-click-to-open away from the user's editor.
+    pub doc_types: Vec<DocType>,
 }
 
 impl BundleOptions {
@@ -74,6 +88,7 @@ impl BundleOptions {
             os: BundleOs::MacOs,
             arch: None,
             gui: false,
+            doc_types: Vec::new(),
         }
     }
 
@@ -142,6 +157,11 @@ impl BundleOptions {
 
         // Install AppIcon.icns
         self.install_icon()?;
+
+        // Opt-in document types: stage their icons.
+        if !self.doc_types.is_empty() {
+            self.install_doc_icons()?;
+        }
 
         Ok(())
     }
@@ -447,6 +467,7 @@ impl BundleOptions {
             format!("com.alya.{}", clean_name)
         });
         let version = self.bundle_version.as_deref().unwrap_or("1.0.0");
+        let doc_types = self.generate_doc_types_xml();
 
         format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -475,11 +496,79 @@ impl BundleOptions {
     <string>11.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+{}
 </dict>
 </plist>
 "#,
-            self.app_name, id, self.app_name, version
+            self.app_name, id, self.app_name, version, doc_types
         )
+    }
+
+    /// Renders `CFBundleDocumentTypes` plus deduplicated
+    /// `UTExportedTypeDeclarations` for the claimed document types.
+    /// Empty when nothing is claimed. Pure over `doc_types` so it stays
+    /// unit-testable without touching the filesystem.
+    fn generate_doc_types_xml(&self) -> String {
+        if self.doc_types.is_empty() {
+            return String::new();
+        }
+        let mut out = String::from("    <key>CFBundleDocumentTypes</key>\n    <array>\n");
+        for doc in &self.doc_types {
+            out.push_str("        <dict>\n");
+            out.push_str("            <key>CFBundleTypeName</key>\n");
+            out.push_str(&format!(
+                "            <string>{} file</string>\n",
+                doc.extension
+            ));
+            out.push_str("            <key>CFBundleTypeRole</key>\n");
+            out.push_str("            <string>Editor</string>\n");
+            out.push_str("            <key>LSItemContentTypes</key>\n");
+            out.push_str("            <array>\n");
+            out.push_str(&format!("                <string>{}</string>\n", doc.uti));
+            out.push_str("            </array>\n");
+            if doc.icon_path.is_some() {
+                out.push_str("            <key>CFBundleTypeIconFile</key>\n");
+                out.push_str(&format!(
+                    "            <string>{}</string>\n",
+                    Self::doc_icon_basename(&doc.extension)
+                ));
+            }
+            out.push_str("        </dict>\n");
+        }
+        out.push_str("    </array>\n");
+        out.push_str("    <key>UTExportedTypeDeclarations</key>\n    <array>\n");
+        let mut seen_utis: Vec<&str> = Vec::new();
+        for doc in &self.doc_types {
+            if seen_utis.contains(&doc.uti.as_str()) {
+                continue;
+            }
+            seen_utis.push(doc.uti.as_str());
+            out.push_str("        <dict>\n");
+            out.push_str("            <key>UTTypeIdentifier</key>\n");
+            out.push_str(&format!("            <string>{}</string>\n", doc.uti));
+            out.push_str("            <key>UTTypeDescription</key>\n");
+            out.push_str(&format!(
+                "            <string>{} file</string>\n",
+                doc.extension
+            ));
+            out.push_str("            <key>UTTypeConformsTo</key>\n");
+            out.push_str("            <array>\n");
+            out.push_str("                <string>public.data</string>\n");
+            out.push_str("            </array>\n");
+            out.push_str("            <key>UTTypeTagSpecification</key>\n");
+            out.push_str("            <dict>\n");
+            out.push_str("                <key>public.filename-extension</key>\n");
+            out.push_str("                <array>\n");
+            out.push_str(&format!(
+                "                    <string>{}</string>\n",
+                doc.extension
+            ));
+            out.push_str("                </array>\n");
+            out.push_str("            </dict>\n");
+            out.push_str("        </dict>\n");
+        }
+        out.push_str("    </array>\n");
+        out
     }
 
     fn install_icon(&self) -> Result<(), String> {
@@ -517,6 +606,47 @@ impl BundleOptions {
 
         Ok(())
     }
+
+    /// Resource basename for a claimed extension (`alya` -> `AlyaFile`).
+    /// Pure over text so it stays unit-testable.
+    fn doc_icon_basename(extension: &str) -> String {
+        let clean: String = extension
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .collect();
+        let clean = if clean.is_empty() {
+            "Doc".to_string()
+        } else {
+            clean
+        };
+        match clean.chars().next() {
+            Some(first) => {
+                let rest: String = clean.chars().skip(1).collect();
+                format!("{}{}File", first.to_ascii_uppercase(), rest)
+            }
+            None => "DocFile".to_string(),
+        }
+    }
+
+    /// Stages the type icons (`<Name>File.icns`) referenced by the claimed
+    /// document types. macOS only, opt-in via `--doc-type`.
+    fn install_doc_icons(&self) -> Result<(), String> {
+        let resources = self.bundle_dir.join("Contents").join("Resources");
+        for doc in &self.doc_types {
+            if let Some(ref custom_icon) = doc.icon_path {
+                let target =
+                    resources.join(format!("{}.icns", Self::doc_icon_basename(&doc.extension)));
+                if Path::new(custom_icon).exists() {
+                    fs::copy(custom_icon, &target).map_err(|e| {
+                        format!("Failed to copy doc icon from '{}': {}", custom_icon, e)
+                    })?;
+                } else {
+                    return Err(format!("Doc icon file not found: {}", custom_icon));
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -552,6 +682,96 @@ mod tests {
             fs::read_to_string(bundle_name.join("Contents").join("Info.plist")).unwrap();
         assert!(plist_content.contains("<string>TestApp</string>"));
         assert!(plist_content.contains("<string>com.alya.testapp</string>"));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_macos_doc_types_plist() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("alya_test_doctype_{}", std::process::id()));
+        let bundle_name = temp_dir.join("ClaimApp.app");
+        let mut opts = BundleOptions::new("ClaimApp", Some(bundle_name.to_str().unwrap()));
+        opts.doc_types = vec![
+            DocType {
+                extension: "alya".to_string(),
+                uti: "com.alya.source".to_string(),
+                icon_path: None,
+            },
+            DocType {
+                extension: "myext".to_string(),
+                uti: "com.example.myext".to_string(),
+                icon_path: None,
+            },
+        ];
+
+        let plist = opts.generate_info_plist();
+        assert!(
+            plist.contains("CFBundleDocumentTypes"),
+            "missing doc types:\n{}",
+            plist
+        );
+        assert!(plist.contains("com.alya.source"), "missing UTI:\n{}", plist);
+        assert!(
+            plist.contains("com.example.myext"),
+            "missing 2nd UTI:\n{}",
+            plist
+        );
+        assert!(
+            plist.contains("public.filename-extension"),
+            "missing extension tag:\n{}",
+            plist
+        );
+        assert!(
+            !plist.contains("CFBundleTypeIconFile"),
+            "icon key without icon:\n{}",
+            plist
+        );
+
+        let plain = BundleOptions::new("ClaimApp", Some(bundle_name.to_str().unwrap()));
+        let plain_plist = plain.generate_info_plist();
+        assert!(!plain_plist.contains("CFBundleDocumentTypes"));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_macos_doc_type_icon_staging() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("alya_test_docicon_{}", std::process::id()));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let custom = temp_dir.join("custom.icns");
+        fs::write(&custom, [0x69, 0x63, 0x6e, 0x73]).unwrap();
+
+        let bundle_name = temp_dir.join("DocApp.app");
+        let mut opts = BundleOptions::new("DocApp", Some(bundle_name.to_str().unwrap()));
+        opts.doc_types = vec![DocType {
+            extension: "myext".to_string(),
+            uti: "com.example.myext".to_string(),
+            icon_path: Some(custom.to_str().unwrap().to_string()),
+        }];
+
+        let plist = opts.generate_info_plist();
+        assert!(
+            plist.contains("MyextFile"),
+            "missing icon reference:\n{}",
+            plist
+        );
+
+        let res = opts.create_structure();
+        assert!(res.is_ok(), "create_structure failed: {:?}", res);
+        let staged = bundle_name
+            .join("Contents")
+            .join("Resources")
+            .join("MyextFile.icns");
+        assert!(staged.is_file());
+        assert_eq!(fs::read(&staged).unwrap(), [0x69, 0x63, 0x6e, 0x73]);
+
+        assert_eq!(BundleOptions::doc_icon_basename("alya"), "AlyaFile");
+
+        opts.doc_types[0].icon_path =
+            Some(temp_dir.join("missing.icns").to_str().unwrap().to_string());
+        assert!(opts.create_structure().is_err());
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

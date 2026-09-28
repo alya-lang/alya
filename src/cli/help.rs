@@ -214,6 +214,7 @@ pub fn print_build_help() {
     println!("  --gui               GUI application bundle (implies --bundle)");
     println!("  --bundle-id <id>    Set CFBundleIdentifier (default: com.alya.<name>)");
     println!("  --icon <path>       Set custom application icon (.icns) for macOS bundle");
+    println!("  --doc-type <spec>   macOS bundle claims a document type: <ext>:<uti>[:icon.icns] (repeatable)");
     println!("  --arch <arch>       Target architecture: x86, x64, arm64");
     println!("  --os <os>           Target OS: windows, linux, macos");
     println!("  -q, --quiet         Suppress status messages and compiler banner");
@@ -504,7 +505,9 @@ pub fn print_icons_help() {
     println!("PLATFORMS:");
     println!("  Windows registers the AlyaLang.alya ProgID (HKCU, no admin rights).");
     println!("  Linux installs a text/x-alya MIME type plus the hicolor icon.");
-    println!("  macOS is unsupported: document icons belong to the owning app bundle.\n");
+    println!(
+        "  macOS is per-app: 'alya build --bundle --os macos --doc-type <ext>:<uti>[:icon]'.\n"
+    );
     println!("EXAMPLES:");
     println!("  alya icons status                  # Inspect current association");
     println!("  alya icons install                 # Register Alya file icons");

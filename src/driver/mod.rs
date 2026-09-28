@@ -218,6 +218,12 @@ pub fn run(args: CliArgs) -> Result<(), String> {
                 .with_gui(args.gui);
         opts.bundle_id = args.bundle_id.clone();
         opts.icon_path = args.icon_path.clone();
+        opts.doc_types = args.doc_types.clone();
+        if !opts.doc_types.is_empty() && !matches!(args.os, OperatingSystem::MacOS) {
+            return Err(
+                "Error: '--doc-type' requires '--os macos' (macOS bundles only).".to_string(),
+            );
+        }
         opts.create_structure()?;
         Some(opts)
     } else {

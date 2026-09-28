@@ -214,6 +214,86 @@ fn test_gui_flag_implies_bundle() {
 }
 
 #[test]
+fn test_doc_type_flag_parsing() {
+    use crate::tools::bundle::DocType;
+
+    let args = to_args(&[
+        "alya",
+        "build",
+        "app.alya",
+        "--os",
+        "macos",
+        "--doc-type",
+        "alya:com.alya.source:brand.icns",
+        "--doc-type",
+        "myext:com.example.myext",
+    ]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    assert!(parsed.bundle);
+    assert!(parsed.output_binary);
+    assert_eq!(parsed.os, OperatingSystem::MacOS);
+    assert_eq!(
+        parsed.doc_types,
+        vec![
+            DocType {
+                extension: "alya".into(),
+                uti: "com.alya.source".into(),
+                icon_path: Some("brand.icns".into()),
+            },
+            DocType {
+                extension: "myext".into(),
+                uti: "com.example.myext".into(),
+                icon_path: None,
+            },
+        ]
+    );
+
+    // Windows drive-letter paths survive the colon split.
+    let args_winpath = to_args(&[
+        "alya",
+        "build",
+        "app.alya",
+        "--doc-type",
+        "myext:com.example.myext:C:\\icons\\doc.icns",
+    ]);
+    let parsed_winpath = CliArgs::parse_from(&args_winpath).unwrap().unwrap();
+    assert_eq!(
+        parsed_winpath.doc_types[0].icon_path,
+        Some("C:\\icons\\doc.icns".into())
+    );
+
+    let args_plain = to_args(&["alya", "build", "app.alya"]);
+    let parsed_plain = CliArgs::parse_from(&args_plain).unwrap().unwrap();
+    assert!(parsed_plain.doc_types.is_empty());
+
+    assert!(CliArgs::parse_from(&to_args(&["alya", "build", "app.alya", "--doc-type"])).is_err());
+    assert!(CliArgs::parse_from(&to_args(&[
+        "alya",
+        "build",
+        "app.alya",
+        "--doc-type",
+        "alya"
+    ]))
+    .is_err());
+    assert!(CliArgs::parse_from(&to_args(&[
+        "alya",
+        "build",
+        "app.alya",
+        "--doc-type",
+        ".alya:com.alya.source"
+    ]))
+    .is_err());
+    assert!(CliArgs::parse_from(&to_args(&[
+        "alya",
+        "build",
+        "app.alya",
+        "--doc-type",
+        "alya:not-a-uti"
+    ]))
+    .is_err());
+}
+
+#[test]
 fn test_pkg_init_cli() {
     let args = to_args(&["alya", "init", "my_pkg", "--lib"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();

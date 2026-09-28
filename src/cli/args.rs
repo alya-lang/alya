@@ -1,5 +1,6 @@
 use crate::codegen::{Architecture, OperatingSystem};
 use crate::driver::toolchain::ToolchainCommand;
+use crate::tools::bundle::DocType;
 use crate::tools::icons::{IconTheme, IconsCommand};
 use crate::tools::pkg::PkgCommand;
 use std::env;
@@ -68,6 +69,7 @@ pub struct CliArgs {
     pub bundle_id: Option<String>,
     pub icon_path: Option<String>,
     pub gui: bool,
+    pub doc_types: Vec<DocType>,
     pub run_args: Vec<String>,
     pub test_jobs: Option<usize>,
     pub no_std: bool,
@@ -118,6 +120,7 @@ impl CliArgs {
                 sort_imports: false,
                 bundle: false,
                 gui: false,
+                doc_types: Vec::new(),
                 bundle_id: None,
                 icon_path: None,
                 run_args: Vec::new(),
@@ -413,6 +416,7 @@ impl CliArgs {
         let mut bundle_id = None;
         let mut icon_path = None;
         let mut gui = false;
+        let mut doc_types: Vec<DocType> = Vec::new();
         let mut os_explicit = false;
         let mut arch_explicit = false;
         let mut run_args = Vec::new();
@@ -561,6 +565,16 @@ impl CliArgs {
                         return Err("Error: Missing argument for '--icon'".to_string());
                     }
                 }
+                "--doc-type" => {
+                    if i + 1 < args.len() {
+                        doc_types.push(parse_doc_type_flag(&args[i + 1])?);
+                        bundle = true;
+                        output_binary = true;
+                        i += 1;
+                    } else {
+                        return Err("Error: Missing argument for '--doc-type'".to_string());
+                    }
+                }
                 "--arch" => {
                     if i + 1 < args.len() {
                         arch_explicit = true;
@@ -677,6 +691,7 @@ impl CliArgs {
             bundle_id,
             icon_path,
             gui,
+            doc_types,
             run_args,
             test_jobs,
             no_std,
@@ -713,6 +728,7 @@ impl CliArgs {
             sort_imports: false,
             bundle: false,
             gui: false,
+            doc_types: Vec::new(),
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
@@ -751,6 +767,7 @@ impl CliArgs {
             sort_imports: false,
             bundle: false,
             gui: false,
+            doc_types: Vec::new(),
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
@@ -789,6 +806,7 @@ impl CliArgs {
             sort_imports: false,
             bundle: false,
             gui: false,
+            doc_types: Vec::new(),
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
@@ -809,6 +827,43 @@ impl CliArgs {
     pub fn print_full_usage() {
         crate::cli::help::print_full_usage();
     }
+}
+
+/// Parses `--doc-type <ext>:<uti>[:icon.icns>]` into a [`DocType`].
+/// `splitn` keeps Windows drive-letter paths (`C:\...`) in the icon segment.
+fn parse_doc_type_flag(spec: &str) -> Result<DocType, String> {
+    let parts: Vec<&str> = spec.splitn(3, ':').collect();
+    if parts.len() < 2 {
+        return Err(format!(
+            "Error: Invalid '--doc-type' value '{}'. Expected <ext>:<uti>[:icon.icns].",
+            spec
+        ));
+    }
+    let (extension, uti) = (parts[0], parts[1]);
+    if extension.is_empty()
+        || extension.contains('.')
+        || extension.contains('/')
+        || extension.contains('\\')
+    {
+        return Err(format!(
+            "Error: Invalid extension '{}' in '--doc-type'. Expected a bare extension like 'alya'.",
+            extension
+        ));
+    }
+    if !uti.contains('.') {
+        return Err(format!(
+            "Error: Invalid UTI '{}' in '--doc-type'. Expected reverse-DNS like 'com.example.mytype'.",
+            uti
+        ));
+    }
+    Ok(DocType {
+        extension: extension.to_string(),
+        uti: uti.to_string(),
+        icon_path: parts
+            .get(2)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string()),
+    })
 }
 
 fn parse_doc_args(args: &[String]) -> Result<CommandKind, String> {
