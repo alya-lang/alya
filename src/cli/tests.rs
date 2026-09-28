@@ -499,3 +499,60 @@ fn test_help_topic_dispatch() {
     );
     assert!(CliArgs::parse_from(&to_args(&["alya", "help", "bogus"])).is_err());
 }
+
+#[test]
+fn test_subcommand_icons() {
+    use crate::tools::icons::{IconTheme, IconsCommand};
+
+    let parsed = CliArgs::parse_from(&to_args(&["alya", "icons"]))
+        .unwrap()
+        .unwrap();
+    assert_eq!(parsed.command, CommandKind::Icons(IconsCommand::Status));
+
+    let parsed = CliArgs::parse_from(&to_args(&["alya", "icons", "status"]))
+        .unwrap()
+        .unwrap();
+    assert_eq!(parsed.command, CommandKind::Icons(IconsCommand::Status));
+
+    let parsed = CliArgs::parse_from(&to_args(&["alya", "icons", "install"]))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        parsed.command,
+        CommandKind::Icons(IconsCommand::Install {
+            theme: IconTheme::Dark
+        })
+    );
+
+    let parsed = CliArgs::parse_from(&to_args(&["alya", "icons", "install", "--theme", "light"]))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        parsed.command,
+        CommandKind::Icons(IconsCommand::Install {
+            theme: IconTheme::Light
+        })
+    );
+
+    let parsed = CliArgs::parse_from(&to_args(&["alya", "icons", "install", "--theme=light"]))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        parsed.command,
+        CommandKind::Icons(IconsCommand::Install {
+            theme: IconTheme::Light
+        })
+    );
+
+    let parsed = CliArgs::parse_from(&to_args(&["alya", "icons", "uninstall"]))
+        .unwrap()
+        .unwrap();
+    assert_eq!(parsed.command, CommandKind::Icons(IconsCommand::Uninstall));
+
+    assert!(CliArgs::parse_from(&to_args(&["alya", "icons", "bogus"])).is_err());
+    assert!(CliArgs::parse_from(&to_args(&["alya", "icons", "install", "status"])).is_err());
+    assert!(CliArgs::parse_from(&to_args(&["alya", "icons", "install", "--theme"])).is_err());
+    assert!(
+        CliArgs::parse_from(&to_args(&["alya", "icons", "install", "--theme", "neon"])).is_err()
+    );
+}

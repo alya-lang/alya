@@ -1,5 +1,6 @@
 use crate::codegen::{Architecture, OperatingSystem};
 use crate::driver::toolchain::ToolchainCommand;
+use crate::tools::icons::{IconTheme, IconsCommand};
 use crate::tools::pkg::PkgCommand;
 use std::env;
 use std::process;
@@ -32,6 +33,7 @@ pub enum CommandKind {
     Repl,
     Pkg(PkgCommand),
     Toolchain(ToolchainCommand),
+    Icons(IconsCommand),
     Lsp,
     Dap,
     Doc {
@@ -270,7 +272,17 @@ impl CliArgs {
             }
             // `alya toolchain help` already maps to Help; keep it working.
             let tc_cmd = parse_toolchain_args(&args[2..])?;
-            return Ok(Some(Self::create_toolchain_args(tc_cmd)));
+            return Ok(Some(Self::create_host_args(CommandKind::Toolchain(tc_cmd))));
+        }
+
+        if first == "icons" {
+            if wants_help(&args[2..]) {
+                crate::cli::help::print_icons_help();
+                return Ok(None);
+            }
+            // `alya icons help` already maps to Help; keep it working.
+            let icons_cmd = parse_icons_args(&args[2..])?;
+            return Ok(Some(Self::create_host_args(CommandKind::Icons(icons_cmd))));
         }
 
         if first == "lsp" {
@@ -444,6 +456,7 @@ impl CliArgs {
                         CommandKind::Lint { .. } => crate::cli::help::print_lint_help(),
                         CommandKind::Pkg(_) => crate::cli::help::print_pkg_help(),
                         CommandKind::Toolchain(_) => crate::cli::help::print_toolchain_help(),
+                        CommandKind::Icons(_) => crate::cli::help::print_icons_help(),
                         CommandKind::Lsp => crate::cli::help::print_lsp_help(),
                         CommandKind::Dap => crate::cli::help::print_dap_help(),
                     }
@@ -709,7 +722,7 @@ impl CliArgs {
         }
     }
 
-    fn create_toolchain_args(tc_cmd: ToolchainCommand) -> Self {
+    fn create_host_args(command: CommandKind) -> Self {
         let arch = if cfg!(target_arch = "aarch64") {
             Architecture::ARM64
         } else if cfg!(target_arch = "x86") {
@@ -725,7 +738,7 @@ impl CliArgs {
             OperatingSystem::Linux
         };
         Self {
-            command: CommandKind::Toolchain(tc_cmd),
+            command,
             input_file: String::new(),
             output_file: None,
             output_binary: false,
@@ -1139,5 +1152,49 @@ fn parse_toolchain_args(args: &[String]) -> Result<ToolchainCommand, String> {
             "Error: Unknown toolchain subcommand '{}'. Run 'alya toolchain help' for usage.",
             other
         )),
+    }
+}
+
+fn parse_icons_theme(value: &str) -> Result<IconTheme, String> {
+    match value {
+        "dark" => Ok(IconTheme::Dark),
+        "light" => Ok(IconTheme::Light),
+        other => Err(format!(
+            "Error: Unknown icons theme '{}'. Supported themes: dark, light.",
+            other
+        )),
+    }
+}
+
+fn parse_icons_args(args: &[String]) -> Result<IconsCommand, String> {
+    let mut action: Option<&str> = None;
+    let mut theme = IconTheme::Dark;
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].as_str();
+        if arg == "--theme" {
+            i += 1;
+            let value = args.get(i).ok_or_else(|| {
+                "Error: Missing argument for '--theme'. Supported themes: dark, light.".to_string()
+            })?;
+            theme = parse_icons_theme(value)?;
+        } else if let Some(value) = arg.strip_prefix("--theme=") {
+            theme = parse_icons_theme(value)?;
+        } else if matches!(arg, "status" | "install" | "uninstall" | "help") && action.is_none() {
+            action = Some(arg);
+        } else {
+            return Err(format!(
+                "Error: Unknown icons subcommand '{}'. Run 'alya icons help' for usage.",
+                arg
+            ));
+        }
+        i += 1;
+    }
+    match action.unwrap_or("status") {
+        "status" => Ok(IconsCommand::Status),
+        "install" => Ok(IconsCommand::Install { theme }),
+        "uninstall" => Ok(IconsCommand::Uninstall),
+        "help" => Ok(IconsCommand::Help),
+        _ => unreachable!("icons action is one of status/install/uninstall/help"),
     }
 }

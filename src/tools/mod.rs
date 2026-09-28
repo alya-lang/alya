@@ -2,6 +2,7 @@ pub mod bundle;
 pub mod dap;
 pub mod doc;
 pub mod fmt;
+pub mod icons;
 pub mod lint;
 pub mod lsp;
 pub mod pkg;

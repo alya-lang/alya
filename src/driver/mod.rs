@@ -20,6 +20,11 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         return Ok(());
     }
 
+    if let CommandKind::Icons(ref icons_cmd) = args.command {
+        crate::tools::icons::run_icons(icons_cmd)?;
+        return Ok(());
+    }
+
     if let CommandKind::Pkg(ref pkg_cmd) = args.command {
         crate::tools::pkg::run_pkg(pkg_cmd)?;
         return Ok(());
