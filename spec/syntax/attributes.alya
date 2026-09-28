@@ -1,3 +1,4 @@
+# FEATURES: spec_proof
 # ==============================================================================
 # Alya Language Specification: Chapter 18 - Attributes, Directives & Comptime
 # File: syntax/attributes.alya
@@ -52,6 +53,37 @@ function get_os_category() -> string
 end
 
 say get_os_category()
+
+# ------------------------------------------------------------------------------
+# 3b. Feature & Debug Conditions (@cfg feature/debug) (Chapter 18 §1.3)
+# ------------------------------------------------------------------------------
+# The golden harness runs this fixture with `# FEATURES: spec_proof`
+# (first-line header): the enabled branch prints the marker. Without the
+# feature the fallback prints instead — both directions exit 0.
+@cfg(feature = "spec_proof")
+function feature_tag18() -> string
+    return "spec-proof-enabled"
+end
+
+@cfg(not(feature = "spec_proof"))
+function feature_tag18() -> string
+    return "spec-proof-fallback"
+end
+
+say f"Feature tag: {feature_tag18()}"
+
+# `debug` follows the active profile (dev default true in every harness).
+@cfg(debug = true)
+function debug_tag18() -> string
+    return "debug-on"
+end
+
+@cfg(debug = false)
+function debug_tag18() -> string
+    return "debug-off"
+end
+
+say f"Debug tag: {debug_tag18()}"
 
 # ------------------------------------------------------------------------------
 # 4. Built-in Test Annotations (@test)

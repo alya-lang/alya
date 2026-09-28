@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use super::cache::{get_global_cache_dir, run_cache, run_clean};
 use super::discovery::{find_manifest_dir, find_package_entry};
+use super::features::{enabled_dependencies, resolve_active_features};
 use super::hash::{
     compute_cache_key, compute_cache_key_rev, compute_package_checksum, verify_package_checksum,
     ChecksumVerdict,
@@ -31,6 +32,7 @@ pub fn run_pkg(cmd: &PkgCommand) -> Result<(), String> {
             tag,
             branch,
             version,
+            optional,
         } => run_add(
             name,
             path.as_deref(),
@@ -38,8 +40,13 @@ pub fn run_pkg(cmd: &PkgCommand) -> Result<(), String> {
             tag.as_deref(),
             branch.as_deref(),
             version.as_deref(),
+            *optional,
         ),
-        PkgCommand::Install { strict } => run_install(*strict),
+        PkgCommand::Install {
+            strict,
+            features,
+            no_default_features,
+        } => run_install(*strict, features, *no_default_features),
         PkgCommand::List => run_list(),
         PkgCommand::Update { upgrade } => run_update(*upgrade),
         PkgCommand::Cache { clean, .. } => {
@@ -113,6 +120,8 @@ pub fn run_init(path: Option<&str>, name: Option<&str>, is_lib: bool) -> Result<
         },
         dependencies: BTreeMap::new(),
         build: None,
+        features: BTreeMap::new(),
+        profiles: BTreeMap::new(),
         section_extras: BTreeMap::new(),
     };
 
@@ -165,6 +174,7 @@ pub fn run_add(
     tag: Option<&str>,
     branch: Option<&str>,
     version: Option<&str>,
+    optional: bool,
 ) -> Result<(), String> {
     let manifest_dir = find_manifest_dir().ok_or_else(|| {
         "Error: Could not find 'alya.toml' in current directory or any parent.".to_string()
@@ -182,6 +192,7 @@ pub fn run_add(
         (
             DependencySource::Path {
                 path: p.to_string(),
+                optional,
             },
             None,
         )
@@ -192,6 +203,7 @@ pub fn run_add(
                 tag: tag.map(|s| s.to_string()),
                 branch: branch.map(|s| s.to_string()),
                 rev: None,
+                optional,
             },
             tag.or(branch).map(|s| s.to_string()),
         )
@@ -202,6 +214,7 @@ pub fn run_add(
                 tag: tag.map(|s| s.to_string()),
                 branch: branch.map(|s| s.to_string()),
                 rev: None,
+                optional,
             },
             tag.or(branch).map(|s| s.to_string()),
         )
@@ -245,7 +258,13 @@ pub fn run_add(
             detected_ver.unwrap_or_else(|| "0.1.0".to_string())
         };
         let v_disp = ver.clone();
-        (DependencySource::Version(ver), Some(v_disp))
+        (
+            DependencySource::Version {
+                version: ver,
+                optional,
+            },
+            Some(v_disp),
+        )
     };
 
     manifest.dependencies.insert(resolved_name.clone(), source);
@@ -262,22 +281,26 @@ pub fn run_add(
         println!("✓ Added dependency '{}' to alya.toml", resolved_name);
     }
 
-    run_install_in(&manifest_dir, false)?;
+    run_install_in(&manifest_dir, false, &[], false)?;
     Ok(())
 }
 
-pub fn run_install(strict: bool) -> Result<(), String> {
+pub fn run_install(
+    strict: bool,
+    features: &[String],
+    no_default_features: bool,
+) -> Result<(), String> {
     let manifest_dir = find_manifest_dir().ok_or_else(|| {
         "Error: Could not find 'alya.toml' in current directory or any parent.".to_string()
     })?;
-    run_install_in(&manifest_dir, strict)
+    run_install_in(&manifest_dir, strict, features, no_default_features)
 }
 
 fn get_dep_major(dep: &DependencySource, from_dir: &Path) -> Option<u64> {
     match dep {
-        DependencySource::Version(v) => semver_major(v),
+        DependencySource::Version { version: v, .. } => semver_major(v),
         DependencySource::Git { tag: Some(t), .. } => semver_major(t),
-        DependencySource::Path { path } => {
+        DependencySource::Path { path, .. } => {
             let p = Path::new(path);
             let full = if p.is_absolute() {
                 p.to_path_buf()
@@ -304,7 +327,7 @@ fn ensure_dep_cached(
     strict: bool,
 ) -> Result<PathBuf, String> {
     match dep {
-        DependencySource::Path { path } => {
+        DependencySource::Path { path, .. } => {
             let p = Path::new(path);
             let full_path = if p.is_absolute() {
                 p.to_path_buf()
@@ -325,6 +348,7 @@ fn ensure_dep_cached(
             tag,
             branch,
             rev,
+            ..
         } => {
             let locked_rev = existing_lock
                 .as_ref()
@@ -397,7 +421,7 @@ fn ensure_dep_cached(
             }
             Ok(cached_pkg_dir)
         }
-        DependencySource::Version(v) => {
+        DependencySource::Version { version: v, .. } => {
             let url = resolve_registry_url(name);
             let tag_cand = if v != "*" && !v.is_empty() {
                 Some(if v.starts_with('v') || v.starts_with('V') {
@@ -509,12 +533,31 @@ fn ensure_dep_cached(
     }
 }
 
-pub fn run_install_in(manifest_dir: &Path, strict: bool) -> Result<(), String> {
+pub fn run_install_in(
+    manifest_dir: &Path,
+    strict: bool,
+    features: &[String],
+    no_default_features: bool,
+) -> Result<(), String> {
     let manifest_path = manifest_dir.join("alya.toml");
     let content = fs::read_to_string(&manifest_path)
         .map_err(|e| format!("Failed to read alya.toml: {}", e))?;
     let manifest = parse_manifest(&content)?;
     check_compiler_compatibility(&manifest)?;
+    let active = resolve_active_features(&manifest, features, no_default_features)?;
+    let enabled = enabled_dependencies(&manifest, &active);
+    if !features.is_empty() || no_default_features {
+        let mut names: Vec<&str> = active.iter().map(|s| s.as_str()).collect();
+        names.sort();
+        println!(
+            "Active features: {}",
+            if names.is_empty() {
+                "(none)".to_string()
+            } else {
+                names.join(", ")
+            }
+        );
+    }
 
     let packages_dir = manifest_dir.join(".alya").join("packages");
     let lock_path = if manifest_dir.join("alya.lock").exists() {
@@ -537,6 +580,13 @@ pub fn run_install_in(manifest_dir: &Path, strict: bool) -> Result<(), String> {
     let mut reported: HashSet<String> = HashSet::new();
 
     for (name, dep) in &manifest.dependencies {
+        if !enabled.contains(name) {
+            println!(
+                "  Skipping optional dependency '{}' (no active feature enables it)",
+                name
+            );
+            continue;
+        }
         to_scan.push_back((name.clone(), dep.clone(), manifest_dir.to_path_buf()));
     }
 
@@ -545,12 +595,23 @@ pub fn run_install_in(manifest_dir: &Path, strict: bool) -> Result<(), String> {
         let key = (name.clone(), maj);
 
         if let Some((existing_dep, _)) = resolved_requests.get_mut(&key) {
-            if let (DependencySource::Version(v1), DependencySource::Version(v2)) =
-                (&existing_dep, &dep)
-            {
-                let coalesced = coalesce_semver_versions(v1, v2)?;
-                if coalesced != v1.as_str() {
-                    *existing_dep = DependencySource::Version(coalesced.to_string());
+            let coalesced: Option<String> = match (&*existing_dep, &dep) {
+                (
+                    DependencySource::Version { version: v1, .. },
+                    DependencySource::Version { version: v2, .. },
+                ) => {
+                    let merged = coalesce_semver_versions(v1, v2)?;
+                    if merged != v1.as_str() {
+                        Some(merged.to_string())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            if let Some(coalesced) = coalesced {
+                if let DependencySource::Version { version: cur, .. } = existing_dep {
+                    *cur = coalesced;
                 }
             }
             continue;
@@ -571,8 +632,15 @@ pub fn run_install_in(manifest_dir: &Path, strict: bool) -> Result<(), String> {
             if sub_manifest_path.exists() {
                 if let Ok(sub_content) = fs::read_to_string(&sub_manifest_path) {
                     if let Ok(sub_manifest) = parse_manifest(&sub_content) {
+                        // Transitive packages resolve with their own defaults:
+                        // no feature unification across the graph (documented).
+                        let sub_active =
+                            resolve_active_features(&sub_manifest, &[], false).unwrap_or_default();
+                        let sub_enabled = enabled_dependencies(&sub_manifest, &sub_active);
                         for (sub_name, sub_dep) in sub_manifest.dependencies {
-                            to_scan.push_back((sub_name, sub_dep, source_dir.clone()));
+                            if sub_enabled.contains(&sub_name) {
+                                to_scan.push_back((sub_name, sub_dep, source_dir.clone()));
+                            }
                         }
                     }
                 }
@@ -618,7 +686,7 @@ pub fn run_install_in(manifest_dir: &Path, strict: bool) -> Result<(), String> {
 
         let (target_dir, actual_source_str) = if is_path_dep && !is_multi {
             let path_str = match &dep {
-                DependencySource::Path { path } => path.replace('\\', "/"),
+                DependencySource::Path { path, .. } => path.replace('\\', "/"),
                 _ => "".to_string(),
             };
             (cached_source_dir.clone(), format!("path:{}", path_str))
@@ -676,7 +744,7 @@ pub fn run_install_in(manifest_dir: &Path, strict: bool) -> Result<(), String> {
             }
 
             let source_str = match &dep {
-                DependencySource::Version(v) => {
+                DependencySource::Version { version: v, .. } => {
                     let url = resolve_registry_url(&name);
                     let v_tag = if v.starts_with('v') || v.starts_with('V') {
                         v.clone()
@@ -685,7 +753,7 @@ pub fn run_install_in(manifest_dir: &Path, strict: bool) -> Result<(), String> {
                     };
                     format!("registry+{}#{}", url, v_tag)
                 }
-                DependencySource::Path { path } => {
+                DependencySource::Path { path, .. } => {
                     format!("path:{}", path.replace('\\', "/"))
                 }
                 DependencySource::Git {
@@ -693,6 +761,7 @@ pub fn run_install_in(manifest_dir: &Path, strict: bool) -> Result<(), String> {
                     branch,
                     tag,
                     rev,
+                    ..
                 } => fs::read_to_string(cached_source_dir.join(".alya-source"))
                     .ok()
                     .unwrap_or_else(|| {
@@ -834,7 +903,10 @@ pub fn run_list() -> Result<(), String> {
             .as_ref()
             .and_then(|l| l.packages.iter().find(|p| &p.name == name));
         let dep_desc = match dep {
-            DependencySource::Path { path } => format!("path: {}", path),
+            DependencySource::Path { path, optional } => {
+                let opt = if *optional { " (optional)" } else { "" };
+                format!("path: {}{}", path, opt)
+            }
             DependencySource::Git {
                 url, tag, branch, ..
             } => {
@@ -846,7 +918,13 @@ pub fn run_list() -> Result<(), String> {
                 }
                 s
             }
-            DependencySource::Version(v) => format!("version: {}", v),
+            DependencySource::Version {
+                version: v,
+                optional,
+            } => {
+                let opt = if *optional { " (optional)" } else { "" };
+                format!("version: {}{}", v, opt)
+            }
         };
 
         if let Some(lp) = locked {
@@ -987,7 +1065,10 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
 
     for (name, dep) in &manifest.dependencies {
         match dep {
-            DependencySource::Version(cur_ver) => {
+            DependencySource::Version {
+                version: cur_ver,
+                optional,
+            } => {
                 let url = resolve_registry_url(name);
                 let tags = query_remote_tags(&url);
                 if let Some(latest_tag) = find_latest_semver_tag(&tags) {
@@ -1001,7 +1082,10 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
                             latest: latest_clean.to_string(),
                             status: format!("Update available ({} -> {})", cur_ver, latest_clean),
                             can_upgrade: true,
-                            new_source: Some(DependencySource::Version(latest_clean.to_string())),
+                            new_source: Some(DependencySource::Version {
+                                version: latest_clean.to_string(),
+                                optional: *optional,
+                            }),
                             clear_cache_key: None,
                         });
                     } else {
@@ -1032,6 +1116,7 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
                 tag,
                 branch,
                 rev,
+                optional,
             } => {
                 if let Some(cur_tag) = tag {
                     let tags = query_remote_tags(url);
@@ -1059,6 +1144,7 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
                                     tag: Some(new_tag_str),
                                     branch: None,
                                     rev: None,
+                                    optional: *optional,
                                 }),
                                 clear_cache_key: None,
                             });
@@ -1202,7 +1288,7 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
                     });
                 }
             }
-            DependencySource::Path { path } => {
+            DependencySource::Path { path, .. } => {
                 rows.push(UpdateRow {
                     name: name.clone(),
                     current: path.clone(),
@@ -1286,7 +1372,7 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
     }
 
     println!("Resolving and locking updated dependencies...\n");
-    run_install(false)?;
+    run_install(false, &[], false)?;
     println!("\n✓ All dependencies updated successfully!");
     Ok(())
 }

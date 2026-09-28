@@ -13,3 +13,7 @@ keywords = ["alya", "alya-lang", "package", "http", "server", "web", "multithrea
 [dependencies]
 mime = { git = "https://github.com/alya-lang/mime", branch = "main" }
 term = { git = "https://github.com/alya-lang/term", branch = "main" }
+
+[profile.release]
+opt-level = 3
+debug = false

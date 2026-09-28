@@ -15,9 +15,12 @@ pub enum PkgCommand {
         tag: Option<String>,
         branch: Option<String>,
         version: Option<String>,
+        optional: bool,
     },
     Install {
         strict: bool,
+        features: Vec<String>,
+        no_default_features: bool,
     },
     List,
     Update {
@@ -51,16 +54,65 @@ pub struct PackageInfo {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DependencySource {
-    Version(String),
+    Version {
+        version: String,
+        optional: bool,
+    },
     Path {
         path: String,
+        optional: bool,
     },
     Git {
         url: String,
         tag: Option<String>,
         branch: Option<String>,
         rev: Option<String>,
+        optional: bool,
     },
+}
+
+impl DependencySource {
+    /// Whether this dependency is opt-in via `[features]` (skipped by
+    /// `install` unless an active feature enables it).
+    pub fn is_optional(&self) -> bool {
+        match self {
+            DependencySource::Version { optional, .. } => *optional,
+            DependencySource::Path { optional, .. } => *optional,
+            DependencySource::Git { optional, .. } => *optional,
+        }
+    }
+}
+
+/// A single `[profile.<name>]` table. Closed key set by design: unknown
+/// keys are rejected so typos fail loudly instead of silently doing nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildProfile {
+    /// C/optimizer level 0-3. Does not change Alya codegen output (no codegen
+    /// passes exist yet); feeds C compilation and link flags plus, later,
+    /// incremental-cache keys.
+    pub opt_level: u8,
+    /// Debug info: `-g` for C objects, no `-s` at link. `false` strips.
+    pub debug: bool,
+    /// Link-time optimization (`-flto` at C compile and link; GCC/Clang).
+    pub lto: bool,
+}
+
+impl BuildProfile {
+    pub fn dev_default() -> Self {
+        Self {
+            opt_level: 0,
+            debug: true,
+            lto: false,
+        }
+    }
+
+    pub fn release_default() -> Self {
+        Self {
+            opt_level: 3,
+            debug: false,
+            lto: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -90,6 +142,14 @@ pub struct PackageManifest {
     pub package: PackageInfo,
     pub dependencies: BTreeMap<String, DependencySource>,
     pub build: Option<BuildConfig>,
+    /// `[features]`: name -> member list. Members name another feature or a
+    /// (usually optional) dependency. No language-level `cfg(feature)` exists
+    /// yet: features gate optional dependencies only.
+    pub features: BTreeMap<String, Vec<String>>,
+    /// `[profile.<name>]`: `dev`/`release` built in (defaults apply when the
+    /// table is absent); any other name defines a custom profile selectable
+    /// via `--profile <name>`.
+    pub profiles: BTreeMap<String, BuildProfile>,
     /// Raw lines preserved from unrecognized sections (e.g. `[lint]`, `[fmt]`,
     /// `[test]`, `[bench]`) plus stray comment lines, keyed by section name
     /// (`""` holds top-of-file comments). Re-emitted verbatim on serialize

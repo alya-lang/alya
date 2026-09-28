@@ -46,7 +46,8 @@ fn test_resolve_imports_temporary_files() {
     let mut parser = Parser::new(tokens);
     let mut program = parser.parse().expect("Failed to parse");
 
-    resolve_imports(&mut program, &temp_dir).expect("Failed to resolve imports");
+    resolve_imports(&mut program, &temp_dir, &CfgContext::host())
+        .expect("Failed to resolve imports");
 
     // After resolution, import is replaced by the function definition from helper.alya
     assert_eq!(program.statements.len(), 3);
@@ -107,7 +108,8 @@ fn test_resolve_from_import() {
     let mut parser = Parser::new(tokens);
     let mut program = parser.parse().expect("Failed to parse");
 
-    resolve_imports(&mut program, &temp_dir).expect("Failed to resolve imports");
+    resolve_imports(&mut program, &temp_dir, &CfgContext::host())
+        .expect("Failed to resolve imports");
 
     // Both add and subtract exist in statements
     let fns: Vec<String> = program
@@ -147,7 +149,8 @@ fn test_resolve_imports_subdirectory_and_backslash_normalization() {
     let mut parser = Parser::new(tokens);
     let mut program = parser.parse().expect("Failed to parse");
 
-    resolve_imports(&mut program, &temp_dir).expect("Failed to resolve imports");
+    resolve_imports(&mut program, &temp_dir, &CfgContext::host())
+        .expect("Failed to resolve imports");
 
     // The function is imported and duplicate avoided
     assert_eq!(program.statements.len(), 3);
@@ -188,7 +191,8 @@ say PI
 
     // Use a non-existent directory to force fallback to embedded stdlib
     let dummy_dir = std::path::Path::new("non_existent_dir_for_test");
-    resolve_imports(&mut ast, dummy_dir).expect("Embedded stdlib resolution should succeed");
+    resolve_imports(&mut ast, dummy_dir, &CfgContext::host())
+        .expect("Embedded stdlib resolution should succeed");
 
     // Check that functions and constants from stdlib were imported
     let has_hypot = ast.statements.iter().any(|s| match s {
@@ -303,7 +307,8 @@ say PI
     let mut ast = parser.parse().expect("Parse failed");
 
     let dummy_dir = std::path::Path::new("non_existent_dir_for_test");
-    resolve_imports(&mut ast, dummy_dir).expect("Embedded stdlib resolution should succeed");
+    resolve_imports(&mut ast, dummy_dir, &CfgContext::host())
+        .expect("Embedded stdlib resolution should succeed");
 
     let hypot_count = ast
         .statements
@@ -339,7 +344,8 @@ fn test_import_with_alias_resolution() {
     let mut parser = Parser::new(tokens);
     let mut ast = parser.parse().expect("Parse failed");
 
-    resolve_imports(&mut ast, &temp_dir).expect("Resolve imports should succeed");
+    resolve_imports(&mut ast, &temp_dir, &CfgContext::host())
+        .expect("Resolve imports should succeed");
 
     // Check that functions are prefixed with c::
     let fn_names: Vec<String> = ast
@@ -384,7 +390,8 @@ fn test_import_modular_submodules_with_alias_resolution() {
     let mut parser = Parser::new(tokens);
     let mut ast = parser.parse().expect("Parse failed");
 
-    resolve_imports(&mut ast, &temp_dir).expect("Resolve imports should succeed");
+    resolve_imports(&mut ast, &temp_dir, &CfgContext::host())
+        .expect("Resolve imports should succeed");
 
     let fn_names: Vec<String> = ast
         .statements
@@ -419,7 +426,7 @@ fn test_duplicate_function_definition_error() {
     let mut parser = Parser::new(tokens);
     let mut ast = parser.parse().expect("Parse failed");
 
-    let res = resolve_imports(&mut ast, &temp_dir);
+    let res = resolve_imports(&mut ast, &temp_dir, &CfgContext::host());
     assert!(
         res.is_err(),
         "Duplicate function abc should fail resolution"
@@ -458,7 +465,7 @@ fn test_aliased_import_resolves_conflict() {
     let mut parser = Parser::new(tokens);
     let mut ast = parser.parse().expect("Parse failed");
 
-    let res = resolve_imports(&mut ast, &temp_dir);
+    let res = resolve_imports(&mut ast, &temp_dir, &CfgContext::host());
     assert!(
         res.is_ok(),
         "Aliased imports should resolve conflict successfully"
@@ -488,7 +495,7 @@ fn test_import_embedded_color_and_log_stdlib() {
     let mut ast = parser.parse().expect("Parse failed");
 
     let current_dir = std::path::Path::new(".");
-    let res = resolve_imports(&mut ast, current_dir);
+    let res = resolve_imports(&mut ast, current_dir, &CfgContext::host());
     assert!(
         res.is_ok(),
         "Importing std/color and std/log should succeed"
@@ -545,7 +552,7 @@ fn test_resolve_package_import_via_manifest() {
     let mut parser = Parser::new(tokens);
     let mut ast = parser.parse().expect("Parse failed");
 
-    let res = resolve_imports(&mut ast, &app_dir);
+    let res = resolve_imports(&mut ast, &app_dir, &CfgContext::host());
     assert!(
         res.is_ok(),
         "Importing package defined in alya.toml should succeed: {:?}",
@@ -588,7 +595,7 @@ fn test_resolve_uninstalled_package_error() {
     let mut parser = Parser::new(tokens);
     let mut ast = parser.parse().expect("Parse failed");
 
-    let res = resolve_imports(&mut ast, &app_dir);
+    let res = resolve_imports(&mut ast, &app_dir, &CfgContext::host());
     assert!(res.is_err());
     let err_msg = res.unwrap_err();
     assert!(err_msg.contains("Run 'alya install' to resolve dependencies."));
@@ -602,21 +609,28 @@ fn test_deprecated_stdlib_modules_diagnostic() {
     let mut ast = Parser::new(Lexer::new(code_csv).tokenize().unwrap())
         .parse()
         .unwrap();
-    let err = resolve_imports(&mut ast, std::path::Path::new(".")).unwrap_err();
+    let err =
+        resolve_imports(&mut ast, std::path::Path::new("."), &CfgContext::host()).unwrap_err();
     assert!(err.contains("Cannot find standard library module 'std/csv'"));
 
     let code_url = "import \"std/url\"\nsay 1";
     let mut ast2 = Parser::new(Lexer::new(code_url).tokenize().unwrap())
         .parse()
         .unwrap();
-    let err2 = resolve_imports(&mut ast2, std::path::Path::new(".")).unwrap_err();
+    let err2 =
+        resolve_imports(&mut ast2, std::path::Path::new("."), &CfgContext::host()).unwrap_err();
     assert!(err2.contains("Cannot find standard library module 'std/url'"));
 
     let code_crypto = "import \"std/crypto\"\nsay 1";
     let mut ast_crypto = Parser::new(Lexer::new(code_crypto).tokenize().unwrap())
         .parse()
         .unwrap();
-    let err_crypto = resolve_imports(&mut ast_crypto, std::path::Path::new(".")).unwrap_err();
+    let err_crypto = resolve_imports(
+        &mut ast_crypto,
+        std::path::Path::new("."),
+        &CfgContext::host(),
+    )
+    .unwrap_err();
     assert!(err_crypto.contains("Cannot find standard library module 'std/crypto'"));
 }
 
@@ -631,7 +645,7 @@ say color_blue("world")
     let mut ast = Parser::new(Lexer::new(code).tokenize().unwrap())
         .parse()
         .unwrap();
-    let res = resolve_imports(&mut ast, std::path::Path::new("."));
+    let res = resolve_imports(&mut ast, std::path::Path::new("."), &CfgContext::host());
     assert!(res.is_ok(), "Import resolution failed: {:?}", res);
 
     let fn_names: Vec<String> = ast
@@ -678,7 +692,8 @@ fn test_aliased_pub_let_renamed() {
     let mut parser = Parser::new(tokens);
     let mut program = parser.parse().expect("Failed to parse");
 
-    resolve_imports(&mut program, &temp_dir).expect("Failed to resolve imports");
+    resolve_imports(&mut program, &temp_dir, &CfgContext::host())
+        .expect("Failed to resolve imports");
 
     // The `pub let` definition itself must carry the alias prefix.
     let def = program.statements.iter().find(|s| match s.inner_stmt() {

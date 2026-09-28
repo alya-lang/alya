@@ -1568,7 +1568,12 @@ say "should fail"
     let tokens = lexer.tokenize().expect("Tokenize failed");
     let mut parser = alya::parser::Parser::new(tokens);
     let mut ast = parser.parse().expect("Parse failed");
-    let err = alya::parser::resolve_imports(&mut ast, std::path::Path::new(".")).unwrap_err();
+    let err = alya::parser::resolve_imports(
+        &mut ast,
+        std::path::Path::new("."),
+        &alya::parser::CfgContext::host(),
+    )
+    .unwrap_err();
     assert!(err.contains("Cannot find standard library module 'std/csv'"));
 }
 
@@ -1582,7 +1587,12 @@ say "should fail"
     let tokens = lexer.tokenize().expect("Tokenize failed");
     let mut parser = alya::parser::Parser::new(tokens);
     let mut ast = parser.parse().expect("Parse failed");
-    let err = alya::parser::resolve_imports(&mut ast, std::path::Path::new(".")).unwrap_err();
+    let err = alya::parser::resolve_imports(
+        &mut ast,
+        std::path::Path::new("."),
+        &alya::parser::CfgContext::host(),
+    )
+    .unwrap_err();
     assert!(err.contains("Cannot find standard library module 'std/url'"));
 }
 
@@ -2619,7 +2629,12 @@ fn test_e2e_no_std_mode() {
     let tokens = lexer.tokenize().expect("Lexer error");
     let mut parser = Parser::new(tokens);
     let mut ast = parser.parse().expect("Parser error");
-    let res = resolve_imports_with_sources_ext(&mut ast, std::path::Path::new("."), true);
+    let res = resolve_imports_with_sources_ext(
+        &mut ast,
+        std::path::Path::new("."),
+        true,
+        &alya::parser::CfgContext::host(),
+    );
     assert!(res.is_err(), "Importing std in no-std should fail");
     let err_msg = res.unwrap_err();
     assert!(

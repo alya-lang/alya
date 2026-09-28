@@ -264,7 +264,12 @@ say ret
     let tokens = lexer.tokenize().unwrap();
     let mut parser = Parser::new(tokens);
     let mut ast = parser.parse().unwrap();
-    crate::parser::resolve_imports(&mut ast, std::path::Path::new(".")).unwrap();
+    crate::parser::resolve_imports(
+        &mut ast,
+        std::path::Path::new("."),
+        &crate::parser::CfgContext::host(),
+    )
+    .unwrap();
 
     let asm_linux = generate(&ast, Architecture::X64, OperatingSystem::Linux);
     assert!(asm_linux.contains("fn_target_os"));

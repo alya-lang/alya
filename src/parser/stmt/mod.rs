@@ -606,73 +606,6 @@ impl Parser {
         Ok(vec![fn_stmt])
     }
 
-    fn evaluate_cfg_tokens(tokens: &[crate::lexer::Token]) -> bool {
-        use crate::lexer::TokenType;
-        if tokens.is_empty() {
-            return true;
-        }
-        if let Some(crate::lexer::Token {
-            token_type: TokenType::Identifier(ref id),
-            ..
-        }) = tokens.first()
-        {
-            if id == "not"
-                && tokens.len() >= 3
-                && matches!(tokens[1].token_type, TokenType::LeftParen)
-            {
-                let inner = &tokens[2..tokens.len().saturating_sub(1)];
-                return !Self::evaluate_cfg_tokens(inner);
-            }
-        }
-
-        let mut key = String::new();
-        let mut val = String::new();
-        let mut in_val = false;
-
-        for tok in tokens {
-            match &tok.token_type {
-                TokenType::Identifier(s) => {
-                    if in_val {
-                        val = s.clone();
-                    } else {
-                        key = s.clone();
-                    }
-                }
-                TokenType::String(s) if in_val => {
-                    val = s.clone();
-                }
-                TokenType::Assign => {
-                    in_val = true;
-                }
-                _ => {}
-            }
-        }
-
-        let cur_os = if cfg!(target_os = "windows") {
-            "windows"
-        } else if cfg!(target_os = "linux") {
-            "linux"
-        } else if cfg!(target_os = "macos") {
-            "macos"
-        } else {
-            std::env::consts::OS
-        };
-
-        if key == "os" || key == "target_os" {
-            return val == cur_os;
-        }
-
-        if key == "arch" || key == "target_arch" {
-            let arch = std::env::consts::ARCH;
-            return val == arch
-                || (val == "x64" && arch == "x86_64")
-                || (val == "x86_64" && arch == "x86_64")
-                || (val == "arm64" && arch == "aarch64");
-        }
-
-        true
-    }
-
     /// Converts collected attribute argument tokens into structured args.
     /// Splits top-level commas; `key = value` becomes named, a lone value
     /// becomes positional. Only scalar tokens are kept.
@@ -800,7 +733,7 @@ impl Parser {
                 self.advance();
             }
             if attr_name == "cfg" {
-                cfg_match = Self::evaluate_cfg_tokens(&paren_tokens);
+                cfg_match = self.cfg_context.evaluate(&paren_tokens)?;
             } else {
                 let args = Self::attribute_args_from_tokens(&paren_tokens);
                 self.pending_attributes.push(Attribute {

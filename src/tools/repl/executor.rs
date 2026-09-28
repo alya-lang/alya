@@ -27,9 +27,9 @@ pub fn compile_snippet_to_temp_exe(
     let mut parser = Parser::new(tokens);
     let mut ast = parser.parse().map_err(|e| format!("Parser error: {}", e))?;
 
-    // 3. Module Resolution
+    // 3. Module Resolution (REPL: host configuration context)
     let base_dir = Path::new(".");
-    crate::parser::resolve_imports(&mut ast, base_dir)
+    crate::parser::resolve_imports(&mut ast, base_dir, &crate::parser::CfgContext::host())
         .map_err(|e| format!("Import error: {}", e))?;
 
     // 4. Codegen

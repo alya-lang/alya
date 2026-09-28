@@ -154,8 +154,29 @@ fn test_golden_spec_execution_matrix() {
         let filename = entry.file_name().to_string_lossy().to_string();
         let source = fs::read_to_string(entry.path()).unwrap();
 
+        // Fixture-declared features (`# FEATURES: a, b` first line, e.g. for
+        // `@cfg(feature = ...)` branches): execute with them enabled.
+        let features: Vec<String> = source
+            .lines()
+            .next()
+            .and_then(|first| first.strip_prefix("# FEATURES:"))
+            .map(|rest| {
+                rest.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let run = |src: &str| {
+            if features.is_empty() {
+                run_alya_code_full(src)
+            } else {
+                run_alya_code_full_with_features(src, &features)
+            }
+        };
+
         // Skip files known to require external files or specific environment if any
-        let result = std::panic::catch_unwind(|| run_alya_code_full(&source));
+        let result = std::panic::catch_unwind(|| run(&source));
 
         match result {
             Ok(Some((0, _output))) => {
@@ -183,6 +204,42 @@ fn test_golden_spec_execution_matrix() {
         exec_passed, total,
         "All 25 golden spec files must pass execution with exit code 0"
     );
+}
+
+#[test]
+fn test_golden_spec_attributes_features() {
+    // Chapter 18 §1.3: `@cfg(feature)` + `@cfg(debug)` directions.
+    let attr_file = get_spec_syntax_dir().join("attributes.alya");
+    let source = fs::read_to_string(&attr_file).expect("Failed to read attributes.alya");
+    // Enabled via the `# FEATURES:` header.
+    if let Some((code, output)) =
+        run_alya_code_full_with_features(&source, &["spec_proof".to_string()])
+    {
+        assert_eq!(code, 0, "attributes.alya with features failed:\n{}", output);
+        assert!(
+            output.contains("spec-proof-enabled"),
+            "enabled branch missing:\n{}",
+            output
+        );
+        assert!(
+            output.contains("debug-on"),
+            "debug branch missing:\n{}",
+            output
+        );
+    }
+    // Without features the fallbacks run instead.
+    if let Some((code, output)) = run_alya_code_full(&source) {
+        assert_eq!(
+            code, 0,
+            "attributes.alya without features failed:\n{}",
+            output
+        );
+        assert!(
+            output.contains("spec-proof-fallback"),
+            "fallback branch missing:\n{}",
+            output
+        );
+    }
 }
 
 #[test]
@@ -514,8 +571,12 @@ fn test_export_symbol_emitted() {
     let tokens = lexer.tokenize().expect("Lexer error");
     let mut parser = Parser::new(tokens);
     let mut ast = parser.parse().expect("Parser error");
-    alya::parser::resolve_imports(&mut ast, &get_spec_syntax_dir())
-        .expect("Import resolution failed");
+    alya::parser::resolve_imports(
+        &mut ast,
+        &get_spec_syntax_dir(),
+        &alya::parser::CfgContext::host(),
+    )
+    .expect("Import resolution failed");
     for (arch, os) in [
         (
             alya::codegen::Architecture::X64,
@@ -549,8 +610,12 @@ fn compile_snippet_to_asm(
     let tokens = lexer.tokenize().expect("Lexer error");
     let mut parser = Parser::new(tokens);
     let mut ast = parser.parse().expect("Parser error");
-    alya::parser::resolve_imports(&mut ast, std::path::Path::new("."))
-        .expect("Import resolution failed");
+    alya::parser::resolve_imports(
+        &mut ast,
+        std::path::Path::new("."),
+        &alya::parser::CfgContext::host(),
+    )
+    .expect("Import resolution failed");
     alya::parser::inline::inline_functions(&mut ast);
     alya::codegen::generate(&ast, arch, os)
 }
@@ -664,7 +729,12 @@ fn test_golden_spec_modules_execution() {
     let tokens = lexer.tokenize().expect("Lexer error");
     let mut parser = Parser::new(tokens);
     let mut ast = parser.parse().expect("Parser error");
-    alya::parser::resolve_imports(&mut ast, std::path::Path::new(".")).expect("import error");
+    alya::parser::resolve_imports(
+        &mut ast,
+        std::path::Path::new("."),
+        &alya::parser::CfgContext::host(),
+    )
+    .expect("import error");
     let os = if cfg!(target_os = "windows") {
         alya::codegen::OperatingSystem::Windows
     } else {
@@ -815,7 +885,7 @@ fn test_all_spec_syntax_compile_to_assembly() {
 
         let entry_path = entry.path();
         let base_dir = entry_path.parent().unwrap();
-        alya::parser::resolve_imports(&mut ast, base_dir)
+        alya::parser::resolve_imports(&mut ast, base_dir, &alya::parser::CfgContext::host())
             .unwrap_or_else(|e| panic!("Import resolution failed for '{}': {}", filename, e));
 
         // 1. Codegen for x64 Windows

@@ -1,4 +1,5 @@
 pub mod bugs;
+pub mod cfg;
 pub mod dead_code;
 pub mod naming;
 pub mod style;
@@ -34,6 +35,9 @@ pub fn run_all_rules(program: &Program, tokens: &[Token], file_path: &Path) -> V
 
     // 7. Naming conventions
     diagnostics.extend(naming::check_naming_conventions(program, tokens, file_path));
+
+    // 8. Unknown @cfg feature names (would silently evaluate to false)
+    diagnostics.extend(cfg::check_cfg_features(program, tokens, file_path));
 
     // Sort diagnostics by line and column
     diagnostics.sort_by(|a, b| a.line.cmp(&b.line).then_with(|| a.col.cmp(&b.col)));

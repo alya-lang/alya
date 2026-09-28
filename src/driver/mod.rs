@@ -37,12 +37,30 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     }
 
     if args.command == CommandKind::Test {
-        crate::tools::test_runner::run_tests(&args.input_file, args.arch, args.os, args.test_jobs)?;
+        let build_cfg = crate::tools::pkg::features::resolve_build_config(
+            Path::new(&args.input_file),
+            &args.profile,
+            &args.features,
+            args.no_default_features,
+        )?;
+        crate::tools::test_runner::run_tests(
+            &args.input_file,
+            args.arch,
+            args.os,
+            args.test_jobs,
+            build_cfg,
+        )?;
         return Ok(());
     }
 
     if args.command == CommandKind::Bench {
-        crate::tools::test_runner::run_benches(&args.input_file, args.arch, args.os)?;
+        let build_cfg = crate::tools::pkg::features::resolve_build_config(
+            Path::new(&args.input_file),
+            &args.profile,
+            &args.features,
+            args.no_default_features,
+        )?;
+        crate::tools::test_runner::run_benches(&args.input_file, args.arch, args.os, build_cfg)?;
         return Ok(());
     }
 
@@ -113,7 +131,25 @@ pub fn run(args: CliArgs) -> Result<(), String> {
 
     // 2. Syntactic Analysis (Parsing)
     let t_parse = Instant::now();
+    // Resolve profile + features BEFORE parsing: `@cfg(...)` conditions
+    // evaluate while the AST is built.
+    let build_cfg = crate::tools::pkg::features::resolve_build_config(
+        Path::new(&args.input_file),
+        &args.profile,
+        &args.features,
+        args.no_default_features,
+    )?;
+    if !args.quiet && args.profile != "dev" {
+        println!("Build profile: {}", build_cfg.profile_name);
+    }
+    let cfg_ctx = crate::tools::pkg::features::target_cfg(
+        args.os,
+        args.arch,
+        &build_cfg.profile,
+        &build_cfg.active_features,
+    );
     let mut parser = Parser::new(tokens);
+    parser.set_cfg_context(cfg_ctx.clone());
     let mut ast = parser
         .parse()
         .map_err(|e| crate::diagnostics::render_error(&args.input_file, &source, &e))?;
@@ -126,7 +162,7 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         .parent()
         .unwrap_or_else(|| Path::new("."));
     let imported_files =
-        crate::parser::resolve_imports_with_sources_ext(&mut ast, base_dir, args.no_std)
+        crate::parser::resolve_imports_with_sources_ext(&mut ast, base_dir, args.no_std, &cfg_ctx)
             .map_err(|e| format!("Module import error in '{}': {}", args.input_file, e))?;
     let d_import = t_import.elapsed();
 
@@ -292,8 +328,13 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         }
 
         let t_gcc = Instant::now();
-        let c_plan =
+        let mut c_plan =
             c_builder::discover_c_build_plan(Path::new(&args.input_file), &imported_files)?;
+        // Profile flags go first so explicit `[build]` flags win.
+        c_plan.flags.splice(
+            0..0,
+            crate::tools::pkg::features::profile_c_flags(&build_cfg.profile, &c_plan.flags),
+        );
         let mut c_objects = c_builder::build_c_objects(&c_plan, args.arch, args.os)?;
         // Windows bundles embed the staged icon as a COFF resource.
         // An embedded icon (.rsrc section) is unreferenced by code, so
@@ -312,6 +353,10 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         }
         // Platform link flags from manifests (e.g. -lX11, -framework Cocoa).
         extra_link_args.extend(c_plan.link_flags_for(args.os));
+        extra_link_args.extend(crate::tools::pkg::features::profile_link_flags(
+            &build_cfg.profile,
+            args.os,
+        ));
         let mut extra_libs = codegen::collect_extern_libraries(&ast);
         extra_libs.retain(|lib| !c_plan.provided_libs.contains(lib));
 

@@ -134,6 +134,117 @@ c-sources-linux = ["c/wayland_window.c"]
 }
 
 #[test]
+fn test_manifest_features_and_profiles() {
+    let toml = r#"
+[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+core = "0.1.0"
+http = { version = "0.2.0", optional = true }
+tls = { git = "https://github.com/alya-lang/tls", tag = "v0.1.0", optional = true }
+local = { path = "../local", optional = false }
+
+[features]
+default = ["net"]
+net = ["http", "tls"]
+simd = ["net"]
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.release]
+opt-level = 3
+debug = false
+lto = true
+
+[profile.tiny]
+opt-level = 1
+"#;
+
+    let manifest = parse_manifest(toml).expect("parse features manifest failed");
+    assert!(!manifest.dependencies["core"].is_optional());
+    assert!(manifest.dependencies["http"].is_optional());
+    assert!(manifest.dependencies["tls"].is_optional());
+    assert!(!manifest.dependencies["local"].is_optional());
+    assert_eq!(manifest.features["default"], vec!["net".to_string()]);
+    assert_eq!(manifest.features["simd"], vec!["net".to_string()]);
+    let dev = manifest.profiles["dev"].clone();
+    assert_eq!(dev.opt_level, 0);
+    assert!(dev.debug);
+    assert!(!dev.lto);
+    let release = manifest.profiles["release"].clone();
+    assert_eq!(release.opt_level, 3);
+    assert!(!release.debug);
+    assert!(release.lto);
+    // Custom profile inherits dev shape unless overridden.
+    let tiny = manifest.profiles["tiny"].clone();
+    assert_eq!(tiny.opt_level, 1);
+    assert!(tiny.debug);
+
+    // Round-trip preserves features, profiles and optional flags.
+    let serialized = serialize_manifest(&manifest);
+    assert!(serialized.contains("[features]"));
+    assert!(serialized.contains("[profile.release]"));
+    assert!(serialized.contains("optional = true"));
+    let manifest2 = parse_manifest(&serialized).expect("roundtrip parse failed");
+    assert_eq!(manifest, manifest2);
+}
+
+#[test]
+fn test_manifest_features_strict() {
+    // Unknown member.
+    let bad_ref = "[package]\nname = \"x\"\n[features]\ndefault = [\"nope\"]\n";
+    assert!(parse_manifest(bad_ref).is_err());
+
+    // Cycle.
+    let cycle = "[package]\nname = \"x\"\n[features]\na = [\"b\"]\nb = [\"a\"]\n";
+    let err = parse_manifest(cycle).unwrap_err();
+    assert!(err.contains("cycle"));
+
+    // Non-array value.
+    let non_array = "[package]\nname = \"x\"\n[features]\ndefault = \"net\"\n";
+    assert!(parse_manifest(non_array).is_err());
+
+    // Bad feature name.
+    let bad_name = "[package]\nname = \"x\"\n[features]\n\"a b\" = []\n";
+    assert!(parse_manifest(bad_name).is_err());
+
+    // Bad optional flag.
+    let bad_opt =
+        "[package]\nname = \"x\"\n[dependencies]\nd = { version = \"1.0\", optional = \"yes\" }\n";
+    assert!(parse_manifest(bad_opt).is_err());
+}
+
+#[test]
+fn test_manifest_profiles_strict() {
+    // Unknown key.
+    let bad_key = "[package]\nname = \"x\"\n[profile.dev]\ncodegen-units = 4\n";
+    let err = parse_manifest(bad_key).unwrap_err();
+    assert!(err.contains("Unknown [profile.*] key"));
+
+    // Out-of-range opt-level.
+    let bad_opt = "[package]\nname = \"x\"\n[profile.release]\nopt-level = 9\n";
+    assert!(parse_manifest(bad_opt).is_err());
+
+    // Non-bool debug.
+    let bad_debug = "[package]\nname = \"x\"\n[profile.dev]\ndebug = 1\n";
+    assert!(parse_manifest(bad_debug).is_err());
+
+    // Unknown section.
+    let bad_section = "[package]\nname = \"x\"\n[workspace]\nmembers = []\n";
+    let err = parse_manifest(bad_section).unwrap_err();
+    assert!(err.contains("Unknown section '[workspace]'"));
+
+    // Tool sections stay accepted (preserved verbatim).
+    let tools = "[package]\nname = \"x\"\n[lint]\ndisabled_rules = []\n";
+    let manifest = parse_manifest(tools).expect("tool sections must parse");
+    assert!(manifest.section_extras.contains_key("lint"));
+}
+
+#[test]
 fn test_manifest_per_os_c_flags() {
     let toml = r#"
 [package]
@@ -219,6 +330,52 @@ checksum = "sha256:abcdef1234567890"
     let serialized = serialize_lockfile(&lock);
     let lock2 = parse_lockfile(&serialized).expect("roundtrip parse failed");
     assert_eq!(lock, lock2);
+}
+
+#[test]
+fn test_install_features_gate_optional_path_dep() {
+    let base = std::env::temp_dir().join(format!("alya_test_featinstall_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    let app_dir = base.join("app");
+    let opt_dir = base.join("optlib");
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+    fs::write(app_dir.join("src").join("main.alya"), "say \"hi\"\n").unwrap();
+    fs::write(
+        app_dir.join("alya.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nentry = \"src/main.alya\"\n\n[dependencies]\noptlib = { path = \"../optlib\", optional = true }\n\n[features]\ndefault = []\nextra = [\"optlib\"]\n",
+    )
+    .unwrap();
+
+    // Optional dep absent from disk: resolution fails with a feature-aware
+    // error (no signature change: the manifest alone names the providers).
+    let err = resolve_package_import("optlib", &app_dir).unwrap_err();
+    assert!(err.contains("Optional dependency 'optlib'"), "got: {}", err);
+    assert!(err.contains("--features extra"), "got: {}", err);
+
+    // Defaults: optional dep skipped (lock stays empty).
+    fs::create_dir_all(opt_dir.join("src")).unwrap();
+    fs::write(
+        opt_dir.join("src").join("lib.alya"),
+        "pub function f() {\n    return 1\n}\nend\n",
+    )
+    .unwrap();
+    run_install_in(&app_dir, false, &[], false).unwrap();
+    let lock = parse_lockfile(&fs::read_to_string(app_dir.join("alya.lock")).unwrap()).unwrap();
+    assert!(lock.packages.is_empty());
+
+    // Enabling the feature installs (locks) it and unlocks the import.
+    // Path sources resolve in place; optionality gates fetchable deps.
+    run_install_in(&app_dir, false, &["extra".to_string()], false).unwrap();
+    let lock = parse_lockfile(&fs::read_to_string(app_dir.join("alya.lock")).unwrap()).unwrap();
+    assert_eq!(lock.packages.len(), 1);
+    assert_eq!(lock.packages[0].name, "optlib");
+    let resolved = resolve_package_import("optlib", &app_dir).unwrap();
+    assert!(resolved.is_some());
+
+    // Unknown feature is a hard error.
+    assert!(run_install_in(&app_dir, false, &["nope".to_string()], false).is_err());
+
+    let _ = fs::remove_dir_all(&base);
 }
 
 #[test]
@@ -359,12 +516,13 @@ fn test_pkg_add_and_install_path_dependency() {
         "math_lib".to_string(),
         DependencySource::Path {
             path: "../math_lib".to_string(),
+            optional: false,
         },
     );
     fs::write(app_dir.join("alya.toml"), serialize_manifest(&app_manifest)).unwrap();
 
     // Run install in app_dir
-    run_install_in(&app_dir, false).unwrap();
+    run_install_in(&app_dir, false, &[], false).unwrap();
 
     assert!(app_dir.join("alya.lock").exists());
     let lock = parse_lockfile(&fs::read_to_string(app_dir.join("alya.lock")).unwrap()).unwrap();
@@ -729,7 +887,7 @@ fn test_transitive_dependency_resolution() {
     .unwrap();
 
     // Run install in root
-    let res = run_install_in(&root_dir, false);
+    let res = run_install_in(&root_dir, false, &[], false);
     assert!(res.is_ok(), "run_install_in failed: {:?}", res.err());
 
     // Verify lockfile contains BOTH pkg_a and pkg_b!
@@ -865,7 +1023,7 @@ fn test_version_dependency_resolution_and_locking() {
     )
     .unwrap();
 
-    let res = run_install_in(&app_dir, false);
+    let res = run_install_in(&app_dir, false, &[], false);
     assert!(res.is_ok(), "run_install_in failed: {:?}", res.err());
 
     // Verify lockfile
@@ -941,7 +1099,7 @@ fn test_duplicate_native_links_rejection() {
     )
     .unwrap();
 
-    let res = run_install_in(&app_dir, false);
+    let res = run_install_in(&app_dir, false, &[], false);
     assert!(res.is_err());
     let err_msg = res.err().unwrap();
     assert!(
@@ -1076,7 +1234,7 @@ fn test_major_version_segregation_installation() {
     )
     .unwrap();
 
-    let res = run_install_in(&app_dir, false);
+    let res = run_install_in(&app_dir, false, &[], false);
     assert!(res.is_ok(), "run_install_in failed: {:?}", res.err());
 
     let packages_dir = app_dir.join(".alya").join("packages");

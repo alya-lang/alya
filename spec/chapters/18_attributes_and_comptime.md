@@ -34,9 +34,13 @@ function get_platform_name() -> string
 end
 ```
 Supported configurations include:
-- `os = "windows"` | `"linux"` | `"macos"`
-- `arch = "x64"` | `"arm64"` | `"x86"`
-- `debug = true` | `false`
+- `os = "windows"` | `"linux"` | `"macos"` (evaluated against the `--os` build target, not the host)
+- `arch = "x64"` | `"arm64"` | `"x86"` (evaluated against the `--arch` build target; `x86_64`/`aarch64` aliases accepted)
+- `debug = true` | `false` (the active `[profile.*]` debug flag; `true` outside packages)
+- `feature = "<name>"` (a manifest `[features]` member active via `--features`; unknown names are false)
+- `not(<condition>)` negation; stack multiple `@cfg` lines for conjunction.
+- A failing branch is still parsed (syntax errors surface) but dropped before name resolution: references to dropped symbols fail as undefined, exactly like missing declarations. A bare `@cfg` (no parens) keeps the item.
+- Unknown keys (anything but `os`, `arch`, `debug`, `feature`) are compile-time errors. Unknown *feature names* are false at compile time (multi-manifest graphs never break on foreign names); `alya lint` flags names absent from the package `[features]` table.
 
 ### 1.4 Test & Benchmark Integration (`@test`, `@bench`)
 Built-in testing harness integration:

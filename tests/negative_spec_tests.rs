@@ -25,7 +25,7 @@ fn parse_expectation(source: &str) -> (String, String) {
 
 fn run_check_stage(ast: &alya::ast::Program, base_dir: &std::path::Path) -> Result<(), String> {
     let mut resolved = ast.clone();
-    alya::parser::resolve_imports(&mut resolved, base_dir)?;
+    alya::parser::resolve_imports(&mut resolved, base_dir, &alya::parser::CfgContext::host())?;
     alya::parser::enums::resolve_enums(&mut resolved);
     alya::parser::constants::resolve_and_validate_constants(&mut resolved)?;
     alya::parser::generics::resolve_generics(&mut resolved);

@@ -12,3 +12,7 @@ keywords = ["alya", "alya-lang", "package", "port_scanner", "network", "security
 
 [dependencies]
 term = { git = "https://github.com/alya-lang/term", branch = "main" }
+
+[profile.release]
+opt-level = 3
+debug = false

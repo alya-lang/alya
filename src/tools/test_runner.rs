@@ -3,6 +3,7 @@ use crate::codegen::{self, Architecture, OperatingSystem};
 use crate::driver::runner;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
+use crate::tools::pkg::features::{profile_c_flags, profile_link_flags, target_cfg, ResolvedBuild};
 use crate::tools::tool_config::SuiteConfig;
 use std::collections::{HashSet, VecDeque};
 use std::fs;
@@ -449,6 +450,7 @@ pub fn execute_test_file(
     arch: Architecture,
     os: OperatingSystem,
     kind: SuiteKind,
+    build: &ResolvedBuild,
 ) -> Result<TestExecution, String> {
     let start_time = Instant::now();
     let source = fs::read_to_string(path)
@@ -460,8 +462,14 @@ pub fn execute_test_file(
         .tokenize()
         .map_err(|e| format!("Lexer error in '{}': {}", path.display(), e))?;
 
-    // 2. Parser
+    // 2. Parser (target `@cfg` context: os/arch, profile debug, features)
     let mut parser = Parser::new(tokens);
+    parser.set_cfg_context(crate::tools::pkg::features::target_cfg(
+        os,
+        arch,
+        &build.profile,
+        &build.active_features,
+    ));
     let mut ast = parser
         .parse()
         .map_err(|e| format!("Parser error in '{}': {}", path.display(), e))?;
@@ -471,8 +479,12 @@ pub fn execute_test_file(
     // Collect suite entry points BEFORE imports merge (foreign `__test_*`
     // / `__bench_*` functions must not be auto-invoked here).
     let test_entries = discover_suite_entry_points(&ast, kind);
-    let imported_files = crate::parser::resolve_imports_with_sources(&mut ast, base_dir)
-        .map_err(|e| format!("Import resolution error in '{}': {}", path.display(), e))?;
+    let imported_files = crate::parser::resolve_imports_with_sources(
+        &mut ast,
+        base_dir,
+        &target_cfg(os, arch, &build.profile, &build.active_features),
+    )
+    .map_err(|e| format!("Import resolution error in '{}': {}", path.display(), e))?;
 
     // 3b. Synthesize invocations for `test` blocks and `@test` functions that
     // are not already called manually (Chapter 18 §1.4, Chapter 22 §1.3).
@@ -499,11 +511,16 @@ pub fn execute_test_file(
     fs::write(&temp_asm, &asm_code)
         .map_err(|e| format!("Failed to write temporary assembly: {}", e))?;
 
-    let c_plan = crate::driver::c_builder::discover_c_build_plan(path, &imported_files)?;
+    let mut c_plan = crate::driver::c_builder::discover_c_build_plan(path, &imported_files)?;
+    // Profile flags go first so explicit `[build]` flags win.
+    c_plan
+        .flags
+        .splice(0..0, profile_c_flags(&build.profile, &c_plan.flags));
     let c_objects = crate::driver::c_builder::build_c_objects(&c_plan, arch, os)?;
     let mut extra_libs = codegen::collect_extern_libraries(&ast);
     extra_libs.retain(|lib| !c_plan.provided_libs.contains(lib));
-    let extra_link_args: Vec<String> = c_plan.link_flags_for(os);
+    let mut extra_link_args: Vec<String> = c_plan.link_flags_for(os);
+    extra_link_args.extend(profile_link_flags(&build.profile, os));
 
     let asm_str = temp_asm.to_string_lossy().to_string();
     let exe_str = temp_exe.to_string_lossy().to_string();
@@ -847,6 +864,7 @@ pub fn run_tests(
     arch: Architecture,
     os: OperatingSystem,
     jobs: Option<usize>,
+    build: ResolvedBuild,
 ) -> Result<(), String> {
     let root = Path::new(path_str);
     let test_files = discover_test_files(root);
@@ -892,8 +910,8 @@ pub fn run_tests(
 
     println!("\n=== Alya Test Suite v{} ===", alya_ver);
     println!(
-        "Target : {}-{} | Concurrency: {}",
-        arch_str, os_str, mode_str
+        "Target : {}-{} | Profile: {} | Concurrency: {}",
+        arch_str, os_str, build.profile_name, mode_str
     );
     println!(
         "Discovered {} test suite(s) in '{}'\n",
@@ -907,7 +925,7 @@ pub fn run_tests(
     if num_workers == 1 {
         for file in &test_files {
             let display_name = format_test_path(file, root);
-            let outcome = execute_test_file(file, arch, os, SuiteKind::Test);
+            let outcome = execute_test_file(file, arch, os, SuiteKind::Test, &build);
             handle_test_result(&display_name, outcome, name_width, &mut stats);
         }
     } else {
@@ -919,6 +937,7 @@ pub fn run_tests(
             let q = Arc::clone(&queue);
             let r_root = Arc::clone(&root_arc);
             let sender = tx.clone();
+            let worker_build = build.clone();
             handles.push(thread::spawn(move || loop {
                 let file = {
                     let mut locked = q.lock().unwrap();
@@ -927,7 +946,8 @@ pub fn run_tests(
                 match file {
                     Some(path) => {
                         let display_name = format_test_path(&path, &r_root);
-                        let outcome = execute_test_file(&path, arch, os, SuiteKind::Test);
+                        let outcome =
+                            execute_test_file(&path, arch, os, SuiteKind::Test, &worker_build);
                         let _ = sender.send(TestResultItem {
                             display_name,
                             outcome,
@@ -1005,7 +1025,12 @@ pub fn run_tests(
 /// Discovers and runs benchmark suites: `bench` blocks and `@bench`
 /// functions are auto-invoked (Chapter 22 §1.4). Benchmarks always run
 /// sequentially — parallel workers would distort timing.
-pub fn run_benches(path_str: &str, arch: Architecture, os: OperatingSystem) -> Result<(), String> {
+pub fn run_benches(
+    path_str: &str,
+    arch: Architecture,
+    os: OperatingSystem,
+    build: ResolvedBuild,
+) -> Result<(), String> {
     let root = Path::new(path_str);
     let bench_files = discover_bench_files(root);
 
@@ -1034,7 +1059,10 @@ pub fn run_benches(path_str: &str, arch: Architecture, os: OperatingSystem) -> R
         .max(32);
 
     println!("\n=== Alya Benchmark Suite v{} ===", alya_ver);
-    println!("Target : {}-{} | Concurrency: sequential", arch_str, os_str);
+    println!(
+        "Target : {}-{} | Profile: {} | Concurrency: sequential",
+        arch_str, os_str, build.profile_name
+    );
     println!(
         "Discovered {} benchmark suite(s) in '{}'\n",
         bench_files.len(),
@@ -1046,7 +1074,7 @@ pub fn run_benches(path_str: &str, arch: Architecture, os: OperatingSystem) -> R
 
     for file in &bench_files {
         let display_name = format_test_path(file, root);
-        let outcome = execute_test_file(file, arch, os, SuiteKind::Bench);
+        let outcome = execute_test_file(file, arch, os, SuiteKind::Bench, &build);
         handle_test_result(&display_name, outcome, name_width, &mut stats);
     }
 

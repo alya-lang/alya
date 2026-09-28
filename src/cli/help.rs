@@ -102,6 +102,8 @@ pub fn print_full_usage() {
     println!(
         "  --mem-trace           Enable memory diagnostics, allocation tracking, and leak detection"
     );
+    println!("  --release, --profile <name>  Select the build profile (default: dev)");
+    println!("  --features <a,b>, --no-default-features  Select package features");
     println!("  --stats, --bench      Display detailed compilation and execution metrics");
     println!("  -v, --version         Show compiler version");
     println!("  -h, --help            Show this help message\n");
@@ -192,7 +194,11 @@ pub fn print_run_help() {
     println!("  --time              Display timing for each compilation phase");
     println!("  --stats, --bench    Display detailed compilation and execution metrics");
     println!("  --no-std            Bare-metal mode: detach standard library");
-    println!("  --mem-trace         Enable memory diagnostics and leak detection\n");
+    println!("  --mem-trace         Enable memory diagnostics and leak detection");
+    println!("  --release           Use the release profile ([profile.release])");
+    println!("  --profile <name>    Use a custom [profile.<name>] table");
+    println!("  --features <a,b>    Enable package features (repeatable)");
+    println!("  --no-default-features  Skip the default feature set\n");
     println!("EXAMPLES:");
     println!("  alya run                             # Run package entry from alya.toml");
     println!("  alya run hello.alya                  # Compile & run in one step");
@@ -218,11 +224,16 @@ pub fn print_build_help() {
     println!("  --arch <arch>       Target architecture: x86, x64, arm64");
     println!("  --os <os>           Target OS: windows, linux, macos");
     println!("  -q, --quiet         Suppress status messages and compiler banner");
-    println!("  --time              Display timing for each compilation phase\n");
+    println!("  --time              Display timing for each compilation phase");
+    println!("  --release           Use the release profile ([profile.release])");
+    println!("  --profile <name>    Use a custom [profile.<name>] table");
+    println!("  --features <a,b>    Enable package features (repeatable)");
+    println!("  --no-default-features  Skip the default feature set\n");
     println!("EXAMPLES:");
     println!("  alya build hello.alya                # Produce executable (hello.exe / hello)");
     println!("  alya build app.alya --bundle --gui   # GUI bundle for the host platform");
     println!("  alya build app.alya --bundle --os windows  # Cross-platform bundle");
+    println!("  alya build app.alya --release        # Optimized release build");
 }
 
 pub fn print_check_help() {
@@ -284,7 +295,11 @@ pub fn print_test_help() {
     println!("  [path]              File or directory to test (default: .)\n");
     println!("OPTIONS:");
     println!("  -j, --jobs <N>      Number of parallel test worker jobs (default: CPU cores)");
-    println!("  --sequential        Run tests sequentially (alias for -j 1)\n");
+    println!("  --sequential        Run tests sequentially (alias for -j 1)");
+    println!("  --release           Use the release profile ([profile.release])");
+    println!("  --profile <name>    Use a custom [profile.<name>] table");
+    println!("  --features <a,b>    Enable package features (repeatable)");
+    println!("  --no-default-features  Skip the default feature set\n");
     println!("EXAMPLES:");
     println!("  alya test                            # Run all tests in project");
     println!("  alya test -j 4                       # Run with 4 parallel workers");
@@ -294,9 +309,14 @@ pub fn print_test_help() {
 pub fn print_bench_help() {
     println!("alya bench - Discover and run benchmarks\n");
     println!("USAGE:");
-    println!("  alya bench [path]\n");
+    println!("  alya bench [path] [OPTIONS]\n");
     println!("ARGS:");
     println!("  [path]              File or directory to benchmark (default: .)\n");
+    println!("OPTIONS:");
+    println!("  --release           Use the release profile ([profile.release])");
+    println!("  --profile <name>    Use a custom [profile.<name>] table");
+    println!("  --features <a,b>    Enable package features (repeatable)");
+    println!("  --no-default-features  Skip the default feature set\n");
     println!("EXAMPLES:");
     println!("  alya bench                           # Run all benchmarks in project");
     println!("  alya bench benches                   # Run benchmarks in a directory");

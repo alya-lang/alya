@@ -716,3 +716,41 @@ exclude = ["vendor"]
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_lint_cfg_unknown_feature() {
+    let tmp = std::env::temp_dir().join(format!("alya_lint_cfgfeat_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("src")).unwrap();
+    std::fs::write(
+        tmp.join("alya.toml"),
+        "[package]\nname = \"cfgapp\"\nversion = \"0.1.0\"\nentry = \"src/main.alya\"\n\n[features]\ndefault = []\nsimd = []\n",
+    )
+    .unwrap();
+    let file = tmp.join("src").join("main.alya");
+    let source = "@cfg(feature = \"simd\")\nfunction f()\n    return 1\nend\n@cfg(feature = \"simdd\")\nfunction g()\n    return 2\nend\n@cfg(not(feature = \"nope\"))\nfunction h()\n    return 3\nend\n";
+    std::fs::write(&file, source).unwrap();
+    let diags = lint_source(source, &file).unwrap();
+    let cfg_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "cfg-unknown-feature")
+        .collect();
+    assert_eq!(
+        cfg_diags.len(),
+        2,
+        "typos flagged: {:?}",
+        cfg_diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    assert!(cfg_diags.iter().any(|d| d.message.contains("'simdd'")));
+    assert!(cfg_diags.iter().any(|d| d.message.contains("'nope'")));
+
+    // Outside packages (no manifest) the rule stays silent.
+    let lone = std::env::temp_dir().join(format!("alya_lint_cfglone_{}.alya", std::process::id()));
+    let lone_src = "@cfg(feature = \"anything\")\nfunction f()\n    return 1\nend\n";
+    std::fs::write(&lone, lone_src).unwrap();
+    let lone_diags = lint_source(lone_src, &lone).unwrap();
+    assert!(lone_diags.iter().all(|d| d.rule != "cfg-unknown-feature"));
+    let _ = std::fs::remove_file(&lone);
+
+    let _ = fs::remove_dir_all(&tmp);
+}

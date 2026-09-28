@@ -105,7 +105,11 @@ say non_existent_fn()
     let tokens = lexer.tokenize().expect("Lexer error");
     let mut parser = alya::parser::Parser::new(tokens);
     let mut ast = parser.parse().expect("Parser error");
-    let res = alya::parser::resolve_imports(&mut ast, std::path::Path::new("."));
+    let res = alya::parser::resolve_imports(
+        &mut ast,
+        std::path::Path::new("."),
+        &alya::parser::CfgContext::host(),
+    );
     let _ = fs::remove_file(&mod_filename);
 
     assert!(res.is_err());
@@ -167,7 +171,11 @@ say secret_helper()
     let tokens = lexer.tokenize().expect("Lexer error");
     let mut parser = alya::parser::Parser::new(tokens);
     let mut ast = parser.parse().expect("Parser error");
-    let err_res = alya::parser::resolve_imports(&mut ast, std::path::Path::new("."));
+    let err_res = alya::parser::resolve_imports(
+        &mut ast,
+        std::path::Path::new("."),
+        &alya::parser::CfgContext::host(),
+    );
 
     assert!(err_res.is_err());
     let err_msg = err_res.unwrap_err();

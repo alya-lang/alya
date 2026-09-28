@@ -232,7 +232,7 @@ pub fn resolve_package_import(
 
     if let Some(dep_source) = manifest.dependencies.get(pkg_name) {
         let pkg_dir = match dep_source {
-            DependencySource::Path { path } => {
+            DependencySource::Path { path, .. } => {
                 let p = Path::new(path);
                 if p.is_absolute() {
                     p.to_path_buf()
@@ -245,7 +245,7 @@ pub fn resolve_package_import(
                 find_package_dir(&manifest_dir, pkg_name, req_maj)
                     .unwrap_or_else(|| manifest_dir.join(".alya").join("packages").join(pkg_name))
             }
-            DependencySource::Version(v) => {
+            DependencySource::Version { version: v, .. } => {
                 let req_maj = semver_major(v);
                 find_package_dir(&manifest_dir, pkg_name, req_maj)
                     .unwrap_or_else(|| manifest_dir.join(".alya").join("packages").join(pkg_name))
@@ -253,6 +253,25 @@ pub fn resolve_package_import(
         };
 
         if !pkg_dir.exists() {
+            if dep_source.is_optional() {
+                let providers: Vec<&str> = manifest
+                    .features
+                    .iter()
+                    .filter(|(_, members)| members.iter().any(|m| m == pkg_name))
+                    .map(|(name, _)| name.as_str())
+                    .collect();
+                return Err(format!(
+                    "Optional dependency '{}' is not installed. Run 'alya install --features {}' to enable it (provided by feature{}: {}).",
+                    pkg_name,
+                    providers.first().copied().unwrap_or("<feature>"),
+                    if providers.len() == 1 { "" } else { "s" },
+                    if providers.is_empty() {
+                        "(no feature enables it)".to_string()
+                    } else {
+                        providers.join(", ")
+                    }
+                ));
+            }
             return Err(format!(
                 "Package '{}' is declared in alya.toml but not installed at '{}'. Run 'alya install' to resolve dependencies.",
                 pkg_name,

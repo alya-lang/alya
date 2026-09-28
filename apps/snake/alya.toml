@@ -13,3 +13,7 @@ keywords = ["alya", "alya-lang", "package", "snake", "game", "arcade", "autopilo
 [dependencies]
 term = { git = "https://github.com/alya-lang/term", branch = "main" }
 rand = { git = "https://github.com/alya-lang/rand", branch = "main" }
+
+[profile.release]
+opt-level = 3
+debug = false

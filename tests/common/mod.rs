@@ -1,7 +1,7 @@
 use alya::codegen::{self, Architecture, OperatingSystem};
 use alya::driver::toolchain;
 use alya::lexer::Lexer;
-use alya::parser::Parser;
+use alya::parser::{CfgContext, Parser};
 pub use std::fs;
 pub use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -84,6 +84,24 @@ pub fn run_alya_code_with_options(
     cli_args: &[&str],
     mem_trace: bool,
 ) -> Option<(i32, String)> {
+    run_alya_code_with_options_and_features(source, input, cli_args, mem_trace, &[])
+}
+
+#[allow(dead_code)]
+pub fn run_alya_code_full_with_features(
+    source: &str,
+    features: &[String],
+) -> Option<(i32, String)> {
+    run_alya_code_with_options_and_features(source, None, &[], false, features)
+}
+
+pub fn run_alya_code_with_options_and_features(
+    source: &str,
+    input: Option<&str>,
+    cli_args: &[&str],
+    mem_trace: bool,
+    features: &[String],
+) -> Option<(i32, String)> {
     // Check if gcc is available
     if Command::new("gcc").arg("--version").output().is_err() {
         eprintln!("Skipping E2E test: GCC is not available in PATH.");
@@ -92,7 +110,26 @@ pub fn run_alya_code_with_options(
 
     let mut lexer = Lexer::new(source);
     let tokens = lexer.tokenize().expect("Lexer error");
+    let active: std::collections::BTreeSet<String> = features.iter().cloned().collect();
     let mut parser = Parser::new(tokens);
+    // Harness target = host; debug on. Features come from the caller
+    // (e.g. a `# FEATURES:` fixture header).
+    let host_os = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let host_arch_raw = std::env::consts::ARCH;
+    let host_arch = if host_arch_raw == "x86_64" {
+        "x64"
+    } else if host_arch_raw == "aarch64" {
+        "arm64"
+    } else {
+        host_arch_raw
+    };
+    parser.set_cfg_context(CfgContext::for_target(host_os, host_arch, true, &active));
     let mut ast = parser.parse().expect("Parser error");
     // Auto-invoke `test` blocks and `@test` functions (same as `alya test`),
     // so fixtures' embedded tests actually execute instead of rotting.
@@ -101,8 +138,12 @@ pub fn run_alya_code_with_options(
         use alya::tools::test_runner::{discover_suite_entry_points, SuiteKind};
         discover_suite_entry_points(&ast, SuiteKind::Test)
     };
-    alya::parser::resolve_imports(&mut ast, std::path::Path::new("."))
-        .expect("Module import resolution failed");
+    alya::parser::resolve_imports(
+        &mut ast,
+        std::path::Path::new("."),
+        &CfgContext::for_target(host_os, host_arch, true, &active),
+    )
+    .expect("Module import resolution failed");
     {
         use alya::tools::test_runner::synthesize_test_calls;
         synthesize_test_calls(&mut ast, &test_entries);

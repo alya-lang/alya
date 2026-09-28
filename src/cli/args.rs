@@ -70,6 +70,9 @@ pub struct CliArgs {
     pub icon_path: Option<String>,
     pub gui: bool,
     pub doc_types: Vec<DocType>,
+    pub profile: String,
+    pub features: Vec<String>,
+    pub no_default_features: bool,
     pub run_args: Vec<String>,
     pub test_jobs: Option<usize>,
     pub no_std: bool,
@@ -121,6 +124,9 @@ impl CliArgs {
                 bundle: false,
                 gui: false,
                 doc_types: Vec::new(),
+                profile: "dev".to_string(),
+                features: Vec::new(),
+                no_default_features: false,
                 bundle_id: None,
                 icon_path: None,
                 run_args: Vec::new(),
@@ -417,6 +423,10 @@ impl CliArgs {
         let mut icon_path = None;
         let mut gui = false;
         let mut doc_types: Vec<DocType> = Vec::new();
+        let mut profile_opt: Option<String> = None;
+        let mut release = false;
+        let mut features: Vec<String> = Vec::new();
+        let mut no_default_features = false;
         let mut os_explicit = false;
         let mut arch_explicit = false;
         let mut run_args = Vec::new();
@@ -575,6 +585,28 @@ impl CliArgs {
                         return Err("Error: Missing argument for '--doc-type'".to_string());
                     }
                 }
+                "--release" => {
+                    release = true;
+                }
+                "--profile" => {
+                    if i + 1 < args.len() {
+                        profile_opt = Some(args[i + 1].clone());
+                        i += 1;
+                    } else {
+                        return Err("Error: Missing argument for '--profile'".to_string());
+                    }
+                }
+                "--features" => {
+                    if i + 1 < args.len() {
+                        push_features(&mut features, &args[i + 1]);
+                        i += 1;
+                    } else {
+                        return Err("Error: Missing argument for '--features'".to_string());
+                    }
+                }
+                "--no-default-features" => {
+                    no_default_features = true;
+                }
                 "--arch" => {
                     if i + 1 < args.len() {
                         arch_explicit = true;
@@ -627,6 +659,9 @@ impl CliArgs {
                         input_file = Some(arg.to_string());
                     }
                 }
+                other if other.starts_with("--features=") => {
+                    push_features(&mut features, &other["--features=".len()..]);
+                }
                 other => {
                     if command == CommandKind::Run && input_file.is_some() {
                         run_args.push(other.to_string());
@@ -675,6 +710,25 @@ impl CliArgs {
             }
         }
 
+        if release && profile_opt.is_some() {
+            return Err("Error: '--release' cannot be combined with '--profile'".to_string());
+        }
+        let profile_flags_used =
+            release || profile_opt.is_some() || !features.is_empty() || no_default_features;
+        match command {
+            CommandKind::Build | CommandKind::Run | CommandKind::Test | CommandKind::Bench => {}
+            _ => {
+                if profile_flags_used {
+                    return Err("Error: '--profile'/'--release'/'--features'/'--no-default-features' are only valid with 'build', 'run', 'test' and 'bench'".to_string());
+                }
+            }
+        }
+        let profile = if release {
+            "release".to_string()
+        } else {
+            profile_opt.unwrap_or_else(|| "dev".to_string())
+        };
+
         Ok(Some(Self {
             command,
             input_file,
@@ -692,6 +746,9 @@ impl CliArgs {
             icon_path,
             gui,
             doc_types,
+            profile,
+            features,
+            no_default_features,
             run_args,
             test_jobs,
             no_std,
@@ -729,6 +786,9 @@ impl CliArgs {
             bundle: false,
             gui: false,
             doc_types: Vec::new(),
+            profile: "dev".to_string(),
+            features: Vec::new(),
+            no_default_features: false,
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
@@ -768,6 +828,9 @@ impl CliArgs {
             bundle: false,
             gui: false,
             doc_types: Vec::new(),
+            profile: "dev".to_string(),
+            features: Vec::new(),
+            no_default_features: false,
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
@@ -807,6 +870,9 @@ impl CliArgs {
             bundle: false,
             gui: false,
             doc_types: Vec::new(),
+            profile: "dev".to_string(),
+            features: Vec::new(),
+            no_default_features: false,
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
@@ -831,6 +897,14 @@ impl CliArgs {
 
 /// Parses `--doc-type <ext>:<uti>[:icon.icns>]` into a [`DocType`].
 /// `splitn` keeps Windows drive-letter paths (`C:\...`) in the icon segment.
+fn push_features(dst: &mut Vec<String>, raw: &str) {
+    dst.extend(
+        raw.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+    );
+}
+
 fn parse_doc_type_flag(spec: &str) -> Result<DocType, String> {
     let parts: Vec<&str> = spec.splitn(3, ':').collect();
     if parts.len() < 2 {
@@ -1043,6 +1117,7 @@ fn parse_pkg_add_args(args: &[String]) -> Result<PkgCommand, String> {
     let mut tag = None;
     let mut branch = None;
     let mut version = None;
+    let mut optional = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -1087,6 +1162,9 @@ fn parse_pkg_add_args(args: &[String]) -> Result<PkgCommand, String> {
                     return Err("Error: Missing argument for '--version'".to_string());
                 }
             }
+            "--optional" => {
+                optional = true;
+            }
             arg if !arg.starts_with('-') => {
                 if name.is_none() {
                     let (pkg_spec, ver_spec) = if let Some((p, v)) = arg.split_once('@') {
@@ -1121,6 +1199,7 @@ fn parse_pkg_add_args(args: &[String]) -> Result<PkgCommand, String> {
         tag,
         branch,
         version,
+        optional,
     })
 }
 
@@ -1161,20 +1240,47 @@ fn parse_pkg_clean_args(args: &[String]) -> Result<PkgCommand, String> {
 }
 
 fn parse_pkg_install_args(args: &[String]) -> Result<PkgCommand, String> {
+    fn push_features(dst: &mut Vec<String>, raw: &str) {
+        dst.extend(
+            raw.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+        );
+    }
     let mut strict = false;
-    for arg in args {
-        match arg.as_str() {
+    let mut features: Vec<String> = Vec::new();
+    let mut no_default_features = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
             "--strict" => strict = true,
+            "--features" => {
+                if i + 1 < args.len() {
+                    push_features(&mut features, &args[i + 1]);
+                    i += 1;
+                } else {
+                    return Err("Error: Missing argument for '--features'".to_string());
+                }
+            }
+            "--no-default-features" => no_default_features = true,
             "-h" | "--help" | "help" => return Ok(PkgCommand::Help),
+            other if other.starts_with("--features=") => {
+                push_features(&mut features, &other["--features=".len()..]);
+            }
             other => {
                 return Err(format!(
-                    "Error: Unknown option '{}' for 'install'. Supported flags: --strict",
+                    "Error: Unknown option '{}' for 'install'. Supported flags: --strict, --features <a,b>, --no-default-features",
                     other
                 ))
             }
         }
+        i += 1;
     }
-    Ok(PkgCommand::Install { strict })
+    Ok(PkgCommand::Install {
+        strict,
+        features,
+        no_default_features,
+    })
 }
 
 fn parse_pkg_update_args(args: &[String]) -> Result<PkgCommand, String> {

@@ -1,6 +1,7 @@
 pub mod cache;
 pub mod commands;
 pub mod discovery;
+pub mod features;
 pub mod hash;
 pub mod lock;
 pub mod manifest;
@@ -14,6 +15,7 @@ mod tests;
 pub use cache::*;
 pub use commands::*;
 pub use discovery::*;
+pub use features::*;
 pub use hash::*;
 pub use lock::*;
 pub use manifest::*;

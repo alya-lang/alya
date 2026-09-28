@@ -1,6 +1,145 @@
 use super::toml::{parse_inline_table, parse_string_array, strip_toml_comment, unquote};
-use super::types::{BuildConfig, DependencySource, PackageInfo, PackageManifest};
+use super::types::{BuildConfig, BuildProfile, DependencySource, PackageInfo, PackageManifest};
 use std::collections::BTreeMap;
+
+fn is_valid_feature_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// Sections the manifest parser understands. Tool sections (`lint`, `fmt`,
+/// `test`, `bench`) are preserved verbatim via `section_extras`; anything
+/// else is a hard error so typos fail loudly instead of being ignored.
+fn is_known_section(section: &str) -> bool {
+    matches!(
+        section,
+        "" | "package" | "dependencies" | "build" | "features" | "lint" | "fmt" | "test" | "bench"
+    ) || section.starts_with("profile.")
+}
+
+fn parse_profile_value(key: &str, val: &str, line_no: usize) -> Result<(String, String), String> {
+    let err = |msg: &str| {
+        format!(
+            "Invalid [profile.*] entry '{}' in alya.toml at line {}: {}",
+            key, line_no, msg
+        )
+    };
+    match key {
+        "opt-level" => {
+            let level: u8 = val
+                .parse()
+                .map_err(|_| err("opt-level must be an integer 0-3"))?;
+            if level > 3 {
+                return Err(err("opt-level must be an integer 0-3"));
+            }
+            Ok((key.to_string(), level.to_string()))
+        }
+        "debug" | "lto" => {
+            if val != "true" && val != "false" {
+                return Err(err("expected 'true' or 'false'"));
+            }
+            Ok((key.to_string(), val.to_string()))
+        }
+        other => Err(format!(
+            "Unknown [profile.*] key '{}' in alya.toml at line {}: expected one of 'opt-level', 'debug', 'lto'",
+            other, line_no
+        )),
+    }
+}
+
+fn parse_optional_flag(
+    table: &BTreeMap<String, String>,
+    key: &str,
+    line_no: usize,
+) -> Result<bool, String> {
+    match table.get("optional") {
+        None => Ok(false),
+        Some(v) if v == "true" => Ok(true),
+        Some(v) if v == "false" => Ok(false),
+        Some(v) => Err(format!(
+            "Invalid dependency entry '{}' in alya.toml at line {}: 'optional' must be 'true' or 'false', got '{}'",
+            key, line_no, v
+        )),
+    }
+}
+
+/// Every feature member must name another feature or a declared
+/// dependency, and the feature graph must be acyclic. Pure over parsed
+/// tables so it stays unit-testable.
+fn validate_feature_graph(
+    features: &BTreeMap<String, Vec<String>>,
+    dependencies: &BTreeMap<String, DependencySource>,
+) -> Result<(), String> {
+    for (feature, members) in features {
+        for member in members {
+            if !features.contains_key(member) && !dependencies.contains_key(member) {
+                return Err(format!(
+                    "Feature '{}' in alya.toml references unknown feature or dependency '{}'",
+                    feature, member
+                ));
+            }
+        }
+    }
+    // Cycle detection (iterative DFS over feature->feature edges).
+    for root in features.keys() {
+        let mut stack = vec![(root.clone(), false)];
+        let mut visiting: Vec<String> = Vec::new();
+        while let Some((node, expanded)) = stack.pop() {
+            if expanded {
+                visiting.retain(|n| n != &node);
+                continue;
+            }
+            if visiting.contains(&node) {
+                return Err(format!(
+                    "Feature cycle detected in alya.toml involving '{}'",
+                    node
+                ));
+            }
+            visiting.push(node.clone());
+            stack.push((node.clone(), true));
+            if let Some(members) = features.get(&node) {
+                for member in members {
+                    if features.contains_key(member) {
+                        stack.push((member.clone(), false));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn build_profile_from_values(
+    profile_name: &str,
+    values: &BTreeMap<String, String>,
+) -> Result<BuildProfile, String> {
+    let is_release = profile_name == "release";
+    let mut profile = if is_release {
+        BuildProfile::release_default()
+    } else {
+        BuildProfile::dev_default()
+    };
+    for (key, val) in values {
+        match key.as_str() {
+            "opt-level" => {
+                profile.opt_level = val.parse().map_err(|_| {
+                    format!("Invalid opt-level '{}' in [profile.{}]", val, profile_name)
+                })?;
+            }
+            "debug" => profile.debug = val == "true",
+            "lto" => profile.lto = val == "true",
+            other => {
+                return Err(format!(
+                    "Unknown [profile.{}] key '{}': expected one of 'opt-level', 'debug', 'lto'",
+                    profile_name, other
+                ));
+            }
+        }
+    }
+    Ok(profile)
+}
 
 fn is_section_header(trimmed: &str) -> Option<String> {
     if trimmed.starts_with('[') && trimmed.ends_with(']') && trimmed.len() > 2 {
@@ -31,7 +170,10 @@ fn collect_section_extras(content: &str) -> BTreeMap<String, Vec<String>> {
             current = name;
             continue;
         }
-        let known = matches!(current.as_str(), "" | "package" | "dependencies" | "build");
+        let known = matches!(
+            current.as_str(),
+            "" | "package" | "dependencies" | "build" | "features"
+        ) || current.starts_with("profile.");
         if trimmed.starts_with('#') || !known {
             extras
                 .entry(current.clone())
@@ -70,6 +212,8 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
     let mut c_link_flags_macos = Vec::new();
     let mut c_link_flags_linux = Vec::new();
     let mut build_extra = BTreeMap::new();
+    let mut features: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut profile_values: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     let section_extras = collect_section_extras(content);
 
     let mut current_section = String::new();
@@ -84,6 +228,12 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
 
         if line.starts_with('[') && line.ends_with(']') {
             current_section = line[1..line.len() - 1].trim().to_string();
+            if !is_known_section(&current_section) {
+                return Err(format!(
+                    "Unknown section '[{}]' in alya.toml at line {}: expected one of '[package]', '[dependencies]', '[build]', '[features]', '[profile.<name>]', '[lint]', '[fmt]', '[test]', '[bench]'",
+                    current_section, line_no
+                ));
+            }
             continue;
         }
 
@@ -139,10 +289,14 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                 "dependencies" => {
                     if val.starts_with('{') {
                         let table = parse_inline_table(val);
+                        let optional = parse_optional_flag(&table, key, line_no)?;
                         if let Some(p) = table.get("path") {
                             dependencies.insert(
                                 key.to_string(),
-                                DependencySource::Path { path: p.clone() },
+                                DependencySource::Path {
+                                    path: p.clone(),
+                                    optional,
+                                },
                             );
                         } else if let Some(g) = table.get("git") {
                             dependencies.insert(
@@ -152,12 +306,16 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                                     tag: table.get("tag").cloned(),
                                     branch: table.get("branch").cloned(),
                                     rev: table.get("rev").cloned(),
+                                    optional,
                                 },
                             );
                         } else if let Some(v_inner) = table.get("version") {
                             dependencies.insert(
                                 key.to_string(),
-                                DependencySource::Version(v_inner.clone()),
+                                DependencySource::Version {
+                                    version: v_inner.clone(),
+                                    optional,
+                                },
                             );
                         } else {
                             return Err(format!(
@@ -166,11 +324,53 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                             ));
                         }
                     } else {
-                        dependencies
-                            .insert(key.to_string(), DependencySource::Version(unquote(val)));
+                        dependencies.insert(
+                            key.to_string(),
+                            DependencySource::Version {
+                                version: unquote(val),
+                                optional: false,
+                            },
+                        );
                     }
                 }
+                "features" => {
+                    if !is_valid_feature_name(key) {
+                        return Err(format!(
+                            "Invalid feature name '{}' in alya.toml at line {}: expected alphanumeric, '_' or '-'",
+                            key, line_no
+                        ));
+                    }
+                    if !(val.starts_with('[') && val.ends_with(']')) {
+                        return Err(format!(
+                            "Invalid feature '{}' in alya.toml at line {}: value must be a string array like '[\"dep\", \"other-feature\"]'",
+                            key, line_no
+                        ));
+                    }
+                    let members = parse_string_array(val);
+                    for member in &members {
+                        if !is_valid_feature_name(member) {
+                            return Err(format!(
+                                "Invalid feature member '{}' in feature '{}' in alya.toml at line {}",
+                                member, key, line_no
+                            ));
+                        }
+                    }
+                    features.insert(key.to_string(), members);
+                }
                 _ => {}
+            }
+            if let Some(profile_name) = current_section.strip_prefix("profile.") {
+                if !is_valid_feature_name(profile_name) {
+                    return Err(format!(
+                        "Invalid profile name '{}' in alya.toml at line {}",
+                        profile_name, line_no
+                    ));
+                }
+                let (k, v) = parse_profile_value(key, val, line_no)?;
+                profile_values
+                    .entry(profile_name.to_string())
+                    .or_default()
+                    .insert(k, v);
             }
         } else {
             return Err(format!(
@@ -182,6 +382,16 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
 
     if name.is_empty() {
         return Err("Missing required field 'name' under [package] in alya.toml".to_string());
+    }
+
+    validate_feature_graph(&features, &dependencies)?;
+
+    let mut profiles: BTreeMap<String, BuildProfile> = BTreeMap::new();
+    for (profile_name, values) in &profile_values {
+        profiles.insert(
+            profile_name.clone(),
+            build_profile_from_values(profile_name, values)?,
+        );
     }
 
     let build = if !c_sources.is_empty()
@@ -232,6 +442,8 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
         },
         dependencies,
         build,
+        features,
+        profiles,
         section_extras,
     })
 }
@@ -300,14 +512,23 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
     out.push_str("\n[dependencies]\n");
     for (name, dep) in &manifest.dependencies {
         match dep {
-            DependencySource::Version(v) => {
-                out.push_str(&format!("{} = \"{}\"\n", name, v));
+            DependencySource::Version { version, optional } => {
+                if *optional {
+                    out.push_str(&format!(
+                        "{} = {{ version = \"{}\", optional = true }}\n",
+                        name, version
+                    ));
+                } else {
+                    out.push_str(&format!("{} = \"{}\"\n", name, version));
+                }
             }
-            DependencySource::Path { path } => {
+            DependencySource::Path { path, optional } => {
+                let opt = if *optional { ", optional = true" } else { "" };
                 out.push_str(&format!(
-                    "{} = {{ path = \"{}\" }}\n",
+                    "{} = {{ path = \"{}\"{} }}\n",
                     name,
-                    path.replace('\\', "/")
+                    path.replace('\\', "/"),
+                    opt
                 ));
             }
             DependencySource::Git {
@@ -315,6 +536,7 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
                 tag,
                 branch,
                 rev,
+                optional,
             } => {
                 let mut parts = vec![format!("git = \"{}\"", url)];
                 if let Some(t) = tag {
@@ -325,6 +547,9 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
                 }
                 if let Some(r) = rev {
                     parts.push(format!("rev = \"{}\"", r));
+                }
+                if *optional {
+                    parts.push("optional = true".to_string());
                 }
                 out.push_str(&format!("{} = {{ {} }}\n", name, parts.join(", ")));
             }
@@ -397,11 +622,45 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
             }
         }
     }
+    if !manifest.features.is_empty() {
+        out.push_str("\n[features]\n");
+        for (name, members) in &manifest.features {
+            let members_str = members
+                .iter()
+                .map(|m| format!("\"{}\"", m))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!("{} = [{}]\n", name, members_str));
+        }
+        if let Some(feat_extras) = manifest.section_extras.get("features") {
+            for line in feat_extras {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+    }
+    for (profile_name, profile) in &manifest.profiles {
+        out.push_str(&format!("\n[profile.{}]\n", profile_name));
+        out.push_str(&format!("opt-level = {}\n", profile.opt_level));
+        out.push_str(&format!("debug = {}\n", profile.debug));
+        out.push_str(&format!("lto = {}\n", profile.lto));
+        if let Some(prof_extras) = manifest
+            .section_extras
+            .get(&format!("profile.{}", profile_name))
+        {
+            for line in prof_extras {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+    }
     for (section, lines) in &manifest.section_extras {
         if section.is_empty()
             || section == "package"
             || section == "dependencies"
             || section == "build"
+            || section == "features"
+            || section.starts_with("profile.")
         {
             continue;
         }

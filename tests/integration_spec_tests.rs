@@ -69,7 +69,8 @@ fn run_entry_with_base_dir(source: &str, base_dir: &Path) -> Option<(i32, String
         use alya::tools::test_runner::{discover_suite_entry_points, SuiteKind};
         discover_suite_entry_points(&ast, SuiteKind::Test)
     };
-    alya::parser::resolve_imports(&mut ast, base_dir).expect("Import resolution failed");
+    alya::parser::resolve_imports(&mut ast, base_dir, &alya::parser::CfgContext::host())
+        .expect("Import resolution failed");
     {
         use alya::tools::test_runner::synthesize_test_calls;
         synthesize_test_calls(&mut ast, &test_entries);
@@ -166,7 +167,7 @@ fn test_integration_lex_parse_resolve() {
         let mut ast = parser
             .parse()
             .unwrap_or_else(|e| panic!("Parser failed for '{}': {}", name, e));
-        alya::parser::resolve_imports(&mut ast, &dir)
+        alya::parser::resolve_imports(&mut ast, &dir, &alya::parser::CfgContext::host())
             .unwrap_or_else(|e| panic!("Import resolution failed for '{}': {}", name, e));
         println!("  [INTEG PARSE OK] {}", name);
     }
@@ -181,7 +182,8 @@ fn test_integration_codegen_matrix() {
         let tokens = lexer.tokenize().expect("Lexer error");
         let mut parser = Parser::new(tokens);
         let mut ast = parser.parse().expect("Parser error");
-        alya::parser::resolve_imports(&mut ast, &dir).expect("Import resolution failed");
+        alya::parser::resolve_imports(&mut ast, &dir, &alya::parser::CfgContext::host())
+            .expect("Import resolution failed");
         for (arch, os) in [
             (Architecture::X64, OperatingSystem::Windows),
             (Architecture::X64, OperatingSystem::Linux),
@@ -312,7 +314,8 @@ fn test_integration_private_symbol_is_rejected() {
     let tokens = lexer.tokenize().expect("Lexer error");
     let mut parser = Parser::new(tokens);
     let mut ast = parser.parse().expect("Parser error");
-    let err = alya::parser::resolve_imports(&mut ast, &dir).unwrap_err();
+    let err = alya::parser::resolve_imports(&mut ast, &dir, &alya::parser::CfgContext::host())
+        .unwrap_err();
     assert!(
         err.contains("private symbol"),
         "Expected private-symbol rejection, got: {}",

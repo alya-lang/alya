@@ -10,6 +10,7 @@ mod tests;
 
 use crate::ast::{Expr, Program, Stmt};
 use crate::lexer::{Token, TokenType};
+use std::collections::BTreeSet;
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -22,6 +23,151 @@ pub struct Parser {
     /// `parse_attribute` accumulates here; the following Function/StructDef
     /// drains them. Anything else leaves them to be cleared.
     pub(super) pending_attributes: Vec<crate::ast::Attribute>,
+    /// Compile-time configuration for `@cfg(...)` evaluation. Defaults to
+    /// the host (`CfgContext::host()`); the driver and test runner install
+    /// the target context (target os/arch, profile debug flag, active
+    /// manifest features).
+    pub(super) cfg_context: CfgContext,
+}
+
+/// Compile-time configuration context for `@cfg(...)` conditions.
+#[derive(Debug, Clone)]
+pub struct CfgContext {
+    /// Target OS name: `windows` | `linux` | `macos`.
+    pub os: String,
+    /// Target arch name: `x64` | `arm64` | `x86` (aliases tolerated at eval).
+    pub arch: String,
+    /// Active profile's debug flag (`debug = true|false` conditions).
+    pub debug: bool,
+    /// Active manifest features (`feature = "..."` conditions).
+    /// Unknown names evaluate to false (typos are caught by `alya lint`,
+    /// which sees the manifest; the compiler stays permissive so
+    /// multi-manifest graphs never break on foreign feature names).
+    pub features: BTreeSet<String>,
+}
+
+impl Default for CfgContext {
+    fn default() -> Self {
+        Self::host()
+    }
+}
+
+impl CfgContext {
+    /// Host context: host os/arch, dev debug, no features. Preserves the
+    /// behavior of every path that never installs a target context
+    /// (REPL, LSP, formatter, single-file tools).
+    pub fn host() -> Self {
+        let os = if cfg!(target_os = "windows") {
+            "windows"
+        } else if cfg!(target_os = "linux") {
+            "linux"
+        } else if cfg!(target_os = "macos") {
+            "macos"
+        } else {
+            std::env::consts::OS
+        }
+        .to_string();
+        let arch_raw = std::env::consts::ARCH;
+        let arch = if arch_raw == "x86_64" {
+            "x64"
+        } else if arch_raw == "aarch64" {
+            "arm64"
+        } else {
+            arch_raw
+        }
+        .to_string();
+        Self {
+            os,
+            arch,
+            debug: true,
+            features: BTreeSet::new(),
+        }
+    }
+
+    pub fn for_target(os: &str, arch: &str, debug: bool, features: &BTreeSet<String>) -> Self {
+        Self {
+            os: os.to_string(),
+            arch: arch.to_string(),
+            debug,
+            features: features.clone(),
+        }
+    }
+
+    /// Evaluates one `@cfg(...)` condition (`not(...)`, or
+    /// `os|arch|debug|feature = value`). A failing branch is still parsed
+    /// (syntax errors surface) but dropped from the AST. Unknown keys are
+    /// hard errors; unknown feature names are false (typos are caught by
+    /// `alya lint`, which sees the manifest — the compiler stays permissive
+    /// so multi-manifest graphs never break on foreign feature names).
+    pub fn evaluate(&self, tokens: &[Token]) -> Result<bool, String> {
+        if tokens.is_empty() {
+            return Ok(true);
+        }
+        let line = tokens.first().map(|t| t.line).unwrap_or(0);
+        let first_is_not =
+            matches!(
+                tokens.first().map(|t| &t.token_type),
+                Some(TokenType::Identifier(id)) if id == "not"
+            ) || matches!(tokens.first().map(|t| &t.token_type), Some(TokenType::Not));
+        if first_is_not && tokens.len() >= 3 && matches!(tokens[1].token_type, TokenType::LeftParen)
+        {
+            let inner = &tokens[2..tokens.len().saturating_sub(1)];
+            return self.evaluate(inner).map(|v| !v);
+        }
+
+        let mut key = String::new();
+        let mut val = String::new();
+        let mut in_val = false;
+        for tok in tokens {
+            match &tok.token_type {
+                TokenType::Identifier(s) => {
+                    if in_val {
+                        val = s.clone();
+                    } else {
+                        key = s.clone();
+                    }
+                }
+                TokenType::String(s) if in_val => {
+                    val = s.clone();
+                }
+                TokenType::True if in_val => {
+                    val = "true".to_string();
+                }
+                TokenType::False if in_val => {
+                    val = "false".to_string();
+                }
+                TokenType::Assign => {
+                    in_val = true;
+                }
+                _ => {}
+            }
+        }
+
+        match key.as_str() {
+            "os" | "target_os" => Ok(val == self.os),
+            "arch" | "target_arch" => {
+                Ok(val == self.arch
+                    || (val == "x64" && self.arch == "x86_64")
+                    || (val == "x86_64" && self.arch == "x86_64")
+                    || (val == "arm64" && self.arch == "aarch64")
+                    || (val == "aarch64" && self.arch == "aarch64"))
+            }
+            "debug" => match val.as_str() {
+                "true" => Ok(self.debug),
+                "false" => Ok(!self.debug),
+                _ => Err(format!(
+                    "Invalid @cfg debug value '{}' at line {}: expected 'true' or 'false'",
+                    val, line
+                )),
+            },
+            "feature" => Ok(self.features.contains(&val)),
+            "" => Ok(true),
+            other => Err(format!(
+                "Unknown @cfg key '{}' at line {}: expected one of 'os', 'arch', 'debug', 'feature'",
+                other, line
+            )),
+        }
+    }
 }
 
 impl Parser {
@@ -34,7 +180,14 @@ impl Parser {
             fn_depth: 0,
             struct_defs: std::collections::HashMap::new(),
             pending_attributes: Vec::new(),
+            cfg_context: CfgContext::host(),
         }
+    }
+
+    /// Installs the `@cfg` evaluation context (target builds). Chainable.
+    pub fn set_cfg_context(&mut self, ctx: CfgContext) -> &mut Self {
+        self.cfg_context = ctx;
+        self
     }
 
     pub fn parse(&mut self) -> Result<Program, String> {
@@ -299,14 +452,16 @@ impl Parser {
 pub fn resolve_imports_with_sources(
     program: &mut Program,
     base_dir: &std::path::Path,
+    cfg: &CfgContext,
 ) -> Result<std::collections::HashSet<std::path::PathBuf>, String> {
-    resolve_imports_with_sources_ext(program, base_dir, false)
+    resolve_imports_with_sources_ext(program, base_dir, false, cfg)
 }
 
 pub fn resolve_imports_with_sources_ext(
     program: &mut Program,
     base_dir: &std::path::Path,
     no_std: bool,
+    cfg: &CfgContext,
 ) -> Result<std::collections::HashSet<std::path::PathBuf>, String> {
     let mut visited = std::collections::HashSet::new();
     let mut resolved_stmts = Vec::new();
@@ -319,6 +474,7 @@ pub fn resolve_imports_with_sources_ext(
             &mut visited,
             &mut resolved_stmts,
             no_std,
+            cfg,
         )?;
         root_rewrites.extend(rewrites);
     }
@@ -364,8 +520,12 @@ pub fn resolve_imports_with_sources_ext(
     Ok(imported_files)
 }
 
-pub fn resolve_imports(program: &mut Program, base_dir: &std::path::Path) -> Result<(), String> {
-    resolve_imports_with_sources(program, base_dir).map(|_| ())
+pub fn resolve_imports(
+    program: &mut Program,
+    base_dir: &std::path::Path,
+    cfg: &CfgContext,
+) -> Result<(), String> {
+    resolve_imports_with_sources(program, base_dir, cfg).map(|_| ())
 }
 
 pub fn validate_unique_functions(stmts: &[Stmt]) -> Result<(), String> {
@@ -938,7 +1098,7 @@ pub(crate) fn resolve_stmt_imports(
     visited: &mut std::collections::HashSet<(std::path::PathBuf, Option<String>)>,
     out: &mut Vec<Stmt>,
 ) -> Result<std::collections::HashSet<String>, String> {
-    resolve_stmt_imports_ext(stmt, current_dir, visited, out, false)
+    resolve_stmt_imports_ext(stmt, current_dir, visited, out, false, &CfgContext::host())
 }
 
 pub(crate) fn resolve_stmt_imports_ext(
@@ -947,8 +1107,10 @@ pub(crate) fn resolve_stmt_imports_ext(
     visited: &mut std::collections::HashSet<(std::path::PathBuf, Option<String>)>,
     out: &mut Vec<Stmt>,
     no_std: bool,
+    cfg: &CfgContext,
 ) -> Result<std::collections::HashSet<String>, String> {
-    let (fns, _) = resolve_stmt_imports_ext_with_rewrites(stmt, current_dir, visited, out, no_std)?;
+    let (fns, _) =
+        resolve_stmt_imports_ext_with_rewrites(stmt, current_dir, visited, out, no_std, cfg)?;
     Ok(fns)
 }
 
@@ -958,6 +1120,7 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
     visited: &mut std::collections::HashSet<(std::path::PathBuf, Option<String>)>,
     out: &mut Vec<Stmt>,
     no_std: bool,
+    cfg: &CfgContext,
 ) -> Result<
     (
         std::collections::HashSet<String>,
@@ -1076,6 +1239,7 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
             })?;
 
             let mut parser = Parser::new(tokens);
+            parser.set_cfg_context(cfg.clone());
             let sub_program = parser.parse().map_err(|e| {
                 format!(
                     "Parser error in imported module '{}': {}",
@@ -1144,6 +1308,7 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                     visited,
                     &mut sub_resolved,
                     no_std,
+                    cfg,
                 )?;
                 sub_rewrites.extend(rewrites);
                 if is_unaliased_import && (!is_embedded_stdlib || alias.is_some()) {

@@ -366,22 +366,69 @@ fn test_pkg_install_cli() {
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(
         parsed.command,
-        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Install { strict: false })
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Install {
+            strict: false,
+            features: Vec::new(),
+            no_default_features: false,
+        })
     );
 
     let args = to_args(&["alya", "install", "--strict"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(
         parsed.command,
-        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Install { strict: true })
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Install {
+            strict: true,
+            features: Vec::new(),
+            no_default_features: false,
+        })
     );
 
     let args = to_args(&["alya", "pkg", "install", "--strict"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
     assert_eq!(
         parsed.command,
-        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Install { strict: true })
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Install {
+            strict: true,
+            features: Vec::new(),
+            no_default_features: false,
+        })
     );
+
+    let args = to_args(&[
+        "alya",
+        "install",
+        "--features",
+        "simd,tls",
+        "--no-default-features",
+    ]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    assert_eq!(
+        parsed.command,
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Install {
+            strict: false,
+            features: vec!["simd".to_string(), "tls".to_string()],
+            no_default_features: true,
+        })
+    );
+
+    let args = to_args(&["alya", "install", "--features=simd"]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    match parsed.command {
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Install { features, .. }) => {
+            assert_eq!(features, vec!["simd".to_string()]);
+        }
+        _ => panic!("Expected PkgCommand::Install"),
+    }
+
+    let args = to_args(&["alya", "add", "raylib", "--path", "../raylib", "--optional"]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    match parsed.command {
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Add { optional, .. }) => {
+            assert!(optional);
+        }
+        _ => panic!("Expected PkgCommand::Add"),
+    }
 }
 
 #[test]
@@ -578,6 +625,62 @@ fn test_help_topic_dispatch() {
         Ok(None)
     );
     assert!(CliArgs::parse_from(&to_args(&["alya", "help", "bogus"])).is_err());
+}
+
+#[test]
+fn test_profile_and_features_flags() {
+    let args = to_args(&[
+        "alya",
+        "build",
+        "app.alya",
+        "--release",
+        "--features",
+        "simd,tls",
+        "--features=extra",
+    ]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    assert_eq!(parsed.profile, "release");
+    assert_eq!(
+        parsed.features,
+        vec!["simd".to_string(), "tls".to_string(), "extra".to_string()]
+    );
+    assert!(!parsed.no_default_features);
+
+    let args = to_args(&[
+        "alya",
+        "test",
+        ".",
+        "--profile",
+        "tiny",
+        "--no-default-features",
+    ]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    assert_eq!(parsed.profile, "tiny");
+    assert!(parsed.no_default_features);
+
+    // Defaults.
+    let args = to_args(&["alya", "build", "app.alya"]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    assert_eq!(parsed.profile, "dev");
+    assert!(parsed.features.is_empty());
+    assert!(!parsed.no_default_features);
+
+    // --release conflicts with --profile.
+    assert!(CliArgs::parse_from(&to_args(&[
+        "alya",
+        "build",
+        "app.alya",
+        "--release",
+        "--profile",
+        "tiny"
+    ]))
+    .is_err());
+
+    // Scoped to compiling commands only.
+    assert!(CliArgs::parse_from(&to_args(&["alya", "check", "a.alya", "--release"])).is_err());
+    assert!(CliArgs::parse_from(&to_args(&["alya", "fmt", ".", "--features", "x"])).is_err());
+    assert!(CliArgs::parse_from(&to_args(&["alya", "run", "a.alya", "--release"])).is_ok());
+    assert!(CliArgs::parse_from(&to_args(&["alya", "bench", ".", "--release"])).is_ok());
 }
 
 #[test]

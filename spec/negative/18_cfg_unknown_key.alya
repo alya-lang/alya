@@ -1,0 +1,5 @@
+# EXPECT-FAIL: parse: Unknown @cfg key
+@cfg(osss = "linux")
+function f()
+    return 1
+end
