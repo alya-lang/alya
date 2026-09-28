@@ -21,6 +21,7 @@
 # | `03_ffi_struct.alya` | `Lib/sqlite/src/ffi.alya`, `spec/syntax/ffi.alya` + `structs.alya` | `extern "C"` + `@repr(C)` struct + safe wrapper + tuple return + null safety |
 # | `04_float_return_index.alya` | `Lib/math/src/matrix.alya` `_mat_at` | `-> float` function returning `w[idx]` must sync the float return register |
 # | `05_push_float_array.alya` | `Lib/math/src/matrix.alya` builders | `push`-built float arrays must read back floats, incl. across a builder return |
+# | `06_tag_dispatch.alya` | `Lib/math` mixed builders + `kind()` | per-element kind dispatch in `say` + `is int`/`is float` on element reads |
 #
 # ## Known collision (deliberate rename)
 #

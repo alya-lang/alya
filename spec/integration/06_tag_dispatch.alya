@@ -1,0 +1,21 @@
+# ==============================================================================
+# Alya Integration Fixture 06 (entry): tag-dispatched array reads
+# Distilled from: Lib/math mixed builders + kind() (alya-lang/alya#39 Ph.1)
+# Guards: push-built mixed arrays read per-element kinds in `say`, and
+#         `is int` / `is float` on element reads consult slot tags.
+#         NOTE: mixed *arithmetic* on element reads is still statically
+#         typed (a later phase); only reads and checks dispatch for now.
+# ==============================================================================
+
+let vals = []
+vals.push(1)
+vals.push(0.5)
+vals.push("hi")
+say vals[0]
+say vals[1]
+say vals[2]
+say vals[0] is int
+say vals[1] is float
+say vals[1] is int
+
+say f"integration 06_tag_dispatch: OK"

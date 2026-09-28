@@ -725,3 +725,22 @@ say m[1]
         assert_eq!(output, "1\n0.5\n");
     }
 }
+
+#[test]
+fn test_e2e_mixed_push_array_is_checks() {
+    // alya-lang/alya#39 Phase 1: `is int` / `is float` on reads of a
+    // mixed push-built array dispatch on the slot kind.
+    let code = r#"
+let m = []
+m.push(1)
+m.push(0.5)
+say m[0] is int
+say m[1] is float
+say m[1] is int
+say m[0] is float
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "1\n1\n0\n0\n");
+    }
+}

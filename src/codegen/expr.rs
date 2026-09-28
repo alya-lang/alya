@@ -1,9 +1,9 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
-    eq_operand_is_dynamic, escape_string, is_array_expr, is_definitely_not_numeric, is_float_expr,
-    is_map_expr, is_map_read_index, is_null_expr, is_number_expr, is_string_expr,
-    struct_field_markers_mixed_vars, value_kind_tag,
+    eq_operand_is_dynamic, escape_string, is_array_expr, is_array_kind_read,
+    is_definitely_not_numeric, is_float_expr, is_map_expr, is_map_read_index, is_null_expr,
+    is_number_expr, is_string_expr, struct_field_markers_mixed_vars, value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -1018,11 +1018,20 @@ impl CodeGen {
                 }
 
                 if name == "push" && args.len() == 2 && !is_struct_receiver {
-                    if is_string_expr(&args[1], &self.ctx.variables) {
-                        if let Expr::Identifier(arr_name) = &args[0] {
+                    if let Expr::Identifier(arr_name) = &args[0] {
+                        if is_string_expr(&args[1], &self.ctx.variables) {
                             self.ctx
                                 .variables
                                 .insert(format!("arr_is_str:{}", arr_name), VarType::Number(0));
+                        } else {
+                            // Mixed content voids the whole-array string
+                            // claim (alya-lang/alya#39): readers fall back
+                            // to slot-kind dispatch instead of `%s` on a
+                            // non-string. Over-marking is safe; the static
+                            // claim is what must stay sound.
+                            self.ctx
+                                .variables
+                                .insert(format!("arr_nonstr:{}", arr_name), VarType::Number(0));
                         }
                     }
                     self.generate_expression(&args[0]);
@@ -3019,12 +3028,13 @@ impl CodeGen {
                 });
             }
             "string" | "str" => {
-                // Variable-key map reads carry kind tag alongside the value
+                // Variable-key map reads and (Phase 1, #39) plain array
+                // reads carry the kind tag alongside the value
                 // (x64: %edx, arm64: w1). Tag 3 = string.
-                // Direct array loads carry no tag, so require map routing.
                 if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                     && matches!(expr, Expr::Index { .. })
-                    && is_map_read_index(expr, &self.ctx.variables)
+                    && (is_map_read_index(expr, &self.ctx.variables)
+                        || is_array_kind_read(expr, &self.ctx.variables))
                 {
                     self.generate_expression(expr);
                     let l_true = self.ctx.next_label();
@@ -3224,11 +3234,12 @@ impl CodeGen {
             }
             "float" => {
                 // Index carries kind tag alongside the value
-                // (x64: %edx, arm64: w1; 2 = float).
-                // Direct array loads carry no tag, so require map routing.
+                // (x64: %edx, arm64: w1; 2 = float), via map routing or
+                // (Phase 1, #39) plain array reads.
                 if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                     && matches!(expr, Expr::Index { .. })
-                    && is_map_read_index(expr, &self.ctx.variables)
+                    && (is_map_read_index(expr, &self.ctx.variables)
+                        || is_array_kind_read(expr, &self.ctx.variables))
                 {
                     self.generate_expression(expr);
                     if matches!(self.arch, Architecture::X64) {
@@ -3271,11 +3282,12 @@ impl CodeGen {
             }
             "int" | "integer" | "number" => {
                 // Index tag 1=int (0 unknown defaults to int).
-                // x64: %edx, arm64: w1. Direct array loads carry no tag,
-                // so require map routing.
+                // x64: %edx, arm64: w1; via map routing or (Phase 1, #39)
+                // plain array reads.
                 if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                     && matches!(expr, Expr::Index { .. })
-                    && is_map_read_index(expr, &self.ctx.variables)
+                    && (is_map_read_index(expr, &self.ctx.variables)
+                        || is_array_kind_read(expr, &self.ctx.variables))
                 {
                     self.generate_expression(expr);
                     let l_true = self.ctx.next_label();

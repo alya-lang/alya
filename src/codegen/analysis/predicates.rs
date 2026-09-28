@@ -740,7 +740,10 @@ pub fn is_array_kind_read(expr: &Expr, vars: &HashMap<String, VarType>) -> bool 
 pub fn is_string_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::Array(elems) => !elems.is_empty() && elems.iter().all(|e| is_string_expr(e, vars)),
-        Expr::Identifier(name) => vars.contains_key(&format!("arr_is_str:{}", name)),
+        Expr::Identifier(name) => {
+            vars.contains_key(&format!("arr_is_str:{}", name))
+                && !vars.contains_key(&format!("arr_nonstr:{}", name))
+        }
         Expr::FieldAccess { object, field } => {
             if let Expr::Identifier(obj_name) = &**object {
                 if let Some(VarType::Struct { struct_name, .. }) = vars.get(obj_name) {

@@ -210,7 +210,8 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
             }
             match &**array {
                 Expr::Identifier(arr_name) => {
-                    known_strings.contains(&format!("arr_is_str:{}", arr_name))
+                    (known_strings.contains(&format!("arr_is_str:{}", arr_name))
+                        && !known_strings.contains(&format!("arr_nonstr:{}", arr_name)))
                         || known_strings.contains(arr_name)
                 }
                 Expr::Call { name, .. } => {
@@ -238,7 +239,10 @@ fn expr_is_string_array(expr: &Expr, known_strings: &HashSet<String>) -> bool {
                     .iter()
                     .all(|e| expr_is_definitely_string(e, known_strings))
         }
-        Expr::Identifier(name) => known_strings.contains(&format!("arr_is_str:{}", name)),
+        Expr::Identifier(name) => {
+            known_strings.contains(&format!("arr_is_str:{}", name))
+                && !known_strings.contains(&format!("arr_nonstr:{}", name))
+        }
         Expr::Call { name, .. } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -489,12 +493,16 @@ fn scan_expr_for_strings(
         Expr::Call { name, args } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             let bare = bare.rsplit("__").next().unwrap_or(bare);
-            if (bare == "push" || bare == "array_push" || bare == "append")
-                && args.len() >= 2
-                && expr_is_definitely_string(&args[1], known_strings)
-            {
+            if (bare == "push" || bare == "array_push" || bare == "append") && args.len() >= 2 {
                 if let Expr::Identifier(arr_name) = &args[0] {
-                    known_strings.insert(format!("arr_is_str:{}", arr_name));
+                    if expr_is_definitely_string(&args[1], known_strings) {
+                        known_strings.insert(format!("arr_is_str:{}", arr_name));
+                    } else {
+                        // Mixed content voids whole-array string claims
+                        // (alya-lang/alya#39): readers fall back to
+                        // slot-kind dispatch instead of `%s` on non-strings.
+                        known_strings.insert(format!("arr_nonstr:{}", arr_name));
+                    }
                 }
             }
             // Per-call param evidence (scope-aware: caller locals are

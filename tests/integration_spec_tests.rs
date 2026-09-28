@@ -29,6 +29,7 @@ fn entry_files() -> Vec<String> {
         "03_ffi_struct.alya".to_string(),
         "04_float_return_index.alya".to_string(),
         "05_push_float_array.alya".to_string(),
+        "06_tag_dispatch.alya".to_string(),
     ]
 }
 
@@ -284,6 +285,21 @@ fn test_integration_05_push_float_output() {
     if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("integration 05_push_float: OK (4)"));
+    }
+}
+
+#[test]
+fn test_integration_06_tag_dispatch_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 06_tag_dispatch: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("06_tag_dispatch.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 06_tag_dispatch: OK"));
+        assert!(output.contains("0.5"));
     }
 }
 

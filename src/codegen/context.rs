@@ -146,6 +146,7 @@ impl CodeGenContext {
                 || k.starts_with("struct_field_map:")
                 || k.starts_with("struct_field_struct:")
                 || k.starts_with("arr_is_str:")
+                || k.starts_with("arr_nonstr:")
                 || k.starts_with("arr_is_flt:")
                 || k.starts_with("arr_struct_type:")
                 || k.starts_with("fn_param_str:")
