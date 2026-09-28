@@ -61,7 +61,7 @@ assets/brand/
 ### 1. File System Icons (`icons/alya-file-*`)
 - **Silhouette**: Modern document sheet with a precision 45° dog-ear fold, delicate crease lighting, and realistic elevation drop shadow.
 - **Watermark**: Faint syntax lines and micro-hardware trace lines inside the document sheet.
-- **Badge**: Bottom `ALYA` pill with a pulse status indicator and 100% vector-drawn letterforms (zero external font dependencies).
+- **Emblem**: 3D Alya Delta Prism centered low on the sheet, no text badge (legible at all resolutions).
 - **Native Dimensions**: **`424 × 512 px`** (Height: 512px, Width: 424px, tightly bounded with no empty side gaps).
 
 ### 2. Compiler & CLI Application Icons (`icons/alya-*`)
