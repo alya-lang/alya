@@ -95,11 +95,11 @@ pub fn emit_array_new(
     }
 }
 
-pub fn emit_array_set_imm(out: &mut String, arch: Architecture, index: usize) {
+pub fn emit_array_set_imm(out: &mut String, arch: Architecture, index: usize, kind: i64) {
     match arch {
-        Architecture::ARM64 => arm64::emit_array_set_imm(out, index),
-        Architecture::X64 => x64::emit_array_set_imm(out, index),
-        Architecture::X86 => x86::emit_array_set_imm(out, index),
+        Architecture::ARM64 => arm64::emit_array_set_imm(out, index, kind),
+        Architecture::X64 => x64::emit_array_set_imm(out, index, kind),
+        Architecture::X86 => x86::emit_array_set_imm(out, index, kind),
     }
 }
 

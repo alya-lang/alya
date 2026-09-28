@@ -780,3 +780,21 @@ end
         assert_eq!(output, "1.5\n2\n");
     }
 }
+
+#[test]
+fn test_e2e_mixed_literal_array_reads_dispatch() {
+    // alya-lang/alya#39 Phase 1: literal mixed arrays carry per-slot
+    // kinds too, so reads dispatch instead of returning raw bits.
+    let code = r#"
+let a = [1, 0.5]
+say a[0]
+say a[1]
+for v in a
+    say v
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "1\n0.5\n1\n0\n");
+    }
+}

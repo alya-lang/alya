@@ -2254,7 +2254,8 @@ impl CodeGen {
                             self.os,
                         );
                     }
-                    arch::emit_array_set_imm(&mut self.output, self.arch, i);
+                    let elem_kind = value_kind_tag(elem, &self.ctx.variables);
+                    arch::emit_array_set_imm(&mut self.output, self.arch, i, elem_kind);
                 }
 
                 self.ctx.stack_offset -= temp_offset;

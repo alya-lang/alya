@@ -56,8 +56,10 @@ pub fn emit_array_new(out: &mut String, count: usize, stack_offset: i32, os: Ope
     }
 }
 
-pub fn emit_array_set_imm(out: &mut String, index: usize) {
+pub fn emit_array_set_imm(out: &mut String, index: usize, kind: i64) {
     out.push_str("    mov (%rsp), %rdx\n");
+    out.push_str("    mov 24(%rdx), %rcx\n");
+    out.push_str(&format!("    movb ${}, {}(%rcx)\n", kind, index));
     out.push_str("    mov 16(%rdx), %rdx\n");
     out.push_str(&format!("    movq %rax, {}(%rdx)\n", index * 8));
 }

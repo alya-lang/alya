@@ -50,8 +50,12 @@ pub fn emit_array_new(out: &mut String, count: usize) {
     out.push_str("    bl alya_array_new\n");
 }
 
-pub fn emit_array_set_imm(out: &mut String, index: usize) {
+pub fn emit_array_set_imm(out: &mut String, index: usize, kind: i64) {
     out.push_str("    ldr x1, [sp]\n");
+    out.push_str("    ldr x3, [x1, #24]\n");
+    out.push_str(&format!("    mov x2, #{}\n", index));
+    out.push_str(&format!("    mov x4, #{}\n", kind));
+    out.push_str("    strb w4, [x3, x2]\n");
     out.push_str("    ldr x1, [x1, #16]\n");
     out.push_str(&format!("    mov x2, #{}\n", index * 8));
     out.push_str("    str x0, [x1, x2]\n");

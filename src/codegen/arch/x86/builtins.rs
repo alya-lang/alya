@@ -40,7 +40,8 @@ pub fn emit_array_new(out: &mut String, count: usize) {
     out.push_str("    add $4, %esp\n");
 }
 
-pub fn emit_array_set_imm(out: &mut String, index: usize) {
+pub fn emit_array_set_imm(out: &mut String, index: usize, _kind: i64) {
+    // x86 stays untagged (no kind channel on the 32-bit tier).
     out.push_str("    mov (%esp), %edx\n");
     out.push_str("    mov 8(%edx), %edx\n");
     out.push_str(&format!("    mov %eax, {}(%edx)\n", index * 4));
