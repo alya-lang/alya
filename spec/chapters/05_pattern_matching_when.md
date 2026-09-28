@@ -129,6 +129,11 @@ current engine uses best-effort inference and may misroute (see Chapter
 subjects is proposed there (Status: Draft, tracking alya-lang/alya#39);
 until it lands, prefer explicit annotations or conversions at dynamic
 boundaries (JSON, FFI, `any` parameters).
+- **Static call-site specialization** (implemented): a function whose
+  untyped parameters are tested with `is` is cloned per call-site kind
+  signature (`{fn}__spk__{codes}`); calls with all-literal-kind
+  arguments route to the matching clone, all other calls keep the
+  generic version (unchanged behavior).
 
 ---
 

@@ -742,3 +742,34 @@ spawn w2(40, 2)
         assert!(output.contains("42\n"), "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_kind_dispatch_specializes_per_callsite() {
+    // alya-lang/alya#39 Phase 2: `when is` on an untyped param
+    // dispatches per call-site kind via static specialization
+    // (the #14 acceptance repro). Dynamic call sites keep the
+    // generic fallback (unchanged behavior).
+    let code = r#"
+function kind(v) -> string
+    return when v
+        is string => "s"
+        is int => "i"
+        is float => "f"
+        else => "?"
+    end
+end
+
+function main()
+    say kind("Ada")
+    say kind(36)
+    say kind(3.5)
+    say kind([1, 2])
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "s\ni\nf\n?\n", "Got: {}", output);
+    }
+}

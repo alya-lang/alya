@@ -250,6 +250,7 @@ impl CodeGen {
         crate::parser::enums::resolve_enums(&mut resolved_prog);
         let _ = crate::parser::constants::resolve_and_validate_constants(&mut resolved_prog);
         crate::parser::generics::resolve_generics(&mut resolved_prog);
+        crate::parser::dynspec::resolve_dynspec(&mut resolved_prog);
         let program = &resolved_prog;
 
         let original_stmts = program.statements.len();
@@ -1079,6 +1080,12 @@ impl CodeGen {
         arch::emit_function_prologue(&mut self.output, self.arch, name);
 
         let mut heap_param_offsets = Vec::new();
+        // Static call-site specialization (alya-lang/alya#39 Phase 2):
+        // `{fn}__spk__{codes}` clones carry proven per-param kinds.
+        // They override inference exactly like explicit annotations
+        // (same value types, no new TypeErrors: checking still sees Any).
+        let spec_codes: Vec<char> = crate::parser::dynspec::dynspec_codes(name).unwrap_or_default();
+        let mut spec_seen = 0usize;
         for (i, param) in params.iter().enumerate() {
             arch::emit_function_param_push(
                 &mut self.output,
@@ -1160,6 +1167,25 @@ impl CodeGen {
                         is_map = false;
                     }
                 }
+            }
+            // Specialized kind wins over inference (never over an
+            // explicit annotation: only untyped params are specialized).
+            // Struct/interface-typed values keep their own path below.
+            let spec_kind: Option<char> =
+                if param_types.get(i).and_then(|t| t.as_deref()).is_none() && param != "self" {
+                    let code = spec_codes.get(spec_seen).copied();
+                    spec_seen += 1;
+                    code
+                } else {
+                    None
+                };
+            if let Some(kind) = spec_kind {
+                is_str = kind == 's';
+                is_flt = kind == 'f';
+                is_arr = kind == 'a';
+                is_str_arr = false;
+                is_flt_arr = false;
+                is_map = kind == 'm';
             }
             let struct_type = if let Some(Some(t)) = param_types.get(i) {
                 let bare_base = t.split('[').next().unwrap_or(t);
@@ -1260,9 +1286,18 @@ impl CodeGen {
                     .insert(param.clone(), VarType::Map(self.ctx.stack_offset));
             } else {
                 if param_types.get(i).and_then(|t| t.as_deref()).is_none() {
-                    self.ctx
-                        .variables
-                        .insert(format!("param_is_untyped:{}", param), VarType::Number(0));
+                    // Specialized params skip the untyped marker (their
+                    // kind is proven); int-specialized ones gain the int
+                    // marker exactly like explicitly-typed ints.
+                    if spec_kind.is_none() {
+                        self.ctx
+                            .variables
+                            .insert(format!("param_is_untyped:{}", param), VarType::Number(0));
+                    } else if spec_kind == Some('i') {
+                        self.ctx
+                            .variables
+                            .insert(format!("var_is_int:{}", param), VarType::Number(0));
+                    }
                 } else if let Some(Some(t)) = param_types.get(i) {
                     if matches!(
                         t.as_str(),
