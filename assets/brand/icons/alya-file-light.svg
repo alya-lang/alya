@@ -136,8 +136,8 @@
   <!-- Clipped Inner Highlights & Code Watermarks -->
   <g clip-path="url(#doc-clip-light)">
     <!-- Ambient Radial Corner Tints -->
-    <circle cx="110" cy="70" r="150" fill="#a855f7" opacity="0.06" />
-    <circle cx="410" cy="430" r="160" fill="#0ea5e9" opacity="0.06" />
+    <circle cx="110" cy="70" r="140" fill="#a855f7" opacity="0.06" />
+    <circle cx="410" cy="430" r="150" fill="#0ea5e9" opacity="0.06" />
 
     <!-- Subtle Code Watermark Lines (Light) -->
     <g opacity="0.25">
