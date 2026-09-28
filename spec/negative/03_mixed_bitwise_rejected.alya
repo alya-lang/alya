@@ -1,0 +1,12 @@
+# EXPECT-FAIL: check: Operator '&' cannot be applied to mixed int/float array 'm'
+# Chapter 03: bitwise over reads of a provably-mixed int/float array
+# silently computes on raw bit patterns (alya-lang/alya#39). Convert
+# explicitly instead, e.g. `int(m[0]) & int(m[1])`.
+function main()
+    let m = []
+    m.push(1)
+    m.push(0.5)
+    say m[0] & m[1]
+end
+
+main()

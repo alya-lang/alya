@@ -2,12 +2,13 @@ use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     eq_operand_is_dynamic, escape_string, is_array_expr, is_array_kind_read,
-    is_definitely_not_numeric, is_float_expr, is_map_expr, is_map_read_index, is_null_expr,
-    is_number_expr, is_string_expr, struct_field_markers_mixed_vars, value_kind_tag,
+    is_definitely_not_numeric, is_dynamic_element_read, is_float_expr, is_map_expr,
+    is_map_read_index, is_null_expr, is_number_expr, is_strict_dynamic_op, is_string_expr,
+    is_tag_carrying_read, struct_field_markers_mixed_vars, value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
-use crate::codegen::kinds::{KIND_FLOAT, KIND_INT, KIND_STRING, KIND_UNKNOWN};
+use crate::codegen::kinds::{kind_of_literal, KIND_FLOAT, KIND_INT, KIND_STRING, KIND_UNKNOWN};
 use crate::codegen::target::{Architecture, OperatingSystem};
 
 impl CodeGen {
@@ -437,7 +438,8 @@ impl CodeGen {
                                 Architecture::X64 | Architecture::ARM64 | Architecture::X86
                             ) && matches!(&**left, Expr::Index { .. })
                                 && (is_map_read_index(left, &self.ctx.variables)
-                                    || is_array_kind_read(left, &self.ctx.variables))
+                                    || is_array_kind_read(left, &self.ctx.variables)
+                                    || is_dynamic_element_read(left, &self.ctx.variables))
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -468,7 +470,8 @@ impl CodeGen {
                                 Architecture::X64 | Architecture::ARM64 | Architecture::X86
                             ) && matches!(&**left, Expr::Index { .. })
                                 && (is_map_read_index(left, &self.ctx.variables)
-                                    || is_array_kind_read(left, &self.ctx.variables))
+                                    || is_array_kind_read(left, &self.ctx.variables)
+                                    || is_dynamic_element_read(left, &self.ctx.variables))
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -502,7 +505,8 @@ impl CodeGen {
                                     Architecture::X64 | Architecture::ARM64 | Architecture::X86
                                 ) && matches!(&**left, Expr::Index { .. })
                                     && (is_map_read_index(left, &self.ctx.variables)
-                                        || is_array_kind_read(left, &self.ctx.variables))
+                                        || is_array_kind_read(left, &self.ctx.variables)
+                                        || is_dynamic_element_read(left, &self.ctx.variables))
                                 {
                                     let l_skip = self.ctx.next_label();
                                     if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -591,7 +595,8 @@ impl CodeGen {
                             Architecture::X64 | Architecture::ARM64 | Architecture::X86
                         ) && matches!(left.as_ref(), Expr::Index { .. })
                             && (is_map_read_index(left, &self.ctx.variables)
-                                || is_array_kind_read(left, &self.ctx.variables))
+                                || is_array_kind_read(left, &self.ctx.variables)
+                                || is_dynamic_element_read(left, &self.ctx.variables))
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -629,7 +634,8 @@ impl CodeGen {
                             Architecture::X64 | Architecture::ARM64 | Architecture::X86
                         ) && matches!(right.as_ref(), Expr::Index { .. })
                             && (is_map_read_index(right, &self.ctx.variables)
-                                || is_array_kind_read(right, &self.ctx.variables))
+                                || is_array_kind_read(right, &self.ctx.variables)
+                                || is_dynamic_element_read(right, &self.ctx.variables))
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -652,11 +658,22 @@ impl CodeGen {
                     arch::emit_float_binary_op(&mut self.output, self.arch, *op);
                 } else {
                     self.generate_expression(left);
+                    // Strict dynamic check (alya-lang/alya#39 Phase 2b):
+                    // the static checker rejects provably-mixed reads; a
+                    // float tag on a tag-carrying read is the runtime
+                    // half of that error. Int/unknown tags proceed.
+                    if is_strict_dynamic_op(op) && is_tag_carrying_read(left, &self.ctx.variables) {
+                        arch::emit_mixed_float_check(&mut self.output, self.arch);
+                    }
                     arch::emit_push_temp(&mut self.output, self.arch);
 
                     let temp_offset = self.temp_offset();
                     self.ctx.stack_offset += temp_offset;
                     self.generate_expression(right);
+                    if is_strict_dynamic_op(op) && is_tag_carrying_read(right, &self.ctx.variables)
+                    {
+                        arch::emit_mixed_float_check(&mut self.output, self.arch);
+                    }
                     self.ctx.stack_offset -= temp_offset;
                     arch::emit_binary_op(&mut self.output, self.arch, *op);
                 }
@@ -721,7 +738,8 @@ impl CodeGen {
                         Architecture::X64 | Architecture::ARM64 | Architecture::X86
                     ) && matches!(&**then_branch, Expr::Index { .. })
                         && (is_map_read_index(then_branch, &self.ctx.variables)
-                            || is_array_kind_read(then_branch, &self.ctx.variables));
+                            || is_array_kind_read(then_branch, &self.ctx.variables)
+                            || is_dynamic_element_read(then_branch, &self.ctx.variables));
                     if already_float {
                         let l_skip = self.ctx.next_label();
                         if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -754,7 +772,8 @@ impl CodeGen {
                         Architecture::X64 | Architecture::ARM64 | Architecture::X86
                     ) && matches!(&**else_branch, Expr::Index { .. })
                         && (is_map_read_index(else_branch, &self.ctx.variables)
-                            || is_array_kind_read(else_branch, &self.ctx.variables));
+                            || is_array_kind_read(else_branch, &self.ctx.variables)
+                            || is_dynamic_element_read(else_branch, &self.ctx.variables));
                     if already_float {
                         let l_skip = self.ctx.next_label();
                         if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -800,7 +819,8 @@ impl CodeGen {
                                 Architecture::X64 | Architecture::ARM64 | Architecture::X86
                             ) && matches!(&**value, Expr::Index { .. })
                                 && (is_map_read_index(value, &self.ctx.variables)
-                                    || is_array_kind_read(value, &self.ctx.variables));
+                                    || is_array_kind_read(value, &self.ctx.variables)
+                                    || is_dynamic_element_read(value, &self.ctx.variables));
                             if already_float {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -835,7 +855,8 @@ impl CodeGen {
                             Architecture::X64 | Architecture::ARM64 | Architecture::X86
                         ) && matches!(&**default, Expr::Index { .. })
                             && (is_map_read_index(default, &self.ctx.variables)
-                                || is_array_kind_read(default, &self.ctx.variables));
+                                || is_array_kind_read(default, &self.ctx.variables)
+                                || is_dynamic_element_read(default, &self.ctx.variables));
                         if already_float {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -1201,7 +1222,8 @@ impl CodeGen {
                             Architecture::X64 | Architecture::ARM64 | Architecture::X86
                         ) && matches!(&args[0], Expr::Index { .. })
                             && (is_map_read_index(&args[0], &self.ctx.variables)
-                                || is_array_kind_read(&args[0], &self.ctx.variables));
+                                || is_array_kind_read(&args[0], &self.ctx.variables)
+                                || is_dynamic_element_read(&args[0], &self.ctx.variables));
                         if already_float {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -1293,7 +1315,8 @@ impl CodeGen {
                         Architecture::X64 | Architecture::ARM64 | Architecture::X86
                     ) && matches!(&args[0], Expr::Index { .. })
                         && (is_map_read_index(&args[0], &self.ctx.variables)
-                            || is_array_kind_read(&args[0], &self.ctx.variables))
+                            || is_array_kind_read(&args[0], &self.ctx.variables)
+                            || is_dynamic_element_read(&args[0], &self.ctx.variables))
                     {
                         let initial_stack_offset = self.ctx.stack_offset;
                         self.generate_expression(&args[0]);
@@ -2509,6 +2532,41 @@ impl CodeGen {
                             self.ctx.stack_offset,
                             self.os,
                         );
+                        // Record the entry tag for literal values, mirroring
+                        // IndexAssign (alya-lang/alya#39): `set` clears tags,
+                        // so literal-built maps would otherwise read back
+                        // unknown (raw bits in loops, classify fallback in
+                        // `say`). Slots reload without re-evaluating, so any
+                        // key shape is safe. x86 needs nothing: its 5-arg
+                        // `set` already stored the kind.
+                        if !matches!(self.arch, Architecture::X86) {
+                            if let Some(kind) = kind_of_literal(v) {
+                                arch::emit_load_var(
+                                    &mut self.output,
+                                    self.arch,
+                                    saved_offset,
+                                    self.ctx.stack_offset,
+                                );
+                                arch::emit_push_temp(&mut self.output, self.arch);
+                                arch::emit_load_var(
+                                    &mut self.output,
+                                    self.arch,
+                                    k_offset,
+                                    self.ctx.stack_offset,
+                                );
+                                arch::emit_push_temp(&mut self.output, self.arch);
+                                arch::emit_load_num(&mut self.output, self.arch, kind);
+                                arch::emit_push_temp(&mut self.output, self.arch);
+                                arch::emit_function_call(
+                                    &mut self.output,
+                                    self.arch,
+                                    "map_set_tag",
+                                    3,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
+                            }
+                        }
 
                         arch::emit_pop_temp(&mut self.output, self.arch);
                         arch::emit_pop_temp(&mut self.output, self.arch);
@@ -3092,7 +3150,8 @@ impl CodeGen {
                             Architecture::X64 | Architecture::ARM64 | Architecture::X86
                         ) && matches!(&**expr, Expr::Index { .. })
                             && (is_map_read_index(expr, &self.ctx.variables)
-                                || is_array_kind_read(expr, &self.ctx.variables));
+                                || is_array_kind_read(expr, &self.ctx.variables)
+                                || is_dynamic_element_read(expr, &self.ctx.variables));
                         if already_float {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -3197,7 +3256,8 @@ impl CodeGen {
                     Architecture::X64 | Architecture::ARM64 | Architecture::X86
                 ) && matches!(expr, Expr::Index { .. })
                     && (is_map_read_index(expr, &self.ctx.variables)
-                        || is_array_kind_read(expr, &self.ctx.variables))
+                        || is_array_kind_read(expr, &self.ctx.variables)
+                        || is_dynamic_element_read(expr, &self.ctx.variables))
                 {
                     self.generate_expression(expr);
                     let l_true = self.ctx.next_label();
@@ -3445,7 +3505,8 @@ impl CodeGen {
                     Architecture::X64 | Architecture::ARM64 | Architecture::X86
                 ) && matches!(expr, Expr::Index { .. })
                     && (is_map_read_index(expr, &self.ctx.variables)
-                        || is_array_kind_read(expr, &self.ctx.variables))
+                        || is_array_kind_read(expr, &self.ctx.variables)
+                        || is_dynamic_element_read(expr, &self.ctx.variables))
                 {
                     self.generate_expression(expr);
                     if matches!(self.arch, Architecture::X64) {
@@ -3508,7 +3569,8 @@ impl CodeGen {
                     Architecture::X64 | Architecture::ARM64 | Architecture::X86
                 ) && matches!(expr, Expr::Index { .. })
                     && (is_map_read_index(expr, &self.ctx.variables)
-                        || is_array_kind_read(expr, &self.ctx.variables))
+                        || is_array_kind_read(expr, &self.ctx.variables)
+                        || is_dynamic_element_read(expr, &self.ctx.variables))
                 {
                     self.generate_expression(expr);
                     let l_true = self.ctx.next_label();

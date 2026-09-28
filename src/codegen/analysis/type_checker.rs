@@ -1476,13 +1476,20 @@ impl TypeChecker {
                         | BinaryOp::LessEqual
                         | BinaryOp::Greater
                         | BinaryOp::GreaterEqual
+                        | BinaryOp::BitAnd
+                        | BinaryOp::BitOr
+                        | BinaryOp::BitXor
+                        | BinaryOp::Shl
+                        | BinaryOp::Shr
                 ) {
-                    // alya-lang/alya#39 Phase 2: arithmetic over reads of
-                    // a provably-mixed int/float array silently computes
-                    // on raw bit patterns. Reject it; explicit
-                    // `float(...)` / `int(...)` conversions route through
-                    // the float path and stay correct. Float- or
-                    // string-routed operations are exempt.
+                    // alya-lang/alya#39 Phase 2: arithmetic (and bitwise,
+                    // which is equally meaningless across int/float
+                    // representations) over reads of a provably-mixed
+                    // int/float array silently computes on raw bit
+                    // patterns. Reject it; explicit `float(...)` /
+                    // `int(...)` conversions route through the float path
+                    // and stay correct. Float- or string-routed operations
+                    // are exempt.
                     let lt = self.infer_expr(left).unwrap_or(Type::Any);
                     let rt = self.infer_expr(right).unwrap_or(Type::Any);
                     let routed = matches!(
@@ -1508,6 +1515,11 @@ impl TypeChecker {
                                                 BinaryOp::Less => "<",
                                                 BinaryOp::LessEqual => "<=",
                                                 BinaryOp::Greater => ">",
+                                                BinaryOp::BitAnd => "&",
+                                                BinaryOp::BitOr => "|",
+                                                BinaryOp::BitXor => "^",
+                                                BinaryOp::Shl => "<<",
+                                                BinaryOp::Shr => ">>",
                                                 _ => ">=",
                                             };
                                             return Err(format!(

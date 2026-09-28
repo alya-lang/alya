@@ -304,3 +304,21 @@ pub fn emit_stack_restore(out: &mut String, arch: Architecture, delta: i32) {
         Architecture::X86 => x86::emit_stack_restore(out, delta),
     }
 }
+
+/// Traps when a just-read value kind tag is float (alya-lang/alya#39
+/// Phase 2b): call immediately after generating an untyped-param Index
+/// read, while the tag is still fresh (x64/x86: %edx, arm64: w1).
+/// Non-float (int/unknown) tags fall through to integer semantics.
+pub fn emit_mixed_float_check(out: &mut String, arch: Architecture) {
+    use crate::codegen::kinds::KIND_FLOAT;
+    match arch {
+        Architecture::X64 | Architecture::X86 => {
+            out.push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+            out.push_str("    je alya_error_mixed_float\n");
+        }
+        Architecture::ARM64 => {
+            out.push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+            out.push_str("    b.eq alya_error_mixed_float\n");
+        }
+    }
+}

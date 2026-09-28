@@ -931,3 +931,80 @@ main()
         assert_eq!(got, vec!["1", "2", "x", "y"], "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_inline_literal_map_records_tags() {
+    // alya-lang/alya#39 Phase 1: inline literal construction records
+    // entry tags like IndexAssign does; loop values convert instead of
+    // printing raw bits, and direct reads dispatch on the tag.
+    let code = r#"
+function main()
+    say ({"a": 0.5})["a"]
+    for k, v in {"a": 0.5}
+        say v
+    end
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "0.5\n0\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_untyped_param_mixed_strict_error() {
+    // alya-lang/alya#39 Phase 2b: the static checker rejects
+    // provably-mixed reads; a float tag on a dynamic read is the
+    // runtime half of that error (previously silent bit garbage).
+    let code = r#"
+function sum2(a)
+    return a[0] + a[1]
+end
+
+function main()
+    let m = []
+    m.push(1)
+    m.push(0.5)
+    say sum2(m)
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_ne!(
+            code, 0,
+            "Expected a runtime mixed-type error, got: {}",
+            output
+        );
+        assert!(
+            output.contains("mixed int/float arithmetic"),
+            "Got: {}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_untyped_param_int_stays_int() {
+    // No false positive: all-int dynamics keep integer semantics.
+    let code = r#"
+function sum2(a)
+    return a[0] + a[1]
+end
+
+function main()
+    let m = []
+    m.push(1)
+    m.push(2)
+    say sum2(m)
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "3\n", "Got: {}", output);
+    }
+}

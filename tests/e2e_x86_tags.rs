@@ -112,3 +112,78 @@ main()
         assert_eq!(output, "s\n1\n0\n1\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_x86_inline_literal_map_records_tags() {
+    // Same as the x64 inline-literal tag test: literal construction
+    // records entry tags; loop values convert, direct reads dispatch.
+    let code = r#"
+function main()
+    say ({"a": 0.5})["a"]
+    for k, v in {"a": 0.5}
+        say v
+    end
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "0.5\n0\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_x86_untyped_param_mixed_strict_error() {
+    // x86 twin of the strict dynamic check: float tags on dynamic
+    // reads trap instead of computing on raw bits.
+    let code = r#"
+function sum2(a)
+    return a[0] + a[1]
+end
+
+function main()
+    let m = []
+    m.push(1)
+    m.push(0.5)
+    say sum2(m)
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_ne!(
+            code, 0,
+            "Expected a runtime mixed-type error, got: {}",
+            output
+        );
+        assert!(
+            output.contains("mixed int/float arithmetic"),
+            "Got: {}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_x86_untyped_param_int_stays_int() {
+    // No false positive on x86 either.
+    let code = r#"
+function sum2(a)
+    return a[0] + a[1]
+end
+
+function main()
+    let m = []
+    m.push(1)
+    m.push(2)
+    say sum2(m)
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "3\n", "Got: {}", output);
+    }
+}

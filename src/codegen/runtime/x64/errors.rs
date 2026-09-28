@@ -114,6 +114,17 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     }
     out.push_str("    jmp fn_throw\n\n");
 
+    // alya_error_mixed_float (dynamic mixed int/float arithmetic through
+    // untyped params, alya-lang/alya#39): the static checker rejects
+    // provably-mixed reads; this catches what only tags can prove.
+    out.push_str("alya_error_mixed_float:\n");
+    if is_win {
+        out.push_str("    lea alya_str_mixed_float(%rip), %rcx\n");
+    } else {
+        out.push_str("    lea alya_str_mixed_float(%rip), %rdi\n");
+    }
+    out.push_str("    jmp fn_throw\n\n");
+
     // fn_sleep
     out.push_str(".global fn_sleep\n");
     out.push_str("fn_sleep:\n");

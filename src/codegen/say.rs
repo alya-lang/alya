@@ -1,8 +1,9 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
-    call_returns_known_int, escape_string, is_array_expr, is_array_kind_read, is_float_expr,
-    is_map_expr, is_map_read_index, is_null_expr, is_string_array, is_string_expr,
+    call_returns_known_int, escape_string, is_array_expr, is_array_kind_read,
+    is_dynamic_element_read, is_float_expr, is_map_expr, is_map_read_index, is_null_expr,
+    is_string_array, is_string_expr,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -881,7 +882,8 @@ impl CodeGen {
                             || (matches!(
                                 self.arch,
                                 Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                            ) && is_array_kind_read(expr, &self.ctx.variables));
+                            ) && (is_array_kind_read(expr, &self.ctx.variables)
+                                || is_dynamic_element_read(expr, &self.ctx.variables)));
                         let (l_tag_flt, l_tag_str2, l_tag_arr, l_tag_map, l_tag_int) = if matches!(
                             self.arch,
                             Architecture::X64 | Architecture::ARM64 | Architecture::X86

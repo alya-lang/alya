@@ -737,6 +737,71 @@ pub fn is_array_kind_read(expr: &Expr, vars: &HashMap<String, VarType>) -> bool 
     false
 }
 
+/// Binary ops where a float operand is a strict error unless statically
+/// routed (alya-lang/alya#39 Phase 2b): arithmetic, bitwise, and
+/// comparisons. Logical And/Or keep legacy truthiness.
+pub fn is_strict_dynamic_op(op: &BinaryOp) -> bool {
+    matches!(
+        op,
+        BinaryOp::Add
+            | BinaryOp::Subtract
+            | BinaryOp::Multiply
+            | BinaryOp::Divide
+            | BinaryOp::Modulo
+            | BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
+            | BinaryOp::Shl
+            | BinaryOp::Shr
+            | BinaryOp::Equal
+            | BinaryOp::NotEqual
+            | BinaryOp::Less
+            | BinaryOp::LessEqual
+            | BinaryOp::Greater
+            | BinaryOp::GreaterEqual
+    )
+}
+
+/// True when an `Index` read delivers a trustworthy value-kind tag in
+/// the tag register (x64/x86: `%edx`, arm64: `w1`): map-routed reads via
+/// `fn_get`, plain array-identifier reads via the slot sidecar, or
+/// dynamically-typed element reads (Phase 2b). Mirrors the
+/// expression-codegen routing exactly; struct `operator[]` rewrites and
+/// string-typed bases never reach a tag-producing loader.
+pub fn is_tag_carrying_read(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    is_map_read_index(expr, vars)
+        || is_array_kind_read(expr, vars)
+        || is_dynamic_element_read(expr, vars)
+}
+
+/// True when an `Index` read has statically-unknown element kind
+/// (alya-lang/alya#39 Phase 2b): an array-typed base without a proven
+/// whole-array string/float claim, or an untyped param base (params take
+/// the array path with sidecar tags). Proven string/float arrays keep
+/// their exact paths; proven-int arrays agree with the tag anyway.
+/// Consumers may trust the slot/entry tag in the tag register.
+/// Boundary: a non-indexable dynamic passed in crashes identically with
+/// or without tag dispatch (layout is assumed either way).
+pub fn is_dynamic_element_read(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    if let Expr::Index { array, .. } = expr {
+        if is_map_read_index(expr, vars) {
+            return false;
+        }
+        if let Expr::Identifier(name) = &**array {
+            if vars.contains_key(&format!("param_is_untyped:{}", name)) {
+                return true;
+            }
+            if matches!(vars.get(name), Some(VarType::Array(_))) {
+                let proven_str = vars.contains_key(&format!("arr_is_str:{}", name))
+                    && !vars.contains_key(&format!("arr_nonstr:{}", name));
+                let proven_flt = vars.contains_key(&format!("arr_is_flt:{}", name));
+                return !proven_str && !proven_flt;
+            }
+        }
+    }
+    false
+}
+
 pub fn is_string_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::Array(elems) => !elems.is_empty() && elems.iter().all(|e| is_string_expr(e, vars)),

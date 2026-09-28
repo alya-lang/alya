@@ -73,6 +73,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     emit_adrp_add(out, "x0", "alya_str_null_unwrap", os);
     out.push_str("    b fn_throw\n\n");
 
+    // alya_error_mixed_float (dynamic mixed int/float arithmetic,
+    // alya-lang/alya#39; see the x64 note above).
+    out.push_str("alya_error_mixed_float:\n");
+    emit_adrp_add(out, "x0", "alya_str_mixed_float", os);
+    out.push_str("    b fn_throw\n\n");
+
     // fn_sleep
     out.push_str(".align 2\n");
     out.push_str(".global fn_sleep\n");

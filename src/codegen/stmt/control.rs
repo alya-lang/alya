@@ -1,8 +1,9 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr, Stmt};
 use crate::codegen::analysis::{
-    is_array_kind_read, is_definitely_not_numeric, is_float_array, is_float_expr, is_map_expr,
-    is_map_read_index, is_string_array, is_string_expr,
+    is_array_kind_read, is_definitely_not_numeric, is_dynamic_element_read, is_float_array,
+    is_float_expr, is_map_expr, is_map_read_index, is_string_array, is_string_expr,
+    is_tag_carrying_read,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -90,7 +91,8 @@ impl CodeGen {
                             Architecture::X64 | Architecture::ARM64 | Architecture::X86
                         ) && matches!(&**left, Expr::Index { .. })
                             && (is_map_read_index(left, &self.ctx.variables)
-                                || is_array_kind_read(left, &self.ctx.variables))
+                                || is_array_kind_read(left, &self.ctx.variables)
+                                || is_dynamic_element_read(left, &self.ctx.variables))
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -135,7 +137,8 @@ impl CodeGen {
                                 Architecture::X64 | Architecture::ARM64 | Architecture::X86
                             ) && matches!(&**right, Expr::Index { .. })
                                 && (is_map_read_index(right, &self.ctx.variables)
-                                    || is_array_kind_read(right, &self.ctx.variables))
+                                    || is_array_kind_read(right, &self.ctx.variables)
+                                    || is_dynamic_element_read(right, &self.ctx.variables))
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -161,6 +164,12 @@ impl CodeGen {
 
                 if let Expr::Number(n) = &**right {
                     self.generate_expression(left);
+                    // Strict dynamic check (#39 Phase 2b): float tag on a
+                    // tag-carrying read is the runtime half of the mixed
+                    // comparison error.
+                    if is_tag_carrying_read(left, &self.ctx.variables) {
+                        arch::emit_mixed_float_check(&mut self.output, self.arch);
+                    }
                     arch::emit_cmp_imm(&mut self.output, self.arch, *n as i64);
                     arch::emit_cond_jump(&mut self.output, self.arch, *op, true, target_label);
                     return;
@@ -168,6 +177,12 @@ impl CodeGen {
                 if let Expr::Identifier(var_name) = &**right {
                     if let Some(&VarType::Number(offset)) = self.ctx.variables.get(var_name) {
                         self.generate_expression(left);
+                        // Strict dynamic check (#39 Phase 2b): float tag on a
+                        // tag-carrying read is the runtime half of the mixed
+                        // comparison error.
+                        if is_tag_carrying_read(left, &self.ctx.variables) {
+                            arch::emit_mixed_float_check(&mut self.output, self.arch);
+                        }
                         arch::emit_load_var_to_scratch(&mut self.output, self.arch, offset, false);
                         arch::emit_cmp_reg(&mut self.output, self.arch);
                         arch::emit_cond_jump(&mut self.output, self.arch, *op, true, target_label);
@@ -176,6 +191,12 @@ impl CodeGen {
                 }
                 if let Expr::Number(n) = &**left {
                     self.generate_expression(right);
+                    // Strict dynamic check (#39 Phase 2b): float tag on a
+                    // tag-carrying read is the runtime half of the mixed
+                    // comparison error.
+                    if is_tag_carrying_read(right, &self.ctx.variables) {
+                        arch::emit_mixed_float_check(&mut self.output, self.arch);
+                    }
                     arch::emit_cmp_imm(&mut self.output, self.arch, *n as i64);
                     let swapped_op = match op {
                         BinaryOp::Less => BinaryOp::Greater,
@@ -196,6 +217,12 @@ impl CodeGen {
                 if let Expr::Identifier(var_name) = &**left {
                     if let Some(&VarType::Number(offset)) = self.ctx.variables.get(var_name) {
                         self.generate_expression(right);
+                        // Strict dynamic check (#39 Phase 2b): float tag on a
+                        // tag-carrying read is the runtime half of the mixed
+                        // comparison error.
+                        if is_tag_carrying_read(right, &self.ctx.variables) {
+                            arch::emit_mixed_float_check(&mut self.output, self.arch);
+                        }
                         arch::emit_load_var_to_scratch(&mut self.output, self.arch, offset, false);
                         arch::emit_cmp_reg(&mut self.output, self.arch);
                         let swapped_op = match op {
@@ -298,7 +325,8 @@ impl CodeGen {
                             Architecture::X64 | Architecture::ARM64 | Architecture::X86
                         ) && matches!(&**left, Expr::Index { .. })
                             && (is_map_read_index(left, &self.ctx.variables)
-                                || is_array_kind_read(left, &self.ctx.variables))
+                                || is_array_kind_read(left, &self.ctx.variables)
+                                || is_dynamic_element_read(left, &self.ctx.variables))
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -343,7 +371,8 @@ impl CodeGen {
                                 Architecture::X64 | Architecture::ARM64 | Architecture::X86
                             ) && matches!(&**right, Expr::Index { .. })
                                 && (is_map_read_index(right, &self.ctx.variables)
-                                    || is_array_kind_read(right, &self.ctx.variables))
+                                    || is_array_kind_read(right, &self.ctx.variables)
+                                    || is_dynamic_element_read(right, &self.ctx.variables))
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -369,6 +398,12 @@ impl CodeGen {
 
                 if let Expr::Number(n) = &**right {
                     self.generate_expression(left);
+                    // Strict dynamic check (#39 Phase 2b): float tag on a
+                    // tag-carrying read is the runtime half of the mixed
+                    // comparison error.
+                    if is_tag_carrying_read(left, &self.ctx.variables) {
+                        arch::emit_mixed_float_check(&mut self.output, self.arch);
+                    }
                     arch::emit_cmp_imm(&mut self.output, self.arch, *n as i64);
                     arch::emit_cond_jump(&mut self.output, self.arch, *op, false, target_label);
                     return;
@@ -376,6 +411,12 @@ impl CodeGen {
                 if let Expr::Identifier(var_name) = &**right {
                     if let Some(&VarType::Number(offset)) = self.ctx.variables.get(var_name) {
                         self.generate_expression(left);
+                        // Strict dynamic check (#39 Phase 2b): float tag on a
+                        // tag-carrying read is the runtime half of the mixed
+                        // comparison error.
+                        if is_tag_carrying_read(left, &self.ctx.variables) {
+                            arch::emit_mixed_float_check(&mut self.output, self.arch);
+                        }
                         arch::emit_load_var_to_scratch(&mut self.output, self.arch, offset, false);
                         arch::emit_cmp_reg(&mut self.output, self.arch);
                         arch::emit_cond_jump(&mut self.output, self.arch, *op, false, target_label);
@@ -384,6 +425,12 @@ impl CodeGen {
                 }
                 if let Expr::Number(n) = &**left {
                     self.generate_expression(right);
+                    // Strict dynamic check (#39 Phase 2b): float tag on a
+                    // tag-carrying read is the runtime half of the mixed
+                    // comparison error.
+                    if is_tag_carrying_read(right, &self.ctx.variables) {
+                        arch::emit_mixed_float_check(&mut self.output, self.arch);
+                    }
                     arch::emit_cmp_imm(&mut self.output, self.arch, *n as i64);
                     let swapped_op = match op {
                         BinaryOp::Less => BinaryOp::Greater,
@@ -404,6 +451,12 @@ impl CodeGen {
                 if let Expr::Identifier(var_name) = &**left {
                     if let Some(&VarType::Number(offset)) = self.ctx.variables.get(var_name) {
                         self.generate_expression(right);
+                        // Strict dynamic check (#39 Phase 2b): float tag on a
+                        // tag-carrying read is the runtime half of the mixed
+                        // comparison error.
+                        if is_tag_carrying_read(right, &self.ctx.variables) {
+                            arch::emit_mixed_float_check(&mut self.output, self.arch);
+                        }
                         arch::emit_load_var_to_scratch(&mut self.output, self.arch, offset, false);
                         arch::emit_cmp_reg(&mut self.output, self.arch);
                         let swapped_op = match op {
