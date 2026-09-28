@@ -4,6 +4,7 @@ use crate::codegen::analysis::{
     eq_operand_is_dynamic, escape_string, is_array_expr, is_definitely_not_numeric, is_float_expr,
     is_map_expr, is_null_expr, is_number_expr, is_strict_dynamic_op, is_string_expr,
     is_tag_carrying_read, struct_field_markers_mixed_vars, ternary_arm_carries, value_kind_tag,
+    value_kind_tag_x86_store,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -11,6 +12,18 @@ use crate::codegen::kinds::{kind_of_literal, KIND_FLOAT, KIND_INT, KIND_STRING, 
 use crate::codegen::target::{Architecture, OperatingSystem};
 
 impl CodeGen {
+    /// Materializes a definitely-non-numeric x86 value (e.g. a string
+    /// pointer in `%eax`) as double bits in `%xmm0`, mirroring x64's
+    /// `movq %rax, %xmm0` before float compares. Pointer-bits-as-double
+    /// essentially never equal a real double, so mixed comparisons
+    /// deterministically read false instead of stale-register roulette.
+    fn emit_x86_bits_to_float(&mut self) {
+        debug_assert!(matches!(self.arch, Architecture::X86));
+        self.output.push_str("    movd %eax, %xmm0\n");
+        self.output.push_str("    psllq $32, %xmm0\n");
+        self.output.push_str("    psrlq $32, %xmm0\n");
+    }
+
     pub(crate) fn generate_expression(&mut self, expr: &Expr) {
         match expr {
             Expr::Null => {
@@ -104,12 +117,11 @@ impl CodeGen {
                                     return;
                                 }
                                 Architecture::X86 => {
-                                    arch::emit_load_var(
-                                        &mut self.output,
-                                        self.arch,
-                                        offset,
-                                        self.ctx.stack_offset,
-                                    );
+                                    // Float slots are 8 bytes on x86 (like
+                                    // float binop temps); a 4-byte load
+                                    // would read half the double.
+                                    self.output
+                                        .push_str(&format!("    movsd -{}(%ebp), %xmm0\n", offset));
                                     return;
                                 }
                             },
@@ -153,12 +165,10 @@ impl CodeGen {
                                 self.output.push_str("    movq %xmm0, %rax\n");
                             }
                             Architecture::X86 => {
-                                arch::emit_load_var(
-                                    &mut self.output,
-                                    self.arch,
-                                    offset,
-                                    self.ctx.stack_offset,
-                                );
+                                // Float slots are 8 bytes on x86; a 4-byte
+                                // load would read half the double.
+                                self.output
+                                    .push_str(&format!("    movsd -{}(%ebp), %xmm0\n", offset));
                             }
                         },
                         VarType::StringLabel(label) => {
@@ -455,6 +465,14 @@ impl CodeGen {
                             } else {
                                 arch::emit_int_to_float(&mut self.output, self.arch);
                             }
+                        } else if matches!(self.arch, Architecture::X86)
+                            && !left_is_float
+                            && is_definitely_not_numeric(left, &self.ctx.variables)
+                        {
+                            // No conversion ran (non-numeric left): the imm
+                            // op reads %xmm0, so materialize the value bits
+                            // instead of comparing stale registers.
+                            self.emit_x86_bits_to_float();
                         }
                         arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n);
                         return;
@@ -522,6 +540,12 @@ impl CodeGen {
                                 } else {
                                     arch::emit_int_to_float(&mut self.output, self.arch);
                                 }
+                            } else if matches!(self.arch, Architecture::X86)
+                                && !left_is_float
+                                && is_definitely_not_numeric(left, &self.ctx.variables)
+                            {
+                                // As above: materialize instead of stale.
+                                self.emit_x86_bits_to_float();
                             }
                             arch::emit_load_var_to_scratch(
                                 &mut self.output,
@@ -635,6 +659,13 @@ impl CodeGen {
                         } else {
                             arch::emit_int_to_float(&mut self.output, self.arch);
                         }
+                    } else if matches!(self.arch, Architecture::X86)
+                        && !left_is_float
+                        && is_definitely_not_numeric(left, &self.ctx.variables)
+                    {
+                        // No conversion ran (non-numeric left): materialize
+                        // the pushed double from the value bits.
+                        self.emit_x86_bits_to_float();
                     }
                     if matches!(self.arch, Architecture::X86) {
                         self.output
@@ -674,6 +705,12 @@ impl CodeGen {
                         } else {
                             arch::emit_int_to_float(&mut self.output, self.arch);
                         }
+                    } else if matches!(self.arch, Architecture::X86)
+                        && !right_is_float
+                        && is_definitely_not_numeric(right, &self.ctx.variables)
+                    {
+                        // As for the left side above.
+                        self.emit_x86_bits_to_float();
                     }
                     self.ctx.stack_offset -= float_temp_offset;
 
@@ -1242,7 +1279,13 @@ impl CodeGen {
                         );
                     }
                     self.ctx.stack_offset -= temp_offset;
-                    let push_kind = value_kind_tag(&args[1], &self.ctx.variables);
+                    // x86 stores stale `%xmm0` for unproven float kinds;
+                    // other arches keep the shared tag.
+                    let push_kind = if matches!(self.arch, Architecture::X86) {
+                        value_kind_tag_x86_store(&args[1], &self.ctx.variables)
+                    } else {
+                        value_kind_tag(&args[1], &self.ctx.variables)
+                    };
                     arch::emit_array_push(
                         &mut self.output,
                         self.arch,
@@ -2025,6 +2068,17 @@ impl CodeGen {
                 };
                 match self.arch {
                     Architecture::X86 => {
+                        // Float slots are 8 bytes on x86: statically-float
+                        // args to user functions push the full double from
+                        // %xmm0 (a 4-byte `%eax` push would drop the value).
+                        // Runtime builtins and externs keep the legacy 4-byte
+                        // discipline (their hand-written frames are fixed),
+                        // as do indirect calls (callee unknown here).
+                        // Cumulative sizes keep later args aligned with the
+                        // callee's matching layout (alya-lang/alya#59
+                        // follow-up).
+                        let user_callee = self.ctx.functions.contains(call_name);
+                        let mut pushed: i32 = 0;
                         for (idx, arg) in actual_args.iter().rev().enumerate() {
                             let param_idx = actual_args.len() - 1 - idx;
                             let coerce_vtable = if self.get_expr_interface_name(arg).is_some() {
@@ -2074,7 +2128,7 @@ impl CodeGen {
                                 None
                             };
 
-                            self.ctx.stack_offset = initial_stack_offset + (idx as i32 * word_size);
+                            self.ctx.stack_offset = initial_stack_offset + pushed;
                             self.generate_expression(arg);
                             if let Some(vtable_label) = coerce_vtable {
                                 arch::emit_fat_ptr_new(
@@ -2085,7 +2139,14 @@ impl CodeGen {
                                     self.os,
                                 );
                             }
-                            arch::emit_push_temp(&mut self.output, self.arch);
+                            if user_callee && is_float_expr(arg, &self.ctx.variables) {
+                                self.output.push_str("    sub $8, %esp\n");
+                                self.output.push_str("    movsd %xmm0, (%esp)\n");
+                                pushed += 8;
+                            } else {
+                                arch::emit_push_temp(&mut self.output, self.arch);
+                                pushed += 4;
+                            }
                         }
                     }
                     _ => {
@@ -2154,6 +2215,22 @@ impl CodeGen {
                     }
                 }
                 self.ctx.stack_offset = initial_stack_offset;
+                // x86 float args push 8 bytes (not 4): the callee cleanup
+                // emitted below only pops 4 per arg, so the remainder is
+                // popped here. Only user callees take 8-byte args (see the
+                // push loop above); builtins/externs stay 4-byte.
+                // (alya-lang/alya#59 follow-up).
+                let x86_float_extra: i32 = if matches!(self.arch, Architecture::X86)
+                    && self.ctx.functions.contains(call_name)
+                {
+                    actual_args
+                        .iter()
+                        .filter(|a| is_float_expr(a, &self.ctx.variables))
+                        .count() as i32
+                        * 4
+                } else {
+                    0
+                };
                 let is_extern = self.ctx.extern_functions.contains_key(call_name)
                     || self
                         .ctx
@@ -2184,6 +2261,10 @@ impl CodeGen {
                         initial_stack_offset,
                         self.os,
                     );
+                    if x86_float_extra > 0 {
+                        self.output
+                            .push_str(&format!("    add ${}, %esp\n", x86_float_extra));
+                    }
                 } else if is_extern {
                     let extern_name = call_name.rsplit("::").next().unwrap_or(call_name);
                     let extern_name = extern_name.rsplit("__").next().unwrap_or(extern_name);
@@ -2195,6 +2276,10 @@ impl CodeGen {
                         initial_stack_offset,
                         self.os,
                     );
+                    if x86_float_extra > 0 {
+                        self.output
+                            .push_str(&format!("    add ${}, %esp\n", x86_float_extra));
+                    }
                     let is_flt_ret = self
                         .ctx
                         .variables
@@ -2249,6 +2334,10 @@ impl CodeGen {
                         initial_stack_offset,
                         self.os,
                     );
+                    if x86_float_extra > 0 {
+                        self.output
+                            .push_str(&format!("    add ${}, %esp\n", x86_float_extra));
+                    }
                 }
             }
             Expr::StructInit { name, fields } => {
@@ -2522,7 +2611,11 @@ impl CodeGen {
                             self.os,
                         );
                     }
-                    let elem_kind = value_kind_tag(elem, &self.ctx.variables);
+                    let elem_kind = if matches!(self.arch, Architecture::X86) {
+                        value_kind_tag_x86_store(elem, &self.ctx.variables)
+                    } else {
+                        value_kind_tag(elem, &self.ctx.variables)
+                    };
                     arch::emit_array_set_imm(&mut self.output, self.arch, i, elem_kind);
                 }
 
@@ -2580,7 +2673,14 @@ impl CodeGen {
                                     );
                                 }
                                 // 5-arg fn_set(map, key, lo, hi, kind).
-                                let set_kind = value_kind_tag(v, &self.ctx.variables);
+                                // x86 trusts only proven float kinds (stale
+                                // `%xmm0` otherwise); other arches keep the
+                                // shared tag.
+                                let set_kind = if matches!(self.arch, Architecture::X86) {
+                                    value_kind_tag_x86_store(v, &self.ctx.variables)
+                                } else {
+                                    value_kind_tag(v, &self.ctx.variables)
+                                };
                                 arch::emit_value_lo_hi_kind(&mut self.output, self.arch, set_kind);
 
                                 arch::emit_load_var(
@@ -4511,13 +4611,28 @@ impl CodeGen {
     pub(crate) fn generate_dynamic_equality(&mut self, left: &Expr, right: &Expr, op: BinaryOp) {
         let is_eq = matches!(op, BinaryOp::Equal);
         self.generate_expression(left);
-        arch::emit_push_temp(&mut self.output, self.arch);
-        let temp_offset = self.temp_offset();
-        self.ctx.stack_offset += temp_offset;
+        // Statically-float operands live in %xmm0: pushing `%eax`
+        // would drop the value (and push a stale pointer that can even
+        // classify as a string). Floats push the full 8-byte double.
+        let l_size: i32 =
+            if matches!(self.arch, Architecture::X86) && is_float_expr(left, &self.ctx.variables) {
+                self.output.push_str("    sub $8, %esp\n");
+                self.output.push_str("    movsd %xmm0, (%esp)\n");
+                8
+            } else {
+                arch::emit_push_temp(&mut self.output, self.arch);
+                self.temp_offset()
+            };
+        self.ctx.stack_offset += l_size;
 
         self.generate_expression(right);
-        self.ctx.stack_offset -= temp_offset;
-        arch::emit_push_temp(&mut self.output, self.arch);
+        self.ctx.stack_offset -= l_size;
+        if matches!(self.arch, Architecture::X86) && is_float_expr(right, &self.ctx.variables) {
+            self.output.push_str("    sub $8, %esp\n");
+            self.output.push_str("    movsd %xmm0, (%esp)\n");
+        } else {
+            arch::emit_push_temp(&mut self.output, self.arch);
+        }
 
         let l_not_str = self.ctx.next_label();
         let l_end = self.ctx.next_label();
@@ -4554,6 +4669,86 @@ impl CodeGen {
                 self.output.push_str(&format!("{}:\n", l_end));
             }
             Architecture::X86 => {
+                // Sizes mirror the pushes above (floats are 8 bytes).
+                let l_float = is_float_expr(left, &self.ctx.variables);
+                let r_float = is_float_expr(right, &self.ctx.variables);
+                let l_str = is_string_expr(left, &self.ctx.variables);
+                let r_str = is_string_expr(right, &self.ctx.variables);
+                if (l_str && r_float) || (r_str && l_float) {
+                    // Disjoint static types (string vs float): constant,
+                    // with no pointer ever dereferenced.
+                    let total = (if l_float { 8 } else { 4 }) + (if r_float { 8 } else { 4 });
+                    self.output.push_str(&format!("    add ${}, %esp\n", total));
+                    if is_eq {
+                        self.output.push_str("    xor %eax, %eax\n");
+                    } else {
+                        self.output.push_str("    mov $1, %eax\n");
+                    }
+                    self.output.push_str(&format!("{}:\n", l_end));
+                    self.output.push_str(&format!("{}:\n", l_not_str));
+                    return;
+                }
+                if l_float || r_float {
+                    // A static float side can never be a string, so the
+                    // content-compare path is skipped (a "both strings"
+                    // verdict could only be heuristic collision on float
+                    // bits). The other side is classified when dynamic;
+                    // values compare bitwise over both words, matching
+                    // the x64 word compare.
+                    let l_dyn =
+                        !l_float && !l_str && eq_operand_is_dynamic(left, &self.ctx.variables);
+                    let r_dyn =
+                        !r_float && !r_str && eq_operand_is_dynamic(right, &self.ctx.variables);
+                    let l_size = if l_float { 8 } else { 4 };
+                    let r_size = if r_float { 8 } else { 4 };
+                    if l_dyn || r_dyn {
+                        // Classify the dynamic side's lo-word: right at
+                        // (%esp), left at (r_size)(%esp).
+                        if r_dyn {
+                            self.output.push_str("    movl (%esp), %eax\n");
+                        } else {
+                            self.output
+                                .push_str(&format!("    movl {}(%esp), %eax\n", r_size));
+                        }
+                        self.emit_runtime_classify(self.os);
+                        self.output.push_str("    cmp $3, %eax\n");
+                        self.output.push_str(&format!("    je {}\n", l_not_str));
+                    }
+                    // Bitwise compare over both words (hi of a 4-byte
+                    // side is its sign extension).
+                    self.output.push_str("    pop %eax\n");
+                    if r_size == 8 {
+                        self.output.push_str("    pop %ecx\n");
+                    } else {
+                        self.output.push_str("    mov %eax, %ecx\n");
+                        self.output.push_str("    sar $31, %ecx\n");
+                    }
+                    self.output.push_str("    pop %ebx\n");
+                    if l_size == 8 {
+                        self.output.push_str("    pop %edx\n");
+                    } else {
+                        self.output.push_str("    mov %ebx, %edx\n");
+                        self.output.push_str("    sar $31, %edx\n");
+                    }
+                    self.output.push_str("    cmp %ebx, %eax\n");
+                    self.output.push_str(&format!("    jne {}\n", l_not_str));
+                    self.output.push_str("    cmp %edx, %ecx\n");
+                    self.output.push_str(&format!("    jne {}\n", l_not_str));
+                    if is_eq {
+                        self.output.push_str("    mov $1, %eax\n");
+                    } else {
+                        self.output.push_str("    xor %eax, %eax\n");
+                    }
+                    arch::emit_jump(&mut self.output, self.arch, &l_end);
+                    self.output.push_str(&format!("{}:\n", l_not_str));
+                    if is_eq {
+                        self.output.push_str("    xor %eax, %eax\n");
+                    } else {
+                        self.output.push_str("    mov $1, %eax\n");
+                    }
+                    self.output.push_str(&format!("{}:\n", l_end));
+                    return;
+                }
                 self.output.push_str("    movl (%esp), %eax\n");
                 self.emit_runtime_classify(self.os);
                 self.output.push_str("    movl %eax, %ebx\n");

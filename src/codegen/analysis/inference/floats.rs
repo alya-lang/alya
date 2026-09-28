@@ -526,6 +526,13 @@ pub fn collect_known_float_vars_with_index(
                 if ret_trimmed == "float" || ret_trimmed == "f64" || ret_trimmed == "f32" {
                     known_floats.insert(format!("fn_ret_flt:{}", name));
                     known_floats.insert(format!("fn_ret_flt:{}", bare));
+                    // Provenance: an explicit `-> float` annotation is
+                    // enforced by the type checker, so these returns are
+                    // exclusively float (unlike inference markers, which
+                    // fire when ANY branch returns float). The x86 backend
+                    // consults the `ann` key to trust `%xmm0` at stores.
+                    known_floats.insert(format!("fn_ret_flt_ann:{}", name));
+                    known_floats.insert(format!("fn_ret_flt_ann:{}", bare));
                 } else if ret_trimmed.starts_with('(') && ret_trimmed.ends_with(')') {
                     for (i, ty) in ret_trimmed[1..ret_trimmed.len() - 1].split(',').enumerate() {
                         let ty = ty.trim();

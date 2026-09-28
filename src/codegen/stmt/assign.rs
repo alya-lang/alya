@@ -2,8 +2,8 @@ use super::CodeGen;
 use crate::ast::Expr;
 use crate::codegen::analysis::{
     escape_string, is_array_expr, is_float_array, is_float_expr, is_map_expr, is_null_expr,
-    is_number_expr, is_string_array, is_string_expr, struct_field_markers_mixed_vars,
-    value_kind_tag,
+    is_number_expr, is_proven_float_store, is_string_array, is_string_expr,
+    struct_field_markers_mixed_vars, value_kind_tag, value_kind_tag_x86_store,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -479,7 +479,17 @@ impl CodeGen {
                 } else {
                     is_struct_from_ann.or_else(|| self.get_expr_struct_name(value))
                 };
-                let is_flt = is_explicit_flt || is_float_expr(value, &self.ctx.variables);
+                // x86 records Float only for proven shapes (explicit
+                // annotation or provably-double values): marker-based
+                // floatness would store stale `%xmm0` for int content.
+                // Other arches keep the shared inference (their value
+                // mirror preserves ints; see `is_proven_float_store`).
+                let is_flt = is_explicit_flt
+                    || if matches!(self.arch, Architecture::X86) {
+                        is_proven_float_store(value, &self.ctx.variables)
+                    } else {
+                        is_float_expr(value, &self.ctx.variables)
+                    };
                 let is_map = is_explicit_map || is_map_expr(value, &self.ctx.variables);
                 let is_null = is_null_expr(value, &self.ctx.variables);
                 let is_alias_heap = match value {
@@ -506,6 +516,15 @@ impl CodeGen {
                 }
 
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+                if matches!(self.arch, Architecture::X86) && is_flt {
+                    // Float slots are 8 bytes on x86 (stores are movsd);
+                    // a single 4-byte slot would overrun the neighbour.
+                    arch::emit_allocate_var(
+                        &mut self.output,
+                        self.arch,
+                        &mut self.ctx.stack_offset,
+                    );
+                }
 
                 if let Some(ename) = &is_enum {
                     self.ctx.variables.insert(
@@ -603,6 +622,28 @@ impl CodeGen {
                     self.ctx
                         .variables
                         .insert(name.clone(), VarType::Float(self.ctx.stack_offset));
+                    if matches!(self.arch, Architecture::X86) {
+                        if is_proven_float_store(value, &self.ctx.variables) {
+                            // x86 has no %rax float mirror, so the
+                            // allocation above pushed stale words: store
+                            // the double explicitly (it is in %xmm0).
+                            self.output.push_str(&format!(
+                                "    movsd %xmm0, -{}(%ebp)\n",
+                                self.ctx.stack_offset
+                            ));
+                        } else {
+                            // Explicitly-typed float holding a non-double
+                            // (e.g. an int): store sign-extended, mirroring
+                            // x64's `%rax` exactly.
+                            let off = self.ctx.stack_offset;
+                            self.output.push_str("    mov %eax, %ecx\n");
+                            self.output.push_str("    sar $31, %ecx\n");
+                            self.output
+                                .push_str(&format!("    mov %eax, -{}(%ebp)\n", off));
+                            self.output
+                                .push_str(&format!("    mov %ecx, -{}(%ebp)\n", off - 4));
+                        }
+                    }
                 } else if is_null {
                     self.ctx
                         .variables
@@ -1133,7 +1174,11 @@ impl CodeGen {
                                     self.os,
                                 );
                             }
-                            let set_kind = value_kind_tag(value, &self.ctx.variables);
+                            let set_kind = if matches!(self.arch, Architecture::X86) {
+                                value_kind_tag_x86_store(value, &self.ctx.variables)
+                            } else {
+                                value_kind_tag(value, &self.ctx.variables)
+                            };
                             arch::emit_value_lo_hi_kind(&mut self.output, self.arch, set_kind);
                         } else {
                             arch::emit_push_temp(&mut self.output, self.arch);
@@ -1297,7 +1342,11 @@ impl CodeGen {
                 arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
             }
             self.ctx.stack_offset -= temp_offset * 2;
-            let set_kind = value_kind_tag(value, &self.ctx.variables);
+            let set_kind = if matches!(self.arch, Architecture::X86) {
+                value_kind_tag_x86_store(value, &self.ctx.variables)
+            } else {
+                value_kind_tag(value, &self.ctx.variables)
+            };
             arch::emit_array_set(&mut self.output, self.arch, set_kind);
         }
     }

@@ -330,6 +330,13 @@ pub fn emit_for_each_load_element(
 }
 
 pub fn emit_string_equality_call(out: &mut String, op: BinaryOp) {
+    // The left operand is already on the stack (generic binop pushes it),
+    // the right one is in %eax: reorder to fn_strcmp(left, right), like
+    // x64's (rdi, rsi). The old order passed (right, left), which is
+    // invisible for ==/!= but flips </> (alya-lang/alya#59 follow-up).
+    out.push_str("    mov %eax, %edx\n");
+    out.push_str("    pop %eax\n");
+    out.push_str("    push %edx\n");
     out.push_str("    push %eax\n");
     out.push_str("    call fn_strcmp\n");
     out.push_str("    add $8, %esp\n");

@@ -1276,6 +1276,85 @@ pub fn value_kind_tag(expr: &Expr, vars: &HashMap<String, VarType>) -> i64 {
     KIND_UNKNOWN
 }
 
+/// True when an x86 element store can trust a float kind tag: the value
+/// provably holds a double in `%xmm0` at the store. Marker-based floatness
+/// (`fn_ret_flt`, mixed returns, untyped dynamics) is NOT enough: the
+/// runtime value may be an int in `%eax` while `%xmm0` is stale, and the
+/// x86 store materializes lo/hi from `%xmm0` for float kinds (storing
+/// stale bits with a float tag). Unproven shapes store UNKNOWN so readers
+/// fall back exactly like the other architectures (alya-lang/alya#59
+/// follow-up).
+///
+/// Proven shapes and why their `%xmm0` is valid: float literals (loaded
+/// directly); float-typed identifiers without int evidence (8-byte slots
+/// read via `movsd`); `arr_is_flt` reads (every slot is a double);
+/// float arithmetic (results materialize in `%xmm0`); float conversions
+/// (same); null-coalescing with float arms; calls that cannot return ints
+/// (no `fn_ret_int` evidence). Calls with mixed returns, ternaries,
+/// field reads, and unknown shapes are excluded.
+pub fn is_proven_float_store(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    if !is_float_expr(expr, vars) {
+        return false;
+    }
+    match expr {
+        Expr::Float(_) => true,
+        Expr::Identifier(name) => {
+            matches!(vars.get(name), Some(VarType::Float(off)) if *off != 0)
+                && !vars.contains_key(&format!("var_is_int:{}", name))
+        }
+        Expr::Index { array, .. } => {
+            if let Expr::Identifier(arr) = &**array {
+                vars.contains_key(&format!("arr_is_flt:{}", arr))
+            } else {
+                false
+            }
+        }
+        // Only total-float conversion builtins and explicitly `-> float`
+        // annotated callees are proven: they leave the double in `%xmm0`
+        // on every path (the annotation is type-checked). User calls with
+        // mere inference markers may take unmarked int paths at runtime
+        // with stale `%xmm0` (e.g. mixed int/float returns like a JSON
+        // value reader), so they store UNKNOWN.
+        Expr::Call { name, .. } => {
+            let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            if matches!(bare, "float" | "to_float" | "parse_float") {
+                return true;
+            }
+            let ann_hits = [
+                format!("fn_ret_flt_ann:{}", name),
+                format!("fn_ret_flt_ann:{}", bare),
+            ];
+            if ann_hits.iter().any(|k| vars.contains_key(k)) {
+                return true;
+            }
+            vars.keys().any(|k| {
+                k.starts_with("fn_ret_flt_ann:")
+                    && (k.ends_with(&format!("__{}", bare)) || k.ends_with(&format!("::{}", bare)))
+            })
+        }
+        Expr::Binary { .. }
+        | Expr::Unary { .. }
+        | Expr::NullCoalesce { .. }
+        | Expr::Cast { .. } => true,
+        _ => false,
+    }
+}
+
+/// Store kind for x86 element writes: like [`value_kind_tag`], but a float
+/// kind is kept only when [`is_proven_float_store`] holds. An unproven
+/// float tag would store stale `%xmm0` bits with a float tag when the
+/// runtime value is actually an int in `%eax` (e.g. mixed-return calls
+/// like the JSON parser's value reader).
+pub fn value_kind_tag_x86_store(expr: &Expr, vars: &HashMap<String, VarType>) -> i64 {
+    let kind = value_kind_tag(expr, vars);
+    if kind == KIND_FLOAT && !is_proven_float_store(expr, vars) {
+        KIND_UNKNOWN
+    } else {
+        kind
+    }
+}
+
 /// True when a call is proven to return an integer: an explicit `-> int`
 /// annotation marker, or a builtin known to produce integers.
 ///

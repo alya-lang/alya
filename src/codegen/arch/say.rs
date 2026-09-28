@@ -93,6 +93,7 @@ pub fn emit_say_interpolated(
     arch: Architecture,
     fmt_label: &str,
     is_floats: &[bool],
+    is_strings: &[bool],
     stack_offset: i32,
     os: OperatingSystem,
 ) {
@@ -103,7 +104,17 @@ pub fn emit_say_interpolated(
         Architecture::X64 => {
             x64::emit_say_interpolated_pop_and_call(out, fmt_label, is_floats, stack_offset, os)
         }
-        Architecture::X86 => x86::emit_say_interpolated_call(out, fmt_label, is_floats.len()),
+        Architecture::X86 => {
+            let mut args_bytes = 0usize;
+            for (i, f) in is_floats.iter().enumerate() {
+                if *f || !is_strings.get(i).copied().unwrap_or(false) {
+                    args_bytes += 8;
+                } else {
+                    args_bytes += 4;
+                }
+            }
+            x86::emit_say_interpolated_call(out, fmt_label, args_bytes)
+        }
     }
 }
 

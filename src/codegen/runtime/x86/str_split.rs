@@ -169,6 +169,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_x86_se1:\n");
     out.push_str("    lea (%ecx, %ebx), %edi\n");
     out.push_str("    mov %edi, %edx\n");
+    // Reload the char: str-buf load above uses %eax as scratch.
+    out.push_str("    movb (%esi), %al\n");
     out.push_str("    movb %al, (%edi)\n");
     out.push_str("    movb $0, 1(%edi)\n");
     out.push_str("    add $2, %edi\n");

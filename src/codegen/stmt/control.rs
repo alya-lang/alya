@@ -997,6 +997,18 @@ impl CodeGen {
             }
             _ => {
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+                if matches!(self.arch, Architecture::X86)
+                    && matches!(var_type_for_primary, VarType::Float(_))
+                {
+                    // Float slots are 8 bytes on x86 (element stores are
+                    // movsd); a single 4-byte slot would overrun the
+                    // neighbouring index slot and end the loop early.
+                    arch::emit_allocate_var(
+                        &mut self.output,
+                        self.arch,
+                        &mut self.ctx.stack_offset,
+                    );
+                }
                 let off = self.ctx.stack_offset;
                 let vt = set_var_offset(&var_type_for_primary, off);
                 self.ctx.variables.insert(var.clone(), vt);
@@ -1037,6 +1049,17 @@ impl CodeGen {
                         self.arch,
                         &mut self.ctx.stack_offset,
                     );
+                    if matches!(self.arch, Architecture::X86)
+                        && matches!(v2_type_raw, VarType::Float(_))
+                    {
+                        // Float slots are 8 bytes on x86 (see the loop
+                        // variable above).
+                        arch::emit_allocate_var(
+                            &mut self.output,
+                            self.arch,
+                            &mut self.ctx.stack_offset,
+                        );
+                    }
                     let off = self.ctx.stack_offset;
                     let vt = set_var_offset(&v2_type_raw, off);
                     self.ctx.variables.insert(v2_str.clone(), vt);

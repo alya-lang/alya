@@ -435,6 +435,7 @@ impl CodeGen {
 
         for s in &inference.known_floats {
             if s.starts_with("fn_ret_flt:")
+                || s.starts_with("fn_ret_flt_ann:")
                 || s.starts_with("fn_ret_tuple_flt:")
                 || s.starts_with("struct_field_flt:")
                 || s.starts_with("tuple_elem_flt:")
@@ -680,6 +681,9 @@ impl CodeGen {
                             self.ctx
                                 .variables
                                 .insert(format!("fn_ret_flt:{}", m.name), VarType::Float(0));
+                            self.ctx
+                                .variables
+                                .insert(format!("fn_ret_flt_ann:{}", m.name), VarType::Float(0));
                         } else if m.return_type.as_deref() == Some("string")
                             || m.return_type.as_deref() == Some("str")
                         {
@@ -765,10 +769,16 @@ impl CodeGen {
                             self.ctx
                                 .variables
                                 .insert(format!("fn_ret_flt:{}", f.name), VarType::Float(0));
+                            self.ctx
+                                .variables
+                                .insert(format!("fn_ret_flt_ann:{}", f.name), VarType::Float(0));
                             if bare != f.name {
                                 self.ctx
                                     .variables
                                     .insert(format!("fn_ret_flt:{}", bare), VarType::Float(0));
+                                self.ctx
+                                    .variables
+                                    .insert(format!("fn_ret_flt_ann:{}", bare), VarType::Float(0));
                             }
                         }
                     }
@@ -1193,15 +1203,10 @@ impl CodeGen {
         // (same value types, no new TypeErrors: checking still sees Any).
         let spec_codes: Vec<char> = crate::parser::dynspec::dynspec_codes(name).unwrap_or_default();
         let mut spec_seen = 0usize;
+        // x86 caller/callee layout: float params consume 8 bytes, the rest
+        // 4 (matches the call-site 8-byte double pushes).
+        let mut src_off: i32 = 8;
         for (i, param) in params.iter().enumerate() {
-            arch::emit_function_param_push(
-                &mut self.output,
-                self.arch,
-                i,
-                &mut self.ctx.stack_offset,
-                self.os,
-            );
-
             // Explicit scalar annotations are authoritative and override
             // heuristic inference. Rationale: whole-program inference keys
             // string-ness by bare field name (`struct_field_str:port`), so an
@@ -1349,6 +1354,32 @@ impl CodeGen {
             } else {
                 None
             };
+            // `self` is always a 4-byte handle, never a float slot.
+            let param_is_float = is_flt && !(i == 0 && param == "self") && struct_type.is_none();
+            if matches!(self.arch, crate::codegen::target::Architecture::X86) {
+                if param_is_float {
+                    // Consume 8 bytes: push hi then lo so the local slot
+                    // reads back via movsd (low word at recorded offset).
+                    self.output
+                        .push_str(&format!("    push {}(%ebp)\n", src_off + 4));
+                    self.output
+                        .push_str(&format!("    push {}(%ebp)\n", src_off));
+                    self.ctx.stack_offset += 8;
+                } else {
+                    self.output
+                        .push_str(&format!("    push {}(%ebp)\n", src_off));
+                    self.ctx.stack_offset += 4;
+                }
+                src_off += if param_is_float { 8 } else { 4 };
+            } else {
+                arch::emit_function_param_push(
+                    &mut self.output,
+                    self.arch,
+                    i,
+                    &mut self.ctx.stack_offset,
+                    self.os,
+                );
+            }
             if let Some(ref sname) = struct_type {
                 self.ctx.variables.insert(
                     param.clone(),

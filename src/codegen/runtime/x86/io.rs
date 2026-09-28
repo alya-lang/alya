@@ -32,6 +32,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_x86_ask_buf_ok:\n");
     out.push_str("    lea (%ecx, %ebx), %esi\n");
     out.push_str("    mov %esi, %edi\n");
+    // Keep the buffer base in callee-saved %ebx: `getchar` below may
+    // clobber caller-saved %ecx, which then corrupts the size math and
+    // the stored index (the next read would restart at buf+0 and
+    // overwrite this string).
+    out.push_str("    mov %ecx, %ebx\n");
     out.push_str(".L_x86_ask_loop:\n");
     out.push_str("    call getchar\n");
     out.push_str("    cmp $-1, %eax\n");
@@ -46,7 +51,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_x86_ask_done:\n");
     out.push_str("    movb $0, (%edi)\n");
     out.push_str("    inc %edi\n");
-    out.push_str("    sub %ecx, %edi\n");
+    out.push_str("    sub %ebx, %edi\n");
     out.push_str("    add $3, %edi\n");
     out.push_str("    and $-4, %edi\n");
     emit_str_buf_store(out, "%edi", "%edx", os);

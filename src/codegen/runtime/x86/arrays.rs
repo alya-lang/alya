@@ -99,7 +99,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    call realloc\n");
     out.push_str("    add $8, %esp\n");
     out.push_str("    mov %eax, 8(%esi)\n");
-    out.push_str("    push %edx\n");
+    // Reload the new cap from memory: realloc clobbers caller-saved
+    // %edx, which held it (glibc moves it; MSVCRT happened to preserve
+    // it, so this only crashed on Linux).
+    out.push_str("    push 4(%esi)\n");
     out.push_str("    push 12(%esi)\n");
     out.push_str("    call realloc\n");
     out.push_str("    add $8, %esp\n");

@@ -56,10 +56,10 @@ pub fn emit_say_float(out: &mut String, fmt_label: &str) {
     out.push_str("    add $12, %esp\n");
 }
 
-pub fn emit_say_interpolated_call(out: &mut String, fmt_label: &str, count: usize) {
+pub fn emit_say_interpolated_call(out: &mut String, fmt_label: &str, args_bytes: usize) {
     out.push_str(&format!("    push ${}\n", fmt_label));
     emit_call_printf(out);
-    out.push_str(&format!("    add ${}, %esp\n", (count + 1) * 4));
+    out.push_str(&format!("    add ${}, %esp\n", args_bytes + 4));
 }
 
 pub fn emit_string_concat_call(out: &mut String) {
