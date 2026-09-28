@@ -32,6 +32,12 @@ for item in items
     say item
 end
 ```
+- The loop variable takes the iterable's statically proven element
+  type. Over mixed arrays (Chapter 13 §1.2), elements whose slot kind
+  provably mismatches convert to that type at the load boundary
+  (truncate toward zero; e.g. `0.5` reads as `0` in an `int` loop)
+  instead of reinterpreting raw bits. Slots of unknown kind keep the
+  raw value.
 
 ### 1.5 Key-Value and Indexed Iteration (`for key, value in`)
 When iterating over:
