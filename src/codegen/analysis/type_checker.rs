@@ -430,6 +430,152 @@ struct StructSig {
     positional_fields: Vec<Type>,
 }
 
+/// Per-scope arrays with statically visible element-kind evidence
+/// (alya-lang/alya#39 Phase 2). An array holding both float and int
+/// evidence reads mixed kinds at runtime; arithmetic over such reads
+/// silently computes on raw bit patterns, so the checker rejects it
+/// (explicit `float(...)` / `int(...)` conversions flow correctly).
+#[derive(Debug, Clone, Default)]
+struct ArrayKindEvidence {
+    float_ev: HashSet<String>,
+    int_ev: HashSet<String>,
+}
+
+/// Element kind of an array type annotation: true=float, false=int.
+fn ann_array_elem_kind(ann: &str) -> Option<bool> {
+    let t = ann.trim();
+    let base = match t.strip_suffix("[]") {
+        Some(b) => b.trim(),
+        None => return None,
+    };
+    match base {
+        "float" | "f64" | "f32" => Some(true),
+        "int" | "i64" | "i32" | "i16" | "i8" | "uint" | "u64" | "u32" | "u16" | "u8" | "byte" => {
+            Some(false)
+        }
+        _ => None,
+    }
+}
+
+fn note_array_binding(name: &str, value: &Expr, ann: Option<&str>, ev: &mut ArrayKindEvidence) {
+    match value {
+        Expr::Array(elems) => {
+            ev.float_ev.remove(name);
+            ev.int_ev.remove(name);
+            for elem in elems {
+                match elem {
+                    Expr::Number(_) => {
+                        ev.int_ev.insert(name.to_string());
+                    }
+                    Expr::Float(_) => {
+                        ev.float_ev.insert(name.to_string());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {
+            ev.float_ev.remove(name);
+            ev.int_ev.remove(name);
+        }
+    }
+    if let Some(a) = ann {
+        if let Some(is_float) = ann_array_elem_kind(a) {
+            if is_float {
+                ev.float_ev.insert(name.to_string());
+            } else {
+                ev.int_ev.insert(name.to_string());
+            }
+        }
+    }
+}
+
+fn collect_array_evidence(
+    checker: &mut TypeChecker,
+    stmts: &[Stmt],
+    scope: &str,
+    parent: &ArrayKindEvidence,
+) {
+    let mut ev = parent.clone();
+    let mut nested: Vec<(String, &[Stmt])> = Vec::new();
+    collect_array_evidence_walk(stmts, &mut ev, &mut nested);
+    checker.mixed_arrays.insert(scope.to_string(), ev);
+    for (name, body) in nested {
+        let cur = checker.mixed_arrays.get(scope).cloned().unwrap_or_default();
+        collect_array_evidence(checker, body, &name, &cur);
+    }
+}
+
+fn collect_array_evidence_walk<'a>(
+    stmts: &'a [Stmt],
+    ev: &mut ArrayKindEvidence,
+    nested: &mut Vec<(String, &'a [Stmt])>,
+) {
+    for s in stmts {
+        match s.inner_stmt() {
+            Stmt::Let {
+                name,
+                type_ann,
+                value,
+            } => {
+                note_array_binding(name, value, type_ann.as_deref(), ev);
+            }
+            Stmt::Assign { name, value } => {
+                note_array_binding(name, value, None, ev);
+            }
+            Stmt::Expr(Expr::Call { name, args }) => {
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if (bare == "push" || bare == "array_push" || bare == "append") && args.len() == 2 {
+                    if let Expr::Identifier(arr) = &args[0] {
+                        match &args[1] {
+                            Expr::Number(_) => {
+                                ev.int_ev.insert(arr.clone());
+                            }
+                            Expr::Float(_) => {
+                                ev.float_ev.insert(arr.clone());
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                collect_array_evidence_walk(then_block, ev, nested);
+                if let Some(eb) = else_block {
+                    collect_array_evidence_walk(eb, ev, nested);
+                }
+            }
+            Stmt::While { body, .. }
+            | Stmt::Repeat { body }
+            | Stmt::For { body, .. }
+            | Stmt::ForEach { body, .. } => collect_array_evidence_walk(body, ev, nested),
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                collect_array_evidence_walk(try_block, ev, nested);
+                collect_array_evidence_walk(catch_block, ev, nested);
+                if let Some(fb) = finally_block {
+                    collect_array_evidence_walk(fb, ev, nested);
+                }
+            }
+            Stmt::Defer(inner) | Stmt::Pub(inner) => {
+                collect_array_evidence_walk(std::slice::from_ref(inner), ev, nested)
+            }
+            // Nested definitions are separate scopes (collected above).
+            Stmt::Function { name, body, .. } => nested.push((name.clone(), body.as_slice())),
+            _ => {}
+        }
+    }
+}
+
 pub struct TypeChecker {
     scopes: Vec<HashMap<String, Type>>,
     assigned: Vec<HashSet<String>>,
@@ -447,6 +593,9 @@ pub struct TypeChecker {
     current_fn_return_type: Option<Type>,
     /// Name of the function whose body is currently checked (for diagnostics).
     current_fn_name: Option<String>,
+    /// Per-scope arrays with statically visible float/int element
+    /// evidence (alya-lang/alya#39 Phase 2): scope "" is top level.
+    mixed_arrays: HashMap<String, ArrayKindEvidence>,
 }
 
 impl Default for TypeChecker {
@@ -469,6 +618,7 @@ impl TypeChecker {
             warnings: Vec::new(),
             current_fn_return_type: None,
             current_fn_name: None,
+            mixed_arrays: HashMap::new(),
         };
         tc.register_builtins();
         tc
@@ -1315,9 +1465,65 @@ impl TypeChecker {
                     name
                 ));
             }
-            Expr::Binary { left, right, .. } => {
+            Expr::Binary { op, left, right } => {
                 self.check_expr(left)?;
                 self.check_expr(right)?;
+                if matches!(
+                    op,
+                    BinaryOp::Add
+                        | BinaryOp::Subtract
+                        | BinaryOp::Multiply
+                        | BinaryOp::Divide
+                        | BinaryOp::Modulo
+                        | BinaryOp::Less
+                        | BinaryOp::LessEqual
+                        | BinaryOp::Greater
+                        | BinaryOp::GreaterEqual
+                ) {
+                    // alya-lang/alya#39 Phase 2: arithmetic over reads of
+                    // a provably-mixed int/float array silently computes
+                    // on raw bit patterns. Reject it; explicit
+                    // `float(...)` / `int(...)` conversions route through
+                    // the float path and stay correct. Float- or
+                    // string-routed operations are exempt.
+                    let lt = self.infer_expr(left).unwrap_or(Type::Any);
+                    let rt = self.infer_expr(right).unwrap_or(Type::Any);
+                    let routed = matches!(
+                        (&lt, &rt),
+                        (Type::Float | Type::F32 | Type::String, _)
+                            | (_, Type::Float | Type::F32 | Type::String)
+                    );
+                    if !routed {
+                        let scope = self.current_fn_name.clone().unwrap_or_default();
+                        if let Some(ev) = self.mixed_arrays.get(&scope) {
+                            for side in [left.as_ref(), right.as_ref()] {
+                                if let Expr::Index { array, .. }
+                                | Expr::OptionalIndex { array, .. } = side
+                                {
+                                    if let Expr::Identifier(arr) = &**array {
+                                        if ev.float_ev.contains(arr) && ev.int_ev.contains(arr) {
+                                            let sym = match op {
+                                                BinaryOp::Add => "+",
+                                                BinaryOp::Subtract => "-",
+                                                BinaryOp::Multiply => "*",
+                                                BinaryOp::Divide => "/",
+                                                BinaryOp::Modulo => "%",
+                                                BinaryOp::Less => "<",
+                                                BinaryOp::LessEqual => "<=",
+                                                BinaryOp::Greater => ">",
+                                                _ => ">=",
+                                            };
+                                            return Err(format!(
+                                                "TypeError: Operator '{}' cannot be applied to mixed int/float array '{}' (convert explicitly, e.g. 'float({}[0]) {} {}[0]')",
+                                                sym, arr, arr, sym, arr
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             Expr::Unary { expr, .. } | Expr::Cast { expr, .. } | Expr::TypeCheck { expr, .. } => {
                 self.check_expr(expr)?;
@@ -1996,6 +2202,13 @@ impl TypeChecker {
                     self.functions.insert(bare_mod.to_string(), sig);
                 }
             }
+        }
+
+        // Pass 3b: Per-scope array kind evidence for the mixed
+        // int/float arithmetic rejection below (alya-lang/alya#39).
+        {
+            let empty = ArrayKindEvidence::default();
+            collect_array_evidence(self, &program.statements, "", &empty);
         }
 
         // Pass 4: Check statements and bodies

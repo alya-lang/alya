@@ -431,10 +431,11 @@ impl CodeGen {
                             // Index carries kind tag alongside the value
                             // (x64: %edx, arm64: w1): skip int->float
                             // when the value is already a float.
-                            // Direct array loads carry no tag; require map routing.
+                            // Array loads carry slot kinds (Phase 1, #39).
                             if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                                 && matches!(&**left, Expr::Index { .. })
-                                && is_map_read_index(left, &self.ctx.variables)
+                                && (is_map_read_index(left, &self.ctx.variables)
+                                    || is_array_kind_read(left, &self.ctx.variables))
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64) {
@@ -459,10 +460,11 @@ impl CodeGen {
                         self.generate_expression(left);
                         if !left_is_float && !is_definitely_not_numeric(left, &self.ctx.variables) {
                             // Index carries kind tag (x64: %edx, arm64: w1).
-                            // Direct array loads carry no tag; require map routing.
+                            // Array loads carry slot kinds (Phase 1, #39).
                             if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                                 && matches!(&**left, Expr::Index { .. })
-                                && is_map_read_index(left, &self.ctx.variables)
+                                && (is_map_read_index(left, &self.ctx.variables)
+                                    || is_array_kind_read(left, &self.ctx.variables))
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64) {
@@ -490,10 +492,11 @@ impl CodeGen {
                                 && !is_definitely_not_numeric(left, &self.ctx.variables)
                             {
                                 // Index carries kind tag (x64: %edx, arm64: w1).
-                                // Direct array loads carry no tag; require map routing.
+                                // Array loads carry slot kinds (Phase 1, #39).
                                 if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                                     && matches!(&**left, Expr::Index { .. })
-                                    && is_map_read_index(left, &self.ctx.variables)
+                                    && (is_map_read_index(left, &self.ctx.variables)
+                                        || is_array_kind_read(left, &self.ctx.variables))
                                 {
                                     let l_skip = self.ctx.next_label();
                                     if matches!(self.arch, Architecture::X64) {
@@ -576,10 +579,11 @@ impl CodeGen {
                     self.generate_expression(left);
                     if !left_is_float && !is_definitely_not_numeric(left, &self.ctx.variables) {
                         // Index carries kind tag (x64: %edx, arm64: w1).
-                        // Direct array loads carry no tag; require map routing.
+                        // Array loads carry slot kinds (Phase 1, #39).
                         if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                             && matches!(left.as_ref(), Expr::Index { .. })
-                            && is_map_read_index(left, &self.ctx.variables)
+                            && (is_map_read_index(left, &self.ctx.variables)
+                                || is_array_kind_read(left, &self.ctx.variables))
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64) {
@@ -612,10 +616,10 @@ impl CodeGen {
                     self.generate_expression(right);
                     if !right_is_float && !is_definitely_not_numeric(right, &self.ctx.variables) {
                         // Index carries kind tag (x64: %edx, arm64: w1).
-                        // Direct array loads carry no tag; require map routing.
                         if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                             && matches!(right.as_ref(), Expr::Index { .. })
-                            && is_map_read_index(right, &self.ctx.variables)
+                            && (is_map_read_index(right, &self.ctx.variables)
+                                || is_array_kind_read(right, &self.ctx.variables))
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64) {
@@ -700,7 +704,29 @@ impl CodeGen {
                     && !is_float_expr(then_branch, &self.ctx.variables)
                     && !is_definitely_not_numeric(then_branch, &self.ctx.variables)
                 {
-                    arch::emit_int_to_float(&mut self.output, self.arch);
+                    // Kind-carrying reads already holding float bits skip
+                    // the conversion (map routing or Phase 1 array kinds).
+                    let already_float =
+                        matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                            && matches!(&**then_branch, Expr::Index { .. })
+                            && (is_map_read_index(then_branch, &self.ctx.variables)
+                                || is_array_kind_read(then_branch, &self.ctx.variables));
+                    if already_float {
+                        let l_skip = self.ctx.next_label();
+                        if matches!(self.arch, Architecture::X64) {
+                            self.output
+                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                            self.output.push_str(&format!("    je {}\n", l_skip));
+                        } else {
+                            self.output
+                                .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                            self.output.push_str(&format!("    b.eq {}\n", l_skip));
+                        }
+                        arch::emit_int_to_float(&mut self.output, self.arch);
+                        self.output.push_str(&format!("{}:\n", l_skip));
+                    } else {
+                        arch::emit_int_to_float(&mut self.output, self.arch);
+                    }
                 }
                 arch::emit_jump(&mut self.output, self.arch, &end_label);
 
@@ -710,7 +736,29 @@ impl CodeGen {
                     && !is_float_expr(else_branch, &self.ctx.variables)
                     && !is_definitely_not_numeric(else_branch, &self.ctx.variables)
                 {
-                    arch::emit_int_to_float(&mut self.output, self.arch);
+                    // Kind-carrying reads already holding float bits skip
+                    // the conversion (map routing or Phase 1 array kinds).
+                    let already_float =
+                        matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                            && matches!(&**else_branch, Expr::Index { .. })
+                            && (is_map_read_index(else_branch, &self.ctx.variables)
+                                || is_array_kind_read(else_branch, &self.ctx.variables));
+                    if already_float {
+                        let l_skip = self.ctx.next_label();
+                        if matches!(self.arch, Architecture::X64) {
+                            self.output
+                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                            self.output.push_str(&format!("    je {}\n", l_skip));
+                        } else {
+                            self.output
+                                .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                            self.output.push_str(&format!("    b.eq {}\n", l_skip));
+                        }
+                        arch::emit_int_to_float(&mut self.output, self.arch);
+                        self.output.push_str(&format!("{}:\n", l_skip));
+                    } else {
+                        arch::emit_int_to_float(&mut self.output, self.arch);
+                    }
                 }
 
                 self.output.push_str(&format!("{}:\n", end_label));
@@ -733,7 +781,29 @@ impl CodeGen {
                             &default_label,
                         );
                         if !is_definitely_not_numeric(value, &self.ctx.variables) {
-                            arch::emit_int_to_float(&mut self.output, self.arch);
+                            // Kind-carrying reads already holding float
+                            // bits skip the conversion.
+                            let already_float =
+                                matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                                    && matches!(&**value, Expr::Index { .. })
+                                    && (is_map_read_index(value, &self.ctx.variables)
+                                        || is_array_kind_read(value, &self.ctx.variables));
+                            if already_float {
+                                let l_skip = self.ctx.next_label();
+                                if matches!(self.arch, Architecture::X64) {
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                                    self.output.push_str(&format!("    je {}\n", l_skip));
+                                } else {
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                                    self.output.push_str(&format!("    b.eq {}\n", l_skip));
+                                }
+                                arch::emit_int_to_float(&mut self.output, self.arch);
+                                self.output.push_str(&format!("{}:\n", l_skip));
+                            } else {
+                                arch::emit_int_to_float(&mut self.output, self.arch);
+                            }
                         }
                         arch::emit_jump(&mut self.output, self.arch, &end_label);
                     } else {
@@ -745,7 +815,29 @@ impl CodeGen {
                     if !is_float_expr(default, &self.ctx.variables)
                         && !is_definitely_not_numeric(default, &self.ctx.variables)
                     {
-                        arch::emit_int_to_float(&mut self.output, self.arch);
+                        // Kind-carrying reads already holding float bits skip
+                        // the conversion (map routing or Phase 1 array kinds).
+                        let already_float =
+                            matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                                && matches!(&**default, Expr::Index { .. })
+                                && (is_map_read_index(default, &self.ctx.variables)
+                                    || is_array_kind_read(default, &self.ctx.variables));
+                        if already_float {
+                            let l_skip = self.ctx.next_label();
+                            if matches!(self.arch, Architecture::X64) {
+                                self.output
+                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                                self.output.push_str(&format!("    je {}\n", l_skip));
+                            } else {
+                                self.output
+                                    .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                                self.output.push_str(&format!("    b.eq {}\n", l_skip));
+                            }
+                            arch::emit_int_to_float(&mut self.output, self.arch);
+                            self.output.push_str(&format!("{}:\n", l_skip));
+                        } else {
+                            arch::emit_int_to_float(&mut self.output, self.arch);
+                        }
                     }
                     self.output.push_str(&format!("{}:\n", end_label));
                 } else {
@@ -1088,7 +1180,29 @@ impl CodeGen {
                     } else if !is_float_expr(&args[0], &self.ctx.variables)
                         && !is_definitely_not_numeric(&args[0], &self.ctx.variables)
                     {
-                        arch::emit_int_to_float(&mut self.output, self.arch);
+                        // Kind-carrying reads already holding float bits
+                        // must skip the conversion (else cvt mangles them).
+                        let already_float =
+                            matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                                && matches!(&args[0], Expr::Index { .. })
+                                && (is_map_read_index(&args[0], &self.ctx.variables)
+                                    || is_array_kind_read(&args[0], &self.ctx.variables));
+                        if already_float {
+                            let l_skip = self.ctx.next_label();
+                            if matches!(self.arch, Architecture::X64) {
+                                self.output
+                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                                self.output.push_str(&format!("    je {}\n", l_skip));
+                            } else {
+                                self.output
+                                    .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                                self.output.push_str(&format!("    b.eq {}\n", l_skip));
+                            }
+                            arch::emit_int_to_float(&mut self.output, self.arch);
+                            self.output.push_str(&format!("{}:\n", l_skip));
+                        } else {
+                            arch::emit_int_to_float(&mut self.output, self.arch);
+                        }
                     }
                     return;
                 }
@@ -1155,14 +1269,14 @@ impl CodeGen {
                         );
                         return;
                     }
-                    // Variable-key map reads carry the entry kind tag
+                    // Variable-key map reads and (Phase 1, #39) plain
+                    // array reads carry the entry kind tag
                     // (x64: %edx, arm64: w1; see fn_get). Floats must go
                     // through str_from_float; everything else uses generic str.
-                    // Direct array loads carry no tag (tag reg holds the
-                    // index), so require a map-routed read.
                     if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                         && matches!(&args[0], Expr::Index { .. })
-                        && is_map_read_index(&args[0], &self.ctx.variables)
+                        && (is_map_read_index(&args[0], &self.ctx.variables)
+                            || is_array_kind_read(&args[0], &self.ctx.variables))
                     {
                         let initial_stack_offset = self.ctx.stack_offset;
                         self.generate_expression(&args[0]);
@@ -2945,10 +3059,32 @@ impl CodeGen {
                 } else if t == "float" || t == "f64" {
                     // int -> float (Chapter 02 §1.4). Float and string operands
                     // pass through (strings: use float("...") conversion).
+                    // Kind-carrying reads already holding float bits skip
+                    // the conversion (else cvt mangles them).
                     if !is_float_expr(expr, &self.ctx.variables)
                         && !is_string_expr(expr, &self.ctx.variables)
                     {
-                        arch::emit_int_to_float(&mut self.output, self.arch);
+                        let already_float =
+                            matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                                && matches!(&**expr, Expr::Index { .. })
+                                && (is_map_read_index(expr, &self.ctx.variables)
+                                    || is_array_kind_read(expr, &self.ctx.variables));
+                        if already_float {
+                            let l_skip = self.ctx.next_label();
+                            if matches!(self.arch, Architecture::X64) {
+                                self.output
+                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                                self.output.push_str(&format!("    je {}\n", l_skip));
+                            } else {
+                                self.output
+                                    .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                                self.output.push_str(&format!("    b.eq {}\n", l_skip));
+                            }
+                            arch::emit_int_to_float(&mut self.output, self.arch);
+                            self.output.push_str(&format!("{}:\n", l_skip));
+                        } else {
+                            arch::emit_int_to_float(&mut self.output, self.arch);
+                        }
                     }
                 } else if t == "int"
                     || t == "i64"

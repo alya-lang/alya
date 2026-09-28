@@ -170,6 +170,8 @@ struct Candidate {
     params: Vec<String>,
     /// Indexes of untyped, non-`self` params (the signature positions).
     open_idx: Vec<usize>,
+    /// Whether the body tests an untyped param (only these get versions).
+    tests: bool,
 }
 
 fn collect_candidates(program: &Program) -> HashMap<String, Candidate> {
@@ -193,12 +195,7 @@ fn collect_candidates(program: &Program) -> HashMap<String, Candidate> {
                 .filter(|(p, t)| t.is_none() && p.as_str() != "self")
                 .map(|(p, _)| p.clone())
                 .collect();
-            if untyped.is_empty() {
-                continue;
-            }
-            if !stmts_test_params(body, &untyped) {
-                continue;
-            }
+            let tests = !untyped.is_empty() && stmts_test_params(body, &untyped);
             let open_idx: Vec<usize> = params
                 .iter()
                 .enumerate()
@@ -212,6 +209,7 @@ fn collect_candidates(program: &Program) -> HashMap<String, Candidate> {
                     stmt: stmt.inner_stmt().clone(),
                     params: params.clone(),
                     open_idx,
+                    tests,
                 },
             );
         }
@@ -248,28 +246,38 @@ fn rewrite_expr_calls(
             if name.contains("__spk__") {
                 return;
             }
-            let target = candidates.get(name).or_else(|| {
-                // Bare-name fallback for qualified/UFCS spellings; routing
-                // stays sound because it requires proven kinds below.
-                let bare = name.rsplit("::").next().unwrap_or(name);
-                let bare = bare.rsplit("__").next().unwrap_or(bare);
-                candidates
-                    .iter()
-                    .find(|(k, _)| {
-                        let kb = k.rsplit("::").next().unwrap_or(k);
-                        let kb = kb.rsplit("__").next().unwrap_or(kb);
-                        kb == bare
-                    })
-                    .map(|(_, c)| c)
-            });
+            let target = callee_def(candidates, name);
             let Some(cand) = target else { return };
+            if !cand.tests {
+                return;
+            }
             if args.len() != cand.params.len() {
                 return;
             }
             let mut codes = String::new();
             let scope_binds = scope.and_then(|s| binds.get(s));
             for &i in &cand.open_idx {
-                match args.get(i).and_then(|a| classify_arg(a, scope_binds)) {
+                let arg = match args.get(i) {
+                    Some(a) => a,
+                    None => return,
+                };
+                match classify_arg(arg, scope_binds).or_else(|| {
+                    // Calls classify through the callee's returns
+                    // (single-assignment bindings + literal args only;
+                    // no nested calls, so this always terminates).
+                    if let Expr::Call {
+                        name: callee,
+                        args: call_args,
+                    } = arg
+                    {
+                        callee_def(candidates, callee).and_then(|def| {
+                            callee_binds(binds, &def.name)
+                                .and_then(|cb| classify_call_return(def, call_args, cb))
+                        })
+                    } else {
+                        None
+                    }
+                }) {
                     Some(c) => codes.push(c),
                     None => return,
                 }
@@ -459,12 +467,14 @@ fn rewrite_stmt_calls(
     }
 }
 
-/// A single-assignment binding: either a proven kind or a literal
-/// array whose constant indexes classify per element.
+/// A single-assignment binding: either a proven kind, a literal array
+/// whose constant indexes classify per element, or a literal map whose
+/// constant string keys classify per value.
 #[derive(Clone)]
 enum BindVal {
     Kind(char),
     LitArray(Vec<Expr>),
+    LitMap(Vec<(String, Expr)>),
 }
 
 fn count_assigns(stmts: &[Stmt], counts: &mut HashMap<String, usize>) {
@@ -533,6 +543,23 @@ fn literal_binds(stmts: &[Stmt], counts: &HashMap<String, usize>) -> HashMap<Str
                 Expr::Array(elems) => {
                     out.insert(name.clone(), BindVal::LitArray(elems.clone()));
                 }
+                Expr::Map(pairs) => {
+                    let mut entries = Vec::new();
+                    let mut all_str_keys = true;
+                    for (k, v) in pairs {
+                        if let Expr::String(key) = k {
+                            entries.push((key.clone(), v.clone()));
+                        } else {
+                            all_str_keys = false;
+                            break;
+                        }
+                    }
+                    if all_str_keys {
+                        out.insert(name.clone(), BindVal::LitMap(entries));
+                    } else {
+                        out.insert(name.clone(), BindVal::Kind('m'));
+                    }
+                }
                 other => {
                     if let Some(c) = arg_kind_code(other) {
                         out.insert(name.clone(), BindVal::Kind(c));
@@ -579,6 +606,175 @@ fn classify_arg(arg: &Expr, binds: Option<&HashMap<String, BindVal>>) -> Option<
                 }
             }
             None
+        }
+        _ => None,
+    }
+}
+
+/// Classify a call's return kind: every top-level `return` must agree
+/// on one literal kind under caller substitution (single-assignment
+/// map/array bindings + literal args). No nested calls are classified,
+/// so this always terminates.
+/// Resolve a callee to its definition: exact name, else bare-name
+/// fallback for qualified/UFCS spellings. Routing stays sound because
+/// every use requires proven kinds. Specializations are never
+/// re-entered (their calls were already rewritten).
+fn callee_def<'a>(candidates: &'a HashMap<String, Candidate>, name: &str) -> Option<&'a Candidate> {
+    if name.contains("__spk__") {
+        return None;
+    }
+    candidates.get(name).or_else(|| {
+        let bare = name.rsplit("::").next().unwrap_or(name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        candidates
+            .iter()
+            .find(|(k, _)| {
+                let kb = k.rsplit("::").next().unwrap_or(k);
+                let kb = kb.rsplit("__").next().unwrap_or(kb);
+                kb == bare
+            })
+            .map(|(_, c)| c)
+    })
+}
+
+fn callee_binds<'a>(
+    binds: &'a HashMap<String, HashMap<String, BindVal>>,
+    name: &str,
+) -> Option<&'a HashMap<String, BindVal>> {
+    binds.get(name).or_else(|| {
+        let bare = name.rsplit("::").next().unwrap_or(name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        binds.get(bare)
+    })
+}
+
+fn classify_call_return(
+    cand: &Candidate,
+    call_args: &[Expr],
+    binds: &HashMap<String, BindVal>,
+) -> Option<char> {
+    let Stmt::Function { params, body, .. } = &cand.stmt else {
+        return None;
+    };
+    // Substitute literal args for params; shadowed params void.
+    let mut assigned = HashMap::new();
+    count_assigns(body, &mut assigned);
+    let mut subst: HashMap<&str, &Expr> = HashMap::new();
+    for (param, arg) in params.iter().zip(call_args.iter()) {
+        if assigned.contains_key(param) {
+            continue;
+        }
+        match arg {
+            Expr::Number(_) | Expr::Float(_) | Expr::String(_) => {
+                subst.insert(param.as_str(), arg);
+            }
+            _ => {}
+        }
+    }
+    let mut returns = Vec::new();
+    collect_top_returns(body, &mut returns);
+    if returns.is_empty() {
+        return None;
+    }
+    let mut kind = None;
+    for ret in returns {
+        match (kind, classify_subst(ret, binds, &subst)) {
+            (_, None) => return None,
+            (Some(k), Some(c)) if k != c => return None,
+            (_, Some(c)) => kind = Some(c),
+        }
+    }
+    kind
+}
+
+fn collect_top_returns<'a>(stmts: &'a [Stmt], out: &mut Vec<&'a Expr>) {
+    for s in stmts {
+        match s.inner_stmt() {
+            Stmt::Return(Some(expr)) => out.push(expr),
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                collect_top_returns(then_block, out);
+                if let Some(eb) = else_block {
+                    collect_top_returns(eb, out);
+                }
+            }
+            Stmt::While { body, .. }
+            | Stmt::Repeat { body }
+            | Stmt::For { body, .. }
+            | Stmt::ForEach { body, .. } => collect_top_returns(body, out),
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                collect_top_returns(try_block, out);
+                collect_top_returns(catch_block, out);
+                if let Some(fb) = finally_block {
+                    collect_top_returns(fb, out);
+                }
+            }
+            // Nested definitions own their returns.
+            _ => {}
+        }
+    }
+}
+
+fn classify_subst(
+    expr: &Expr,
+    binds: &HashMap<String, BindVal>,
+    subst: &HashMap<&str, &Expr>,
+) -> Option<char> {
+    if let Some(c) = arg_kind_code(expr) {
+        return Some(c);
+    }
+    match expr {
+        Expr::Identifier(name) => {
+            if let Some(arg) = subst.get(name.as_str()) {
+                return arg_kind_code(arg);
+            }
+            match binds.get(name) {
+                Some(BindVal::Kind(c)) => Some(*c),
+                _ => None,
+            }
+        }
+        Expr::Index { array, index } => {
+            let arr_name = match &**array {
+                Expr::Identifier(n) => n,
+                _ => return None,
+            };
+            let idx_num: Option<usize> = match &**index {
+                Expr::Number(n) if *n >= 0 => Some(*n as usize),
+                Expr::Identifier(p) => match subst.get(p.as_str()).copied() {
+                    Some(Expr::Number(n)) if *n >= 0 => Some(*n as usize),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let idx_str: Option<&str> = match &**index {
+                Expr::String(s) => Some(s),
+                Expr::Identifier(p) => match subst.get(p.as_str()).copied() {
+                    Some(Expr::String(s)) => Some(s),
+                    _ => None,
+                },
+                _ => None,
+            };
+            match binds.get(arr_name) {
+                Some(BindVal::LitArray(elems)) => {
+                    idx_num.and_then(|i| elems.get(i)).and_then(arg_kind_code)
+                }
+                Some(BindVal::LitMap(entries)) => {
+                    let key = idx_str?;
+                    entries
+                        .iter()
+                        .find(|(k, _)| k == key)
+                        .and_then(|(_, v)| arg_kind_code(v))
+                }
+                _ => None,
+            }
         }
         _ => None,
     }

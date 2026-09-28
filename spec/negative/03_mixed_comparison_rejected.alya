@@ -1,0 +1,12 @@
+# EXPECT-FAIL: check: Operator '>' cannot be applied to mixed int/float array 'm'
+# Chapter 03: ordered comparisons over reads of a provably-mixed
+# int/float array compare raw bit patterns (alya-lang/alya#39). Convert
+# explicitly instead, e.g. `float(m[0]) > m[1]`.
+function main()
+    let m = []
+    m.push(1)
+    m.push(0.5)
+    say m[0] > m[1]
+end
+
+main()

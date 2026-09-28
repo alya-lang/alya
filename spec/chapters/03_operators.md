@@ -5,12 +5,14 @@
 ### 1.1 Arithmetic Operators
 - `+` (Addition), `-` (Subtraction / Negation), `*` (Multiplication), `/` (Division), `%` (Modulo).
 - Division by zero and modulo by zero trigger a deterministic runtime exception (`DivideByZeroError`), protected at the assembly level by hardware traps or conditional branch checks.
+- Mixed int/float element reads (Chapter 13 §1.2) in arithmetic are a compile-time error: the operation cannot apply to a provably-mixed array (alya-lang/alya#39). Convert explicitly (`float(m[0]) + m[1]`, `int(m[1]) + m[0]`); float- or string-routed operations are exempt.
 
 ### 1.2 Comparison / Relational Operators
 - `==` (Equality), `!=` (Inequality).
 - `<` (Less than), `<=` (Less than or equal), `>` (Greater than), `>=` (Greater than or equal).
 - Return type is always `bool`.
 - Float operands with a call or binary-expression on the left and a literal on the right are evaluated via slot materialization (see Chapter 02 §1.1); on x86 they truncate (32-bit slots, known limitation).
+- Ordered comparisons over reads of a provably-mixed int/float array are a compile-time error, like mixed arithmetic above (alya-lang/alya#39); convert explicitly.
 - Can be overloaded via special methods (see Chapter 20).
 
 ### 1.3 Logical Operators

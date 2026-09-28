@@ -813,3 +813,102 @@ main()
         assert_eq!(output, "s\ns\ni\ni\n", "Got: {}", output);
     }
 }
+#[test]
+fn test_e2e_kind_dispatch_fn_return_kind() {
+    // alya-lang/alya#39: calls to functions whose returns are all the
+    // same literal kind specialize too.
+    let code = r#"
+function kind(v) -> string
+    return when v
+        is string => "s"
+        is int => "i"
+        is float => "f"
+        else => "?"
+    end
+end
+
+function pi()
+    return 3.14
+end
+
+function main()
+    say kind(pi())
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "f\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_kind_dispatch_map_index_return() {
+    // alya-lang/alya#39: constant keys into let-bound literal maps
+    // classify through the callee's return.
+    let code = r#"
+function kind(v) -> string
+    return when v
+        is string => "s"
+        is int => "i"
+        is float => "f"
+        else => "?"
+    end
+end
+
+function getval(key)
+    let m = { "a": 0.5, "b": 1 }
+    return m[key]
+end
+
+function main()
+    say kind(getval("a"))
+    say kind(getval("b"))
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "f\ni\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_mixed_arithmetic_explicit_conversion() {
+    // alya-lang/alya#39: bare mixed arithmetic is rejected at check
+    // time (see negative fixtures); explicit conversions route through
+    // the float path and compute correctly.
+    let code = r#"
+let m = []
+m.push(1)
+m.push(0.5)
+say float(m[0]) + m[1]
+say m[0] + float(m[1])
+say int(m[1]) + m[0]
+say 1.0 + m[1]
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "1.5\n1.5\n1\n1.5\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_mixed_comparison_explicit_conversion() {
+    // alya-lang/alya#39: ordered comparisons on mixed elements compare
+    // numerically once converted explicitly.
+    let code = r#"
+let m = []
+m.push(1)
+m.push(0.5)
+say float(m[0]) > m[1]
+say m[1] < float(m[0])
+say m[1] == m[1]
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "1\n1\n1\n", "Got: {}", output);
+    }
+}

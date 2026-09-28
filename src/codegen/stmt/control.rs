@@ -1,8 +1,8 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr, Stmt};
 use crate::codegen::analysis::{
-    is_definitely_not_numeric, is_float_array, is_float_expr, is_map_expr, is_map_read_index,
-    is_string_array, is_string_expr,
+    is_array_kind_read, is_definitely_not_numeric, is_float_array, is_float_expr, is_map_expr,
+    is_map_read_index, is_string_array, is_string_expr,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -83,11 +83,12 @@ impl CodeGen {
                     if !left_is_flt && !is_definitely_not_numeric(left, &self.ctx.variables) {
                         // Index carries kind tag alongside the value
                         // (x64: %edx, arm64: w1): skip int->float
-                        // when the value is already a float.
-                        // Direct array loads carry no tag; require map routing.
+                        // when the value is already a float (map routing
+                        // or Phase 1 array slot kinds).
                         if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                             && matches!(&**left, Expr::Index { .. })
-                            && is_map_read_index(left, &self.ctx.variables)
+                            && (is_map_read_index(left, &self.ctx.variables)
+                                || is_array_kind_read(left, &self.ctx.variables))
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64) {
@@ -125,11 +126,12 @@ impl CodeGen {
                         arch::emit_push_temp(&mut self.output, self.arch);
                         self.generate_expression(right);
                         if !right_is_flt && !is_definitely_not_numeric(right, &self.ctx.variables) {
-                            // Index carries kind tag (x64: %edx, arm64: w1).
-                            // Direct array loads carry no tag; require map routing.
+                            // Index carries kind tag (x64: %edx, arm64: w1;
+                            // map routing or Phase 1 array slot kinds).
                             if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                                 && matches!(&**right, Expr::Index { .. })
-                                && is_map_read_index(right, &self.ctx.variables)
+                                && (is_map_read_index(right, &self.ctx.variables)
+                                    || is_array_kind_read(right, &self.ctx.variables))
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64) {
@@ -285,11 +287,12 @@ impl CodeGen {
                     if !left_is_flt && !is_definitely_not_numeric(left, &self.ctx.variables) {
                         // Index carries kind tag alongside the value
                         // (x64: %edx, arm64: w1): skip int->float
-                        // when the value is already a float.
-                        // Direct array loads carry no tag; require map routing.
+                        // when the value is already a float (map routing
+                        // or Phase 1 array slot kinds).
                         if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                             && matches!(&**left, Expr::Index { .. })
-                            && is_map_read_index(left, &self.ctx.variables)
+                            && (is_map_read_index(left, &self.ctx.variables)
+                                || is_array_kind_read(left, &self.ctx.variables))
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64) {
@@ -327,11 +330,12 @@ impl CodeGen {
                         arch::emit_push_temp(&mut self.output, self.arch);
                         self.generate_expression(right);
                         if !right_is_flt && !is_definitely_not_numeric(right, &self.ctx.variables) {
-                            // Index carries kind tag (x64: %edx, arm64: w1).
-                            // Direct array loads carry no tag; require map routing.
+                            // Index carries kind tag (x64: %edx, arm64: w1;
+                            // map routing or Phase 1 array slot kinds).
                             if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                                 && matches!(&**right, Expr::Index { .. })
-                                && is_map_read_index(right, &self.ctx.variables)
+                                && (is_map_read_index(right, &self.ctx.variables)
+                                    || is_array_kind_read(right, &self.ctx.variables))
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64) {

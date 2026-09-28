@@ -158,15 +158,6 @@ impl Parser {
         let mut left = self.parse_range()?;
 
         loop {
-            if matches!(self.current_token().token_type, TokenType::As) {
-                self.advance();
-                let target = self.parse_type_annotation()?;
-                left = Expr::Cast {
-                    expr: Box::new(left),
-                    target,
-                };
-                continue;
-            }
             if matches!(self.current_token().token_type, TokenType::In) {
                 self.advance();
                 let right = self.parse_range()?;
@@ -734,6 +725,17 @@ impl Parser {
                 // Postfix ! force unwrap: preserved as ForceUnwrap so the
                 // type checker can strip nullability (Chapter 19 §5).
                 expr = Expr::ForceUnwrap(Box::new(expr));
+            } else if matches!(self.current_token().token_type, TokenType::As) {
+                // `as` binds at postfix tightness (like field access and
+                // calls): `x as T + y` is `(x as T) + y`. The old
+                // comparison-level binding silently dropped trailing
+                // arithmetic (parsed as a separate unary expression).
+                self.advance();
+                let target = self.parse_type_annotation()?;
+                expr = Expr::Cast {
+                    expr: Box::new(expr),
+                    target,
+                };
             } else {
                 break;
             }
