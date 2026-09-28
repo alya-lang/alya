@@ -1,9 +1,8 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr, Stmt};
 use crate::codegen::analysis::{
-    is_array_kind_read, is_definitely_not_numeric, is_dynamic_element_read, is_float_array,
-    is_float_expr, is_map_expr, is_map_read_index, is_string_array, is_string_expr,
-    is_tag_carrying_read,
+    is_definitely_not_numeric, is_float_array, is_float_expr, is_map_expr, is_string_array,
+    is_string_expr, is_tag_carrying_read,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -92,9 +91,7 @@ impl CodeGen {
                         ) && matches!(
                             &**left,
                             Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                        ) && (is_map_read_index(left, &self.ctx.variables)
-                            || is_array_kind_read(left, &self.ctx.variables)
-                            || is_dynamic_element_read(left, &self.ctx.variables))
+                        ) && is_tag_carrying_read(left, &self.ctx.variables)
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -140,9 +137,7 @@ impl CodeGen {
                             ) && matches!(
                                 &**right,
                                 Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                            ) && (is_map_read_index(right, &self.ctx.variables)
-                                || is_array_kind_read(right, &self.ctx.variables)
-                                || is_dynamic_element_read(right, &self.ctx.variables))
+                            ) && is_tag_carrying_read(right, &self.ctx.variables)
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -330,9 +325,7 @@ impl CodeGen {
                         ) && matches!(
                             &**left,
                             Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                        ) && (is_map_read_index(left, &self.ctx.variables)
-                            || is_array_kind_read(left, &self.ctx.variables)
-                            || is_dynamic_element_read(left, &self.ctx.variables))
+                        ) && is_tag_carrying_read(left, &self.ctx.variables)
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -378,9 +371,7 @@ impl CodeGen {
                             ) && matches!(
                                 &**right,
                                 Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                            ) && (is_map_read_index(right, &self.ctx.variables)
-                                || is_array_kind_read(right, &self.ctx.variables)
-                                || is_dynamic_element_read(right, &self.ctx.variables))
+                            ) && is_tag_carrying_read(right, &self.ctx.variables)
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64 | Architecture::X86) {
