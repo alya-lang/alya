@@ -37,8 +37,7 @@ jobs:
 
   clippy:
     name: Linting (clippy)
-    runs-on: ubuntu-latest
-    steps:
+    runs-on: ubuntu-latest    steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
@@ -52,6 +51,46 @@ jobs:
 
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+
+  toolchain-linux-x86:
+    name: Linux x86 toolchain smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Linux x86 toolchain
+        run: |
+          curl -fsSL --retry 2 -o /tmp/alya-toolchain-linux-x86.tar.gz "https://github.com/alya-lang/toolchain/releases/latest/download/alya-toolchain-linux-x86.tar.gz" || \
+          curl -fsSL --retry 2 -o /tmp/alya-toolchain-linux-x86.tar.gz "https://github.com/alya-lang/toolchain/releases/download/v1.0.0/alya-toolchain-linux-x86.tar.gz"
+
+      - name: Verify Linux x86 toolchain (triple i686-unknown-linux-musl)
+        run: |
+          sudo apt-get update && sudo apt-get install -y libc6-i386
+          mkdir -p /tmp/tc-x86
+          tar -xzf /tmp/alya-toolchain-linux-x86.tar.gz -C /tmp/tc-x86
+          /tmp/tc-x86/bin/gcc --version
+          echo 'int main() { return 0; }' > /tmp/test_x86.c
+          /tmp/tc-x86/bin/gcc -static /tmp/test_x86.c -o /tmp/test_x86
+          /tmp/test_x86
+          cat > /tmp/test_x86.s <<'EOF'
+              .text
+              .globl main
+              .type main, %function
+          main:
+              pushl %ebp
+              movl %esp, %ebp
+              pushl $msg
+              call puts
+              addl $4, %esp
+              xorl %eax, %eax
+              popl %ebp
+              ret
+
+              .data
+          msg:
+              .string "SUCCESS: Alya Linux x86 toolchain smoke test"
+          EOF
+          /tmp/tc-x86/bin/gcc -static /tmp/test_x86.s -o /tmp/test_x86_asm
+          /tmp/test_x86_asm | grep -q "SUCCESS"
+          rm -rf /tmp/test_x86.c /tmp/test_x86 /tmp/test_x86.s /tmp/test_x86_asm /tmp/tc-x86 /tmp/alya-toolchain-linux-x86.tar.gz
 
   test:
     name: Test (${{ matrix.label }})

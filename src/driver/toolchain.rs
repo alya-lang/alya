@@ -385,6 +385,7 @@ pub fn install_toolchain(
         (OperatingSystem::Windows, Architecture::X86) => "alya-toolchain-windows-x86.zip",
         (OperatingSystem::Linux, Architecture::X64) => "alya-toolchain-linux-x64.tar.gz",
         (OperatingSystem::Linux, Architecture::ARM64) => "alya-toolchain-linux-arm64.tar.gz",
+        (OperatingSystem::Linux, Architecture::X86) => "alya-toolchain-linux-x86.tar.gz",
         (OperatingSystem::MacOS, Architecture::ARM64) => "alya-toolchain-macos-arm64.tar.gz",
         (OperatingSystem::MacOS, Architecture::X64) => "alya-toolchain-macos-x64.tar.gz",
         _ => {
@@ -671,6 +672,10 @@ mod tests {
             "aarch64-unknown-linux-musl"
         );
         assert_eq!(
+            get_platform_triple(Architecture::X86, OperatingSystem::Linux),
+            "i686-unknown-linux-musl"
+        );
+        assert_eq!(
             get_platform_triple(Architecture::ARM64, OperatingSystem::MacOS),
             "aarch64-apple-darwin"
         );
@@ -695,12 +700,23 @@ mod tests {
                         "sha256": "abc123",
                         "compressed_size_mb": 89
                     }
+                },
+                "i686-unknown-linux-musl": {
+                    "archive": {
+                        "filename": "alya-toolchain-linux-x86.tar.gz",
+                        "sha256": "def456",
+                        "compressed_size_mb": 33
+                    }
                 }
             }
         }"#;
         assert_eq!(
             manifest_archive_for(manifest, "aarch64-pc-windows-gnu"),
             Some("alya-toolchain-windows-arm64.zip".to_string())
+        );
+        assert_eq!(
+            manifest_archive_for(manifest, "i686-unknown-linux-musl"),
+            Some("alya-toolchain-linux-x86.tar.gz".to_string())
         );
         assert_eq!(
             manifest_archive_for(manifest, "x86_64-pc-windows-gnu"),
