@@ -134,6 +134,18 @@ Powered by **`@resvg/resvg-js`** (the official precompiled native Rust `resvg` e
 
 ---
 
+### Dark/Light Geometry Parity Check
+
+Every `*-dark.svg` must be geometrically identical to its `*-light.svg` twin (same canvas, shapes, positions, sizes, transforms). Only paint may differ (fills, strokes, opacities, gradient stops, glow filters). Run after editing any icon or logo:
+
+```bash
+bun assets/brand/brand_parity_check.ts
+```
+
+Covers `docs/`, `icons/`, `logos/` (VS Code extension artwork derives from these sources). Exits non-zero on drift. Append `--strict` to additionally flag gradient stop-offset drift.
+
+---
+
 ### Option B: Manual CLI Rasterization (PowerShell / Windows)
 
 To render an SVG directly into a transparent PNG using headless Chrome or Edge:
