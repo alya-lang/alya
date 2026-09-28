@@ -59,7 +59,8 @@ pub fn emit_array_get(out: &mut String) {
     out.push_str("    mov (%edx, %ecx, 4), %eax\n");
 }
 
-pub fn emit_array_set(out: &mut String) {
+pub fn emit_array_set(out: &mut String, _kind: i64) {
+    // Phase 1 (#39) x86 port: thread _kind into a kind store.
     out.push_str("    mov %eax, %ebx\n");
     out.push_str("    pop %eax\n");
     out.push_str("    pop %edx\n");
@@ -73,7 +74,8 @@ pub fn emit_array_set(out: &mut String) {
     out.push_str("    mov %ebx, (%edx, %eax, 4)\n");
 }
 
-pub fn emit_array_push(out: &mut String) {
+pub fn emit_array_push(out: &mut String, _kind: i64) {
+    // Phase 1 (#39) x86 port: pass _kind as 3rd stack arg.
     out.push_str("    pop %edx\n");
     out.push_str("    push %eax\n");
     out.push_str("    push %edx\n");

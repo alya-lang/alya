@@ -111,11 +111,11 @@ pub fn emit_array_get(out: &mut String, arch: Architecture) {
     }
 }
 
-pub fn emit_array_set(out: &mut String, arch: Architecture) {
+pub fn emit_array_set(out: &mut String, arch: Architecture, kind: i64) {
     match arch {
-        Architecture::ARM64 => arm64::emit_array_set(out),
-        Architecture::X64 => x64::emit_array_set(out),
-        Architecture::X86 => x86::emit_array_set(out),
+        Architecture::ARM64 => arm64::emit_array_set(out, kind),
+        Architecture::X64 => x64::emit_array_set(out, kind),
+        Architecture::X86 => x86::emit_array_set(out, kind),
     }
 }
 
@@ -124,11 +124,12 @@ pub fn emit_array_push(
     arch: Architecture,
     stack_offset: i32,
     os: OperatingSystem,
+    kind: i64,
 ) {
     match arch {
-        Architecture::ARM64 => arm64::emit_array_push(out),
-        Architecture::X64 => x64::emit_array_push(out, stack_offset, os),
-        Architecture::X86 => x86::emit_array_push(out),
+        Architecture::ARM64 => arm64::emit_array_push(out, kind),
+        Architecture::X64 => x64::emit_array_push(out, stack_offset, os, kind),
+        Architecture::X86 => x86::emit_array_push(out, kind),
     }
 }
 

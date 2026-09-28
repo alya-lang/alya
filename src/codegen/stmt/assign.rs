@@ -3,6 +3,7 @@ use crate::ast::Expr;
 use crate::codegen::analysis::{
     escape_string, is_array_expr, is_float_array, is_float_expr, is_map_expr, is_null_expr,
     is_number_expr, is_string_array, is_string_expr, struct_field_markers_mixed_vars,
+    value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -1255,7 +1256,8 @@ impl CodeGen {
                 arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
             }
             self.ctx.stack_offset -= temp_offset * 2;
-            arch::emit_array_set(&mut self.output, self.arch);
+            let set_kind = value_kind_tag(value, &self.ctx.variables);
+            arch::emit_array_set(&mut self.output, self.arch, set_kind);
         }
     }
 }

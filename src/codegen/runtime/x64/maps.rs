@@ -762,10 +762,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov %r13, %rcx\n");
         out.push_str("    mov (%r15), %rdx\n");
+        out.push_str("    xor %r8, %r8\n");
         out.push_str("    call alya_array_push\n");
     } else {
         out.push_str("    mov %r13, %rdi\n");
         out.push_str("    mov (%r15), %rsi\n");
+        out.push_str("    xor %rdx, %rdx\n");
         out.push_str("    call alya_array_push\n");
     }
     out.push_str(".L_x64_keys_next:\n");
@@ -819,10 +821,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov %r13, %rcx\n");
         out.push_str("    mov 8(%r15), %rdx\n");
+        out.push_str("    mov 20(%r15), %r8d\n");
         out.push_str("    call alya_array_push\n");
     } else {
         out.push_str("    mov %r13, %rdi\n");
         out.push_str("    mov 8(%r15), %rsi\n");
+        out.push_str("    mov 20(%r15), %edx\n");
         out.push_str("    call alya_array_push\n");
     }
     out.push_str(".L_x64_vals_next:\n");

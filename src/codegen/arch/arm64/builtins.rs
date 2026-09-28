@@ -70,7 +70,8 @@ pub fn emit_array_get(out: &mut String) {
     out.push_str("    ldr x0, [x0, x1, lsl #3]\n");
 }
 
-pub fn emit_array_set(out: &mut String) {
+pub fn emit_array_set(out: &mut String, _kind: i64) {
+    // Phase 1 (#39) ARM64 port: thread _kind into a kind store.
     out.push_str("    mov x2, x0\n");
     out.push_str("    ldr x1, [sp], #16\n");
     out.push_str("    ldr x0, [sp], #16\n");
@@ -85,7 +86,8 @@ pub fn emit_array_set(out: &mut String) {
     out.push_str("    str x2, [x0, x1, lsl #3]\n");
 }
 
-pub fn emit_array_push(out: &mut String) {
+pub fn emit_array_push(out: &mut String, _kind: i64) {
+    // Phase 1 (#39) ARM64 port: pass _kind as 3rd arg (x2).
     out.push_str("    mov x1, x0\n");
     out.push_str("    ldr x0, [sp], #16\n");
     out.push_str("    bl alya_array_push\n");

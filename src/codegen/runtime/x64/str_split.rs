@@ -193,10 +193,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    movq %r14, %rcx\n");
         out.push_str("    movq %r10, %rdx\n");
+        out.push_str("    mov $3, %r8\n");
         out.push_str("    call alya_array_push\n");
     } else {
         out.push_str("    movq %r14, %rdi\n");
         out.push_str("    movq %r10, %rsi\n");
+        out.push_str("    mov $3, %rdx\n");
         out.push_str("    call alya_array_push\n");
     }
     out.push_str("    incq 32(%rsp)\n");
@@ -250,10 +252,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    movq %r14, %rcx\n");
         out.push_str("    movq 48(%rsp), %rdx\n");
+        out.push_str("    mov $3, %r8\n");
         out.push_str("    call alya_array_push\n");
     } else {
         out.push_str("    movq %r14, %rdi\n");
         out.push_str("    movq 48(%rsp), %rsi\n");
+        out.push_str("    mov $3, %rdx\n");
         out.push_str("    call alya_array_push\n");
     }
     out.push_str("    addq %r15, 32(%rsp)\n"); // curr += delim_len
@@ -289,10 +293,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    movq %r14, %rcx\n");
         out.push_str("    movq 48(%rsp), %rdx\n");
+        out.push_str("    mov $3, %r8\n");
         out.push_str("    call alya_array_push\n");
     } else {
         out.push_str("    movq %r14, %rdi\n");
         out.push_str("    movq 48(%rsp), %rsi\n");
+        out.push_str("    mov $3, %rdx\n");
         out.push_str("    call alya_array_push\n");
     }
     out.push_str(".L_x64_split_ret:\n");

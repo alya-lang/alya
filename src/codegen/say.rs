@@ -1,8 +1,8 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
-    call_returns_known_int, escape_string, is_array_expr, is_float_expr, is_map_expr,
-    is_map_read_index, is_null_expr, is_string_array, is_string_expr,
+    call_returns_known_int, escape_string, is_array_expr, is_array_kind_read, is_float_expr,
+    is_map_expr, is_map_read_index, is_null_expr, is_string_array, is_string_expr,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -866,17 +866,23 @@ impl CodeGen {
                         self.generate_expression(expr);
                         arch::emit_push_temp(&mut self.output, self.arch);
                         // fn_get returns the entry kind tag alongside the value
-                        // (x64: %edx, arm64: w1). Tagged values dispatch
-                        // directly; unknown falls through to the legacy
-                        // pointer-range classifier below. x86 stays untagged.
+                        // (x64: %edx, arm64: w1). Array loads deliver the
+                        // slot kind the same way on x64 (Phase 1, #39).
+                        // Tagged values dispatch directly; unknown falls
+                        // through to the legacy pointer-range classifier
+                        // below. x86 stays untagged.
                         // Tags: 0 unknown, 1 int, 2 float, 3 string,
                         // 4 array, 5 map.
-                        // NOTE: only map-routed reads (fn_get) carry a tag.
-                        // Direct array loads leave the tag register holding
-                        // the index, so they must skip tag dispatch.
+                        // NOTE: only map-routed reads (fn_get) and (on x64)
+                        // plain array-identifier reads carry a tag. Other
+                        // shapes leave the tag register holding the index,
+                        // so they must skip tag dispatch.
+                        let carries_kind = is_map_read_index(expr, &self.ctx.variables)
+                            || (matches!(self.arch, Architecture::X64)
+                                && is_array_kind_read(expr, &self.ctx.variables));
                         let (l_tag_flt, l_tag_str2, l_tag_arr, l_tag_map, l_tag_int) =
                             if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
-                                && is_map_read_index(expr, &self.ctx.variables)
+                                && carries_kind
                             {
                                 let flt = self.ctx.next_label();
                                 let s2 = self.ctx.next_label();

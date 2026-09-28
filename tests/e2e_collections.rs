@@ -707,3 +707,21 @@ say row[0] + row[1]
         assert_eq!(output, "1.5\n2.5\n4\n");
     }
 }
+
+#[test]
+fn test_e2e_mixed_push_array_reads_dispatch() {
+    // alya-lang/alya#39 Phase 1: array slots carry kinds, so reads of
+    // a mixed push-built array dispatch per element. Today the float
+    // slot reads back raw f64 bits.
+    let code = r#"
+let m = []
+m.push(1)
+m.push(0.5)
+say m[0]
+say m[1]
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "1\n0.5\n");
+    }
+}

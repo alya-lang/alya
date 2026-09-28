@@ -70,11 +70,15 @@ pub fn emit_array_get(out: &mut String) {
     out.push_str("1:\n");
     out.push_str("    cmpq (%rdx), %rcx\n");
     out.push_str("    jae alya_error_index_out_of_bounds\n");
-    out.push_str("    mov 16(%rdx), %rdx\n");
-    out.push_str("    movq (%rdx, %rcx, 8), %rax\n");
+    out.push_str("    push %r11\n");
+    out.push_str("    mov 16(%rdx), %r11\n");
+    out.push_str("    mov 24(%rdx), %rdx\n");
+    out.push_str("    movzbl (%rdx, %rcx), %edx\n");
+    out.push_str("    movq (%r11, %rcx, 8), %rax\n");
+    out.push_str("    pop %r11\n");
 }
 
-pub fn emit_array_set(out: &mut String) {
+pub fn emit_array_set(out: &mut String, kind: i64) {
     out.push_str("    mov %rax, %r8\n");
     out.push_str("    pop %rax\n");
     out.push_str("    pop %rdx\n");
@@ -84,15 +88,20 @@ pub fn emit_array_set(out: &mut String) {
     out.push_str("1:\n");
     out.push_str("    cmpq (%rdx), %rax\n");
     out.push_str("    jae alya_error_index_out_of_bounds\n");
+    out.push_str("    push %r11\n");
+    out.push_str("    mov 24(%rdx), %r11\n");
+    out.push_str(&format!("    movb ${}, (%r11, %rax)\n", kind));
+    out.push_str("    pop %r11\n");
     out.push_str("    mov 16(%rdx), %rdx\n");
     out.push_str("    movq %r8, (%rdx, %rax, 8)\n");
 }
 
-pub fn emit_array_push(out: &mut String, stack_offset: i32, os: OperatingSystem) {
+pub fn emit_array_push(out: &mut String, stack_offset: i32, os: OperatingSystem, kind: i64) {
     if matches!(os, OperatingSystem::Windows) {
         let padding = if stack_offset % 16 == 0 { 32 } else { 40 };
         out.push_str("    mov %rax, %rdx\n");
         out.push_str("    pop %rcx\n");
+        out.push_str(&format!("    mov ${}, %r8\n", kind));
         out.push_str(&format!("    sub ${}, %rsp\n", padding));
         out.push_str("    call alya_array_push\n");
         out.push_str(&format!("    add ${}, %rsp\n", padding));
@@ -100,6 +109,7 @@ pub fn emit_array_push(out: &mut String, stack_offset: i32, os: OperatingSystem)
         let misaligned = stack_offset % 16 != 0;
         out.push_str("    mov %rax, %rsi\n");
         out.push_str("    pop %rdi\n");
+        out.push_str(&format!("    mov ${}, %rdx\n", kind));
         if misaligned {
             out.push_str("    sub $8, %rsp\n");
         }

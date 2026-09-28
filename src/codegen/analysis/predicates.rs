@@ -1,5 +1,9 @@
 use crate::ast::*;
 use crate::codegen::context::VarType;
+use crate::codegen::kinds::{
+    kind_of_literal, KIND_ARRAY, KIND_FLOAT, KIND_INT, KIND_MAP, KIND_STRING, KIND_STRUCT,
+    KIND_UNKNOWN,
+};
 use std::collections::HashMap;
 
 /// Resolves the struct type of a method-call receiver using only the
@@ -713,6 +717,26 @@ pub fn is_map_read_index(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     }
 }
 
+/// True when an `Index` read is guaranteed to deliver an array-slot
+/// kind tag on x64 (Phase 1, alya-lang/alya#39): the base is an
+/// identifier known to hold an array. `VarType::Array` excludes
+/// struct/string/map bindings, and map-routed reads are excluded
+/// (they carry entry tags through `fn_get` instead). Mirrors the
+/// expression-codegen routing: struct `operator[]` rewrites and map
+/// `get` calls never reach the array loader. Field-access bases stay
+/// on the legacy path for now.
+pub fn is_array_kind_read(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    if let Expr::Index { array, .. } = expr {
+        if is_map_read_index(expr, vars) {
+            return false;
+        }
+        if let Expr::Identifier(name) = &**array {
+            return matches!(vars.get(name), Some(VarType::Array(_)));
+        }
+    }
+    false
+}
+
 pub fn is_string_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::Array(elems) => !elems.is_empty() && elems.iter().all(|e| is_string_expr(e, vars)),
@@ -1111,6 +1135,38 @@ pub fn is_definitely_not_numeric(expr: &Expr, vars: &HashMap<String, VarType>) -
         }
     }
     false
+}
+
+/// Static value-kind tag for element stores (alya-lang/alya#39 Phase 1).
+/// Precedence mirrors the `arr_is_str` marking on the push path: string
+/// first, then float, then array/map, then int. Struct values report
+/// through their variable type. Unknowns return KIND_UNKNOWN so readers
+/// fall back to inference.
+pub fn value_kind_tag(expr: &Expr, vars: &HashMap<String, VarType>) -> i64 {
+    if let Some(kind) = kind_of_literal(expr) {
+        return kind;
+    }
+    if is_string_expr(expr, vars) {
+        return KIND_STRING;
+    }
+    if is_float_expr(expr, vars) {
+        return KIND_FLOAT;
+    }
+    if is_array_expr(expr, vars) {
+        return KIND_ARRAY;
+    }
+    if is_map_expr(expr, vars) {
+        return KIND_MAP;
+    }
+    if is_number_expr(expr, vars) {
+        return KIND_INT;
+    }
+    if let Expr::Identifier(name) = expr {
+        if matches!(vars.get(name), Some(VarType::Struct { .. })) {
+            return KIND_STRUCT;
+        }
+    }
+    KIND_UNKNOWN
 }
 
 /// True when a call is proven to return an integer: an explicit `-> int`

@@ -548,6 +548,22 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_x64_rc_free_inner:\n");
     out.push_str("    movq 16(%rbx), %rax\n");
     out.push_str("    test %rax, %rax\n");
+    out.push_str("    jz .L_x64_rc_free_kind\n");
+    if is_win {
+        out.push_str("    mov %rax, %rcx\n");
+        out.push_str("    call free\n");
+    } else {
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str(&format!("    call {}free\n", p));
+    }
+    // Array kind sidecar (Phase 1, alya-lang/alya#39): freed with the
+    // element buffer. Only arrays (001) carry one; maps share this
+    // path but have no sidecar, so they skip to the outer free.
+    out.push_str(".L_x64_rc_free_kind:\n");
+    out.push_str("    cmp $0x5A110001, %r12\n");
+    out.push_str("    jne .L_x64_rc_free_outer\n");
+    out.push_str("    movq 24(%rbx), %rax\n");
+    out.push_str("    test %rax, %rax\n");
     out.push_str("    jz .L_x64_rc_free_outer\n");
     if is_win {
         out.push_str("    mov %rax, %rcx\n");

@@ -624,6 +624,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    call fn_str_clone\n");
         out.push_str("    mov %r12, %rcx\n");
         out.push_str("    mov %rax, %rdx\n");
+        out.push_str("    mov $3, %r8\n");
         out.push_str("    call alya_array_push\n");
         out.push_str(".L_x64_ld_win_next:\n");
         out.push_str("    mov %r13, %rcx\n");
@@ -677,6 +678,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    call fn_str_clone\n");
         out.push_str("    mov %r12, %rdi\n");
         out.push_str("    mov %rax, %rsi\n");
+        out.push_str("    mov $3, %rdx\n");
         out.push_str("    call alya_array_push\n");
         out.push_str("    jmp .L_x64_ld_posix_loop\n");
         out.push_str(".L_x64_ld_posix_close:\n");

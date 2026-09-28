@@ -3,7 +3,7 @@ use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     eq_operand_is_dynamic, escape_string, is_array_expr, is_definitely_not_numeric, is_float_expr,
     is_map_expr, is_map_read_index, is_null_expr, is_number_expr, is_string_expr,
-    struct_field_markers_mixed_vars,
+    struct_field_markers_mixed_vars, value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -1043,11 +1043,13 @@ impl CodeGen {
                         );
                     }
                     self.ctx.stack_offset -= temp_offset;
+                    let push_kind = value_kind_tag(&args[1], &self.ctx.variables);
                     arch::emit_array_push(
                         &mut self.output,
                         self.arch,
                         self.ctx.stack_offset,
                         self.os,
+                        push_kind,
                     );
                     return;
                 }

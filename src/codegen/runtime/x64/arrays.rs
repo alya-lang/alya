@@ -1,3 +1,4 @@
+use crate::codegen::kinds::KIND_STRING;
 use crate::codegen::target::OperatingSystem;
 
 #[rustfmt::skip]
@@ -7,6 +8,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     let _ = (is_win, p);
 
     // alya_array_new
+    // Handle layout: +0 len, +8 cap, +16 elembuf, +24 kindbuf.
+    // The kind sidecar (Phase 1, alya-lang/alya#39) holds one value-kind
+    // byte per slot (0 unknown = fall back to inference); element slots
+    // stay 8 bytes so all existing indexing is untouched.
     out.push_str("alya_array_new:\n");
     out.push_str("    push %rbp\n");
     out.push_str("    mov %rsp, %rbp\n");
@@ -29,7 +34,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_x64_new_alloc:\n");
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov $1, %rcx\n");
-        out.push_str("    mov $40, %rdx\n");
+        out.push_str("    mov $48, %rdx\n");
         out.push_str("    sub $32, %rsp\n");
         out.push_str("    call calloc\n");
         out.push_str("    movq $0x5A110001, (%rax)\n");
@@ -38,10 +43,14 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    mov %r13, %rcx\n");
         out.push_str("    mov $8, %rdx\n");
         out.push_str("    call calloc\n");
+        out.push_str("    mov %rax, 16(%r14)\n");
+        out.push_str("    mov %r13, %rcx\n");
+        out.push_str("    mov $1, %rdx\n");
+        out.push_str("    call calloc\n");
         out.push_str("    add $32, %rsp\n");
     } else {
         out.push_str("    mov $1, %rdi\n");
-        out.push_str("    mov $40, %rsi\n");
+        out.push_str("    mov $48, %rsi\n");
         out.push_str(&format!("    call {}calloc\n", p));
         out.push_str("    movq $0x5A110001, (%rax)\n");
         out.push_str("    movq $1, 8(%rax)\n");
@@ -49,14 +58,19 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    mov %r13, %rdi\n");
         out.push_str("    mov $8, %rsi\n");
         out.push_str(&format!("    call {}calloc\n", p));
+        out.push_str("    mov %rax, 16(%r14)\n");
+        out.push_str("    mov %r13, %rdi\n");
+        out.push_str("    mov $1, %rsi\n");
+        out.push_str(&format!("    call {}calloc\n", p));
     }
+    out.push_str("    mov %rax, 24(%r14)\n");
     out.push_str("    mov %r13, %r11\n");
     out.push_str("    shl $3, %r11\n");
-    out.push_str("    add $40, %r11\n");
+    out.push_str("    add $48, %r11\n");
+    out.push_str("    add %r13, %r11\n");
     out.push_str("    add %r11, alya_allocated_bytes(%rip)\n");
     out.push_str("    mov %r12, (%r14)\n");
     out.push_str("    mov %r13, 8(%r14)\n");
-    out.push_str("    mov %rax, 16(%r14)\n");
     out.push_str("    mov %r14, %rax\n");
     out.push_str("    push %rax\n");
     if is_win {
@@ -83,7 +97,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
-    // alya_array_push
+    // alya_array_push(arr, val, kind)
+    // Stores the value and its kind byte atomically: every slot write
+    // carries its kind, so kinds can never go stale. Kind comes from
+    // the caller (static knowledge) or is 0 (unknown = inference
+    // fallback). Grown kind regions are zeroed below.
     out.push_str("alya_array_push:\n");
     out.push_str("    push %rbp\n");
     out.push_str("    mov %rsp, %rbp\n");
@@ -94,41 +112,59 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov %rcx, %r12\n");
         out.push_str("    mov %rdx, %r13\n");
+        out.push_str("    mov %r8, %r15\n");
     } else {
         out.push_str("    mov %rdi, %r12\n");
         out.push_str("    mov %rsi, %r13\n");
+        out.push_str("    mov %rdx, %r15\n");
     }
     out.push_str("    mov (%r12), %r14\n");
-    out.push_str("    mov 8(%r12), %r15\n");
-    out.push_str("    cmp %r15, %r14\n");
+    out.push_str("    mov 8(%r12), %r10\n");
+    out.push_str("    cmp %r10, %r14\n");
     out.push_str("    jl .L_x64_push_store\n");
-    out.push_str("    test %r15, %r15\n");
+    out.push_str("    test %r10, %r10\n");
     out.push_str("    jnz .L_x64_push_double\n");
-    out.push_str("    mov $8, %r15\n");
+    out.push_str("    mov $8, %r10\n");
     out.push_str("    jmp .L_x64_push_realloc\n");
     out.push_str(".L_x64_push_double:\n");
-    out.push_str("    shl $1, %r15\n");
+    out.push_str("    shl $1, %r10\n");
     out.push_str(".L_x64_push_realloc:\n");
-    out.push_str("    mov %r15, 8(%r12)\n");
+    out.push_str("    mov %r10, 8(%r12)\n");
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov 16(%r12), %rcx\n");
-        out.push_str("    lea (, %r15, 8), %rdx\n");
+        out.push_str("    lea (, %r10, 8), %rdx\n");
         out.push_str("    sub $32, %rsp\n");
         out.push_str("    call realloc\n");
         out.push_str("    add $32, %rsp\n");
     } else {
         out.push_str("    mov 16(%r12), %rdi\n");
-        out.push_str("    lea (, %r15, 8), %rsi\n");
+        out.push_str("    lea (, %r10, 8), %rsi\n");
         out.push_str(&format!("    call {}realloc\n", p));
     }
     out.push_str("    mov %rax, 16(%r12)\n");
-    out.push_str("    mov %r15, %r11\n");
+    out.push_str("    mov 24(%r12), %rax\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %rax, %rcx\n");
+        out.push_str("    mov 8(%r12), %rdx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call realloc\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str("    mov 8(%r12), %rsi\n");
+        out.push_str(&format!("    call {}realloc\n", p));
+    }
+    out.push_str("    mov %rax, 24(%r12)\n");
+    out.push_str("    mov 8(%r12), %r11\n");
     out.push_str("    shl $3, %r11\n");
+    out.push_str("    add 8(%r12), %r11\n");
     out.push_str("    add %r11, alya_allocated_bytes(%rip)\n");
     out.push_str(".L_x64_push_store:\n");
     out.push_str("    mov 16(%r12), %rdx\n");
     out.push_str("    mov (%r12), %rax\n");
     out.push_str("    mov %r13, (%rdx, %rax, 8)\n");
+    out.push_str("    mov 24(%r12), %rdx\n");
+    out.push_str("    mov %r15b, (%rdx, %rax)\n");
     out.push_str("    inc %rax\n");
     out.push_str("    mov %rax, (%r12)\n");
     out.push_str("    pop %r15\n");
@@ -279,6 +315,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     }
     out.push_str("    movq %rax, %r13\n");
     out.push_str("    movq alya_argv(%rip), %r14\n");
+    out.push_str("    movq 24(%r13), %r10\n");
     out.push_str("    xorq %rbx, %rbx\n");
     out.push_str(".L_x64_args_loop:\n");
     out.push_str("    cmpq %r12, %rbx\n");
@@ -286,6 +323,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movq 8(%r14, %rbx, 8), %rax\n");
     out.push_str("    movq 16(%r13), %rdx\n");
     out.push_str("    movq %rax, (%rdx, %rbx, 8)\n");
+    out.push_str(&format!("    movb ${}, (%r10, %rbx)\n", KIND_STRING));
     out.push_str("    incq %rbx\n");
     out.push_str("    jmp .L_x64_args_loop\n");
     out.push_str(".L_x64_args_done:\n");
@@ -348,6 +386,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     }
     out.push_str("    movq 16(%r12), %rsi\n");
     out.push_str("    movq 16(%rax), %rdx\n");
+    out.push_str("    movq 24(%r12), %r10\n");
+    out.push_str("    movq 24(%rax), %r11\n");
     out.push_str("    xor %rcx, %rcx\n");
     out.push_str(".L_x64_arr_copy_loop:\n");
     out.push_str("    cmp %r15, %rcx\n");
@@ -355,6 +395,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea (%r13, %rcx), %r8\n");
     out.push_str("    movq (%rsi, %r8, 8), %r9\n");
     out.push_str("    movq %r9, (%rdx, %rcx, 8)\n");
+    out.push_str("    movb (%r10, %r8), %r9b\n");
+    out.push_str("    movb %r9b, (%r11, %rcx)\n");
     out.push_str("    inc %rcx\n");
     out.push_str("    jmp .L_x64_arr_copy_loop\n");
     out.push_str(".L_x64_arr_copy_done:\n");
