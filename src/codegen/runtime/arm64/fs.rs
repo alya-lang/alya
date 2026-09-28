@@ -1,3 +1,4 @@
+use crate::codegen::kinds::KIND_STRING;
 use crate::codegen::target::OperatingSystem;
 use super::emit_adrp_add;
 
@@ -345,6 +346,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    bl fn_str_clone\n");
         out.push_str("    mov x1, x0\n");
         out.push_str("    mov x0, x20\n");
+        out.push_str(&format!("    mov x2, #{}\n", KIND_STRING));
         out.push_str("    bl alya_array_push\n");
         out.push_str(".L_arm64_ld_win_next:\n");
         out.push_str("    mov x0, x21\n");
@@ -389,6 +391,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    bl fn_str_clone\n");
         out.push_str("    mov x1, x0\n");
         out.push_str("    mov x0, x20\n");
+        out.push_str(&format!("    mov x2, #{}\n", KIND_STRING));
         out.push_str("    bl alya_array_push\n");
         out.push_str("    b .L_arm64_ld_loop\n");
         out.push_str(".L_arm64_ld_close:\n");

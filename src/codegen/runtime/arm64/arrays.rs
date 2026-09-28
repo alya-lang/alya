@@ -1,3 +1,4 @@
+use crate::codegen::kinds::KIND_STRING;
 use crate::codegen::target::OperatingSystem;
 use super::emit_adrp_add;
 
@@ -8,6 +9,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     let _ = (is_win, p);
 
     // alya_array_new
+    // Handle layout: +0 len, +8 cap, +16 elembuf, +24 kindbuf.
+    // The kind sidecar (Phase 1, alya-lang/alya#39) holds one value-kind
+    // byte per slot (0 unknown = fall back to inference); element slots
+    // stay 8 bytes so all existing indexing is untouched.
     out.push_str(".align 2\n");
     out.push_str("alya_array_new:\n");
     out.push_str("    stp x29, x30, [sp, #-48]!\n");
@@ -24,7 +29,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lsl x20, x20, #1\n");
     out.push_str(".L_arm64_new_alloc:\n");
     out.push_str("    mov x0, #1\n");
-    out.push_str("    mov x1, #40\n");
+    out.push_str("    mov x1, #48\n");
     out.push_str(&format!("    bl {}calloc\n", p));
     out.push_str("    movz x1, #0x0001\n");
     out.push_str("    movk x1, #0x5A11, lsl #16\n");
@@ -38,8 +43,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    str x19, [x21]\n");
     out.push_str("    str x20, [x21, #8]\n");
     out.push_str("    str x0, [x21, #16]\n");
+    out.push_str("    mov x0, x20\n");
+    out.push_str("    mov x1, #1\n");
+    out.push_str(&format!("    bl {}calloc\n", p));
+    out.push_str("    str x0, [x21, #24]\n");
     out.push_str("    lsl x1, x20, #3\n");
-    out.push_str("    add x1, x1, #40\n");
+    out.push_str("    add x1, x1, #48\n");
+    out.push_str("    add x1, x1, x20\n");
     emit_adrp_add(out, "x2", "alya_allocated_bytes", os);
     out.push_str("    ldr x3, [x2]\n");
     out.push_str("    add x3, x3, x1\n");
@@ -55,15 +65,19 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldp x29, x30, [sp], #48\n");
     out.push_str("    ret\n\n");
 
-    // alya_array_push
+    // alya_array_push(arr, val, kind)
+    // Stores the value and its kind byte atomically (see x64 notes).
+    // Kind rides in x23 (callee-saved) across the realloc calls.
     out.push_str(".align 2\n");
     out.push_str("alya_array_push:\n");
-    out.push_str("    stp x29, x30, [sp, #-48]!\n");
+    out.push_str("    stp x29, x30, [sp, #-64]!\n");
     out.push_str("    mov x29, sp\n");
     out.push_str("    stp x19, x20, [sp, #16]\n");
     out.push_str("    stp x21, x22, [sp, #32]\n");
+    out.push_str("    stp x23, x24, [sp, #48]\n");
     out.push_str("    mov x19, x0\n");
     out.push_str("    mov x20, x1\n");
+    out.push_str("    mov x23, x2\n");
     out.push_str("    ldr x21, [x19]\n");
     out.push_str("    ldr x22, [x19, #8]\n");
     out.push_str("    cmp x21, x22\n");
@@ -79,7 +93,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lsl x1, x22, #3\n");
     out.push_str(&format!("    bl {}realloc\n", p));
     out.push_str("    str x0, [x19, #16]\n");
+    out.push_str("    ldr x0, [x19, #24]\n");
+    out.push_str("    mov x1, x22\n");
+    out.push_str(&format!("    bl {}realloc\n", p));
+    out.push_str("    str x0, [x19, #24]\n");
     out.push_str("    lsl x1, x22, #3\n");
+    out.push_str("    add x1, x1, x22\n");
     emit_adrp_add(out, "x2", "alya_allocated_bytes", os);
     out.push_str("    ldr x3, [x2]\n");
     out.push_str("    add x3, x3, x1\n");
@@ -87,12 +106,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_arm64_push_store:\n");
     out.push_str("    ldr x2, [x19, #16]\n");
     out.push_str("    str x20, [x2, x21, lsl #3]\n");
+    out.push_str("    ldr x2, [x19, #24]\n");
+    out.push_str("    strb w23, [x2, x21]\n");
     out.push_str("    add x21, x21, #1\n");
     out.push_str("    str x21, [x19]\n");
     out.push_str("    mov x0, x21\n");
+    out.push_str("    ldp x23, x24, [sp, #48]\n");
     out.push_str("    ldp x21, x22, [sp, #32]\n");
     out.push_str("    ldp x19, x20, [sp, #16]\n");
-    out.push_str("    ldp x29, x30, [sp], #48\n");
+    out.push_str("    ldp x29, x30, [sp], #64\n");
     out.push_str("    ret\n\n");
 
     // alya_array_pop
@@ -177,6 +199,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x20, x0\n");
     emit_adrp_add(out, "x1", "alya_argv", os);
     out.push_str("    ldr x21, [x1]\n");
+    out.push_str("    ldr x6, [x20, #24]\n");
     out.push_str("    mov x22, #0\n");
     out.push_str(".L_arm64_args_loop:\n");
     out.push_str("    cmp x22, x19\n");
@@ -185,6 +208,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldr x3, [x21, x2, lsl #3]\n");
     out.push_str("    ldr x4, [x20, #16]\n");
     out.push_str("    str x3, [x4, x22, lsl #3]\n");
+    out.push_str(&format!("    mov x2, #{}\n", KIND_STRING));
+    out.push_str("    strb w2, [x6, x22]\n");
     out.push_str("    add x22, x22, #1\n");
     out.push_str("    b .L_arm64_args_loop\n");
     out.push_str(".L_arm64_args_done:\n");
@@ -227,6 +252,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    bl alya_array_new\n");
     out.push_str("    ldr x1, [x19, #16]\n");
     out.push_str("    ldr x2, [x0, #16]\n");
+    out.push_str("    ldr x6, [x19, #24]\n");
+    out.push_str("    ldr x7, [x0, #24]\n");
     out.push_str("    mov x3, #0\n");
     out.push_str(".L_arm64_slice_copy_loop:\n");
     out.push_str("    cmp x3, x23\n");
@@ -234,6 +261,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x4, x20, x3\n");
     out.push_str("    ldr x5, [x1, x4, lsl #3]\n");
     out.push_str("    str x5, [x2, x3, lsl #3]\n");
+    out.push_str("    ldrb w8, [x6, x4]\n");
+    out.push_str("    strb w8, [x7, x3]\n");
     out.push_str("    add x3, x3, #1\n");
     out.push_str("    b .L_arm64_slice_copy_loop\n");
     out.push_str(".L_arm64_slice_copy_done:\n");

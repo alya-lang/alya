@@ -1,3 +1,4 @@
+use crate::codegen::kinds::KIND_STRING;
 use crate::codegen::target::OperatingSystem;
 use super::{emit_adrp_add, emit_str_buf_ctx};
 
@@ -145,6 +146,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    str x13, [x10]\n");
     out.push_str("    mov x0, x21\n");
     out.push_str("    mov x1, x12\n");
+    out.push_str(&format!("    mov x2, #{}\n", KIND_STRING));
     out.push_str("    bl alya_array_push\n");
     out.push_str("    b .L_arm64_split_empty_loop\n");
     // non-empty delim
@@ -193,6 +195,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    str x13, [x10]\n");
     out.push_str("    mov x0, x21\n");
     out.push_str("    mov x1, x25\n");
+    out.push_str(&format!("    mov x2, #{}\n", KIND_STRING));
     out.push_str("    bl alya_array_push\n");
     out.push_str("    add x23, x23, x22\n"); // curr += delim_len
     out.push_str("    mov x24, x23\n"); // token_start = curr
@@ -223,6 +226,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    str x13, [x10]\n");
     out.push_str("    mov x0, x21\n");
     out.push_str("    mov x1, x25\n");
+    out.push_str(&format!("    mov x2, #{}\n", KIND_STRING));
     out.push_str("    bl alya_array_push\n");
     out.push_str(".L_arm64_split_ret:\n");
     out.push_str("    mov x0, x21\n"); // return arr

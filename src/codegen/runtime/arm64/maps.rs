@@ -534,6 +534,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    b.ne .L_arm64_keys_next\n");
     out.push_str("    mov x0, x20\n");
     out.push_str("    ldr x1, [x10]\n");
+    out.push_str("    mov x2, #0\n");
     out.push_str("    bl alya_array_push\n");
     out.push_str(".L_arm64_keys_next:\n");
     out.push_str("    add x21, x21, #1\n");
@@ -571,6 +572,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    b.ne .L_arm64_vals_next\n");
     out.push_str("    mov x0, x20\n");
     out.push_str("    ldr x1, [x10, #8]\n");
+    out.push_str("    ldr w2, [x10, #20]\n");
     out.push_str("    bl alya_array_push\n");
     out.push_str(".L_arm64_vals_next:\n");
     out.push_str("    add x21, x21, #1\n");

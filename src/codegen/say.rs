@@ -873,12 +873,13 @@ impl CodeGen {
                         // below. x86 stays untagged.
                         // Tags: 0 unknown, 1 int, 2 float, 3 string,
                         // 4 array, 5 map.
-                        // NOTE: only map-routed reads (fn_get) and (on x64)
-                        // plain array-identifier reads carry a tag. Other
-                        // shapes leave the tag register holding the index,
-                        // so they must skip tag dispatch.
+                        // NOTE: only map-routed reads (fn_get) and plain
+                        // array-identifier reads carry a tag. Other shapes
+                        // leave the tag register holding the index, so they
+                        // must skip tag dispatch. x86 stays untagged (no
+                        // kind channel there yet).
                         let carries_kind = is_map_read_index(expr, &self.ctx.variables)
-                            || (matches!(self.arch, Architecture::X64)
+                            || (matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                                 && is_array_kind_read(expr, &self.ctx.variables));
                         let (l_tag_flt, l_tag_str2, l_tag_arr, l_tag_map, l_tag_int) =
                             if matches!(self.arch, Architecture::X64 | Architecture::ARM64)

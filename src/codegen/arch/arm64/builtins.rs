@@ -57,6 +57,9 @@ pub fn emit_array_set_imm(out: &mut String, index: usize) {
 }
 
 pub fn emit_array_get(out: &mut String) {
+    // Returns the slot kind in w1 alongside the value in x0 (Phase 1,
+    // #39). The handle in x0 is consumed carefully: kindbuf first,
+    // then the value, so no live register is clobbered.
     out.push_str("    mov x1, x0\n");
     out.push_str("    ldr x0, [sp], #16\n");
     out.push_str("    ldr x2, [x0]\n");
@@ -66,12 +69,14 @@ pub fn emit_array_get(out: &mut String) {
     out.push_str("1:\n");
     out.push_str("    cmp x1, x2\n");
     out.push_str("    b.hs alya_error_index_out_of_bounds\n");
-    out.push_str("    ldr x0, [x0, #16]\n");
-    out.push_str("    ldr x0, [x0, x1, lsl #3]\n");
+    out.push_str("    ldr x2, [x0, #24]\n");
+    out.push_str("    ldrb w3, [x2, x1]\n");
+    out.push_str("    ldr x2, [x0, #16]\n");
+    out.push_str("    ldr x0, [x2, x1, lsl #3]\n");
+    out.push_str("    mov w1, w3\n");
 }
 
-pub fn emit_array_set(out: &mut String, _kind: i64) {
-    // Phase 1 (#39) ARM64 port: thread _kind into a kind store.
+pub fn emit_array_set(out: &mut String, kind: i64) {
     out.push_str("    mov x2, x0\n");
     out.push_str("    ldr x1, [sp], #16\n");
     out.push_str("    ldr x0, [sp], #16\n");
@@ -82,12 +87,15 @@ pub fn emit_array_set(out: &mut String, _kind: i64) {
     out.push_str("1:\n");
     out.push_str("    cmp x1, x3\n");
     out.push_str("    b.hs alya_error_index_out_of_bounds\n");
+    out.push_str("    ldr x3, [x0, #24]\n");
+    out.push_str(&format!("    mov x4, #{}\n", kind));
+    out.push_str("    strb w4, [x3, x1]\n");
     out.push_str("    ldr x0, [x0, #16]\n");
     out.push_str("    str x2, [x0, x1, lsl #3]\n");
 }
 
-pub fn emit_array_push(out: &mut String, _kind: i64) {
-    // Phase 1 (#39) ARM64 port: pass _kind as 3rd arg (x2).
+pub fn emit_array_push(out: &mut String, kind: i64) {
+    out.push_str(&format!("    mov x2, #{}\n", kind));
     out.push_str("    mov x1, x0\n");
     out.push_str("    ldr x0, [sp], #16\n");
     out.push_str("    bl alya_array_push\n");

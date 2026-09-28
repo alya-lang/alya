@@ -374,6 +374,17 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    b .L_arm64_rc_free_outer\n");
     out.push_str(".L_arm64_rc_free_inner:\n");
     out.push_str("    ldr x0, [x19, #16]\n");
+    out.push_str("    cbz x0, .L_arm64_rc_free_kind\n");
+    out.push_str(&format!("    bl {}free\n", p));
+    // Array kind sidecar (Phase 1, alya-lang/alya#39): freed with the
+    // element buffer. Only arrays carry one (x20 still holds the
+    // header magic here); maps share this path but skip along.
+    out.push_str(".L_arm64_rc_free_kind:\n");
+    out.push_str("    movz x2, #0x0001\n");
+    out.push_str("    movk x2, #0x5A11, lsl #16\n");
+    out.push_str("    cmp x20, x2\n");
+    out.push_str("    b.ne .L_arm64_rc_free_outer\n");
+    out.push_str("    ldr x0, [x19, #24]\n");
     out.push_str("    cbz x0, .L_arm64_rc_free_outer\n");
     out.push_str(&format!("    bl {}free\n", p));
     out.push_str(".L_arm64_rc_free_outer:\n");
