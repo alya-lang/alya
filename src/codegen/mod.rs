@@ -1992,7 +1992,14 @@ pub fn generate_full(
     codegen.no_std = no_std;
     codegen.mem_trace = mem_trace;
     codegen.generate_program(program);
-    (codegen.output, codegen.profile)
+    let mut out = codegen.output;
+    // 32-bit Windows decorates C imports (cdecl `_`, stdcall `_@N`);
+    // ELF needs no decoration. Applied once, centrally, so neither the
+    // runtime emitters nor user FFI callsites need OS gating.
+    if matches!(arch, Architecture::X86) && matches!(os, OperatingSystem::Windows) {
+        out = crate::codegen::arch::x86::decorate_windows_externals(&out);
+    }
+    (out, codegen.profile)
 }
 
 pub fn collect_extern_libraries(program: &Program) -> Vec<String> {

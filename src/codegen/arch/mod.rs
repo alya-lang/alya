@@ -19,7 +19,7 @@ pub fn emit_header(out: &mut String, arch: Architecture, os: OperatingSystem) {
     match arch {
         Architecture::ARM64 => arm64::emit_header(out, os),
         Architecture::X64 => x64::emit_header(out, os),
-        Architecture::X86 => x86::emit_header(out),
+        Architecture::X86 => x86::emit_header(out, os),
     }
 }
 

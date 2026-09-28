@@ -416,10 +416,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    push %edi\n");
         out.push_str("    call fn_str_clone\n");
         out.push_str("    add $4, %esp\n");
+        out.push_str("    push $3\n"); // kind = string
+        out.push_str("    push $0\n"); // hi
         out.push_str("    push %eax\n");
         out.push_str("    push %esi\n");
         out.push_str("    call alya_array_push\n");
-        out.push_str("    add $8, %esp\n");
+        out.push_str("    add $16, %esp\n");
         out.push_str(".L_x86_ld_win_next:\n");
         out.push_str("    lea (%esp), %eax\n");
         out.push_str("    push %eax\n");
@@ -476,10 +478,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    push %edi\n");
         out.push_str("    call fn_str_clone\n");
         out.push_str("    add $4, %esp\n");
+        out.push_str("    push $3\n"); // kind = string
+        out.push_str("    push $0\n"); // hi
         out.push_str("    push %eax\n");
         out.push_str("    push %esi\n");
         out.push_str("    call alya_array_push\n");
-        out.push_str("    add $8, %esp\n");
+        out.push_str("    add $16, %esp\n");
         out.push_str("    jmp .L_x86_ld_posix_loop\n");
         out.push_str(".L_x86_ld_posix_close:\n");
         out.push_str("    push %ebx\n");

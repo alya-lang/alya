@@ -146,6 +146,15 @@ pub fn emit_array_pop(
     }
 }
 
+/// x86-only: pushes a just-generated value as (kind, hi, lo) for the
+/// 5-arg `fn_set` / 4-arg `alya_array_push` runtime calls.
+pub fn emit_value_lo_hi_kind(out: &mut String, arch: Architecture, kind: i64) {
+    match arch {
+        Architecture::X86 => x86::emit_value_lo_hi_kind(out, kind),
+        _ => unreachable!("value lo/hi/kind materialization is x86-only"),
+    }
+}
+
 pub fn emit_array_len(out: &mut String, arch: Architecture) {
     match arch {
         Architecture::ARM64 => arm64::emit_array_len(out),

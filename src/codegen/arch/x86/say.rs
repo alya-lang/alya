@@ -30,10 +30,16 @@ pub fn emit_say_num_const(out: &mut String, val: i64, fmt_label: &str) {
 }
 
 pub fn emit_say_acc(out: &mut String, fmt_label: &str) {
+    // %lld reads 8 bytes: sign-extend the 32-bit int in %eax so the
+    // high word is defined (Phase 1 x86 port, #39). Pointers only ever
+    // use the low word via %s arms.
+    out.push_str("    mov %eax, %ecx\n");
+    out.push_str("    sar $31, %ecx\n");
+    out.push_str("    push %ecx\n");
     out.push_str("    push %eax\n");
     out.push_str(&format!("    push ${}\n", fmt_label));
     emit_call_printf(out);
-    out.push_str("    add $8, %esp\n");
+    out.push_str("    add $12, %esp\n");
 }
 
 pub fn emit_say_float(out: &mut String, fmt_label: &str) {

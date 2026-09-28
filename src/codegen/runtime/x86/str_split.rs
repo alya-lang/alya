@@ -174,10 +174,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add $3, %edi\n");
     out.push_str("    and $-4, %edi\n");
     emit_str_buf_store(out, "%edi", "%ecx", os);
+    out.push_str("    push $3\n"); // kind = string
+    out.push_str("    push $0\n"); // hi
     out.push_str("    push %edx\n");
     out.push_str("    push -12(%ebp)\n");
     out.push_str("    call alya_array_push\n");
-    out.push_str("    add $8, %esp\n");
+    out.push_str("    add $16, %esp\n");
     out.push_str("    inc %esi\n");
     out.push_str("    jmp .L_x86_split_empty_loop\n");
     out.push_str(".L_x86_split_non_empty_delim:\n");
@@ -227,10 +229,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add $3, %edi\n");
     out.push_str("    and $-4, %edi\n");
     emit_str_buf_store(out, "%edi", "%edx", os);
+    out.push_str("    push $3\n"); // kind = string
+    out.push_str("    push $0\n"); // hi
     out.push_str("    push -28(%ebp)\n");
     out.push_str("    push -12(%ebp)\n");
     out.push_str("    call alya_array_push\n");
-    out.push_str("    add $8, %esp\n");
+    out.push_str("    add $16, %esp\n");
     out.push_str("    mov -16(%ebp), %eax\n");
     out.push_str("    add %eax, -20(%ebp)\n");
     out.push_str("    mov -20(%ebp), %eax\n");
@@ -261,10 +265,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add $3, %edi\n");
     out.push_str("    and $-4, %edi\n");
     emit_str_buf_store(out, "%edi", "%edx", os);
+    out.push_str("    push $3\n"); // kind = string
+    out.push_str("    push $0\n"); // hi
     out.push_str("    push -28(%ebp)\n");
     out.push_str("    push -12(%ebp)\n");
     out.push_str("    call alya_array_push\n");
-    out.push_str("    add $8, %esp\n");
+    out.push_str("    add $16, %esp\n");
     out.push_str(".L_x86_split_ret:\n");
     out.push_str("    mov -12(%ebp), %eax\n");
     out.push_str("    pop %edi\n");

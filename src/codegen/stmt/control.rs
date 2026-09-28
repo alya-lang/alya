@@ -82,16 +82,18 @@ impl CodeGen {
                     self.generate_expression(left);
                     if !left_is_flt && !is_definitely_not_numeric(left, &self.ctx.variables) {
                         // Index carries kind tag alongside the value
-                        // (x64: %edx, arm64: w1): skip int->float
+                        // (x64/x86: %edx, arm64: w1): skip int->float
                         // when the value is already a float (map routing
                         // or Phase 1 array slot kinds).
-                        if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
-                            && matches!(&**left, Expr::Index { .. })
+                        if matches!(
+                            self.arch,
+                            Architecture::X64 | Architecture::ARM64 | Architecture::X86
+                        ) && matches!(&**left, Expr::Index { .. })
                             && (is_map_read_index(left, &self.ctx.variables)
                                 || is_array_kind_read(left, &self.ctx.variables))
                         {
                             let l_skip = self.ctx.next_label();
-                            if matches!(self.arch, Architecture::X64) {
+                            if matches!(self.arch, Architecture::X64 | Architecture::X86) {
                                 self.output.push_str("    cmpl $2, %edx\n");
                                 self.output.push_str(&format!("    je {}\n", l_skip));
                             } else {
@@ -128,13 +130,15 @@ impl CodeGen {
                         if !right_is_flt && !is_definitely_not_numeric(right, &self.ctx.variables) {
                             // Index carries kind tag (x64: %edx, arm64: w1;
                             // map routing or Phase 1 array slot kinds).
-                            if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
-                                && matches!(&**right, Expr::Index { .. })
+                            if matches!(
+                                self.arch,
+                                Architecture::X64 | Architecture::ARM64 | Architecture::X86
+                            ) && matches!(&**right, Expr::Index { .. })
                                 && (is_map_read_index(right, &self.ctx.variables)
                                     || is_array_kind_read(right, &self.ctx.variables))
                             {
                                 let l_skip = self.ctx.next_label();
-                                if matches!(self.arch, Architecture::X64) {
+                                if matches!(self.arch, Architecture::X64 | Architecture::X86) {
                                     self.output
                                         .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    je {}\n", l_skip));
@@ -286,16 +290,18 @@ impl CodeGen {
                     self.generate_expression(left);
                     if !left_is_flt && !is_definitely_not_numeric(left, &self.ctx.variables) {
                         // Index carries kind tag alongside the value
-                        // (x64: %edx, arm64: w1): skip int->float
+                        // (x64/x86: %edx, arm64: w1): skip int->float
                         // when the value is already a float (map routing
                         // or Phase 1 array slot kinds).
-                        if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
-                            && matches!(&**left, Expr::Index { .. })
+                        if matches!(
+                            self.arch,
+                            Architecture::X64 | Architecture::ARM64 | Architecture::X86
+                        ) && matches!(&**left, Expr::Index { .. })
                             && (is_map_read_index(left, &self.ctx.variables)
                                 || is_array_kind_read(left, &self.ctx.variables))
                         {
                             let l_skip = self.ctx.next_label();
-                            if matches!(self.arch, Architecture::X64) {
+                            if matches!(self.arch, Architecture::X64 | Architecture::X86) {
                                 self.output.push_str("    cmpl $2, %edx\n");
                                 self.output.push_str(&format!("    je {}\n", l_skip));
                             } else {
@@ -332,13 +338,15 @@ impl CodeGen {
                         if !right_is_flt && !is_definitely_not_numeric(right, &self.ctx.variables) {
                             // Index carries kind tag (x64: %edx, arm64: w1;
                             // map routing or Phase 1 array slot kinds).
-                            if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
-                                && matches!(&**right, Expr::Index { .. })
+                            if matches!(
+                                self.arch,
+                                Architecture::X64 | Architecture::ARM64 | Architecture::X86
+                            ) && matches!(&**right, Expr::Index { .. })
                                 && (is_map_read_index(right, &self.ctx.variables)
                                     || is_array_kind_read(right, &self.ctx.variables))
                             {
                                 let l_skip = self.ctx.next_label();
-                                if matches!(self.arch, Architecture::X64) {
+                                if matches!(self.arch, Architecture::X64 | Architecture::X86) {
                                     self.output
                                         .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    je {}\n", l_skip));

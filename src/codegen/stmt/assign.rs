@@ -1120,17 +1120,24 @@ impl CodeGen {
             let actual_args = [array, index, value];
             match self.arch {
                 Architecture::X86 => {
+                    // 5-arg fn_set(map, key, lo, hi, kind): the value was
+                    // just generated (floats in %xmm0, rest in %eax).
                     for arg in actual_args.iter().rev() {
                         self.generate_expression(arg);
-                        if std::ptr::eq(*arg, value) && self.is_heap_expression(value) {
-                            arch::emit_rc_retain(
-                                &mut self.output,
-                                self.arch,
-                                self.ctx.stack_offset,
-                                self.os,
-                            );
+                        if std::ptr::eq(*arg, value) {
+                            if self.is_heap_expression(value) {
+                                arch::emit_rc_retain(
+                                    &mut self.output,
+                                    self.arch,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
+                            }
+                            let set_kind = value_kind_tag(value, &self.ctx.variables);
+                            arch::emit_value_lo_hi_kind(&mut self.output, self.arch, set_kind);
+                        } else {
+                            arch::emit_push_temp(&mut self.output, self.arch);
                         }
-                        arch::emit_push_temp(&mut self.output, self.arch);
                     }
                 }
                 _ => {
@@ -1152,7 +1159,11 @@ impl CodeGen {
                 &mut self.output,
                 self.arch,
                 "set",
-                3,
+                if matches!(self.arch, Architecture::X86) {
+                    5
+                } else {
+                    3
+                },
                 self.ctx.stack_offset,
                 self.os,
             );
@@ -1161,9 +1172,11 @@ impl CodeGen {
             // (identifier map, literal key, literal value): re-evaluating
             // anything else could duplicate side effects. Dynamics leave
             // the tag cleared by `set` itself (unknown = 0).
-            // NOTE: x64+arm64 have fn_map_set_tag; x86 entries are 12-byte
-            // (no room for packed tags) so x86 stays untagged.
-            if matches!(self.arch, Architecture::X64 | Architecture::ARM64) {
+            // x86 entries carry the tag at +16 with fn_map_set_tag.
+            if matches!(
+                self.arch,
+                Architecture::X64 | Architecture::ARM64 | Architecture::X86
+            ) {
                 if let (Expr::Identifier(_), Expr::String(_)) = (array, index) {
                     if let Some(kind) = kind_of_literal(value) {
                         let tag_args = [array.clone(), index.clone(), Expr::Number(kind as i128)];

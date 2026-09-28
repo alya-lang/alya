@@ -866,67 +866,70 @@ impl CodeGen {
                         self.generate_expression(expr);
                         arch::emit_push_temp(&mut self.output, self.arch);
                         // fn_get returns the entry kind tag alongside the value
-                        // (x64: %edx, arm64: w1). Array loads deliver the
-                        // slot kind the same way on x64 (Phase 1, #39).
+                        // (x64/x86: %edx, arm64: w1). Array loads deliver the
+                        // slot kind the same way on x64/x86 (Phase 1, #39).
                         // Tagged values dispatch directly; unknown falls
                         // through to the legacy pointer-range classifier
-                        // below. x86 stays untagged.
+                        // below.
                         // Tags: 0 unknown, 1 int, 2 float, 3 string,
                         // 4 array, 5 map.
                         // NOTE: only map-routed reads (fn_get) and plain
                         // array-identifier reads carry a tag. Other shapes
                         // leave the tag register holding the index, so they
-                        // must skip tag dispatch. x86 stays untagged (no
-                        // kind channel there yet).
+                        // must skip tag dispatch.
                         let carries_kind = is_map_read_index(expr, &self.ctx.variables)
-                            || (matches!(self.arch, Architecture::X64 | Architecture::ARM64)
-                                && is_array_kind_read(expr, &self.ctx.variables));
-                        let (l_tag_flt, l_tag_str2, l_tag_arr, l_tag_map, l_tag_int) =
-                            if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
-                                && carries_kind
-                            {
-                                let flt = self.ctx.next_label();
-                                let s2 = self.ctx.next_label();
-                                let arr = self.ctx.next_label();
-                                let mp = self.ctx.next_label();
-                                let it = self.ctx.next_label();
-                                if matches!(self.arch, Architecture::X64) {
-                                    self.output
-                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
-                                    self.output.push_str(&format!("    je {}\n", flt));
-                                    self.output
-                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_STRING));
-                                    self.output.push_str(&format!("    je {}\n", s2));
-                                    self.output
-                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_ARRAY));
-                                    self.output.push_str(&format!("    je {}\n", arr));
-                                    self.output
-                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_MAP));
-                                    self.output.push_str(&format!("    je {}\n", mp));
-                                    self.output
-                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_INT));
-                                    self.output.push_str(&format!("    je {}\n", it));
-                                } else {
-                                    self.output
-                                        .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
-                                    self.output.push_str(&format!("    b.eq {}\n", flt));
-                                    self.output
-                                        .push_str(&format!("    cmp w1, #{}\n", KIND_STRING));
-                                    self.output.push_str(&format!("    b.eq {}\n", s2));
-                                    self.output
-                                        .push_str(&format!("    cmp w1, #{}\n", KIND_ARRAY));
-                                    self.output.push_str(&format!("    b.eq {}\n", arr));
-                                    self.output
-                                        .push_str(&format!("    cmp w1, #{}\n", KIND_MAP));
-                                    self.output.push_str(&format!("    b.eq {}\n", mp));
-                                    self.output
-                                        .push_str(&format!("    cmp w1, #{}\n", KIND_INT));
-                                    self.output.push_str(&format!("    b.eq {}\n", it));
-                                }
-                                (Some(flt), Some(s2), Some(arr), Some(mp), Some(it))
+                            || (matches!(
+                                self.arch,
+                                Architecture::X64 | Architecture::ARM64 | Architecture::X86
+                            ) && is_array_kind_read(expr, &self.ctx.variables));
+                        let (l_tag_flt, l_tag_str2, l_tag_arr, l_tag_map, l_tag_int) = if matches!(
+                            self.arch,
+                            Architecture::X64 | Architecture::ARM64 | Architecture::X86
+                        )
+                            && carries_kind
+                        {
+                            let flt = self.ctx.next_label();
+                            let s2 = self.ctx.next_label();
+                            let arr = self.ctx.next_label();
+                            let mp = self.ctx.next_label();
+                            let it = self.ctx.next_label();
+                            if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                                self.output
+                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                                self.output.push_str(&format!("    je {}\n", flt));
+                                self.output
+                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_STRING));
+                                self.output.push_str(&format!("    je {}\n", s2));
+                                self.output
+                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_ARRAY));
+                                self.output.push_str(&format!("    je {}\n", arr));
+                                self.output
+                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_MAP));
+                                self.output.push_str(&format!("    je {}\n", mp));
+                                self.output
+                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_INT));
+                                self.output.push_str(&format!("    je {}\n", it));
                             } else {
-                                (None, None, None, None, None)
-                            };
+                                self.output
+                                    .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                                self.output.push_str(&format!("    b.eq {}\n", flt));
+                                self.output
+                                    .push_str(&format!("    cmp w1, #{}\n", KIND_STRING));
+                                self.output.push_str(&format!("    b.eq {}\n", s2));
+                                self.output
+                                    .push_str(&format!("    cmp w1, #{}\n", KIND_ARRAY));
+                                self.output.push_str(&format!("    b.eq {}\n", arr));
+                                self.output
+                                    .push_str(&format!("    cmp w1, #{}\n", KIND_MAP));
+                                self.output.push_str(&format!("    b.eq {}\n", mp));
+                                self.output
+                                    .push_str(&format!("    cmp w1, #{}\n", KIND_INT));
+                                self.output.push_str(&format!("    b.eq {}\n", it));
+                            }
+                            (Some(flt), Some(s2), Some(arr), Some(mp), Some(it))
+                        } else {
+                            (None, None, None, None, None)
+                        };
                         self.emit_runtime_classify(self.os);
                         arch::emit_cmp_imm(&mut self.output, self.arch, KIND_STRING);
                         arch::emit_cond_jump(
@@ -965,8 +968,11 @@ impl CodeGen {
                             self.os,
                         );
                         self.output.push_str(&format!("{}:\n", l_idx_end));
-                        // Tagged fast paths (x64 only). Each pops the saved
+                        // Tagged fast paths (x64/x86). Each pops the saved
                         // value and prints with the tag-correct runtime.
+                        // On x86 the float bits ride in %xmm0 (untouched by
+                        // compare/classify), ints print via the
+                        // sign-extending say_acc, pointers use the low word.
                         if let (Some(t_flt), Some(t_str2), Some(t_arr), Some(t_map), Some(t_int)) =
                             (l_tag_flt, l_tag_str2, l_tag_arr, l_tag_map, l_tag_int)
                         {
