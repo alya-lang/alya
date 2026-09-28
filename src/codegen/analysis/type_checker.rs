@@ -1514,8 +1514,8 @@ impl TypeChecker {
                                                 _ => ">=",
                                             };
                                             return Err(format!(
-                                                "TypeError: Operator '{}' cannot be applied to mixed int/float array '{}' (convert explicitly, e.g. 'float({}[0]) {} {}[0]')",
-                                                sym, arr, arr, sym, arr
+                                                "TypeError: Operator '{}' cannot be applied to mixed int/float array '{}' (convert elements explicitly with 'int(...)' or 'float(...)')",
+                                                sym, arr
                                             ));
                                         }
                                     }
