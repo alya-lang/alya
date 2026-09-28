@@ -3,7 +3,7 @@ use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     call_returns_known_int, escape_string, is_array_expr, is_array_kind_read,
     is_dynamic_element_read, is_float_expr, is_map_expr, is_map_read_index, is_null_expr,
-    is_string_array, is_string_expr,
+    is_string_array, is_string_expr, is_tag_carrying_read,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -256,6 +256,22 @@ impl CodeGen {
                                 } else if is_string_array(part, &self.ctx.variables) {
                                     format_str.push_str("%s");
                                     exprs.push(string_array_display_expr(part.clone()));
+                                    is_floats.push(false);
+                                } else if matches!(part, Expr::Index { .. })
+                                    && is_tag_carrying_read(part, &self.ctx.variables)
+                                    && !is_string_expr(part, &self.ctx.variables)
+                                    && !is_float_expr(part, &self.ctx.variables)
+                                {
+                                    // Tag-carrying reads with unknown static
+                                    // type route through str() (tag dispatch,
+                                    // alya-lang/alya#39 Phase 2b) instead of
+                                    // printing raw bits with %lld. Proven
+                                    // string/float parts keep their arms.
+                                    format_str.push_str("%s");
+                                    exprs.push(Expr::Call {
+                                        name: "str".into(),
+                                        args: vec![part.clone()],
+                                    });
                                     is_floats.push(false);
                                 } else {
                                     let is_flt = is_float_expr(part, &self.ctx.variables);

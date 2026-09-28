@@ -134,6 +134,27 @@ main()
 }
 
 #[test]
+fn test_x86_interpolated_mixed_read_dispatches_on_tag() {
+    // x86 twin: interpolation of tag-carrying reads routes through
+    // str() instead of printing raw bits.
+    let code = r#"
+function main()
+    let m = []
+    m.push(1)
+    m.push(0.5)
+    say "v={m[1]}"
+    say "v={m[0]}"
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "v=0.5\nv=1\n", "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_x86_untyped_param_mixed_strict_error() {
     // x86 twin of the strict dynamic check: float tags on dynamic
     // reads trap instead of computing on raw bits.

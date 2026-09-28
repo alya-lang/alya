@@ -1295,15 +1295,31 @@ impl CodeGen {
                     if is_float_expr(&args[0], &self.ctx.variables) {
                         let initial_stack_offset = self.ctx.stack_offset;
                         self.generate_expression(&args[0]);
-                        arch::emit_push_temp(&mut self.output, self.arch);
-                        arch::emit_function_call(
-                            &mut self.output,
-                            self.arch,
-                            "str_from_float",
-                            1,
-                            initial_stack_offset,
-                            self.os,
-                        );
+                        if matches!(self.arch, Architecture::X86) {
+                            // x86 passes the f64 on the stack (callee reads
+                            // 8(%ebp)/12(%ebp)); other archs mirror the
+                            // pushed value into the float register.
+                            self.output.push_str("    sub $8, %esp\n");
+                            self.output.push_str("    movsd %xmm0, (%esp)\n");
+                            arch::emit_function_call(
+                                &mut self.output,
+                                self.arch,
+                                "str_from_float",
+                                2,
+                                initial_stack_offset,
+                                self.os,
+                            );
+                        } else {
+                            arch::emit_push_temp(&mut self.output, self.arch);
+                            arch::emit_function_call(
+                                &mut self.output,
+                                self.arch,
+                                "str_from_float",
+                                1,
+                                initial_stack_offset,
+                                self.os,
+                            );
+                        }
                         return;
                     }
                     // Variable-key map reads and (Phase 1, #39) plain
@@ -1320,6 +1336,40 @@ impl CodeGen {
                     {
                         let initial_stack_offset = self.ctx.stack_offset;
                         self.generate_expression(&args[0]);
+                        if matches!(self.arch, Architecture::X86) {
+                            // x86 keeps call args on the stack: lo word for
+                            // generic str, full f64 for str_from_float.
+                            // f64 rides in %xmm0 (array/map loaders rebuild
+                            // it); the tag is fresh in %edx.
+                            let l_flt = self.ctx.next_label();
+                            let l_end = self.ctx.next_label();
+                            self.output
+                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                            self.output.push_str(&format!("    je {}\n", l_flt));
+                            arch::emit_push_temp(&mut self.output, self.arch);
+                            arch::emit_function_call(
+                                &mut self.output,
+                                self.arch,
+                                "str",
+                                1,
+                                initial_stack_offset,
+                                self.os,
+                            );
+                            arch::emit_jump(&mut self.output, self.arch, &l_end);
+                            self.output.push_str(&format!("{}:\n", l_flt));
+                            self.output.push_str("    sub $8, %esp\n");
+                            self.output.push_str("    movsd %xmm0, (%esp)\n");
+                            arch::emit_function_call(
+                                &mut self.output,
+                                self.arch,
+                                "str_from_float",
+                                2,
+                                initial_stack_offset,
+                                self.os,
+                            );
+                            self.output.push_str(&format!("{}:\n", l_end));
+                            return;
+                        }
                         arch::emit_push_temp(&mut self.output, self.arch);
                         let l_flt = self.ctx.next_label();
                         let l_end = self.ctx.next_label();

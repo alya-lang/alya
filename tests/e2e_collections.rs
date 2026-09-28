@@ -954,6 +954,28 @@ main()
 }
 
 #[test]
+fn test_e2e_interpolated_mixed_read_dispatches_on_tag() {
+    // alya-lang/alya#39 Phase 2b: interpolation of a tag-carrying read
+    // with unknown static type routes through str() (tag dispatch)
+    // instead of printing raw bits with %lld.
+    let code = r#"
+function main()
+    let m = []
+    m.push(1)
+    m.push(0.5)
+    say "v={m[1]}"
+    say "v={m[0]}"
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "v=0.5\nv=1\n", "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_untyped_param_mixed_strict_error() {
     // alya-lang/alya#39 Phase 2b: the static checker rejects
     // provably-mixed reads; a float tag on a dynamic read is the

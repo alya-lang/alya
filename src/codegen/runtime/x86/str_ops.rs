@@ -596,6 +596,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_x86_str_buf_ok:\n");
     out.push_str("    lea (%ecx, %ebx), %edi\n");
     out.push_str("    mov %edi, %esi\n");
+    // The buffer-context setup above leaves thread bits in %eax:
+    // reload the argument (Phase 1 x86 port, #39 — str(int) converted
+    // the slot index instead of the value).
+    out.push_str("    mov 8(%ebp), %eax\n");
     out.push_str("    test %eax, %eax\n");
     out.push_str("    jnz .L_x86_str_chk_neg\n");
     out.push_str("    movb $'0', (%edi)\n");
