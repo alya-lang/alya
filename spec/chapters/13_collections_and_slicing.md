@@ -36,6 +36,10 @@ Arrays assembled with `push` (rather than literals) follow these rules
 - Mixed integer/float content has no statically correct read: integer
   slots keep reading correctly, float slots read bit patterns. True
   mixed-type discrimination needs runtime tags.
+- Whole-array string claims are vetoed by mixed pushes: any
+  non-string push records `arr_nonstr`, and readers consult the veto
+  before taking a static string path (otherwise `%s` on a non-string
+  faults). Reads fall back to slot-kind dispatch.
 - `for v in arr` binds the loop variable to the array's proven element
   kind where one exists; over mixed literals the binding is
   integer-biased (same limitation as above).

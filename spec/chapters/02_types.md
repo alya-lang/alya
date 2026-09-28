@@ -153,11 +153,17 @@ behavior marked "current engine" is netted by the existing test suite.
 | map entry kinds | Yes where the engine's packed entry tags exist. |
 | array slot kinds | No — slots are bare payloads (gap; cf. alya-lang/alya#50). |
 
-#### 3. Tag scheme (proposal)
-- **Phase 1 — container slots.** Array slots widen to payload plus
-  kind (mirroring map entries). Untyped reads and `for` over mixed
-  arrays dispatch per element on the slot kind. Cost: 2x array element
-  memory. Scalar representation untouched.
+#### 3. Tag scheme (proposal; Phase 1 implemented)
+- **Phase 1 — container slots (implemented).** Array slots carry a kind
+  sidecar: one value-kind byte per slot alongside the 8-byte payload
+  (x64, ARM64; x86 stays untagged). Every element store writes its
+  kind (statically known or 0 unknown); reads expose it. Cost: one
+  byte per slot plus a second allocation per array (freed with the
+  buffer). Untyped reads and `is int` / `is string` / `is float`
+  checks on element reads dispatch per element; unknown slots fall
+  back to inference. Whole-array claims (`arr_is_str` and siblings)
+  are vetoed by mixed pushes, so readers never take a static path on
+  mixed content.
 - **Phase 2 — predicate dispatch.** `is int` / `is string` / `is float`
   (Chapter 05 type arms) consult tags on tagged channels; statically
   proven kinds keep the current zero-cost paths. No `any` semantics
