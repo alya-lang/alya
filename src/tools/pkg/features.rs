@@ -11,8 +11,10 @@
 //!   explicit `[build]` flags always winning.
 //!
 //! Boundaries (v1, documented): no feature unification across the dependency
-//! graph, no `dep/feature` propagation syntax, and no language-level
-//! `cfg(feature)` — features gate optional dependencies only.
+//! graph, no `dep/feature` propagation syntax. Each package's sources
+//! evaluate under that package's own defaults (only the entry package
+//! additionally honors CLI flags); there is no language-level `cfg`
+//! beyond `@cfg(feature)` (see spec Chapter 18 §1.3).
 
 use super::discovery::find_manifest_dir_from;
 use super::manifest::parse_manifest;
@@ -21,7 +23,7 @@ use crate::codegen::{Architecture, OperatingSystem};
 use crate::parser::CfgContext;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Resolves the active feature set. Unknown CLI names are hard errors
 /// listing what's available. Terminates even on cyclic graphs (the manifest
@@ -180,6 +182,39 @@ pub fn target_cfg(
         profile.debug,
         features,
     )
+}
+
+/// Config for parsing an IMPORTED file: its owning manifest's defaults
+/// when it belongs to a different package than the entry, else the
+/// inherited (top) context. Cargo parity: dependencies keep their own
+/// defaults (no unification). Pseudo-paths (`<embedded:...>`) and files
+/// outside any package always inherit.
+pub fn imported_file_cfg(
+    file: &Path,
+    top_manifest_dir: &Option<PathBuf>,
+    inherit: &CfgContext,
+) -> Result<CfgContext, String> {
+    if !file.is_file() {
+        return Ok(inherit.clone());
+    }
+    let base = file.parent().unwrap_or(Path::new("."));
+    let Some(own_dir) = find_manifest_dir_from(base) else {
+        return Ok(inherit.clone());
+    };
+    let own_dir = std::fs::canonicalize(&own_dir).unwrap_or(own_dir);
+    match top_manifest_dir {
+        Some(top_dir) if own_dir != *top_dir => {
+            let content = fs::read_to_string(own_dir.join("alya.toml"))
+                .map_err(|e| format!("Failed to read alya.toml: {}", e))?;
+            let manifest = parse_manifest(&content)?;
+            let active = resolve_active_features(&manifest, &[], false).unwrap_or_default();
+            Ok(CfgContext {
+                features: active,
+                ..inherit.clone()
+            })
+        }
+        _ => Ok(inherit.clone()),
+    }
 }
 
 /// The resolved build configuration for one compilation: selected profile,

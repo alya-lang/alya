@@ -60,6 +60,61 @@ fn test_resolve_imports_temporary_files() {
 }
 
 #[test]
+fn test_resolve_imports_dep_own_defaults() {
+    // A dependency's sources evaluate `@cfg` under the dependency's OWN
+    // defaults, not the top package's feature set (cargo parity, no
+    // unification): the consumer below declares no features, yet the dep's
+    // default-on branch survives while its fallback is dropped.
+    use std::fs;
+    let base = std::env::temp_dir().join(format!("alya_import_depdefaults_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    let consumer = base.join("consumer");
+    let dep = base.join("deplib");
+    fs::create_dir_all(&consumer).unwrap();
+    fs::create_dir_all(&dep).unwrap();
+    fs::write(
+        consumer.join("alya.toml"),
+        "[package]\nname = \"consumer\"\nversion = \"0.1.0\"\nentry = \"main.alya\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dep.join("alya.toml"),
+        "[package]\nname = \"deplib\"\nversion = \"0.1.0\"\nentry = \"lib.alya\"\n\n[features]\ndefault = [\"on\"]\non = []\n",
+    )
+    .unwrap();
+    fs::write(
+        dep.join("lib.alya"),
+        "@cfg(feature = \"on\")\nfunction dep_mode()\n    return \"fast\"\nend\n\n@cfg(not(feature = \"on\"))\nfunction dep_mode()\n    return \"slow\"\nend\n",
+    )
+    .unwrap();
+    let main_source = "import \"../deplib/lib.alya\"\nsay dep_mode()";
+    let mut lexer = crate::lexer::Lexer::new(main_source);
+    let tokens = lexer.tokenize().expect("Failed to tokenize");
+    let mut parser = Parser::new(tokens);
+    let mut program = parser.parse().expect("Failed to parse");
+
+    resolve_imports(&mut program, &consumer, &CfgContext::host())
+        .expect("Failed to resolve imports");
+
+    let modes: Vec<String> = program
+        .statements
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Function { name, .. } if name == "dep_mode" => Some(format!("{:?}", s)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(modes.len(), 1, "exactly one dep_mode must survive");
+    assert!(
+        modes[0].contains("\"fast\""),
+        "dep-default branch must win, got: {}",
+        modes[0]
+    );
+
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
 fn test_parse_from_import() {
     let source = "from \"math_utils.alya\" import add, sub as subtract, *";
     let mut lexer = crate::lexer::Lexer::new(source);

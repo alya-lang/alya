@@ -104,6 +104,9 @@ impl CfgContext {
             return Ok(true);
         }
         let line = tokens.first().map(|t| t.line).unwrap_or(0);
+        // `not` lexes as `TokenType::Not`, not `Identifier("not")`: matching
+        // only the latter left `not(...)` unevaluated (fell through to the
+        // inner condition unnegated), so both spellings are accepted here.
         let first_is_not =
             matches!(
                 tokens.first().map(|t| &t.token_type),
@@ -466,6 +469,9 @@ pub fn resolve_imports_with_sources_ext(
     let mut visited = std::collections::HashSet::new();
     let mut resolved_stmts = Vec::new();
     let mut root_rewrites = std::collections::HashMap::new();
+    let top_manifest_dir: Option<std::path::PathBuf> =
+        crate::tools::pkg::discovery::find_manifest_dir_from(base_dir)
+            .map(|d| std::fs::canonicalize(&d).unwrap_or(d));
 
     for stmt in std::mem::take(&mut program.statements) {
         let (_, rewrites) = resolve_stmt_imports_ext_with_rewrites(
@@ -475,6 +481,7 @@ pub fn resolve_imports_with_sources_ext(
             &mut resolved_stmts,
             no_std,
             cfg,
+            &top_manifest_dir,
         )?;
         root_rewrites.extend(rewrites);
     }
@@ -1091,29 +1098,6 @@ pub(crate) fn get_embedded_stdlib(module: &str) -> Option<&'static str> {
     }
 }
 
-#[allow(dead_code)]
-pub(crate) fn resolve_stmt_imports(
-    stmt: Stmt,
-    current_dir: &std::path::Path,
-    visited: &mut std::collections::HashSet<(std::path::PathBuf, Option<String>)>,
-    out: &mut Vec<Stmt>,
-) -> Result<std::collections::HashSet<String>, String> {
-    resolve_stmt_imports_ext(stmt, current_dir, visited, out, false, &CfgContext::host())
-}
-
-pub(crate) fn resolve_stmt_imports_ext(
-    stmt: Stmt,
-    current_dir: &std::path::Path,
-    visited: &mut std::collections::HashSet<(std::path::PathBuf, Option<String>)>,
-    out: &mut Vec<Stmt>,
-    no_std: bool,
-    cfg: &CfgContext,
-) -> Result<std::collections::HashSet<String>, String> {
-    let (fns, _) =
-        resolve_stmt_imports_ext_with_rewrites(stmt, current_dir, visited, out, no_std, cfg)?;
-    Ok(fns)
-}
-
 pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
     stmt: Stmt,
     current_dir: &std::path::Path,
@@ -1121,6 +1105,7 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
     out: &mut Vec<Stmt>,
     no_std: bool,
     cfg: &CfgContext,
+    top_manifest_dir: &Option<std::path::PathBuf>,
 ) -> Result<
     (
         std::collections::HashSet<String>,
@@ -1239,7 +1224,15 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
             })?;
 
             let mut parser = Parser::new(tokens);
-            parser.set_cfg_context(cfg.clone());
+            // Imported files evaluate `@cfg` under their OWN manifest's
+            // defaults when they belong to a different package than the
+            // entry (cargo parity: dependencies keep their defaults, no
+            // unification). Same-package files inherit the top context.
+            parser.set_cfg_context(crate::tools::pkg::features::imported_file_cfg(
+                &canonical,
+                top_manifest_dir,
+                cfg,
+            )?);
             let sub_program = parser.parse().map_err(|e| {
                 format!(
                     "Parser error in imported module '{}': {}",
@@ -1309,6 +1302,7 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                     &mut sub_resolved,
                     no_std,
                     cfg,
+                    top_manifest_dir,
                 )?;
                 sub_rewrites.extend(rewrites);
                 if is_unaliased_import && (!is_embedded_stdlib || alias.is_some()) {

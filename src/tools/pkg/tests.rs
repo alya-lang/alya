@@ -194,6 +194,24 @@ opt-level = 1
 }
 
 #[test]
+fn test_manifest_same_name_feature_and_dep() {
+    // Idiomatic `uv = ["uv"]`: the member enables the dependency; the
+    // self-edge is a harmless no-op, not a cycle.
+    let toml = "[package]\nname = \"x\"\n[dependencies]\nuv = { git = \"https://github.com/alya-lang/uv\", tag = \"v0.1.0\", optional = true }\n[features]\ndefault = [\"uv\"]\nuv = [\"uv\"]\n";
+    let manifest = parse_manifest(toml).expect("same-name feature+dep must parse");
+    assert!(manifest.dependencies["uv"].is_optional());
+    let active = crate::tools::pkg::features::resolve_active_features(&manifest, &[], false)
+        .expect("resolution failed");
+    assert!(active.contains("uv"));
+    let enabled = crate::tools::pkg::features::enabled_dependencies(&manifest, &active);
+    assert!(enabled.contains("uv"));
+
+    // Real two-cycles still fail.
+    let cycle = "[package]\nname = \"x\"\n[features]\na = [\"b\"]\nb = [\"a\"]\n";
+    assert!(parse_manifest(cycle).is_err());
+}
+
+#[test]
 fn test_manifest_features_strict() {
     // Unknown member.
     let bad_ref = "[package]\nname = \"x\"\n[features]\ndefault = [\"nope\"]\n";

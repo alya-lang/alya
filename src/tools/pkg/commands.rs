@@ -908,13 +908,20 @@ pub fn run_list() -> Result<(), String> {
                 format!("path: {}{}", path, opt)
             }
             DependencySource::Git {
-                url, tag, branch, ..
+                url,
+                tag,
+                branch,
+                optional,
+                ..
             } => {
                 let mut s = format!("git: {}", url);
                 if let Some(t) = tag {
                     s.push_str(&format!(" (tag: {})", t));
                 } else if let Some(b) = branch {
                     s.push_str(&format!(" (branch: {})", b));
+                }
+                if *optional {
+                    s.push_str(" (optional)");
                 }
                 s
             }

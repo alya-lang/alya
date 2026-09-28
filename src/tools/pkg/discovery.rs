@@ -261,9 +261,11 @@ pub fn resolve_package_import(
                     .map(|(name, _)| name.as_str())
                     .collect();
                 return Err(format!(
-                    "Optional dependency '{}' is not installed. Run 'alya install --features {}' to enable it (provided by feature{}: {}).",
+                    "Optional dependency '{}' (declared in '{}') is not installed. Run 'alya install --features {}' from '{}' to enable it (provided by feature{}: {}).",
                     pkg_name,
+                    manifest_dir.display(),
                     providers.first().copied().unwrap_or("<feature>"),
+                    manifest_dir.display(),
                     if providers.len() == 1 { "" } else { "s" },
                     if providers.is_empty() {
                         "(no feature enables it)".to_string()

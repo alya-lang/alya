@@ -41,6 +41,7 @@ Supported configurations include:
 - `not(<condition>)` negation; stack multiple `@cfg` lines for conjunction.
 - A failing branch is still parsed (syntax errors surface) but dropped before name resolution: references to dropped symbols fail as undefined, exactly like missing declarations. A bare `@cfg` (no parens) keeps the item.
 - Unknown keys (anything but `os`, `arch`, `debug`, `feature`) are compile-time errors. Unknown *feature names* are false at compile time (multi-manifest graphs never break on foreign names); `alya lint` flags names absent from the package `[features]` table.
+- Multi-manifest rule: each package's sources evaluate under that package's own defaults (dependencies keep their defaults — no unification, Cargo parity); only the entry package additionally honors `--features`/`--no-default-features`. A consumer therefore cannot disable a dependency's defaults, and a dependency never inherits the consumer's features.
 
 ### 1.4 Test & Benchmark Integration (`@test`, `@bench`)
 Built-in testing harness integration:

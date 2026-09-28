@@ -83,6 +83,9 @@ fn validate_feature_graph(
         }
     }
     // Cycle detection (iterative DFS over feature->feature edges).
+    // Self-edges (`feat = ["feat"]`, the idiomatic same-name optional-dep
+    // form) are harmless no-ops: the traversal's visited-set already
+    // terminates on them, so they are skipped here too.
     for root in features.keys() {
         let mut stack = vec![(root.clone(), false)];
         let mut visiting: Vec<String> = Vec::new();
@@ -101,7 +104,7 @@ fn validate_feature_graph(
             stack.push((node.clone(), true));
             if let Some(members) = features.get(&node) {
                 for member in members {
-                    if features.contains_key(member) {
+                    if member != &node && features.contains_key(member) {
                         stack.push((member.clone(), false));
                     }
                 }
