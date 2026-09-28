@@ -37,7 +37,8 @@ jobs:
 
   clippy:
     name: Linting (clippy)
-    runs-on: ubuntu-latest    steps:
+    runs-on: ubuntu-latest
+    steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
@@ -149,4 +150,3 @@ jobs:
         run: |
           cargo run -- toolchain status
           cargo run -- toolchain help
-
