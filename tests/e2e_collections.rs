@@ -646,3 +646,64 @@ say merged["d"]
         assert_eq!(output, "1\n20\n30\n40\n");
     }
 }
+
+#[test]
+fn test_e2e_push_built_float_array_reads() {
+    // Regression test for alya-lang/alya#50: an array built with `push`
+    // of float values must read back floats without an annotation.
+    // Push-built arrays never earned the `arr_is_flt` marking that array
+    // literals get, so untyped reads returned raw f64 bit patterns.
+    let code = r#"
+let d = []
+d.push(1.5)
+d.push(2.5)
+say d[0]
+say d[1]
+say d[0] + d[1]
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "1.5\n2.5\n4\n");
+    }
+}
+
+#[test]
+fn test_e2e_push_built_int_array_reads_unchanged() {
+    // Guard for alya-lang/alya#50: int push-built arrays must keep
+    // reading ints (the new float marking must not leak onto them).
+    let code = r#"
+let ints = []
+ints.push(10)
+ints.push(20)
+say ints[0]
+say ints[1]
+say ints[0] + ints[1]
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "10\n20\n30\n");
+    }
+}
+
+#[test]
+fn test_e2e_builder_returns_push_built_float_array() {
+    // alya-lang/alya#50: a function that builds an array with float
+    // pushes and returns it propagates floatness to the caller binding.
+    let code = r#"
+function build_row(a: float, b: float)
+    let w = []
+    w.push(a)
+    w.push(b)
+    return w
+end
+
+let row = build_row(1.5, 2.5)
+say row[0]
+say row[1]
+say row[0] + row[1]
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "1.5\n2.5\n4\n");
+    }
+}

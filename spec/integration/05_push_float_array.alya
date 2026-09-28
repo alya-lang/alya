@@ -1,0 +1,20 @@
+# ==============================================================================
+# Alya Integration Fixture 05 (entry): push-built float arrays
+# Distilled from: Lib/math/src/matrix.alya (alya-lang/alya#50)
+# Guards: an array built with `push` of float values must read back floats
+#         without an annotation, including across a builder-function return.
+#         Int/unknown pushes veto the float marking (mixed arrays have no
+#         static answer; see alya-lang/alya#39 for runtime tags).
+# ==============================================================================
+
+function build_05_row(a: float, b: float)
+    let w = []
+    w.push(a)
+    w.push(b)
+    return w
+end
+
+let row = build_05_row(1.5, 2.5)
+let total = row[0] + row[1]
+
+say f"integration 05_push_float: OK ({total})"

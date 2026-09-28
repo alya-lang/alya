@@ -438,6 +438,13 @@ impl CodeGen {
             {
                 self.ctx.variables.insert(s.clone(), VarType::Float(0));
             }
+            // alya-lang/alya#50: push-built float arrays earn their
+            // marking in inference; codegen reads consult it via
+            // `is_float_array` exactly like literal-derived marks
+            // (presence-only, same `Number(0)` shape as assign.rs).
+            if s.starts_with("arr_is_flt:") {
+                self.ctx.variables.insert(s.clone(), VarType::Number(0));
+            }
         }
 
         for m in &inference.known_maps {
