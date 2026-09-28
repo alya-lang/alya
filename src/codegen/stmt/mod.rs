@@ -160,8 +160,19 @@ impl CodeGen {
                             }
                         }
                     }
-                    arch::emit_push_temp(&mut self.output, self.arch);
-                    self.ctx.stack_offset += word_size;
+                    // On x86 a float return lives in %xmm0, which defers
+                    // and releases (calls) clobber: spill the full double,
+                    // not just `%eax`. Other archs mirror the value into
+                    // the int register already.
+                    let x86_float_spill = matches!(self.arch, Architecture::X86) && is_flt;
+                    if x86_float_spill {
+                        self.output.push_str("    sub $8, %esp\n");
+                        self.output.push_str("    movsd %xmm0, (%esp)\n");
+                        self.ctx.stack_offset += 8;
+                    } else {
+                        arch::emit_push_temp(&mut self.output, self.arch);
+                        self.ctx.stack_offset += word_size;
+                    }
                     if ret_tagged {
                         // Spill the tag across defers/releases (calls
                         // clobber it); restored below. Mirrors the value
@@ -190,7 +201,7 @@ impl CodeGen {
                             && matches!(expr, Expr::Ternary { .. } | Expr::NullCoalesce { .. });
                         self.emit_rc_release_scope_return(&heap_offsets, check_match);
                     }
-                    self.ctx.stack_offset -= word_size;
+                    self.ctx.stack_offset -= if x86_float_spill { 8 } else { word_size };
                     if ret_tagged {
                         match self.arch {
                             Architecture::X64 => {
@@ -207,7 +218,12 @@ impl CodeGen {
                             }
                         }
                     }
-                    arch::emit_pop_temp(&mut self.output, self.arch);
+                    if x86_float_spill {
+                        self.output.push_str("    movsd (%esp), %xmm0\n");
+                        self.output.push_str("    add $8, %esp\n");
+                    } else {
+                        arch::emit_pop_temp(&mut self.output, self.arch);
+                    }
                     if is_flt {
                         match self.arch {
                             Architecture::X64 => {

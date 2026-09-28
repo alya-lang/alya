@@ -176,6 +176,10 @@ impl CodeGen {
                 let mut format_str = String::new();
                 let mut exprs: Vec<Expr> = Vec::new();
                 let mut is_floats = Vec::new();
+                // Per-part string flags for x86: `%lld`/`%llx` int parts
+                // and `%g` float parts are 8 bytes on the stack, `%s`
+                // string parts are 4 (alya-lang/alya#59 follow-up).
+                let mut is_strings = Vec::new();
 
                 for part in parts {
                     match part {
@@ -189,16 +193,19 @@ impl CodeGen {
                                 format_str.push_str(&format!("%{}", spec));
                                 exprs.push(arg.clone());
                                 is_floats.push(true);
+                                is_strings.push(false);
                             } else if spec.starts_with('0')
                                 && spec.chars().skip(1).all(|c| c.is_ascii_digit())
                             {
                                 format_str.push_str(&format!("%{}lld", spec));
                                 exprs.push(arg.clone());
                                 is_floats.push(false);
+                                is_strings.push(false);
                             } else if spec == "#x" || spec == "x" {
                                 format_str.push_str("%#llx");
                                 exprs.push(arg.clone());
                                 is_floats.push(false);
+                                is_strings.push(false);
                             } else if spec == "#b" || spec == "b" {
                                 format_str.push_str("%s");
                                 exprs.push(Expr::Call {
@@ -206,18 +213,22 @@ impl CodeGen {
                                     args: vec![arg.clone()],
                                 });
                                 is_floats.push(false);
+                                is_strings.push(true);
                             } else if let Some(width) = spec.strip_prefix('>') {
                                 format_str.push_str(&format!("%{}s", width));
                                 exprs.push(arg.clone());
                                 is_floats.push(false);
+                                is_strings.push(true);
                             } else if let Some(width) = spec.strip_prefix('<') {
                                 format_str.push_str(&format!("%-{}s", width));
                                 exprs.push(arg.clone());
                                 is_floats.push(false);
+                                is_strings.push(true);
                             } else {
                                 format_str.push_str("%lld");
                                 exprs.push(arg.clone());
                                 is_floats.push(false);
+                                is_strings.push(false);
                             }
                         }
                         _ => {
@@ -253,10 +264,12 @@ impl CodeGen {
                                         args: vec![part.clone()],
                                     });
                                     is_floats.push(false);
+                                    is_strings.push(true);
                                 } else if is_string_array(part, &self.ctx.variables) {
                                     format_str.push_str("%s");
                                     exprs.push(string_array_display_expr(part.clone()));
                                     is_floats.push(false);
+                                    is_strings.push(true);
                                 } else if matches!(part, Expr::Index { .. })
                                     && is_tag_carrying_read(part, &self.ctx.variables)
                                     && !is_string_expr(part, &self.ctx.variables)
@@ -273,6 +286,7 @@ impl CodeGen {
                                         args: vec![part.clone()],
                                     });
                                     is_floats.push(false);
+                                    is_strings.push(true);
                                 } else {
                                     let is_flt = is_float_expr(part, &self.ctx.variables);
                                     let is_str = is_string_expr(part, &self.ctx.variables);
@@ -285,6 +299,7 @@ impl CodeGen {
                                     }
                                     exprs.push(part.clone());
                                     is_floats.push(is_flt);
+                                    is_strings.push(is_str);
                                 }
                             }
                         }
@@ -306,10 +321,30 @@ impl CodeGen {
                 };
                 match self.arch {
                     Architecture::X86 => {
+                        // cdecl pushes right-to-left; each part pushes its
+                        // printf-sized shape: ints sign-extended hi+lo (8),
+                        // floats the 8-byte double from %xmm0, strings the
+                        // 4-byte pointer (alya-lang/alya#59 follow-up).
+                        let n = exprs.len();
+                        let mut pushed: i32 = 0;
                         for (idx, expr) in exprs.iter().rev().enumerate() {
-                            self.ctx.stack_offset = initial_stack_offset + (idx as i32 * word_size);
+                            let fwd = n - 1 - idx;
+                            self.ctx.stack_offset = initial_stack_offset + pushed;
                             self.generate_expression(expr);
-                            arch::emit_push_temp(&mut self.output, self.arch);
+                            if is_floats[fwd] {
+                                self.output.push_str("    sub $8, %esp\n");
+                                self.output.push_str("    movsd %xmm0, (%esp)\n");
+                                pushed += 8;
+                            } else if is_strings[fwd] {
+                                arch::emit_push_temp(&mut self.output, self.arch);
+                                pushed += 4;
+                            } else {
+                                self.output.push_str("    mov %eax, %ecx\n");
+                                self.output.push_str("    sar $31, %ecx\n");
+                                self.output.push_str("    push %ecx\n");
+                                self.output.push_str("    push %eax\n");
+                                pushed += 8;
+                            }
                         }
                     }
                     _ => {
@@ -327,6 +362,7 @@ impl CodeGen {
                     self.arch,
                     &fmt_label,
                     &is_floats,
+                    &is_strings,
                     self.ctx.stack_offset,
                     self.os,
                 );
@@ -602,12 +638,20 @@ impl CodeGen {
                             self.emit_string_directive("%g\\n");
                             self.output.push_str(".text\n");
 
-                            arch::emit_load_var(
-                                &mut self.output,
-                                self.arch,
-                                offset,
-                                self.ctx.stack_offset,
-                            );
+                            if matches!(self.arch, Architecture::X86) {
+                                // Float slots are 8 bytes on x86: load the
+                                // double into %xmm0 (a 4-byte load would
+                                // leave say_float printing stale bits).
+                                self.output
+                                    .push_str(&format!("    movsd -{}(%ebp), %xmm0\n", offset));
+                            } else {
+                                arch::emit_load_var(
+                                    &mut self.output,
+                                    self.arch,
+                                    offset,
+                                    self.ctx.stack_offset,
+                                );
+                            }
                             arch::emit_say_float(
                                 &mut self.output,
                                 self.arch,
