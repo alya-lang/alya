@@ -208,3 +208,42 @@ main()
         assert_eq!(output, "3\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_x86_ternary_dynamic_arm_carries_tag() {
+    // x86 twin: same-scope ternary with a tag-carrying arm prints
+    // the taken arm's value via tag dispatch.
+    let code = r#"
+function main()
+    let m = []
+    m.push(0.5)
+    let t = clock_ms()
+    say if t != 0 then m[0] else 1
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "0.5\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_x86_ternary_int_arm_wins() {
+    // No false positive on x86 either.
+    let code = r#"
+function main()
+    let m = []
+    m.push(0.5)
+    let t = clock_ms()
+    say if t == 0 then m[0] else 1
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "1\n", "Got: {}", output);
+    }
+}

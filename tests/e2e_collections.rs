@@ -1062,3 +1062,44 @@ main()
         );
     }
 }
+
+#[test]
+fn test_e2e_ternary_dynamic_arm_carries_tag() {
+    // alya-lang/alya#39 Phase 2b: a same-scope non-float ternary with
+    // a tag-carrying arm materializes the taken arm's tag; say
+    // dispatches on it instead of reading raw bits. (Through a call
+    // boundary the tag is still opaque: no return-tag protocol yet.)
+    let code = r#"
+function main()
+    let m = []
+    m.push(0.5)
+    let t = clock_ms()
+    say if t != 0 then m[0] else 1
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "0.5\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_ternary_int_arm_wins() {
+    // No false positive: when the int arm wins, the int prints.
+    let code = r#"
+function main()
+    let m = []
+    m.push(0.5)
+    let t = clock_ms()
+    say if t == 0 then m[0] else 1
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "1\n", "Got: {}", output);
+    }
+}

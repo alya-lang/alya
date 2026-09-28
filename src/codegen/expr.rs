@@ -4,7 +4,7 @@ use crate::codegen::analysis::{
     eq_operand_is_dynamic, escape_string, is_array_expr, is_array_kind_read,
     is_definitely_not_numeric, is_dynamic_element_read, is_float_expr, is_map_expr,
     is_map_read_index, is_null_expr, is_number_expr, is_strict_dynamic_op, is_string_expr,
-    is_tag_carrying_read, struct_field_markers_mixed_vars, value_kind_tag,
+    is_tag_carrying_read, struct_field_markers_mixed_vars, ternary_arm_carries, value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -436,7 +436,7 @@ impl CodeGen {
                             if matches!(
                                 self.arch,
                                 Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                            ) && matches!(&**left, Expr::Index { .. })
+                            ) && matches!(&**left, Expr::Index { .. } | Expr::Ternary { .. })
                                 && (is_map_read_index(left, &self.ctx.variables)
                                     || is_array_kind_read(left, &self.ctx.variables)
                                     || is_dynamic_element_read(left, &self.ctx.variables))
@@ -468,7 +468,7 @@ impl CodeGen {
                             if matches!(
                                 self.arch,
                                 Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                            ) && matches!(&**left, Expr::Index { .. })
+                            ) && matches!(&**left, Expr::Index { .. } | Expr::Ternary { .. })
                                 && (is_map_read_index(left, &self.ctx.variables)
                                     || is_array_kind_read(left, &self.ctx.variables)
                                     || is_dynamic_element_read(left, &self.ctx.variables))
@@ -503,7 +503,7 @@ impl CodeGen {
                                 if matches!(
                                     self.arch,
                                     Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                                ) && matches!(&**left, Expr::Index { .. })
+                                ) && matches!(&**left, Expr::Index { .. } | Expr::Ternary { .. })
                                     && (is_map_read_index(left, &self.ctx.variables)
                                         || is_array_kind_read(left, &self.ctx.variables)
                                         || is_dynamic_element_read(left, &self.ctx.variables))
@@ -616,7 +616,7 @@ impl CodeGen {
                         if matches!(
                             self.arch,
                             Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                        ) && matches!(left.as_ref(), Expr::Index { .. })
+                        ) && matches!(left.as_ref(), Expr::Index { .. } | Expr::Ternary { .. })
                             && (is_map_read_index(left, &self.ctx.variables)
                                 || is_array_kind_read(left, &self.ctx.variables)
                                 || is_dynamic_element_read(left, &self.ctx.variables))
@@ -655,7 +655,7 @@ impl CodeGen {
                         if matches!(
                             self.arch,
                             Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                        ) && matches!(right.as_ref(), Expr::Index { .. })
+                        ) && matches!(right.as_ref(), Expr::Index { .. } | Expr::Ternary { .. })
                             && (is_map_read_index(right, &self.ctx.variables)
                                 || is_array_kind_read(right, &self.ctx.variables)
                                 || is_dynamic_element_read(right, &self.ctx.variables))
@@ -749,20 +749,46 @@ impl CodeGen {
 
                 self.generate_condition_jump_if_false(condition, &else_label);
 
+                // Tag-carrying ternary results (Phase 2b, #39): when this
+                // ternary is not statically float but an arm delivers a
+                // tag, every other arm materializes its static kind so
+                // the join always carries the taken arm's tag in the tag
+                // register (x64/x86: %edx, arm64: w1). Tag-carrying arms
+                // need no emission; unknown shapes record 0 (status quo).
+                let ternary_carries = !is_flt
+                    && (ternary_arm_carries(then_branch, &self.ctx.variables)
+                        || ternary_arm_carries(else_branch, &self.ctx.variables));
+
                 self.generate_expression(then_branch);
+                if ternary_carries && !ternary_arm_carries(then_branch, &self.ctx.variables) {
+                    let tag: i64 = match &**then_branch {
+                        Expr::Number(_) => KIND_INT,
+                        Expr::String(_) => KIND_STRING,
+                        _ => KIND_UNKNOWN,
+                    };
+                    match self.arch {
+                        Architecture::X64 | Architecture::X86 => {
+                            self.output.push_str(&format!("    movl ${}, %edx\n", tag));
+                        }
+                        Architecture::ARM64 => {
+                            self.output.push_str(&format!("    mov w1, #{}\n", tag));
+                        }
+                    }
+                }
                 if is_flt
                     && !is_float_expr(then_branch, &self.ctx.variables)
                     && !is_definitely_not_numeric(then_branch, &self.ctx.variables)
                 {
                     // Kind-carrying reads already holding float bits skip
                     // the conversion (map routing or Phase 1 array kinds).
-                    let already_float = matches!(
-                        self.arch,
-                        Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                    ) && matches!(&**then_branch, Expr::Index { .. })
-                        && (is_map_read_index(then_branch, &self.ctx.variables)
-                            || is_array_kind_read(then_branch, &self.ctx.variables)
-                            || is_dynamic_element_read(then_branch, &self.ctx.variables));
+                    let already_float =
+                        matches!(
+                            self.arch,
+                            Architecture::X64 | Architecture::ARM64 | Architecture::X86
+                        ) && matches!(&**then_branch, Expr::Index { .. } | Expr::Ternary { .. })
+                            && (is_map_read_index(then_branch, &self.ctx.variables)
+                                || is_array_kind_read(then_branch, &self.ctx.variables)
+                                || is_dynamic_element_read(then_branch, &self.ctx.variables));
                     if already_float {
                         let l_skip = self.ctx.next_label();
                         if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -784,19 +810,35 @@ impl CodeGen {
 
                 self.output.push_str(&format!("{}:\n", else_label));
                 self.generate_expression(else_branch);
+                if ternary_carries && !ternary_arm_carries(else_branch, &self.ctx.variables) {
+                    let tag: i64 = match &**else_branch {
+                        Expr::Number(_) => KIND_INT,
+                        Expr::String(_) => KIND_STRING,
+                        _ => KIND_UNKNOWN,
+                    };
+                    match self.arch {
+                        Architecture::X64 | Architecture::X86 => {
+                            self.output.push_str(&format!("    movl ${}, %edx\n", tag));
+                        }
+                        Architecture::ARM64 => {
+                            self.output.push_str(&format!("    mov w1, #{}\n", tag));
+                        }
+                    }
+                }
                 if is_flt
                     && !is_float_expr(else_branch, &self.ctx.variables)
                     && !is_definitely_not_numeric(else_branch, &self.ctx.variables)
                 {
                     // Kind-carrying reads already holding float bits skip
                     // the conversion (map routing or Phase 1 array kinds).
-                    let already_float = matches!(
-                        self.arch,
-                        Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                    ) && matches!(&**else_branch, Expr::Index { .. })
-                        && (is_map_read_index(else_branch, &self.ctx.variables)
-                            || is_array_kind_read(else_branch, &self.ctx.variables)
-                            || is_dynamic_element_read(else_branch, &self.ctx.variables));
+                    let already_float =
+                        matches!(
+                            self.arch,
+                            Architecture::X64 | Architecture::ARM64 | Architecture::X86
+                        ) && matches!(&**else_branch, Expr::Index { .. } | Expr::Ternary { .. })
+                            && (is_map_read_index(else_branch, &self.ctx.variables)
+                                || is_array_kind_read(else_branch, &self.ctx.variables)
+                                || is_dynamic_element_read(else_branch, &self.ctx.variables));
                     if already_float {
                         let l_skip = self.ctx.next_label();
                         if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -837,13 +879,14 @@ impl CodeGen {
                         if !is_definitely_not_numeric(value, &self.ctx.variables) {
                             // Kind-carrying reads already holding float
                             // bits skip the conversion.
-                            let already_float = matches!(
-                                self.arch,
-                                Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                            ) && matches!(&**value, Expr::Index { .. })
-                                && (is_map_read_index(value, &self.ctx.variables)
-                                    || is_array_kind_read(value, &self.ctx.variables)
-                                    || is_dynamic_element_read(value, &self.ctx.variables));
+                            let already_float =
+                                matches!(
+                                    self.arch,
+                                    Architecture::X64 | Architecture::ARM64 | Architecture::X86
+                                ) && matches!(&**value, Expr::Index { .. } | Expr::Ternary { .. })
+                                    && (is_map_read_index(value, &self.ctx.variables)
+                                        || is_array_kind_read(value, &self.ctx.variables)
+                                        || is_dynamic_element_read(value, &self.ctx.variables));
                             if already_float {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -873,13 +916,14 @@ impl CodeGen {
                     {
                         // Kind-carrying reads already holding float bits skip
                         // the conversion (map routing or Phase 1 array kinds).
-                        let already_float = matches!(
-                            self.arch,
-                            Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                        ) && matches!(&**default, Expr::Index { .. })
-                            && (is_map_read_index(default, &self.ctx.variables)
-                                || is_array_kind_read(default, &self.ctx.variables)
-                                || is_dynamic_element_read(default, &self.ctx.variables));
+                        let already_float =
+                            matches!(
+                                self.arch,
+                                Architecture::X64 | Architecture::ARM64 | Architecture::X86
+                            ) && matches!(&**default, Expr::Index { .. } | Expr::Ternary { .. })
+                                && (is_map_read_index(default, &self.ctx.variables)
+                                    || is_array_kind_read(default, &self.ctx.variables)
+                                    || is_dynamic_element_read(default, &self.ctx.variables));
                         if already_float {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -1240,13 +1284,14 @@ impl CodeGen {
                     {
                         // Kind-carrying reads already holding float bits
                         // must skip the conversion (else cvt mangles them).
-                        let already_float = matches!(
-                            self.arch,
-                            Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                        ) && matches!(&args[0], Expr::Index { .. })
-                            && (is_map_read_index(&args[0], &self.ctx.variables)
-                                || is_array_kind_read(&args[0], &self.ctx.variables)
-                                || is_dynamic_element_read(&args[0], &self.ctx.variables));
+                        let already_float =
+                            matches!(
+                                self.arch,
+                                Architecture::X64 | Architecture::ARM64 | Architecture::X86
+                            ) && matches!(&args[0], Expr::Index { .. } | Expr::Ternary { .. })
+                                && (is_map_read_index(&args[0], &self.ctx.variables)
+                                    || is_array_kind_read(&args[0], &self.ctx.variables)
+                                    || is_dynamic_element_read(&args[0], &self.ctx.variables));
                         if already_float {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -1352,7 +1397,7 @@ impl CodeGen {
                     if matches!(
                         self.arch,
                         Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                    ) && matches!(&args[0], Expr::Index { .. })
+                    ) && matches!(&args[0], Expr::Index { .. } | Expr::Ternary { .. })
                         && (is_map_read_index(&args[0], &self.ctx.variables)
                             || is_array_kind_read(&args[0], &self.ctx.variables)
                             || is_dynamic_element_read(&args[0], &self.ctx.variables))
@@ -3218,13 +3263,14 @@ impl CodeGen {
                     if !is_float_expr(expr, &self.ctx.variables)
                         && !is_string_expr(expr, &self.ctx.variables)
                     {
-                        let already_float = matches!(
-                            self.arch,
-                            Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                        ) && matches!(&**expr, Expr::Index { .. })
-                            && (is_map_read_index(expr, &self.ctx.variables)
-                                || is_array_kind_read(expr, &self.ctx.variables)
-                                || is_dynamic_element_read(expr, &self.ctx.variables));
+                        let already_float =
+                            matches!(
+                                self.arch,
+                                Architecture::X64 | Architecture::ARM64 | Architecture::X86
+                            ) && matches!(&**expr, Expr::Index { .. } | Expr::Ternary { .. })
+                                && (is_map_read_index(expr, &self.ctx.variables)
+                                    || is_array_kind_read(expr, &self.ctx.variables)
+                                    || is_dynamic_element_read(expr, &self.ctx.variables));
                         if already_float {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -3327,7 +3373,7 @@ impl CodeGen {
                 if matches!(
                     self.arch,
                     Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                ) && matches!(expr, Expr::Index { .. })
+                ) && matches!(expr, Expr::Index { .. } | Expr::Ternary { .. })
                     && (is_map_read_index(expr, &self.ctx.variables)
                         || is_array_kind_read(expr, &self.ctx.variables)
                         || is_dynamic_element_read(expr, &self.ctx.variables))
@@ -3576,7 +3622,7 @@ impl CodeGen {
                 if matches!(
                     self.arch,
                     Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                ) && matches!(expr, Expr::Index { .. })
+                ) && matches!(expr, Expr::Index { .. } | Expr::Ternary { .. })
                     && (is_map_read_index(expr, &self.ctx.variables)
                         || is_array_kind_read(expr, &self.ctx.variables)
                         || is_dynamic_element_read(expr, &self.ctx.variables))
@@ -3640,7 +3686,7 @@ impl CodeGen {
                 if matches!(
                     self.arch,
                     Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                ) && matches!(expr, Expr::Index { .. })
+                ) && matches!(expr, Expr::Index { .. } | Expr::Ternary { .. })
                     && (is_map_read_index(expr, &self.ctx.variables)
                         || is_array_kind_read(expr, &self.ctx.variables)
                         || is_dynamic_element_read(expr, &self.ctx.variables))

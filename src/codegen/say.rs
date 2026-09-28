@@ -1090,6 +1090,40 @@ impl CodeGen {
                 };
                 self.generate_expression(expr);
 
+                // Tag-carrying ternary results (Phase 2b, #39): the taken
+                // arm's tag is fresh here (codegen materializes every
+                // other arm). Float/string tags print exactly; anything
+                // else falls through to the static handling below.
+                // Value contract per arch: int/string in the int register,
+                // float bits in the int register (x64/arm64 rebuild f64
+                // from them; x86's loader left it in xmm0, untouched
+                // since by jumps only).
+                let ternary_tagged = matches!(expr, Expr::Ternary { .. })
+                    && is_tag_carrying_read(expr, &self.ctx.variables);
+                let (l_tflt, l_tstr, l_tend) = if ternary_tagged {
+                    let flt = self.ctx.next_label();
+                    let s2 = self.ctx.next_label();
+                    let end = self.ctx.next_label();
+                    if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                        self.output
+                            .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                        self.output.push_str(&format!("    je {}\n", flt));
+                        self.output
+                            .push_str(&format!("    cmpl ${}, %edx\n", KIND_STRING));
+                        self.output.push_str(&format!("    je {}\n", s2));
+                    } else {
+                        self.output
+                            .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                        self.output.push_str(&format!("    b.eq {}\n", flt));
+                        self.output
+                            .push_str(&format!("    cmp w1, #{}\n", KIND_STRING));
+                        self.output.push_str(&format!("    b.eq {}\n", s2));
+                    }
+                    (Some(flt), Some(s2), Some(end))
+                } else {
+                    (None, None, None)
+                };
+
                 if unknown_call {
                     let l_call_str = self.ctx.next_label();
                     let l_call_end = self.ctx.next_label();
@@ -1165,6 +1199,46 @@ impl CodeGen {
                         self.ctx.stack_offset,
                         self.os,
                     );
+                }
+                if let (Some(t_flt), Some(t_str), Some(t_end)) = (l_tflt, l_tstr, l_tend) {
+                    arch::emit_jump(&mut self.output, self.arch, &t_end);
+                    self.output.push_str(&format!("{}:\n", t_flt));
+                    match self.arch {
+                        Architecture::X64 => {
+                            self.output.push_str("    movq %rax, %xmm0\n");
+                        }
+                        Architecture::ARM64 => {
+                            self.output.push_str("    fmov d0, x0\n");
+                        }
+                        Architecture::X86 => {}
+                    }
+                    let fmt_tflt = self.ctx.next_string_label();
+                    self.emit_rodata_section();
+                    self.output.push_str(&format!("{}:\n", fmt_tflt));
+                    self.emit_string_directive("%g\\n");
+                    self.output.push_str(".text\n");
+                    arch::emit_say_float(
+                        &mut self.output,
+                        self.arch,
+                        &fmt_tflt,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                    arch::emit_jump(&mut self.output, self.arch, &t_end);
+                    self.output.push_str(&format!("{}:\n", t_str));
+                    let fmt_tstr = self.ctx.next_string_label();
+                    self.emit_rodata_section();
+                    self.output.push_str(&format!("{}:\n", fmt_tstr));
+                    self.emit_string_directive("%s\\n");
+                    self.output.push_str(".text\n");
+                    arch::emit_say_acc(
+                        &mut self.output,
+                        self.arch,
+                        &fmt_tstr,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                    self.output.push_str(&format!("{}:\n", t_end));
                 }
                 self.output.push('\n');
             }

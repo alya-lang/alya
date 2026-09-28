@@ -765,13 +765,40 @@ pub fn is_strict_dynamic_op(op: &BinaryOp) -> bool {
 /// True when an `Index` read delivers a trustworthy value-kind tag in
 /// the tag register (x64/x86: `%edx`, arm64: `w1`): map-routed reads via
 /// `fn_get`, plain array-identifier reads via the slot sidecar, or
-/// dynamically-typed element reads (Phase 2b). Mirrors the
-/// expression-codegen routing exactly; struct `operator[]` rewrites and
-/// string-typed bases never reach a tag-producing loader.
+/// dynamically-typed element reads (Phase 2b). Non-float ternaries with
+/// a tag-carrying arm deliver the taken arm's tag (codegen materializes
+/// every other arm). Mirrors the expression-codegen routing exactly;
+/// struct `operator[]` rewrites and string-typed bases never reach a
+/// tag-producing loader.
 pub fn is_tag_carrying_read(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    if let Expr::Ternary {
+        then_branch,
+        else_branch,
+        ..
+    } = expr
+    {
+        return !is_float_expr(expr, vars)
+            && (ternary_arm_carries(then_branch, vars) || ternary_arm_carries(else_branch, vars));
+    }
     is_map_read_index(expr, vars)
         || is_array_kind_read(expr, vars)
         || is_dynamic_element_read(expr, vars)
+}
+
+/// True when a ternary arm delivers its tag without materialization:
+/// tag-carrying Index reads, or nested ternaries that materialize their
+/// own (recursion terminates: arms are strictly smaller exprs).
+/// Codegen consults the same rule, so predicate and emission agree.
+pub fn ternary_arm_carries(arm: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    match arm {
+        Expr::Index { .. } => {
+            is_map_read_index(arm, vars)
+                || is_array_kind_read(arm, vars)
+                || is_dynamic_element_read(arm, vars)
+        }
+        Expr::Ternary { .. } => is_tag_carrying_read(arm, vars),
+        _ => false,
+    }
 }
 
 /// True when an `Index` read has statically-unknown element kind
