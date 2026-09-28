@@ -325,3 +325,91 @@ main()
         );
     }
 }
+
+#[test]
+fn test_x86_say_int_consts() {
+    // Regression test for alya-lang/alya#56: `%lld` reads 8 bytes, so
+    // constant ints must push hi+lo (not a single 4-byte word).
+    let code = r#"
+enum HttpStatus
+    Ok = 200
+    NotFound = 404
+end
+say HttpStatus.Ok
+say HttpStatus::NotFound
+say 200
+say 404
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "200\n404\n200\n404\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_x86_integer_literal_precision() {
+    // Regression test for alya-lang/alya#57: 64-bit literals print
+    // exactly through the hi/lo constant path.
+    let code = r#"
+say 2305843009213693951
+say 4611686018427387903
+say 9223372036854775807
+say 0xFF
+say 1_000_000
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(
+            output, "2305843009213693951\n4611686018427387903\n9223372036854775807\n255\n1000000\n",
+            "Got: {}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_x86_str_to_int_rodata() {
+    // Regression test for alya-lang/alya#58: the rodata classifier must
+    // not clobber the sign flag, or every parsed int comes out negated.
+    let code = r#"
+say to_int("36")
+say to_int("-36")
+let kind = "i"
+let raw = "36"
+let decoded = when kind
+    is "i" => to_int(raw)
+    else => raw
+end
+say "decoded: " + str(decoded)
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "36\n-36\ndecoded: 36\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_x86_say_string_array() {
+    // Regression test for alya-lang/alya#59: fn_join must stride 8-byte
+    // slots (not 4), or multi-element string arrays crash/mismatch.
+    let code = r#"
+function pick(lang: string) -> array
+    return when lang
+        is "a" => ["x", "y"]
+        else => ["p", "q"]
+    end
+end
+function main()
+    let r = pick("a")
+    say r
+    say r[0]
+    say r[1]
+    say ["x", "y"]
+end
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "[x, y]\nx\ny\n[x, y]\n", "Got: {}", output);
+    }
+}

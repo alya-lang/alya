@@ -23,10 +23,16 @@ pub fn emit_say_offset(out: &mut String, offset: i32, fmt_label: &str) {
 }
 
 pub fn emit_say_num_const(out: &mut String, val: i64, fmt_label: &str) {
-    out.push_str(&format!("    push ${}\n", val));
+    // %lld reads 8 bytes: push the full 64-bit constant as hi+lo
+    // (alya-lang/alya#56, #57). A single 4-byte push leaves the high
+    // word as stack garbage.
+    let lo = val as i32;
+    let hi = (val >> 32) as i32;
+    out.push_str(&format!("    push ${}\n", hi));
+    out.push_str(&format!("    push ${}\n", lo));
     out.push_str(&format!("    push ${}\n", fmt_label));
     emit_call_printf(out);
-    out.push_str("    add $8, %esp\n");
+    out.push_str("    add $12, %esp\n");
 }
 
 pub fn emit_say_acc(out: &mut String, fmt_label: &str) {

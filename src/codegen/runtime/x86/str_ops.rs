@@ -755,7 +755,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    xor %ecx, %ecx\n");
     out.push_str("    test %esi, %esi\n");
     out.push_str("    jz .L_x86_s2i_done\n");
-    emit_str_buf_load(out, "%edx", "%ecx", os);
+    // Bounds scratch goes in %ebx (saved): %ecx is the '-' sign flag
+    // and must stay zero until the sign check (alya-lang/alya#58).
+    // x64 keeps the flag in %rcx with bounds in %r10/%r11 the same way.
+    emit_str_buf_load(out, "%edx", "%ebx", os);
     out.push_str("    cmp %edx, %esi\n");
     out.push_str("    jb .L_x86_s2i_chk_rodata\n");
     out.push_str("    add $1000000, %edx\n");
@@ -765,8 +768,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea alya_rodata_start, %edx\n");
     out.push_str("    cmp %edx, %esi\n");
     out.push_str("    jb .L_x86_s2i_not_str\n");
-    out.push_str("    lea alya_rodata_end, %ecx\n");
-    out.push_str("    cmp %ecx, %esi\n");
+    out.push_str("    lea alya_rodata_end, %ebx\n");
+    out.push_str("    cmp %ebx, %esi\n");
     out.push_str("    jb .L_x86_s2i_skip\n");
     out.push_str(".L_x86_s2i_not_str:\n");
     out.push_str("    cmp $65536, %esi\n");
@@ -774,6 +777,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov %esi, %eax\n");
     out.push_str("    jmp .L_x86_s2i_done\n");
     out.push_str(".L_x86_s2i_skip:\n");
+    // The classifier above runs before any digit is parsed: re-zero the
+    // accumulator (str-buf load uses %eax as scratch, non-zero on worker
+    // thread slots) and the sign flag so parsing starts clean.
+    out.push_str("    xor %eax, %eax\n");
+    out.push_str("    xor %ecx, %ecx\n");
     out.push_str("    movzbl (%esi), %edx\n");
     out.push_str("    test %edx, %edx\n");
     out.push_str("    jz .L_x86_s2i_done\n");
@@ -893,7 +901,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    cmp %ebx, %ecx\n");
     out.push_str("    jge .L_x86_bytes_done\n");
     out.push_str("    movzbl (%esi, %ecx), %eax\n");
-    out.push_str("    mov %eax, (%edx, %ecx, 4)\n");
+    // 8-byte element slots (Phase 1 x86 port, #39); stride 4 overlaps
+    // neighbours. High words stay zero from calloc, kinds stay unknown.
+    out.push_str("    mov %eax, (%edx, %ecx, 8)\n");
     out.push_str("    inc %ecx\n");
     out.push_str("    jmp .L_x86_bytes_copy_loop\n");
     out.push_str(".L_x86_bytes_done:\n");

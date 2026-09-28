@@ -96,7 +96,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov -8(%ebp), %esi\n");
     out.push_str("    mov 8(%esi), %esi\n");
     out.push_str("    mov -16(%ebp), %eax\n");
-    out.push_str("    mov (%esi, %eax, 4), %esi\n");
+    // Element slots are 8 bytes (Phase 1 x86 port, #39); a stride of 4
+    // reads the neighbouring slot's high word (alya-lang/alya#59).
+    out.push_str("    mov (%esi, %eax, 8), %esi\n");
     out.push_str(".L_x86_join_copy_elem_loop:\n");
     out.push_str("    movb (%esi), %al\n");
     out.push_str("    test %al, %al\n");
