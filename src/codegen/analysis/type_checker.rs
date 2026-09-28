@@ -331,7 +331,7 @@ pub fn parse_type_str(raw: &str) -> Type {
         return Type::Any;
     }
 
-    // Weak `weak T` is a null-or-T reference (Chapter 16 §1.4: a weak
+    // Weak `weak T` is a null-or-T reference (Chapter 16 §1.5: a weak
     // reference safely becomes null when its target is deallocated), so it
     // parses to Nullable rather than dropping the marker.
     if let Some(rest) = s.strip_prefix("weak ") {

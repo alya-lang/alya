@@ -61,7 +61,7 @@ Alya believes that code is read far more often than it is written. Syntax should
 
 Where dynamic languages surrender predictability, Alya enforces industrial discipline:
 
-1. **Strict Signature Boundaries**: Function parameters, return types, and struct fields must declare explicit types. Public API contracts are statically validated at compile time.
+1. **Gradual Signature Boundaries**: Explicitly annotated parameters, return types, and struct fields are statically validated at compile time. Unannotated bindings default to dynamic typing (`any`), which is bidirectionally assignable with all types (see Chapter 02 §1.5). Public API contracts should declare explicit types; the compiler enforces them where present and tracks dynamics where not.
 2. **Deterministic Local Type Inference**: Inside function and block scopes, local variables enjoy clean, zero-ambiguity type inference. No dynamic type guessing at runtime.
 3. **Composition Over Inheritance**: Alya completely rejects classical classes, deep inheritance trees, polymorphic virtual tables, and fragile base classes. Instead:
    - **Pure Data Structs**: Structs contain state and define precise memory layout.
@@ -247,6 +247,8 @@ Every syntax rule in Alya is specified with formal grammar rules (EBNF) and acco
 | **23** | **Standard Library Core Contracts (Tier-1)** | [`chapters/23_stdlib_core_contracts.md`](chapters/23_stdlib_core_contracts.md) | [`syntax/stdlib_contracts.alya`](syntax/stdlib_contracts.alya) | ✅ Complete |
 | **24** | **Toolchain, CLI & Package Manager (`alya`)** | [`chapters/24_toolchain_and_cli.md`](chapters/24_toolchain_and_cli.md) | [`syntax/toolchain_example.alya`](syntax/toolchain_example.alya) | ✅ Complete |
 
+Sections inside a chapter may carry their own status banner: `Status: Draft` marks proposed runtime behavior that is specified but not yet implemented (e.g. Chapter 02 §1.7, tracking an open issue); everything else is Stable and netted by the golden, negative, and integration suites.
+
 ---
 
 ## ⚖️ The "Spec-First" Development Constitution
@@ -256,3 +258,4 @@ To prevent parser fragility, compiler regressions, and ad-hoc feature sprawl:
 1. **No Implementation Without Specification**: No new keyword, token, or grammar rule may be added to the `alya` compiler before it is documented in this specification repository with EBNF rules and accepted by the design team.
 2. **Golden Test Fixtures**: All files in `syntax/*.alya` serve as the golden test suite. Every release of `alya` must parse and compile these files without error.
 3. **Semantic Versioning & Evolution**: Syntax breaking changes are strictly forbidden between minor compiler versions once a specification chapter reaches `Stable` status.
+4. **Dynamic-Behavior Documentation**: Every compiler fix that changes dynamic (`any`) runtime behavior must add one paragraph to the relevant specification chapter — the spec sibling of the fixture rule in `spec/integration/README.md` (no fixture-less compiler fixes there, no paragraph-less dynamic fixes here).

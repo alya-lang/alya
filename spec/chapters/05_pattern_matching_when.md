@@ -121,6 +121,15 @@ end
 
 - Flow-sensitive type narrowing applies automatically inside the matched arm, allowing direct typed field access and method calls.
 
+### 1.9 Dynamic-Subject Guarantee
+Type arms (`is int`, `is string`, `is float`) dispatch exactly when the
+subject's kind is statically proven. For genuinely dynamic subjects the
+current engine uses best-effort inference and may misroute (see Chapter
+02 §1.7 for the decidability matrix). Exact runtime dispatch of dynamic
+subjects is proposed there (Status: Draft, tracking alya-lang/alya#39);
+until it lands, prefer explicit annotations or conversions at dynamic
+boundaries (JSON, FFI, `any` parameters).
+
 ---
 
 ## 2. Formal Grammar (EBNF Snippet)

@@ -92,7 +92,7 @@ for fruit_name, len in fruit_lengths
 end
 
 # ------------------------------------------------------------------------------
-# 5. Map Introspection & Missing-Key Semantics (Chapter 13 §1.2)
+# 5. Map Introspection & Missing-Key Semantics (Chapter 13 §1.3)
 # ------------------------------------------------------------------------------
 let probe_map = { "a": 1 }
 assert_eq(probe_map.keys().length(), 1)

@@ -23,7 +23,24 @@ Arrays in Alya are contiguous, dynamically-sized heap structures managed via ARC
   - `arr.remove_at(index)`: Removes element at index and shifts subsequent elements.
   - `arr.contains(val)`: Equivalent to `val in arr`.
 
-### 1.2 Hash Maps (Associative Dictionaries)
+### 1.2 Push-Built Arrays & Element-Type Evolution
+Arrays assembled with `push` (rather than literals) follow these rules
+(cf. alya-lang/alya#50; runtime tags proposed in Chapter 02 §1.7):
+- An array whose locally visible sources are all floats (float
+  literals, float pushes, float-array aliases) reads back floats
+  without an annotation.
+- Any integer-literal or statically-unknown source (including pushes
+  through parameters, globals, or aliases the compiler cannot see
+  into) keeps the array on the default read path, which interprets
+  slots as integers.
+- Mixed integer/float content has no statically correct read: integer
+  slots keep reading correctly, float slots read bit patterns. True
+  mixed-type discrimination needs runtime tags.
+- `for v in arr` binds the loop variable to the array's proven element
+  kind where one exists; over mixed literals the binding is
+  integer-biased (same limitation as above).
+
+### 1.3 Hash Maps (Associative Dictionaries)
 Hash Maps associate keys with values using high-throughput hash buckets.
 - **Literal Syntax**: `let user = { "id": 101, "name": "Alya", "role": "admin" }`
 - **Type Annotation**: `map[string, any]` or `map[string, int]`
@@ -39,13 +56,13 @@ Hash Maps associate keys with values using high-throughput hash buckets.
   - `map.keys()`: Returns an array of keys.
   - `map.values()`: Returns an array of values.
 
-### 1.3 Tuples
+### 1.4 Tuples
 Tuples represent fixed-size, heterogeneous groupings allocated on the stack.
 - **Literal Syntax**: `let entry = (1, "Active", 99.5)`
 - **Positional Access**: `entry.0`, `entry.1`, `entry.2`
 - **Destructuring**: `let (id, status, score) = entry`
 
-### 1.4 List & Map Comprehensions
+### 1.5 List & Map Comprehensions
 To provide Python/Ruby-grade ergonomic data transformation, Alya natively supports comprehensions:
 - **Array Comprehension**:
   ```alya

@@ -88,7 +88,7 @@ end
 run_arena_workload()
 
 # ------------------------------------------------------------------------------
-# 5. Weak Nulling After Target Deallocation (Chapter 16 §1.4)
+# 5. Weak Nulling After Target Deallocation (Chapter 16 §1.5)
 # ------------------------------------------------------------------------------
 # The core weak guarantee: when the strong owner is freed, the weak reference
 # observes null instead of dangling.
@@ -110,7 +110,7 @@ assert orphan.parent is null
 say f"Weak nulled after dealloc: {orphan.name} (parent null)"
 
 # ------------------------------------------------------------------------------
-# 6. Arena Reset & Reuse (Chapter 16 §1.5)
+# 6. Arena Reset & Reuse (Chapter 16 §1.6)
 # ------------------------------------------------------------------------------
 let arena2 = mem.Arena.new(4096)
 let first_block = arena2.alloc(64)
