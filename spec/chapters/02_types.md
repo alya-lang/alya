@@ -116,6 +116,69 @@ For numerical computing, 3D graphics, digital signal processing (DSP), and machi
 
 ---
 
+### 1.7 Runtime Value Representation (Status: Draft — tracks alya-lang/alya#39)
+
+This section documents the runtime identity of values: what a value
+slot holds and what can (and cannot) be decided about it at runtime.
+It is purely additive: no syntax, grammar, EBNF, or Stable-semantics
+change. Behavior specified here as "proposal" is not yet implemented;
+behavior marked "current engine" is netted by the existing test suite.
+
+#### 1. Value slots (current engine)
+- On 64-bit targets (x64, ARM64) every value occupies one 64-bit slot
+  (register or stack word). The x86 backend uses 32-bit slots with the
+  float truncation documented in §1.1 ¶4.
+- `int` (and sized integers): raw two's complement in the slot, full
+  64-bit range (`u64::MAX` is the integer-literal ceiling).
+- `float`: raw IEEE-754 f64 bits, always unboxed. Boxing floats is a
+  non-goal: scalar float performance is load-bearing (math packages,
+  SIMD paths in §1.6). Consequence: a float bit pattern is
+  indistinguishable by inspection from an integer or a pointer.
+- `bool`: the numerals `1` (`true`) and `0` (`false`). `bool` is not
+  distinguishable from `int` at runtime; separation is static only.
+- `null`: the zero word.
+- Heap values (`array`, `map`, `struct`): a pointer to an ARC object
+  (see Chapter 16). Array objects carry kind `0x5A110001`, maps
+  `0x5A110002`, structs `0x5A110003` in the object header kind word.
+  Strings are heap objects identified by allocation range, not by a
+  header kind.
+
+#### 2. Decidability matrix (current engine)
+| Subject | Decidable at runtime? |
+| :--- | :--- |
+| `null` | Yes — zero test. |
+| `bool` vs `int` | No — identical encoding; static only. |
+| `int` vs `float` | No — overlapping bit patterns. |
+| heap vs scalar | Heuristic only — address-range checks plus header-kind reads. Large-int and float dynamics can alias heap pointers and fault on the header read (known limitation). |
+| map entry kinds | Yes where the engine's packed entry tags exist. |
+| array slot kinds | No — slots are bare payloads (gap; cf. alya-lang/alya#50). |
+
+#### 3. Tag scheme (proposal)
+- **Phase 1 — container slots.** Array slots widen to payload plus
+  kind (mirroring map entries). Untyped reads and `for` over mixed
+  arrays dispatch per element on the slot kind. Cost: 2x array element
+  memory. Scalar representation untouched.
+- **Phase 2 — predicate dispatch.** `is int` / `is string` / `is float`
+  (Chapter 05 type arms) consult tags on tagged channels; statically
+  proven kinds keep the current zero-cost paths. No `any` semantics
+  change.
+- **Phase 3 — pointer tags (future).** Low 3 bits of heap pointers
+  carry the kind (8-byte alignment is guaranteed, so no address space
+  is lost; pointers are masked on dereference). Small integers become
+  immediates. Floats stay outside this scheme (unboxed, §1).
+  NaN-boxing is explicitly rejected: full-range 64-bit integers do
+  not fit the NaN payload.
+- **Non-goals.** No new syntax or keywords (no EBNF delta); no change
+  to `any` assignability (§1.5); no float boxing.
+
+#### 4. Acceptance (mirrors alya-lang/alya#39)
+- The Chapter 05 `kind()` repro discriminates fully: `kind(3.5)`
+  returns `"f"`; every dynamic arm dispatches on runtime kind.
+- Statically typed paths keep zero-cost codegen with no regressions.
+- Per-value overhead is documented here before implementation lands.
+
+---
+
 ## 2. Memory Layout & Stack vs Heap Semantics
 
 | Type | Allocation | Lifecycle | Reference Counted? |
