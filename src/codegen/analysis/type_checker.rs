@@ -444,10 +444,7 @@ struct ArrayKindEvidence {
 /// Element kind of an array type annotation: true=float, false=int.
 fn ann_array_elem_kind(ann: &str) -> Option<bool> {
     let t = ann.trim();
-    let base = match t.strip_suffix("[]") {
-        Some(b) => b.trim(),
-        None => return None,
-    };
+    let base = t.strip_suffix("[]")?.trim();
     match base {
         "float" | "f64" | "f32" => Some(true),
         "int" | "i64" | "i32" | "i16" | "i8" | "uint" | "u64" | "u32" | "u16" | "u8" | "byte" => {
