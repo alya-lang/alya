@@ -1115,6 +1115,52 @@ impl TypeChecker {
                 let lt = self.infer_expr(left)?;
                 let rt = self.infer_expr(right)?;
 
+                // Chapter 03 (alya-lang/alya#46): arithmetic and bitwise
+                // operators on arrays/maps have no defined semantics.
+                // Codegen would otherwise emit integer addition on two
+                // heap pointers and crash at runtime, so reject them at
+                // check time. Structs are exempt: user-defined operator
+                // overloads resolve in codegen. `Any` stays lenient
+                // (gradual typing).
+                let is_collection = |t: &Type| matches!(t, Type::Array(_) | Type::Map(_, _));
+                let is_arith = matches!(
+                    op,
+                    BinaryOp::Add
+                        | BinaryOp::Subtract
+                        | BinaryOp::Multiply
+                        | BinaryOp::Divide
+                        | BinaryOp::Modulo
+                        | BinaryOp::BitAnd
+                        | BinaryOp::BitOr
+                        | BinaryOp::BitXor
+                        | BinaryOp::Shl
+                        | BinaryOp::Shr
+                );
+                if is_arith && (is_collection(&lt) || is_collection(&rt)) {
+                    // `string + x` keeps its concat/stringify path.
+                    let is_str_concat =
+                        matches!(op, BinaryOp::Add) && (lt == Type::String || rt == Type::String);
+                    if !is_str_concat {
+                        let sym = match op {
+                            BinaryOp::Add => "+",
+                            BinaryOp::Subtract => "-",
+                            BinaryOp::Multiply => "*",
+                            BinaryOp::Divide => "/",
+                            BinaryOp::Modulo => "%",
+                            BinaryOp::BitAnd => "&",
+                            BinaryOp::BitOr => "|",
+                            BinaryOp::BitXor => "^",
+                            BinaryOp::Shl => "<<",
+                            BinaryOp::Shr => ">>",
+                            _ => "?",
+                        };
+                        return Err(format!(
+                            "TypeError: Operator '{}' cannot be applied to '{}' and '{}'",
+                            sym, lt, rt
+                        ));
+                    }
+                }
+
                 match op {
                     BinaryOp::Add => {
                         if lt == Type::String || rt == Type::String {
