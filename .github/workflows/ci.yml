@@ -68,6 +68,7 @@ jobs:
           - os: ubuntu-latest
             label: Linux x86
             target: i686-unknown-linux-gnu
+            cargo_args: --target i686-unknown-linux-gnu
           - os: windows-latest
             label: Windows x64
           - os: windows-11-arm
@@ -110,28 +111,13 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value "$tcDir/bin"
 
       - name: Run test suite
-        if: matrix.target == ''
-        run: cargo test --verbose
-
-      - name: Run test suite (32-bit)
-        if: matrix.target != ''
-        run: cargo test --verbose --target ${{ matrix.target }}
+        run: cargo test --verbose ${{ matrix.cargo_args }}
 
       - name: Build release binary
-        if: matrix.target == ''
-        run: cargo build --release --verbose
-
-      - name: Build release binary (32-bit)
-        if: matrix.target != ''
-        run: cargo build --release --verbose --target ${{ matrix.target }}
+        run: cargo build --release --verbose ${{ matrix.cargo_args }}
 
       - name: Run self-hosted test suites
-        if: matrix.target == ''
-        run: cargo run -- test tests/
-
-      - name: Run self-hosted test suites (32-bit)
-        if: matrix.target != ''
-        run: cargo run --target ${{ matrix.target }} -- test tests/
+        run: cargo run ${{ matrix.cargo_args }} -- test tests/
 
       - name: Verify Toolchain Commands
         run: |
