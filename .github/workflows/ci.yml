@@ -115,7 +115,7 @@ jobs:
 
       - name: Run test suite (32-bit)
         if: matrix.target != ''
-        run: cargo test --verbose --lib --target ${{ matrix.target }}
+        run: cargo test --verbose --target ${{ matrix.target }}
 
       - name: Build release binary
         if: matrix.target == ''
