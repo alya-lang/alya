@@ -92,7 +92,7 @@ jobs:
         run: cargo test --verbose ${{ matrix.cargo_args }}
 
       - name: Run self-hosted test suites
-        run: cargo run ${{ matrix.cargo_args }} -- test tests/
+        run: cargo run ${{ matrix.cargo_args }} -- test
 
       - name: Verify Toolchain Commands
         run: |
