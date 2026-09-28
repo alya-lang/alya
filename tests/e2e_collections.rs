@@ -1030,3 +1030,35 @@ main()
         assert_eq!(output, "3\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_untyped_param_eq_fast_path_strict_error() {
+    // alya-lang/alya#39 Phase 2b: the Number-immediate fast paths in
+    // value context carry the same strict check (== with a float tag
+    // traps instead of comparing raw bits).
+    let code = r#"
+function eq1(a)
+    return a[0] == 1
+end
+
+function main()
+    let m = []
+    m.push(1.0)
+    say eq1(m)
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_ne!(
+            code, 0,
+            "Expected a runtime mixed-type error, got: {}",
+            output
+        );
+        assert!(
+            output.contains("mixed int/float arithmetic"),
+            "Got: {}",
+            output
+        );
+    }
+}

@@ -537,12 +537,25 @@ impl CodeGen {
                 } else {
                     if let Expr::Number(n) = &**right {
                         self.generate_expression(left);
+                        // Strict dynamic check (#39 Phase 2b): float tag
+                        // on a tag-carrying read is the runtime half of
+                        // the mixed-type error.
+                        if is_strict_dynamic_op(op)
+                            && is_tag_carrying_read(left, &self.ctx.variables)
+                        {
+                            arch::emit_mixed_float_check(&mut self.output, self.arch);
+                        }
                         arch::emit_binary_op_imm(&mut self.output, self.arch, *op, *n as i64);
                         return;
                     }
                     if let Expr::Identifier(name) = &**right {
                         if let Some(&VarType::Number(offset)) = self.ctx.variables.get(name) {
                             self.generate_expression(left);
+                            if is_strict_dynamic_op(op)
+                                && is_tag_carrying_read(left, &self.ctx.variables)
+                            {
+                                arch::emit_mixed_float_check(&mut self.output, self.arch);
+                            }
                             arch::emit_load_var_to_scratch(
                                 &mut self.output,
                                 self.arch,
@@ -566,12 +579,22 @@ impl CodeGen {
                     if is_commutative {
                         if let Expr::Number(n) = &**left {
                             self.generate_expression(right);
+                            if is_strict_dynamic_op(op)
+                                && is_tag_carrying_read(right, &self.ctx.variables)
+                            {
+                                arch::emit_mixed_float_check(&mut self.output, self.arch);
+                            }
                             arch::emit_binary_op_imm(&mut self.output, self.arch, *op, *n as i64);
                             return;
                         }
                         if let Expr::Identifier(name) = &**left {
                             if let Some(&VarType::Number(offset)) = self.ctx.variables.get(name) {
                                 self.generate_expression(right);
+                                if is_strict_dynamic_op(op)
+                                    && is_tag_carrying_read(right, &self.ctx.variables)
+                                {
+                                    arch::emit_mixed_float_check(&mut self.output, self.arch);
+                                }
                                 arch::emit_load_var_to_scratch(
                                     &mut self.output,
                                     self.arch,
