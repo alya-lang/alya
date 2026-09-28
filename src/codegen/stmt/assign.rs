@@ -6,6 +6,7 @@ use crate::codegen::analysis::{
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
+use crate::codegen::kinds::kind_of_literal;
 use crate::codegen::target::Architecture;
 
 impl CodeGen {
@@ -1141,16 +1142,7 @@ impl CodeGen {
             // (no room for packed tags) so x86 stays untagged.
             if matches!(self.arch, Architecture::X64 | Architecture::ARM64) {
                 if let (Expr::Identifier(_), Expr::String(_)) = (array, index) {
-                    let tag_kind: Option<i64> = match value {
-                        Expr::String(_) => Some(3),
-                        Expr::Float(_) => Some(2),
-                        Expr::Number(_) => Some(1),
-                        Expr::Array(_) => Some(4),
-                        Expr::Map(_) => Some(5),
-                        Expr::StructInit { .. } => Some(6),
-                        _ => None,
-                    };
-                    if let Some(kind) = tag_kind {
+                    if let Some(kind) = kind_of_literal(value) {
                         let tag_args = [array.clone(), index.clone(), Expr::Number(kind as i128)];
                         match self.arch {
                             Architecture::X86 => {

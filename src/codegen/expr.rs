@@ -7,6 +7,7 @@ use crate::codegen::analysis::{
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
+use crate::codegen::kinds::{KIND_FLOAT, KIND_INT, KIND_STRING, KIND_UNKNOWN};
 use crate::codegen::target::{Architecture, OperatingSystem};
 
 impl CodeGen {
@@ -437,10 +438,12 @@ impl CodeGen {
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64) {
-                                    self.output.push_str("    cmpl $2, %edx\n");
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    je {}\n", l_skip));
                                 } else {
-                                    self.output.push_str("    cmp w1, #2\n");
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    b.eq {}\n", l_skip));
                                 }
                                 arch::emit_int_to_float(&mut self.output, self.arch);
@@ -463,10 +466,12 @@ impl CodeGen {
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64) {
-                                    self.output.push_str("    cmpl $2, %edx\n");
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    je {}\n", l_skip));
                                 } else {
-                                    self.output.push_str("    cmp w1, #2\n");
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    b.eq {}\n", l_skip));
                                 }
                                 arch::emit_int_to_float(&mut self.output, self.arch);
@@ -492,10 +497,12 @@ impl CodeGen {
                                 {
                                     let l_skip = self.ctx.next_label();
                                     if matches!(self.arch, Architecture::X64) {
-                                        self.output.push_str("    cmpl $2, %edx\n");
+                                        self.output
+                                            .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                         self.output.push_str(&format!("    je {}\n", l_skip));
                                     } else {
-                                        self.output.push_str("    cmp w1, #2\n");
+                                        self.output
+                                            .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
                                         self.output.push_str(&format!("    b.eq {}\n", l_skip));
                                     }
                                     arch::emit_int_to_float(&mut self.output, self.arch);
@@ -576,10 +583,12 @@ impl CodeGen {
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64) {
-                                self.output.push_str("    cmpl $2, %edx\n");
+                                self.output
+                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                 self.output.push_str(&format!("    je {}\n", l_skip));
                             } else {
-                                self.output.push_str("    cmp w1, #2\n");
+                                self.output
+                                    .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
                                 self.output.push_str(&format!("    b.eq {}\n", l_skip));
                             }
                             arch::emit_int_to_float(&mut self.output, self.arch);
@@ -610,10 +619,12 @@ impl CodeGen {
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64) {
-                                self.output.push_str("    cmpl $2, %edx\n");
+                                self.output
+                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                 self.output.push_str(&format!("    je {}\n", l_skip));
                             } else {
-                                self.output.push_str("    cmp w1, #2\n");
+                                self.output
+                                    .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
                                 self.output.push_str(&format!("    b.eq {}\n", l_skip));
                             }
                             arch::emit_int_to_float(&mut self.output, self.arch);
@@ -1148,10 +1159,12 @@ impl CodeGen {
                         let l_flt = self.ctx.next_label();
                         let l_end = self.ctx.next_label();
                         if matches!(self.arch, Architecture::X64) {
-                            self.output.push_str("    cmpl $2, %edx\n");
+                            self.output
+                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                             self.output.push_str(&format!("    je {}\n", l_flt));
                         } else {
-                            self.output.push_str("    cmp w1, #2\n");
+                            self.output
+                                .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
                             self.output.push_str(&format!("    b.eq {}\n", l_flt));
                         }
                         arch::emit_function_call(
@@ -3017,10 +3030,12 @@ impl CodeGen {
                     if matches!(self.arch, Architecture::X64) {
                         // %rax = value (kept for tag==0 fallback below),
                         // %edx = tag (0 unknown, 3 string).
-                        self.output.push_str("    cmpl $3, %edx\n");
+                        self.output
+                            .push_str(&format!("    cmpl ${}, %edx\n", KIND_STRING));
                         self.output.push_str(&format!("    je {}\n", l_true));
                         // Unknown tag: fall back to pointer-range string test.
-                        self.output.push_str("    cmpl $0, %edx\n");
+                        self.output
+                            .push_str(&format!("    cmpl ${}, %edx\n", KIND_UNKNOWN));
                         self.output.push_str(&format!("    jne {}\n", l_end));
                         // Reuse the value in %rax for a light string check:
                         // rodata or str_buf range => string.
@@ -3059,9 +3074,11 @@ impl CodeGen {
                         self.output.push_str(&format!("{}:\n", l_end));
                     } else {
                         // arm64: x0 = value, w1 = tag.
-                        self.output.push_str("    cmp w1, #3\n");
+                        self.output
+                            .push_str(&format!("    cmp w1, #{}\n", KIND_STRING));
                         self.output.push_str(&format!("    b.eq {}\n", l_true));
-                        self.output.push_str("    cmp w1, #0\n");
+                        self.output
+                            .push_str(&format!("    cmp w1, #{}\n", KIND_UNKNOWN));
                         self.output.push_str(&format!("    b.ne {}\n", l_end));
                         let l_str = self.ctx.next_label();
                         let l_no = self.ctx.next_label();
@@ -3140,7 +3157,7 @@ impl CodeGen {
                     self.emit_runtime_classify(self.os);
                     match self.arch {
                         Architecture::X64 => {
-                            arch::emit_cmp_imm(&mut self.output, self.arch, 3);
+                            arch::emit_cmp_imm(&mut self.output, self.arch, KIND_STRING);
                             self.output.push_str(if negated {
                                 "    setne %al\n"
                             } else {
@@ -3149,7 +3166,7 @@ impl CodeGen {
                             self.output.push_str("    movzbq %al, %rax\n");
                         }
                         Architecture::X86 => {
-                            arch::emit_cmp_imm(&mut self.output, self.arch, 3);
+                            arch::emit_cmp_imm(&mut self.output, self.arch, KIND_STRING);
                             self.output.push_str(if negated {
                                 "    setne %al\n"
                             } else {
@@ -3158,7 +3175,8 @@ impl CodeGen {
                             self.output.push_str("    movzbl %al, %eax\n");
                         }
                         Architecture::ARM64 => {
-                            self.output.push_str("    cmp x0, #3\n");
+                            self.output
+                                .push_str(&format!("    cmp x0, #{}\n", KIND_STRING));
                             self.output.push_str(if negated {
                                 "    cset x0, ne\n"
                             } else {
@@ -3213,18 +3231,22 @@ impl CodeGen {
                     self.generate_expression(expr);
                     if matches!(self.arch, Architecture::X64) {
                         if negated {
-                            self.output.push_str("    cmpl $2, %edx\n");
+                            self.output
+                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                             self.output.push_str("    setne %al\n");
                         } else {
-                            self.output.push_str("    cmpl $2, %edx\n");
+                            self.output
+                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                             self.output.push_str("    sete %al\n");
                         }
                         self.output.push_str("    movzbq %al, %rax\n");
                     } else if negated {
-                        self.output.push_str("    cmp w1, #2\n");
+                        self.output
+                            .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
                         self.output.push_str("    cset x0, ne\n");
                     } else {
-                        self.output.push_str("    cmp w1, #2\n");
+                        self.output
+                            .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
                         self.output.push_str("    cset x0, eq\n");
                     }
                     return;
@@ -3257,9 +3279,11 @@ impl CodeGen {
                     let l_true = self.ctx.next_label();
                     let l_end = self.ctx.next_label();
                     if matches!(self.arch, Architecture::X64) {
-                        self.output.push_str("    cmpl $1, %edx\n");
+                        self.output
+                            .push_str(&format!("    cmpl ${}, %edx\n", KIND_INT));
                         self.output.push_str(&format!("    je {}\n", l_true));
-                        self.output.push_str("    cmpl $0, %edx\n");
+                        self.output
+                            .push_str(&format!("    cmpl ${}, %edx\n", KIND_UNKNOWN));
                         self.output.push_str(&format!("    je {}\n", l_true));
                         if negated {
                             self.output.push_str("    movq $1, %rax\n");
@@ -3275,9 +3299,11 @@ impl CodeGen {
                         }
                         self.output.push_str(&format!("{}:\n", l_end));
                     } else {
-                        self.output.push_str("    cmp w1, #1\n");
+                        self.output
+                            .push_str(&format!("    cmp w1, #{}\n", KIND_INT));
                         self.output.push_str(&format!("    b.eq {}\n", l_true));
-                        self.output.push_str("    cmp w1, #0\n");
+                        self.output
+                            .push_str(&format!("    cmp w1, #{}\n", KIND_UNKNOWN));
                         self.output.push_str(&format!("    b.eq {}\n", l_true));
                         if negated {
                             self.output.push_str("    mov x0, #1\n");
@@ -3906,10 +3932,12 @@ impl CodeGen {
                 self.output.push_str(&format!("    je {}\n", l_int));
                 self.output.push_str(&format!("    jmp {}\n", l_str));
                 self.output.push_str(&format!("{}:\n", l_int));
-                self.output.push_str("    movq $1, %rax\n");
+                self.output
+                    .push_str(&format!("    movq ${}, %rax\n", KIND_INT));
                 self.output.push_str(&format!("    jmp {}\n", l_end));
                 self.output.push_str(&format!("{}:\n", l_str));
-                self.output.push_str("    movq $3, %rax\n");
+                self.output
+                    .push_str(&format!("    movq ${}, %rax\n", KIND_STRING));
                 self.output.push_str(&format!("    jmp {}\n", l_end));
                 self.output.push_str(&format!("{}:\n", l_end));
             }
@@ -3933,10 +3961,12 @@ impl CodeGen {
                 self.output.push_str(&format!("    je {}\n", l_int));
                 self.output.push_str(&format!("    jmp {}\n", l_str));
                 self.output.push_str(&format!("{}:\n", l_int));
-                self.output.push_str("    movl $1, %eax\n");
+                self.output
+                    .push_str(&format!("    movl ${}, %eax\n", KIND_INT));
                 self.output.push_str(&format!("    jmp {}\n", l_end));
                 self.output.push_str(&format!("{}:\n", l_str));
-                self.output.push_str("    movl $3, %eax\n");
+                self.output
+                    .push_str(&format!("    movl ${}, %eax\n", KIND_STRING));
                 self.output.push_str(&format!("    jmp {}\n", l_end));
                 self.output.push_str(&format!("{}:\n", l_end));
             }
@@ -3979,10 +4009,12 @@ impl CodeGen {
                 self.output.push_str(&format!("    cbz w2, {}\n", l_int));
                 self.output.push_str(&format!("    b {}\n", l_str));
                 self.output.push_str(&format!("{}:\n", l_int));
-                self.output.push_str("    mov x0, #1\n");
+                self.output
+                    .push_str(&format!("    mov x0, #{}\n", KIND_INT));
                 self.output.push_str(&format!("    b {}\n", l_end));
                 self.output.push_str(&format!("{}:\n", l_str));
-                self.output.push_str("    mov x0, #3\n");
+                self.output
+                    .push_str(&format!("    mov x0, #{}\n", KIND_STRING));
                 self.output.push_str(&format!("    b {}\n", l_end));
                 self.output.push_str(&format!("{}:\n", l_end));
             }
@@ -4126,9 +4158,11 @@ impl CodeGen {
                 self.output.push_str("    mov x9, x0\n");
                 self.output.push_str("    ldr x0, [sp, #16]\n");
                 self.emit_runtime_classify(self.os);
-                self.output.push_str("    cmp x0, #3\n");
+                self.output
+                    .push_str(&format!("    cmp x0, #{}\n", KIND_STRING));
                 self.output.push_str(&format!("    b.ne {}\n", l_not_str));
-                self.output.push_str("    cmp x9, #3\n");
+                self.output
+                    .push_str(&format!("    cmp x9, #{}\n", KIND_STRING));
                 self.output.push_str(&format!("    b.ne {}\n", l_not_str));
                 self.output.push_str("    ldr x0, [sp], #16\n");
                 arch::emit_string_equality_call(

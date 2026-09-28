@@ -6,6 +6,7 @@ use crate::codegen::analysis::{
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
+use crate::codegen::kinds::{KIND_ARRAY, KIND_FLOAT, KIND_INT, KIND_MAP, KIND_STRING};
 use crate::codegen::target::Architecture;
 
 /// Display a string array as `[a, b]` via existing `join` + concat.
@@ -103,7 +104,7 @@ impl CodeGen {
         self.output.push_str(&format!("{}:\n", l_dyn));
         arch::emit_push_temp(&mut self.output, self.arch);
         self.emit_runtime_classify(self.os);
-        arch::emit_cmp_imm(&mut self.output, self.arch, 3);
+        arch::emit_cmp_imm(&mut self.output, self.arch, KIND_STRING);
         arch::emit_cond_jump(&mut self.output, self.arch, BinaryOp::Equal, false, &l_str);
         arch::emit_pop_temp(&mut self.output, self.arch);
         let fmt_dyn_int_label = self.ctx.next_string_label();
@@ -528,7 +529,7 @@ impl CodeGen {
                                 self.ctx.stack_offset,
                             );
                             self.emit_runtime_classify(self.os);
-                            arch::emit_cmp_imm(&mut self.output, self.arch, 3);
+                            arch::emit_cmp_imm(&mut self.output, self.arch, KIND_STRING);
                             arch::emit_cond_jump(
                                 &mut self.output,
                                 self.arch,
@@ -883,26 +884,36 @@ impl CodeGen {
                                 let mp = self.ctx.next_label();
                                 let it = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64) {
-                                    self.output.push_str("    cmpl $2, %edx\n");
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    je {}\n", flt));
-                                    self.output.push_str("    cmpl $3, %edx\n");
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_STRING));
                                     self.output.push_str(&format!("    je {}\n", s2));
-                                    self.output.push_str("    cmpl $4, %edx\n");
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_ARRAY));
                                     self.output.push_str(&format!("    je {}\n", arr));
-                                    self.output.push_str("    cmpl $5, %edx\n");
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_MAP));
                                     self.output.push_str(&format!("    je {}\n", mp));
-                                    self.output.push_str("    cmpl $1, %edx\n");
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_INT));
                                     self.output.push_str(&format!("    je {}\n", it));
                                 } else {
-                                    self.output.push_str("    cmp w1, #2\n");
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    b.eq {}\n", flt));
-                                    self.output.push_str("    cmp w1, #3\n");
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_STRING));
                                     self.output.push_str(&format!("    b.eq {}\n", s2));
-                                    self.output.push_str("    cmp w1, #4\n");
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_ARRAY));
                                     self.output.push_str(&format!("    b.eq {}\n", arr));
-                                    self.output.push_str("    cmp w1, #5\n");
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_MAP));
                                     self.output.push_str(&format!("    b.eq {}\n", mp));
-                                    self.output.push_str("    cmp w1, #1\n");
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_INT));
                                     self.output.push_str(&format!("    b.eq {}\n", it));
                                 }
                                 (Some(flt), Some(s2), Some(arr), Some(mp), Some(it))
@@ -910,7 +921,7 @@ impl CodeGen {
                                 (None, None, None, None, None)
                             };
                         self.emit_runtime_classify(self.os);
-                        arch::emit_cmp_imm(&mut self.output, self.arch, 3);
+                        arch::emit_cmp_imm(&mut self.output, self.arch, KIND_STRING);
                         arch::emit_cond_jump(
                             &mut self.output,
                             self.arch,
@@ -1053,7 +1064,7 @@ impl CodeGen {
                     let l_call_end = self.ctx.next_label();
                     arch::emit_push_temp(&mut self.output, self.arch);
                     self.emit_runtime_classify(self.os);
-                    arch::emit_cmp_imm(&mut self.output, self.arch, 3);
+                    arch::emit_cmp_imm(&mut self.output, self.arch, KIND_STRING);
                     arch::emit_cond_jump(
                         &mut self.output,
                         self.arch,

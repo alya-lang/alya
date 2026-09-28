@@ -6,6 +6,7 @@ use crate::codegen::analysis::{
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
+use crate::codegen::kinds::KIND_FLOAT;
 use crate::codegen::target::Architecture;
 
 impl CodeGen {
@@ -132,10 +133,12 @@ impl CodeGen {
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64) {
-                                    self.output.push_str("    cmpl $2, %edx\n");
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    je {}\n", l_skip));
                                 } else {
-                                    self.output.push_str("    cmp w1, #2\n");
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    b.eq {}\n", l_skip));
                                 }
                                 arch::emit_int_to_float(&mut self.output, self.arch);
@@ -332,10 +335,12 @@ impl CodeGen {
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64) {
-                                    self.output.push_str("    cmpl $2, %edx\n");
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    je {}\n", l_skip));
                                 } else {
-                                    self.output.push_str("    cmp w1, #2\n");
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    b.eq {}\n", l_skip));
                                 }
                                 arch::emit_int_to_float(&mut self.output, self.arch);

@@ -2,6 +2,7 @@ pub mod analysis;
 pub mod arch;
 pub mod context;
 mod expr;
+pub mod kinds;
 pub mod runtime;
 mod say;
 mod stmt;
