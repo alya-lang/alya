@@ -84,6 +84,10 @@
     font-size: 14px;
     animation: pulse 2s infinite;
   }
+  .badge-logo {
+    width: 20px; height: 22px;
+    flex-shrink: 0;
+  }
   .badge-text {
     font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
     font-size: 13.5px;
@@ -102,9 +106,14 @@
     line-height: 1.22;
     letter-spacing: -2px;
     display: flex;
-    align-items: baseline;
-    gap: 12px;
+    align-items: center;
+    gap: 16px;
     padding-bottom: 6px;
+  }
+  .brand-mark {
+    height: 72px;
+    width: auto;
+    flex-shrink: 0;
   }
   .brand-name {
     display: inline-block;
@@ -158,6 +167,9 @@
     display: flex; align-items: center; justify-content: center;
     font-size: 14px;
     flex-shrink: 0;
+  }
+  .feature-icon-box svg {
+    width: 15px; height: 15px;
   }
   .icon-purple {
     background: rgba(168, 85, 247, 0.2);
@@ -391,6 +403,65 @@
         </div>
 
         <div class="brand-title">
+          <svg class="brand-mark" viewBox="138 97 236 249" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="sc-logo-left-outer" x1="0%" y1="100%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#6b21a8" />
+                <stop offset="40%" stop-color="#9333ea" />
+                <stop offset="80%" stop-color="#c084fc" />
+                <stop offset="100%" stop-color="#e9d5ff" />
+              </linearGradient>
+              <linearGradient id="sc-logo-left-inner" x1="0%" y1="100%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#4c1d95" />
+                <stop offset="50%" stop-color="#6d28d9" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+              <linearGradient id="sc-logo-right-outer" x1="100%" y1="100%" x2="0%" y2="0%">
+                <stop offset="0%" stop-color="#0369a1" />
+                <stop offset="40%" stop-color="#0284c7" />
+                <stop offset="80%" stop-color="#38bdf8" />
+                <stop offset="100%" stop-color="#e0f2fe" />
+              </linearGradient>
+              <linearGradient id="sc-logo-right-inner" x1="100%" y1="100%" x2="0%" y2="0%">
+                <stop offset="0%" stop-color="#075985" />
+                <stop offset="50%" stop-color="#0369a1" />
+                <stop offset="100%" stop-color="#0ea5e9" />
+              </linearGradient>
+              <linearGradient id="sc-logo-neon-beam" x1="0%" y1="50%" x2="100%" y2="50%">
+                <stop offset="0%" stop-color="#c084fc" />
+                <stop offset="25%" stop-color="#e9d5ff" />
+                <stop offset="50%" stop-color="#ffffff" />
+                <stop offset="75%" stop-color="#bae6fd" />
+                <stop offset="100%" stop-color="#38bdf8" />
+              </linearGradient>
+              <filter id="sc-logo-ambient" x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="16" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+              <filter id="sc-logo-beam-glow" x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="8" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+            <ellipse cx="256" cy="226" rx="95" ry="90" fill="#a855f7" opacity="0.25" filter="url(#sc-logo-ambient)" />
+            <ellipse cx="256" cy="226" rx="65" ry="60" fill="#38bdf8" opacity="0.3" filter="url(#sc-logo-ambient)" />
+            <polygon points="256,106 142,342 173,342 256,172" fill="url(#sc-logo-left-outer)" />
+            <polygon points="256,172 173,342 204,342 256,236" fill="url(#sc-logo-left-inner)" />
+            <polygon points="256,106 370,342 339,342 256,172" fill="url(#sc-logo-right-outer)" />
+            <polygon points="256,172 339,342 308,342 256,236" fill="url(#sc-logo-right-inner)" />
+            <g filter="url(#sc-logo-beam-glow)">
+              <polygon points="160,256 256,234 352,256 335,278 256,258 177,278" fill="url(#sc-logo-neon-beam)" />
+              <polygon points="256,239 264,247 256,254 248,247" fill="#ffffff" />
+            </g>
+            <polygon points="256,101 269,130 256,144 243,130" fill="#ffffff" opacity="0.98" />
+            <polygon points="256,101 269,130 256,134" fill="#bae6fd" opacity="0.85" />
+          </svg>
           <span class="brand-name">Alya</span>
           <span class="brand-accent">Lang</span>
         </div>
@@ -401,15 +472,15 @@
 
         <div class="features-list">
           <div class="feature-pill">
-            <div class="feature-icon-box icon-purple">⚡</div>
+            <div class="feature-icon-box icon-purple"><svg viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><polygon points="8,1 3,8 6.5,8 5.5,13 11,6 7.5,6" fill="currentColor" /></svg></div>
             <div class="feature-text"><b>Native Assembly Codegen</b> — x86, x64 &amp; ARM64</div>
           </div>
           <div class="feature-pill">
-            <div class="feature-icon-box icon-cyan">🛠️</div>
-            <div class="feature-text"><b>Built-in Tooling &amp; Stdlib</b> — <code>fmt</code>, <code>test</code> &amp; 20+ modules</div>
+            <div class="feature-icon-box icon-cyan"><svg viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><polyline points="3,3.5 6.5,7 3,10.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /><rect x="8" y="9.5" width="4" height="2" rx="1" fill="currentColor" /></svg></div>
+            <div class="feature-text"><b>Built-in Tooling &amp; Stdlib</b> — <code>fmt</code>, <code>test</code> &amp; 19 modules</div>
           </div>
           <div class="feature-pill">
-            <div class="feature-icon-box icon-emerald">💬</div>
+            <div class="feature-icon-box icon-emerald"><svg viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg"><rect x="1.5" y="2" width="11" height="8" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8" /><polygon points="4.5,10 4.5,13 7.5,10" fill="currentColor" /></svg></div>
             <div class="feature-text"><b>Intuitive &amp; Expressive</b> — <code>say</code>, <code>when</code>, <code>??</code>, <code>?:</code></div>
           </div>
         </div>
