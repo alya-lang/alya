@@ -27,7 +27,7 @@ pub fn print_usage() {
     println!("  lint [path]           Run static code linter (--fix, --check)");
     println!("  doc [path]            Generate API documentation");
     println!("  pkg <cmd>             Manage dependencies (init, add, install, update, ...)");
-    println!("  icons <cmd>           Register Windows file icons (.alya Explorer icons)");
+    println!("  icons <cmd>           Register OS file icons for .alya sources");
     println!("  help [cmd]            Show help for a command");
     println!("  version               Display version information\n");
     println!("Run 'alya <command> --help' for command details.");
@@ -66,7 +66,9 @@ pub fn print_full_usage() {
     println!("  outdated              Check for newer dependency versions without upgrading");
     println!("  pkg <cmd>             Package manager commands (init, add, install, update, cache, clean)");
     println!("  toolchain <cmd>       Manage C/Assembly build toolchains (status, install, clean)");
-    println!("  icons <cmd>           Register Windows Explorer file icons for .alya (status, install, uninstall)");
+    println!(
+        "  icons <cmd>           Register OS file icons for .alya (status, install, uninstall)"
+    );
     println!("  lsp                   Start Language Server Protocol (LSP) over stdio");
     println!("  doc [path]            Generate HTML and Markdown API documentation");
     println!(
@@ -489,18 +491,20 @@ pub fn print_toolchain_help() {
 }
 
 pub fn print_icons_help() {
-    println!("Alya File Icons (Windows Explorer)\n");
+    println!("Alya File Icons (OS file managers)\n");
     println!("USAGE:");
     println!("  alya icons <command> [--theme dark|light]\n");
     println!("COMMANDS:");
     println!("  status     Show current .alya association and icon state");
-    println!(
-        "  install    Register AlyaLang.alya with the brand file icon (migrates open command)"
-    );
+    println!("  install    Register the Alya file icon (migrates open command on Windows)");
     println!("  uninstall  Restore the previous .alya association");
     println!("  help       Show this help message\n");
     println!("OPTIONS:");
     println!("  --theme <theme>  Icon variant for install: dark (default) or light\n");
+    println!("PLATFORMS:");
+    println!("  Windows registers the AlyaLang.alya ProgID (HKCU, no admin rights).");
+    println!("  Linux installs a text/x-alya MIME type plus the hicolor icon.");
+    println!("  macOS is unsupported: document icons belong to the owning app bundle.\n");
     println!("EXAMPLES:");
     println!("  alya icons status                  # Inspect current association");
     println!("  alya icons install                 # Register Alya file icons");

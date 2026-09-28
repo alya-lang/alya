@@ -1,21 +1,28 @@
-//! Windows Explorer file icons for `.alya` sources.
+//! OS file-manager icons for `.alya` sources.
 //!
 //! A VS Code extension can only theme icons *inside* the editor; the icon a
-//! user sees in Windows Explorer comes from the OS file association. This
-//! module implements the general (per-machine, opt-in) fix:
+//! user sees in Explorer/Nautilus/Dolphin comes from the OS file association.
+//! This module implements the general (per-machine, opt-in) fix:
 //!
 //! ```text
-//! alya icons install [--theme dark|light]   # register AlyaLang.alya ProgID
+//! alya icons install [--theme dark|light]   # register the OS association
 //! alya icons status                          # inspect current association
 //! alya icons uninstall                       # restore previous association
 //! ```
 //!
-//! Install materializes the embedded brand `.ico` into `~/.alya/icons/` and
-//! registers a dedicated `AlyaLang.alya` ProgID (HKCU, no admin rights)
-//! carrying the `DefaultIcon`. The *existing* open command is migrated into
-//! the new ProgID, so double-click keeps opening the previously associated
-//! app (usually VS Code); the previous ProgID is remembered for `uninstall`.
-//! Registry access goes through `reg.exe` so no extra dependency is needed.
+//! - Windows: materializes the embedded brand `.ico` into `~/.alya/icons/`
+//!   and registers a dedicated `AlyaLang.alya` ProgID (HKCU, no admin rights)
+//!   carrying the `DefaultIcon`. The *existing* open command is migrated into
+//!   the new ProgID, so double-click keeps opening the previously associated
+//!   app (usually VS Code); the previous ProgID is remembered for `uninstall`.
+//!   Registry access goes through `reg.exe` so no extra dependency is needed.
+//! - Linux: installs a `text/x-alya` MIME type (`*.alya`) plus the brand SVG
+//!   into the `hicolor` icon theme under `$XDG_DATA_HOME` (or
+//!   `~/.local/share`), then refreshes the caches. The current default
+//!   application is never touched.
+//! - macOS: unsupported from the CLI — document icons belong to the owning
+//!   application bundle (`CFBundleDocumentTypes`) and there is no per-user
+//!   registry to write to.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IconTheme {
@@ -32,7 +39,7 @@ pub enum IconsCommand {
 }
 
 /// Entry point from the driver. `Help` prints on every platform; the rest is
-/// Windows-only.
+/// Windows and Linux (other platforms get a clear error).
 pub fn run_icons(cmd: &IconsCommand) -> Result<(), String> {
     if *cmd == IconsCommand::Help {
         crate::cli::help::print_icons_help();
@@ -51,9 +58,19 @@ fn run_platform(cmd: &IconsCommand) -> Result<(), String> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
+fn run_platform(cmd: &IconsCommand) -> Result<(), String> {
+    match cmd {
+        IconsCommand::Status => linux::status(),
+        IconsCommand::Install { theme } => linux::install(*theme),
+        IconsCommand::Uninstall => linux::uninstall(),
+        IconsCommand::Help => unreachable!("handled by run_icons"),
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn run_platform(_cmd: &IconsCommand) -> Result<(), String> {
-    Err("Error: 'alya icons' is only supported on Windows.".to_string())
+    Err("Error: 'alya icons' supports Windows and Linux. On macOS file icons belong to the owning application bundle and cannot be registered from the CLI.".to_string())
 }
 
 #[cfg(target_os = "windows")]
@@ -225,7 +242,7 @@ mod win {
     pub fn status() -> Result<(), String> {
         let dir = icons_dir()?;
         let icon_path = dir.join(ICON_FILE_NAME);
-        println!("Alya file icons (Windows Explorer)\n");
+        println!("Alya file icons (Windows file association)\n");
         match current_progid()? {
             Some(id) if id == PROG_ID => {
                 println!("  .alya association : {} (managed by 'alya icons')", id);
@@ -381,6 +398,183 @@ mod win {
                 IconsCommand::Install {
                     theme: IconTheme::Dark
                 }
+            );
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod linux {
+    use super::IconTheme;
+    use std::env;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    const MIME_TYPE: &str = "text/x-alya";
+    const ICON_NAME: &str = "text-x-alya";
+    const MIME_PACKAGE_FILE: &str = "alya.xml";
+
+    const FILE_ICON_DARK_SVG: &[u8] = include_bytes!("../../assets/brand/icons/alya-file-dark.svg");
+    const FILE_ICON_LIGHT_SVG: &[u8] =
+        include_bytes!("../../assets/brand/icons/alya-file-light.svg");
+
+    /// Shared MIME database entry for `.alya` sources. Pure over nothing so
+    /// it stays unit-testable without touching the filesystem.
+    pub fn mime_package_xml() -> String {
+        format!(
+            concat!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
+                "<mime-info xmlns=\"http://www.freedesktop.org/standards/shared-mime-info\">\n",
+                "  <mime-type type=\"{}\">\n",
+                "    <comment>Alya source file</comment>\n",
+                "    <glob pattern=\"*.alya\"/>\n",
+                "  </mime-type>\n",
+                "</mime-info>\n"
+            ),
+            MIME_TYPE
+        )
+    }
+
+    pub fn data_home() -> Result<PathBuf, String> {
+        if let Ok(dir) = env::var("XDG_DATA_HOME") {
+            if !dir.trim().is_empty() {
+                return Ok(PathBuf::from(dir));
+            }
+        }
+        env::var("HOME")
+            .map(|home| PathBuf::from(home).join(".local/share"))
+            .map_err(|_| "Error: neither XDG_DATA_HOME nor HOME is set.".to_string())
+    }
+
+    pub fn mime_package_path(data_home: &Path) -> PathBuf {
+        data_home.join("mime/packages").join(MIME_PACKAGE_FILE)
+    }
+
+    pub fn icon_path(data_home: &Path) -> PathBuf {
+        data_home
+            .join("icons/hicolor/scalable/mimetypes")
+            .join(format!("{}.svg", ICON_NAME))
+    }
+
+    /// Refreshes the MIME and icon caches. Best effort: the tools may be
+    /// absent on minimal systems, in which case managers pick the files up
+    /// on next login. Returns whether both refreshers ran.
+    fn refresh_caches(data_home: &Path) -> bool {
+        let mime_ok = Command::new("update-mime-database")
+            .arg(data_home.join("mime"))
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        let icons_ok = Command::new("gtk-update-icon-cache")
+            .args(["-f", "-t"])
+            .arg(data_home.join("icons/hicolor"))
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        mime_ok && icons_ok
+    }
+
+    pub fn status() -> Result<(), String> {
+        let home = data_home()?;
+        let xml_path = mime_package_path(&home);
+        let svg_path = icon_path(&home);
+        println!("Alya file icons (Linux MIME database)\n");
+        println!("  MIME type         : {}", MIME_TYPE);
+        println!(
+            "  MIME package      : {} ({})",
+            xml_path.display(),
+            if xml_path.is_file() {
+                "present"
+            } else {
+                "missing"
+            }
+        );
+        println!(
+            "  icon file         : {} ({})",
+            svg_path.display(),
+            if svg_path.is_file() {
+                "present"
+            } else {
+                "missing"
+            }
+        );
+        Ok(())
+    }
+
+    pub fn install(theme: IconTheme) -> Result<(), String> {
+        let bytes = match theme {
+            IconTheme::Dark => FILE_ICON_DARK_SVG,
+            IconTheme::Light => FILE_ICON_LIGHT_SVG,
+        };
+        let home = data_home()?;
+        let xml_path = mime_package_path(&home);
+        let svg_path = icon_path(&home);
+        if let Some(parent) = xml_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Error: cannot create '{}': {}", parent.display(), e))?;
+        }
+        if let Some(parent) = svg_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Error: cannot create '{}': {}", parent.display(), e))?;
+        }
+        fs::write(&xml_path, mime_package_xml())
+            .map_err(|e| format!("Error: cannot write '{}': {}", xml_path.display(), e))?;
+        fs::write(&svg_path, bytes)
+            .map_err(|e| format!("Error: cannot write '{}': {}", svg_path.display(), e))?;
+        if !refresh_caches(&home) {
+            println!("Note: 'update-mime-database' and/or 'gtk-update-icon-cache' is missing;");
+            println!("install them or log out and back in for file managers to pick up the icons.");
+        }
+        println!(
+            "Registered '{}' for '*.alya' with icon '{}'.",
+            MIME_TYPE,
+            svg_path.display()
+        );
+        Ok(())
+    }
+
+    pub fn uninstall() -> Result<(), String> {
+        let home = data_home()?;
+        for path in [mime_package_path(&home), icon_path(&home)] {
+            if path.is_file() {
+                fs::remove_file(&path)
+                    .map_err(|e| format!("Error: cannot remove '{}': {}", path.display(), e))?;
+                println!("Removed '{}'.", path.display());
+            }
+        }
+        refresh_caches(&home);
+        println!("Unregistered '{}'.", MIME_TYPE);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{icon_path, mime_package_path, mime_package_xml};
+        use std::path::Path;
+
+        #[test]
+        fn mime_package_declares_type_and_glob() {
+            let xml = mime_package_xml();
+            assert!(xml.contains("text/x-alya"), "missing MIME type:\n{}", xml);
+            assert!(xml.contains("*.alya"), "missing glob:\n{}", xml);
+            assert!(
+                xml.contains("shared-mime-info"),
+                "missing namespace:\n{}",
+                xml
+            );
+        }
+
+        #[test]
+        fn derived_paths_follow_freedesktop_layout() {
+            let base = Path::new("/data");
+            assert_eq!(
+                mime_package_path(base),
+                Path::new("/data/mime/packages/alya.xml")
+            );
+            assert_eq!(
+                icon_path(base),
+                Path::new("/data/icons/hicolor/scalable/mimetypes/text-x-alya.svg")
             );
         }
     }
