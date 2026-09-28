@@ -744,3 +744,39 @@ say m[0] is float
         assert_eq!(output, "1\n1\n0\n0\n");
     }
 }
+
+#[test]
+fn test_e2e_for_over_mixed_push_array_converts() {
+    // alya-lang/alya#39 Phase 1: iterating a mixed push-built array
+    // converts mismatched elements to the loop variable's static type
+    // (truncate toward zero) instead of reinterpreting raw bits.
+    let code = r#"
+let m = []
+m.push(1)
+m.push(0.5)
+for v in m
+    say v
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "1\n0\n");
+    }
+}
+
+#[test]
+fn test_e2e_for_over_mixed_push_float_array_converts() {
+    // Reverse direction: a float-typed loop variable converts int
+    // elements (via an annotated float array holding ints).
+    let code = r#"
+let w: float[] = [1.5]
+w.push(2)
+for v in w
+    say v
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "1.5\n2\n");
+    }
+}

@@ -1,4 +1,5 @@
 use crate::ast::BinaryOp;
+use crate::codegen::kinds::{KIND_FLOAT, KIND_INT};
 use crate::codegen::target::OperatingSystem;
 
 pub fn emit_try_begin(out: &mut String, catch_label: &str) {
@@ -286,6 +287,7 @@ pub fn emit_for_each_load_element(
     end_label: &str,
     map_label: &str,
     done_label: &str,
+    is_float_var: bool,
 ) {
     out.push_str(&format!("    movq -{}(%rbp), %rax\n", arr_offset));
     out.push_str("    test %rax, %rax\n");
@@ -300,7 +302,23 @@ pub fn emit_for_each_load_element(
     out.push_str("    cmpq %rdx, %rcx\n");
     out.push_str(&format!("    jge {}\n", end_label));
     out.push_str("    movq 16(%rax), %rdx\n");
+    out.push_str("    movq 24(%rax), %r9\n");
     out.push_str("    movq (%rdx, %rcx, 8), %r8\n");
+    out.push_str("    movzbq (%r9, %rcx), %r9\n");
+    // Mixed elements convert to the loop variable's static type
+    // (Phase 1, #39): truncation instead of raw-bit reinterpretation.
+    // Unknown kinds (0) keep the raw value (status quo).
+    if is_float_var {
+        out.push_str("    cvtsi2sdq %r8, %xmm0\n");
+        out.push_str("    movq %xmm0, %r10\n");
+        out.push_str(&format!("    cmp ${}, %r9\n", KIND_INT));
+        out.push_str("    cmove %r10, %r8\n");
+    } else {
+        out.push_str("    movq %r8, %xmm0\n");
+        out.push_str("    cvttsd2siq %xmm0, %r10\n");
+        out.push_str(&format!("    cmp ${}, %r9\n", KIND_FLOAT));
+        out.push_str("    cmove %r10, %r8\n");
+    }
     if let Some(v_off) = val_offset {
         out.push_str(&format!("    movq %rcx, -{}(%rbp)\n", var_offset));
         out.push_str(&format!("    movq %r8, -{}(%rbp)\n", v_off));

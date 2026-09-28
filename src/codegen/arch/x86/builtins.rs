@@ -152,7 +152,9 @@ pub fn emit_for_each_load_element(
     end_label: &str,
     map_label: &str,
     done_label: &str,
+    _is_float_var: bool,
 ) {
+    // x86 stays raw (no kind channel on the 32-bit tier, cf. maps).
     out.push_str(&format!("    movl -{}(%ebp), %eax\n", arr_offset));
     out.push_str("    test %eax, %eax\n");
     out.push_str(&format!("    jz {}\n", end_label));

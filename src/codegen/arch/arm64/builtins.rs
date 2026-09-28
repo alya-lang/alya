@@ -1,6 +1,7 @@
 use super::emit_adrp_add;
 use super::loads::{emit_arm64_load_x29_offset, emit_arm64_store_x29_offset};
 use crate::ast::BinaryOp;
+use crate::codegen::kinds::{KIND_FLOAT, KIND_INT};
 use crate::codegen::target::OperatingSystem;
 
 pub fn emit_try_begin(out: &mut String, catch_label: &str, os: OperatingSystem) {
@@ -168,6 +169,7 @@ pub fn emit_for_each_load_element(
     end_label: &str,
     map_label: &str,
     done_label: &str,
+    is_float_var: bool,
 ) {
     emit_arm64_load_x29_offset(out, "x0", arr_offset, "x9");
     out.push_str(&format!("    cbz x0, {}\n", end_label));
@@ -183,7 +185,23 @@ pub fn emit_for_each_load_element(
     out.push_str("    cmp x2, x1\n");
     out.push_str(&format!("    b.ge {}\n", end_label));
     out.push_str("    ldr x3, [x0, #16]\n");
+    out.push_str("    ldr x5, [x0, #24]\n");
     out.push_str("    ldr x4, [x3, x2, lsl #3]\n");
+    out.push_str("    ldrb w5, [x5, x2]\n");
+    // Mixed elements convert to the loop variable's static type
+    // (Phase 1, #39): truncation instead of raw-bit reinterpretation.
+    // Unknown kinds (0) keep the raw value (status quo).
+    if is_float_var {
+        out.push_str("    scvtf d0, x4\n");
+        out.push_str("    fmov x6, d0\n");
+        out.push_str(&format!("    cmp w5, #{}\n", KIND_INT));
+        out.push_str("    csel x4, x6, x4, eq\n");
+    } else {
+        out.push_str("    fmov d0, x4\n");
+        out.push_str("    fcvtzs x6, d0\n");
+        out.push_str(&format!("    cmp w5, #{}\n", KIND_FLOAT));
+        out.push_str("    csel x4, x6, x4, eq\n");
+    }
     if let Some(v_off) = val_offset {
         emit_arm64_store_x29_offset(out, "x2", var_offset, "x9");
         emit_arm64_store_x29_offset(out, "x4", v_off, "x9");

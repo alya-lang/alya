@@ -1027,6 +1027,11 @@ impl CodeGen {
         );
 
         self.output.push_str(&format!("{}:\n", start_label));
+        // The element-receiving slot is float-typed exactly when the
+        // static var type is Float (no map/struct/string iteration):
+        // mixed elements then convert at the load boundary (Phase 1,
+        // #39) instead of reinterpreting raw bits.
+        let elem_is_float = inferred_struct_type.is_none() && !is_str && !is_map && is_flt;
         arch::emit_for_each_load_element(
             &mut self.output,
             self.arch,
@@ -1037,6 +1042,7 @@ impl CodeGen {
             &end_label,
             &map_label,
             &done_label,
+            elem_is_float,
         );
 
         for s in body {
