@@ -96,9 +96,19 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         check,
         format,
         ref output,
+        ref features,
+        no_default_features,
     } = args.command
     {
-        crate::tools::lint::run_lint_cli(path.as_deref(), fix, check, format, output.as_deref())?;
+        crate::tools::lint::run_lint_cli(
+            path.as_deref(),
+            fix,
+            check,
+            format,
+            output.as_deref(),
+            features,
+            no_default_features,
+        )?;
         return Ok(());
     }
 

@@ -12,7 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::lexer::Lexer;
-use crate::parser::Parser;
+use crate::parser::{CfgContext, Parser};
 pub use config::*;
 pub use fix::*;
 pub use rules::*;
@@ -21,13 +21,33 @@ pub use suppression::*;
 pub use types::*;
 
 /// Analyzes Alya source code and returns a list of lint diagnostics.
+///
+/// The file is analyzed under its enclosing package's default features
+/// (host os/arch/debug), mirroring what `alya build`/`test` compile.
 pub fn lint_source(source: &str, file_path: &Path) -> Result<Vec<LintDiagnostic>, String> {
+    lint_source_with_cli_features(source, file_path, &[], false)
+}
+
+/// Same as [`lint_source`], but honors an explicit `--features` /
+/// `--no-default-features` selection like `alya build`/`run`/`test`/`bench`.
+/// Without flags each file is analyzed under its own package defaults.
+pub fn lint_source_with_cli_features(
+    source: &str,
+    file_path: &Path,
+    cli_features: &[String],
+    no_default_features: bool,
+) -> Result<Vec<LintDiagnostic>, String> {
     let mut lexer = Lexer::new(source);
     let tokens = lexer
         .tokenize()
         .map_err(|e| format!("Lexer error while linting: {}", e))?;
 
     let mut parser = Parser::new(tokens.clone());
+    parser.set_cfg_context(lint_cfg_context(
+        file_path,
+        cli_features,
+        no_default_features,
+    )?);
     let program = match parser.parse() {
         Ok(p) => p,
         Err(_) => {
@@ -49,6 +69,34 @@ pub fn lint_source(source: &str, file_path: &Path) -> Result<Vec<LintDiagnostic>
     Ok(final_diags)
 }
 
+/// Builds the `@cfg` context for linting one file: host os/arch/debug with
+/// the enclosing package's active features (its defaults unless the CLI
+/// selects otherwise). Outside a package this is the plain host context,
+/// preserving single-file behavior.
+fn lint_cfg_context(
+    file_path: &Path,
+    cli_features: &[String],
+    no_default_features: bool,
+) -> Result<CfgContext, String> {
+    use crate::tools::pkg::features::{manifest_for_path, resolve_active_features};
+
+    let mut ctx = CfgContext::host();
+    match manifest_for_path(file_path).unwrap_or(None) {
+        Some(manifest) => {
+            ctx.features = resolve_active_features(&manifest, cli_features, no_default_features)?;
+        }
+        None => {
+            if !cli_features.is_empty() || no_default_features {
+                return Err(
+                    "Error: '--features'/'--no-default-features' require a package (alya.toml)."
+                        .to_string(),
+                );
+            }
+        }
+    }
+    Ok(ctx)
+}
+
 /// Discovers all Alya files to be linted.
 pub fn find_lint_files(path: &Path) -> Vec<PathBuf> {
     crate::tools::fmt::find_alya_files(path)
@@ -66,6 +114,8 @@ pub fn run_lint_cli(
     check: bool,
     format: LintFormat,
     output: Option<&str>,
+    cli_features: &[String],
+    no_default_features: bool,
 ) -> Result<(), String> {
     let target_str = path_opt.unwrap_or(".");
     let target_path = Path::new(target_str);
@@ -118,7 +168,12 @@ pub fn run_lint_cli(
             }
         };
 
-        let diags = match lint_source(&content, file) {
+        let diags = match lint_source_with_cli_features(
+            &content,
+            file,
+            cli_features,
+            no_default_features,
+        ) {
             Ok(d) => d,
             Err(e) => {
                 eprintln!("{}", e);

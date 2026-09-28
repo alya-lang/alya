@@ -615,6 +615,48 @@ fn test_lint_format_options() {
 }
 
 #[test]
+fn test_lint_feature_flags() {
+    let parsed = CliArgs::parse_from(&to_args(&[
+        "alya",
+        "lint",
+        ".",
+        "--features",
+        "simd,tls",
+        "--no-default-features",
+    ]))
+    .unwrap()
+    .unwrap();
+    match parsed.command {
+        CommandKind::Lint {
+            features,
+            no_default_features,
+            ..
+        } => {
+            assert_eq!(features, vec!["simd".to_string(), "tls".to_string()]);
+            assert!(no_default_features);
+        }
+        _ => panic!("Expected Lint"),
+    }
+
+    let parsed = CliArgs::parse_from(&to_args(&["alya", "lint", "--features=simd"]))
+        .unwrap()
+        .unwrap();
+    match parsed.command {
+        CommandKind::Lint {
+            features,
+            no_default_features,
+            ..
+        } => {
+            assert_eq!(features, vec!["simd".to_string()]);
+            assert!(!no_default_features);
+        }
+        _ => panic!("Expected Lint"),
+    }
+
+    assert!(CliArgs::parse_from(&to_args(&["alya", "lint", "--features"])).is_err());
+}
+
+#[test]
 fn test_help_topic_dispatch() {
     assert_eq!(
         CliArgs::parse_from(&to_args(&["alya", "help", "build"])),

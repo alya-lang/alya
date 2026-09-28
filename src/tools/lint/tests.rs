@@ -467,6 +467,8 @@ fn test_lint_cli_check_gate() {
         true,
         LintFormat::Text,
         None,
+        &[],
+        false,
     );
     assert!(check_res.is_err(), "CI check gate should fail on warnings");
 
@@ -477,6 +479,8 @@ fn test_lint_cli_check_gate() {
         false,
         LintFormat::Text,
         None,
+        &[],
+        false,
     );
     assert!(fix_res.is_ok(), "Fix mode should succeed");
 
@@ -490,6 +494,8 @@ fn test_lint_cli_check_gate() {
         true,
         LintFormat::Text,
         None,
+        &[],
+        false,
     );
     assert!(check_res_after.is_ok(), "Check should pass once fixed");
 
@@ -517,6 +523,8 @@ fn test_lint_cli_sarif_output() {
         true,
         LintFormat::Sarif,
         Some(sarif_path.to_str().unwrap()),
+        &[],
+        false,
     );
     assert!(res.is_err(), "Check gate must still fail on warnings");
 
@@ -751,6 +759,91 @@ fn test_lint_cfg_unknown_feature() {
     let lone_diags = lint_source(lone_src, &lone).unwrap();
     assert!(lone_diags.iter().all(|d| d.rule != "cfg-unknown-feature"));
     let _ = std::fs::remove_file(&lone);
+
+    let _ = fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_lint_uses_package_default_features() {
+    // Gated code is analyzed as ACTIVE under package defaults: a parameter
+    // used only inside `@cfg(feature)` must not warn in the default view,
+    // but must warn once defaults are disabled.
+    let tmp = std::env::temp_dir().join(format!("alya_lint_featdef_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("src")).unwrap();
+    std::fs::write(
+        tmp.join("alya.toml"),
+        "[package]\nname = \"featapp\"\nversion = \"0.1.0\"\nentry = \"src/main.alya\"\n\n[features]\ndefault = [\"accel\"]\naccel = []\n",
+    )
+    .unwrap();
+    let file = tmp.join("src").join("main.alya");
+    let source = "function make(use_accel = true)\n    @cfg(feature = \"accel\")\n    if use_accel != false\n        return 1\n    end\n    return 0\nend\n";
+    std::fs::write(&file, source).unwrap();
+
+    let default_diags = lint_source(source, &file).unwrap();
+    assert!(
+        default_diags.iter().all(|d| d.rule != "unused-param"),
+        "default view keeps gated use: {:?}",
+        default_diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+
+    let slim_diags = lint_source_with_cli_features(source, &file, &[], true).unwrap();
+    assert!(
+        slim_diags.iter().any(|d| d.rule == "unused-param"),
+        "slim view drops gated use: {:?}",
+        slim_diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+
+    // Explicit opt-in re-enables the gated use even with defaults off.
+    let opt_in =
+        lint_source_with_cli_features(source, &file, &["accel".to_string()], true).unwrap();
+    assert!(opt_in.iter().all(|d| d.rule != "unused-param"));
+
+    // Unknown CLI features are rejected like `alya build` does.
+    assert!(lint_source_with_cli_features(source, &file, &["nope".to_string()], false).is_err());
+
+    let _ = fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_lint_cli_no_default_features_gate() {
+    // End-to-end: `run_lint_cli` with `--no-default-features` fails `--check`
+    // on gated-only uses that pass in the default view.
+    let tmp = std::env::temp_dir().join(format!("alya_lint_featcli_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(
+        tmp.join("alya.toml"),
+        "[package]\nname = \"featcli\"\nversion = \"0.1.0\"\nentry = \"main.alya\"\n\n[features]\ndefault = [\"accel\"]\naccel = []\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.join("main.alya"),
+        "function make(use_accel = true)\n    @cfg(feature = \"accel\")\n    if use_accel != false\n        return 1\n    end\n    return 0\nend\n",
+    )
+    .unwrap();
+
+    let default_res = run_lint_cli(
+        Some(tmp.to_str().unwrap()),
+        false,
+        true,
+        LintFormat::Text,
+        None,
+        &[],
+        false,
+    );
+    assert!(default_res.is_ok(), "default view should pass --check");
+
+    let slim_res = run_lint_cli(
+        Some(tmp.to_str().unwrap()),
+        false,
+        true,
+        LintFormat::Text,
+        None,
+        &[],
+        true,
+    );
+    assert!(slim_res.is_err(), "slim view should fail --check");
 
     let _ = fs::remove_dir_all(&tmp);
 }

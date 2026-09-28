@@ -333,11 +333,14 @@ pub fn print_lint_help() {
     println!("  --check             Exit non-zero on warnings (CI quality gate)");
     println!("  --format <fmt>      Output format: text (default) or sarif (v2.1.0 JSON)");
     println!("  -o, --output <file> Write SARIF output to <file> (requires --format sarif;\n");
-    println!("                      default: stdout)\n");
+    println!("                      default: stdout)");
+    println!("  --features <a,b>    Enable package features (repeatable)");
+    println!("  --no-default-features  Skip the default feature set\n");
     println!("EXAMPLES:");
     println!("  alya lint                            # Lint the current project");
     println!("  alya lint src --fix                  # Auto-fix safe warnings");
     println!("  alya lint . --check                  # CI gate: fail on warnings");
+    println!("  alya lint . --check --no-default-features  # Gate the slim feature view");
     println!("  alya lint . --format sarif -o alya-lint.sarif  # SARIF for code scanning");
 }
 

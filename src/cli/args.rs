@@ -49,6 +49,8 @@ pub enum CommandKind {
         check: bool,
         format: crate::tools::lint::LintFormat,
         output: Option<String>,
+        features: Vec<String>,
+        no_default_features: bool,
     },
 }
 
@@ -719,7 +721,7 @@ impl CliArgs {
             CommandKind::Build | CommandKind::Run | CommandKind::Test | CommandKind::Bench => {}
             _ => {
                 if profile_flags_used {
-                    return Err("Error: '--profile'/'--release'/'--features'/'--no-default-features' are only valid with 'build', 'run', 'test' and 'bench'".to_string());
+                    return Err("Error: '--profile'/'--release'/'--features'/'--no-default-features' are only valid with 'build', 'run', 'test', 'bench' and 'lint'".to_string());
                 }
             }
         }
@@ -1013,6 +1015,8 @@ fn parse_lint_args(args: &[String]) -> Result<CommandKind, String> {
     let mut check = false;
     let mut format = LintFormat::Text;
     let mut output = None;
+    let mut features = Vec::new();
+    let mut no_default_features = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -1026,6 +1030,17 @@ fn parse_lint_args(args: &[String]) -> Result<CommandKind, String> {
             }
             "--check" => {
                 check = true;
+            }
+            "--features" => {
+                if i + 1 < args.len() {
+                    push_features(&mut features, &args[i + 1]);
+                    i += 1;
+                } else {
+                    return Err("Error: Missing argument for '--features'".to_string());
+                }
+            }
+            "--no-default-features" => {
+                no_default_features = true;
             }
             "--format" => {
                 if i + 1 < args.len() {
@@ -1055,6 +1070,9 @@ fn parse_lint_args(args: &[String]) -> Result<CommandKind, String> {
                     return Err(format!("Error: Unexpected argument '{}'", other));
                 }
             }
+            other if other.starts_with("--features=") => {
+                push_features(&mut features, &other["--features=".len()..]);
+            }
             other => {
                 return Err(format!("Error: Unknown lint option '{}'", other));
             }
@@ -1075,6 +1093,8 @@ fn parse_lint_args(args: &[String]) -> Result<CommandKind, String> {
         check,
         format,
         output,
+        features,
+        no_default_features,
     })
 }
 
