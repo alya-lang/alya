@@ -856,14 +856,28 @@ impl CodeGen {
         let is_map = is_map_expr(iterable, &self.ctx.variables);
         let is_map_str_val = is_map
             && match iterable {
-                Expr::Map(entries) => entries
-                    .iter()
-                    .any(|(_, v)| is_string_expr(v, &self.ctx.variables)),
-                Expr::Identifier(name) => self
-                    .ctx
-                    .variables
-                    .keys()
-                    .any(|k| k.starts_with(&format!("map_str:{}.", name))),
+                Expr::Map(entries) => {
+                    // ALL values must be strings: one int among strings
+                    // miscompiles the loop value as `%s` (segfault).
+                    !entries.is_empty()
+                        && entries
+                            .iter()
+                            .all(|(_, v)| is_string_expr(v, &self.ctx.variables))
+                }
+                Expr::Identifier(name) => {
+                    // Existential markers must be gated by the whole-map
+                    // veto (alya-lang/alya#39): one non-string write
+                    // anywhere demotes the loop value to Number, where
+                    // `say` classifies per value at runtime.
+                    self.ctx
+                        .variables
+                        .keys()
+                        .any(|k| k.starts_with(&format!("map_str:{}.", name)))
+                        && !self
+                            .ctx
+                            .variables
+                            .contains_key(&format!("map_nonstr:{}", name))
+                }
                 _ => false,
             };
 
@@ -1036,6 +1050,14 @@ impl CodeGen {
         // mixed elements then convert at the load boundary (Phase 1,
         // #39) instead of reinterpreting raw bits.
         let elem_is_float = inferred_struct_type.is_none() && !is_str && !is_map && is_flt;
+        // Map values convert the same way when a value variable exists:
+        // Number slots truncate float entries, Float slots widen int
+        // entries, String slots move raw (all-string maps only; mixed
+        // maps demote to Number via the map_nonstr veto above).
+        let map_val_is_float =
+            value_var.is_some_and(|v| matches!(self.ctx.variables.get(v), Some(VarType::Float(_))));
+        let map_val_is_string = value_var
+            .is_some_and(|v| matches!(self.ctx.variables.get(v), Some(VarType::StringOffset(_))));
         arch::emit_for_each_load_element(
             &mut self.output,
             self.arch,
@@ -1047,6 +1069,8 @@ impl CodeGen {
             &map_label,
             &done_label,
             elem_is_float,
+            map_val_is_float,
+            map_val_is_string,
         );
 
         for s in body {

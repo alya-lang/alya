@@ -565,6 +565,17 @@ impl CodeGen {
                                 }
                             }
                         }
+                        // Whole-map veto (alya-lang/alya#39): any non-string
+                        // value demotes for-loop values to Number (runtime
+                        // dispatch in `say`); mirrors generate_assign below.
+                        if entries
+                            .iter()
+                            .any(|(_, v)| !is_string_expr(v, &self.ctx.variables))
+                        {
+                            self.ctx
+                                .variables
+                                .insert(format!("map_nonstr:{}", name), VarType::Number(0));
+                        }
                     }
                 } else if is_arr {
                     self.ctx
@@ -920,6 +931,17 @@ impl CodeGen {
                                     }
                                 }
                             }
+                            // Whole-map veto mirroring the inference pass
+                            // (alya-lang/alya#39): gates the for-loop
+                            // string aggregation in control.rs.
+                            if entries
+                                .iter()
+                                .any(|(_, v)| !is_string_expr(v, &self.ctx.variables))
+                            {
+                                self.ctx
+                                    .variables
+                                    .insert(format!("map_nonstr:{}", name), VarType::Number(0));
+                            }
                         }
                     } else if is_arr {
                         self.ctx
@@ -1182,6 +1204,12 @@ impl CodeGen {
                         VarType::StringOffset(0),
                     );
                 }
+            } else if let (Expr::Identifier(map_name), Expr::String(_)) = (array, index) {
+                // Non-string write voids the whole-map string claim
+                // (alya-lang/alya#39); mirrors the inference veto.
+                self.ctx
+                    .variables
+                    .insert(format!("map_nonstr:{}", map_name), VarType::Number(0));
             }
             if is_map_expr(value, &self.ctx.variables) {
                 if let Expr::String(field) = index {

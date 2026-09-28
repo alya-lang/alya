@@ -290,6 +290,8 @@ pub fn emit_for_each_load_element(
     map_label: &str,
     done_label: &str,
     is_float_var: bool,
+    map_val_is_float: bool,
+    map_val_is_string: bool,
 ) {
     out.push_str(&format!("    movq -{}(%rbp), %rax\n", arr_offset));
     out.push_str("    test %rax, %rax\n");
@@ -351,6 +353,24 @@ pub fn emit_for_each_load_element(
     out.push_str("    movq 8(%r8), %r10\n");
     if let Some(v_off) = val_offset {
         out.push_str(&format!("    movq %r9, -{}(%rbp)\n", var_offset));
+        if !map_val_is_string {
+            // Entry kind tag in the high 32 bits of the state word
+            // (Phase 1, #39): convert to the value slot's static type.
+            // Unknown tags (0) keep the raw value (status quo).
+            // %rax/%rcx are dead here (map ptr/index already stored).
+            out.push_str("    movl 20(%r8), %eax\n");
+            if map_val_is_float {
+                out.push_str("    cvtsi2sdq %r10, %xmm0\n");
+                out.push_str("    movq %xmm0, %rcx\n");
+                out.push_str(&format!("    cmpl ${}, %eax\n", KIND_INT));
+                out.push_str("    cmove %rcx, %r10\n");
+            } else {
+                out.push_str("    movq %r10, %xmm0\n");
+                out.push_str("    cvttsd2siq %xmm0, %rcx\n");
+                out.push_str(&format!("    cmpl ${}, %eax\n", KIND_FLOAT));
+                out.push_str("    cmove %rcx, %r10\n");
+            }
+        }
         out.push_str(&format!("    movq %r10, -{}(%rbp)\n", v_off));
     } else {
         out.push_str(&format!("    movq %r9, -{}(%rbp)\n", var_offset));

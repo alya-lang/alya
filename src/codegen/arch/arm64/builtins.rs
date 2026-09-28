@@ -174,6 +174,8 @@ pub fn emit_for_each_load_element(
     map_label: &str,
     done_label: &str,
     is_float_var: bool,
+    map_val_is_float: bool,
+    map_val_is_string: bool,
 ) {
     emit_arm64_load_x29_offset(out, "x0", arr_offset, "x9");
     out.push_str(&format!("    cbz x0, {}\n", end_label));
@@ -237,6 +239,23 @@ pub fn emit_for_each_load_element(
     out.push_str("    ldr x7, [x4, #8]\n");
     if let Some(v_off) = val_offset {
         emit_arm64_store_x29_offset(out, "x6", var_offset, "x9");
+        if !map_val_is_string {
+            // Entry kind tag at offset 20 (Phase 1, #39): convert to the
+            // value slot's static type. Unknown tags (0) keep raw.
+            // x8/x9 are dead here (key/index already stored).
+            out.push_str("    ldr w8, [x4, #20]\n");
+            if map_val_is_float {
+                out.push_str("    scvtf d0, x7\n");
+                out.push_str("    fmov x9, d0\n");
+                out.push_str(&format!("    cmp w8, #{}\n", KIND_INT));
+                out.push_str("    csel x7, x9, x7, eq\n");
+            } else {
+                out.push_str("    fmov d0, x7\n");
+                out.push_str("    fcvtzs x9, d0\n");
+                out.push_str(&format!("    cmp w8, #{}\n", KIND_FLOAT));
+                out.push_str("    csel x7, x9, x7, eq\n");
+            }
+        }
         emit_arm64_store_x29_offset(out, "x7", v_off, "x9");
     } else {
         emit_arm64_store_x29_offset(out, "x6", var_offset, "x9");

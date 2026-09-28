@@ -412,6 +412,7 @@ impl CodeGen {
         for s in &inference.known_strings {
             if s.starts_with("map_field_str:")
                 || s.starts_with("map_str:")
+                || s.starts_with("map_nonstr:")
                 || s.starts_with("fn_ret_str:")
                 || s.starts_with("fn_ret_str_arr:")
                 || s.starts_with("fn_ret_tuple_str:")

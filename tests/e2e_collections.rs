@@ -821,3 +821,113 @@ say m["k"] is int
         assert_eq!(output, "0\n1\n1\n0\n0\n1\n", "Got: {}", output);
     }
 }
+#[test]
+fn test_e2e_kind_dispatch_branch_returns() {
+    // alya-lang/alya#39 Phase 2b: returns behind constant-foldable
+    // branches classify per live branch.
+    let code = r#"
+function kind(v) -> string
+    return when v
+        is string => "s"
+        is int => "i"
+        is float => "f"
+        else => "?"
+    end
+end
+
+function pick(b, x, y)
+    if b
+        return x
+    else
+        return y
+    end
+end
+
+function main()
+    say kind(pick(1, 0.5, 1))
+    say kind(pick(0, 0.5, 1))
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "f\ni\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_for_over_map_float_value_converts() {
+    // alya-lang/alya#39 Phase 1: map loop values convert float slots
+    // to the loop variable's int type instead of printing raw bits.
+    let code = r#"
+function main()
+    let m = {}
+    m["a"] = 0.5
+    say m["a"]
+    for k, v in m
+        say v
+    end
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "0.5\n0\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_for_over_mixed_map_completes() {
+    // alya-lang/alya#39 Phase 1: iterating a mixed map must not fault;
+    // values print per the loop variable's static type.
+    let code = r#"
+function main()
+    let m = {}
+    m["a"] = "x"
+    m["b"] = 1
+    let n = 0
+    for k, v in m
+        n = n + 1
+    end
+    say n
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "2\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_for_over_mixed_map_prints_values() {
+    // alya-lang/alya#39 Phase 1: mixed maps demote the loop value to
+    // Number via the map_nonstr veto (let-literal, index-assign, and
+    // inline-literal shapes); `say` classifies each value at runtime.
+    // Order-independent: map iteration order is hash-defined.
+    let code = r#"
+function main()
+    let m = {"a": "x", "b": 1}
+    for k, v in m
+        say v
+    end
+    let n = {}
+    n["c"] = 2
+    n["d"] = "y"
+    for k, v in n
+        say v
+    end
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        let mut got: Vec<&str> = output.lines().collect();
+        got.sort_unstable();
+        assert_eq!(got, vec!["1", "2", "x", "y"], "Got: {}", output);
+    }
+}

@@ -681,6 +681,14 @@ fn collect_string_vars_from_stmts(
                                 known_strings.insert(format!("map_field_str:{}", field));
                                 known_strings.insert(format!("map_str:{}.{}", name, field));
                             }
+                        } else {
+                            // Any non-string value voids the whole-map string
+                            // claim (alya-lang/alya#39): loop values fall back
+                            // to Number + runtime dispatch instead of `%s` on
+                            // non-strings. Per-field markers stay (field reads
+                            // are still precise); the veto only gates the
+                            // map-wide aggregation in the for-loop consumer.
+                            known_strings.insert(format!("map_nonstr:{}", name));
                         }
                     }
                 }
@@ -773,6 +781,14 @@ fn collect_string_vars_from_stmts(
                                 known_strings.insert(format!("map_field_str:{}", field));
                                 known_strings.insert(format!("map_str:{}.{}", name, field));
                             }
+                        } else {
+                            // Any non-string value voids the whole-map string
+                            // claim (alya-lang/alya#39): loop values fall back
+                            // to Number + runtime dispatch instead of `%s` on
+                            // non-strings. Per-field markers stay (field reads
+                            // are still precise); the veto only gates the
+                            // map-wide aggregation in the for-loop consumer.
+                            known_strings.insert(format!("map_nonstr:{}", name));
                         }
                     }
                 }
@@ -1037,6 +1053,10 @@ fn collect_string_vars_from_stmts(
                     if let (Expr::Identifier(map_name), Expr::String(field)) = (array, index) {
                         known_strings.insert(format!("map_str:{}.{}", map_name, field));
                     }
+                } else if let (Expr::Identifier(map_name), Expr::String(_)) = (array, index) {
+                    // Non-string write voids the whole-map string claim
+                    // (alya-lang/alya#39); see the Map-literal veto above.
+                    known_strings.insert(format!("map_nonstr:{}", map_name));
                 }
             }
             Stmt::Pub(inner) | Stmt::Defer(inner) => {

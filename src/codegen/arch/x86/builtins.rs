@@ -154,6 +154,8 @@ pub fn emit_for_each_load_element(
     map_label: &str,
     done_label: &str,
     _is_float_var: bool,
+    _map_val_is_float: bool,
+    _map_val_is_string: bool,
 ) {
     // x86 stays raw (no kind channel on the 32-bit tier, cf. maps).
     out.push_str(&format!("    movl -{}(%ebp), %eax\n", arr_offset));

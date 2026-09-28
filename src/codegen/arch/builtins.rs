@@ -258,6 +258,8 @@ pub fn emit_for_each_load_element(
     map_label: &str,
     done_label: &str,
     is_float_var: bool,
+    map_val_is_float: bool,
+    map_val_is_string: bool,
 ) {
     match arch {
         Architecture::X86 => x86::emit_for_each_load_element(
@@ -270,6 +272,8 @@ pub fn emit_for_each_load_element(
             map_label,
             done_label,
             is_float_var,
+            map_val_is_float,
+            map_val_is_string,
         ),
         Architecture::X64 => x64::emit_for_each_load_element(
             out,
@@ -281,6 +285,8 @@ pub fn emit_for_each_load_element(
             map_label,
             done_label,
             is_float_var,
+            map_val_is_float,
+            map_val_is_string,
         ),
         Architecture::ARM64 => arm64::emit_for_each_load_element(
             out,
@@ -292,6 +298,8 @@ pub fn emit_for_each_load_element(
             map_label,
             done_label,
             is_float_var,
+            map_val_is_float,
+            map_val_is_string,
         ),
     }
 }

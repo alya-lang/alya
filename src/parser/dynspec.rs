@@ -672,8 +672,9 @@ fn classify_call_return(
         }
     }
     let mut returns = Vec::new();
-    collect_top_returns(body, &mut returns);
-    if returns.is_empty() {
+    let mut tainted = false;
+    collect_live_returns(body, &subst, &mut returns, &mut tainted);
+    if tainted || returns.is_empty() {
         return None;
     }
     let mut kind = None;
@@ -687,37 +688,140 @@ fn classify_call_return(
     kind
 }
 
-fn collect_top_returns<'a>(stmts: &'a [Stmt], out: &mut Vec<&'a Expr>) {
+/// Tri-state truthiness of an expression under caller substitution.
+/// Only literals, substituted params, and `not` fold; everything else
+/// is Unknown (conservative: unknown conditions keep all branches).
+#[derive(Clone, Copy, PartialEq)]
+enum Truth {
+    Yes,
+    No,
+    Unknown,
+}
+
+fn eval_truth(expr: &Expr, subst: &HashMap<&str, &Expr>) -> Truth {
+    match expr {
+        Expr::Number(n) => {
+            if *n != 0 {
+                Truth::Yes
+            } else {
+                Truth::No
+            }
+        }
+        Expr::Float(f) => {
+            if *f != 0.0 {
+                Truth::Yes
+            } else {
+                Truth::No
+            }
+        }
+        Expr::String(_) => Truth::Yes,
+        Expr::Null => Truth::No,
+        Expr::Identifier(p) => match subst.get(p.as_str()) {
+            Some(e) => eval_truth(e, subst),
+            None => Truth::Unknown,
+        },
+        Expr::Unary { op, expr: inner } => match eval_truth(inner, subst) {
+            Truth::Yes if *op == crate::ast::UnaryOp::Not => Truth::No,
+            Truth::No if *op == crate::ast::UnaryOp::Not => Truth::Yes,
+            _ => Truth::Unknown,
+        },
+        _ => Truth::Unknown,
+    }
+}
+
+fn subtree_has_return(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| match s.inner_stmt() {
+        Stmt::Return(_) => true,
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
+            subtree_has_return(then_block)
+                || else_block.as_ref().is_some_and(|eb| subtree_has_return(eb))
+        }
+        Stmt::While { body, .. }
+        | Stmt::Repeat { body }
+        | Stmt::For { body, .. }
+        | Stmt::ForEach { body, .. } => subtree_has_return(body),
+        Stmt::TryCatch {
+            try_block,
+            catch_block,
+            finally_block,
+            ..
+        } => {
+            subtree_has_return(try_block)
+                || subtree_has_return(catch_block)
+                || finally_block
+                    .as_ref()
+                    .is_some_and(|fb| subtree_has_return(fb))
+        }
+        Stmt::Defer(inner) | Stmt::Pub(inner) => subtree_has_return(std::slice::from_ref(inner)),
+        // Nested definitions own their returns.
+        _ => false,
+    })
+}
+
+/// Collects returns on paths that provably execute under `subst`.
+/// Sets `tainted` when a valueless exit is possible (if-without-else
+/// on a non-true condition, loops/try blocks containing returns):
+/// taint forces the generic fallback, so over-tainting only ever
+/// misses optimizations, never misroutes.
+fn collect_live_returns<'a>(
+    stmts: &'a [Stmt],
+    subst: &HashMap<&str, &Expr>,
+    out: &mut Vec<&'a Expr>,
+    tainted: &mut bool,
+) {
     for s in stmts {
         match s.inner_stmt() {
-            Stmt::Return(Some(expr)) => out.push(expr),
+            Stmt::Return(expr_opt) => match expr_opt {
+                Some(expr) => out.push(expr),
+                None => *tainted = true,
+            },
             Stmt::If {
+                condition,
                 then_block,
                 else_block,
-                ..
-            } => {
-                collect_top_returns(then_block, out);
-                if let Some(eb) = else_block {
-                    collect_top_returns(eb, out);
+            } => match eval_truth(condition, subst) {
+                Truth::Yes => collect_live_returns(then_block, subst, out, tainted),
+                Truth::No => {
+                    if let Some(eb) = else_block {
+                        collect_live_returns(eb, subst, out, tainted);
+                    }
                 }
-            }
+                Truth::Unknown => {
+                    collect_live_returns(then_block, subst, out, tainted);
+                    match else_block {
+                        Some(eb) => collect_live_returns(eb, subst, out, tainted),
+                        None => *tainted = true,
+                    }
+                }
+            },
             Stmt::While { body, .. }
             | Stmt::Repeat { body }
             | Stmt::For { body, .. }
-            | Stmt::ForEach { body, .. } => collect_top_returns(body, out),
+            | Stmt::ForEach { body, .. }
+                if subtree_has_return(body) =>
+            {
+                *tainted = true;
+            }
             Stmt::TryCatch {
                 try_block,
                 catch_block,
                 finally_block,
                 ..
-            } => {
-                collect_top_returns(try_block, out);
-                collect_top_returns(catch_block, out);
-                if let Some(fb) = finally_block {
-                    collect_top_returns(fb, out);
-                }
+            } if subtree_has_return(try_block)
+                || subtree_has_return(catch_block)
+                || finally_block
+                    .as_ref()
+                    .is_some_and(|fb| subtree_has_return(fb)) =>
+            {
+                *tainted = true;
             }
-            // Nested definitions own their returns.
+            Stmt::Defer(inner) | Stmt::Pub(inner) => {
+                collect_live_returns(std::slice::from_ref(inner), subst, out, tainted)
+            }
             _ => {}
         }
     }
