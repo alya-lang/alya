@@ -3040,6 +3040,8 @@ impl CodeGen {
                     self.generate_expression(expr);
                     let l_true = self.ctx.next_label();
                     let l_end = self.ctx.next_label();
+                    let l_str = self.ctx.next_label();
+                    let l_no = self.ctx.next_label();
                     if matches!(self.arch, Architecture::X64) {
                         // %rax = value (kept for tag==0 fallback below),
                         // %edx = tag (0 unknown, 3 string).
@@ -3047,13 +3049,13 @@ impl CodeGen {
                             .push_str(&format!("    cmpl ${}, %edx\n", KIND_STRING));
                         self.output.push_str(&format!("    je {}\n", l_true));
                         // Unknown tag: fall back to pointer-range string test.
+                        // Definite non-string tags (1, 2, 4, 5, 6) are
+                        // boolean false, not the leftover value.
                         self.output
                             .push_str(&format!("    cmpl ${}, %edx\n", KIND_UNKNOWN));
-                        self.output.push_str(&format!("    jne {}\n", l_end));
+                        self.output.push_str(&format!("    jne {}\n", l_no));
                         // Reuse the value in %rax for a light string check:
                         // rodata or str_buf range => string.
-                        let l_str = self.ctx.next_label();
-                        let l_no = self.ctx.next_label();
                         self.output.push_str("    cmp $65536, %rax\n");
                         self.output.push_str(&format!("    jb {}\n", l_no));
                         self.output
@@ -3087,14 +3089,14 @@ impl CodeGen {
                         self.output.push_str(&format!("{}:\n", l_end));
                     } else {
                         // arm64: x0 = value, w1 = tag.
+                        let l_str = self.ctx.next_label();
+                        let l_no = self.ctx.next_label();
                         self.output
                             .push_str(&format!("    cmp w1, #{}\n", KIND_STRING));
                         self.output.push_str(&format!("    b.eq {}\n", l_true));
                         self.output
                             .push_str(&format!("    cmp w1, #{}\n", KIND_UNKNOWN));
-                        self.output.push_str(&format!("    b.ne {}\n", l_end));
-                        let l_str = self.ctx.next_label();
-                        let l_no = self.ctx.next_label();
+                        self.output.push_str(&format!("    b.ne {}\n", l_no));
                         self.output.push_str("    movz x2, #1, lsl #16\n");
                         self.output.push_str("    cmp x0, x2\n");
                         self.output.push_str(&format!("    b.lo {}\n", l_no));

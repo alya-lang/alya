@@ -798,3 +798,26 @@ end
         assert_eq!(output, "1\n0.5\n1\n0\n");
     }
 }
+
+#[test]
+fn test_e2e_is_string_on_tagged_reads() {
+    // alya-lang/alya#39: `is string` on element reads with definite
+    // non-string tags must be boolean false, not the leftover value.
+    // (The tag path used to fall through with the value in the return
+    // register, so any nonzero value read as "true".)
+    let code = r#"
+let w = [1, 2]
+say w[0] is string
+say w[0] is int
+let r = ["a", "b"]
+say r[0] is string
+say r[0] is int
+let m = { "k": 42 }
+say m["k"] is string
+say m["k"] is int
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "0\n1\n1\n0\n0\n1\n", "Got: {}", output);
+    }
+}
