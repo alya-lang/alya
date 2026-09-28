@@ -221,7 +221,7 @@ In `icon-theme.json`:
 
 ### 2. Windows Executable Icon (`alya.exe`)
 
-When compiling `alya` with Rust, embed `alya-icon-dark.ico` as the binary application icon in `build.rs` using `winres`:
+When compiling `alya` with Rust, embed `alya-dark.ico` as the binary application icon in `build.rs` using `winres`:
 
 ```rust
 // Cargo.toml: [build-dependencies] winres = "0.1"
@@ -229,7 +229,7 @@ fn main() {
     #[cfg(windows)]
     {
         let mut res = winres::WindowsResource::new();
-        res.set_icon("assets/brand/logos/alya-icon-dark.ico");
+        res.set_icon("assets/brand/icons/alya-dark.ico");
         res.compile().unwrap();
     }
 }
