@@ -113,8 +113,74 @@ impl CodeGen {
                         Architecture::X86 => 4,
                         _ => 8,
                     };
+                    // Return-tag protocol (Phase 2b, alya-lang/alya#39):
+                    // qualifying functions leave (value, tag) for callers.
+                    // Literal returns materialize their static kind now
+                    // (reads already carry theirs); float literals also
+                    // move the value into the int register.
+                    let cur = self.ctx.current_fn_name.clone();
+                    let bare = cur.rsplit("::").next().unwrap_or(&cur);
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    let ret_tagged = self
+                        .ctx
+                        .variables
+                        .contains_key(&format!("fn_ret_tagged:{}", cur))
+                        || self
+                            .ctx
+                            .variables
+                            .contains_key(&format!("fn_ret_tagged:{}", bare));
+                    if ret_tagged {
+                        if let Expr::Float(_) = expr {
+                            match self.arch {
+                                Architecture::X64 => {
+                                    self.output.push_str("    movq %xmm0, %rax\n");
+                                }
+                                Architecture::ARM64 => {
+                                    self.output.push_str("    fmov x0, d0\n");
+                                }
+                                Architecture::X86 => {
+                                    self.output.push_str("    movd %xmm0, %eax\n");
+                                }
+                            }
+                        }
+                        let lit_kind: Option<i64> = match expr {
+                            Expr::Number(_) => Some(1),
+                            Expr::String(_) => Some(3),
+                            Expr::Float(_) => Some(2),
+                            _ => None,
+                        };
+                        if let Some(kind) = lit_kind {
+                            match self.arch {
+                                Architecture::X64 | Architecture::X86 => {
+                                    self.output.push_str(&format!("    movl ${}, %edx\n", kind));
+                                }
+                                Architecture::ARM64 => {
+                                    self.output.push_str(&format!("    mov w1, #{}\n", kind));
+                                }
+                            }
+                        }
+                    }
                     arch::emit_push_temp(&mut self.output, self.arch);
                     self.ctx.stack_offset += word_size;
+                    if ret_tagged {
+                        // Spill the tag across defers/releases (calls
+                        // clobber it); restored below. Mirrors the value
+                        // spill shape above, including offset tracking.
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output.push_str("    push %rdx\n");
+                                self.ctx.stack_offset += 8;
+                            }
+                            Architecture::ARM64 => {
+                                self.output.push_str("    str w1, [sp, #-16]!\n");
+                                self.ctx.stack_offset += 16;
+                            }
+                            Architecture::X86 => {
+                                self.output.push_str("    push %edx\n");
+                                self.ctx.stack_offset += 4;
+                            }
+                        }
+                    }
 
                     self.emit_run_defers();
 
@@ -125,6 +191,22 @@ impl CodeGen {
                         self.emit_rc_release_scope_return(&heap_offsets, check_match);
                     }
                     self.ctx.stack_offset -= word_size;
+                    if ret_tagged {
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output.push_str("    pop %rdx\n");
+                                self.ctx.stack_offset -= 8;
+                            }
+                            Architecture::ARM64 => {
+                                self.output.push_str("    ldr w1, [sp], #16\n");
+                                self.ctx.stack_offset -= 16;
+                            }
+                            Architecture::X86 => {
+                                self.output.push_str("    pop %edx\n");
+                                self.ctx.stack_offset -= 4;
+                            }
+                        }
+                    }
                     arch::emit_pop_temp(&mut self.output, self.arch);
                     if is_flt {
                         match self.arch {

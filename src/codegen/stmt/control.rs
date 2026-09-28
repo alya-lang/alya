@@ -89,10 +89,12 @@ impl CodeGen {
                         if matches!(
                             self.arch,
                             Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                        ) && matches!(&**left, Expr::Index { .. } | Expr::Ternary { .. })
-                            && (is_map_read_index(left, &self.ctx.variables)
-                                || is_array_kind_read(left, &self.ctx.variables)
-                                || is_dynamic_element_read(left, &self.ctx.variables))
+                        ) && matches!(
+                            &**left,
+                            Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                        ) && (is_map_read_index(left, &self.ctx.variables)
+                            || is_array_kind_read(left, &self.ctx.variables)
+                            || is_dynamic_element_read(left, &self.ctx.variables))
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -135,10 +137,12 @@ impl CodeGen {
                             if matches!(
                                 self.arch,
                                 Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                            ) && matches!(&**right, Expr::Index { .. } | Expr::Ternary { .. })
-                                && (is_map_read_index(right, &self.ctx.variables)
-                                    || is_array_kind_read(right, &self.ctx.variables)
-                                    || is_dynamic_element_read(right, &self.ctx.variables))
+                            ) && matches!(
+                                &**right,
+                                Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                            ) && (is_map_read_index(right, &self.ctx.variables)
+                                || is_array_kind_read(right, &self.ctx.variables)
+                                || is_dynamic_element_read(right, &self.ctx.variables))
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -323,10 +327,12 @@ impl CodeGen {
                         if matches!(
                             self.arch,
                             Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                        ) && matches!(&**left, Expr::Index { .. } | Expr::Ternary { .. })
-                            && (is_map_read_index(left, &self.ctx.variables)
-                                || is_array_kind_read(left, &self.ctx.variables)
-                                || is_dynamic_element_read(left, &self.ctx.variables))
+                        ) && matches!(
+                            &**left,
+                            Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                        ) && (is_map_read_index(left, &self.ctx.variables)
+                            || is_array_kind_read(left, &self.ctx.variables)
+                            || is_dynamic_element_read(left, &self.ctx.variables))
                         {
                             let l_skip = self.ctx.next_label();
                             if matches!(self.arch, Architecture::X64 | Architecture::X86) {
@@ -369,10 +375,12 @@ impl CodeGen {
                             if matches!(
                                 self.arch,
                                 Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                            ) && matches!(&**right, Expr::Index { .. } | Expr::Ternary { .. })
-                                && (is_map_read_index(right, &self.ctx.variables)
-                                    || is_array_kind_read(right, &self.ctx.variables)
-                                    || is_dynamic_element_read(right, &self.ctx.variables))
+                            ) && matches!(
+                                &**right,
+                                Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                            ) && (is_map_read_index(right, &self.ctx.variables)
+                                || is_array_kind_read(right, &self.ctx.variables)
+                                || is_dynamic_element_read(right, &self.ctx.variables))
                             {
                                 let l_skip = self.ctx.next_label();
                                 if matches!(self.arch, Architecture::X64 | Architecture::X86) {

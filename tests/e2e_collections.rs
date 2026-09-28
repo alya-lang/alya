@@ -1103,3 +1103,82 @@ main()
         assert_eq!(output, "1\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_call_boundary_tag_protocol_float() {
+    // alya-lang/alya#39 return-tag protocol: a function whose every
+    // return leaves (value, tag) lets callers dispatch on the tag.
+    let code = r#"
+function pick(a)
+    let t = clock_ms()
+    return if t != 0 then a[0] else 1
+end
+
+function main()
+    let m = []
+    m.push(0.5)
+    say pick(m)
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "0.5\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_call_boundary_tag_protocol_int() {
+    // Int arm through the protocol prints exactly.
+    let code = r#"
+function pick(a)
+    let t = clock_ms()
+    return if t == 0 then a[0] else 1
+end
+
+function main()
+    let m = []
+    m.push(0.5)
+    say pick(m)
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "1\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_call_boundary_strict_via_call() {
+    // Strict checks see through qualified calls: float result in
+    // integer arithmetic traps.
+    let code = r#"
+function pick(a)
+    let t = clock_ms()
+    return if t != 0 then a[0] else 1
+end
+
+function main()
+    let m = []
+    m.push(0.5)
+    say pick(m) + 1
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_ne!(
+            code, 0,
+            "Expected a runtime mixed-type error, got: {}",
+            output
+        );
+        assert!(
+            output.contains("mixed int/float arithmetic"),
+            "Got: {}",
+            output
+        );
+    }
+}

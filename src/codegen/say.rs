@@ -1097,10 +1097,12 @@ impl CodeGen {
                 // Value contract per arch: int/string in the int register,
                 // float bits in the int register (x64/arm64 rebuild f64
                 // from them; x86's loader left it in xmm0, untouched
-                // since by jumps only).
-                let ternary_tagged = matches!(expr, Expr::Ternary { .. })
+                // since by jumps only). Qualified calls share the
+                // contract: the return-tag protocol leaves (value, tag)
+                // with the tag fresh after the call.
+                let tag_dispatched = matches!(expr, Expr::Ternary { .. } | Expr::Call { .. })
                     && is_tag_carrying_read(expr, &self.ctx.variables);
-                let (l_tflt, l_tstr, l_tend) = if ternary_tagged {
+                let (l_tflt, l_tstr, l_tend) = if tag_dispatched {
                     let flt = self.ctx.next_label();
                     let s2 = self.ctx.next_label();
                     let end = self.ctx.next_label();
@@ -1166,8 +1168,16 @@ impl CodeGen {
                         self.os,
                     );
                     self.output.push_str(&format!("{}:\n", l_call_end));
-                    self.output.push('\n');
-                    return;
+                    if let (Some(_), Some(_), Some(t_end)) = (&l_tflt, &l_tstr, &l_tend) {
+                        // Tag-dispatched calls share the arms below: skip
+                        // the static print, which follows for untagged
+                        // shapes. (Early return would leave the arm
+                        // labels undefined.)
+                        arch::emit_jump(&mut self.output, self.arch, t_end);
+                    } else {
+                        self.output.push('\n');
+                        return;
+                    }
                 }
 
                 let fmt_label = self.ctx.next_string_label();

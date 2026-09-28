@@ -1035,6 +1035,112 @@ impl CodeGen {
         };
     }
 
+    /// Return-tag protocol qualification (Phase 2b, alya-lang/alya#39):
+    /// a function qualifies when every `return` leaves `(value, tag)` —
+    /// a tag-carrying expression or an int/string/float literal
+    /// (literals materialize at return) — AND every path returns (a
+    /// fallthrough exit would leave a stale tag). Nested function bodies
+    /// own their returns and are skipped. Anything else disqualifies
+    /// (conservative: callers keep legacy behavior).
+    fn fn_returns_all_tagged(
+        body: &[Stmt],
+        vars: &std::collections::HashMap<String, VarType>,
+    ) -> bool {
+        fn returns_ok(stmts: &[Stmt], vars: &std::collections::HashMap<String, VarType>) -> bool {
+            for s in stmts {
+                match s.inner_stmt() {
+                    Stmt::Return(None) => return false,
+                    Stmt::Return(Some(e)) => {
+                        if !(analysis::is_tag_carrying_read(e, vars)
+                            || matches!(e, &Expr::Number(_) | &Expr::String(_) | &Expr::Float(_)))
+                        {
+                            return false;
+                        }
+                    }
+                    Stmt::Function { .. } => {}
+                    Stmt::If {
+                        then_block,
+                        else_block,
+                        ..
+                    } => {
+                        if !returns_ok(then_block, vars) {
+                            return false;
+                        }
+                        if let Some(eb) = else_block {
+                            if !returns_ok(eb, vars) {
+                                return false;
+                            }
+                        }
+                    }
+                    Stmt::While { body, .. }
+                    | Stmt::Repeat { body }
+                    | Stmt::For { body, .. }
+                    | Stmt::ForEach { body, .. } => {
+                        if !returns_ok(body, vars) {
+                            return false;
+                        }
+                    }
+                    Stmt::TryCatch {
+                        try_block,
+                        catch_block,
+                        finally_block,
+                        ..
+                    } => {
+                        if !returns_ok(try_block, vars)
+                            || !returns_ok(catch_block, vars)
+                            || finally_block
+                                .as_ref()
+                                .is_some_and(|fb| !returns_ok(fb, vars))
+                        {
+                            return false;
+                        }
+                    }
+                    Stmt::Defer(inner) | Stmt::Pub(inner)
+                        if !returns_ok(std::slice::from_ref(inner), vars) =>
+                    {
+                        return false;
+                    }
+                    _ => {}
+                }
+            }
+            true
+        }
+        /// True when a block cannot fall through: its last statement
+        /// returns, throws, or nests such blocks on every path. Loops
+        /// may exit and bare expressions fall through (conservative).
+        fn block_diverges_or_returns(stmts: &[Stmt]) -> bool {
+            let Some(last) = stmts.last() else {
+                return false;
+            };
+            match last.inner_stmt() {
+                Stmt::Return(_) | Stmt::Throw(_) => true,
+                Stmt::If {
+                    then_block,
+                    else_block: Some(eb),
+                    ..
+                } => block_diverges_or_returns(then_block) && block_diverges_or_returns(eb),
+                Stmt::If { .. } => false,
+                Stmt::TryCatch {
+                    try_block,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    block_diverges_or_returns(try_block)
+                        && block_diverges_or_returns(catch_block)
+                        && finally_block
+                            .as_ref()
+                            .map_or(true, |fb| block_diverges_or_returns(fb))
+                }
+                Stmt::Defer(inner) | Stmt::Pub(inner) => {
+                    block_diverges_or_returns(std::slice::from_ref(inner))
+                }
+                _ => false,
+            }
+        }
+        returns_ok(body, vars) && block_diverges_or_returns(body)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn generate_function(
         &mut self,
@@ -1046,7 +1152,7 @@ impl CodeGen {
         program: &Program,
         inference: &ProgramInference,
     ) {
-        let saved = self.ctx.enter_function();
+        let mut saved = self.ctx.enter_function();
         self.ctx.current_fn_name = name.to_string();
 
         let bare = name.rsplit("::").next().unwrap_or(name);
@@ -1330,6 +1436,24 @@ impl CodeGen {
             arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
         }
 
+        // Return-tag protocol (Phase 2b, alya-lang/alya#39): when every
+        // return leaves (value, tag), record it so later callers can
+        // dispatch on the tag. The marker must outlive this function,
+        // so it goes into the saved (outer) scope as well —
+        // exit_function drops the current one. Forward references and
+        // recursion miss the marker and keep legacy behavior.
+        if Self::fn_returns_all_tagged(body, &self.ctx.variables) {
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            for key in [
+                format!("fn_ret_tagged:{}", name),
+                format!("fn_ret_tagged:{}", bare),
+            ] {
+                self.ctx.variables.insert(key.clone(), VarType::Number(0));
+                saved.variables.insert(key, VarType::Number(0));
+            }
+        }
+
         let defers = collect_all_defers(body);
         if !defers.is_empty() {
             let mut defer_entries = Vec::new();
@@ -1348,6 +1472,32 @@ impl CodeGen {
 
         self.emit_run_defers();
         self.emit_cleanup_scope(None);
+
+        // Return-tag protocol: a fallthrough (non-return) exit leaves
+        // unknown tag so callers never trust a stale one. Reachable only
+        // when qualification missed a path; defense in depth.
+        {
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            if self
+                .ctx
+                .variables
+                .contains_key(&format!("fn_ret_tagged:{}", name))
+                || self
+                    .ctx
+                    .variables
+                    .contains_key(&format!("fn_ret_tagged:{}", bare))
+            {
+                match self.arch {
+                    Architecture::X64 | Architecture::X86 => {
+                        self.output.push_str("    movl $0, %edx\n");
+                    }
+                    Architecture::ARM64 => {
+                        self.output.push_str("    mov w1, #0\n");
+                    }
+                }
+            }
+        }
 
         arch::emit_function_epilogue(&mut self.output, self.arch);
 

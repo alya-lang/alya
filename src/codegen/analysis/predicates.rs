@@ -762,14 +762,14 @@ pub fn is_strict_dynamic_op(op: &BinaryOp) -> bool {
     )
 }
 
-/// True when an `Index` read delivers a trustworthy value-kind tag in
+/// True when an expression delivers a trustworthy value-kind tag in
 /// the tag register (x64/x86: `%edx`, arm64: `w1`): map-routed reads via
-/// `fn_get`, plain array-identifier reads via the slot sidecar, or
-/// dynamically-typed element reads (Phase 2b). Non-float ternaries with
-/// a tag-carrying arm deliver the taken arm's tag (codegen materializes
-/// every other arm). Mirrors the expression-codegen routing exactly;
-/// struct `operator[]` rewrites and string-typed bases never reach a
-/// tag-producing loader.
+/// `fn_get`, plain array-identifier reads via the slot sidecar,
+/// dynamically-typed element reads (Phase 2b), non-float ternaries with
+/// a tag-carrying arm (codegen materializes every other arm), or calls
+/// into return-tagged functions (every return leaves `(value, tag)`).
+/// Mirrors the expression-codegen routing exactly; struct `operator[]`
+/// rewrites and string-typed bases never reach a tag-producing loader.
 pub fn is_tag_carrying_read(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     if let Expr::Ternary {
         then_branch,
@@ -779,6 +779,18 @@ pub fn is_tag_carrying_read(expr: &Expr, vars: &HashMap<String, VarType>) -> boo
     {
         return !is_float_expr(expr, vars)
             && (ternary_arm_carries(then_branch, vars) || ternary_arm_carries(else_branch, vars));
+    }
+    if let Expr::Call { name, .. } = expr {
+        // Return-tag protocol (Phase 2b, #39): the callee guarantees
+        // (value, tag) on every return path. Unqualified callees
+        // (forward references, recursion, dynamics) keep legacy
+        // behavior. Bare-name lookup mirrors fn_ret_flt.
+        if vars.contains_key(&format!("fn_ret_tagged:{}", name)) {
+            return true;
+        }
+        let bare = name.rsplit("::").next().unwrap_or(name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        return vars.contains_key(&format!("fn_ret_tagged:{}", bare));
     }
     is_map_read_index(expr, vars)
         || is_array_kind_read(expr, vars)
