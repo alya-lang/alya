@@ -53,6 +53,27 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  build-linux-x86:
+    name: Build + unit tests (Linux x86)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain with i686 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-unknown-linux-gnu
+
+      - name: Install 32-bit C toolchain (linker + 32-bit libc)
+        run: sudo apt-get update && sudo apt-get install -y gcc-multilib libc6-i386
+
+      - name: Build compiler for i686
+        run: cargo build --verbose --target i686-unknown-linux-gnu
+
+      - name: Run unit tests as 32-bit binaries (IA32 emulation)
+        run: cargo test --verbose --lib --target i686-unknown-linux-gnu
+
   test:
     name: Test (${{ matrix.label }})
     needs: [fmt, clippy]
