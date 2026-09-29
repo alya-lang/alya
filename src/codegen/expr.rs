@@ -2,9 +2,9 @@ use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     eq_operand_is_dynamic, escape_string, is_array_expr, is_definitely_not_numeric, is_float_expr,
-    is_map_expr, is_null_expr, is_number_expr, is_strict_dynamic_op, is_string_expr,
-    is_tag_carrying_read, struct_field_markers_mixed_vars, ternary_arm_carries, value_kind_tag,
-    value_kind_tag_x86_store,
+    is_map_expr, is_null_expr, is_number_expr, is_proven_float_store, is_strict_dynamic_op,
+    is_string_expr, is_tag_carrying_read, struct_field_markers_mixed_vars, ternary_arm_carries,
+    value_kind_tag, value_kind_tag_x86_store,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -2068,15 +2068,14 @@ impl CodeGen {
                 };
                 match self.arch {
                     Architecture::X86 => {
-                        // Float slots are 8 bytes on x86: statically-float
-                        // args to user functions push the full double from
-                        // %xmm0 (a 4-byte `%eax` push would drop the value).
-                        // Runtime builtins and externs keep the legacy 4-byte
-                        // discipline (their hand-written frames are fixed),
-                        // as do indirect calls (callee unknown here).
-                        // Cumulative sizes keep later args aligned with the
-                        // callee's matching layout (alya-lang/alya#59
-                        // follow-up).
+                        // Float slots are 8 bytes on x86, but only for
+                        // proven shapes (the value really is a double in
+                        // `%xmm0`): marker-based floatness can hold an int
+                        // or string at runtime with stale `%xmm0`, and an
+                        // 8-byte push of that would corrupt both the value
+                        // and the layout. Unproven shapes keep the legacy
+                        // 4-byte `%eax` push (mirrors the callee-side
+                        // proven rule; alya-lang/alya#59 follow-up).
                         let user_callee = self.ctx.functions.contains(call_name);
                         let mut pushed: i32 = 0;
                         for (idx, arg) in actual_args.iter().rev().enumerate() {
@@ -2139,7 +2138,7 @@ impl CodeGen {
                                     self.os,
                                 );
                             }
-                            if user_callee && is_float_expr(arg, &self.ctx.variables) {
+                            if user_callee && is_proven_float_store(arg, &self.ctx.variables) {
                                 self.output.push_str("    sub $8, %esp\n");
                                 self.output.push_str("    movsd %xmm0, (%esp)\n");
                                 pushed += 8;
@@ -2225,7 +2224,7 @@ impl CodeGen {
                 {
                     actual_args
                         .iter()
-                        .filter(|a| is_float_expr(a, &self.ctx.variables))
+                        .filter(|a| is_proven_float_store(a, &self.ctx.variables))
                         .count() as i32
                         * 4
                 } else {
@@ -4611,23 +4610,27 @@ impl CodeGen {
     pub(crate) fn generate_dynamic_equality(&mut self, left: &Expr, right: &Expr, op: BinaryOp) {
         let is_eq = matches!(op, BinaryOp::Equal);
         self.generate_expression(left);
-        // Statically-float operands live in %xmm0: pushing `%eax`
-        // would drop the value (and push a stale pointer that can even
-        // classify as a string). Floats push the full 8-byte double.
-        let l_size: i32 =
-            if matches!(self.arch, Architecture::X86) && is_float_expr(left, &self.ctx.variables) {
-                self.output.push_str("    sub $8, %esp\n");
-                self.output.push_str("    movsd %xmm0, (%esp)\n");
-                8
-            } else {
-                arch::emit_push_temp(&mut self.output, self.arch);
-                self.temp_offset()
-            };
+        // x86 pushes floats as 8-byte doubles, but only proven shapes
+        // (see `is_proven_float_store`): marker-based floatness can hold
+        // a non-float at runtime with stale `%xmm0`, and pushing that
+        // would corrupt the value this path classifies.
+        let l_push8 = matches!(self.arch, Architecture::X86)
+            && is_proven_float_store(left, &self.ctx.variables);
+        let l_size: i32 = if l_push8 {
+            self.output.push_str("    sub $8, %esp\n");
+            self.output.push_str("    movsd %xmm0, (%esp)\n");
+            8
+        } else {
+            arch::emit_push_temp(&mut self.output, self.arch);
+            self.temp_offset()
+        };
         self.ctx.stack_offset += l_size;
 
         self.generate_expression(right);
         self.ctx.stack_offset -= l_size;
-        if matches!(self.arch, Architecture::X86) && is_float_expr(right, &self.ctx.variables) {
+        if matches!(self.arch, Architecture::X86)
+            && is_proven_float_store(right, &self.ctx.variables)
+        {
             self.output.push_str("    sub $8, %esp\n");
             self.output.push_str("    movsd %xmm0, (%esp)\n");
         } else {
@@ -4669,9 +4672,10 @@ impl CodeGen {
                 self.output.push_str(&format!("{}:\n", l_end));
             }
             Architecture::X86 => {
-                // Sizes mirror the pushes above (floats are 8 bytes).
-                let l_float = is_float_expr(left, &self.ctx.variables);
-                let r_float = is_float_expr(right, &self.ctx.variables);
+                // Sizes mirror the pushes above (proven floats are 8
+                // bytes, everything else 4).
+                let l_float = is_proven_float_store(left, &self.ctx.variables);
+                let r_float = is_proven_float_store(right, &self.ctx.variables);
                 let l_str = is_string_expr(left, &self.ctx.variables);
                 let r_str = is_string_expr(right, &self.ctx.variables);
                 if (l_str && r_float) || (r_str && l_float) {

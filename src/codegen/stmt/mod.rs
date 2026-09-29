@@ -163,8 +163,15 @@ impl CodeGen {
                     // On x86 a float return lives in %xmm0, which defers
                     // and releases (calls) clobber: spill the full double,
                     // not just `%eax`. Other archs mirror the value into
-                    // the int register already.
-                    let x86_float_spill = matches!(self.arch, Architecture::X86) && is_flt;
+                    // the int register already. Only proven shapes spill
+                    // the double: marker-based floatness can hold a
+                    // non-float at runtime with stale `%xmm0`.
+                    let x86_float_spill = matches!(self.arch, Architecture::X86)
+                        && is_flt
+                        && crate::codegen::analysis::is_proven_float_store(
+                            expr,
+                            &self.ctx.variables,
+                        );
                     if x86_float_spill {
                         self.output.push_str("    sub $8, %esp\n");
                         self.output.push_str("    movsd %xmm0, (%esp)\n");
