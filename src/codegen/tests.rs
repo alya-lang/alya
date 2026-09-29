@@ -1,4 +1,5 @@
 use super::generate;
+use super::order_functions_callee_first;
 use super::target::{Architecture, OperatingSystem};
 use crate::ast::{BinaryOp, Expr, Program, Stmt};
 
@@ -1005,4 +1006,88 @@ fn test_codegen_untyped_array_param_retained_despite_unknown_callsite() {
         "untyped array param must be retained on entry, got:\n{}",
         &region[..end]
     );
+}
+
+// Return-tag protocol ordering (alya-lang/alya#55-C): callees emit
+// before callers so forward references keep their markers.
+
+fn order_test_fn(name: &str, calls: &[&str]) -> Stmt {
+    Stmt::Function {
+        name: name.to_string(),
+        params: vec![],
+        param_types: vec![],
+        return_type: None,
+        defaults: vec![],
+        body: calls
+            .iter()
+            .map(|c| {
+                Stmt::Expr(Expr::Call {
+                    name: c.to_string(),
+                    args: vec![],
+                })
+            })
+            .collect(),
+        type_params: vec![],
+        attributes: vec![],
+    }
+}
+
+fn order_names(funcs: &[&Stmt]) -> Vec<String> {
+    funcs
+        .iter()
+        .map(|s| match s.inner_stmt() {
+            Stmt::Function { name, .. } => name.clone(),
+            _ => unreachable!(),
+        })
+        .collect()
+}
+
+#[test]
+fn test_order_forward_chain_callee_first() {
+    let m = order_test_fn("main", &["mid"]);
+    let mid = order_test_fn("mid", &["leaf"]);
+    let leaf = order_test_fn("leaf", &[]);
+    let ordered = order_functions_callee_first(vec![&m, &mid, &leaf]);
+    assert_eq!(order_names(&ordered), vec!["leaf", "mid", "main"]);
+}
+
+#[test]
+fn test_order_already_ordered_unchanged() {
+    let leaf = order_test_fn("leaf", &[]);
+    let mid = order_test_fn("mid", &["leaf"]);
+    let m = order_test_fn("main", &["mid"]);
+    let ordered = order_functions_callee_first(vec![&leaf, &mid, &m]);
+    assert_eq!(order_names(&ordered), vec!["leaf", "mid", "main"]);
+}
+
+#[test]
+fn test_order_cycle_keeps_source_order() {
+    let a = order_test_fn("a", &["b"]);
+    let b = order_test_fn("b", &["a"]);
+    let ordered = order_functions_callee_first(vec![&a, &b]);
+    assert_eq!(order_names(&ordered), vec!["a", "b"]);
+}
+
+#[test]
+fn test_order_recursive_callee_still_first() {
+    let m = order_test_fn("main", &["fib"]);
+    let fib = order_test_fn("fib", &["fib"]);
+    let ordered = order_functions_callee_first(vec![&m, &fib]);
+    assert_eq!(order_names(&ordered), vec!["fib", "main"]);
+}
+
+#[test]
+fn test_order_unknown_callee_ignored() {
+    let m = order_test_fn("main", &["dynamic", "leaf"]);
+    let leaf = order_test_fn("leaf", &[]);
+    let ordered = order_functions_callee_first(vec![&m, &leaf]);
+    assert_eq!(order_names(&ordered), vec!["leaf", "main"]);
+}
+
+#[test]
+fn test_order_qualified_call_matches_bare_def() {
+    let m = order_test_fn("main", &["pkg::helper"]);
+    let helper = order_test_fn("helper", &[]);
+    let ordered = order_functions_callee_first(vec![&m, &helper]);
+    assert_eq!(order_names(&ordered), vec!["helper", "main"]);
 }

@@ -1012,6 +1012,9 @@ impl CodeGen {
                         self.ctx.tag_stats.call_hits += 1;
                     } else {
                         self.ctx.tag_stats.miss_names.push(name.clone());
+                        if self.ctx.current_fn_name.is_empty() {
+                            self.ctx.tag_stats.miss_top_level += 1;
+                        }
                     }
                 }
                 if let Some(sdef) = self

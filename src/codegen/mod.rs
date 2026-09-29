@@ -96,6 +96,284 @@ fn collect_expr_identifiers(expr: &Expr, idents: &mut std::collections::HashSet<
     }
 }
 
+fn collect_called_names_expr(expr: &Expr, out: &mut Vec<String>) {
+    match expr {
+        Expr::Call { name, args } => {
+            out.push(name.clone());
+            for arg in args {
+                collect_called_names_expr(arg, out);
+            }
+        }
+        Expr::OptionalCall { callee, args } => {
+            out.push(callee.clone());
+            for arg in args {
+                collect_called_names_expr(arg, out);
+            }
+        }
+        Expr::Binary { left, right, .. } => {
+            collect_called_names_expr(left, out);
+            collect_called_names_expr(right, out);
+        }
+        Expr::Unary { expr, .. } | Expr::Cast { expr, .. } | Expr::TypeCheck { expr, .. } => {
+            collect_called_names_expr(expr, out);
+        }
+        Expr::ForceUnwrap(inner) => {
+            collect_called_names_expr(inner, out);
+        }
+        Expr::Array(items) | Expr::InterpolatedString(items) => {
+            for item in items {
+                collect_called_names_expr(item, out);
+            }
+        }
+        Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+            collect_called_names_expr(array, out);
+            collect_called_names_expr(index, out);
+        }
+        Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+            collect_called_names_expr(object, out);
+        }
+        Expr::StructInit { fields, .. } => {
+            for (_, val) in fields {
+                collect_called_names_expr(val, out);
+            }
+        }
+        Expr::Map(pairs) => {
+            for (k, v) in pairs {
+                collect_called_names_expr(k, out);
+                collect_called_names_expr(v, out);
+            }
+        }
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            collect_called_names_expr(condition, out);
+            collect_called_names_expr(then_branch, out);
+            collect_called_names_expr(else_branch, out);
+        }
+        Expr::NullCoalesce { value, default } => {
+            collect_called_names_expr(value, out);
+            collect_called_names_expr(default, out);
+        }
+        _ => {}
+    }
+}
+
+fn collect_called_names_stmt(stmt: &Stmt, out: &mut Vec<String>) {
+    match stmt.inner_stmt() {
+        Stmt::Expr(e) | Stmt::Say(e) | Stmt::Return(Some(e)) | Stmt::Throw(Some(e)) => {
+            collect_called_names_expr(e, out);
+        }
+        Stmt::Let { value, .. } | Stmt::Const { value, .. } => {
+            collect_called_names_expr(value, out);
+        }
+        Stmt::Assign { value, .. } => {
+            collect_called_names_expr(value, out);
+        }
+        Stmt::IndexAssign {
+            array,
+            index,
+            value,
+        } => {
+            collect_called_names_expr(array, out);
+            collect_called_names_expr(index, out);
+            collect_called_names_expr(value, out);
+        }
+        Stmt::FieldAssign { object, value, .. } => {
+            collect_called_names_expr(object, out);
+            collect_called_names_expr(value, out);
+        }
+        Stmt::If {
+            condition,
+            then_block,
+            else_block,
+        } => {
+            collect_called_names_expr(condition, out);
+            for s in then_block {
+                collect_called_names_stmt(s, out);
+            }
+            if let Some(eb) = else_block {
+                for s in eb {
+                    collect_called_names_stmt(s, out);
+                }
+            }
+        }
+        Stmt::While { condition, body } => {
+            collect_called_names_expr(condition, out);
+            for s in body {
+                collect_called_names_stmt(s, out);
+            }
+        }
+        Stmt::Repeat { body } => {
+            for s in body {
+                collect_called_names_stmt(s, out);
+            }
+        }
+        Stmt::For {
+            start, end, body, ..
+        } => {
+            collect_called_names_expr(start, out);
+            collect_called_names_expr(end, out);
+            for s in body {
+                collect_called_names_stmt(s, out);
+            }
+        }
+        Stmt::ForEach { iterable, body, .. } => {
+            collect_called_names_expr(iterable, out);
+            for s in body {
+                collect_called_names_stmt(s, out);
+            }
+        }
+        Stmt::Defer(inner) => {
+            collect_called_names_stmt(inner, out);
+        }
+        Stmt::TryCatch {
+            try_block,
+            catch_block,
+            finally_block,
+            ..
+        } => {
+            for s in try_block {
+                collect_called_names_stmt(s, out);
+            }
+            for s in catch_block {
+                collect_called_names_stmt(s, out);
+            }
+            if let Some(fb) = finally_block {
+                for s in fb {
+                    collect_called_names_stmt(s, out);
+                }
+            }
+        }
+        Stmt::Function { body, .. } => {
+            for s in body {
+                collect_called_names_stmt(s, out);
+            }
+        }
+        Stmt::Pub(inner) => {
+            collect_called_names_stmt(inner, out);
+        }
+        _ => {}
+    }
+}
+
+fn bare_variants(name: &str) -> Vec<String> {
+    let mut keys = vec![name.to_string()];
+    let ns_bare = name.rsplit("::").next().unwrap_or(name);
+    if ns_bare != name {
+        keys.push(ns_bare.to_string());
+    }
+    let bare = ns_bare.rsplit("__").next().unwrap_or(ns_bare);
+    if bare != ns_bare {
+        keys.push(bare.to_string());
+    }
+    keys
+}
+
+/// Emission order for the return-tag protocol (alya-lang/alya#55-C):
+/// callees before callers, so forward references see their callee's
+/// marker. Tarjan SCCs over the call graph (edges caller -> callee);
+/// cyclic groups (recursion) keep source order and today's legacy
+/// behavior. Best-effort edges only: a missed edge is a missed
+/// optimization, never a miscompile — marker insertion still runs on
+/// live vars at generation time, unchanged.
+pub(crate) fn order_functions_callee_first(functions: Vec<&Stmt>) -> Vec<&Stmt> {
+    let names: Vec<String> = functions
+        .iter()
+        .map(|s| match s.inner_stmt() {
+            Stmt::Function { name, .. } => name.clone(),
+            _ => String::new(),
+        })
+        .collect();
+    let mut key_to_idxs: std::collections::HashMap<String, Vec<usize>> =
+        std::collections::HashMap::new();
+    for (i, name) in names.iter().enumerate() {
+        for key in bare_variants(name) {
+            key_to_idxs.entry(key).or_default().push(i);
+        }
+    }
+    let mut edges: Vec<Vec<usize>> = vec![Vec::new(); functions.len()];
+    for (i, func) in functions.iter().enumerate() {
+        if let Stmt::Function { body, .. } = func.inner_stmt() {
+            let mut called = Vec::new();
+            for s in body {
+                collect_called_names_stmt(s, &mut called);
+            }
+            let mut seen = std::collections::HashSet::new();
+            for name in called {
+                for key in bare_variants(&name) {
+                    if let Some(idxs) = key_to_idxs.get(&key) {
+                        for &j in idxs {
+                            if seen.insert(j) {
+                                edges[i].push(j);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Tarjan SCC (recursive; graphs are small). Completion order is
+    // sinks-first, i.e. callees before callers along every edge.
+    struct Tarjan {
+        index: Vec<Option<usize>>,
+        low: Vec<usize>,
+        on_stack: Vec<bool>,
+        stack: Vec<usize>,
+        next: usize,
+        sccs: Vec<Vec<usize>>,
+    }
+    fn strongconnect(t: &mut Tarjan, v: usize, edges: &[Vec<usize>]) {
+        t.index[v] = Some(t.next);
+        t.low[v] = t.next;
+        t.next += 1;
+        t.stack.push(v);
+        t.on_stack[v] = true;
+        for &w in &edges[v] {
+            if t.index[w].is_none() {
+                strongconnect(t, w, edges);
+                t.low[v] = t.low[v].min(t.low[w]);
+            } else if t.on_stack[w] {
+                t.low[v] = t.low[v].min(t.index[w].unwrap_or(usize::MAX));
+            }
+        }
+        if t.low[v] == t.index[v].unwrap_or(usize::MAX) {
+            let mut scc = Vec::new();
+            while let Some(w) = t.stack.pop() {
+                t.on_stack[w] = false;
+                scc.push(w);
+                if w == v {
+                    break;
+                }
+            }
+            scc.sort_unstable();
+            t.sccs.push(scc);
+        }
+    }
+    let n = functions.len();
+    let mut t = Tarjan {
+        index: vec![None; n],
+        low: vec![0; n],
+        on_stack: vec![false; n],
+        stack: Vec::new(),
+        next: 0,
+        sccs: Vec::new(),
+    };
+    for v in 0..n {
+        if t.index[v].is_none() {
+            strongconnect(&mut t, v, &edges);
+        }
+    }
+    let mut ordered = Vec::with_capacity(n);
+    for scc in t.sccs {
+        for i in scc {
+            ordered.push(functions[i]);
+        }
+    }
+    ordered
+}
+
 fn collect_stmt_identifiers(stmt: &Stmt, idents: &mut std::collections::HashSet<String>) {
     match stmt.inner_stmt() {
         Stmt::Expr(e) | Stmt::Say(e) | Stmt::Return(Some(e)) | Stmt::Throw(Some(e)) => {
@@ -796,6 +1074,10 @@ impl CodeGen {
                 _ => top_level.push(stmt),
             }
         }
+        // Return-tag protocol (alya-lang/alya#55-C): emit callees
+        // before callers so forward references see their marker.
+        // Layout-only: every function still emits exactly once.
+        let functions = order_functions_callee_first(functions);
 
         // Identify top-level variables used in functions/lambdas that need to be module globals
         let mut function_idents = std::collections::HashSet::new();
@@ -942,6 +1224,46 @@ impl CodeGen {
             }
         }
 
+        // Functions generate before the top-level flow (alya-lang/alya#55-C):
+        // every marker is installed before any caller — including
+        // top-level — is generated, so only recursion still misses.
+        // Generation order is not file order: bodies go to a side
+        // buffer appended after the entry footer below, keeping the
+        // file layout (entry flow falls through to its own `ret`)
+        // exactly as before. enter/exit_function fully save and
+        // restore scope state, so the top-level flow sees identical
+        // context either way.
+        // `@cold` functions emit last so hot code stays contiguous
+        // (Chapter 18 §1.2). Order is otherwise callee-first; calls
+        // resolve by name and the C entry point is fixed.
+        let entry_output = std::mem::take(&mut self.output);
+        let (hot, cold): (Vec<_>, Vec<_>) = functions.into_iter().partition(|func| {
+            !matches!(func, Stmt::Function { attributes, .. } if attributes.iter().any(|a| a.name == "cold"))
+        });
+        for func in hot.into_iter().chain(cold) {
+            if let Stmt::Function {
+                name,
+                params,
+                param_types,
+                body,
+                attributes,
+                ..
+            } = func
+            {
+                self.generate_function(
+                    name,
+                    params,
+                    param_types,
+                    body,
+                    attributes,
+                    program,
+                    &inference,
+                );
+            }
+        }
+        let func_output = std::mem::take(&mut self.output);
+        self.output = entry_output;
+
         for stmt in top_level {
             self.generate_statement(stmt);
         }
@@ -994,33 +1316,10 @@ impl CodeGen {
 
         arch::emit_footer(&mut self.output, self.arch);
 
-        // `@cold` functions emit last so hot code stays contiguous
-        // (Chapter 18 §1.2). Order is otherwise preserved; calls resolve by
-        // name and the C entry point is fixed, so this is layout-only.
-        let (hot, cold): (Vec<_>, Vec<_>) = functions.into_iter().partition(|func| {
-            !matches!(func, Stmt::Function { attributes, .. } if attributes.iter().any(|a| a.name == "cold"))
-        });
-        for func in hot.into_iter().chain(cold) {
-            if let Stmt::Function {
-                name,
-                params,
-                param_types,
-                body,
-                attributes,
-                ..
-            } = func
-            {
-                self.generate_function(
-                    name,
-                    params,
-                    param_types,
-                    body,
-                    attributes,
-                    program,
-                    &inference,
-                );
-            }
-        }
+        // Function bodies generated up front (see above); appended here
+        // so the file layout is unchanged: entry flow, its `ret`, then
+        // labeled function blocks, then the runtime.
+        self.output.push_str(&func_output);
 
         if !self.no_std {
             runtime::emit_runtime(
@@ -1062,12 +1361,13 @@ impl CodeGen {
             }
             let structural = stats.miss_names.len() as u64 - forward;
             eprintln!(
-                "[tag-stats] markers={} call_hits={} misses={} (forward={} structural={})",
+                "[tag-stats] markers={} call_hits={} misses={} (forward={} structural={} top_level_miss={})",
                 stats.markers,
                 stats.call_hits,
                 stats.miss_names.len(),
                 forward,
-                structural
+                structural,
+                stats.miss_top_level
             );
         }
 
@@ -1507,8 +1807,9 @@ impl CodeGen {
         // return leaves (value, tag), record it so later callers can
         // dispatch on the tag. The marker must outlive this function,
         // so it goes into the saved (outer) scope as well —
-        // exit_function drops the current one. Forward references and
-        // recursion miss the marker and keep legacy behavior.
+        // exit_function drops the current one. Emission is
+        // callee-first (alya-lang/alya#55-C), so only recursion still
+        // misses the marker and keeps legacy behavior.
         if Self::fn_returns_all_tagged(body, &self.ctx.variables) {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);

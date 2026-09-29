@@ -783,8 +783,9 @@ pub fn is_tag_carrying_read(expr: &Expr, vars: &HashMap<String, VarType>) -> boo
     if let Expr::Call { name, .. } = expr {
         // Return-tag protocol (Phase 2b, #39): the callee guarantees
         // (value, tag) on every return path. Unqualified callees
-        // (forward references, recursion, dynamics) keep legacy
-        // behavior. Bare-name lookup mirrors fn_ret_flt.
+        // (recursion, dynamics) keep legacy behavior; forward
+        // references are ordered callee-first (#55-C). Bare-name
+        // lookup mirrors fn_ret_flt.
         if vars.contains_key(&format!("fn_ret_tagged:{}", name)) {
             return true;
         }

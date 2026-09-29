@@ -60,6 +60,9 @@ pub struct TagStats {
     pub markers: u64,
     pub call_hits: u64,
     pub miss_names: Vec<String>,
+    /// Misses emitted outside any function body (top-level flow always
+    /// precedes all functions, so these can never see markers).
+    pub miss_top_level: u64,
 }
 
 #[derive(Debug, Default)]
