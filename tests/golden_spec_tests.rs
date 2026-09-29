@@ -149,16 +149,10 @@ fn test_golden_spec_execution_matrix() {
     let mut exec_passed = 0;
     let total = entries.len();
     // x86 structural gaps (see the per-file skips): 32-bit ints by design
-    // (lexical) and struct float layout (alya-lang/alya#62: functions,
-    // interfaces, operators_overloading, structs).
+    // (lexical). Struct float layout (alya-lang/alya#62) is fixed, so the
+    // struct-heavy fixtures run unskipped.
     let x86_skip: &[&str] = if cfg!(target_arch = "x86") {
-        &[
-            "functions.alya",
-            "interfaces.alya",
-            "lexical.alya",
-            "operators_overloading.alya",
-            "structs.alya",
-        ]
+        &["lexical.alya"]
     } else {
         &[]
     };
@@ -360,11 +354,6 @@ fn test_golden_spec_concurrency_execution() {
 
 #[test]
 fn test_golden_spec_interfaces_execution() {
-    // x86: struct float fields need 8-byte cells (alya-lang/alya#62).
-    if cfg!(target_arch = "x86") {
-        println!("SKIP interfaces execution on x86 (#62)");
-        return;
-    }
     let iface_file = get_spec_syntax_dir().join("interfaces.alya");
     let source =
         fs::read_to_string(&iface_file).expect("Failed to read spec/syntax/interfaces.alya");
@@ -432,11 +421,6 @@ fn test_golden_spec_enums_execution() {
 
 #[test]
 fn test_golden_spec_operators_overloading_execution() {
-    // x86: struct float fields need 8-byte cells (alya-lang/alya#62).
-    if cfg!(target_arch = "x86") {
-        println!("SKIP operators_overloading execution on x86 (#62)");
-        return;
-    }
     let file = get_spec_syntax_dir().join("operators_overloading.alya");
     let source =
         fs::read_to_string(&file).expect("Failed to read spec/syntax/operators_overloading.alya");
@@ -879,11 +863,6 @@ fn test_golden_spec_loops_execution() {
 
 #[test]
 fn test_golden_spec_functions_execution() {
-    // x86: struct float fields need 8-byte cells (alya-lang/alya#62).
-    if cfg!(target_arch = "x86") {
-        println!("SKIP functions execution on x86 (#62)");
-        return;
-    }
     let file = get_spec_syntax_dir().join("functions.alya");
     let source = fs::read_to_string(&file).expect("Failed to read functions.alya");
     if let Some((code, output)) = run_spec_code(&source) {

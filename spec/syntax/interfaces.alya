@@ -1,7 +1,6 @@
 # ==============================================================================
 # Alya Language Specification: Chapter 14 - Interfaces & Structural Polymorphism
 # File: syntax/interfaces.alya
-# SKIP-ARCH: x86 (struct float fields need 8-byte cells, alya-lang/alya#62)
 # ==============================================================================
 
 # ------------------------------------------------------------------------------

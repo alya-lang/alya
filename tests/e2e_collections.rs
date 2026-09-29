@@ -115,11 +115,6 @@ say "Formatted point: ({p.x}, {p.y})"
 
 #[test]
 fn test_e2e_structs_advanced() {
-    // x86: struct float fields need 8-byte cells (alya-lang/alya#62).
-    if cfg!(target_arch = "x86") {
-        println!("SKIP structs_advanced on x86 (#62)");
-        return;
-    }
     let code = r#"
 struct Person
     name

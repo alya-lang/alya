@@ -245,18 +245,18 @@ pub fn emit_fat_ptr_new(
     }
 }
 
-pub fn emit_struct_field_get(out: &mut String, field_idx: usize) {
-    out.push_str(&format!("    movq {}(%rax), %rax\n", (field_idx + 1) * 8));
+pub fn emit_struct_field_get(out: &mut String, byte_offset: usize) {
+    out.push_str(&format!("    movq {}(%rax), %rax\n", byte_offset));
 }
 
-pub fn emit_struct_field_set_imm(out: &mut String, field_idx: usize) {
+pub fn emit_struct_field_set_imm(out: &mut String, byte_offset: usize) {
     out.push_str("    mov (%rsp), %rdx\n");
-    out.push_str(&format!("    movq %rax, {}(%rdx)\n", (field_idx + 1) * 8));
+    out.push_str(&format!("    movq %rax, {}(%rdx)\n", byte_offset));
 }
 
-pub fn emit_struct_field_set(out: &mut String, field_idx: usize) {
+pub fn emit_struct_field_set(out: &mut String, byte_offset: usize) {
     out.push_str("    pop %rdx\n");
-    out.push_str(&format!("    movq %rax, {}(%rdx)\n", (field_idx + 1) * 8));
+    out.push_str(&format!("    movq %rax, {}(%rdx)\n", byte_offset));
 }
 
 pub fn emit_print_struct(out: &mut String, stack_offset: i32, os: OperatingSystem) {

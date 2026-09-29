@@ -145,18 +145,18 @@ pub fn emit_fat_ptr_new(out: &mut String, vtable_label: &str, os: OperatingSyste
     out.push_str(&format!("    bl {}alya_fat_ptr_new\n", p));
 }
 
-pub fn emit_struct_field_get(out: &mut String, field_idx: usize) {
-    out.push_str(&format!("    ldr x0, [x0, #{}]\n", (field_idx + 1) * 8));
+pub fn emit_struct_field_get(out: &mut String, byte_offset: usize) {
+    out.push_str(&format!("    ldr x0, [x0, #{}]\n", byte_offset));
 }
 
-pub fn emit_struct_field_set_imm(out: &mut String, field_idx: usize) {
+pub fn emit_struct_field_set_imm(out: &mut String, byte_offset: usize) {
     out.push_str("    ldr x1, [sp]\n");
-    out.push_str(&format!("    str x0, [x1, #{}]\n", (field_idx + 1) * 8));
+    out.push_str(&format!("    str x0, [x1, #{}]\n", byte_offset));
 }
 
-pub fn emit_struct_field_set(out: &mut String, field_idx: usize) {
+pub fn emit_struct_field_set(out: &mut String, byte_offset: usize) {
     out.push_str("    ldr x1, [sp], #16\n");
-    out.push_str(&format!("    str x0, [x1, #{}]\n", (field_idx + 1) * 8));
+    out.push_str(&format!("    str x0, [x1, #{}]\n", byte_offset));
 }
 
 pub fn emit_print_struct(out: &mut String) {

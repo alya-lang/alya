@@ -126,8 +126,27 @@ impl CodeGen {
                         );
                         return;
                     } else {
-                        arch::emit_push_temp(&mut self.output, self.arch);
+                        // x86 pushes the left double as 8 bytes (the op
+                        // pops 8); other arches push one word. Mirrors the
+                        // general float-binop path (alya-lang/alya#62).
+                        if matches!(self.arch, Architecture::X86) {
+                            if !left_is_flt && is_definitely_not_numeric(left, &self.ctx.variables)
+                            {
+                                self.emit_x86_bits_to_float();
+                            }
+                            self.output
+                                .push_str("    sub $8, %esp\n    movsd %xmm0, (%esp)\n");
+                            self.ctx.stack_offset += 8;
+                        } else {
+                            arch::emit_push_temp(&mut self.output, self.arch);
+                        }
                         self.generate_expression(right);
+                        if matches!(self.arch, Architecture::X86)
+                            && !right_is_flt
+                            && is_definitely_not_numeric(right, &self.ctx.variables)
+                        {
+                            self.emit_x86_bits_to_float();
+                        }
                         if !right_is_flt && !is_definitely_not_numeric(right, &self.ctx.variables) {
                             // Index carries kind tag (x64: %edx, arm64: w1;
                             // map routing or Phase 1 array slot kinds).
@@ -156,6 +175,9 @@ impl CodeGen {
                             }
                         }
                         arch::emit_float_binary_op(&mut self.output, self.arch, *op);
+                        if matches!(self.arch, Architecture::X86) {
+                            self.ctx.stack_offset -= 8;
+                        }
                     }
                     arch::emit_jump_if_zero(&mut self.output, self.arch, target_label);
                     return;
@@ -360,8 +382,27 @@ impl CodeGen {
                         );
                         return;
                     } else {
-                        arch::emit_push_temp(&mut self.output, self.arch);
+                        // x86 pushes the left double as 8 bytes (the op
+                        // pops 8); other arches push one word. Mirrors the
+                        // general float-binop path (alya-lang/alya#62).
+                        if matches!(self.arch, Architecture::X86) {
+                            if !left_is_flt && is_definitely_not_numeric(left, &self.ctx.variables)
+                            {
+                                self.emit_x86_bits_to_float();
+                            }
+                            self.output
+                                .push_str("    sub $8, %esp\n    movsd %xmm0, (%esp)\n");
+                            self.ctx.stack_offset += 8;
+                        } else {
+                            arch::emit_push_temp(&mut self.output, self.arch);
+                        }
                         self.generate_expression(right);
+                        if matches!(self.arch, Architecture::X86)
+                            && !right_is_flt
+                            && is_definitely_not_numeric(right, &self.ctx.variables)
+                        {
+                            self.emit_x86_bits_to_float();
+                        }
                         if !right_is_flt && !is_definitely_not_numeric(right, &self.ctx.variables) {
                             // Index carries kind tag (x64: %edx, arm64: w1;
                             // map routing or Phase 1 array slot kinds).
@@ -390,6 +431,9 @@ impl CodeGen {
                             }
                         }
                         arch::emit_float_binary_op(&mut self.output, self.arch, *op);
+                        if matches!(self.arch, Architecture::X86) {
+                            self.ctx.stack_offset -= 8;
+                        }
                     }
                     arch::emit_jump_if_not_zero(&mut self.output, self.arch, target_label);
                     return;

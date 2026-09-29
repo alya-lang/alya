@@ -1,7 +1,7 @@
 use crate::ast::*;
 use crate::codegen::analysis::inference::common::collect_function_defs;
 use crate::codegen::analysis::traversal::CallIndex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 fn expr_is_definitely_float(expr: &Expr, known_floats: &HashSet<String>) -> bool {
     match expr {
@@ -1077,4 +1077,269 @@ fn collect_push_float_program(
     let mut states = vec![top_state];
     states.extend(fn_states);
     commit_push_round(&states, snapshot, out);
+}
+
+/// Struct fields initialized with definitely-float values anywhere in the
+/// program, keyed `struct_layout_flt:{Struct}.{field}` (plus `::`-bare
+/// twins). Codegen sizes x86 struct cells from these markers (alongside
+/// declared field types) before emitting anything, so layout never depends
+/// on emission order (alya-lang/alya#62). Untyped fields without float
+/// evidence stay narrow, keeping packed 4-byte layout for int-only
+/// structs. Direct float field assigns (`obj.f = 1.5`) are not scanned:
+/// assigning a float to a narrow field stays a mixed-shape edge.
+pub fn collect_struct_layout_floats(
+    program: &Program,
+    known_floats: &HashSet<String>,
+) -> HashSet<String> {
+    // Canonical struct definitions (full + `::`-bare keys).
+    let mut defs: HashMap<String, Vec<String>> = HashMap::new();
+    fn gather_defs(stmts: &[Stmt], defs: &mut HashMap<String, Vec<String>>) {
+        for stmt in stmts {
+            match stmt.inner_stmt() {
+                Stmt::StructDef { name, fields, .. } => {
+                    defs.entry(name.clone()).or_insert_with(|| fields.clone());
+                    let bare = name.rsplit("::").next().unwrap_or(name);
+                    defs.entry(bare.to_string())
+                        .or_insert_with(|| fields.clone());
+                }
+                Stmt::Function { body, .. } => gather_defs(body, defs),
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    gather_defs(then_block, defs);
+                    if let Some(eb) = else_block {
+                        gather_defs(eb, defs);
+                    }
+                }
+                Stmt::While { body, .. } | Stmt::Repeat { body, .. } => gather_defs(body, defs),
+                Stmt::For { body, .. } => gather_defs(body, defs),
+                Stmt::ForEach { body, .. } => gather_defs(body, defs),
+                Stmt::TryCatch {
+                    try_block,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    gather_defs(try_block, defs);
+                    gather_defs(catch_block, defs);
+                    if let Some(fb) = finally_block {
+                        gather_defs(fb, defs);
+                    }
+                }
+                Stmt::Defer(inner) | Stmt::Pub(inner) => {
+                    gather_defs(std::slice::from_ref(inner.as_ref()), defs)
+                }
+                _ => {}
+            }
+        }
+    }
+    gather_defs(&program.statements, &mut defs);
+
+    let mut out = HashSet::new();
+    fn mark(out: &mut HashSet<String>, def_key: &str, def_fields: &[String], field: &str) {
+        if !def_fields.iter().any(|f| f == field) {
+            return;
+        }
+        out.insert(format!("struct_layout_flt:{}.{}", def_key, field));
+        let bare = def_key.rsplit("::").next().unwrap_or(def_key);
+        out.insert(format!("struct_layout_flt:{}.{}", bare, field));
+    }
+    fn scan_expr(
+        expr: &Expr,
+        defs: &HashMap<String, Vec<String>>,
+        known_floats: &HashSet<String>,
+        out: &mut HashSet<String>,
+    ) {
+        match expr {
+            Expr::StructInit { name, fields } => {
+                let def_key = if defs.contains_key(name) {
+                    Some(name.clone())
+                } else {
+                    let bare = name.rsplit("::").next().unwrap_or(name);
+                    defs.contains_key(bare).then(|| bare.to_string())
+                };
+                if let Some(key) = def_key {
+                    if let Some(def_fields) = defs.get(&key).cloned() {
+                        for (fname, fval) in fields {
+                            if expr_is_definitely_float(fval, known_floats) {
+                                mark(out, &key, &def_fields, fname);
+                            }
+                            scan_expr(fval, defs, known_floats, out);
+                        }
+                        return;
+                    }
+                }
+                for (_, fval) in fields {
+                    scan_expr(fval, defs, known_floats, out);
+                }
+            }
+            Expr::Call { name, args } => {
+                // Positional struct construction `Point2D(1.0, 2.0)`.
+                let def_key = if defs.contains_key(name) {
+                    Some(name.clone())
+                } else {
+                    let bare = name.rsplit("::").next().unwrap_or(name);
+                    defs.contains_key(bare).then(|| bare.to_string())
+                };
+                if let Some(key) = def_key {
+                    if let Some(def_fields) = defs.get(&key).cloned() {
+                        for (i, arg) in args.iter().enumerate() {
+                            if let Some(fname) = def_fields.get(i) {
+                                if expr_is_definitely_float(arg, known_floats) {
+                                    mark(out, &key, &def_fields, fname);
+                                }
+                            }
+                            scan_expr(arg, defs, known_floats, out);
+                        }
+                        return;
+                    }
+                }
+                for arg in args {
+                    scan_expr(arg, defs, known_floats, out);
+                }
+            }
+            Expr::Binary { left, right, .. } => {
+                scan_expr(left, defs, known_floats, out);
+                scan_expr(right, defs, known_floats, out);
+            }
+            Expr::Unary { expr, .. } => scan_expr(expr, defs, known_floats, out),
+            Expr::InterpolatedString(parts) | Expr::Array(parts) => {
+                for part in parts {
+                    scan_expr(part, defs, known_floats, out);
+                }
+            }
+            Expr::Index { array, index } => {
+                scan_expr(array, defs, known_floats, out);
+                scan_expr(index, defs, known_floats, out);
+            }
+            Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+                scan_expr(object, defs, known_floats, out)
+            }
+            Expr::Map(pairs) => {
+                for (k, v) in pairs {
+                    scan_expr(k, defs, known_floats, out);
+                    scan_expr(v, defs, known_floats, out);
+                }
+            }
+            Expr::Ternary {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                scan_expr(condition, defs, known_floats, out);
+                scan_expr(then_branch, defs, known_floats, out);
+                scan_expr(else_branch, defs, known_floats, out);
+            }
+            Expr::NullCoalesce { value, default } => {
+                scan_expr(value, defs, known_floats, out);
+                scan_expr(default, defs, known_floats, out);
+            }
+            Expr::OptionalIndex { array, index } => {
+                scan_expr(array, defs, known_floats, out);
+                scan_expr(index, defs, known_floats, out);
+            }
+            Expr::OptionalCall { args, .. } => {
+                for arg in args {
+                    scan_expr(arg, defs, known_floats, out);
+                }
+            }
+            Expr::ForceUnwrap(inner) => scan_expr(inner, defs, known_floats, out),
+            Expr::TypeCheck { expr, .. } => scan_expr(expr, defs, known_floats, out),
+            Expr::Cast { expr, .. } => scan_expr(expr, defs, known_floats, out),
+            _ => {}
+        }
+    }
+    fn scan_stmts(
+        stmts: &[Stmt],
+        defs: &HashMap<String, Vec<String>>,
+        known_floats: &HashSet<String>,
+        out: &mut HashSet<String>,
+    ) {
+        for stmt in stmts {
+            match stmt.inner_stmt() {
+                Stmt::Say(expr)
+                | Stmt::Expr(expr)
+                | Stmt::Throw(Some(expr))
+                | Stmt::Return(Some(expr)) => scan_expr(expr, defs, known_floats, out),
+                Stmt::Let { value, .. } | Stmt::Const { value, .. } => {
+                    scan_expr(value, defs, known_floats, out)
+                }
+                Stmt::Assign { value, .. } => scan_expr(value, defs, known_floats, out),
+                Stmt::IndexAssign {
+                    array,
+                    index,
+                    value,
+                } => {
+                    scan_expr(array, defs, known_floats, out);
+                    scan_expr(index, defs, known_floats, out);
+                    scan_expr(value, defs, known_floats, out);
+                }
+                Stmt::FieldAssign { object, value, .. } => {
+                    scan_expr(object, defs, known_floats, out);
+                    scan_expr(value, defs, known_floats, out);
+                }
+                Stmt::If {
+                    condition,
+                    then_block,
+                    else_block,
+                } => {
+                    scan_expr(condition, defs, known_floats, out);
+                    scan_stmts(then_block, defs, known_floats, out);
+                    if let Some(eb) = else_block {
+                        scan_stmts(eb, defs, known_floats, out);
+                    }
+                }
+                Stmt::While { condition, body } => {
+                    scan_expr(condition, defs, known_floats, out);
+                    scan_stmts(body, defs, known_floats, out);
+                }
+                Stmt::Repeat { body } => scan_stmts(body, defs, known_floats, out),
+                Stmt::For {
+                    start, end, body, ..
+                } => {
+                    scan_expr(start, defs, known_floats, out);
+                    scan_expr(end, defs, known_floats, out);
+                    scan_stmts(body, defs, known_floats, out);
+                }
+                Stmt::ForEach { iterable, body, .. } => {
+                    scan_expr(iterable, defs, known_floats, out);
+                    scan_stmts(body, defs, known_floats, out);
+                }
+                Stmt::Function { body, defaults, .. } => {
+                    for def in defaults.iter().flatten() {
+                        scan_expr(def, defs, known_floats, out);
+                    }
+                    scan_stmts(body, defs, known_floats, out);
+                }
+                Stmt::TryCatch {
+                    try_block,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    scan_stmts(try_block, defs, known_floats, out);
+                    scan_stmts(catch_block, defs, known_floats, out);
+                    if let Some(fb) = finally_block {
+                        scan_stmts(fb, defs, known_floats, out);
+                    }
+                }
+                Stmt::StructDef { defaults, .. } => {
+                    for def in defaults.iter().flatten() {
+                        scan_expr(def, defs, known_floats, out);
+                    }
+                }
+                Stmt::Defer(inner) | Stmt::Pub(inner) => scan_stmts(
+                    std::slice::from_ref(inner.as_ref()),
+                    defs,
+                    known_floats,
+                    out,
+                ),
+                _ => {}
+            }
+        }
+    }
+    scan_stmts(&program.statements, &defs, known_floats, &mut out);
+    out
 }

@@ -1,7 +1,6 @@
 # ==============================================================================
 # Alya Language Specification: Chapter 08 - Structs & Methods (Object Model)
 # File: syntax/structs.alya
-# SKIP-ARCH: x86 (struct float fields need 8-byte cells, alya-lang/alya#62)
 # ==============================================================================
 
 # ------------------------------------------------------------------------------

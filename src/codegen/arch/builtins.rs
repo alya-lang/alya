@@ -218,27 +218,44 @@ pub fn emit_fat_ptr_new(
     }
 }
 
-pub fn emit_struct_field_get(out: &mut String, arch: Architecture, field_idx: usize) {
+pub fn emit_struct_field_get(out: &mut String, arch: Architecture, byte_offset: usize, wide: bool) {
     match arch {
-        Architecture::ARM64 => arm64::emit_struct_field_get(out, field_idx),
-        Architecture::X64 => x64::emit_struct_field_get(out, field_idx),
-        Architecture::X86 => x86::emit_struct_field_get(out, field_idx),
+        Architecture::ARM64 => {
+            arm64::emit_struct_field_get(out, byte_offset);
+        }
+        Architecture::X64 => {
+            x64::emit_struct_field_get(out, byte_offset);
+        }
+        Architecture::X86 => x86::emit_struct_field_get(out, byte_offset, wide),
     }
 }
 
-pub fn emit_struct_field_set_imm(out: &mut String, arch: Architecture, field_idx: usize) {
+pub fn emit_struct_field_set_imm(
+    out: &mut String,
+    arch: Architecture,
+    byte_offset: usize,
+    wide: bool,
+) {
     match arch {
-        Architecture::ARM64 => arm64::emit_struct_field_set_imm(out, field_idx),
-        Architecture::X64 => x64::emit_struct_field_set_imm(out, field_idx),
-        Architecture::X86 => x86::emit_struct_field_set_imm(out, field_idx),
+        Architecture::ARM64 => {
+            arm64::emit_struct_field_set_imm(out, byte_offset);
+        }
+        Architecture::X64 => {
+            x64::emit_struct_field_set_imm(out, byte_offset);
+        }
+        Architecture::X86 => x86::emit_struct_field_set_imm(out, byte_offset, wide),
     }
 }
 
-pub fn emit_struct_field_set(out: &mut String, arch: Architecture, field_idx: usize) {
+pub fn emit_struct_field_set(out: &mut String, arch: Architecture, byte_offset: usize, wide: bool) {
     match arch {
-        Architecture::ARM64 => arm64::emit_struct_field_set(out, field_idx),
-        Architecture::X64 => x64::emit_struct_field_set(out, field_idx),
-        Architecture::X86 => x86::emit_struct_field_set(out, field_idx),
+        Architecture::ARM64 => {
+            arm64::emit_struct_field_set(out, byte_offset);
+        }
+        Architecture::X64 => {
+            x64::emit_struct_field_set(out, byte_offset);
+        }
+        Architecture::X86 => x86::emit_struct_field_set(out, byte_offset, wide),
     }
 }
 
