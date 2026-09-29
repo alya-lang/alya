@@ -15,7 +15,7 @@ Every project in this directory is a first-class **Alya package** equipped with 
 | **[Game of Life](#1-conways-game-of-life-game_of_life)** | [`apps/game_of_life/`](game_of_life/main.alya) | Simulation / Graphics | Toroidal 2D grid, preset seeds, ANSI animation, `term`, `rand`, `std/time` |
 | **[HTTP Benchmark](#2-http-benchmark-tool-http_bench)** | [`apps/http_bench/`](http_bench/main.alya) | Networking / Performance | Concurrent load generator (`wrk`/`ab` style), Keep-Alive reuse, worker pool, `url`, `term`, `std/net`, `std/thread` |
 | **[HTTP Web Server](#3-native-http-web-server-http_server)** | [`apps/http_server/`](http_server/main.alya) | Backend / Networking | High-performance HTTP/1.1 server, REST JSON APIs, static file delivery with auto MIME detection, non-blocking I/O, `mime`, `term`, `std/net` |
-| **[Port Scanner](#4-tcp-port-scanner-port_scanner)** | [`apps/port_scanner/`](port_scanner/main.alya) | Security / Networking | Asynchronous TCP port prober, service identification, progress bar and table formatting with `term`, `std/net`, `std/time` |
+| **[Port Scanner](#4-tcp-port-scanner-port_scanner)** | [`apps/port_scanner/`](port_scanner/main.alya) | Security / Networking | Parallel TCP port prober (thread pool + channels), custom ports/ranges, service identification, progress bar and table formatting with `term`, `std/net`, `std/thread` |
 | **[Snake](#5-snake-arcade-game-snake)** | [`apps/snake/`](snake/main.alya) | Terminal Game / AI | Interactive manual mode (WASD), autonomous AI autopilot mode, high-score tracking, `term`, `rand`, `std/console` |
 | **[Tic Tac Toe](#6-tic-tac-toe-tictactoe)** | [`apps/tictactoe/`](tictactoe/main.alya) | Terminal Game / AI | Player-vs-Player and Player-vs-AI with unbeatable Minimax algorithm, Unicode scoreboard and box UI with `term`, `rand` |
 | **[Todo Manager](#7-terminal-todo-manager-todo)** | [`apps/todo/`](todo/main.alya) | Productivity / Tooling | Package manager integration, task DB, ANSI badges, progress bar, `term`, `crypto`, `rand`, `std/fs` |
@@ -91,17 +91,21 @@ A full-featured native HTTP/1.1 web server built with raw POSIX/Winsock sockets 
 ---
 
 ### 4. TCP Port Scanner (`port_scanner`)
-A rapid network reconnaissance tool that probes target hosts and services.
+A rapid network reconnaissance tool that probes target hosts and services with a parallel thread pool.
 
 * **Ecosystem Packages**: `term` (progress bar & tabular report rendering).
-* **Key Features**: Probes top standard service ports (HTTP, HTTPS, SSH, MySQL, Postgres, Redis, etc.), measures round-trip connect latency, renders a dynamic terminal progress bar, and outputs a formatted results table.
+* **Key Features**: 22-way parallel probing over OS threads (`std/thread`) with channel-collected results, custom port lists and ranges, top standard service ports (HTTP, HTTPS, SSH, MySQL, Postgres, Redis, etc.), round-trip connect latency, dynamic terminal progress bar, and formatted results table.
 * **Run**:
   ```bash
   # Run as a package
   cd apps/port_scanner && alya run
 
-  # Scan localhost
+  # Scan localhost (default common ports)
   alya run apps/port_scanner/main.alya -- -t 127.0.0.1
+
+  # Custom ports and ranges
+  alya run apps/port_scanner/main.alya -- -t 127.0.0.1 -p 80,443,8000-8010
+  alya run apps/port_scanner/main.alya -- -t 127.0.0.1 -r 1-1024
 
   # Automated simulation / smoke test
   alya run apps/port_scanner/main.alya -- --test
@@ -170,20 +174,20 @@ A persistent terminal task manager and productivity tracker built using the **Al
   cd apps/todo && alya pkg list
 
   # Add new tasks
-  alya run apps/todo/main.alya -- add "Build C FFI engine" --pri high --tag core
-  alya run apps/todo/main.alya -- add "Write LSP docs" --pri med --tag docs
+  alya run apps/todo/src/main.alya -- add "Build C FFI engine" --pri high --tag core
+  alya run apps/todo/src/main.alya -- add "Write LSP docs" --pri med --tag docs
 
   # List tasks and view progress
-  alya run apps/todo/main.alya -- list
+  alya run apps/todo/src/main.alya -- list
 
   # Mark task completed
-  alya run apps/todo/main.alya -- done 1
+  alya run apps/todo/src/main.alya -- done 1
 
   # View productivity metrics
-  alya run apps/todo/main.alya -- stats
+  alya run apps/todo/src/main.alya -- stats
 
   # Automated test suite
-  alya run apps/todo/main.alya -- --test
+  alya run apps/todo/src/main.alya -- --test
   ```
 
 ---
@@ -260,5 +264,5 @@ alya run apps/http_server/main.alya -- --test
 alya run apps/port_scanner/main.alya -- --test
 alya run apps/snake/main.alya -- --test
 alya run apps/tictactoe/main.alya -- --test
-alya run apps/todo/main.alya -- --test
+alya run apps/todo/src/main.alya -- --test
 ```
