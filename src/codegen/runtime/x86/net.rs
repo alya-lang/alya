@@ -134,6 +134,18 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    jl .L_x86_listen_fail\n");
     out.push_str("    mov %eax, %ebx\n");
 
+    // setsockopt(SO_REUSEADDR), mirroring x64: lets tests rebind the
+    // same port across rapid runs (TIME_WAIT otherwise fails bind).
+    out.push_str("    movl $1, -16(%ebp)\n");
+    out.push_str("    push $4\n");
+    out.push_str("    lea -16(%ebp), %eax\n");
+    out.push_str("    push %eax\n");
+    out.push_str("    push $2\n");
+    out.push_str("    push $1\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    call setsockopt\n");
+    out.push_str("    add $20, %esp\n");
+
     // sockaddr_in
     out.push_str("    movl $0, -44(%ebp)\n");
     out.push_str("    movl $0, -40(%ebp)\n");
@@ -315,35 +327,39 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    test %ecx, %ecx\n");
     out.push_str("    jz .L_x86_sendb_zero\n");
     out.push_str("    movl 8(%esi), %edi\n"); // data
-    out.push_str("    mov %ecx, -4(%ebp)\n");
+    // Locals live below the saved registers (which occupy -4..-12):
+    // using -4/-8 would clobber the caller's %ebx/%esi.
+    out.push_str("    mov %ecx, -16(%ebp)\n");
     out.push_str("    push %ecx\n");
     out.push_str("    call malloc\n");
     out.push_str("    add $4, %esp\n");
     out.push_str("    test %eax, %eax\n");
     out.push_str("    jz .L_x86_sendb_err\n");
-    out.push_str("    mov %eax, -8(%ebp)\n"); // tmp
-    out.push_str("    mov -8(%ebp), %edx\n");
+    out.push_str("    mov %eax, -20(%ebp)\n"); // tmp
+    out.push_str("    mov -20(%ebp), %edx\n");
     out.push_str("    xor %ecx, %ecx\n");
     out.push_str(".L_x86_sendb_pack:\n");
-    out.push_str("    cmp -4(%ebp), %ecx\n");
+    out.push_str("    cmp -16(%ebp), %ecx\n");
     out.push_str("    jge .L_x86_sendb_do\n");
-    out.push_str("    movzbl (%edi, %ecx, 4), %eax\n");
+    out.push_str("    movzbl (%edi, %ecx, 8), %eax\n");
     out.push_str("    mov %al, (%edx, %ecx)\n");
     out.push_str("    inc %ecx\n");
     out.push_str("    jmp .L_x86_sendb_pack\n");
     out.push_str(".L_x86_sendb_do:\n");
     out.push_str("    push $0\n");
-    out.push_str("    push -4(%ebp)\n");
+    out.push_str("    push -16(%ebp)\n");
     out.push_str("    push %edx\n");
     out.push_str("    push %ebx\n");
     out.push_str("    call send\n");
     out.push_str("    add $16, %esp\n");
-    out.push_str("    mov %eax, %ecx\n"); // sent
-    out.push_str("    mov -8(%ebp), %edx\n");
+    // `sent` must survive `free` below: %ecx is caller-saved and free
+    // clobbers it, so spill to a local slot (-24 is free in sub $16).
+    out.push_str("    mov %eax, -24(%ebp)\n");
+    out.push_str("    mov -20(%ebp), %edx\n");
     out.push_str("    push %edx\n");
     out.push_str("    call free\n");
     out.push_str("    add $4, %esp\n");
-    out.push_str("    mov %ecx, %eax\n");
+    out.push_str("    mov -24(%ebp), %eax\n"); // sent
     out.push_str("    jmp .L_x86_sendb_ret\n");
     out.push_str(".L_x86_sendb_err:\n");
     out.push_str("    mov $-1, %eax\n");
@@ -351,7 +367,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_x86_sendb_zero:\n");
     out.push_str("    xor %eax, %eax\n");
     out.push_str(".L_x86_sendb_ret:\n");
-    out.push_str("    mov %ebp, %esp\n");
+    // Restore the stack past the $16 locals, then the saved registers
+    // (popping after `mov %ebp,%esp` would read the caller frame).
+    out.push_str("    add $16, %esp\n");
     out.push_str("    pop %edi\n");
     out.push_str("    pop %esi\n");
     out.push_str("    pop %ebx\n");
@@ -398,21 +416,26 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    push %esi\n");
     out.push_str("    call alya_array_new\n");
     out.push_str("    add $4, %esp\n");
-    out.push_str("    mov %eax, %edx\n"); // handle
-    out.push_str("    mov 8(%edx), %ebx\n"); // data
+    // Spill the handle: %edx is caller-saved and `free` below clobbers
+    // it (same bug class as fn_net_send_bytes' `sent`). -4(%ebp) is
+    // free (sub-area, saves live below it).
+    out.push_str("    mov %eax, -4(%ebp)\n"); // handle
+    out.push_str("    mov 8(%eax), %ebx\n"); // data
     out.push_str("    xor %ecx, %ecx\n");
     out.push_str(".L_x86_recvb_fill:\n");
     out.push_str("    cmp %esi, %ecx\n");
     out.push_str("    jge .L_x86_recvb_done_fill\n");
     out.push_str("    movzbl (%edi, %ecx), %eax\n");
-    out.push_str("    mov %eax, (%ebx, %ecx, 4)\n");
+    // 8-byte element slots (slots are zeroed by calloc; kinds stay
+    // unknown so reads fall back to integer classification).
+    out.push_str("    mov %eax, (%ebx, %ecx, 8)\n");
     out.push_str("    inc %ecx\n");
     out.push_str("    jmp .L_x86_recvb_fill\n");
     out.push_str(".L_x86_recvb_done_fill:\n");
     out.push_str("    push %edi\n");
     out.push_str("    call free\n");
     out.push_str("    add $4, %esp\n");
-    out.push_str("    mov %edx, %eax\n");
+    out.push_str("    mov -4(%ebp), %eax\n");
     out.push_str("    jmp .L_x86_recvb_done\n");
     out.push_str(".L_x86_recvb_empty:\n");
     out.push_str("    push %edi\n");
@@ -455,7 +478,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    test %ecx, %ecx\n");
     out.push_str("    jz .L_x86_usendb_zero\n");
     out.push_str("    movl 8(%eax), %edi\n"); // data
-    out.push_str("    mov %ecx, -4(%ebp)\n");
+    out.push_str("    mov %ecx, -32(%ebp)\n");
     out.push_str("    movl $0, -28(%ebp)\n");
     out.push_str("    movl $0, -24(%ebp)\n");
     out.push_str("    movl $0, -20(%ebp)\n");
@@ -483,18 +506,18 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movl (%eax), %eax\n");
     out.push_str(".L_x86_usendb_have_ip:\n");
     out.push_str("    movl %eax, -24(%ebp)\n");
-    out.push_str("    push -4(%ebp)\n");
+    out.push_str("    push -32(%ebp)\n");
     out.push_str("    call malloc\n");
     out.push_str("    add $4, %esp\n");
     out.push_str("    test %eax, %eax\n");
     out.push_str("    jz .L_x86_usendb_err\n");
-    out.push_str("    mov %eax, -8(%ebp)\n"); // tmp
-    out.push_str("    mov -8(%ebp), %edx\n");
+    out.push_str("    mov %eax, -36(%ebp)\n"); // tmp
+    out.push_str("    mov -36(%ebp), %edx\n");
     out.push_str("    xor %ecx, %ecx\n");
     out.push_str(".L_x86_usendb_pack:\n");
-    out.push_str("    cmp -4(%ebp), %ecx\n");
+    out.push_str("    cmp -32(%ebp), %ecx\n");
     out.push_str("    jge .L_x86_usendb_call\n");
-    out.push_str("    movzbl (%edi, %ecx, 4), %eax\n");
+    out.push_str("    movzbl (%edi, %ecx, 8), %eax\n");
     out.push_str("    mov %al, (%edx, %ecx)\n");
     out.push_str("    inc %ecx\n");
     out.push_str("    jmp .L_x86_usendb_pack\n");
@@ -503,17 +526,18 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea -28(%ebp), %eax\n");
     out.push_str("    push %eax\n");
     out.push_str("    push $0\n");
-    out.push_str("    push -4(%ebp)\n");
+    out.push_str("    push -32(%ebp)\n");
     out.push_str("    push %edx\n");
     out.push_str("    push 8(%ebp)\n");
     out.push_str("    call sendto\n");
     out.push_str("    add $24, %esp\n");
-    out.push_str("    mov %eax, %ecx\n"); // sent
-    out.push_str("    mov -8(%ebp), %edx\n");
+    // Spill across `free` like fn_net_send_bytes (-40 is free in sub $28).
+    out.push_str("    mov %eax, -40(%ebp)\n"); // sent
+    out.push_str("    mov -36(%ebp), %edx\n");
     out.push_str("    push %edx\n");
     out.push_str("    call free\n");
     out.push_str("    add $4, %esp\n");
-    out.push_str("    mov %ecx, %eax\n");
+    out.push_str("    mov -40(%ebp), %eax\n");
     out.push_str("    jmp .L_x86_usendb_ret\n");
     out.push_str(".L_x86_usendb_err:\n");
     out.push_str("    mov $-1, %eax\n");
@@ -524,7 +548,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_x86_usendb_zero:\n");
     out.push_str("    xor %eax, %eax\n");
     out.push_str(".L_x86_usendb_ret:\n");
-    out.push_str("    mov %ebp, %esp\n");
+    // Same frame discipline as fn_net_send_bytes above (sub $28).
+    out.push_str("    add $28, %esp\n");
     out.push_str("    pop %edi\n");
     out.push_str("    pop %esi\n");
     out.push_str("    pop %ebx\n");
@@ -573,21 +598,22 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    push %esi\n");
     out.push_str("    call alya_array_new\n");
     out.push_str("    add $4, %esp\n");
-    out.push_str("    mov %eax, %edx\n"); // handle
-    out.push_str("    mov 8(%edx), %ebx\n"); // data
+    // Spill the handle across `free` like fn_net_recv_bytes (-4 free).
+    out.push_str("    mov %eax, -4(%ebp)\n"); // handle
+    out.push_str("    mov 8(%eax), %ebx\n"); // data
     out.push_str("    xor %ecx, %ecx\n");
     out.push_str(".L_x86_urecvb_fill:\n");
     out.push_str("    cmp %esi, %ecx\n");
     out.push_str("    jge .L_x86_urecvb_done_fill\n");
     out.push_str("    movzbl (%edi, %ecx), %eax\n");
-    out.push_str("    mov %eax, (%ebx, %ecx, 4)\n");
+    out.push_str("    mov %eax, (%ebx, %ecx, 8)\n");
     out.push_str("    inc %ecx\n");
     out.push_str("    jmp .L_x86_urecvb_fill\n");
     out.push_str(".L_x86_urecvb_done_fill:\n");
     out.push_str("    push %edi\n");
     out.push_str("    call free\n");
     out.push_str("    add $4, %esp\n");
-    out.push_str("    mov %edx, %eax\n");
+    out.push_str("    mov -4(%ebp), %eax\n");
     out.push_str("    jmp .L_x86_urecvb_done\n");
     out.push_str(".L_x86_urecvb_empty:\n");
     out.push_str("    push %edi\n");
