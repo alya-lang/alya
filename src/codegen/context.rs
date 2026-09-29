@@ -63,6 +63,10 @@ pub struct TagStats {
     /// Misses emitted outside any function body (top-level flow always
     /// precedes all functions, so these can never see markers).
     pub miss_top_level: u64,
+    /// Resolved once per compilation from `ALYA_TAG_STATS`; all
+    /// recording short-circuits on false, so disabled builds pay one
+    /// branch per call site and no allocations.
+    pub enabled: bool,
 }
 
 #[derive(Debug, Default)]

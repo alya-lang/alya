@@ -525,6 +525,8 @@ impl CodeGen {
 
     pub fn generate_program(&mut self, program: &Program) {
         let mut resolved_prog = program.clone();
+        // Resolve once: every recording site short-circuits on false.
+        self.ctx.tag_stats.enabled = std::env::var("ALYA_TAG_STATS").is_ok();
         crate::parser::enums::resolve_enums(&mut resolved_prog);
         let _ = crate::parser::constants::resolve_and_validate_constants(&mut resolved_prog);
         crate::parser::generics::resolve_generics(&mut resolved_prog);
@@ -1341,7 +1343,7 @@ impl CodeGen {
         // recover these) vs structural (never marked: recursion,
         // dynamics, disqualified bodies). Gated by `ALYA_TAG_STATS` so
         // normal builds stay byte-identical on stderr.
-        if std::env::var("ALYA_TAG_STATS").is_ok() {
+        if self.ctx.tag_stats.enabled {
             let stats = &self.ctx.tag_stats;
             let mut forward = 0u64;
             for miss in &stats.miss_names {
@@ -1814,7 +1816,10 @@ impl CodeGen {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             // Measurement for alya-lang/alya#55-C (supply side).
-            self.ctx.tag_stats.markers += 1;
+            // Gated: disabled builds skip even the counter.
+            if self.ctx.tag_stats.enabled {
+                self.ctx.tag_stats.markers += 1;
+            }
             for key in [
                 format!("fn_ret_tagged:{}", name),
                 format!("fn_ret_tagged:{}", bare),

@@ -999,7 +999,9 @@ impl CodeGen {
                 // legacy is their only behavior). A miss whose callee is
                 // marked by end of compilation is a forward-reference
                 // miss recoverable by a pre-pass; the rest is structural.
-                if self.ctx.functions.contains(name) || self.ctx.functions.contains(bare) {
+                if self.ctx.tag_stats.enabled
+                    && (self.ctx.functions.contains(name) || self.ctx.functions.contains(bare))
+                {
                     if self
                         .ctx
                         .variables
