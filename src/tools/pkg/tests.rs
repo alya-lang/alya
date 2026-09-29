@@ -352,6 +352,7 @@ checksum = "sha256:abcdef1234567890"
 
 #[test]
 fn test_install_features_gate_optional_path_dep() {
+    let _env_guard = crate::tools::pkg::lock_registry_env();
     let base = std::env::temp_dir().join(format!("alya_test_featinstall_{}", std::process::id()));
     let _ = fs::remove_dir_all(&base);
     let app_dir = base.join("app");
@@ -402,6 +403,7 @@ fn test_index_install_from_file_urls_offline() {
     // `packages/idxprobe.json` index plus a local tarball, both served
     // over `file://`. Proves selection (max stable, yanked skipped) and
     // the checksum-verified tarball path.
+    let _env_guard = crate::tools::pkg::lock_registry_env();
     let base = std::env::temp_dir().join(format!("alya_test_idx_{}", std::process::id()));
     let _ = fs::remove_dir_all(&base);
     let stage = base.join("stage").join("idxprobe-1.0.0");
@@ -593,6 +595,7 @@ fn test_pkg_init_lifecycle() {
 
 #[test]
 fn test_pkg_add_and_install_path_dependency() {
+    let _env_guard = crate::tools::pkg::lock_registry_env();
     let base_temp = std::env::temp_dir().join(format!(
         "alya_pkg_dep_test_{}_{}",
         std::process::id(),
@@ -1031,6 +1034,7 @@ fn test_global_cache_and_copy_dir_all() {
 
 #[test]
 fn test_transitive_dependency_resolution() {
+    let _env_guard = crate::tools::pkg::lock_registry_env();
     let temp_dir =
         std::env::temp_dir().join(format!("alya_test_transitive_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
@@ -1180,6 +1184,7 @@ fn test_resolve_registry_url() {
 
 #[test]
 fn test_version_dependency_resolution_and_locking() {
+    let _env_guard = crate::tools::pkg::lock_registry_env();
     let temp_dir = std::env::temp_dir().join(format!("alya_test_ver_dep_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
 
@@ -1248,6 +1253,7 @@ fn test_semver_coalescing_and_compatibility() {
 
 #[test]
 fn test_duplicate_native_links_rejection() {
+    let _env_guard = crate::tools::pkg::lock_registry_env();
     let temp_dir = std::env::temp_dir().join(format!("alya_test_links_dup_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
 
@@ -1344,6 +1350,7 @@ fn test_strict_direct_dependency_isolation_diagnostic() {
 
 #[test]
 fn test_major_version_segregation_installation() {
+    let _env_guard = crate::tools::pkg::lock_registry_env();
     let temp_dir = std::env::temp_dir().join(format!("alya_test_major_seg_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
 

@@ -675,9 +675,10 @@ mod tests {
 
     #[test]
     fn sharded_layout_resolution_offline() {
-        // NOTE: ALYA_REGISTRY_INDEX is process-global; keep env-mutating
-        // index tests to a minimum and always restore (see the e2e test
-        // in pkg/tests.rs sharing this constraint).
+        // ALYA_REGISTRY_INDEX is process-global: hold the registry lock
+        // across the whole set/fetch/restore window (parallel test
+        // threads otherwise observe `file://` mid-flight).
+        let _env_guard = crate::tools::pkg::lock_registry_env();
         let base = std::env::temp_dir().join(format!("alya_test_idxshard_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let pkgs = base.join("packages").join("sh");
@@ -728,6 +729,9 @@ mod tests {
 
     #[test]
     fn cache_fresh_hit_and_stale_fallback() {
+        // Same lock as the env-mutating index tests: a concurrent
+        // `file://` window would reroute this fetch off the cache.
+        let _env_guard = crate::tools::pkg::lock_registry_env();
         // Unique name: never collides with real packages or other tests.
         let name = format!("idxcachetest{}", std::process::id());
         let doc = format!(
