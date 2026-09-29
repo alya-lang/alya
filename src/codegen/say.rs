@@ -721,7 +721,20 @@ impl CodeGen {
                                 offset,
                                 self.ctx.stack_offset,
                             );
-                            self.output.push_str("    movq (%rax), %rax\n");
+                            // Unwrap the fat pointer to the concrete data
+                            // pointer for printing (cells are pointer-sized
+                            // per arch).
+                            match self.arch {
+                                Architecture::X64 => {
+                                    self.output.push_str("    movq (%rax), %rax\n");
+                                }
+                                Architecture::X86 => {
+                                    self.output.push_str("    movl (%eax), %eax\n");
+                                }
+                                Architecture::ARM64 => {
+                                    self.output.push_str("    ldr x0, [x0]\n");
+                                }
+                            }
                             arch::emit_print_struct(
                                 &mut self.output,
                                 self.arch,

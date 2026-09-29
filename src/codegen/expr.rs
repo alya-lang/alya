@@ -1879,6 +1879,31 @@ impl CodeGen {
                                     "x16",
                                     actual_args.len(),
                                 );
+                            } else if matches!(self.arch, Architecture::X86) {
+                                // x86 fat pointers are 4-byte cells:
+                                // data at 0, vtable at 4, vtable entries
+                                // 4 bytes. cdecl: push reversed so the
+                                // receiver lands at 8(%ebp).
+                                let n_args = actual_args.len();
+                                for (idx, arg) in actual_args.iter().skip(1).rev().enumerate() {
+                                    self.ctx.stack_offset = initial_stack_offset + (idx as i32 * 4);
+                                    self.generate_expression(arg);
+                                    arch::emit_push_temp(&mut self.output, self.arch);
+                                }
+                                self.ctx.stack_offset =
+                                    initial_stack_offset + ((n_args as i32 - 1) * 4);
+                                self.generate_expression(first_arg);
+                                self.output.push_str("    movl (%eax), %ecx\n");
+                                self.output.push_str("    push %ecx\n");
+                                self.output.push_str("    movl 4(%eax), %ecx\n");
+                                self.output.push_str(&format!(
+                                    "    movl {}(%ecx), %ecx\n",
+                                    (method_idx + 1) * 4
+                                ));
+                                self.output.push_str("    call *%ecx\n");
+                                self.output
+                                    .push_str(&format!("    add ${}, %esp\n", n_args as i32 * 4));
+                                self.ctx.stack_offset = initial_stack_offset;
                             } else {
                                 // Evaluate receiver: load concrete instance data_ptr (offset 0 of fat pointer)
                                 self.generate_expression(first_arg);

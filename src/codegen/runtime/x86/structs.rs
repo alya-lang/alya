@@ -41,6 +41,41 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
+    // alya_fat_ptr_new(data, vtable): 4-byte cells (data at 0, vtable
+    // at 4), 8-byte header (magic, refcount) like the other x86
+    // handles. Mirrors the x64 layout at half width.
+    out.push_str(".global alya_fat_ptr_new\n");
+    out.push_str("alya_fat_ptr_new:\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    mov 8(%ebp), %esi\n");
+    out.push_str("    mov 12(%ebp), %ebx\n");
+    out.push_str("    push $4\n");
+    out.push_str("    push $4\n");
+    out.push_str("    call calloc\n");
+    out.push_str("    add $8, %esp\n");
+    out.push_str("    movl $0x5A110004, (%eax)\n");
+    out.push_str("    movl $1, 4(%eax)\n");
+    out.push_str("    lea 8(%eax), %eax\n");
+    out.push_str("    add $16, alya_allocated_bytes\n");
+    out.push_str("    mov %esi, (%eax)\n");
+    out.push_str("    mov %ebx, 4(%eax)\n");
+    out.push_str("    push %eax\n");
+    out.push_str("    push $0\n");
+    out.push_str("    push $3\n");
+    out.push_str("    push $16\n");
+    out.push_str("    push %eax\n");
+    out.push_str("    call alya_mem_track_alloc\n");
+    out.push_str("    add $16, %esp\n");
+    out.push_str("    pop %eax\n");
+    out.push_str("    pop %esi\n");
+    out.push_str("    pop %ebx\n");
+    out.push_str("    mov %ebp, %esp\n");
+    out.push_str("    pop %ebp\n");
+    out.push_str("    ret\n\n");
+
     // alya_print_struct
     out.push_str("alya_print_struct:\n");
     out.push_str("    push %ebp\n");
