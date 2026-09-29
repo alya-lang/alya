@@ -855,6 +855,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("fn_char_count:\n");
     out.push_str("    push %ebp\n");
     out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    push %esi\n");
     out.push_str("    xor %eax, %eax\n");
     out.push_str("    mov 8(%ebp), %esi\n");
     out.push_str("    test %esi, %esi\n");
@@ -870,6 +871,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    inc %eax\n");
     out.push_str("    jmp .L_x86_char_count_loop\n");
     out.push_str(".L_x86_char_count_done:\n");
+    out.push_str("    pop %esi\n");
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
@@ -920,9 +922,97 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov 4(%esp), %eax\n");
     out.push_str("    ret\n\n");
 
-    // fn_runes stub
+    // fn_runes(str): array of one string per UTF-8 rune. Mirrors the
+    // x64 implementation at 4-byte width: pre-counted capacity (no
+    // growth), 8-byte slots with zeroed high words, unknown (0) kind
+    // tags so reads fall back to runtime classification (strings).
     out.push_str(".global fn_runes\n");
     out.push_str("fn_runes:\n");
-    out.push_str("    mov 4(%esp), %eax\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    sub $8, %esp\n");
+    out.push_str("    mov 8(%ebp), %esi\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    call fn_char_count\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    mov %eax, -16(%ebp)\n");
+    out.push_str("    push %eax\n");
+    out.push_str("    call alya_array_new\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    mov %eax, %edi\n");
+    out.push_str("    xor %ebx, %ebx\n");
+    out.push_str(".L_x86_runes_loop:\n");
+    out.push_str("    mov -16(%ebp), %eax\n");
+    out.push_str("    cmp %eax, %ebx\n");
+    out.push_str("    jge .L_x86_runes_done\n");
+    out.push_str("    movzbl (%esi), %eax\n");
+    out.push_str("    test %eax, %eax\n");
+    out.push_str("    jz .L_x86_runes_done\n");
+    out.push_str("    mov $1, %ecx\n");
+    out.push_str("    cmp $0x80, %eax\n");
+    out.push_str("    jb .L_x86_runes_len_ok\n");
+    out.push_str("    mov %eax, %edx\n");
+    out.push_str("    and $0xE0, %edx\n");
+    out.push_str("    cmp $0xC0, %edx\n");
+    out.push_str("    jne .L_x86_runes_chk3\n");
+    out.push_str("    mov $2, %ecx\n");
+    out.push_str("    jmp .L_x86_runes_len_ok\n");
+    out.push_str(".L_x86_runes_chk3:\n");
+    out.push_str("    mov %eax, %edx\n");
+    out.push_str("    and $0xF0, %edx\n");
+    out.push_str("    cmp $0xE0, %edx\n");
+    out.push_str("    jne .L_x86_runes_chk4\n");
+    out.push_str("    mov $3, %ecx\n");
+    out.push_str("    jmp .L_x86_runes_len_ok\n");
+    out.push_str(".L_x86_runes_chk4:\n");
+    out.push_str("    mov %eax, %edx\n");
+    out.push_str("    and $0xF8, %edx\n");
+    out.push_str("    cmp $0xF0, %edx\n");
+    out.push_str("    jne .L_x86_runes_len_ok\n");
+    out.push_str("    mov $4, %ecx\n");
+    out.push_str(".L_x86_runes_len_ok:\n");
+    out.push_str("    mov %ecx, -20(%ebp)\n");
+    // NOTE: the buffer helpers use %eax as scratch, so the index must
+    // go to a different register (loading it into %eax double-adds the
+    // slot offset into the token).
+    emit_str_buf_load(out, "%edx", "%ecx", os);
+    out.push_str("    cmp $1000000, %ecx\n");
+    out.push_str("    jb .L_x86_runes_buf_ok\n");
+    out.push_str("    xor %ecx, %ecx\n");
+    out.push_str(".L_x86_runes_buf_ok:\n");
+    out.push_str("    push %ecx\n");
+    out.push_str("    lea (%edx, %ecx), %ecx\n");
+    out.push_str("    push %ecx\n");
+    out.push_str("    xor %eax, %eax\n");
+    out.push_str(".L_x86_runes_copy_byte:\n");
+    out.push_str("    cmp -20(%ebp), %eax\n");
+    out.push_str("    jge .L_x86_runes_copy_done\n");
+    out.push_str("    movb (%esi, %eax), %dl\n");
+    out.push_str("    movb %dl, (%ecx, %eax)\n");
+    out.push_str("    inc %eax\n");
+    out.push_str("    jmp .L_x86_runes_copy_byte\n");
+    out.push_str(".L_x86_runes_copy_done:\n");
+    out.push_str("    mov -20(%ebp), %eax\n");
+    out.push_str("    movb $0, (%ecx, %eax)\n");
+    out.push_str("    inc %eax\n");
+    out.push_str("    mov 4(%esp), %edx\n");
+    out.push_str("    add %eax, %edx\n");
+    out.push_str("    add $3, %edx\n");
+    out.push_str("    and $-4, %edx\n");
+    emit_str_buf_store(out, "%edx", "%eax", os);
+    out.push_str("    mov 8(%edi), %edx\n");
+    out.push_str("    mov %ecx, (%edx, %ebx, 8)\n");
+    out.push_str("    add $8, %esp\n");
+    out.push_str("    mov -20(%ebp), %eax\n");
+    out.push_str("    add %eax, %esi\n");
+    out.push_str("    inc %ebx\n");
+    out.push_str("    jmp .L_x86_runes_loop\n");
+    out.push_str(".L_x86_runes_done:\n");
+    out.push_str("    mov %edi, %eax\n");
+    out.push_str("    mov %ebp, %esp\n");
+    out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 }
