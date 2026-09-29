@@ -2215,6 +2215,26 @@ impl CodeGen {
                                 self.output.push_str("    sub $8, %esp\n");
                                 self.output.push_str("    movsd %xmm0, (%esp)\n");
                                 pushed += 8;
+                            } else if !user_callee
+                                && crate::codegen::analysis::x86_native_arg_pushes_double(
+                                    call_name,
+                                    param_idx,
+                                    arg,
+                                    &self.ctx.variables,
+                                )
+                            {
+                                // Intrinsic natives with stack-double params
+                                // (see `x86_native_float_args`): proven
+                                // floats push as-is, coercing entries
+                                // convert ints first (signatures demand
+                                // floats; layout must stay 8 bytes either
+                                // way).
+                                if !is_proven_float_store(arg, &self.ctx.variables) {
+                                    arch::emit_int_to_float(&mut self.output, self.arch);
+                                }
+                                self.output.push_str("    sub $8, %esp\n");
+                                self.output.push_str("    movsd %xmm0, (%esp)\n");
+                                pushed += 8;
                             } else {
                                 arch::emit_push_temp(&mut self.output, self.arch);
                                 pushed += 4;
@@ -2290,7 +2310,8 @@ impl CodeGen {
                 // x86 float args push 8 bytes (not 4): the callee cleanup
                 // emitted below only pops 4 per arg, so the remainder is
                 // popped here. Counts user proven-float args plus
-                // declared-float extern args (see the push loop above).
+                // declared-float extern args plus intrinsic-native table
+                // args (see the push loop above).
                 // (alya-lang/alya#59 follow-up).
                 let x86_float_extra: i32 = if matches!(self.arch, Architecture::X86) {
                     let user_n = if self.ctx.functions.contains(call_name) {
@@ -2302,7 +2323,25 @@ impl CodeGen {
                         0
                     };
                     let extern_n = extern_float_params.iter().filter(|&&b| b).count();
-                    (user_n + extern_n) as i32 * 4
+                    let native_n = if self.ctx.functions.contains(call_name)
+                        || !matches!(self.arch, Architecture::X86)
+                    {
+                        0
+                    } else {
+                        actual_args
+                            .iter()
+                            .enumerate()
+                            .filter(|(idx, a)| {
+                                crate::codegen::analysis::x86_native_arg_pushes_double(
+                                    call_name,
+                                    *idx,
+                                    a,
+                                    &self.ctx.variables,
+                                )
+                            })
+                            .count()
+                    };
+                    (user_n + extern_n + native_n) as i32 * 4
                 } else {
                     0
                 };
@@ -2411,10 +2450,32 @@ impl CodeGen {
                         }
                     }
                 } else {
+                    // x86 float-valued `poke_int` stores through a
+                    // dedicated 8-byte entry: the int runtime would only
+                    // store the low word.
+                    let bare_tail = call_name.rsplit("::").next().unwrap_or(call_name);
+                    let bare_tail = bare_tail.rsplit("__").next().unwrap_or(bare_tail);
+                    let bare_tail = bare_tail.strip_prefix("fn_").unwrap_or(bare_tail);
+                    // Only bare builtin spellings rename (namespaced hits
+                    // keep their legacy target exactly as before).
+                    let eff_name: &str = if matches!(self.arch, Architecture::X86)
+                        && bare_tail == "poke_int"
+                        && call_name == bare_tail
+                        && actual_args.len() > 2
+                        && crate::codegen::analysis::x86_native_arg_pushes_double(
+                            call_name,
+                            2,
+                            &actual_args[2],
+                            &self.ctx.variables,
+                        ) {
+                        "poke_float"
+                    } else {
+                        call_name
+                    };
                     arch::emit_function_call(
                         &mut self.output,
                         self.arch,
-                        call_name,
+                        eff_name,
                         actual_args.len(),
                         initial_stack_offset,
                         self.os,

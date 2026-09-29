@@ -148,10 +148,28 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
+    // fn_poke_float(ptr, offset, dbl): 8-byte sibling of fn_poke_int for
+    // float values (e.g. `write_float`, which delegates to `poke_int`).
+    // The value arrives as an 8-byte double at 16(%ebp) (see
+    // `x86_native_float_args`); the int entry would store only the low
+    // word.
+    out.push_str(".global fn_poke_float\n");
+    out.push_str("fn_poke_float:\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    mov 8(%ebp), %edx\n");
+    out.push_str("    mov 12(%ebp), %ecx\n");
+    out.push_str("    add %ecx, %edx\n");
+    out.push_str("    movsd 16(%ebp), %xmm0\n");
+    out.push_str("    movsd %xmm0, (%edx)\n");
+    out.push_str("    mov %ebp, %esp\n");
+    out.push_str("    pop %ebp\n");
+    out.push_str("    ret\n\n");
+
     // fn_mem_peek_f32(ptr, offset) -> float
     // Loads a 32-bit float, widens to f64 in %xmm0, and returns it through
     // the x86 float convention (low 32 bits of the f64 pattern in %eax,
-    // full value in x87 st0) exactly like fn_simd_f64x4_get.
+    // full value in %xmm0) exactly like fn_simd_f64x4_get.
     out.push_str(".global fn_mem_peek_f32\n");
     out.push_str("fn_mem_peek_f32:\n");
     out.push_str("    push %ebp\n");
@@ -164,7 +182,6 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    sub $8, %esp\n");
     out.push_str("    movsd %xmm0, (%esp)\n");
     out.push_str("    mov (%esp), %eax\n");
-    out.push_str("    fldl (%esp)\n");
     out.push_str("    add $8, %esp\n");
     out.push_str("    mov %ebp, %esp\n");
     out.push_str("    pop %ebp\n");

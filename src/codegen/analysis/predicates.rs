@@ -1370,6 +1370,47 @@ pub fn value_kind_tag_x86_store(expr: &Expr, vars: &HashMap<String, VarType>) ->
     }
 }
 
+/// x86 native (runtime-implemented) float parameter indices, with an
+/// int-coercion policy per index. Unlike user functions (whose prologue
+/// consumes matching 8-byte float slots) and externs (whose C
+/// declarations give exact types), intrinsic natives like the SIMD
+/// constructors have no signature metadata at the call site: the backend
+/// hardcodes which indices arrive as 8-byte doubles so the push loop and
+/// the runtime loaders agree. Single-float natives (splat, math) are
+/// absent on purpose: they read the value from `%xmm0` directly and never
+/// touch the stack slots.
+/// The coercion flag decides the unproven-argument fallback: `true`
+/// converts ints first (signatures demand floats, e.g. SIMD constructors),
+/// `false` keeps the legacy 4-byte push (overloaded builtins like
+/// `poke_int`, whose integer behavior must not change).
+pub fn x86_native_float_args(name: &str) -> Option<Vec<(usize, bool)>> {
+    let bare = name.rsplit("::").next().unwrap_or(name);
+    let bare = bare.rsplit("__").next().unwrap_or(bare);
+    let bare = bare.strip_prefix("fn_").unwrap_or(bare);
+    match bare {
+        "simd_f64x4_new" => Some(vec![(0, true), (1, true), (2, true), (3, true)]),
+        "simd_f32x8_new" => Some((0..8).map(|i| (i, true)).collect()),
+        "poke_int" => Some(vec![(2, false)]),
+        _ => None,
+    }
+}
+
+/// True for one x86 native 8-byte push: the index is table-listed and
+/// (for non-coercing entries like `poke_int`) the value is proven float.
+pub fn x86_native_arg_pushes_double(
+    name: &str,
+    idx: usize,
+    arg: &Expr,
+    vars: &HashMap<String, VarType>,
+) -> bool {
+    match x86_native_float_args(name) {
+        Some(v) => v
+            .iter()
+            .any(|(i, coerce)| *i == idx && (*coerce || is_proven_float_store(arg, vars))),
+        None => false,
+    }
+}
+
 /// True when a call is proven to return an integer: an explicit `-> int`
 /// annotation marker, or a builtin known to produce integers.
 ///

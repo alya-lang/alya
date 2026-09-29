@@ -331,7 +331,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
 }
 
 fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
-    // 1. fn_simd_f64x4_new(a, b, c, d) -> ptr (32 bytes)
+    // 1. fn_simd_f64x4_new(a, b, c, d) -> ptr (32 bytes). Callers push
+    // four 8-byte doubles (all-float signature, see
+    // `x86_native_float_args`); lanes load directly.
     out.push_str(".global fn_simd_f64x4_new\n");
     out.push_str("fn_simd_f64x4_new:\n");
     out.push_str("    push %ebp\n");
@@ -343,17 +345,13 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    push $32\n");
     out.push_str("    call fn_alloc\n");
     out.push_str("    add $4, %esp\n");
-    out.push_str("    mov 8(%ebp), %edx\n");
-    out.push_str("    cvtsi2sd %edx, %xmm0\n");
+    out.push_str("    movsd 8(%ebp), %xmm0\n");
     out.push_str("    movsd %xmm0, 0(%eax)\n");
-    out.push_str("    mov 12(%ebp), %edx\n");
-    out.push_str("    cvtsi2sd %edx, %xmm0\n");
+    out.push_str("    movsd 16(%ebp), %xmm0\n");
     out.push_str("    movsd %xmm0, 8(%eax)\n");
-    out.push_str("    mov 16(%ebp), %edx\n");
-    out.push_str("    cvtsi2sd %edx, %xmm0\n");
+    out.push_str("    movsd 24(%ebp), %xmm0\n");
     out.push_str("    movsd %xmm0, 16(%eax)\n");
-    out.push_str("    mov 20(%ebp), %edx\n");
-    out.push_str("    cvtsi2sd %edx, %xmm0\n");
+    out.push_str("    movsd 32(%ebp), %xmm0\n");
     out.push_str("    movsd %xmm0, 24(%eax)\n");
     out.push_str("    add $12, %esp\n");
     out.push_str("    pop %edi\n");
@@ -377,14 +375,10 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    call fn_alloc\n");
     out.push_str("    add $4, %esp\n");
     out.push_str("    movsd -28(%ebp), %xmm0\n");
-    out.push_str("    xorpd %xmm1, %xmm1\n");
-    out.push_str("    ucomisd %xmm1, %xmm0\n");
-    out.push_str("    jne .L_x86_splat_ready\n");
-    out.push_str("    jp .L_x86_splat_ready\n");
-    out.push_str("    mov 8(%ebp), %edx\n");
-    out.push_str("    test %edx, %edx\n");
-    out.push_str("    jz .L_x86_splat_ready\n");
-    out.push_str("    cvtsi2sd %edx, %xmm0\n");
+    // The float arg always arrives in %xmm0 (single-float natives read
+    // the register, never the stack slot; the type checker rejects int
+    // args). No zero-fallback: splat(0.0) must splat zero, not convert
+    // the stale int slot.
     out.push_str(".L_x86_splat_ready:\n");
     out.push_str("    movlhps %xmm0, %xmm0\n");
     out.push_str("    movupd %xmm0, 0(%eax)\n");
@@ -586,7 +580,6 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    sub $8, %esp\n");
     out.push_str("    movsd %xmm0, (%esp)\n");
     out.push_str("    mov (%esp), %eax\n");
-    out.push_str("    fldl (%esp)\n");
     out.push_str("    add $8, %esp\n");
     out.push_str("    mov %ebp, %esp\n");
     out.push_str("    pop %ebp\n");
@@ -606,7 +599,6 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    sub $8, %esp\n");
     out.push_str("    movsd %xmm0, (%esp)\n");
     out.push_str("    mov (%esp), %eax\n");
-    out.push_str("    fldl (%esp)\n");
     out.push_str("    add $8, %esp\n");
     out.push_str("    mov %ebp, %esp\n");
     out.push_str("    pop %ebp\n");
@@ -626,7 +618,6 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    sub $8, %esp\n");
     out.push_str("    movsd %xmm0, (%esp)\n");
     out.push_str("    mov (%esp), %eax\n");
-    out.push_str("    fldl (%esp)\n");
     out.push_str("    add $8, %esp\n");
     out.push_str("    mov %ebp, %esp\n");
     out.push_str("    pop %ebp\n");
@@ -645,7 +636,6 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    sub $8, %esp\n");
     out.push_str("    movsd %xmm0, (%esp)\n");
     out.push_str("    mov (%esp), %eax\n");
-    out.push_str("    fldl (%esp)\n");
     out.push_str("    add $8, %esp\n");
     out.push_str("    mov %ebp, %esp\n");
     out.push_str("    pop %ebp\n");
@@ -727,14 +717,7 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    call fn_alloc\n");
     out.push_str("    add $4, %esp\n");
     out.push_str("    movsd -28(%ebp), %xmm0\n");
-    out.push_str("    xorpd %xmm1, %xmm1\n");
-    out.push_str("    ucomisd %xmm1, %xmm0\n");
-    out.push_str("    jne .L_x86_f32_splat_ready\n");
-    out.push_str("    jp .L_x86_f32_splat_ready\n");
-    out.push_str("    mov 8(%ebp), %edx\n");
-    out.push_str("    test %edx, %edx\n");
-    out.push_str("    jz .L_x86_f32_splat_ready\n");
-    out.push_str("    cvtsi2sd %edx, %xmm0\n");
+    // Same convention as f64x4_splat above: always %xmm0, no fallback.
     out.push_str(".L_x86_f32_splat_ready:\n");
     out.push_str("    cvtsd2ss %xmm0, %xmm0\n");
     out.push_str("    shufps $0, %xmm0, %xmm0\n");
@@ -834,7 +817,6 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    sub $8, %esp\n");
     out.push_str("    movsd %xmm0, (%esp)\n");
     out.push_str("    mov (%esp), %eax\n");
-    out.push_str("    fldl (%esp)\n");
     out.push_str("    add $8, %esp\n");
     out.push_str("    mov %ebp, %esp\n");
     out.push_str("    pop %ebp\n");
@@ -1095,7 +1077,6 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    sub $8, %esp\n");
     out.push_str("    movsd %xmm0, (%esp)\n");
     out.push_str("    mov (%esp), %eax\n");
-    out.push_str("    fldl (%esp)\n");
     out.push_str("    add $8, %esp\n");
     out.push_str("    mov %ebp, %esp\n");
     out.push_str("    pop %ebp\n");
@@ -1133,7 +1114,6 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    sub $8, %esp\n");
     out.push_str("    movsd %xmm0, (%esp)\n");
     out.push_str("    mov (%esp), %eax\n");
-    out.push_str("    fldl (%esp)\n");
     out.push_str("    add $8, %esp\n");
     out.push_str("    mov %ebp, %esp\n");
     out.push_str("    pop %ebp\n");
@@ -1157,7 +1137,6 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    sub $8, %esp\n");
     out.push_str("    movsd %xmm0, (%esp)\n");
     out.push_str("    mov (%esp), %eax\n");
-    out.push_str("    fldl (%esp)\n");
     out.push_str("    add $8, %esp\n");
     out.push_str("    mov %ebp, %esp\n");
     out.push_str("    pop %ebp\n");
@@ -1438,7 +1417,7 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
-    // 40. fn_simd_f32x8_new(a0..a7) -> ptr (32 bytes; mirrors
+    // 40. fn_simd_f32x8_new(a0..a7) -> ptr (32 bytes; eight 8-byte doubles, see
     // fn_simd_f64x4_new slot convention + f64 -> f32 narrow)
     out.push_str(".global fn_simd_f32x8_new\n");
     out.push_str("fn_simd_f32x8_new:\n");
@@ -1451,36 +1430,28 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    push $32\n");
     out.push_str("    call fn_alloc\n");
     out.push_str("    add $4, %esp\n");
-    out.push_str("    mov 8(%ebp), %edx\n");
-    out.push_str("    cvtsi2sd %edx, %xmm0\n");
+    out.push_str("    movsd 8(%ebp), %xmm0\n");
     out.push_str("    cvtsd2ss %xmm0, %xmm0\n");
     out.push_str("    movss %xmm0, 0(%eax)\n");
-    out.push_str("    mov 12(%ebp), %edx\n");
-    out.push_str("    cvtsi2sd %edx, %xmm0\n");
+    out.push_str("    movsd 16(%ebp), %xmm0\n");
     out.push_str("    cvtsd2ss %xmm0, %xmm0\n");
     out.push_str("    movss %xmm0, 4(%eax)\n");
-    out.push_str("    mov 16(%ebp), %edx\n");
-    out.push_str("    cvtsi2sd %edx, %xmm0\n");
+    out.push_str("    movsd 24(%ebp), %xmm0\n");
     out.push_str("    cvtsd2ss %xmm0, %xmm0\n");
     out.push_str("    movss %xmm0, 8(%eax)\n");
-    out.push_str("    mov 20(%ebp), %edx\n");
-    out.push_str("    cvtsi2sd %edx, %xmm0\n");
+    out.push_str("    movsd 32(%ebp), %xmm0\n");
     out.push_str("    cvtsd2ss %xmm0, %xmm0\n");
     out.push_str("    movss %xmm0, 12(%eax)\n");
-    out.push_str("    mov 24(%ebp), %edx\n");
-    out.push_str("    cvtsi2sd %edx, %xmm0\n");
+    out.push_str("    movsd 40(%ebp), %xmm0\n");
     out.push_str("    cvtsd2ss %xmm0, %xmm0\n");
     out.push_str("    movss %xmm0, 16(%eax)\n");
-    out.push_str("    mov 28(%ebp), %edx\n");
-    out.push_str("    cvtsi2sd %edx, %xmm0\n");
+    out.push_str("    movsd 48(%ebp), %xmm0\n");
     out.push_str("    cvtsd2ss %xmm0, %xmm0\n");
     out.push_str("    movss %xmm0, 20(%eax)\n");
-    out.push_str("    mov 32(%ebp), %edx\n");
-    out.push_str("    cvtsi2sd %edx, %xmm0\n");
+    out.push_str("    movsd 56(%ebp), %xmm0\n");
     out.push_str("    cvtsd2ss %xmm0, %xmm0\n");
     out.push_str("    movss %xmm0, 24(%eax)\n");
-    out.push_str("    mov 36(%ebp), %edx\n");
-    out.push_str("    cvtsi2sd %edx, %xmm0\n");
+    out.push_str("    movsd 64(%ebp), %xmm0\n");
     out.push_str("    cvtsd2ss %xmm0, %xmm0\n");
     out.push_str("    movss %xmm0, 28(%eax)\n");
     out.push_str("    add $12, %esp\n");
