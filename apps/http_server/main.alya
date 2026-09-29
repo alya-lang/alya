@@ -253,7 +253,7 @@ function main()
         return
     end
 
-    let ch = null
+    let ch: Channel? = null
     let threads = []
     if cfg.workers > 1
         ch = channel_new()
@@ -273,7 +273,7 @@ function main()
             let client = tcp_accept(server)
             if client >= 0
                 if cfg.workers > 1
-                    channel_send(ch, client)
+                    channel_send(ch!, client)
                 else
                     handle_client(client, start_time, cfg.quiet, default_html)
                 end
@@ -289,13 +289,13 @@ function main()
     if cfg.workers > 1 and ch is not null
         let w = 0
         while w < cfg.workers
-            channel_send(ch, -999)
+            channel_send(ch!, -999)
             w += 1
         end
         for th in threads
             thread_join(th)
         end
-        channel_free(ch)
+        channel_free(ch!)
     end
 
     tcp_close(server)

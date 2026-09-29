@@ -83,13 +83,17 @@ end
 
 function probe_port(host, port)
     let t0 = clock_ms()
-    let sock = tcp_connect(host, port)
-    let elapsed = clock_ms() - t0
-    if sock >= 0
-        tcp_close(sock)
-        return PortState.Open, elapsed
+    try
+        let sock = tcp_connect(host, port)
+        let elapsed = clock_ms() - t0
+        if sock >= 0
+            tcp_close(sock)
+            return PortState.Open, elapsed
+        end
+        return PortState.Closed, elapsed
+    catch
+        return PortState.Closed, clock_ms() - t0
     end
-    return PortState.Closed, elapsed
 end
 
 function get_common_ports()
