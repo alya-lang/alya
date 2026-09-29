@@ -916,10 +916,59 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
-    // fn_format_binary stub
+    // fn_format_binary: int -> "0b..." string. Mirrors the x64
+    // implementation at 4-byte width (bsrl/bt, 4-byte align).
     out.push_str(".global fn_format_binary\n");
     out.push_str("fn_format_binary:\n");
-    out.push_str("    mov 4(%esp), %eax\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    mov %esp, %ebp\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    mov 8(%ebp), %esi\n");
+    emit_str_buf_load(out, "%ecx", "%ebx", os);
+    out.push_str("    cmp $1000000, %ebx\n");
+    out.push_str("    jb .L_x86_bin_buf_ok\n");
+    out.push_str("    xor %ebx, %ebx\n");
+    out.push_str(".L_x86_bin_buf_ok:\n");
+    out.push_str("    lea (%ecx, %ebx), %edi\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    movb $'0', (%edi)\n");
+    out.push_str("    movb $'b', 1(%edi)\n");
+    out.push_str("    mov $2, %eax\n");
+    out.push_str("    test %esi, %esi\n");
+    out.push_str("    jnz .L_x86_bin_nonzero\n");
+    out.push_str("    movb $'0', 2(%edi)\n");
+    out.push_str("    movb $0, 3(%edi)\n");
+    out.push_str("    add $4, %ebx\n");
+    out.push_str("    jmp .L_x86_bin_store\n");
+    out.push_str(".L_x86_bin_nonzero:\n");
+    out.push_str("    bsrl %esi, %ecx\n");
+    out.push_str(".L_x86_bin_loop:\n");
+    out.push_str("    bt %ecx, %esi\n");
+    out.push_str("    jc .L_x86_bin_bit1\n");
+    out.push_str("    movb $'0', (%edi, %eax)\n");
+    out.push_str("    jmp .L_x86_bin_bit_next\n");
+    out.push_str(".L_x86_bin_bit1:\n");
+    out.push_str("    movb $'1', (%edi, %eax)\n");
+    out.push_str(".L_x86_bin_bit_next:\n");
+    out.push_str("    inc %eax\n");
+    out.push_str("    dec %ecx\n");
+    out.push_str("    cmp $0, %ecx\n");
+    out.push_str("    jge .L_x86_bin_loop\n");
+    out.push_str("    movb $0, (%edi, %eax)\n");
+    out.push_str("    inc %eax\n");
+    out.push_str("    add %eax, %ebx\n");
+    out.push_str(".L_x86_bin_store:\n");
+    out.push_str("    add $7, %ebx\n");
+    out.push_str("    and $-4, %ebx\n");
+    emit_str_buf_store(out, "%ebx", "%edx", os);
+    out.push_str("    pop %eax\n");
+    out.push_str("    pop %edi\n");
+    out.push_str("    pop %esi\n");
+    out.push_str("    pop %ebx\n");
+    out.push_str("    mov %ebp, %esp\n");
+    out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
     // fn_runes(str): array of one string per UTF-8 rune. Mirrors the
