@@ -26,7 +26,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_x86_new_cap_ok:\n");
     out.push_str("    shl $1, %ebx\n");
     out.push_str(".L_x86_new_alloc_hdr:\n");
-    out.push_str("    push $24\n");
+    // 28-byte header block: len, cap, data, kind, color (#63).
+    out.push_str("    push $28\n");
     out.push_str("    push $1\n");
     out.push_str("    call calloc\n");
     out.push_str("    add $8, %esp\n");
@@ -46,7 +47,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov %ebx, %edx\n");
     out.push_str("    shl $3, %edx\n");
     out.push_str("    add %ebx, %edx\n");
-    out.push_str("    add $24, %edx\n");
+    // Header block is 28 bytes (len, cap, data, kind, color) for the
+    // cycle-collector color word (alya-lang/alya#63).
+    out.push_str("    add $28, %edx\n");
     out.push_str("    add %edx, alya_allocated_bytes\n");
     out.push_str("    mov %esi, (%edi)\n");
     out.push_str("    mov %ebx, 4(%edi)\n");

@@ -392,7 +392,16 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    jne .L_x86_rc_rel_done\n");
     out.push_str(".L_x86_rc_rel_ok:\n");
     out.push_str("    lock decl -4(%ebx)\n");
-    out.push_str("    jnz .L_x86_rc_rel_done\n");
+    out.push_str("    jnz .L_x86_rc_rel_purple\n");
+    // Freed: clear the cycle-collector color (fat pointers carry none).
+    // %esi still holds the magic word (alya-lang/alya#63).
+    out.push_str("    cmpl $0x5A110004, %esi\n");
+    out.push_str("    je .L_x86_rc_rel_nozero\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    call alya_gc_color_addr\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    movl $0, (%eax)\n");
+    out.push_str(".L_x86_rc_rel_nozero:\n");
     out.push_str("    cmpl $0x5A110001, %esi\n");
     out.push_str("    je .L_x86_rc_free_inner\n");
     out.push_str("    cmpl $0x5A110002, %esi\n");
@@ -412,6 +421,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea -8(%ebx), %eax\n");
     out.push_str("    push %eax\n");
     out.push_str(&format!("    call {}free\n", p));
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    jmp .L_x86_rc_rel_done\n");
+    // Decremented but alive: candidate for cycle collection (fat
+    // pointers carry no color word; alya-lang/alya#63).
+    out.push_str(".L_x86_rc_rel_purple:\n");
+    out.push_str("    cmpl $0x5A110004, %esi\n");
+    out.push_str("    je .L_x86_rc_rel_done\n");
+    out.push_str("    push %ebx\n");
+    out.push_str("    call fn_gc_add_purple\n");
     out.push_str("    add $4, %esp\n");
     out.push_str(".L_x86_rc_rel_done:\n");
     out.push_str("    xor %eax, %eax\n");

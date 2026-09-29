@@ -123,11 +123,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     // floats full f64), +8 key, +12 state (0 empty, 1 live,
     // 2 tombstone), +16 value-kind tag (0 unknown).
     // Value first keeps the f64 slot 4-byte aligned.
+    // Header block is 24 bytes (len, cap, entries, color) for the
+    // cycle-collector color word (alya-lang/alya#63).
     out.push_str("fn_map:\n");
     out.push_str("    push %ebp\n");
     out.push_str("    mov %esp, %ebp\n");
     out.push_str("    push %ebx\n");
-    out.push_str("    push $20\n");
+    out.push_str("    push $24\n");
     out.push_str("    push $1\n");
     out.push_str("    call calloc\n");
     out.push_str("    add $8, %esp\n");
@@ -142,11 +144,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add $8, %esp\n");
     out.push_str("    mov %eax, 8(%ebx)\n"); // entries
     out.push_str("    mov %ebx, %eax\n");
-    out.push_str("    addl $1300, alya_allocated_bytes\n");
+    out.push_str("    addl $1304, alya_allocated_bytes\n");
     out.push_str("    push %eax\n");
     out.push_str("    push $0\n");
     out.push_str("    push $2\n");
-    out.push_str("    push $1300\n");
+    out.push_str("    push $1304\n");
     out.push_str("    push %eax\n");
     out.push_str("    call alya_mem_track_alloc\n");
     out.push_str("    add $16, %esp\n");

@@ -7,9 +7,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     let _ = (is_win, p);
 
     // alya_struct_new(desc, field_count): uniform 8-byte slots (like
-    // x64, alya-lang/alya#62), so the allocation is 2 cells per field
-    // plus one spare cell and the 12-byte header (magic, refcount,
-    // descriptor). Fields live at handle+8*(idx+1).
+    // x64, alya-lang/alya#62) plus a trailing color word for the
+    // cycle collector (alya-lang/alya#63): 2 cells per field, one spare
+    // cell, one color cell, 12-byte header. Fields live at
+    // handle+8*(idx+1), color at handle+8+8*field_count.
     out.push_str("alya_struct_new:\n");
     out.push_str("    push %ebp\n");
     out.push_str("    mov %esp, %ebp\n");
@@ -17,7 +18,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    push %esi\n");
     out.push_str("    mov 8(%ebp), %esi\n");
     out.push_str("    mov 12(%ebp), %ebx\n");
-    out.push_str("    lea 4(%ebx, %ebx, 1), %eax\n");
+    out.push_str("    lea 5(%ebx, %ebx, 1), %eax\n");
     out.push_str("    push $4\n");
     out.push_str("    push %eax\n");
     out.push_str("    call calloc\n");

@@ -3155,11 +3155,6 @@ say "Point: {pt.x}, {pt.y}"
 
 #[test]
 fn test_e2e_bacon_rajan_cycle_collector() {
-    // x86: cycle collector is stubbed (alya-lang/alya#63).
-    if cfg!(target_arch = "x86") {
-        println!("SKIP bacon_rajan_cycle_collector on x86 (#63)");
-        return;
-    }
     let code = r#"
 struct Node
     id
@@ -3229,11 +3224,6 @@ say "A_ID: {a.id}, B_ID: {b.id}, A_NEXT_ID: {a.next.id}"
 
 #[test]
 fn test_e2e_bacon_rajan_circular_doubly_linked_list() {
-    // x86: cycle collector is stubbed (alya-lang/alya#63).
-    if cfg!(target_arch = "x86") {
-        println!("SKIP bacon_rajan_circular_doubly_linked_list on x86 (#63)");
-        return;
-    }
     let code = r#"
 struct DNode
     id
