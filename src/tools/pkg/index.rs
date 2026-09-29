@@ -160,12 +160,6 @@ fn read_cached_index_raw(name: &str, allow_stale: bool) -> Option<String> {
     Some(raw)
 }
 
-fn index_file_url(name: &str) -> String {
-    // Kept for tests and direct construction; live reads go through
-    // `package_index_path` (layout-aware).
-    format!("{}/packages/{}.json", index_base_url(), name)
-}
-
 /// Fetches URL text: `file://` reads directly, http(s) tries
 /// curl → wget → PowerShell with short timeouts. Silent `None` on any
 /// failure (the caller falls back to git-based resolution).
