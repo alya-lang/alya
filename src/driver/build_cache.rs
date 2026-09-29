@@ -536,11 +536,43 @@ pub fn display_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+/// True for embedded-stdlib pseudo-paths (`<embedded:std/...>`): no
+/// on-disk bytes, content pinned to the compiler binary itself.
+fn is_embedded_path(path: &Path) -> bool {
+    path.to_string_lossy().starts_with("<embedded:")
+}
+
+/// Embedded source for a pseudo-path, or an error for unknown modules.
+fn embedded_bytes(path: &Path) -> Result<Vec<u8>, String> {
+    let name = path
+        .to_string_lossy()
+        .strip_prefix("<embedded:")
+        .and_then(|s| s.strip_suffix('>'))
+        .unwrap_or("")
+        .to_string();
+    crate::parser::get_embedded_stdlib(&name)
+        .map(|s| s.as_bytes().to_vec())
+        .ok_or_else(|| {
+            format!(
+                "Error: unknown embedded module '{}' for fingerprint",
+                path.display()
+            )
+        })
+}
+
 /// Reads (path, bytes) pairs for fingerprinting; missing files are an
 /// error (fail safe: miss, never false hit).
 pub fn read_file_bytes(paths: &[PathBuf]) -> Result<Vec<(String, Vec<u8>)>, String> {
     let mut out = Vec::with_capacity(paths.len());
     for p in paths {
+        // Embedded stdlib modules surface whenever no `stdlib/` dir sits
+        // under the cwd (e.g. `alya run` from a package subdirectory):
+        // fingerprint the embedded source, which is exactly what the
+        // build consumes.
+        if is_embedded_path(p) {
+            out.push((display_path(p), embedded_bytes(p)?));
+            continue;
+        }
         let bytes = fs::read(p).map_err(|e| {
             format!(
                 "Error: cannot read '{}' for fingerprint: {}",
@@ -554,9 +586,15 @@ pub fn read_file_bytes(paths: &[PathBuf]) -> Result<Vec<(String, Vec<u8>)>, Stri
 }
 
 /// Builds journal records for Tier 1. Any unreadable file aborts the
-/// journal (safe direction: no cache use).
+/// journal (safe direction: no cache use). Embedded pseudo-paths are
+/// skipped: their bytes are pinned to the compiler binary, already
+/// covered by the compiler identity in the unit hash.
 pub fn journal_files(paths: &[PathBuf]) -> Option<Vec<JournalFile>> {
-    paths.iter().map(|p| file_journal_entry(p)).collect()
+    paths
+        .iter()
+        .filter(|p| !is_embedded_path(p))
+        .map(|p| file_journal_entry(p))
+        .collect()
 }
 
 pub fn manifest_path_for(start: &Path) -> Option<PathBuf> {
@@ -800,6 +838,40 @@ mod tests {
         // ...so Tier 1 passes again afterwards.
         let journal2 = read_journal(&dir, &uh).unwrap();
         assert!(tier1_hit(&dir, &journal2, "comp"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn embedded_stdlib_fingerprints_content() {
+        let pseudo = PathBuf::from("<embedded:std/console>");
+        let files = read_file_bytes(std::slice::from_ref(&pseudo)).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].0, "<embedded:std/console>");
+        assert_eq!(
+            files[0].1,
+            crate::parser::get_embedded_stdlib("std/console")
+                .unwrap()
+                .as_bytes()
+        );
+    }
+
+    #[test]
+    fn embedded_unknown_module_errors() {
+        let pseudo = PathBuf::from("<embedded:std/no-such-module>");
+        assert!(read_file_bytes(std::slice::from_ref(&pseudo)).is_err());
+    }
+
+    #[test]
+    fn journal_skips_embedded_paths() {
+        let dir = std::env::temp_dir().join(format!("alya_build_cache_emb_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let probe = dir.join("probe.txt");
+        fs::write(&probe, b"data").unwrap();
+        let pseudo = PathBuf::from("<embedded:std/console>");
+        let files = journal_files(&[probe.clone(), pseudo]).unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(files[0].path.ends_with("probe.txt"));
         let _ = fs::remove_dir_all(&dir);
     }
 
