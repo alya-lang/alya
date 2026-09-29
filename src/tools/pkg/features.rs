@@ -184,6 +184,22 @@ pub fn target_cfg(
     )
 }
 
+/// Canonicalizes a top manifest dir for same-package comparison.
+/// `find_manifest_dir_from` yields `""` when `alya.toml` resolves against
+/// the current directory (subdir entries like `examples/probe.alya`);
+/// only `canonicalize(".")` equates that with the package root, otherwise
+/// same-package imports wrongly fall back to dependency defaults
+/// (alya-lang/alya#61). Unresolvable dirs keep their spelling (legacy).
+fn canonical_top_dir(top: &Option<PathBuf>) -> Option<PathBuf> {
+    top.as_ref().map(|d| {
+        if d.as_os_str().is_empty() {
+            std::fs::canonicalize(".").unwrap_or_else(|_| PathBuf::from("."))
+        } else {
+            std::fs::canonicalize(d).unwrap_or_else(|_| d.clone())
+        }
+    })
+}
+
 /// Config for parsing an IMPORTED file: its owning manifest's defaults
 /// when it belongs to a different package than the entry, else the
 /// inherited (top) context. Cargo parity: dependencies keep their own
@@ -202,8 +218,8 @@ pub fn imported_file_cfg(
         return Ok(inherit.clone());
     };
     let own_dir = std::fs::canonicalize(&own_dir).unwrap_or(own_dir);
-    match top_manifest_dir {
-        Some(top_dir) if own_dir != *top_dir => {
+    match canonical_top_dir(top_manifest_dir) {
+        Some(top_dir) if own_dir != top_dir => {
             let content = fs::read_to_string(own_dir.join("alya.toml"))
                 .map_err(|e| format!("Failed to read alya.toml: {}", e))?;
             let manifest = parse_manifest(&content)?;
@@ -446,5 +462,17 @@ mod tests {
         );
         assert!(profile_link_flags(&release, OperatingSystem::MacOS).is_empty());
         assert!(profile_link_flags(&dev, OperatingSystem::Linux).is_empty());
+    }
+
+    #[test]
+    fn canonical_top_dir_equates_empty_with_cwd() {
+        // alya-lang/alya#61: subdir entries leave "" as the top manifest
+        // dir; it must compare equal to the canonical package root.
+        let cwd = std::fs::canonicalize(".").unwrap();
+        assert_eq!(canonical_top_dir(&Some(PathBuf::new())), Some(cwd));
+        assert_eq!(canonical_top_dir(&None), None);
+        // Missing dirs keep their spelling (legacy fallback).
+        let missing = PathBuf::from("does-not-exist-zzz");
+        assert_eq!(canonical_top_dir(&Some(missing.clone())), Some(missing));
     }
 }
