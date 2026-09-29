@@ -4,7 +4,7 @@
 # ═══════════════════════════════════════════════════════════════
 #
 # Features:
-#   - Fast TCP port scanning on target host/IP
+#   - Fast TCP port scanning on target host/IP (22 threads in parallel)
 #   - Preset list of top common services (HTTP, HTTPS, SSH, DBs, etc.)
 #   - Real-time ASCII progress bar and status indicator
 #   - Service identification and roundtrip latency measurement
@@ -25,6 +25,7 @@ import "std/color"
 import "std/console"
 import "std/time"
 import "std/os"
+import "std/thread"
 
 enum PortState
     Closed = 0,
@@ -82,18 +83,23 @@ function show_banner(target, total_ports)
 end
 
 function probe_port(host, port)
+    # Raw connect: returns -1 on refusal WITHOUT throwing, so workers
+    # stay exception-free (try/catch state is process-global and not
+    # thread-safe; concurrent throws steal each other, see alya-lang/alya#65).
     let t0 = clock_ms()
-    try
-        let sock = tcp_connect(host, port)
-        let elapsed = clock_ms() - t0
-        if sock >= 0
-            tcp_close(sock)
-            return PortState.Open, elapsed
-        end
-        return PortState.Closed, elapsed
-    catch
-        return PortState.Closed, clock_ms() - t0
+    let sock = net_connect(host, port)
+    let elapsed = clock_ms() - t0
+    if sock >= 0
+        tcp_close(sock)
+        return PortState.Open, elapsed
     end
+    return PortState.Closed, elapsed
+end
+
+function scan_worker(ctx)
+    let ch, target, port, idx = ctx
+    let state, lat = probe_port(target, port)
+    channel_send(ch, [idx, state, lat])
 end
 
 function get_common_ports()
@@ -170,20 +176,39 @@ function main()
         return
     end
 
-    say "Scanning " + target + "..."
+    say "Scanning " + target + " (" + str(arr_len(ports)) + " ports, parallel)..."
     let t_start = clock_ms()
+    let total = arr_len(ports)
     let results = []
+    let r = 0
+    while r < total
+        results.push(ScanResult(ports[r], PortState.Closed, 0, get_service_name(ports[r])))
+        r += 1
+    end
 
+    let ch = channel_new(total)
+    let threads = []
     let p_idx = 0
-    while p_idx < arr_len(ports)
-        let p = ports[p_idx]
-        let is_open, lat = probe_port(target, p)
-        let sname = get_service_name(p)
-        results.push(ScanResult(p, is_open, lat, sname))
-
+    while p_idx < total
+        let t = thread_spawn(scan_worker, (ch, target, ports[p_idx], p_idx))
+        threads.push(t)
         p_idx += 1
-        let pbar = ui::progress_bar(p_idx, arr_len(ports), 25)
-        say "\r" + pbar + " (" + str(p_idx) + "/" + str(arr_len(ports)) + ") Port " + str(p)
+    end
+
+    let received = 0
+    while received < total
+        let msg = channel_recv(ch, 120000)
+        if msg is null
+            break
+        end
+        let idx = msg[0]
+        results[idx] = ScanResult(ports[idx], msg[1], msg[2], get_service_name(ports[idx]))
+        received += 1
+        let pbar = ui::progress_bar(received, total, 25)
+        say "\r" + pbar + " (" + str(received) + "/" + str(total) + ")"
+    end
+    for th in threads
+        thread_join(th)
     end
 
     let scan_time = clock_ms() - t_start
