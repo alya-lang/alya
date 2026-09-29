@@ -1302,13 +1302,28 @@ pub fn is_proven_float_store(expr: &Expr, vars: &HashMap<String, VarType>) -> bo
             matches!(vars.get(name), Some(VarType::Float(off)) if *off != 0)
                 && !vars.contains_key(&format!("var_is_int:{}", name))
         }
-        Expr::Index { array, .. } => {
-            if let Expr::Identifier(arr) = &**array {
-                vars.contains_key(&format!("arr_is_flt:{}", arr))
-            } else {
-                false
+        Expr::Index { array, index } => {
+            if let (Expr::Identifier(arr_name), Expr::Number(idx)) = (&**array, &**index) {
+                // Tuple elements live in 8-byte array slots; the read
+                // materializes the double in `%xmm0` exactly like an
+                // `arr_is_flt` read (same `array_get` contract).
+                if vars.contains_key(&format!("tuple_elem_flt:{}:{}", arr_name, *idx as usize))
+                    || vars.contains_key(&format!("arr_is_flt:{}", arr_name))
+                {
+                    return true;
+                }
+                return false;
             }
+            false
         }
+        // A same-scope ternary with all-proven arms leaves the taken
+        // arm's double in `%xmm0` on every path. Mixed arms stay
+        // unproven (neither register holds both shapes).
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => is_proven_float_store(then_branch, vars) && is_proven_float_store(else_branch, vars),
         // Only total-float conversion builtins and explicitly `-> float`
         // annotated callees are proven: they leave the double in `%xmm0`
         // on every path (the annotation is type-checked). User calls with
