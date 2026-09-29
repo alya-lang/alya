@@ -178,7 +178,8 @@ pub fn build_c_objects(
 
     let _lock = C_BUILD_MUTEX.lock().unwrap();
 
-    let cache_dir = get_global_c_obj_dir().unwrap_or_else(|| PathBuf::from(".alya").join("c_obj"));
+    let cache_dir = get_global_c_obj_dir()
+        .unwrap_or_else(|| PathBuf::from(".alya").join("cache").join("c_obj"));
     let cache_dir = clean_canonicalize(&cache_dir);
 
     fs::create_dir_all(&cache_dir).map_err(|e| {

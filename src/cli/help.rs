@@ -487,7 +487,7 @@ pub fn print_outdated_help() {
 }
 
 pub fn print_cache_help() {
-    println!("alya cache - Inspect the package and build caches\n");
+    println!("alya cache - Inspect the package, build, and C-object caches\n");
     println!("USAGE:");
     println!("  alya cache [clean] [--all]\n");
     println!("EXAMPLES:");

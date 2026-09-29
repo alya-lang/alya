@@ -24,7 +24,43 @@ pub fn get_global_cache_dir() -> Option<PathBuf> {
 }
 
 pub fn get_global_c_obj_dir() -> Option<PathBuf> {
-    get_global_alya_dir().map(|d| d.join("c_obj"))
+    let home = get_global_alya_dir()?;
+    migrate_legacy_c_obj_dir(&home);
+    Some(home.join("cache").join("c_obj"))
+}
+
+/// One-time move of the legacy `~/.alya/c_obj` dir to `cache/c_obj`
+/// (alongside the build cache). Idempotent and race-tolerant: if both
+/// exist, entries merge by name (same hash-name means same bytes;
+/// conflicts are dropped — cache data is disposable and rebuilds).
+pub(crate) fn migrate_legacy_c_obj_dir(home: &Path) {
+    let old = home.join("c_obj");
+    let new = home.join("cache").join("c_obj");
+    if !old.exists() {
+        return;
+    }
+    if !new.exists()
+        && new.parent().is_some_and(|p| fs::create_dir_all(p).is_ok())
+        && fs::rename(&old, &new).is_ok()
+    {
+        return;
+    }
+    if let Ok(entries) = fs::read_dir(&old) {
+        for entry in entries.flatten() {
+            let src = entry.path();
+            let dst = new.join(entry.file_name());
+            if dst.exists() {
+                let _ = if src.is_dir() {
+                    fs::remove_dir_all(&src)
+                } else {
+                    fs::remove_file(&src)
+                };
+            } else if fs::rename(&src, &dst).is_err() {
+                break;
+            }
+        }
+    }
+    let _ = fs::remove_dir(&old);
 }
 
 pub fn dir_size_and_count(path: &Path) -> (u64, usize) {
@@ -276,9 +312,11 @@ pub fn run_cache() -> Result<(), String> {
 
     // 2. Global Cache
     if let Some(ref g_dir) = global_dir {
-        // `build/` is tallied in its own section below: exclude it here
-        // so neither the package rows nor the totals double-count it.
-        let (global_size, global_files) = dir_size_and_count_excluding_top(g_dir, &["build"]);
+        // `build/` and `c_obj/` are tallied in their own sections below:
+        // exclude them here so neither the package rows nor the totals
+        // double-count them.
+        let (global_size, global_files) =
+            dir_size_and_count_excluding_top(g_dir, &["build", "c_obj"]);
         let global_pkgs = inspect_packages_dir(g_dir, None);
         total_packages += global_pkgs.len();
         total_bytes += global_size;
@@ -331,6 +369,21 @@ pub fn run_cache() -> Result<(), String> {
             );
             total_bytes += stats.bytes;
             println!();
+        }
+
+        if let Some(c_dir) = get_global_c_obj_dir() {
+            if c_dir.exists() {
+                let (c_size, c_files) = dir_size_and_count(&c_dir);
+                println!("[C Cache]");
+                println!("  Location:     {}", c_dir.display());
+                println!(
+                    "  Total Size:   {} ({} files)",
+                    format_bytes(c_size),
+                    c_files
+                );
+                total_bytes += c_size;
+                println!();
+            }
         }
     }
 

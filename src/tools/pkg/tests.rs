@@ -936,6 +936,48 @@ fn test_cache_listing_skips_build_dir() {
 }
 
 #[test]
+fn test_c_obj_migrates_under_cache() {
+    let home = std::env::temp_dir().join(format!("alya_test_cobj_home_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&home);
+    let old = home.join("c_obj");
+    fs::create_dir_all(&old).unwrap();
+    fs::write(old.join("foo_deadbeef.o"), "obj-bytes").unwrap();
+
+    migrate_legacy_c_obj_dir(&home);
+    let new = home.join("cache").join("c_obj");
+    assert!(new.join("foo_deadbeef.o").is_file());
+    assert!(!old.exists());
+
+    // Idempotent re-run.
+    migrate_legacy_c_obj_dir(&home);
+    assert!(new.join("foo_deadbeef.o").is_file());
+
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn test_c_obj_merge_keeps_both_sides() {
+    let home = std::env::temp_dir().join(format!("alya_test_cobj_merge_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&home);
+    let old = home.join("c_obj");
+    let new = home.join("cache").join("c_obj");
+    fs::create_dir_all(&old).unwrap();
+    fs::create_dir_all(&new).unwrap();
+    fs::write(old.join("old_only.o"), "old").unwrap();
+    fs::write(new.join("new_only.o"), "new").unwrap();
+    fs::write(old.join("dup.o"), "dup").unwrap();
+    fs::write(new.join("dup.o"), "dup").unwrap();
+
+    migrate_legacy_c_obj_dir(&home);
+    assert!(new.join("old_only.o").is_file());
+    assert!(new.join("new_only.o").is_file());
+    assert!(new.join("dup.o").is_file());
+    assert!(!old.exists());
+
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
 fn test_global_cache_and_copy_dir_all() {
     let temp_dir =
         std::env::temp_dir().join(format!("alya_test_cache_copy_{}", std::process::id()));
