@@ -44,6 +44,10 @@ struct BenchStats
     max_lat
     avg_lat
     rps
+    fail_conn
+    fail_send
+    fail_poll
+    fail_recv
 end
 
 function BenchConfig.show_banner(self)
@@ -72,6 +76,7 @@ function BenchStats.show_results(self, cfg)
     say "  " + style_bold("Successful (2xx)") + " : " + color_green(str(self.ok_cnt))
     if self.fail_cnt > 0
         say "  " + style_bold("Failed / Errors") + "  : " + color_red(str(self.fail_cnt))
+        say "  " + style_bold("Fail Stages") + "    : " + "connect=" + str(self.fail_conn) + " send=" + str(self.fail_send) + " poll=" + str(self.fail_poll) + " recv=" + str(self.fail_recv)
     else
         say "  " + style_bold("Failed / Errors") + "  : " + color_green("0")
     end
@@ -185,6 +190,10 @@ function run_worker_task(args_tuple)
     let sock = -1
     let ok_count = 0
     let fail_count = 0
+    let fail_conn = 0
+    let fail_send = 0
+    let fail_poll = 0
+    let fail_recv = 0
     let min_latency = 999999
     let max_latency = 0
     let total_latency = 0
@@ -197,6 +206,7 @@ function run_worker_task(args_tuple)
             sock = tcp_connect(host, port)
             if sock < 0
                 fail_count += 1
+                fail_conn += 1
                 i += 1
                 continue
             end
@@ -208,6 +218,7 @@ function run_worker_task(args_tuple)
             tcp_close(sock)
             sock = -1
             fail_count += 1
+            fail_send += 1
             i += 1
             continue
         end
@@ -217,6 +228,7 @@ function run_worker_task(args_tuple)
             tcp_close(sock)
             sock = -1
             fail_count += 1
+            fail_poll += 1
             i += 1
             continue
         end
@@ -226,6 +238,7 @@ function run_worker_task(args_tuple)
             tcp_close(sock)
             sock = -1
             fail_count += 1
+            fail_recv += 1
             i += 1
             continue
         end
@@ -273,7 +286,7 @@ function run_worker_task(args_tuple)
         tcp_close(sock)
     end
 
-    channel_send(ch_res, (ok_count, fail_count, min_latency, max_latency, total_latency))
+    channel_send(ch_res, (ok_count, fail_count, min_latency, max_latency, total_latency, fail_conn, fail_send, fail_poll, fail_recv))
     return 0
 end
 
@@ -292,7 +305,7 @@ function main()
 
     if is_test == 1
         say color_yellow("[BENCH]") + " Running simulated smoke benchmark..."
-        let stats = BenchStats(10, 0, 25, 2, 4, 2, 2000)
+        let stats = BenchStats(10, 0, 25, 2, 4, 2, 2000, 0, 0, 0, 0)
         stats.show_results(cfg)
         say color_green("[SUCCESS]") + " Benchmark completed cleanly."
         return
@@ -339,6 +352,10 @@ function main()
 
     let total_ok = 0
     let total_fail = 0
+    let tot_f_conn = 0
+    let tot_f_send = 0
+    let tot_f_poll = 0
+    let tot_f_recv = 0
     let overall_min_lat = 999999
     let overall_max_lat = 0
     let sum_latencies = 0
@@ -351,9 +368,13 @@ function main()
     while recvd < cfg.concurrency
         let res_tuple = channel_recv(ch_res, 1000)
         if res_tuple is not null
-            let ok_c, fail_c, min_l, max_l, tot_l = res_tuple
+            let ok_c, fail_c, min_l, max_l, tot_l, fc_c, fc_s, fc_p, fc_r = res_tuple
             total_ok += ok_c
             total_fail += fail_c
+            tot_f_conn += fc_c
+            tot_f_send += fc_s
+            tot_f_poll += fc_p
+            tot_f_recv += fc_r
             if min_l < overall_min_lat
                 overall_min_lat = min_l
             end
@@ -379,7 +400,7 @@ function main()
         rps = (total_ok * 1000) / total_wall_time
     end
 
-    let stats = BenchStats(total_ok, total_fail, total_wall_time, overall_min_lat, overall_max_lat, avg_latency, rps)
+    let stats = BenchStats(total_ok, total_fail, total_wall_time, overall_min_lat, overall_max_lat, avg_latency, rps, tot_f_conn, tot_f_send, tot_f_poll, tot_f_recv)
     stats.show_results(cfg)
 end
 
