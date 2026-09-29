@@ -333,7 +333,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    test $3, %eax\n");
     out.push_str("    jnz .L_x86_rc_retain_done\n");
     out.push_str("    cmp $65536, %eax\n");
-    out.push_str("    jb .L_x86_rc_retain_done\n");
+    out.push_str("    jbe .L_x86_rc_retain_done\n");
     out.push_str("    cmpl $0xC0000000, %eax\n");
     out.push_str("    jae .L_x86_rc_retain_done\n");
     out.push_str("    movl -8(%eax), %edx\n");
@@ -361,7 +361,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    test $3, %ebx\n");
     out.push_str("    jnz .L_x86_rc_rel_done\n");
     out.push_str("    cmp $65536, %ebx\n");
-    out.push_str("    jb .L_x86_rc_rel_done\n");
+    out.push_str("    jbe .L_x86_rc_rel_done\n");
     out.push_str("    cmpl $0xC0000000, %ebx\n");
     out.push_str("    jae .L_x86_rc_rel_done\n");
     out.push_str("    movl -8(%ebx), %esi\n");
@@ -411,7 +411,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    test $3, %eax\n");
     out.push_str("    jnz .L_x86_rcc_zero\n");
     out.push_str("    cmp $65536, %eax\n");
-    out.push_str("    jb .L_x86_rcc_zero\n");
+    out.push_str("    jbe .L_x86_rcc_zero\n");
     out.push_str("    cmpl $0xC0000000, %eax\n");
     out.push_str("    jae .L_x86_rcc_zero\n");
     out.push_str("    movl -8(%eax), %edx\n");
