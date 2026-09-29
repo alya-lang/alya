@@ -28,7 +28,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Linux legs pin ubuntu-22.04 (glibc 2.35): binaries stay
+          # runnable on bookworm (2.36)+. Building on ubuntu-latest
+          # (noble, 2.39) locks a GLIBC_2.39 floor that bookworm rejects
+          # (alya-lang/alya#64). ARM64 stays on 24.04-arm: no 22.04 ARM
+          # runner label exists.
+          - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             platform: x86_64-linux
             label: Linux x64
@@ -40,7 +45,7 @@ jobs:
             label: Linux ARM64
             bin: alya
             archive: tar.gz
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             target: i686-unknown-linux-gnu
             platform: x86-linux
             label: Linux x86
