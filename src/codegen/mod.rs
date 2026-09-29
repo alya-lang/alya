@@ -1036,6 +1036,41 @@ impl CodeGen {
         }
         let d_codegen = t_emit.elapsed();
 
+        // Return-tag protocol measurement (alya-lang/alya#55-C): report
+        // supply (qualifying functions), demand hits, and misses split
+        // into forward-reference (callee marked later — a pre-pass would
+        // recover these) vs structural (never marked: recursion,
+        // dynamics, disqualified bodies). Gated by `ALYA_TAG_STATS` so
+        // normal builds stay byte-identical on stderr.
+        if std::env::var("ALYA_TAG_STATS").is_ok() {
+            let stats = &self.ctx.tag_stats;
+            let mut forward = 0u64;
+            for miss in &stats.miss_names {
+                let bare = miss.rsplit("::").next().unwrap_or(miss);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if self
+                    .ctx
+                    .variables
+                    .contains_key(&format!("fn_ret_tagged:{}", miss))
+                    || self
+                        .ctx
+                        .variables
+                        .contains_key(&format!("fn_ret_tagged:{}", bare))
+                {
+                    forward += 1;
+                }
+            }
+            let structural = stats.miss_names.len() as u64 - forward;
+            eprintln!(
+                "[tag-stats] markers={} call_hits={} misses={} (forward={} structural={})",
+                stats.markers,
+                stats.call_hits,
+                stats.miss_names.len(),
+                forward,
+                structural
+            );
+        }
+
         self.profile = PipelineProfile {
             d_call_index,
             d_dce,
@@ -1477,6 +1512,8 @@ impl CodeGen {
         if Self::fn_returns_all_tagged(body, &self.ctx.variables) {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
+            // Measurement for alya-lang/alya#55-C (supply side).
+            self.ctx.tag_stats.markers += 1;
             for key in [
                 format!("fn_ret_tagged:{}", name),
                 format!("fn_ret_tagged:{}", bare),

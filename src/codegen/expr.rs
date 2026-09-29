@@ -993,6 +993,27 @@ impl CodeGen {
             Expr::Call { name, args } => {
                 let bare = name.rsplit("::").next().unwrap_or(name);
                 let bare = bare.rsplit("__").next().unwrap_or(bare);
+                // Measurement for alya-lang/alya#55-C (demand side): one
+                // record per emitted call into a known user function
+                // (builtins, struct constructors, and externs excluded —
+                // legacy is their only behavior). A miss whose callee is
+                // marked by end of compilation is a forward-reference
+                // miss recoverable by a pre-pass; the rest is structural.
+                if self.ctx.functions.contains(name) || self.ctx.functions.contains(bare) {
+                    if self
+                        .ctx
+                        .variables
+                        .contains_key(&format!("fn_ret_tagged:{}", name))
+                        || self
+                            .ctx
+                            .variables
+                            .contains_key(&format!("fn_ret_tagged:{}", bare))
+                    {
+                        self.ctx.tag_stats.call_hits += 1;
+                    } else {
+                        self.ctx.tag_stats.miss_names.push(name.clone());
+                    }
+                }
                 if let Some(sdef) = self
                     .ctx
                     .structs

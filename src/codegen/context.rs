@@ -49,6 +49,19 @@ pub struct ScopeState {
     pub current_fn_name: String,
 }
 
+/// Counters for the return-tag protocol measurement
+/// (alya-lang/alya#55-C): how many functions qualify (supply) vs how
+/// many user-function call sites trust the tag (hits) or fall back to
+/// legacy classification (misses, recorded by callee name so the report
+/// can split forward-reference misses from structural ones). Inert
+/// unless `ALYA_TAG_STATS` is set; never affects emission.
+#[derive(Debug, Default)]
+pub struct TagStats {
+    pub markers: u64,
+    pub call_hits: u64,
+    pub miss_names: Vec<String>,
+}
+
 #[derive(Debug, Default)]
 pub struct CodeGenContext {
     pub label_counter: usize,
@@ -71,6 +84,7 @@ pub struct CodeGenContext {
     pub current_fn_name: String,
     pub globals: HashMap<String, (String, Option<String>)>,
     pub enums: HashSet<String>,
+    pub tag_stats: TagStats,
 }
 
 impl CodeGenContext {
@@ -93,6 +107,7 @@ impl CodeGenContext {
             current_fn_name: String::new(),
             globals: HashMap::new(),
             enums: HashSet::new(),
+            tag_stats: TagStats::default(),
         }
     }
 
