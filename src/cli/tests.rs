@@ -723,6 +723,13 @@ fn test_profile_and_features_flags() {
     assert!(CliArgs::parse_from(&to_args(&["alya", "fmt", ".", "--features", "x"])).is_err());
     assert!(CliArgs::parse_from(&to_args(&["alya", "run", "a.alya", "--release"])).is_ok());
     assert!(CliArgs::parse_from(&to_args(&["alya", "bench", ".", "--release"])).is_ok());
+    // `check` accepts feature selection (selects what's verified).
+    assert!(CliArgs::parse_from(&to_args(&["alya", "check", "a.alya", "--features", "x"])).is_ok());
+    // `--fresh` forces rebuild on compiling commands only.
+    let args = to_args(&["alya", "build", "a.alya", "--fresh"]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    assert!(parsed.fresh);
+    assert!(CliArgs::parse_from(&to_args(&["alya", "fmt", ".", "--fresh"])).is_err());
 }
 
 #[test]

@@ -278,6 +278,20 @@ pub fn run_cache() -> Result<(), String> {
             println!("  (global cache is empty)");
         }
         println!();
+
+        let build_dir = crate::driver::build_cache::build_cache_dir();
+        if build_dir.exists() {
+            let stats = crate::driver::build_cache::cache_stats(&build_dir);
+            println!("[Build Cache]");
+            println!("  Location:     {}", build_dir.display());
+            println!(
+                "  Total Size:   {} ({} entries)",
+                format_bytes(stats.bytes),
+                stats.entries
+            );
+            total_bytes += stats.bytes;
+            println!();
+        }
     }
 
     println!(
@@ -316,6 +330,20 @@ pub fn run_clean(all: bool) -> Result<(), String> {
 
     // 2. Clean global cache (if requested via --all or if outside any project)
     if all || manifest_dir.is_none() {
+        let build_dir = crate::driver::build_cache::build_cache_dir();
+        if build_dir.exists() {
+            let (size, count) = dir_size_and_count(&build_dir);
+            if fs::remove_dir_all(&build_dir).is_ok() {
+                cleaned_bytes += size;
+                cleaned_items += count;
+                println!(
+                    "✓ Cleaned build cache: {} ({} freed)",
+                    build_dir.display(),
+                    format_bytes(size)
+                );
+            }
+        }
+
         if let Some(g_dir) = get_global_cache_dir() {
             if g_dir.exists() {
                 let (size, count) = dir_size_and_count(&g_dir);

@@ -75,6 +75,7 @@ pub struct CliArgs {
     pub profile: String,
     pub features: Vec<String>,
     pub no_default_features: bool,
+    pub fresh: bool,
     pub run_args: Vec<String>,
     pub test_jobs: Option<usize>,
     pub no_std: bool,
@@ -129,6 +130,7 @@ impl CliArgs {
                 profile: "dev".to_string(),
                 features: Vec::new(),
                 no_default_features: false,
+                fresh: false,
                 bundle_id: None,
                 icon_path: None,
                 run_args: Vec::new(),
@@ -429,6 +431,7 @@ impl CliArgs {
         let mut release = false;
         let mut features: Vec<String> = Vec::new();
         let mut no_default_features = false;
+        let mut fresh = false;
         let mut os_explicit = false;
         let mut arch_explicit = false;
         let mut run_args = Vec::new();
@@ -609,6 +612,9 @@ impl CliArgs {
                 "--no-default-features" => {
                     no_default_features = true;
                 }
+                "--fresh" => {
+                    fresh = true;
+                }
                 "--arch" => {
                     if i + 1 < args.len() {
                         arch_explicit = true;
@@ -715,13 +721,21 @@ impl CliArgs {
         if release && profile_opt.is_some() {
             return Err("Error: '--release' cannot be combined with '--profile'".to_string());
         }
-        let profile_flags_used =
-            release || profile_opt.is_some() || !features.is_empty() || no_default_features;
+        let feature_flags_used = !features.is_empty() || no_default_features;
+        let profile_flags_used = release || profile_opt.is_some() || fresh;
         match command {
             CommandKind::Build | CommandKind::Run | CommandKind::Test | CommandKind::Bench => {}
-            _ => {
+            // `check` verifies source: features select what's verified,
+            // profiles only affect codegen output. (`lint` has its own
+            // parser accepting `--features` directly.)
+            CommandKind::Check => {
                 if profile_flags_used {
-                    return Err("Error: '--profile'/'--release'/'--features'/'--no-default-features' are only valid with 'build', 'run', 'test', 'bench' and 'lint'".to_string());
+                    return Err("Error: '--profile'/'--release'/'--fresh' are only valid with 'build', 'run', 'test' and 'bench'".to_string());
+                }
+            }
+            _ => {
+                if profile_flags_used || feature_flags_used {
+                    return Err("Error: '--profile'/'--release'/'--features'/'--no-default-features'/'--fresh' are only valid with 'build', 'run', 'test', 'bench' and 'check' ('--features' only for 'check')".to_string());
                 }
             }
         }
@@ -751,6 +765,7 @@ impl CliArgs {
             profile,
             features,
             no_default_features,
+            fresh,
             run_args,
             test_jobs,
             no_std,
@@ -791,6 +806,7 @@ impl CliArgs {
             profile: "dev".to_string(),
             features: Vec::new(),
             no_default_features: false,
+            fresh: false,
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
@@ -833,6 +849,7 @@ impl CliArgs {
             profile: "dev".to_string(),
             features: Vec::new(),
             no_default_features: false,
+            fresh: false,
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
@@ -875,6 +892,7 @@ impl CliArgs {
             profile: "dev".to_string(),
             features: Vec::new(),
             no_default_features: false,
+            fresh: false,
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),

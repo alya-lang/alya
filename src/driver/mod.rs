@@ -5,12 +5,222 @@ use crate::parser::Parser;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
+pub mod build_cache;
 pub mod c_builder;
 pub mod console;
 pub mod runner;
 pub mod toolchain;
 
 pub use console::init_console;
+
+use build_cache::{
+    build_cache_dir, fingerprint_hex, journal_files, store, tier1_lookup, tier2_lookup,
+    unit_id_hex, BuildQuery, CacheHit,
+};
+use std::collections::HashSet;
+
+#[allow(clippy::too_many_arguments)]
+pub fn build_query(
+    args: &CliArgs,
+    build_cfg: &crate::tools::pkg::features::ResolvedBuild,
+    c_plan: &c_builder::CBuildPlan,
+    source: &str,
+    imported_files: &HashSet<std::path::PathBuf>,
+    custom_icon: Option<&Path>,
+    command: &str,
+    output_kind: &str,
+) -> Result<BuildQuery, String> {
+    let mut link_flags = c_plan.link_flags_for(args.os);
+    link_flags.extend(crate::tools::pkg::features::profile_link_flags(
+        &build_cfg.profile,
+        args.os,
+    ));
+    build_cache::build_query_raw(build_cache::RawQueryInputs {
+        input_file: std::path::PathBuf::from(&args.input_file),
+        source: source.as_bytes().to_vec(),
+        imports: imported_files.iter().cloned().collect(),
+        c_flags: c_plan.flags.clone(),
+        c_target_sources: c_plan.sources_for(args.os),
+        link_flags,
+        profile_name: build_cfg.profile_name.clone(),
+        features: build_cfg.active_features.iter().cloned().collect(),
+        no_std: args.no_std,
+        mem_trace: args.mem_trace,
+        arch: crate::tools::pkg::features::target_arch_name(args.arch).to_string(),
+        os: crate::tools::pkg::features::target_os_name(args.os).to_string(),
+        command: command.to_string(),
+        output_kind: output_kind.to_string(),
+        custom_icon: custom_icon.map(|p| p.to_path_buf()),
+    })
+}
+
+/// Runs both lookup tiers for one unit. Input read failures propagate
+/// (fail fast like a build would); cache I/O degrades to miss.
+#[allow(clippy::too_many_arguments)]
+fn lookup_build(
+    args: &CliArgs,
+    build_cfg: &crate::tools::pkg::features::ResolvedBuild,
+    c_plan: &c_builder::CBuildPlan,
+    source: &str,
+    imported_files: &HashSet<std::path::PathBuf>,
+    custom_icon: Option<&Path>,
+    command: &str,
+    output_kind: &str,
+) -> Result<(Option<CacheHit>, BuildQuery), String> {
+    let query = build_query(
+        args,
+        build_cfg,
+        c_plan,
+        source,
+        imported_files,
+        custom_icon,
+        command,
+        output_kind,
+    )?;
+    let cache_dir = build_cache_dir();
+    if let Some(hit) = tier1_lookup(&cache_dir, &query.unit) {
+        return Ok((Some(hit), query));
+    }
+    let hit = tier2_lookup(
+        &cache_dir,
+        &query.unit,
+        &query.fingerprint,
+        &query.journal_paths,
+    )?;
+    Ok((hit, query))
+}
+
+/// Stores a fresh build artifact under its query. Best effort: a cache
+/// failure warns but never fails a good build.
+fn store_current_build(query: &BuildQuery, artifact: &[u8]) {
+    let cache_dir = build_cache_dir();
+    let unit_hash = unit_id_hex(&query.unit);
+    let fp_hex = fingerprint_hex(&query.fingerprint);
+    let Some(files) = journal_files(&query.journal_paths) else {
+        return;
+    };
+    if let Err(e) = store(
+        &cache_dir,
+        &unit_hash,
+        &fp_hex,
+        &files,
+        &query.unit.compiler_id,
+        artifact,
+    ) {
+        eprintln!("Warning: {}", e);
+    }
+}
+
+fn print_bundle_contents(opts: &crate::tools::bundle::BundleOptions) {
+    use crate::tools::bundle::BundleOs;
+    match opts.os {
+        BundleOs::MacOs => {
+            println!(
+                "  {}",
+                opts.bundle_dir.join("Contents/Info.plist").display()
+            );
+            println!("  {}", opts.binary_path().display());
+            println!(
+                "  {}",
+                opts.bundle_dir
+                    .join("Contents/Resources/AppIcon.icns")
+                    .display()
+            );
+            println!("\nTo launch on macOS:");
+            println!("  open {}", opts.bundle_dir.display());
+        }
+        BundleOs::Windows => {
+            println!("  {}", opts.binary_path().display());
+            println!(
+                "  {}",
+                opts.bundle_dir
+                    .join(format!("{}.exe.manifest", opts.app_name))
+                    .display()
+            );
+        }
+        BundleOs::Linux => {
+            println!("  {}", opts.binary_path().display());
+            println!(
+                "  {}",
+                opts.bundle_dir
+                    .join(format!("{}.desktop", opts.app_name))
+                    .display()
+            );
+        }
+    }
+}
+
+fn print_run_hint(exe_file: &str) {
+    println!("\nRun your program:");
+    if cfg!(target_os = "windows") {
+        println!("  .\\{}", exe_file);
+    } else {
+        println!("  ./{}", exe_file);
+    }
+}
+
+/// Materializes a verified cache hit to its output path and completes the
+/// command (report or execute). Mirrors the miss-path reporting with
+/// "Fresh" wording.
+fn finish_cache_hit(
+    args: &CliArgs,
+    bundle_opts: &Option<crate::tools::bundle::BundleOptions>,
+    final_output: Option<&str>,
+    asm_file: &str,
+    artifact: &[u8],
+    files_verified: usize,
+    total_start: Instant,
+) -> Result<(), String> {
+    if let Some(exe_file) = final_output {
+        if let Some(parent) = Path::new(exe_file).parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent)
+                    .map_err(|e| format!("Error: cannot write '{}': {}", exe_file, e))?;
+            }
+        }
+        fs::write(exe_file, artifact)
+            .map_err(|e| format!("Error: cannot write '{}': {}", exe_file, e))?;
+        // Cache copies lose the executable bit; fresh links get it from the toolchain.
+        build_cache::mark_executable(Path::new(exe_file));
+        if args.command == CommandKind::Run {
+            runner::execute_binary(exe_file, &args.run_args, args.output_file.is_none())?;
+        } else if !args.quiet {
+            println!("✓ Fresh {} (build cache hit)", exe_file);
+            if bundle_opts.is_some() {
+                println!("\nBundle contents:");
+            }
+            if let Some(ref opts) = bundle_opts {
+                print_bundle_contents(opts);
+            } else {
+                print_run_hint(exe_file);
+            }
+        }
+    } else if !args.quiet {
+        fs::write(asm_file, artifact)
+            .map_err(|e| format!("Error: cannot write '{}': {}", asm_file, e))?;
+        if let Some(ref opts) = bundle_opts {
+            let kind = match opts.os {
+                crate::tools::bundle::BundleOs::MacOs => "macOS App Bundle",
+                crate::tools::bundle::BundleOs::Windows => "Windows bundle",
+                crate::tools::bundle::BundleOs::Linux => "Linux bundle",
+            };
+            println!("✓ Fresh {} assembly (build cache hit): {}", kind, asm_file);
+        } else {
+            println!("✓ Fresh assembly (build cache hit): {}", asm_file);
+        }
+    } else {
+        fs::write(asm_file, artifact)
+            .map_err(|e| format!("Error: cannot write '{}': {}", asm_file, e))?;
+    }
+    if args.time || args.stats {
+        println!(
+            "\nBuild cache hit: verified {} files in {:.2} ms (codegen + link skipped)",
+            files_verified,
+            total_start.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+    Ok(())
+}
 
 pub fn run(args: CliArgs) -> Result<(), String> {
     init_console();
@@ -49,6 +259,7 @@ pub fn run(args: CliArgs) -> Result<(), String> {
             args.os,
             args.test_jobs,
             build_cfg,
+            args.fresh,
         )?;
         return Ok(());
     }
@@ -60,7 +271,13 @@ pub fn run(args: CliArgs) -> Result<(), String> {
             &args.features,
             args.no_default_features,
         )?;
-        crate::tools::test_runner::run_benches(&args.input_file, args.arch, args.os, build_cfg)?;
+        crate::tools::test_runner::run_benches(
+            &args.input_file,
+            args.arch,
+            args.os,
+            build_cfg,
+            args.fresh,
+        )?;
         return Ok(());
     }
 
@@ -176,6 +393,17 @@ pub fn run(args: CliArgs) -> Result<(), String> {
             .map_err(|e| format!("Module import error in '{}': {}", args.input_file, e))?;
     let d_import = t_import.elapsed();
 
+    // C build plan discovery is pure manifest reads: hoisted before codegen
+    // so the build-cache fingerprint can cover C sources, and so profile
+    // flags compose before anything consumes the plan.
+    let mut c_plan =
+        c_builder::discover_c_build_plan(Path::new(&args.input_file), &imported_files)?;
+    // Profile flags go first so explicit `[build]` flags win.
+    c_plan.flags.splice(
+        0..0,
+        crate::tools::pkg::features::profile_c_flags(&build_cfg.profile, &c_plan.flags),
+    );
+
     if args.command == CommandKind::EmitAst {
         println!("{:#?}", ast);
         return Ok(());
@@ -256,6 +484,9 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         .and_then(|s| s.to_str())
         .unwrap_or("output");
 
+    // Bundle naming is pure (no I/O): hoisted so cache hits can
+    // materialize into the right paths. `create_structure` (disk writes)
+    // runs only on the miss path, right before codegen.
     let bundle_opts = if args.bundle {
         let mut opts =
             crate::tools::bundle::BundleOptions::new(default_stem, args.output_file.as_deref())
@@ -270,7 +501,6 @@ pub fn run(args: CliArgs) -> Result<(), String> {
                 "Error: '--doc-type' requires '--os macos' (macOS bundles only).".to_string(),
             );
         }
-        opts.create_structure()?;
         Some(opts)
     } else {
         None
@@ -315,6 +545,58 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         (asm_name, None)
     };
 
+    // 3.6 Build cache lookup (Build/Run only). Tier 1 needs no content
+    // reads; Tier 2 reuses the bytes gathered for the fingerprint. NOTE:
+    // `build` and `run` share one cache unit ("run"): identical inputs
+    // produce identical executables, only post-steps differ. `test`/`bench`
+    // stay separate (the runner synthesizes calls into the AST).
+    let command_name = "run";
+    let output_kind = if final_output.is_some() { "exe" } else { "asm" };
+    let custom_icon = bundle_opts
+        .as_ref()
+        .and_then(|o| o.icon_path.as_deref())
+        .map(Path::new);
+    let (cache_hit, build_query): (Option<build_cache::CacheHit>, BuildQuery) = if args.fresh {
+        (
+            None,
+            build_query(
+                &args,
+                &build_cfg,
+                &c_plan,
+                &source,
+                &imported_files,
+                custom_icon,
+                command_name,
+                output_kind,
+            )?,
+        )
+    } else {
+        lookup_build(
+            &args,
+            &build_cfg,
+            &c_plan,
+            &source,
+            &imported_files,
+            custom_icon,
+            command_name,
+            output_kind,
+        )?
+    };
+    if let Some(hit) = cache_hit {
+        return finish_cache_hit(
+            &args,
+            &bundle_opts,
+            final_output.as_deref(),
+            &asm_file,
+            &hit.artifact,
+            hit.files_verified,
+            total_start,
+        );
+    }
+    if let Some(ref opts) = bundle_opts {
+        opts.create_structure()?;
+    }
+
     // 4. Code Generation (function inlining first, so DCE can prune
     // fully-inlined callees; checking already ran on source above)
     crate::parser::inline::inline_functions(&mut ast);
@@ -324,6 +606,12 @@ pub fn run(args: CliArgs) -> Result<(), String> {
 
     fs::write(&asm_file, code)
         .map_err(|e| format!("Error: Cannot write to '{}': {}", asm_file, e))?;
+    if final_output.is_none() {
+        // Assembly-only output: cache the text itself.
+        if let Ok(bytes) = fs::read(&asm_file) {
+            store_current_build(&build_query, &bytes);
+        }
+    }
 
     let mut d_gcc = None;
     let mut d_exec = None;
@@ -338,13 +626,6 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         }
 
         let t_gcc = Instant::now();
-        let mut c_plan =
-            c_builder::discover_c_build_plan(Path::new(&args.input_file), &imported_files)?;
-        // Profile flags go first so explicit `[build]` flags win.
-        c_plan.flags.splice(
-            0..0,
-            crate::tools::pkg::features::profile_c_flags(&build_cfg.profile, &c_plan.flags),
-        );
         let mut c_objects = c_builder::build_c_objects(&c_plan, args.arch, args.os)?;
         // Windows bundles embed the staged icon as a COFF resource.
         // An embedded icon (.rsrc section) is unreferenced by code, so
@@ -380,60 +661,25 @@ pub fn run(args: CliArgs) -> Result<(), String> {
             &extra_link_args,
         )?;
         d_gcc = Some(t_gcc.elapsed());
+        if let Ok(bytes) = fs::read(&exe_file) {
+            store_current_build(&build_query, &bytes);
+        }
 
         if let Some(ref opts) = bundle_opts {
             if !args.quiet {
                 use crate::tools::bundle::BundleOs;
-                match opts.os {
-                    BundleOs::MacOs => {
-                        println!(
-                            "✓ Successfully created macOS App Bundle: {}",
-                            opts.bundle_dir.display()
-                        );
-                        println!("\nBundle contents:");
-                        println!(
-                            "  {}",
-                            opts.bundle_dir.join("Contents/Info.plist").display()
-                        );
-                        println!("  {}", opts.binary_path().display());
-                        println!(
-                            "  {}",
-                            opts.bundle_dir
-                                .join("Contents/Resources/AppIcon.icns")
-                                .display()
-                        );
-                        println!("\nTo launch on macOS:");
-                        println!("  open {}", opts.bundle_dir.display());
-                    }
-                    BundleOs::Windows => {
-                        println!(
-                            "✓ Successfully created Windows bundle: {}",
-                            opts.bundle_dir.display()
-                        );
-                        println!("\nBundle contents:");
-                        println!("  {}", opts.binary_path().display());
-                        println!(
-                            "  {}",
-                            opts.bundle_dir
-                                .join(format!("{}.exe.manifest", opts.app_name))
-                                .display()
-                        );
-                    }
-                    BundleOs::Linux => {
-                        println!(
-                            "✓ Successfully created Linux bundle: {}",
-                            opts.bundle_dir.display()
-                        );
-                        println!("\nBundle contents:");
-                        println!("  {}", opts.binary_path().display());
-                        println!(
-                            "  {}",
-                            opts.bundle_dir
-                                .join(format!("{}.desktop", opts.app_name))
-                                .display()
-                        );
-                    }
-                }
+                let kind = match opts.os {
+                    BundleOs::MacOs => "macOS App Bundle",
+                    BundleOs::Windows => "Windows bundle",
+                    BundleOs::Linux => "Linux bundle",
+                };
+                println!(
+                    "✓ Successfully created {}: {}",
+                    kind,
+                    opts.bundle_dir.display()
+                );
+                println!("\nBundle contents:");
+                print_bundle_contents(opts);
             }
         } else if args.command == CommandKind::Run {
             let t_exec = Instant::now();
@@ -441,12 +687,7 @@ pub fn run(args: CliArgs) -> Result<(), String> {
             d_exec = Some(t_exec.elapsed());
         } else if !args.quiet {
             println!("✓ Successfully compiled to {}", exe_file);
-            println!("\nRun your program:");
-            if cfg!(target_os = "windows") {
-                println!("  .\\{}", exe_file);
-            } else {
-                println!("  ./{}", exe_file);
-            }
+            print_run_hint(&exe_file);
         }
     } else if let Some(ref opts) = bundle_opts {
         if !args.quiet {

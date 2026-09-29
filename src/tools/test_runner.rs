@@ -1,5 +1,6 @@
 use crate::ast::{Expr, Program, Stmt};
 use crate::codegen::{self, Architecture, OperatingSystem};
+use crate::driver::build_cache;
 use crate::driver::runner;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
@@ -475,6 +476,117 @@ fn describe_exit_status(status: &std::process::ExitStatus) -> (bool, Option<i32>
     }
 }
 
+/// Builds the per-file cache query for a test/bench unit.
+#[allow(clippy::too_many_arguments)]
+fn test_cache_query(
+    path: &Path,
+    source: &str,
+    imported_files: &std::collections::HashSet<PathBuf>,
+    c_plan: &crate::driver::c_builder::CBuildPlan,
+    build: &ResolvedBuild,
+    arch: Architecture,
+    os: OperatingSystem,
+    kind_name: &str,
+) -> Result<build_cache::BuildQuery, String> {
+    use crate::tools::pkg::features as pf;
+    let mut link_flags = c_plan.link_flags_for(os);
+    link_flags.extend(profile_link_flags(&build.profile, os));
+    build_cache::build_query_raw(build_cache::RawQueryInputs {
+        input_file: path.to_path_buf(),
+        source: source.as_bytes().to_vec(),
+        imports: imported_files.iter().cloned().collect(),
+        c_flags: c_plan.flags.clone(),
+        c_target_sources: c_plan.sources_for(os),
+        link_flags,
+        profile_name: build.profile_name.clone(),
+        features: build.active_features.iter().cloned().collect(),
+        no_std: false,
+        mem_trace: false,
+        arch: pf::target_arch_name(arch).to_string(),
+        os: pf::target_os_name(os).to_string(),
+        command: kind_name.to_string(),
+        output_kind: "exe".to_string(),
+        custom_icon: None,
+    })
+}
+
+/// Builds the per-file cache query for a test/bench unit.
+#[allow(clippy::too_many_arguments)]
+fn test_cache_lookup(
+    path: &Path,
+    source: &str,
+    imported_files: &std::collections::HashSet<PathBuf>,
+    c_plan: &crate::driver::c_builder::CBuildPlan,
+    build: &ResolvedBuild,
+    arch: Architecture,
+    os: OperatingSystem,
+    kind_name: &str,
+) -> Result<Option<build_cache::CacheHit>, String> {
+    let query = test_cache_query(
+        path,
+        source,
+        imported_files,
+        c_plan,
+        build,
+        arch,
+        os,
+        kind_name,
+    )?;
+    let cache_dir = build_cache::build_cache_dir();
+    if let Some(hit) = build_cache::tier1_lookup(&cache_dir, &query.unit) {
+        return Ok(Some(hit));
+    }
+    build_cache::tier2_lookup(
+        &cache_dir,
+        &query.unit,
+        &query.fingerprint,
+        &query.journal_paths,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn test_cache_store(
+    path: &Path,
+    source: &str,
+    imported_files: &std::collections::HashSet<PathBuf>,
+    c_plan: &crate::driver::c_builder::CBuildPlan,
+    build: &ResolvedBuild,
+    arch: Architecture,
+    os: OperatingSystem,
+    kind_name: &str,
+    artifact: &[u8],
+) {
+    let query = match test_cache_query(
+        path,
+        source,
+        imported_files,
+        c_plan,
+        build,
+        arch,
+        os,
+        kind_name,
+    ) {
+        Ok(q) => q,
+        Err(_) => return,
+    };
+    let cache_dir = build_cache::build_cache_dir();
+    let unit_hash = build_cache::unit_id_hex(&query.unit);
+    let fp_hex = build_cache::fingerprint_hex(&query.fingerprint);
+    let Some(files) = build_cache::journal_files(&query.journal_paths) else {
+        return;
+    };
+    if let Err(e) = build_cache::store(
+        &cache_dir,
+        &unit_hash,
+        &fp_hex,
+        &files,
+        &query.unit.compiler_id,
+        artifact,
+    ) {
+        eprintln!("Warning: {}", e);
+    }
+}
+
 /// Compiles and runs an Alya test file, returning a structured TestExecution.
 pub fn execute_test_file(
     path: &Path,
@@ -482,6 +594,7 @@ pub fn execute_test_file(
     os: OperatingSystem,
     kind: SuiteKind,
     build: &ResolvedBuild,
+    fresh: bool,
 ) -> Result<TestExecution, String> {
     let start_time = Instant::now();
     let source = fs::read_to_string(path)
@@ -525,10 +638,34 @@ pub fn execute_test_file(
     // prune fully-inlined callees.
     crate::parser::inline::inline_functions(&mut ast);
 
-    // 4. Codegen
-    let asm_code = codegen::generate(&ast, arch, os);
+    let mut c_plan = crate::driver::c_builder::discover_c_build_plan(path, &imported_files)?;
+    // Profile flags go first so explicit `[build]` flags win.
+    c_plan
+        .flags
+        .splice(0..0, profile_c_flags(&build.profile, &c_plan.flags));
 
-    // 5. Compile with GCC to temp executable
+    // 3d. Build cache lookup (per test file): verified hits skip codegen
+    // entirely; the cached executable still RUNS every time.
+    let kind_name = match kind {
+        SuiteKind::Test => "test",
+        _ => "bench",
+    };
+    let cache_hit = if fresh {
+        None
+    } else {
+        test_cache_lookup(
+            path,
+            &source,
+            &imported_files,
+            &c_plan,
+            build,
+            arch,
+            os,
+            kind_name,
+        )?
+    };
+
+    // 4. Codegen
     let pid = std::process::id();
     let test_id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
     let temp_dir = std::env::temp_dir();
@@ -539,42 +676,60 @@ pub fn execute_test_file(
         temp_dir.join(format!("temp_test_{}_{}", pid, test_id))
     };
 
-    fs::write(&temp_asm, &asm_code)
-        .map_err(|e| format!("Failed to write temporary assembly: {}", e))?;
+    let exe_path: PathBuf = temp_exe;
+    if let Some(hit) = cache_hit {
+        fs::write(&exe_path, &hit.artifact)
+            .map_err(|e| format!("Failed to write cached test binary: {}", e))?;
+        // Cache copies lose the executable bit; fresh links get it from gcc.
+        build_cache::mark_executable(&exe_path);
+    } else {
+        let asm_code = codegen::generate(&ast, arch, os);
+        fs::write(&temp_asm, &asm_code)
+            .map_err(|e| format!("Failed to write temporary assembly: {}", e))?;
 
-    let mut c_plan = crate::driver::c_builder::discover_c_build_plan(path, &imported_files)?;
-    // Profile flags go first so explicit `[build]` flags win.
-    c_plan
-        .flags
-        .splice(0..0, profile_c_flags(&build.profile, &c_plan.flags));
-    let c_objects = crate::driver::c_builder::build_c_objects(&c_plan, arch, os)?;
-    let mut extra_libs = codegen::collect_extern_libraries(&ast);
-    extra_libs.retain(|lib| !c_plan.provided_libs.contains(lib));
-    let mut extra_link_args: Vec<String> = c_plan.link_flags_for(os);
-    extra_link_args.extend(profile_link_flags(&build.profile, os));
+        let c_objects = crate::driver::c_builder::build_c_objects(&c_plan, arch, os)?;
+        let mut extra_libs = codegen::collect_extern_libraries(&ast);
+        extra_libs.retain(|lib| !c_plan.provided_libs.contains(lib));
+        let mut extra_link_args: Vec<String> = c_plan.link_flags_for(os);
+        extra_link_args.extend(profile_link_flags(&build.profile, os));
 
-    let asm_str = temp_asm.to_string_lossy().to_string();
-    let exe_str = temp_exe.to_string_lossy().to_string();
-    let gcc_res = runner::compile_with_gcc(
-        &asm_str,
-        &exe_str,
-        arch,
-        os,
-        &extra_libs,
-        &c_objects,
-        &extra_link_args,
-    );
-    let _ = fs::remove_file(&temp_asm);
-    if let Err(err) = gcc_res {
-        return Err(format!(
-            "GCC compilation failed for '{}': {}",
-            path.display(),
-            err
-        ));
+        let asm_str = temp_asm.to_string_lossy().to_string();
+        let exe_str = exe_path.to_string_lossy().to_string();
+        let gcc_res = runner::compile_with_gcc(
+            &asm_str,
+            &exe_str,
+            arch,
+            os,
+            &extra_libs,
+            &c_objects,
+            &extra_link_args,
+        );
+        let _ = fs::remove_file(&temp_asm);
+        if let Err(err) = gcc_res {
+            return Err(format!(
+                "GCC compilation failed for '{}': {}",
+                path.display(),
+                err
+            ));
+        }
+        if let Ok(bytes) = fs::read(&exe_path) {
+            test_cache_store(
+                path,
+                &source,
+                &imported_files,
+                &c_plan,
+                build,
+                arch,
+                os,
+                kind_name,
+                &bytes,
+            );
+        }
     }
+    let exe_str = exe_path.to_string_lossy().to_string();
 
     // 6. Execute binary with timeout
-    let mut child = Command::new(&temp_exe)
+    let mut child = Command::new(&exe_path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -614,7 +769,7 @@ pub fn execute_test_file(
         (output.stdout, output.stderr, true, Some(output.status))
     };
 
-    let _ = fs::remove_file(&temp_exe);
+    let _ = fs::remove_file(&exe_path);
     let elapsed = start_time.elapsed().as_millis();
 
     let stdout = String::from_utf8_lossy(&stdout_bytes).to_string();
@@ -896,6 +1051,7 @@ pub fn run_tests(
     os: OperatingSystem,
     jobs: Option<usize>,
     build: ResolvedBuild,
+    fresh: bool,
 ) -> Result<(), String> {
     let root = Path::new(path_str);
     let test_files = discover_test_files(root);
@@ -982,7 +1138,7 @@ pub fn run_tests(
     if num_workers == 1 {
         for file in &test_files {
             let display_name = format_test_path(file, root);
-            let outcome = execute_test_file(file, arch, os, SuiteKind::Test, &build);
+            let outcome = execute_test_file(file, arch, os, SuiteKind::Test, &build, fresh);
             handle_test_result(&display_name, outcome, name_width, &mut stats);
         }
     } else {
@@ -1003,8 +1159,14 @@ pub fn run_tests(
                 match file {
                     Some(path) => {
                         let display_name = format_test_path(&path, &r_root);
-                        let outcome =
-                            execute_test_file(&path, arch, os, SuiteKind::Test, &worker_build);
+                        let outcome = execute_test_file(
+                            &path,
+                            arch,
+                            os,
+                            SuiteKind::Test,
+                            &worker_build,
+                            fresh,
+                        );
                         let _ = sender.send(TestResultItem {
                             display_name,
                             outcome,
@@ -1087,6 +1249,7 @@ pub fn run_benches(
     arch: Architecture,
     os: OperatingSystem,
     build: ResolvedBuild,
+    fresh: bool,
 ) -> Result<(), String> {
     let root = Path::new(path_str);
     let bench_files = discover_bench_files(root);
@@ -1131,7 +1294,7 @@ pub fn run_benches(
 
     for file in &bench_files {
         let display_name = format_test_path(file, root);
-        let outcome = execute_test_file(file, arch, os, SuiteKind::Bench, &build);
+        let outcome = execute_test_file(file, arch, os, SuiteKind::Bench, &build, fresh);
         handle_test_result(&display_name, outcome, name_width, &mut stats);
     }
 

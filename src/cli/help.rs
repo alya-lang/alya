@@ -104,6 +104,7 @@ pub fn print_full_usage() {
     );
     println!("  --release, --profile <name>  Select the build profile (default: dev)");
     println!("  --features <a,b>, --no-default-features  Select package features");
+    println!("  --fresh             Ignore the build cache (rebuild + overwrite)");
     println!("  --stats, --bench      Display detailed compilation and execution metrics");
     println!("  -v, --version         Show compiler version");
     println!("  -h, --help            Show this help message\n");
@@ -198,7 +199,8 @@ pub fn print_run_help() {
     println!("  --release           Use the release profile ([profile.release])");
     println!("  --profile <name>    Use a custom [profile.<name>] table");
     println!("  --features <a,b>    Enable package features (repeatable)");
-    println!("  --no-default-features  Skip the default feature set\n");
+    println!("  --no-default-features  Skip the default feature set");
+    println!("  --fresh             Ignore the build cache (rebuild + overwrite)\n");
     println!("EXAMPLES:");
     println!("  alya run                             # Run package entry from alya.toml");
     println!("  alya run hello.alya                  # Compile & run in one step");
@@ -228,7 +230,8 @@ pub fn print_build_help() {
     println!("  --release           Use the release profile ([profile.release])");
     println!("  --profile <name>    Use a custom [profile.<name>] table");
     println!("  --features <a,b>    Enable package features (repeatable)");
-    println!("  --no-default-features  Skip the default feature set\n");
+    println!("  --no-default-features  Skip the default feature set");
+    println!("  --fresh             Ignore the build cache (rebuild + overwrite)\n");
     println!("EXAMPLES:");
     println!("  alya build hello.alya                # Produce executable (hello.exe / hello)");
     println!("  alya build app.alya --bundle --gui   # GUI bundle for the host platform");
@@ -299,7 +302,8 @@ pub fn print_test_help() {
     println!("  --release           Use the release profile ([profile.release])");
     println!("  --profile <name>    Use a custom [profile.<name>] table");
     println!("  --features <a,b>    Enable package features (repeatable)");
-    println!("  --no-default-features  Skip the default feature set\n");
+    println!("  --no-default-features  Skip the default feature set");
+    println!("  --fresh             Ignore the build cache (rebuild + overwrite)\n");
     println!("EXAMPLES:");
     println!("  alya test                            # Run all tests in project");
     println!("  alya test -j 4                       # Run with 4 parallel workers");
@@ -316,7 +320,8 @@ pub fn print_bench_help() {
     println!("  --release           Use the release profile ([profile.release])");
     println!("  --profile <name>    Use a custom [profile.<name>] table");
     println!("  --features <a,b>    Enable package features (repeatable)");
-    println!("  --no-default-features  Skip the default feature set\n");
+    println!("  --no-default-features  Skip the default feature set");
+    println!("  --fresh             Ignore the build cache (rebuild + overwrite)\n");
     println!("EXAMPLES:");
     println!("  alya bench                           # Run all benchmarks in project");
     println!("  alya bench benches                   # Run benchmarks in a directory");
