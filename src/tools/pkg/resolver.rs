@@ -236,7 +236,7 @@ pub fn copy_dir_contents(src: &Path, dst: &Path) -> Result<(), String> {
 
 /// Downloads one file via curl, wget, or PowerShell (Windows-only fallback).
 /// Returns `true` only when the download succeeded and the file is non-empty.
-fn download_file(url: &str, dest: &Path) -> bool {
+pub(crate) fn download_file(url: &str, dest: &Path) -> bool {
     // 1. Download archive using curl, wget, or PowerShell (suppress noise on probe 404s)
     let mut download_ok = Command::new("curl")
         .args(["-sSL", "-f", url, "-o"])
@@ -293,7 +293,7 @@ pub fn verify_file_sha256(file: &Path, expected_hex: &str) -> bool {
 /// assets both carry a single top-level directory, hence
 /// `--strip-components 1`. Falls back to PowerShell Expand-Archive for zips
 /// on Windows when tar fails.
-fn extract_downloaded_archive(
+pub(crate) fn extract_downloaded_archive(
     temp_archive: &Path,
     is_zip: bool,
     target_dir: &Path,

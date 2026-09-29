@@ -423,14 +423,23 @@ fn ensure_dep_cached(
         }
         DependencySource::Version { version: v, .. } => {
             let url = resolve_registry_url(name);
-            let tag_cand = if v != "*" && !v.is_empty() {
-                Some(if v.starts_with('v') || v.starts_with('V') {
-                    v.clone()
-                } else {
-                    format!("v{}", v)
-                })
-            } else {
-                None
+            // Static index fast path: precise max-satisfying tag without
+            // `git ls-remote`. Silent miss (no index, no match) keeps the
+            // legacy derivation below.
+            let index_pick = super::index::select_version(name, v)?;
+            let tag_cand: Option<String> = match &index_pick {
+                Some(pick) => Some(pick.tag.clone()),
+                None => {
+                    if v != "*" && !v.is_empty() {
+                        Some(if v.starts_with('v') || v.starts_with('V') {
+                            v.clone()
+                        } else {
+                            format!("v{}", v)
+                        })
+                    } else {
+                        None
+                    }
+                }
             };
             let tag_or_branch = tag_cand.as_deref().unwrap_or("head");
             let source = format!("registry+{}#{}", url, tag_or_branch);
@@ -478,6 +487,24 @@ fn ensure_dep_cached(
                 let _ = fs::create_dir_all(&cache_dir);
                 if cached_pkg_dir.exists() {
                     let _ = fs::remove_dir_all(&cached_pkg_dir);
+                }
+                // Explicit-tarball index entries install with strict inline
+                // checksum verification; anything else falls through.
+                if let Some(pick) = &index_pick {
+                    if let (Some(tar), Some(hex)) =
+                        (pick.tarball.as_ref(), pick.checksum_hex.as_ref())
+                    {
+                        if super::index::install_index_tarball(
+                            name,
+                            tar,
+                            hex,
+                            &pick.tag,
+                            &cached_pkg_dir,
+                        )? {
+                            let _ = fs::write(cached_pkg_dir.join(".alya-source"), &source);
+                            return Ok(cached_pkg_dir);
+                        }
+                    }
                 }
                 let mut fetch_res = fetch_git_or_archive_dependency(
                     name,

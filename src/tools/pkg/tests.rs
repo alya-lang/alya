@@ -397,6 +397,97 @@ fn test_install_features_gate_optional_path_dep() {
 }
 
 #[test]
+fn test_index_install_from_file_urls_offline() {
+    // End-to-end static-index install with zero network: a local
+    // `packages/idxprobe.json` index plus a local tarball, both served
+    // over `file://`. Proves selection (max stable, yanked skipped) and
+    // the checksum-verified tarball path.
+    let base = std::env::temp_dir().join(format!("alya_test_idx_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    let stage = base.join("stage").join("idxprobe-1.0.0");
+    fs::create_dir_all(stage.join("src")).unwrap();
+    fs::write(
+        stage.join("alya.toml"),
+        "[package]\nname = \"idxprobe\"\nversion = \"1.0.0\"\nentry = \"src/lib.alya\"\n",
+    )
+    .unwrap();
+    fs::write(
+        stage.join("src").join("lib.alya"),
+        "pub function idx_hi()\n    return 7\nend\n",
+    )
+    .unwrap();
+    let tarball = base.join("idxprobe-1.0.0.tar.gz");
+    let packed = std::process::Command::new("tar")
+        .arg("-czf")
+        .arg(&tarball)
+        .arg("-C")
+        .arg(base.join("stage"))
+        .arg("idxprobe-1.0.0")
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    assert!(packed, "tar CLI must be available to pack the probe asset");
+    let digest = sha256_hex(&fs::read(&tarball).unwrap());
+    let to_url =
+        |p: &std::path::Path| format!("file://{}", p.display().to_string().replace('\\', "/"));
+
+    let index_dir = base.join("index").join("packages");
+    fs::create_dir_all(&index_dir).unwrap();
+    fs::write(
+        index_dir.join("idxprobe.json"),
+        format!(
+            "{{\"name\": \"idxprobe\", \"repository\": \"https://github.com/alya-lang/idxprobe\", \
+            \"versions\": [{{\"version\": \"0.9.0\", \"tag\": \"v0.9.0\"}}, \
+            {{\"version\": \"1.0.0\", \"tag\": \"v1.0.0\", \"checksum\": \"sha256:{}\", \"tarball\": \"{}\"}}, \
+            {{\"version\": \"1.1.0\", \"tag\": \"v1.1.0\", \"yanked\": true}}]}}",
+            digest,
+            to_url(&tarball)
+        ),
+    )
+    .unwrap();
+
+    let app_dir = base.join("app");
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+    fs::write(app_dir.join("src").join("main.alya"), "say \"hi\"\n").unwrap();
+    fs::write(
+        app_dir.join("alya.toml"),
+        "[package]\nname = \"idxapp\"\nversion = \"0.1.0\"\nentry = \"src/main.alya\"\n\n[dependencies]\nidxprobe = \"*\"\n",
+    )
+    .unwrap();
+
+    let prev = std::env::var("ALYA_REGISTRY_INDEX").ok();
+    std::env::set_var(
+        "ALYA_REGISTRY_INDEX",
+        format!(
+            "file://{}",
+            base.join("index").display().to_string().replace('\\', "/")
+        ),
+    );
+    run_install_in(&app_dir, false, &[], false).unwrap();
+    match prev {
+        Some(v) => std::env::set_var("ALYA_REGISTRY_INDEX", v),
+        None => std::env::remove_var("ALYA_REGISTRY_INDEX"),
+    }
+
+    let installed = app_dir
+        .join(".alya")
+        .join("packages")
+        .join("idxprobe")
+        .join("src")
+        .join("lib.alya");
+    assert!(
+        installed.is_file(),
+        "index tarball must install the package tree"
+    );
+    let lock = parse_lockfile(&fs::read_to_string(app_dir.join("alya.lock")).unwrap()).unwrap();
+    assert!(lock.packages.iter().any(|p| p.name == "idxprobe"));
+    let resolved = resolve_package_import("idxprobe", &app_dir).unwrap();
+    assert!(resolved.is_some());
+
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
 fn test_git_source_formatting_and_rev_parsing() {
     let url = "https://github.com/alya-lang/rand";
     let sha = "aa1446c94360e0059c0024f3600e553b5df19332";

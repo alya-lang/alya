@@ -451,7 +451,12 @@ pub fn print_install_help() {
     println!("USAGE:");
     println!("  alya install [OPTIONS]\n");
     println!("OPTIONS:");
-    println!("  --strict            Fail instead of falling back to source on broken assets\n");
+    println!("  --strict            Fail instead of falling back to source on broken assets");
+    println!("  --features <a,b>    Enable package features (repeatable)");
+    println!("  --no-default-features  Skip the default feature set\n");
+    println!("Version requirements resolve via the static index first");
+    println!("(`ALYA_REGISTRY_INDEX`, default: raw.githubusercontent.com/alya-lang/index),");
+    println!("then fall back to git-based resolution.\n");
     println!("EXAMPLES:");
     println!("  alya install                         # Install & lock dependencies");
     println!("  alya install --strict                # Strict mode for CI");

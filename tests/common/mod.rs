@@ -183,7 +183,6 @@ pub fn run_alya_code_x86(source: &str) -> Option<(i32, String)> {
 }
 
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 fn run_alya_code_inner(
     source: &str,
     input: Option<&str>,
