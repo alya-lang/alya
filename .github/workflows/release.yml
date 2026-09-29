@@ -92,7 +92,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y gcc-multilib libc6-i386
 
       - name: Rust cache
+        # Key must include the OS image: build-script binaries cached on
+        # one glibc floor (e.g. noble/2.39) do not execute on an older one
+        # (jammy/2.35), which fails the build itself (alya-lang/alya#64).
         uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.os }}-${{ matrix.target }}
 
       - name: Build binary
         run: cargo build --release --target ${{ matrix.target }}
