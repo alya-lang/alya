@@ -55,6 +55,37 @@ pub fn dir_size_and_count(path: &Path) -> (u64, usize) {
     (total_size, file_count)
 }
 
+/// Size of a cache root excluding top-level tooling dirs (e.g. `build`,
+/// reported in its own section) so section totals never double-count.
+/// Only top-level names are filtered: package contents are summed whole.
+pub fn dir_size_and_count_excluding_top(path: &Path, exclude: &[&str]) -> (u64, usize) {
+    let mut total_size = 0u64;
+    let mut file_count = 0usize;
+    if let Ok(entries) = fs::read_dir(path) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir()
+                && exclude
+                    .iter()
+                    .any(|e| entry.file_name().to_string_lossy() == **e)
+            {
+                continue;
+            }
+            if p.is_file() {
+                file_count += 1;
+                if let Ok(meta) = p.metadata() {
+                    total_size += meta.len();
+                }
+                continue;
+            }
+            let (size, count) = dir_size_and_count(&p);
+            total_size += size;
+            file_count += count;
+        }
+    }
+    (total_size, file_count)
+}
+
 pub fn format_bytes(bytes: u64) -> String {
     const KB: f64 = 1024.0;
     const MB: f64 = 1024.0 * 1024.0;
@@ -83,8 +114,12 @@ pub fn inspect_packages_dir(dir: &Path, lock: Option<&PackageLock>) -> Vec<Cache
             if path.is_dir() {
                 let folder_name = entry.file_name().to_string_lossy().to_string();
                 // Tooling state, not packages: index documents (reported
-                // separately below), compiler artifacts, dotfiles.
-                if folder_name.starts_with('.') || folder_name == "c_obj" || folder_name == "index"
+                // separately below), compiler artifacts, the build cache
+                // (own section below), dotfiles.
+                if folder_name.starts_with('.')
+                    || folder_name == "c_obj"
+                    || folder_name == "index"
+                    || folder_name == "build"
                 {
                     continue;
                 }
@@ -241,7 +276,9 @@ pub fn run_cache() -> Result<(), String> {
 
     // 2. Global Cache
     if let Some(ref g_dir) = global_dir {
-        let (global_size, global_files) = dir_size_and_count(g_dir);
+        // `build/` is tallied in its own section below: exclude it here
+        // so neither the package rows nor the totals double-count it.
+        let (global_size, global_files) = dir_size_and_count_excluding_top(g_dir, &["build"]);
         let global_pkgs = inspect_packages_dir(g_dir, None);
         total_packages += global_pkgs.len();
         total_bytes += global_size;

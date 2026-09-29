@@ -27,6 +27,7 @@ pub fn print_usage() {
     println!("  lint [path]           Run static code linter (--fix, --check)");
     println!("  doc [path]            Generate API documentation");
     println!("  pkg <cmd>             Manage dependencies (init, add, install, update, ...)");
+    println!("  cache                 Inspect package and build cache usage");
     println!("  icons <cmd>           Register OS file icons for .alya sources");
     println!("  help [cmd]            Show help for a command");
     println!("  version               Display version information\n");
@@ -65,6 +66,9 @@ pub fn print_full_usage() {
     );
     println!("  outdated              Check for newer dependency versions without upgrading");
     println!("  pkg <cmd>             Package manager commands (init, add, install, update, cache, clean)");
+    println!(
+        "  cache                 Inspect package and build cache usage (alias for `pkg cache`)"
+    );
     println!("  toolchain <cmd>       Manage C/Assembly build toolchains (status, install, clean)");
     println!(
         "  icons <cmd>           Register OS file icons for .alya (status, install, uninstall)"
@@ -483,7 +487,7 @@ pub fn print_outdated_help() {
 }
 
 pub fn print_cache_help() {
-    println!("alya cache - Inspect the package cache\n");
+    println!("alya cache - Inspect the package and build caches\n");
     println!("USAGE:");
     println!("  alya cache [clean] [--all]\n");
     println!("EXAMPLES:");

@@ -903,6 +903,39 @@ fn test_pkg_cache_inspection_and_clean() {
 }
 
 #[test]
+fn test_cache_listing_skips_build_dir() {
+    // `build/` (whole-program build cache) lives inside the global
+    // cache root but is reported in its own section: it must neither
+    // appear as a package nor inflate the package-section totals.
+    let temp_dir =
+        std::env::temp_dir().join(format!("alya_test_cache_build_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    let pkg_dir = temp_dir.join("dummy_pkg@v1.2.3-abc123");
+    fs::create_dir_all(&pkg_dir).unwrap();
+    fs::write(
+        pkg_dir.join("alya.toml"),
+        "[package]\nname = \"dummy_pkg\"\nversion = \"1.2.3\"\nentry = \"src/lib.alya\"\n",
+    )
+    .unwrap();
+    fs::write(pkg_dir.join("dummy.txt"), "hello world").unwrap();
+    let build_dir = temp_dir.join("build").join("entries").join("fp1");
+    fs::create_dir_all(&build_dir).unwrap();
+    fs::write(build_dir.join("artifact"), "exe-bytes").unwrap();
+
+    let details = inspect_packages_dir(&temp_dir, None);
+    assert_eq!(details.len(), 1);
+    assert_eq!(details[0].name, "dummy_pkg");
+
+    let (size, files) = dir_size_and_count_excluding_top(&temp_dir, &["build"]);
+    assert_eq!(files, 2);
+    let (full_size, full_files) = dir_size_and_count(&temp_dir);
+    assert_eq!(full_files, 3);
+    assert!(full_size > size);
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
 fn test_global_cache_and_copy_dir_all() {
     let temp_dir =
         std::env::temp_dir().join(format!("alya_test_cache_copy_{}", std::process::id()));
