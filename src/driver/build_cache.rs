@@ -152,6 +152,7 @@ pub fn build_query_raw(raw: RawQueryInputs) -> Result<BuildQuery, String> {
             f.sort();
             f
         },
+        output_kind: raw.output_kind.clone(),
         compiler_id: compiler.clone(),
     };
     let mut import_paths = raw.imports;
@@ -278,6 +279,8 @@ pub fn fingerprint_hex(inputs: &FingerprintInputs) -> String {
 }
 
 /// Identity of a cacheable unit (stable across runs, content-free).
+/// Includes `output_kind`: exe and asm outputs of the same sources are
+/// different units (a Tier-1 hit must never serve one kind as the other).
 pub struct UnitInputs {
     pub main_path: String,
     pub manifest_dir: String,
@@ -286,6 +289,7 @@ pub struct UnitInputs {
     pub os: String,
     pub profile: String,
     pub features: Vec<String>,
+    pub output_kind: String,
     pub compiler_id: String,
 }
 
@@ -302,6 +306,7 @@ pub fn unit_id_hex(unit: &UnitInputs) -> String {
     for f in &features {
         feed(&mut out, "feature", f);
     }
+    feed(&mut out, "output", &unit.output_kind);
     feed(&mut out, "compiler", &unit.compiler_id);
     sha256_hex(&out)
 }
@@ -714,25 +719,28 @@ mod tests {
         }
     }
 
-    #[test]
-    fn unit_id_separates_commands_and_profiles() {
-        let unit = UnitInputs {
+    fn test_unit_id(command: &str, profile: &str, output_kind: &str) -> String {
+        unit_id_hex(&UnitInputs {
             main_path: "m".to_string(),
             manifest_dir: "d".to_string(),
-            command: "build".to_string(),
+            command: command.to_string(),
             arch: "x64".to_string(),
             os: "windows".to_string(),
-            profile: "dev".to_string(),
+            profile: profile.to_string(),
             features: Vec::new(),
+            output_kind: output_kind.to_string(),
             compiler_id: "c".to_string(),
-        };
-        let base = unit_id_hex(&unit);
-        let mut run = unit;
-        run.command = "run".to_string();
-        assert_ne!(base, unit_id_hex(&run));
-        run.command = "build".to_string();
-        run.profile = "release".to_string();
-        assert_ne!(base, unit_id_hex(&run));
+        })
+    }
+
+    #[test]
+    fn unit_id_separates_commands_profiles_and_kinds() {
+        let base = test_unit_id("build", "dev", "exe");
+        assert_ne!(base, test_unit_id("run", "dev", "exe"));
+        assert_ne!(base, test_unit_id("build", "release", "exe"));
+        // Exe and asm outputs of the same sources are different units:
+        // a Tier-1 hit must never serve one kind as the other.
+        assert_ne!(base, test_unit_id("build", "dev", "asm"));
     }
 
     #[test]
@@ -752,6 +760,7 @@ mod tests {
             os: "windows".to_string(),
             profile: "dev".to_string(),
             features: Vec::new(),
+            output_kind: "exe".to_string(),
             compiler_id: "comp".to_string(),
         };
         let fp = FingerprintInputs {

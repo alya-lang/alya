@@ -3,6 +3,7 @@ pub mod arch;
 pub mod context;
 mod expr;
 pub mod kinds;
+pub mod peephole;
 pub mod runtime;
 mod say;
 mod stmt;

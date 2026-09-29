@@ -117,6 +117,12 @@ When emitting GNU/Mach-O assembly, the code generator must apply machine-level m
    - Emits `xor %eax, %eax` on x86/x64 instead of `mov $0, %rax`, taking advantage of CPU register-renaming zero-latency idioms.
 4. **Compile-Time Struct Field Offsets**:
    - Field access (`point.x`, `user.id`) must resolve to static byte offsets at compile time, eliminating runtime hash-map or dictionary indirection.
+5. **Profile-Gated Peephole Passes** (`codegen::peephole`, tiers O1-O3):
+   - `opt-level = 0` is byte-identical to unoptimized output (hard guarantee; the default `dev` profile never changes shape).
+   - O1: push/pop cancellation + folding to `mov`, self-move elimination, dead code after unconditional `ret`/`jmp`, jump-to-next-label.
+   - O2: O1 + straight-line redundant-load elimination (windows abort on calls, stores, destination/source writes, labels, branches; implicit-write mnemonics end windows).
+   - O3: O2 (reserved: LICM, unrolling, vectorization).
+   - Miscompilation net: `tests/opt_parity_tests.rs` executes a battery identically across O0-O3.
 
 ---
 

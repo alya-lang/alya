@@ -102,13 +102,40 @@ pub fn run_alya_code_with_options_and_features(
     mem_trace: bool,
     features: &[String],
 ) -> Option<(i32, String)> {
+    run_alya_code_with_options_full(source, input, cli_args, mem_trace, features, 0)
+}
+
+#[allow(dead_code)]
+pub fn run_alya_code_full_with_opt(source: &str, opt_level: u8) -> Option<(i32, String)> {
+    run_alya_code_with_options_full(source, None, &[], false, &[], opt_level)
+}
+
+#[allow(dead_code)]
+pub fn run_alya_code_full_with_features_and_opt(
+    source: &str,
+    features: &[String],
+    opt_level: u8,
+) -> Option<(i32, String)> {
+    run_alya_code_with_options_full(source, None, &[], false, features, opt_level)
+}
+
+pub fn run_alya_code_with_options_full(
+    source: &str,
+    input: Option<&str>,
+    cli_args: &[&str],
+    mem_trace: bool,
+    features: &[String],
+    opt_level: u8,
+) -> Option<(i32, String)> {
     // Check if gcc is available
     if Command::new("gcc").arg("--version").output().is_err() {
         eprintln!("Skipping E2E test: GCC is not available in PATH.");
         return None;
     }
 
-    run_alya_code_inner(source, input, cli_args, mem_trace, features, None)
+    run_alya_code_inner(
+        source, input, cli_args, mem_trace, features, None, opt_level,
+    )
 }
 
 /// True when the host compiler can build 32-bit binaries (`gcc -m32`).
@@ -152,9 +179,10 @@ pub fn run_alya_code_x86(source: &str) -> Option<(i32, String)> {
         return None;
     }
 
-    run_alya_code_inner(source, None, &[], false, &[], Some(Architecture::X86))
+    run_alya_code_inner(source, None, &[], false, &[], Some(Architecture::X86), 0)
 }
 
+#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_arguments)]
 fn run_alya_code_inner(
     source: &str,
@@ -163,6 +191,7 @@ fn run_alya_code_inner(
     mem_trace: bool,
     features: &[String],
     arch_override: Option<Architecture>,
+    opt_level: u8,
 ) -> Option<(i32, String)> {
     let mut lexer = Lexer::new(source);
     let tokens = lexer.tokenize().expect("Lexer error");
@@ -230,6 +259,7 @@ fn run_alya_code_inner(
     } else {
         codegen::generate(&ast, arch, os)
     };
+    let asm_code = alya::codegen::peephole::optimize_asm(&asm_code, opt_level);
 
     let pid = std::process::id();
     let id = TEST_ID_COUNTER.fetch_add(1, Ordering::SeqCst);

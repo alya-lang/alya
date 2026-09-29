@@ -602,6 +602,8 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     crate::parser::inline::inline_functions(&mut ast);
     let (code, pipeline_profile) =
         codegen::generate_full(&ast, args.arch, args.os, args.no_std, args.mem_trace);
+    // Peephole passes (profile opt-level; O0 is byte-identical by construction).
+    let code = codegen::peephole::optimize_asm(&code, build_cfg.profile.opt_level);
     let asm_lines = code.lines().count();
 
     fs::write(&asm_file, code)

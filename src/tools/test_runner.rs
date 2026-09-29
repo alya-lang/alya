@@ -684,6 +684,8 @@ pub fn execute_test_file(
         build_cache::mark_executable(&exe_path);
     } else {
         let asm_code = codegen::generate(&ast, arch, os);
+        // Peephole passes (profile opt-level; O0 is byte-identical).
+        let asm_code = crate::codegen::peephole::optimize_asm(&asm_code, build.profile.opt_level);
         fs::write(&temp_asm, &asm_code)
             .map_err(|e| format!("Failed to write temporary assembly: {}", e))?;
 
