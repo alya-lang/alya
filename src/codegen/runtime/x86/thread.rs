@@ -121,7 +121,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
-    // fn___native_thread_id
+    // fn___native_thread_id: Linux x86 uses the gettid syscall (224)
+    // instead of pthread_self: a pthread_t pointer is usually negative
+    // as i32 (high addresses), while kernel TIDs are small positives
+    // (the `tid > 0` contract). Raw int $0x80 needs no libc symbol.
     out.push_str(".global fn___native_thread_id\n");
     out.push_str("fn___native_thread_id:\n");
     out.push_str("    push %ebp\n");
@@ -129,7 +132,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if is_win {
         out.push_str("    call GetCurrentThreadId\n");
     } else {
-        out.push_str("    call pthread_self\n");
+        out.push_str("    mov $224, %eax\n");
+        out.push_str("    int $0x80\n");
     }
     out.push_str("    mov %ebp, %esp\n");
     out.push_str("    pop %ebp\n");
