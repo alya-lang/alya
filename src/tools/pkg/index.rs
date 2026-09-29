@@ -68,7 +68,101 @@ pub fn index_base_url() -> String {
     DEFAULT_INDEX_BASE.to_string()
 }
 
+/// Index layouts. `flat-v1` is `packages/<name>.json`; `sharded-v2`
+/// is `packages/<aa>/<name>.json` (`aa` = first two lowercase chars,
+/// `1/` and `2/` for one- and two-letter names, mirroring cargo's
+/// scheme). Unknown layouts are rejected (fail safe).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndexLayout {
+    Flat,
+    Sharded,
+}
+
+pub fn parse_index_layout(text: &str) -> Option<IndexLayout> {
+    let v: serde_json::Value = serde_json::from_str(text).ok()?;
+    match v.get("layout")?.as_str()? {
+        "flat-v1" => Some(IndexLayout::Flat),
+        "sharded-v2" => Some(IndexLayout::Sharded),
+        _ => None,
+    }
+}
+
+/// Shard directory for a package name under `sharded-v2`.
+pub fn shard_dir(name: &str) -> String {
+    let lower: String = name.chars().flat_map(|c| c.to_lowercase()).collect();
+    let chars: Vec<char> = lower.chars().collect();
+    match chars.len() {
+        0 => "_".to_string(),
+        1 => "1".to_string(),
+        2 => "2".to_string(),
+        _ => chars[..2].iter().collect(),
+    }
+}
+
+pub fn package_index_path(name: &str) -> Option<String> {
+    match index_layout() {
+        Some(IndexLayout::Sharded) => Some(format!("packages/{}/{}.json", shard_dir(name), name)),
+        // Unknown/missing root: assume flat-v1 (backward compatible with
+        // indexes predating the root document).
+        _ => Some(format!("packages/{}.json", name)),
+    }
+}
+
+fn index_root_url() -> String {
+    format!("{}/index.json", index_base_url())
+}
+
+/// Reads the root layout document (cached like package docs). `None`
+/// means flat-v1 by default — never an error by itself.
+pub fn index_layout() -> Option<IndexLayout> {
+    let url = index_root_url();
+    if url.starts_with("file://") {
+        let text = fetch_url_text(&url)?;
+        // A file:// root that exists but misdeclares is a real error
+        // signal only if unparseable as JSON at all; unknown layouts
+        // fall back to flat (forward compatible reads).
+        return Some(parse_index_layout(&text).unwrap_or(IndexLayout::Flat));
+    }
+    let name = "index-root";
+    if let Some(cached) = read_cached_index_raw(name, false) {
+        if let Some(layout) = parse_index_layout(&cached) {
+            return Some(layout);
+        }
+    }
+    match fetch_url_text(&url) {
+        Some(text) => match parse_index_layout(&text) {
+            Some(layout) => {
+                store_cached_index(name, &text);
+                Some(layout)
+            }
+            None => read_cached_raw_fallback(name),
+        },
+        None => read_cached_raw_fallback(name),
+    }
+}
+
+fn read_cached_raw_fallback(name: &str) -> Option<IndexLayout> {
+    read_cached_index_raw(name, true).and_then(|text| parse_index_layout(&text))
+}
+
+/// Raw cached text: fresh-only by default, any age when stale-allowed.
+fn read_cached_index_raw(name: &str, allow_stale: bool) -> Option<String> {
+    let (json_path, meta_path) = index_cache_paths(name)?;
+    let raw = std::fs::read_to_string(&json_path).ok()?;
+    if !allow_stale {
+        let meta_raw = std::fs::read_to_string(&meta_path).ok()?;
+        let meta: serde_json::Value = serde_json::from_str(&meta_raw).ok()?;
+        let fetched_at = meta.get("fetched_at")?.as_u64()?;
+        if now_unix_secs().saturating_sub(fetched_at) > cache_ttl_secs() {
+            return None;
+        }
+    }
+    Some(raw)
+}
+
 fn index_file_url(name: &str) -> String {
+    // Kept for tests and direct construction; live reads go through
+    // `package_index_path` (layout-aware).
     format!("{}/packages/{}.json", index_base_url(), name)
 }
 
@@ -181,9 +275,91 @@ pub fn parse_index_package(text: &str) -> Option<IndexPackage> {
 }
 
 pub fn fetch_package_index(name: &str) -> Option<IndexPackage> {
-    fetch_url_text(&index_file_url(name))
-        .and_then(|text| parse_index_package(&text))
-        .filter(|pkg| pkg.name == name)
+    let path = package_index_path(name)?;
+    let url = format!("{}/{}", index_base_url(), path);
+    // Local files are the source of truth: always read fresh, never cache.
+    if url.starts_with("file://") {
+        return fetch_url_text(&url)
+            .and_then(|text| parse_index_package(&text))
+            .filter(|pkg| pkg.name == name);
+    }
+    // Fresh-enough cache first (no network).
+    if let Some(pkg) = read_cached_index(name, false) {
+        return Some(pkg);
+    }
+    // Network, then stale fallback (any age beats failing the install).
+    // Only validated documents touch the cache: error pages must never
+    // poison it (a poisoned cache would turn one outage into a sticky one).
+    match fetch_url_text(&url) {
+        Some(text) => match parse_index_package(&text).filter(|pkg| pkg.name == name) {
+            Some(pkg) => {
+                store_cached_index(name, &text);
+                Some(pkg)
+            }
+            None => read_cached_index(name, true),
+        },
+        None => read_cached_index(name, true),
+    }
+}
+
+/// Cache TTL in seconds (`ALYA_REGISTRY_TTL`, default one hour).
+/// Local files bypass the cache entirely.
+fn cache_ttl_secs() -> u64 {
+    std::env::var("ALYA_REGISTRY_TTL")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(3600)
+}
+
+fn cache_safe_name(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn index_cache_paths(name: &str) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let dir = super::cache::get_global_cache_dir()?.join("index");
+    let safe = cache_safe_name(name);
+    Some((
+        dir.join(format!("{}.json", safe)),
+        dir.join(format!("{}.meta.json", safe)),
+    ))
+}
+
+fn now_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Reads the cached document: fresh-only by default, any age when
+/// `allow_stale` (offline fallback).
+fn read_cached_index(name: &str, allow_stale: bool) -> Option<IndexPackage> {
+    let raw = read_cached_index_raw(name, allow_stale)?;
+    parse_index_package(&raw).filter(|pkg| pkg.name == name)
+}
+
+fn store_cached_index(name: &str, text: &str) {
+    let Some((json_path, meta_path)) = index_cache_paths(name) else {
+        return;
+    };
+    if let Some(parent) = json_path.parent() {
+        if std::fs::create_dir_all(parent).is_err() {
+            return;
+        }
+    }
+    if std::fs::write(&json_path, text).is_err() {
+        return;
+    }
+    let meta = serde_json::json!({"v": 1, "fetched_at": now_unix_secs()});
+    let _ = std::fs::write(&meta_path, serde_json::to_string(&meta).unwrap_or_default());
 }
 
 /// Splits `major.minor.patch[-pre]` (leading `v` tolerated).
@@ -205,35 +381,68 @@ fn parse_req_version(s: &str) -> Option<(u64, u64, u64, Option<String>)> {
 
 /// Whether concrete `version` satisfies requirement `req`.
 /// Supported: `*`, bare/`=`/`v`-exact, `^` compatible (same major, or same
-/// minor when major is 0), `~` minor-pinned. Pre-releases only satisfy an
-/// identical pre-release requirement. Anything else errors.
+/// minor when major is 0), `~` minor-pinned, and comma-separated
+/// AND-combinations with `>`, `>=`, `<`, `<=` (e.g. `">=1.2.0, <2.0.0"`).
+/// Pre-releases only satisfy an identical pre-release requirement.
+/// Anything else errors.
 pub fn version_satisfies_req(req: &str, version: &str) -> Result<bool, String> {
     let req = req.trim();
     if req == "*" || req.is_empty() {
         return Ok(true);
     }
-    let (op, core) = if let Some(rest) = req.strip_prefix('^') {
-        ("^", rest)
-    } else if let Some(rest) = req.strip_prefix('~') {
-        ("~", rest)
-    } else if let Some(rest) = req.strip_prefix('=') {
-        ("=", rest)
-    } else {
-        ("=", req)
-    };
-    let (rmaj, rmin, rpat, rpre) = parse_req_version(core).ok_or_else(|| {
-        format!(
-            "Invalid version requirement '{}': expected '*', '1.2.3', '^1.2.3' or '~1.2.3'",
-            req
-        )
-    })?;
     let (vmaj, vmin, vpat, vpre) = parse_req_version(version)
         .ok_or_else(|| format!("Invalid version '{}' for requirement '{}'", version, req))?;
-    if rpre.is_some() || vpre.is_some() {
-        return Ok(rmaj == vmaj && rmin == vmin && rpat == vpat && rpre == vpre);
+    for part in req.split(',') {
+        if !satisfies_comparator(part.trim(), vmaj, vmin, vpat, vpre.as_deref())? {
+            return Ok(false);
+        }
     }
+    Ok(true)
+}
+
+fn satisfies_comparator(
+    part: &str,
+    vmaj: u64,
+    vmin: u64,
+    vpat: u64,
+    vpre: Option<&str>,
+) -> Result<bool, String> {
+    let invalid = || {
+        format!(
+            "Invalid version requirement '{}': expected '*', '1.2.3', '^1.2.3', '~1.2.3' or '>=1.0.0, <2.0.0'",
+            part
+        )
+    };
+    let (op, core) = if let Some(rest) = part.strip_prefix(">=") {
+        (">=", rest)
+    } else if let Some(rest) = part.strip_prefix("<=") {
+        ("<=", rest)
+    } else if let Some(rest) = part.strip_prefix('>') {
+        (">", rest)
+    } else if let Some(rest) = part.strip_prefix('<') {
+        ("<", rest)
+    } else if let Some(rest) = part.strip_prefix('^') {
+        ("^", rest)
+    } else if let Some(rest) = part.strip_prefix('~') {
+        ("~", rest)
+    } else if let Some(rest) = part.strip_prefix('=') {
+        ("=", rest)
+    } else {
+        ("=", part)
+    };
+    // `=v1.2.3` and `==1.2.3` spellings.
+    let core = core.strip_prefix('=').unwrap_or(core);
+    let (rmaj, rmin, rpat, rpre) = parse_req_version(core).ok_or_else(invalid)?;
+    if rpre.is_some() || vpre.is_some() {
+        return Ok(rmaj == vmaj && rmin == vmin && rpat == vpat && rpre.as_deref() == vpre);
+    }
+    let cmp = (vmaj, vmin, vpat).cmp(&(rmaj, rmin, rpat));
     let ok = match op {
-        "=" => vmaj == rmaj && vmin == rmin && vpat == rpat,
+        "=" => cmp == std::cmp::Ordering::Equal,
+        ">" => cmp == std::cmp::Ordering::Greater,
+        ">=" => cmp != std::cmp::Ordering::Less,
+        "<" => cmp == std::cmp::Ordering::Less,
+        "<=" => cmp != std::cmp::Ordering::Greater,
         "^" => {
             if rmaj > 0 {
                 vmaj == rmaj
@@ -440,7 +649,12 @@ mod tests {
             Ok(true)
         );
         assert_eq!(version_satisfies_req("1.0.0", "1.0.0-alpha"), Ok(false));
-        assert!(version_satisfies_req(">=1.0", "1.0.0").is_err());
+        assert_eq!(version_satisfies_req(">=1.2.0, <2.0.0", "1.9.9"), Ok(true));
+        assert_eq!(version_satisfies_req(">=1.2.0, <2.0.0", "2.0.0"), Ok(false));
+        assert_eq!(version_satisfies_req(">=1.2.0, <2.0.0", "1.1.9"), Ok(false));
+        assert_eq!(version_satisfies_req(">1.0.0", "1.0.1"), Ok(true));
+        assert_eq!(version_satisfies_req("<=2.0.0", "2.0.0"), Ok(true));
+        assert_eq!(version_satisfies_req("==1.2.3", "1.2.3"), Ok(true));
         assert!(version_satisfies_req("bogus", "1.0.0").is_err());
     }
 
@@ -466,6 +680,49 @@ mod tests {
     }
 
     #[test]
+    fn sharded_layout_resolution_offline() {
+        // NOTE: ALYA_REGISTRY_INDEX is process-global; keep env-mutating
+        // index tests to a minimum and always restore (see the e2e test
+        // in pkg/tests.rs sharing this constraint).
+        let base = std::env::temp_dir().join(format!("alya_test_idxshard_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let pkgs = base.join("packages").join("sh");
+        std::fs::create_dir_all(&pkgs).unwrap();
+        std::fs::write(base.join("index.json"), "{\"layout\": \"sharded-v2\"}\n").unwrap();
+        std::fs::write(
+            pkgs.join("shardpkg.json"),
+            "{\"name\": \"shardpkg\", \"versions\": [{\"version\": \"2.0.0\", \"tag\": \"v2.0.0\"}]}",
+        )
+        .unwrap();
+        assert_eq!(shard_dir("shardpkg"), "sh");
+        assert_eq!(shard_dir("a"), "1");
+        assert_eq!(shard_dir("ab"), "2");
+        assert_eq!(
+            parse_index_layout("{\"layout\": \"sharded-v2\"}"),
+            Some(IndexLayout::Sharded)
+        );
+        assert_eq!(
+            parse_index_layout("{\"layout\": \"flat-v1\"}"),
+            Some(IndexLayout::Flat)
+        );
+        assert_eq!(parse_index_layout("{\"layout\": \"x\"}"), None);
+
+        let prev = std::env::var("ALYA_REGISTRY_INDEX").ok();
+        std::env::set_var(
+            "ALYA_REGISTRY_INDEX",
+            format!("file://{}", base.display().to_string().replace('\\', "/")),
+        );
+        let hit = fetch_package_index("shardpkg");
+        match prev {
+            Some(v) => std::env::set_var("ALYA_REGISTRY_INDEX", v),
+            None => std::env::remove_var("ALYA_REGISTRY_INDEX"),
+        }
+        let pkg = hit.expect("sharded file:// resolution");
+        assert_eq!(pkg.versions[0].version, "2.0.0");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn tarball_url_derivation() {
         let pkg = parse_index_package(SAMPLE).expect("parse");
         let v = &pkg.versions[1];
@@ -473,5 +730,35 @@ mod tests {
         assert!(url.contains("alya-lang/http"));
         assert!(url.contains("v0.2.0"));
         assert!(url.ends_with("alya-pkg.tar.gz"));
+    }
+
+    #[test]
+    fn cache_fresh_hit_and_stale_fallback() {
+        // Unique name: never collides with real packages or other tests.
+        let name = format!("idxcachetest{}", std::process::id());
+        let doc = format!(
+            "{{\"name\": \"{}\", \"versions\": [{{\"version\": \"1.0.0\", \"tag\": \"v1.0.0\"}}]}}",
+            name
+        );
+        let (json_path, meta_path) = index_cache_paths(&name).expect("cache dir");
+        if let Some(parent) = json_path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&json_path, &doc).unwrap();
+        // Fresh (future timestamp): served without network.
+        std::fs::write(
+            &meta_path,
+            format!("{{\"v\": 1, \"fetched_at\": {}}}", now_unix_secs() + 3600),
+        )
+        .unwrap();
+        let hit = fetch_package_index(&name).expect("fresh cache hit");
+        assert_eq!(hit.name, name);
+        // Stale (old timestamp) with an unreachable origin: network fails,
+        // stale fallback still serves.
+        std::fs::write(&meta_path, "{\"v\": 1, \"fetched_at\": 1}").unwrap();
+        let stale = fetch_package_index(&name).expect("stale fallback hit");
+        assert_eq!(stale.name, name);
+        let _ = std::fs::remove_file(&json_path);
+        let _ = std::fs::remove_file(&meta_path);
     }
 }
