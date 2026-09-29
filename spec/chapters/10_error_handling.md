@@ -11,6 +11,7 @@ Any value (a `string`, an `int` code, or a structured `struct`) can be thrown:
 throw "Invalid operation: divisor cannot be zero"
 ```
 - A bare `throw` inside a `catch` block re-throws the currently captured error up the call stack.
+- Uncaught struct errors print their string `message` field (`Runtime error: ...`); the thrown value itself is unchanged, so `catch` still binds the struct.
 
 ### 1.3 The `try / catch / finally` Block
 The construct begins with `try`, contains at least a `catch` or `finally` clause, and ends with `end`.

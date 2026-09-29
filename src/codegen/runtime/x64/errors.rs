@@ -52,9 +52,16 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    jmp *%r10\n");
     out.push_str(".L_x64_fatal_throw:\n");
     out.push_str("    and $-16, %rsp\n");
+    // Prefer the extracted struct-message text (`alya_err_str`, set by
+    // throw codegen for structs with a string `message` field); the raw
+    // thrown value may be a struct pointer, not a printable string.
     if is_win {
-        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    mov alya_err_str(%rip), %rdx\n");
+        out.push_str("    test %rdx, %rdx\n");
+        out.push_str("    jnz .L_x64_fatal_have_msg\n");
         out.push_str("    mov %rcx, %rdx\n");
+        out.push_str(".L_x64_fatal_have_msg:\n");
+        out.push_str("    sub $32, %rsp\n");
         out.push_str("    lea alya_fmt_runtime_err(%rip), %rcx\n");
         out.push_str("    call printf\n");
         out.push_str("    xor %rcx, %rcx\n");
@@ -62,7 +69,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    mov $1, %rcx\n");
         out.push_str("    call exit\n\n");
     } else {
+        out.push_str("    mov alya_err_str(%rip), %rsi\n");
+        out.push_str("    test %rsi, %rsi\n");
+        out.push_str("    jnz .L_x64_fatal_have_msg\n");
         out.push_str("    mov %rdi, %rsi\n");
+        out.push_str(".L_x64_fatal_have_msg:\n");
         out.push_str("    lea alya_fmt_runtime_err(%rip), %rdi\n");
         out.push_str("    xor %rax, %rax\n");
         out.push_str(&format!("    call {}printf\n", p));

@@ -33,7 +33,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x19, sp\n");
     out.push_str("    bic x19, x19, #15\n");
     out.push_str("    mov sp, x19\n");
+    // Prefer the extracted struct-message text when throw codegen set
+    // it; the raw value may be a struct pointer, not a string.
+    emit_adrp_add(out, "x9", "alya_err_str", os);
+    out.push_str("    ldr x1, [x9]\n");
+    out.push_str("    cbnz x1, .L_arm_fatal_have_msg\n");
     out.push_str("    mov x1, x0\n");
+    out.push_str(".L_arm_fatal_have_msg:\n");
     emit_adrp_add(out, "x0", "alya_fmt_runtime_err", os);
     if matches!(os, OperatingSystem::MacOS) {
         out.push_str("    sub sp, sp, #16\n");

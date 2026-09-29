@@ -32,6 +32,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    jmp *%eax\n");
     out.push_str(".L_x86_fatal_throw:\n");
     out.push_str("    and $-16, %esp\n");
+    // Prefer the extracted struct-message text when throw codegen set
+    // it; the raw value may be a struct pointer, not a string.
+    out.push_str("    mov alya_err_str, %eax\n");
+    out.push_str("    test %eax, %eax\n");
+    out.push_str("    jnz .L_x86_fatal_have_msg\n");
+    out.push_str("    mov alya_err_msg, %eax\n");
+    out.push_str(".L_x86_fatal_have_msg:\n");
     out.push_str("    push %eax\n");
     out.push_str("    push $alya_fmt_runtime_err\n");
     out.push_str("    call printf\n");

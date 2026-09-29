@@ -134,6 +134,39 @@ end
 }
 
 #[test]
+fn test_e2e_throw_struct_uncaught_prints_message() {
+    let code = r#"
+struct SocketError
+    message: string
+end
+throw SocketError { message: "connection refused" }
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_ne!(code, 0);
+        assert!(output.contains("Runtime error: connection refused"));
+    }
+}
+
+#[test]
+fn test_e2e_throw_struct_caught_keeps_value() {
+    let code = r#"
+struct SocketError
+    message: string
+end
+try
+    throw SocketError { message: "connection refused" }
+catch err
+    say "caught"
+    say err is not null
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "caught\n1\n");
+    }
+}
+
+#[test]
 fn test_e2e_catch_parentheses() {
     let code = r#"
 try

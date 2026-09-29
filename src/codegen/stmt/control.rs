@@ -1224,35 +1224,77 @@ impl CodeGen {
         self.ctx.pop_loop();
     }
 
+    /// Index of the string `message` field when `expr` is a struct
+    /// carrying one (e.g. `SocketError { message }`): uncaught throws
+    /// print this text instead of the raw struct pointer. `None` keeps
+    /// the legacy path (structs without a string message still throw
+    /// the value itself, for `catch` to bind).
+    fn struct_message_field_idx(&self, expr: &Expr) -> Option<usize> {
+        let sname = match expr {
+            Expr::StructInit { name, .. } => name.clone(),
+            _ => self.get_expr_struct_name(expr)?,
+        };
+        let bare = sname.rsplit("::").next().unwrap_or(&sname);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        let sdef = self
+            .ctx
+            .structs
+            .get(&sname)
+            .or_else(|| self.ctx.structs.get(bare))?;
+        let idx = sdef.fields.iter().position(|f| f == "message")?;
+        match sdef.field_types.get(idx).and_then(|t| t.as_deref()) {
+            Some("string") | Some("str") => Some(idx),
+            _ => None,
+        }
+    }
+
     pub(crate) fn generate_throw(&mut self, opt_expr: Option<&Expr>) {
         if let Some(expr) = opt_expr {
-            let is_struct = self.get_expr_struct_name(expr).is_some()
-                || match expr {
-                    Expr::StructInit { .. } => true,
-                    Expr::Identifier(id) => {
-                        matches!(self.ctx.variables.get(id), Some(VarType::Struct { .. }))
-                            || self
-                                .ctx
-                                .variables
-                                .contains_key(&format!("is_catch_var:{}", id))
-                    }
-                    _ => false,
-                };
-            if is_string_expr(expr, &self.ctx.variables) || is_struct {
+            // Struct errors with a string `message` field publish the
+            // text for the fatal printer (`alya_err_str`); the thrown
+            // value itself is unchanged so `catch` still binds it.
+            // Every other throw clears the slot (stale-guard).
+            if let Some(msg_idx) = self.struct_message_field_idx(expr) {
                 self.generate_expression(expr);
+                arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+                let tmp = self.ctx.stack_offset;
+                arch::emit_store_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
+                arch::emit_load_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
+                arch::emit_struct_field_get(&mut self.output, self.arch, msg_idx);
+                arch::emit_store_global(&mut self.output, self.arch, "alya_err_str", self.os);
+                arch::emit_load_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
                 arch::emit_push_temp(&mut self.output, self.arch);
             } else {
-                self.generate_expression(expr);
-                arch::emit_push_temp(&mut self.output, self.arch);
-                arch::emit_function_call(
-                    &mut self.output,
-                    self.arch,
-                    "str",
-                    1,
-                    self.ctx.stack_offset,
-                    self.os,
-                );
-                arch::emit_push_temp(&mut self.output, self.arch);
+                arch::emit_load_num(&mut self.output, self.arch, 0);
+                arch::emit_store_global(&mut self.output, self.arch, "alya_err_str", self.os);
+                let is_struct = self.get_expr_struct_name(expr).is_some()
+                    || match expr {
+                        Expr::StructInit { .. } => true,
+                        Expr::Identifier(id) => {
+                            matches!(self.ctx.variables.get(id), Some(VarType::Struct { .. }))
+                                || self
+                                    .ctx
+                                    .variables
+                                    .contains_key(&format!("is_catch_var:{}", id))
+                        }
+                        _ => false,
+                    };
+                if is_string_expr(expr, &self.ctx.variables) || is_struct {
+                    self.generate_expression(expr);
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                } else {
+                    self.generate_expression(expr);
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                    arch::emit_function_call(
+                        &mut self.output,
+                        self.arch,
+                        "str",
+                        1,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                }
             }
             arch::emit_function_call(
                 &mut self.output,

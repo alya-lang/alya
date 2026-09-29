@@ -47,6 +47,8 @@ pub fn emit_data_sections(
             out.push_str("    .space 1024\n");
             out.push_str("alya_err_msg:\n");
             out.push_str("    .quad 0\n");
+            out.push_str("alya_err_str:\n");
+            out.push_str("    .quad 0\n");
             out.push_str("alya_rand_state:\n");
             out.push_str("    .quad 0\n");
             out.push_str("alya_allocated_bytes:\n");
@@ -126,6 +128,8 @@ pub fn emit_data_sections(
             out.push_str("alya_catch_stack_bp:\n");
             out.push_str("    .space 512\n");
             out.push_str("alya_err_msg:\n");
+            out.push_str("    .long 0\n");
+            out.push_str("alya_err_str:\n");
             out.push_str("    .long 0\n");
             out.push_str("alya_rand_state:\n");
             out.push_str("    .long 0\n");
