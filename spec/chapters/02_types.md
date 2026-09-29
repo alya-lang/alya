@@ -55,6 +55,12 @@ For low-level systems programming, memory-constrained buffers, and C interop, ex
 - Runtime introspection operator: `expr is Type` evaluates to `bool`.
 - Negated form: `expr is not Type`.
 - Null checks: `expr is null` and `expr is not null`.
+- `is float` contract (alya-lang/alya#55): exact only when the subject's
+  kind is statically provable (float literal, `-> float` call). On a
+  dynamically-typed subject (map/array reads, untyped calls) the check
+  is best-effort — a float sharing an int's bit pattern reads as
+  `not float` (see §1.7). `alya lint` (`dynamic-is-float`) flags such
+  uses; annotate the source or check a proven value instead.
 
 ---
 

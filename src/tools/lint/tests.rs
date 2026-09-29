@@ -847,3 +847,70 @@ fn test_lint_cli_no_default_features_gate() {
 
     let _ = fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn test_lint_dynamic_is_float_on_map_read() {
+    let source = r#"
+function probe(m)
+    if m["k"] is float
+        say "f"
+    end
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "dynamic-is-float")
+        .collect();
+    assert_eq!(hits.len(), 1);
+    assert!(hits[0].message.contains("best-effort"));
+}
+
+#[test]
+fn test_lint_dynamic_is_float_quiet_on_literal() {
+    let source = r#"
+function probe()
+    if 0.5 is float
+        say "f"
+    end
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    assert!(diags.iter().all(|d| d.rule != "dynamic-is-float"));
+}
+
+#[test]
+fn test_lint_dynamic_is_float_quiet_on_annotated_call() {
+    let source = r#"
+function get_temp() -> float
+    return 0.5
+end
+function probe()
+    if get_temp() is float
+        say "f"
+    end
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    assert!(diags.iter().all(|d| d.rule != "dynamic-is-float"));
+}
+
+#[test]
+fn test_lint_dynamic_is_float_fires_on_untyped_call() {
+    let source = r#"
+function get_val()
+    return 0.5
+end
+function probe()
+    if get_val() is float
+        say "f"
+    end
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "dynamic-is-float")
+        .collect();
+    assert_eq!(hits.len(), 1);
+}

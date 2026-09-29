@@ -49,3 +49,14 @@ side effects. Severity: `warning`.
 
 Flags declarations that do not follow `snake_case` naming (types keep
 their own convention). Severity: `note`.
+
+## dynamic-is-float
+
+Flags `is float` (and `is not float`) applied to values whose kind is
+not statically provable (map/array reads, untyped calls, bare
+identifiers). A float sharing an int's bit pattern is
+indistinguishable at runtime, so such checks are best-effort and may
+read `not float` for a real float. Annotate the source with
+`-> float` or check a literal or statically-proven value instead.
+Float literals and same-file `-> float` calls are exact and stay
+silent. Severity: `warning`.
