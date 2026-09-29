@@ -1,5 +1,5 @@
 use crate::ast::*;
-use crate::codegen::context::{StructDefInfo, VarType};
+use crate::codegen::context::VarType;
 use crate::codegen::kinds::{
     kind_of_literal, KIND_ARRAY, KIND_FLOAT, KIND_INT, KIND_MAP, KIND_STRING, KIND_STRUCT,
     KIND_UNKNOWN,
@@ -1370,105 +1370,6 @@ pub fn value_kind_tag_x86_store(expr: &Expr, vars: &HashMap<String, VarType>) ->
     }
 }
 
-/// x86 struct field cells: declared `float`/`f64`/`f32` fields occupy 2
-/// cells (8 bytes); everything else occupies 1 cell. Untyped fields with
-/// float evidence (see `struct_layout_flt` markers) are sized by the
-/// caller via [`x86_struct_field_is_wide`]; without evidence they stay
-/// narrow, keeping packed 4-byte layout for int-only structs
-/// (alya-lang/alya#62).
-pub fn x86_struct_field_cells(field_type: Option<&str>) -> usize {
-    match field_type {
-        Some(t) => {
-            let base = t.rsplit("::").next().unwrap_or(t);
-            let base = base.rsplit("__").next().unwrap_or(base);
-            let base = base.trim();
-            // Weak references are handles (pointers), never inline doubles.
-            if base.starts_with("weak ") || base == "weak" {
-                return 1;
-            }
-            let base = base.strip_suffix('?').unwrap_or(base).trim();
-            if base == "float" || base == "f64" || base == "f32" {
-                2
-            } else {
-                1
-            }
-        }
-        None => 1,
-    }
-}
-
-/// True when the pre-pass found float initializers for this field
-/// (`struct_layout_flt:{Struct}.{field}`, either qualification).
-pub fn struct_layout_float_marked(
-    vars: &HashMap<String, VarType>,
-    struct_name: &str,
-    field: &str,
-) -> bool {
-    if vars.contains_key(&format!("struct_layout_flt:{}.{}", struct_name, field)) {
-        return true;
-    }
-    let bare = struct_name.rsplit("::").next().unwrap_or(struct_name);
-    let bare = bare.rsplit("__").next().unwrap_or(bare);
-    vars.contains_key(&format!("struct_layout_flt:{}.{}", bare, field))
-}
-
-/// Wide (8-byte) field test for an x86 struct definition: declared float
-/// or layout-marker float evidence (`struct_layout_flt`, see
-/// [`struct_layout_float_marked`]).
-pub fn x86_struct_field_is_wide(
-    sdef: &StructDefInfo,
-    sname: &str,
-    idx: usize,
-    vars: &HashMap<String, VarType>,
-) -> bool {
-    if x86_struct_field_cells(sdef.field_types.get(idx).and_then(|t| t.as_deref())) == 2 {
-        return true;
-    }
-    match sdef.fields.get(idx) {
-        Some(fname) => struct_layout_float_marked(vars, sname, fname),
-        None => false,
-    }
-}
-
-/// Total x86 cells for a struct definition (allocation size / 4).
-pub fn x86_struct_cell_count(
-    sdef: &StructDefInfo,
-    sname: &str,
-    vars: &HashMap<String, VarType>,
-) -> usize {
-    sdef.fields
-        .iter()
-        .enumerate()
-        .map(|(i, _)| {
-            if x86_struct_field_is_wide(sdef, sname, i, vars) {
-                2
-            } else {
-                1
-            }
-        })
-        .sum()
-}
-
-/// Byte offset of field `idx` from the struct base on x86: 4-byte header
-/// word plus 4 bytes per preceding cell.
-pub fn x86_struct_field_offset(
-    sdef: &StructDefInfo,
-    sname: &str,
-    idx: usize,
-    vars: &HashMap<String, VarType>,
-) -> usize {
-    let cells_before: usize = (0..idx.min(sdef.fields.len()))
-        .map(|i| {
-            if x86_struct_field_is_wide(sdef, sname, i, vars) {
-                2
-            } else {
-                1
-            }
-        })
-        .sum();
-    4 + 4 * cells_before
-}
-
 /// x86 native (runtime-implemented) float parameter indices, with an
 /// int-coercion policy per index. Unlike user functions (whose prologue
 /// consumes matching 8-byte float slots) and externs (whose C
@@ -1489,6 +1390,11 @@ pub fn x86_native_float_args(name: &str) -> Option<Vec<(usize, bool)>> {
     match bare {
         "simd_f64x4_new" => Some(vec![(0, true), (1, true), (2, true), (3, true)]),
         "simd_f32x8_new" => Some((0..8).map(|i| (i, true)).collect()),
+        // Multi-arg natives whose float value arrives in %xmm0 must read
+        // the pushed stack double instead: later-evaluated args (e.g. a
+        // uniform-slot field read) clobber %xmm0 after the value was
+        // generated (alya-lang/alya#62).
+        "simd_f64x4_set" | "simd_f32x8_set" | "mem_poke_f32" => Some(vec![(2, true)]),
         "poke_int" => Some(vec![(2, false)]),
         _ => None,
     }

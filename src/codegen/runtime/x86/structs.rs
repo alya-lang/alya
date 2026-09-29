@@ -6,7 +6,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     let p = if matches!(os, OperatingSystem::MacOS) { "_" } else { "" };
     let _ = (is_win, p);
 
-    // alya_struct_new
+    // alya_struct_new(desc, field_count): uniform 8-byte slots (like
+    // x64, alya-lang/alya#62), so the allocation is 2 cells per field
+    // plus one spare cell and the 12-byte header (magic, refcount,
+    // descriptor). Fields live at handle+8*(idx+1).
     out.push_str("alya_struct_new:\n");
     out.push_str("    push %ebp\n");
     out.push_str("    mov %esp, %ebp\n");
@@ -14,13 +17,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    push %esi\n");
     out.push_str("    mov 8(%ebp), %esi\n");
     out.push_str("    mov 12(%ebp), %ebx\n");
-    out.push_str("    lea 3(%ebx), %eax\n");
+    out.push_str("    lea 4(%ebx, %ebx, 1), %eax\n");
     out.push_str("    push $4\n");
     out.push_str("    push %eax\n");
     out.push_str("    call calloc\n");
     out.push_str("    add $8, %esp\n");
-    out.push_str("    mov %ebx, %edx\n");
-    out.push_str("    add $3, %edx\n");
+    out.push_str("    mov %eax, %edx\n");
     out.push_str("    shl $2, %edx\n");
     out.push_str("    add %edx, alya_allocated_bytes\n");
     out.push_str("    movl $0x5A110003, (%eax)\n");
@@ -106,7 +108,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    call printf\n");
     out.push_str("    add $4, %esp\n");
     out.push_str(".L_x86_struct_print_f:\n");
-    out.push_str("    push 4(%esi, %ebx, 4)\n");
+    // Uniform 8-byte slots (alya-lang/alya#62): the low word prints, as
+    // before for 4-byte cells.
+    out.push_str("    push 8(%esi, %ebx, 8)\n");
     out.push_str("    push 8(%edi, %ebx, 4)\n");
     out.push_str("    push $alya_fmt_struct_field\n");
     out.push_str("    call printf\n");

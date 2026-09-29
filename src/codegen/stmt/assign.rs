@@ -1128,13 +1128,16 @@ impl CodeGen {
             arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
         }
         self.ctx.stack_offset -= temp_offset;
-        // x86 float-aware stride (#62): wide fields take the double from
-        // %xmm0 (materialized when needed).
-        let (field_off, field_wide) = self.resolve_struct_field_layout(object, field);
-        if field_wide {
+        // x86 stores every field as 8 bytes (uniform slots like x64,
+        // alya-lang/alya#62): materialize the double first.
+        let field_idx = self
+            .resolve_struct_field_target(object, field)
+            .map(|(_, idx)| idx)
+            .unwrap_or(0);
+        if matches!(self.arch, crate::codegen::target::Architecture::X86) {
             self.x86_materialize_double(value);
         }
-        arch::emit_struct_field_set(&mut self.output, self.arch, field_off, field_wide);
+        arch::emit_struct_field_set(&mut self.output, self.arch, field_idx);
     }
 
     pub(super) fn generate_index_assign(&mut self, array: &Expr, index: &Expr, value: &Expr) {

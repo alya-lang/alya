@@ -182,9 +182,10 @@ pub fn emit_print_map(out: &mut String) {
     out.push_str("    add $4, %esp\n");
 }
 
-/// `cell_count` is 4-byte cells (float-aware on x86: floats take 2).
-pub fn emit_struct_new(out: &mut String, desc_label: &str, cell_count: usize) {
-    out.push_str(&format!("    push ${}\n", cell_count));
+/// Field count; the runtime sizes uniform 8-byte slots itself
+/// (alya-lang/alya#62).
+pub fn emit_struct_new(out: &mut String, desc_label: &str, field_count: usize) {
+    out.push_str(&format!("    push ${}\n", field_count));
     out.push_str(&format!("    push ${}\n", desc_label));
     out.push_str("    call alya_struct_new\n");
     out.push_str("    add $8, %esp\n");
@@ -197,36 +198,23 @@ pub fn emit_fat_ptr_new(out: &mut String, vtable_label: &str) {
     out.push_str("    add $8, %esp\n");
 }
 
-/// x86 struct field access uses byte offsets with float-aware stride
-/// (alya-lang/alya#62): `offset` is the field's byte offset from the
-/// struct base, `wide` selects 8-byte (double) traffic. Wide stores read
-/// the double from `%xmm0` (call sites materialize it); wide loads set
-/// `%xmm0` and mirror the low word into `%eax`.
-pub fn emit_struct_field_get(out: &mut String, offset: usize, wide: bool) {
-    if wide {
-        out.push_str(&format!("    movsd {}(%eax), %xmm0\n", offset));
-        out.push_str(&format!("    movl {}(%eax), %eax\n", offset));
-    } else {
-        out.push_str(&format!("    movl {}(%eax), %eax\n", offset));
-    }
+/// x86 struct fields live in uniform 8-byte slots (like x64,
+/// alya-lang/alya#62). Loads set the double in `%xmm0` and mirror the low
+/// word into `%eax`; stores take the double from `%xmm0` (call sites
+/// materialize it for non-float values).
+pub fn emit_struct_field_get(out: &mut String, field_idx: usize) {
+    out.push_str(&format!("    movsd {}(%eax), %xmm0\n", (field_idx + 1) * 8));
+    out.push_str(&format!("    movl {}(%eax), %eax\n", (field_idx + 1) * 8));
 }
 
-pub fn emit_struct_field_set_imm(out: &mut String, offset: usize, wide: bool) {
+pub fn emit_struct_field_set_imm(out: &mut String, field_idx: usize) {
     out.push_str("    movl (%esp), %edx\n");
-    if wide {
-        out.push_str(&format!("    movsd %xmm0, {}(%edx)\n", offset));
-    } else {
-        out.push_str(&format!("    movl %eax, {}(%edx)\n", offset));
-    }
+    out.push_str(&format!("    movsd %xmm0, {}(%edx)\n", (field_idx + 1) * 8));
 }
 
-pub fn emit_struct_field_set(out: &mut String, offset: usize, wide: bool) {
+pub fn emit_struct_field_set(out: &mut String, field_idx: usize) {
     out.push_str("    pop %edx\n");
-    if wide {
-        out.push_str(&format!("    movsd %xmm0, {}(%edx)\n", offset));
-    } else {
-        out.push_str(&format!("    movl %eax, {}(%edx)\n", offset));
-    }
+    out.push_str(&format!("    movsd %xmm0, {}(%edx)\n", (field_idx + 1) * 8));
 }
 
 pub fn emit_print_struct(out: &mut String) {

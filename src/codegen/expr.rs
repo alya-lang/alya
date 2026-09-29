@@ -1001,21 +1001,11 @@ impl CodeGen {
                     .cloned()
                 {
                     let desc_label = format!("alya_struct_desc_{}", bare);
-                    // x86 allocates float-aware cells (#62); other arches
-                    // use uniform 8-byte cells.
-                    let cell_count = match self.arch {
-                        Architecture::X86 => crate::codegen::analysis::x86_struct_cell_count(
-                            &sdef,
-                            &sdef.name,
-                            &self.ctx.variables,
-                        ),
-                        _ => sdef.fields.len(),
-                    };
                     arch::emit_struct_new(
                         &mut self.output,
                         self.arch,
                         &desc_label,
-                        cell_count,
+                        sdef.fields.len(),
                         self.ctx.stack_offset,
                         self.os,
                     );
@@ -1096,34 +1086,13 @@ impl CodeGen {
                                 self.os,
                             );
                         }
-                        // x86 float-aware stride (#62): wide fields take the
-                        // double from %xmm0 (materialized when needed).
-                        let (field_off, field_wide) = match self.arch {
-                            Architecture::X86 => (
-                                crate::codegen::analysis::x86_struct_field_offset(
-                                    &sdef,
-                                    &sdef.name,
-                                    i,
-                                    &self.ctx.variables,
-                                ),
-                                crate::codegen::analysis::x86_struct_field_is_wide(
-                                    &sdef,
-                                    &sdef.name,
-                                    i,
-                                    &self.ctx.variables,
-                                ),
-                            ),
-                            _ => ((i + 1) * 8, false),
-                        };
-                        if field_wide {
+                        // x86 stores every field as 8 bytes (uniform slots
+                        // like x64, alya-lang/alya#62): materialize the
+                        // double for non-float values first.
+                        if matches!(self.arch, Architecture::X86) {
                             self.x86_materialize_double(arg);
                         }
-                        arch::emit_struct_field_set_imm(
-                            &mut self.output,
-                            self.arch,
-                            field_off,
-                            field_wide,
-                        );
+                        arch::emit_struct_field_set_imm(&mut self.output, self.arch, i);
                     }
 
                     self.ctx.stack_offset -= temp_offset;
@@ -2535,23 +2504,17 @@ impl CodeGen {
                     .get(name)
                     .or_else(|| self.ctx.structs.get(bare_init))
                     .cloned();
-                let cell_count = init_sdef
+                // Field count; the x86 runtime sizes uniform 8-byte slots
+                // itself (alya-lang/alya#62).
+                let field_count = init_sdef
                     .as_ref()
-                    .map(|s| match self.arch {
-                        Architecture::X86 => crate::codegen::analysis::x86_struct_cell_count(
-                            s,
-                            &s.name,
-                            &self.ctx.variables,
-                        ),
-                        _ => s.fields.len(),
-                    })
-                    .unwrap_or(fields.len());
+                    .map_or_else(|| fields.len(), |s| s.fields.len());
                 let desc_label = format!("alya_struct_desc_{}", name);
                 arch::emit_struct_new(
                     &mut self.output,
                     self.arch,
                     &desc_label,
-                    cell_count,
+                    field_count,
                     self.ctx.stack_offset,
                     self.os,
                 );
@@ -2709,32 +2672,10 @@ impl CodeGen {
                                 self.os,
                             );
                         }
-                        let (field_off, field_wide) = match self.arch {
-                            Architecture::X86 => (
-                                crate::codegen::analysis::x86_struct_field_offset(
-                                    &sdef,
-                                    &sdef.name,
-                                    i,
-                                    &self.ctx.variables,
-                                ),
-                                crate::codegen::analysis::x86_struct_field_is_wide(
-                                    &sdef,
-                                    &sdef.name,
-                                    i,
-                                    &self.ctx.variables,
-                                ),
-                            ),
-                            _ => ((i + 1) * 8, false),
-                        };
-                        if field_wide {
+                        if matches!(self.arch, Architecture::X86) {
                             self.x86_materialize_double(arg_expr);
                         }
-                        arch::emit_struct_field_set_imm(
-                            &mut self.output,
-                            self.arch,
-                            field_off,
-                            field_wide,
-                        );
+                        arch::emit_struct_field_set_imm(&mut self.output, self.arch, i);
                     }
                 } else {
                     for (i, (_, fval)) in fields.iter().enumerate() {
@@ -2747,17 +2688,11 @@ impl CodeGen {
                                 self.os,
                             );
                         }
-                        // Unknown struct: legacy packed 4-byte layout.
-                        let (field_off, field_wide) = match self.arch {
-                            Architecture::X86 => ((i + 1) * 4, false),
-                            _ => ((i + 1) * 8, false),
-                        };
-                        arch::emit_struct_field_set_imm(
-                            &mut self.output,
-                            self.arch,
-                            field_off,
-                            field_wide,
-                        );
+                        // Unknown struct: uniform slots like a known one.
+                        if matches!(self.arch, Architecture::X86) {
+                            self.x86_materialize_double(fval);
+                        }
+                        arch::emit_struct_field_set_imm(&mut self.output, self.arch, i);
                     }
                 }
 
@@ -2794,11 +2729,14 @@ impl CodeGen {
                         }
                     }
                 }
-                let (field_off, field_wide) = self.resolve_struct_field_layout(object, field);
+                let field_idx = self
+                    .resolve_struct_field_target(object, field)
+                    .map(|(_, idx)| idx)
+                    .unwrap_or(0);
 
                 let is_weak = self.is_struct_field_weak(object, field);
                 self.generate_expression(object);
-                arch::emit_struct_field_get(&mut self.output, self.arch, field_off, field_wide);
+                arch::emit_struct_field_get(&mut self.output, self.arch, field_idx);
                 if is_weak {
                     let lbl = self.ctx.next_label();
                     arch::emit_weak_check(
@@ -3271,7 +3209,10 @@ impl CodeGen {
                         }
                     }
                 }
-                let (field_off, field_wide) = self.resolve_struct_field_layout(object, field);
+                let field_idx = self
+                    .resolve_struct_field_target(object, field)
+                    .map(|(_, idx)| idx)
+                    .unwrap_or(0);
 
                 let is_weak = self.is_struct_field_weak(object, field);
 
@@ -3285,7 +3226,7 @@ impl CodeGen {
                     &null_label,
                 );
 
-                arch::emit_struct_field_get(&mut self.output, self.arch, field_off, field_wide);
+                arch::emit_struct_field_get(&mut self.output, self.arch, field_idx);
                 if is_weak {
                     let lbl = self.ctx.next_label();
                     arch::emit_weak_check(
@@ -5053,58 +4994,19 @@ impl CodeGen {
         }
     }
 
-    /// Byte offset and wideness of a struct field access. Other
-    /// architectures use uniform 8-byte cells; x86 derives the packed
-    /// stride from the same definition the resolution came from
-    /// (alya-lang/alya#62).
-    pub(crate) fn resolve_struct_field_layout(&self, object: &Expr, field: &str) -> (usize, bool) {
-        match self.resolve_struct_field_target(object, field) {
-            Some((key, idx)) => {
-                if !matches!(self.arch, Architecture::X86) {
-                    return ((idx + 1) * 8, false);
-                }
-                match self.ctx.structs.get(&key) {
-                    Some(sdef) => (
-                        crate::codegen::analysis::x86_struct_field_offset(
-                            sdef,
-                            &key,
-                            idx,
-                            &self.ctx.variables,
-                        ),
-                        crate::codegen::analysis::x86_struct_field_is_wide(
-                            sdef,
-                            &key,
-                            idx,
-                            &self.ctx.variables,
-                        ),
-                    ),
-                    None => ((idx + 1) * 4, false),
-                }
-            }
-            None => {
-                if matches!(self.arch, Architecture::X86) {
-                    (4, false)
-                } else {
-                    (8, false)
-                }
-            }
-        }
-    }
-
     /// True when generating `value` on x86 leaves its double in `%xmm0`:
-    /// proven float shapes, index reads (get contract), and wide field
-    /// reads (get contract). Wide field stores consult this to pick
-    /// `movsd` over the sign-extended fallback (alya-lang/alya#62).
+    /// proven float shapes, index reads (get contract) and field reads
+    /// (uniform 8-byte slots load via `movsd`, alya-lang/alya#62). Struct
+    /// field stores consult this to pick `movsd` over the sign-extended
+    /// fallback.
     pub(crate) fn x86_value_in_xmm0(&self, value: &Expr) -> bool {
         if crate::codegen::analysis::is_proven_float_store(value, &self.ctx.variables) {
             return true;
         }
         match value {
             Expr::Index { .. } => true,
-            Expr::FieldAccess { object, field } => {
-                self.resolve_struct_field_layout(object, field).1
-                    && matches!(self.arch, Architecture::X86)
-            }
+            // Uniform 8-byte slots always load via `movsd`.
+            Expr::FieldAccess { .. } => true,
             _ => false,
         }
     }

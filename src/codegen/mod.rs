@@ -451,17 +451,6 @@ impl CodeGen {
             }
         }
 
-        // x86 float-aware struct layout (alya-lang/alya#62): fields
-        // initialized with floats anywhere in the program earn
-        // `struct_layout_flt` markers before codegen runs, so cell
-        // sizing never depends on emission order.
-        for s in crate::codegen::analysis::inference::floats::collect_struct_layout_floats(
-            program,
-            &inference.known_floats,
-        ) {
-            self.ctx.variables.insert(s, VarType::Float(0));
-        }
-
         for m in &inference.known_maps {
             if m.starts_with("fn_ret_map:") {
                 self.ctx.variables.insert(m.clone(), VarType::Map(0));

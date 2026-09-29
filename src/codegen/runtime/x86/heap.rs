@@ -188,8 +188,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ret\n\n");
 
     // fn_mem_poke_f32(ptr, offset, val) -> void
-    // Float arguments arrive in %xmm0 as full f64 (x86 call convention);
-    // narrow to 32-bit storage with hardware rounding.
+    // Float arguments arrive as a stack double (callers push 8 bytes;
+    // %xmm0 does not survive argument evaluation); narrow to 32-bit
+    // storage with hardware rounding.
     out.push_str(".global fn_mem_poke_f32\n");
     out.push_str("fn_mem_poke_f32:\n");
     out.push_str("    push %ebp\n");
@@ -197,6 +198,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov 8(%ebp), %edx\n");
     out.push_str("    mov 12(%ebp), %ecx\n");
     out.push_str("    add %ecx, %edx\n");
+    out.push_str("    movsd 16(%ebp), %xmm0\n");
     out.push_str("    cvtsd2ss %xmm0, %xmm0\n");
     out.push_str("    movss %xmm0, (%edx)\n");
     out.push_str("    xor %eax, %eax\n");

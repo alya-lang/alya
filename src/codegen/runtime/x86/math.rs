@@ -641,7 +641,8 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
-    // 12. fn_simd_f64x4_set(a, idx, val) -> ptr
+    // 12. fn_simd_f64x4_set(a, idx, val): val arrives as a stack double
+    // (callers push 8 bytes; %xmm0 does not survive argument evaluation).
     out.push_str(".global fn_simd_f64x4_set\n");
     out.push_str("fn_simd_f64x4_set:\n");
     out.push_str("    push %ebp\n");
@@ -650,6 +651,7 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
     out.push_str("    mov 12(%ebp), %edx\n");
     out.push_str("    shl $3, %edx\n");
     out.push_str("    add %edx, %eax\n");
+    out.push_str("    movsd 16(%ebp), %xmm0\n");
     out.push_str("    movsd %xmm0, (%eax)\n");
     out.push_str("    mov 8(%ebp), %eax\n");
     out.push_str("    mov %ebp, %esp\n");
@@ -1084,11 +1086,14 @@ fn emit_simd_primitives(out: &mut String, _os: OperatingSystem) {
 
     // 28. fn_simd_f32x8_set(a, idx, val) -> ptr (f64 in xmm0 narrowed to f32 lane)
     out.push_str(".global fn_simd_f32x8_set\n");
+    // fn_simd_f32x8_set(a, idx, val): val arrives as a stack double
+    // (callers push 8 bytes; %xmm0 does not survive argument evaluation).
     out.push_str("fn_simd_f32x8_set:\n");
     out.push_str("    push %ebp\n");
     out.push_str("    mov %esp, %ebp\n");
     out.push_str("    mov 8(%ebp), %eax\n");
     out.push_str("    mov 12(%ebp), %edx\n");
+    out.push_str("    movsd 16(%ebp), %xmm0\n");
     out.push_str("    cvtsd2ss %xmm0, %xmm0\n");
     out.push_str("    movss %xmm0, (%eax, %edx, 4)\n");
     out.push_str("    mov 8(%ebp), %eax\n");
