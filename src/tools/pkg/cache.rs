@@ -84,9 +84,7 @@ pub fn inspect_packages_dir(dir: &Path, lock: Option<&PackageLock>) -> Vec<Cache
                 let folder_name = entry.file_name().to_string_lossy().to_string();
                 // Tooling state, not packages: index documents (reported
                 // separately below), compiler artifacts, dotfiles.
-                if folder_name.starts_with('.')
-                    || folder_name == "c_obj"
-                    || folder_name == "index"
+                if folder_name.starts_with('.') || folder_name == "c_obj" || folder_name == "index"
                 {
                     continue;
                 }
