@@ -106,6 +106,82 @@ function get_common_ports()
     return [21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 1433, 1521, 3000, 3306, 3389, 5432, 6379, 8000, 8080, 8443, 9000, 27017]
 end
 
+function show_usage()
+    say "Alya Network Port Scanner"
+    say ""
+    say "Usage:"
+    say "  alya run apps/port_scanner/main.alya -- [options]"
+    say ""
+    say "Options:"
+    say "  -t, --target <host>   Target host or IP (default: 127.0.0.1)"
+    say "  -p, --ports <spec>    Ports to scan: comma list with optional ranges"
+    say "                        (e.g. -p 80,443,8000-8010; default: common ports)"
+    say "  -r, --range <a-b>     Port range shorthand for -p a-b (e.g. -r 1-1024)"
+    say "  --test, --simulate    Smoke-test mode (no network)"
+    say "  -h, --help            Show this help"
+end
+
+function split_on(s, delim)
+    let parts = []
+    let cur = ""
+    let i = 0
+    while i < len(s)
+        let c = substring(s, i, 1)
+        if c == delim
+            parts.push(cur)
+            cur = ""
+        else
+            if c != " "
+                cur = cur + c
+            end
+        end
+        i += 1
+    end
+    parts.push(cur)
+    return parts
+end
+
+function append_port(out, p)
+    if p >= 1 and p <= 65535 and (p in out) == 0
+        out.push(p)
+        return 1
+    end
+    return 0
+end
+
+function parse_port_spec(spec, out)
+    let added = 0
+    let tokens = split_on(spec, ",")
+    let t = 0
+    while t < arr_len(tokens)
+        let tok = tokens[t]
+        if tok != ""
+            let dash = index_of(tok, "-")
+            if dash > 0
+                let lo_s = substring(tok, 0, dash)
+                let hi_s = substring(tok, dash + 1, len(tok) - dash - 1)
+                if len(hi_s) > 0 and is_numeric(lo_s) == 1 and is_numeric(hi_s) == 1
+                    let lo = int(lo_s)
+                    let hi = int(hi_s)
+                    if lo >= 1 and hi <= 65535 and lo <= hi
+                        let p = lo
+                        while p <= hi
+                            added += append_port(out, p)
+                            p += 1
+                        end
+                    end
+                end
+            else
+                if is_numeric(tok) == 1
+                    added += append_port(out, int(tok))
+                end
+            end
+        end
+        t += 1
+    end
+    return added
+end
+
 function print_report(target, results, scan_duration)
     say ""
     say color_cyan("═════════════════════════ SCAN RESULTS ═════════════════════════")
@@ -147,6 +223,8 @@ end
 function main()
     let cli_args = args()
     let target = "127.0.0.1"
+    let ports_arg = ""
+    let range_arg = ""
     let is_test = 0
 
     let i = 0
@@ -155,13 +233,40 @@ function main()
         if a in ["-t", "--target"] and i + 1 < arr_len(cli_args)
             target = cli_args[i + 1]
             i += 1
+        elif a in ["-p", "--ports"] and i + 1 < arr_len(cli_args)
+            ports_arg = cli_args[i + 1]
+            i += 1
+        elif a in ["-r", "--range"] and i + 1 < arr_len(cli_args)
+            range_arg = cli_args[i + 1]
+            i += 1
         elif a in ["--test", "--simulate"]
             is_test = 1
+        elif a in ["-h", "--help"]
+            show_usage()
+            return
         end
         i += 1
     end
 
     let ports = get_common_ports()
+    if ports_arg != "" or range_arg != ""
+        let custom = []
+        if ports_arg != ""
+            parse_port_spec(ports_arg, custom)
+        end
+        if range_arg != ""
+            parse_port_spec(range_arg, custom)
+        end
+        if arr_len(custom) == 0
+            say color_red("[ERROR]") + " No valid ports selected (use 1-65535, e.g. -p 80,443,8000-8010)."
+            return
+        end
+        if arr_len(custom) > 2048
+            say color_red("[ERROR]") + " Too many ports (" + str(arr_len(custom)) + "); max 2048 per scan."
+            return
+        end
+        ports = custom
+    end
     show_banner(target, arr_len(ports))
 
     if is_test == 1
