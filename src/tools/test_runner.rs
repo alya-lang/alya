@@ -57,6 +57,37 @@ fn collect_test_files_recursive(dir: &Path, config: &SuiteConfig, tests: &mut Ve
 /// at execution); ignored directories (including `negative/`) never entered.
 /// Project excludes from `.alyatest` / `alya.toml` (`[test]` or `[bench]`)
 /// prune whole subtrees on top of the built-in skips.
+///
+/// A leading `# SKIP-ARCH: <arch>[, ...]` header (e.g. `# SKIP-ARCH: x86`)
+/// opts a file out on those backend architectures (32-bit int width,
+/// struct float layout, …). Honored by `run_tests` below.
+fn file_skipped_on_arch(path: &Path, arch_str: &str) -> bool {
+    let source = match fs::read_to_string(path) {
+        Ok(source) => source,
+        Err(_) => return false,
+    };
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let comment = match trimmed.strip_prefix('#') {
+            Some(comment) => comment.trim_start(),
+            None => break,
+        };
+        if let Some(rest) = comment.strip_prefix("SKIP-ARCH:") {
+            // Entries are comma-separated arch names, each optionally
+            // followed by a free-text reason in parentheses.
+            return rest.split(',').any(|entry| {
+                entry
+                    .split_whitespace()
+                    .next()
+                    .is_some_and(|name| name.eq_ignore_ascii_case(arch_str))
+            });
+        }
+    }
+    false
+}
 fn collect_suite_files_recursive(
     dir: &Path,
     kind: SuiteKind,
@@ -874,6 +905,37 @@ pub fn run_tests(
         return Ok(());
     }
 
+    let arch_str = match arch {
+        Architecture::X64 => "x64",
+        Architecture::ARM64 => "arm64",
+        Architecture::X86 => "x86",
+    };
+    // Architecture-gated files (`# SKIP-ARCH:` header) never execute here.
+    let (skipped_files, test_files): (Vec<_>, Vec<_>) = test_files
+        .into_iter()
+        .partition(|file| file_skipped_on_arch(file, arch_str));
+    for file in &skipped_files {
+        println!(
+            "  \x1b[90mSKIP\x1b[0m  {:<width$}  \x1b[90m(SKIP-ARCH: {}) \x1b[0m",
+            format_test_path(file, root),
+            arch_str,
+            width = 32,
+        );
+    }
+
+    if test_files.is_empty() {
+        if skipped_files.is_empty() {
+            println!("No test files found in '{}'.", path_str);
+        } else {
+            println!(
+                "All {} test file(s) skipped on {} (SKIP-ARCH).",
+                skipped_files.len(),
+                arch_str
+            );
+        }
+        return Ok(());
+    }
+
     let default_threads = thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
@@ -883,11 +945,6 @@ pub fn run_tests(
         .max(1)
         .min(test_files.len());
 
-    let arch_str = match arch {
-        Architecture::X64 => "x64",
-        Architecture::ARM64 => "arm64",
-        Architecture::X86 => "x86",
-    };
     let os_str = match os {
         OperatingSystem::Windows => "windows",
         OperatingSystem::Linux => "linux",
@@ -1138,6 +1195,33 @@ mod tests {
         assert!(!is_bench_file("module1.alya"));
         assert!(!is_bench_file("test_basic.alya"));
         assert!(!is_bench_file("bench_basic.rs"));
+    }
+
+    #[test]
+    fn test_skip_arch_header() {
+        let dir = unique_suite_dir("skiparch");
+        let gated = dir.join("gated.alya");
+        fs::write(
+            &gated,
+            "# Title\n# SKIP-ARCH: x86 (reason here)\n\ntest \"t\"\n    say 1\nend\n",
+        )
+        .unwrap();
+        assert!(file_skipped_on_arch(&gated, "x86"));
+        assert!(file_skipped_on_arch(&gated, "X86"));
+        assert!(!file_skipped_on_arch(&gated, "x64"));
+        let multi = dir.join("multi.alya");
+        fs::write(&multi, "# SKIP-ARCH: arm64, x86\nsay 1\n").unwrap();
+        assert!(file_skipped_on_arch(&multi, "x86"));
+        assert!(file_skipped_on_arch(&multi, "arm64"));
+        assert!(!file_skipped_on_arch(&multi, "x64"));
+        let plain = dir.join("plain.alya");
+        fs::write(&plain, "# Just a comment\nsay 1\n").unwrap();
+        assert!(!file_skipped_on_arch(&plain, "x86"));
+        // A SKIP-ARCH line after code is not a header.
+        let late = dir.join("late.alya");
+        fs::write(&late, "say 1\n# SKIP-ARCH: x86\n").unwrap();
+        assert!(!file_skipped_on_arch(&late, "x86"));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

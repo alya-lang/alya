@@ -1,6 +1,7 @@
 # ==============================================================================
 # Alya Language Specification: Chapter 20 - Operator Overloading & Special Methods
 # File: syntax/operators_overloading.alya
+# SKIP-ARCH: x86 (struct float fields need 8-byte cells, alya-lang/alya#62)
 # ==============================================================================
 
 # ------------------------------------------------------------------------------

@@ -193,8 +193,43 @@ fn machine_matches_arch(machine: &str, arch: Architecture) -> bool {
 pub fn compiler_matches_arch(path: &Path, arch: Architecture) -> bool {
     match compiler_machine_prefix(path) {
         None => true,
-        Some(machine) => machine_matches_arch(&machine, arch),
+        Some(machine) => {
+            if machine_matches_arch(&machine, arch) {
+                return true;
+            }
+            // A 64-bit Linux system compiler with multilib assembles our
+            // `-m32` output fine (the x86 CI leg installs gcc-multilib for
+            // exactly this); rejecting it leaves no usable toolchain.
+            if matches!(arch, Architecture::X86)
+                && (machine == "x86_64" || machine == "amd64")
+                && cfg!(target_os = "linux")
+            {
+                return compiler_supports_m32(path);
+            }
+            false
+        }
     }
+}
+
+/// Probes `-m32` support with a real compile (a `--version` query would
+/// not touch the multilib backend). Linux-only caller.
+fn compiler_supports_m32(path: &Path) -> bool {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = match Command::new(path)
+        .args(["-m32", "-x", "c", "-o", "/dev/null", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => return false,
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(b"int main(void){return 0;}\n");
+    }
+    child.wait().map(|s| s.success()).unwrap_or(false)
 }
 
 /// Detects system toolchain via PATH
