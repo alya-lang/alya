@@ -16,6 +16,7 @@ pub struct ExternFnInfo {
     pub name: String,
     pub return_type: Option<String>,
     pub params_count: usize,
+    pub params: Vec<Option<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

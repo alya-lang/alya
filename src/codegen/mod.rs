@@ -745,6 +745,7 @@ impl CodeGen {
                         name: f.name.clone(),
                         return_type: f.return_type.clone(),
                         params_count: f.params.len(),
+                        params: f.params.iter().map(|p| p.param_type.clone()).collect(),
                     };
                     self.ctx
                         .extern_functions

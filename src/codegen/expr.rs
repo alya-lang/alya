@@ -2085,6 +2085,42 @@ impl CodeGen {
                 }
                 let call_name = call_name_str.as_str();
 
+                // x86 extern double convention (C ABI is exact):
+                // float-declared params take 8-byte doubles, float
+                // returns arrive in st0. Collected once, used by the
+                // push loop, the cleanup, and the return below.
+                let (extern_float_params, extern_returns_float): (Vec<bool>, bool) =
+                    if matches!(self.arch, Architecture::X86) {
+                        let info = self.ctx.extern_functions.get(call_name).or_else(|| {
+                            let bare = call_name.rsplit("::").next().unwrap_or(call_name);
+                            let bare = bare.rsplit("__").next().unwrap_or(bare);
+                            self.ctx.extern_functions.get(bare)
+                        });
+                        match info {
+                            Some(inf) => (
+                                inf.params
+                                    .iter()
+                                    .map(|t| {
+                                        matches!(
+                                            t.as_deref(),
+                                            Some("float")
+                                                | Some("f64")
+                                                | Some("f32")
+                                                | Some("double")
+                                        )
+                                    })
+                                    .collect(),
+                                matches!(
+                                    inf.return_type.as_deref(),
+                                    Some("float") | Some("f64") | Some("f32") | Some("double")
+                                ),
+                            ),
+                            None => (Vec::new(), false),
+                        }
+                    } else {
+                        (Vec::new(), false)
+                    };
+
                 let initial_stack_offset = self.ctx.stack_offset;
                 let word_size: i32 = match self.arch {
                     Architecture::ARM64 => 16,
@@ -2101,6 +2137,10 @@ impl CodeGen {
                         // and the layout. Unproven shapes keep the legacy
                         // 4-byte `%eax` push (mirrors the callee-side
                         // proven rule; alya-lang/alya#59 follow-up).
+                        // Extern callee params come from declarations (C
+                        // ABI is exact): float-declared params take the
+                        // 8-byte double so the C side reads a aligned
+                        // layout.
                         let user_callee = self.ctx.functions.contains(call_name);
                         let mut pushed: i32 = 0;
                         for (idx, arg) in actual_args.iter().rev().enumerate() {
@@ -2164,6 +2204,14 @@ impl CodeGen {
                                 );
                             }
                             if user_callee && is_proven_float_store(arg, &self.ctx.variables) {
+                                self.output.push_str("    sub $8, %esp\n");
+                                self.output.push_str("    movsd %xmm0, (%esp)\n");
+                                pushed += 8;
+                            } else if !user_callee
+                                && extern_float_params.get(param_idx).copied().unwrap_or(false)
+                            {
+                                // Declared-float extern param: size follows
+                                // the declaration (see above).
                                 self.output.push_str("    sub $8, %esp\n");
                                 self.output.push_str("    movsd %xmm0, (%esp)\n");
                                 pushed += 8;
@@ -2241,17 +2289,20 @@ impl CodeGen {
                 self.ctx.stack_offset = initial_stack_offset;
                 // x86 float args push 8 bytes (not 4): the callee cleanup
                 // emitted below only pops 4 per arg, so the remainder is
-                // popped here. Only user callees take 8-byte args (see the
-                // push loop above); builtins/externs stay 4-byte.
+                // popped here. Counts user proven-float args plus
+                // declared-float extern args (see the push loop above).
                 // (alya-lang/alya#59 follow-up).
-                let x86_float_extra: i32 = if matches!(self.arch, Architecture::X86)
-                    && self.ctx.functions.contains(call_name)
-                {
-                    actual_args
-                        .iter()
-                        .filter(|a| is_proven_float_store(a, &self.ctx.variables))
-                        .count() as i32
-                        * 4
+                let x86_float_extra: i32 = if matches!(self.arch, Architecture::X86) {
+                    let user_n = if self.ctx.functions.contains(call_name) {
+                        actual_args
+                            .iter()
+                            .filter(|a| is_proven_float_store(a, &self.ctx.variables))
+                            .count()
+                    } else {
+                        0
+                    };
+                    let extern_n = extern_float_params.iter().filter(|&&b| b).count();
+                    (user_n + extern_n) as i32 * 4
                 } else {
                     0
                 };
@@ -2303,6 +2354,16 @@ impl CodeGen {
                     if x86_float_extra > 0 {
                         self.output
                             .push_str(&format!("    add ${}, %esp\n", x86_float_extra));
+                    }
+                    if matches!(self.arch, Architecture::X86) && extern_returns_float {
+                        // C doubles return in st0: spill to the float
+                        // register (and mirror the low word, like the
+                        // native math wrappers).
+                        self.output.push_str("    sub $8, %esp\n");
+                        self.output.push_str("    fstpl (%esp)\n");
+                        self.output.push_str("    movsd (%esp), %xmm0\n");
+                        self.output.push_str("    mov (%esp), %eax\n");
+                        self.output.push_str("    add $8, %esp\n");
                     }
                     let is_flt_ret = self
                         .ctx

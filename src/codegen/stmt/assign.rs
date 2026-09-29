@@ -623,10 +623,14 @@ impl CodeGen {
                         .variables
                         .insert(name.clone(), VarType::Float(self.ctx.stack_offset));
                     if matches!(self.arch, Architecture::X86) {
-                        if is_proven_float_store(value, &self.ctx.variables) {
-                            // x86 has no %rax float mirror, so the
-                            // allocation above pushed stale words: store
-                            // the double explicitly (it is in %xmm0).
+                        // x86 has no %rax float mirror, so the allocation
+                        // above pushed stale words: store the double
+                        // explicitly. Index reads always leave the slot
+                        // bits in `%xmm0` (array/map get contract), so
+                        // they store exactly like proven shapes.
+                        if is_proven_float_store(value, &self.ctx.variables)
+                            || matches!(value, Expr::Index { .. })
+                        {
                             self.output.push_str(&format!(
                                 "    movsd %xmm0, -{}(%ebp)\n",
                                 self.ctx.stack_offset
