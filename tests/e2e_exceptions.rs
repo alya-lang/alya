@@ -184,6 +184,31 @@ fn diag_expect(n: i32) -> String {
     format!("{}\n", n * (n + 1) / 2)
 }
 
+fn diag_throw_prog(n: i32) -> String {
+    // TEMP-DIAG: like diag_prog(n, true) but standalone for 1-2 thread
+    // triangulation on macOS ARM64 (worker-thread vs true-concurrency).
+    format!(
+        "import \"std/thread\"\n\nfunction wdiag(idx)\n    let out = -999\n    try\n        throw \"boom\"\n    catch\n        out = idx + 1\n    end\n    return out\nend\n\nfunction main()\n    let threads = []\n    let i = 0\n    while i < {}\n        threads.push(thread_spawn(wdiag, i))\n        i += 1\n    end\n    let total = 0\n    for th in threads\n        total += thread_join(th)\n    end\n    say total\nend\n\nmain()\n",
+        n
+    )
+}
+
+#[test]
+fn test_diag_threads_01_throw() {
+    if let Some((code, output)) = run_alya_code_full(&diag_throw_prog(1)) {
+        assert_eq!(code, 0, "output was: {}", output);
+        assert_eq!(output, diag_expect(1));
+    }
+}
+
+#[test]
+fn test_diag_threads_02_throw() {
+    if let Some((code, output)) = run_alya_code_full(&diag_throw_prog(2)) {
+        assert_eq!(code, 0, "output was: {}", output);
+        assert_eq!(output, diag_expect(2));
+    }
+}
+
 #[test]
 fn test_diag_threads_04_plain() {
     if let Some((code, output)) = run_alya_code_full(&diag_prog(4, false)) {
