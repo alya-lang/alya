@@ -37,12 +37,27 @@ pub fn emit_data_sections(
             out.push_str("    .quad 0\n");
             out.push_str("alya_argv:\n");
             out.push_str("    .quad 0\n");
-            out.push_str("alya_catch_once:\n");
-            out.push_str("    .quad 0\n");
+            // Darwin pthread_once_t is 16 bytes ({long sig, char[8]})
+            // and must start as PTHREAD_ONCE_INIT (sig 0x30B1BCBA);
+            // a plain zero also under-reserves, letting the once
+            // token overlap alya_catch_key (re-init per call, fresh
+            // key each time: try/throw never share a block).
+            // glibc once_t is a zero-initialized int, covered by 8.
+            if matches!(os, OperatingSystem::MacOS) {
+                out.push_str("alya_catch_once:\n");
+                out.push_str("    .quad 0x30B1BCBA\n");
+                out.push_str("    .quad 0\n");
+            } else {
+                out.push_str("alya_catch_once:\n");
+                out.push_str("    .quad 0\n");
+            }
             out.push_str("alya_catch_key:\n");
             out.push_str("    .quad 0\n");
+            // Quad (not long): FLS index APIs touch only the low
+            // 32 bits, and a 4-byte slot would misalign every quad
+            // label that follows (fatal atomics on ARM64 Windows).
             out.push_str("alya_catch_fls:\n");
-            out.push_str("    .long 0\n");
+            out.push_str("    .quad 0\n");
             out.push_str("alya_rand_state:\n");
             out.push_str("    .quad 0\n");
             out.push_str("alya_allocated_bytes:\n");

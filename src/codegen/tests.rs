@@ -1124,3 +1124,26 @@ fn test_order_qualified_call_matches_bare_def() {
     let ordered = order_functions_callee_first(vec![&m, &helper]);
     assert_eq!(order_names(&ordered), vec!["helper", "main"]);
 }
+
+// Darwin pthread_once_t is 16 bytes ({long sig, char[8]}) starting
+// as PTHREAD_ONCE_INIT (sig 0x30B1BCBA). A zeroed 8-byte slot
+// under-reserves (once token overlaps the key: re-init per call)
+// and never matches the init signature.
+#[test]
+fn test_macos_catch_once_initializer() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = "function main() try say 1 catch err say err end end";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_mac = generate(&ast, Architecture::X64, OperatingSystem::MacOS);
+    assert!(asm_mac.contains("alya_catch_once:\n    .quad 0x30B1BCBA\n    .quad 0\n"));
+
+    let asm_lin = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    assert!(asm_lin.contains("alya_catch_once:\n    .quad 0\n"));
+    assert!(!asm_lin.contains("0x30B1BCBA"));
+}
