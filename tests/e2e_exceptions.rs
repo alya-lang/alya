@@ -166,6 +166,56 @@ end
     }
 }
 
+// TEMP-DIAG (remove after macOS ARM64 64-thread crash is bisected):
+// count x throw matrix to isolate the crashing axis.
+fn diag_prog(n: i32, with_throw: bool) -> String {
+    let body = if with_throw {
+        "    let out = -999\n    try\n        throw \"boom\"\n    catch\n        out = idx + 1\n    end\n    return out\n"
+    } else {
+        "    return idx + 1\n"
+    };
+    format!(
+        "import \"std/thread\"\n\nfunction wdiag(idx)\n{}end\n\nfunction main()\n    let threads = []\n    let i = 0\n    while i < {}\n        threads.push(thread_spawn(wdiag, i))\n        i += 1\n    end\n    let total = 0\n    for th in threads\n        total += thread_join(th)\n    end\n    say total\nend\n\nmain()\n",
+        body, n
+    )
+}
+
+fn diag_expect(n: i32) -> String {
+    format!("{}\n", n * (n + 1) / 2)
+}
+
+#[test]
+fn test_diag_threads_04_plain() {
+    if let Some((code, output)) = run_alya_code_full(&diag_prog(4, false)) {
+        assert_eq!(code, 0, "output was: {}", output);
+        assert_eq!(output, diag_expect(4));
+    }
+}
+
+#[test]
+fn test_diag_threads_04_throw() {
+    if let Some((code, output)) = run_alya_code_full(&diag_prog(4, true)) {
+        assert_eq!(code, 0, "output was: {}", output);
+        assert_eq!(output, diag_expect(4));
+    }
+}
+
+#[test]
+fn test_diag_threads_64_plain() {
+    if let Some((code, output)) = run_alya_code_full(&diag_prog(64, false)) {
+        assert_eq!(code, 0, "output was: {}", output);
+        assert_eq!(output, diag_expect(64));
+    }
+}
+
+#[test]
+fn test_diag_threads_64_throw() {
+    if let Some((code, output)) = run_alya_code_full(&diag_prog(64, true)) {
+        assert_eq!(code, 0, "output was: {}", output);
+        assert_eq!(output, diag_expect(64));
+    }
+}
+
 #[test]
 fn test_e2e_throw_concurrent_threads_keep_catches() {
     // alya-lang/alya#65: catch state must be per-thread; concurrent
