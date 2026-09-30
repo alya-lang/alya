@@ -169,42 +169,38 @@ end
 #[test]
 fn test_e2e_throw_concurrent_threads_keep_catches() {
     // alya-lang/alya#65: catch state must be per-thread; concurrent
-    // throws must not steal each other's catch. Workers send idx+1
-    // (never bare 0: int 0 shares null's zero word, so an `is null`
-    // emptiness check cannot tell them apart); the main thread asserts
-    // the exact count and sum, proving every catch fired exactly once.
+    // throws must not steal each other's catch. Each worker throws
+    // and catches locally, reporting via its join value (idx+1, never
+    // bare 0: int 0 shares null's zero word). The main thread asserts
+    // the exact count and sum, proving every catch fired exactly once
+    // in its own thread. Join values (not channels) carry results:
+    // channel_send under heavy contention has its own known races
+    // and must not gate this test.
     let code = r#"
 import "std/thread"
 
-function worker(ctx)
-    let ch, idx = ctx
+function worker(idx)
+    let out = -999
     try
         throw "boom"
     catch
-        channel_send(ch, idx + 1)
+        out = idx + 1
     end
+    return out
 end
 
 function main()
-    let ch = channel_new(128)
     let threads = []
     let i = 0
     while i < 64
-        threads.push(thread_spawn(worker, (ch, i)))
+        threads.push(thread_spawn(worker, i))
         i += 1
     end
     let got = 0
     let total = 0
-    while got < 64
-        let m = channel_recv(ch, 5000)
-        if m is null
-            break
-        end
-        got += 1
-        total += m
-    end
     for th in threads
-        thread_join(th)
+        total += thread_join(th)
+        got += 1
     end
     say got
     say total
