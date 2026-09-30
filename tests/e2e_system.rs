@@ -2748,6 +2748,52 @@ say "done"
 }
 
 #[test]
+fn test_e2e_channel_contention_stress() {
+    // alya-lang/alya#67: overlapping multi-producer traffic with
+    // nonzero-only values (no null conflation involved) and exact
+    // sum verification. Any lost message changes the total.
+    let code = r#"
+import "std/thread"
+
+function worker(ctx)
+    let ch, base = ctx
+    let i = 1
+    while i <= 10
+        channel_send(ch, base + i)
+        i += 1
+    end
+end
+
+function main()
+    let ch = Channel.new(64)
+    let threads = []
+    let w = 0
+    while w < 4
+        threads.push(thread_spawn(worker, (ch, (w + 1) * 100)))
+        w += 1
+    end
+    let total = 0
+    let got = 0
+    while got < 40
+        total += ch.recv_timeout(3000)
+        got += 1
+    end
+    for th in threads
+        thread_join(th)
+    end
+    say total
+end
+
+main()
+"#;
+
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert_eq!(output, "10220\n", "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_rendezvous_channel_semantics() {
     let code = r#"
 import "std/sync"
