@@ -467,7 +467,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     // outlier reading a stale d0, which printed pointer bits as `%g`
     // garbage (e.g. 3.04803e-314) for every str(float) on arm64.
     out.push_str("    fmov d0, x0\n");
-    out.push_str("    fmov d8, d0\n");
+    out.push_str("    fmov d1, d0\n");
     emit_adrp_add(out, "x0", "alya_str_idx", os);
     out.push_str("    ldr x1, [x0]\n");
     out.push_str("    movz x2, #950000 & 0xffff\n");
@@ -481,7 +481,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x20, x1\n");
     out.push_str("    mov x0, x19\n");
     emit_adrp_add(out, "x1", "alya_fmt_flt_val", os);
-    out.push_str("    fmov d0, d8\n");
+    out.push_str("    fmov d0, d1\n");
     // Variadic ABI: Apple arm64 reads FP varargs from GP regs/stack (never
     // d-regs), so the double must also ride in x2 and on the stack (Linux
     // ignores both and reads d0). Without this, sprintf formatted whatever

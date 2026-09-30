@@ -7,19 +7,32 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     let _ = (is_win, p);
 
     // fn_alya_thread_proc - thread entry point
+    // Trigger: worker thread procedures called from OS thread trampolines (_pthread_start)
+    // must preserve callee-saved registers across thread exit (alya-lang/alya#68).
+    // Guard: save and restore x19..x28 in fn_alya_thread_proc frame.
     out.push_str(".align 2\n");
     out.push_str(".global fn_alya_thread_proc\n");
     out.push_str("fn_alya_thread_proc:\n");
-    out.push_str("    stp x29, x30, [sp, #-32]!\n");
+    out.push_str("    stp x29, x30, [sp, #-112]!\n");
     out.push_str("    mov x29, sp\n");
-    out.push_str("    str x0, [sp, #16]\n");        // save ctx
+    out.push_str("    stp x19, x20, [sp, #16]\n");
+    out.push_str("    stp x21, x22, [sp, #32]\n");
+    out.push_str("    stp x23, x24, [sp, #48]\n");
+    out.push_str("    stp x25, x26, [sp, #64]\n");
+    out.push_str("    stp x27, x28, [sp, #80]\n");
+    out.push_str("    str x0, [sp, #96]\n");        // save ctx
     out.push_str("    ldr x8, [x0, #8]\n");         // func
     out.push_str("    ldr x0, [x0, #16]\n");        // arg
     out.push_str("    blr x8\n");                   // call func(arg)
-    out.push_str("    ldr x1, [sp, #16]\n");        // reload ctx
+    out.push_str("    ldr x1, [sp, #96]\n");        // reload ctx
     out.push_str("    str x0, [x1, #24]\n");        // ctx->result = x0
     out.push_str("    mov x0, #0\n");               // exit code 0
-    out.push_str("    ldp x29, x30, [sp], #32\n");
+    out.push_str("    ldp x19, x20, [sp, #16]\n");
+    out.push_str("    ldp x21, x22, [sp, #32]\n");
+    out.push_str("    ldp x23, x24, [sp, #48]\n");
+    out.push_str("    ldp x25, x26, [sp, #64]\n");
+    out.push_str("    ldp x27, x28, [sp, #80]\n");
+    out.push_str("    ldp x29, x30, [sp], #112\n");
     out.push_str("    ret\n\n");
 
     // fn___native_thread_spawn

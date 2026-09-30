@@ -1153,3 +1153,54 @@ fn test_macos_catch_once_initializer() {
     assert!(asm_lin.contains("alya_catch_once:\n    .quad 0\n"));
     assert!(!asm_lin.contains("0x30B1BCBA"));
 }
+
+#[test]
+fn test_arm64_fn_throw_preserves_callee_saved_registers() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // Regression (alya-lang/alya#68): fn_throw must not clobber
+    // callee-saved registers x19..x28 across catch jumps.
+    let code = "function main() try throw 1 catch end end";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm = generate(&ast, Architecture::ARM64, OperatingSystem::MacOS);
+    let fn_throw_start = asm.find("fn_throw:").unwrap();
+    let fn_throw_br = asm[fn_throw_start..].find("br x14").unwrap();
+    let fn_throw_body = &asm[fn_throw_start..fn_throw_start + fn_throw_br];
+
+    for reg in &[
+        "x19", "x20", "x21", "x22", "x23", "x24", "x25", "x26", "x27", "x28",
+    ] {
+        assert!(
+            !fn_throw_body.contains(reg),
+            "fn_throw must not modify callee-saved register {} before dispatch jump: {}",
+            reg,
+            fn_throw_body
+        );
+    }
+}
+
+#[test]
+fn test_arm64_thread_proc_preserves_callee_saved_registers() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // Regression (alya-lang/alya#68): fn_alya_thread_proc must
+    // preserve x19..x28 for the calling OS thread trampoline.
+    let code = "import \"std/thread\"\nfunction main() end";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm = generate(&ast, Architecture::ARM64, OperatingSystem::MacOS);
+    assert!(asm.contains("fn_alya_thread_proc:"));
+    assert!(asm.contains("stp x19, x20, [sp, #16]"));
+    assert!(asm.contains("ldp x19, x20, [sp, #16]"));
+    assert!(asm.contains("stp x27, x28, [sp, #80]"));
+    assert!(asm.contains("ldp x27, x28, [sp, #80]"));
+}

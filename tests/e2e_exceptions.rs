@@ -234,6 +234,37 @@ main()
 }
 
 #[test]
+fn test_e2e_throw_caught_in_worker_thread() {
+    // alya-lang/alya#68: worker-thread caught exception must preserve
+    // callee-saved registers so returning to the OS thread trampoline
+    // (_pthread_start) does not signal.
+    let code = r#"
+import "std/thread"
+
+function wdiag(idx)
+    let out = -999
+    try
+        throw "boom"
+    catch
+        out = idx + 1
+    end
+    return out
+end
+
+function main()
+    let t = thread_spawn(wdiag, 0)
+    say thread_join(t)
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "output was: {}", output);
+        assert_eq!(output, "1\n");
+    }
+}
+
+#[test]
 fn test_e2e_throw_concurrent_threads_keep_catches() {
     // alya-lang/alya#65: catch state must be per-thread; concurrent
     // throws must not steal each other's catch. Each worker throws
@@ -243,12 +274,6 @@ fn test_e2e_throw_concurrent_threads_keep_catches() {
     // in its own thread. Join values (not channels) carry results:
     // channel_send under heavy contention has its own known races
     // (alya-lang/alya#67) and must not gate this test.
-    // Skipped on macOS ARM64: worker-thread caught dispatch signals
-    // there (alya-lang/alya#68); the test still guards #65 on the
-    // other legs.
-    if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") {
-        return;
-    }
     let code = r#"
 import "std/thread"
 

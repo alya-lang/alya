@@ -120,25 +120,26 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     // alya_try_begin(x0=handler, x1=sp, x2=bp): push one catch frame.
     out.push_str(".global alya_try_begin\n");
     out.push_str("alya_try_begin:\n");
-    out.push_str("    stp x29, x30, [sp, #-16]!\n");
+    out.push_str("    stp x29, x30, [sp, #-48]!\n");
     out.push_str("    mov x29, sp\n");
-    out.push_str("    stp x19, x20, [sp, #-16]!\n");
-    out.push_str("    stp x21, x22, [sp, #-16]!\n");
-    out.push_str("    mov x19, x0\n");
-    out.push_str("    mov x20, x1\n");
-    out.push_str("    mov x21, x2\n");
+    out.push_str("    str x0, [sp, #16]\n");
+    out.push_str("    str x1, [sp, #24]\n");
+    out.push_str("    str x2, [sp, #32]\n");
     out.push_str("    bl alya_catch_block\n");
-    out.push_str("    mov x22, x0\n");
-    out.push_str("    ldr x9, [x22]\n");
-    out.push_str("    cmp x9, #128\n");
+    out.push_str("    ldr x9, [sp, #16]\n");
+    out.push_str("    ldr x1, [sp, #24]\n");
+    out.push_str("    ldr x2, [sp, #32]\n");
+    out.push_str("    ldr x10, [x0]\n");
+    out.push_str("    cmp x10, #128\n");
     out.push_str("    b.hs .L_arm_try_begin_oom\n");
-    out.push_str("    add x10, x22, x9, lsl #3\n");
-    out.push_str("    str x19, [x10, #8]\n");
-    out.push_str("    str x20, [x10, #1032]\n");
-    out.push_str("    str x21, [x10, #2056]\n");
-    out.push_str("    add x9, x9, #1\n");
-    out.push_str("    str x9, [x22]\n");
-    out.push_str("    b .L_arm_try_begin_ret\n");
+    out.push_str("    add x11, x0, x10, lsl #3\n");
+    out.push_str("    str x9, [x11, #8]\n");
+    out.push_str("    str x1, [x11, #1032]\n");
+    out.push_str("    str x2, [x11, #2056]\n");
+    out.push_str("    add x10, x10, #1\n");
+    out.push_str("    str x10, [x0]\n");
+    out.push_str("    ldp x29, x30, [sp], #48\n");
+    out.push_str("    ret\n\n");
     out.push_str(".L_arm_try_begin_oom:\n");
     out.push_str("    mov w0, #1\n");
     if is_win {
@@ -146,23 +147,16 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     } else {
         out.push_str(&format!("    bl {}exit\n", p));
     }
-    out.push_str(".L_arm_try_begin_ret:\n");
-    out.push_str("    ldp x21, x22, [sp], #16\n");
-    out.push_str("    ldp x19, x20, [sp], #16\n");
-    out.push_str("    ldp x29, x30, [sp], #16\n");
-    out.push_str("    ret\n\n");
 
     // alya_try_end: pop one catch frame.
     out.push_str(".global alya_try_end\n");
     out.push_str("alya_try_end:\n");
     out.push_str("    stp x29, x30, [sp, #-16]!\n");
     out.push_str("    mov x29, sp\n");
-    out.push_str("    stp x19, x20, [sp, #-16]!\n");
     out.push_str("    bl alya_catch_block\n");
     out.push_str("    ldr x9, [x0]\n");
     out.push_str("    sub x9, x9, #1\n");
     out.push_str("    str x9, [x0]\n");
-    out.push_str("    ldp x19, x20, [sp], #16\n");
     out.push_str("    ldp x29, x30, [sp], #16\n");
     out.push_str("    ret\n\n");
 
@@ -171,48 +165,47 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("alya_catch_msg:\n");
     out.push_str("    stp x29, x30, [sp, #-16]!\n");
     out.push_str("    mov x29, sp\n");
-    out.push_str("    stp x19, x20, [sp, #-16]!\n");
     out.push_str("    bl alya_catch_block\n");
     out.push_str("    ldr x0, [x0, #3080]\n");
-    out.push_str("    ldp x19, x20, [sp], #16\n");
     out.push_str("    ldp x29, x30, [sp], #16\n");
     out.push_str("    ret\n\n");
 
     // fn_throw
+    // Trigger: fn_throw clobbered x19..x22 across catch jumps without restoring them,
+    // crashing macOS _pthread_start on worker thread return (alya-lang/alya#68).
+    // Guard: use scratch registers (x9..x14) and stack slots so callee-saved registers
+    // are never modified across catch jumps.
     out.push_str(".global fn_throw\n");
     out.push_str("fn_throw:\n");
-    out.push_str("    stp x29, x30, [sp, #-16]!\n");
+    out.push_str("    stp x29, x30, [sp, #-32]!\n");
     out.push_str("    mov x29, sp\n");
-    out.push_str("    stp x19, x20, [sp, #-16]!\n");
-    out.push_str("    mov x19, x0\n");
-    // x1 carries the message text (or null) on entry; stash it in a
-    // callee-saved reg across the block call. stp keeps sp aligned.
-    out.push_str("    mov x21, x1\n");
-    out.push_str("    stp x21, x22, [sp, #-16]!\n");
+    out.push_str("    str x0, [sp, #16]\n");
+    out.push_str("    str x1, [sp, #24]\n");
     out.push_str("    bl alya_catch_block\n");
-    out.push_str("    ldp x21, x22, [sp], #16\n");
-    out.push_str("    mov x20, x0\n");
-    out.push_str("    str x19, [x20, #3080]\n");
-    out.push_str("    str x21, [x20, #3088]\n");
-    out.push_str("    ldr x10, [x20]\n");
-    out.push_str("    cbz x10, .L_arm_fatal_throw\n");
-    out.push_str("    sub x10, x10, #1\n");
-    out.push_str("    str x10, [x20]\n");
-    out.push_str("    add x11, x20, x10, lsl #3\n");
-    out.push_str("    ldr x14, [x11, #8]\n");
-    out.push_str("    ldr x13, [x11, #1032]\n");
-    out.push_str("    ldr x29, [x11, #2056]\n");
+    out.push_str("    ldr x9, [sp, #16]\n");
+    out.push_str("    ldr x1, [sp, #24]\n");
+    out.push_str("    mov x10, x0\n");
+    out.push_str("    str x9, [x10, #3080]\n");
+    out.push_str("    str x1, [x10, #3088]\n");
+    out.push_str("    ldr x11, [x10]\n");
+    out.push_str("    cbz x11, .L_arm_fatal_throw\n");
+    out.push_str("    sub x11, x11, #1\n");
+    out.push_str("    str x11, [x10]\n");
+    out.push_str("    add x12, x10, x11, lsl #3\n");
+    out.push_str("    ldr x14, [x12, #8]\n");
+    out.push_str("    ldr x13, [x12, #1032]\n");
+    out.push_str("    ldr x29, [x12, #2056]\n");
     out.push_str("    mov sp, x13\n");
     out.push_str("    br x14\n");
     out.push_str(".L_arm_fatal_throw:\n");
-    out.push_str("    mov x19, sp\n");
-    out.push_str("    bic x19, x19, #15\n");
-    out.push_str("    mov sp, x19\n");
+    out.push_str("    mov x9, sp\n");
+    out.push_str("    bic x9, x9, #15\n");
+    out.push_str("    mov sp, x9\n");
     // Prefer the extracted struct-message text (block+3088) when throw
     // codegen set it; the raw value may be a struct pointer, not a string.
-    out.push_str("    ldr x1, [x20, #3088]\n");
+    out.push_str("    ldr x1, [x10, #3088]\n");
     out.push_str("    cbnz x1, .L_arm_fatal_have_msg\n");
-    out.push_str("    ldr x1, [x20, #3080]\n");
+    out.push_str("    ldr x1, [x10, #3080]\n");
     out.push_str(".L_arm_fatal_have_msg:\n");
     emit_adrp_add(out, "x0", "alya_fmt_runtime_err", os);
     if matches!(os, OperatingSystem::MacOS) {
