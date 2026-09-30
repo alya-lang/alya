@@ -763,6 +763,39 @@ end
 }
 
 #[test]
+fn test_try_catch_internal_symbols_no_darwin_prefix() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // Regression (alya-lang/alya#65): try/catch lowers to internal
+    // runtime calls (alya_try_begin/end, alya_catch_msg) whose
+    // `.global` definitions are bare. Emitting them with the Darwin
+    // `_` prefix breaks the macOS link (undefined symbols), so they
+    // must stay bare on macOS x64 and ARM64 alike.
+    let code = "function main() try say 1 catch err say err end end";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_x64 = generate(&ast, Architecture::X64, OperatingSystem::MacOS);
+    assert!(asm_x64.contains("call alya_try_begin"));
+    assert!(asm_x64.contains("call alya_try_end"));
+    assert!(asm_x64.contains("call alya_catch_msg"));
+    assert!(!asm_x64.contains("call _alya_try_begin"));
+    assert!(!asm_x64.contains("call _alya_try_end"));
+    assert!(!asm_x64.contains("call _alya_catch_msg"));
+
+    let asm_arm = generate(&ast, Architecture::ARM64, OperatingSystem::MacOS);
+    assert!(asm_arm.contains("bl alya_try_begin"));
+    assert!(asm_arm.contains("bl alya_try_end"));
+    assert!(asm_arm.contains("bl alya_catch_msg"));
+    assert!(!asm_arm.contains("bl _alya_try_begin"));
+    assert!(!asm_arm.contains("bl _alya_try_end"));
+    assert!(!asm_arm.contains("bl _alya_catch_msg"));
+}
+
+#[test]
 fn test_x64_macos_directory_inode64_symbols() {
     use crate::lexer::Lexer;
     use crate::parser::Parser;

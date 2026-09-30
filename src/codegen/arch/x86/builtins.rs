@@ -2,15 +2,16 @@ use crate::ast::BinaryOp;
 use crate::codegen::kinds::{KIND_FLOAT, KIND_UNKNOWN};
 
 pub fn emit_try_begin(out: &mut String, catch_label: &str) {
-    // Per-thread catch frames (alya-lang/alya#65): cdecl right-to-left
-    // pushes; the runtime records (handler, sp, bp) in the current
-    // thread's block. esp math accounts for exactly one push when
-    // capturing the entry sp.
+    // Per-thread catch frames (alya-lang/alya#65): cdecl passes
+    // (handler, sp, bp) at ebp+8/12/16, so push right-to-left with
+    // the handler last (top). The entry sp is captured before any
+    // push; the runtime records all three in the current thread's
+    // block.
+    out.push_str("    mov %esp, %eax\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    push %eax\n");
     out.push_str(&format!("    mov ${}, %eax\n", catch_label));
     out.push_str("    push %eax\n");
-    out.push_str("    lea 4(%esp), %eax\n");
-    out.push_str("    push %eax\n");
-    out.push_str("    push %ebp\n");
     out.push_str("    call alya_try_begin\n");
     out.push_str("    add $12, %esp\n");
 }

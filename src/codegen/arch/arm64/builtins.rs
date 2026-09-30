@@ -16,11 +16,14 @@ pub fn emit_try_begin(out: &mut String, catch_label: &str, os: OperatingSystem) 
     out.push_str("    str x0, [sp, #-16]!\n");
     out.push_str("    mov x0, x29\n");
     out.push_str("    str x0, [sp, #-16]!\n");
-    control::emit_c_function_call(out, "alya_try_begin", 3, os);
+    // Internal call stays bare (no Darwin `_` prefix): runtime
+    // `.global` labels are bare too (see
+    // test_x64_macos_internal_symbols_no_darwin_prefix).
+    control::emit_call_target(out, "alya_try_begin", 3);
 }
 
-pub fn emit_try_end(out: &mut String, end_label: &str, stack_delta: i32, os: OperatingSystem) {
-    control::emit_c_function_call(out, "alya_try_end", 0, os);
+pub fn emit_try_end(out: &mut String, end_label: &str, stack_delta: i32, _os: OperatingSystem) {
+    control::emit_call_target(out, "alya_try_end", 0);
     if stack_delta > 0 {
         out.push_str(&format!("    add sp, sp, #{}\n", stack_delta));
     }
@@ -31,8 +34,8 @@ pub fn emit_catch_begin(out: &mut String, catch_label: &str) {
     out.push_str(&format!("{}:\n", catch_label));
 }
 
-pub fn emit_catch_load_err(out: &mut String, os: OperatingSystem) {
-    control::emit_c_function_call(out, "alya_catch_msg", 0, os);
+pub fn emit_catch_load_err(out: &mut String, _os: OperatingSystem) {
+    control::emit_call_target(out, "alya_catch_msg", 0);
 }
 
 pub fn emit_catch_end(out: &mut String, stack_delta: i32) {

@@ -7,13 +7,15 @@ pub fn emit_try_begin(out: &mut String, catch_label: &str, stack_offset: i32, os
     // Per-thread catch frames (alya-lang/alya#65): push
     // (handler, sp, bp) as call temps; the runtime records them in
     // the current thread's block. rsp math accounts for exactly one
-    // push when capturing the entry sp.
+    // push when capturing the entry sp. Internal call stays bare
+    // (no Darwin `_` prefix): runtime `.global` labels are bare too
+    // (see test_x64_macos_internal_symbols_no_darwin_prefix).
     out.push_str(&format!("    lea {}(%rip), %rax\n", catch_label));
     out.push_str("    push %rax\n");
     out.push_str("    lea 8(%rsp), %rax\n");
     out.push_str("    push %rax\n");
     out.push_str("    push %rbp\n");
-    control::emit_c_function_call(out, "alya_try_begin", 3, stack_offset, os);
+    control::emit_call_target(out, "alya_try_begin", 3, stack_offset, os);
 }
 
 pub fn emit_try_end(
@@ -23,7 +25,7 @@ pub fn emit_try_end(
     stack_offset: i32,
     os: OperatingSystem,
 ) {
-    control::emit_c_function_call(out, "alya_try_end", 0, stack_offset, os);
+    control::emit_call_target(out, "alya_try_end", 0, stack_offset, os);
     if stack_delta > 0 {
         out.push_str(&format!("    add ${}, %rsp\n", stack_delta));
     }
@@ -35,7 +37,7 @@ pub fn emit_catch_begin(out: &mut String, catch_label: &str) {
 }
 
 pub fn emit_catch_load_err(out: &mut String, stack_offset: i32, os: OperatingSystem) {
-    control::emit_c_function_call(out, "alya_catch_msg", 0, stack_offset, os);
+    control::emit_call_target(out, "alya_catch_msg", 0, stack_offset, os);
 }
 
 pub fn emit_catch_end(out: &mut String, stack_delta: i32) {
