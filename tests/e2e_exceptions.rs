@@ -201,6 +201,45 @@ fn test_diag_threads_04_throw() {
 }
 
 #[test]
+fn test_diag_threads_04_try_no_throw() {
+    // TEMP-DIAG: try/begin/end without throw — isolates once+block+
+    // begin/end from the throw/dispatch path on macOS ARM64.
+    let code = r#"
+import "std/thread"
+
+function wdiag(idx)
+    let out = idx + 1
+    try
+        out = out + 0
+    catch
+        out = -999
+    end
+    return out
+end
+
+function main()
+    let threads = []
+    let i = 0
+    while i < 4
+        threads.push(thread_spawn(wdiag, i))
+        i += 1
+    end
+    let total = 0
+    for th in threads
+        total += thread_join(th)
+    end
+    say total
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "output was: {}", output);
+        assert_eq!(output, "10\n");
+    }
+}
+
+#[test]
 fn test_diag_threads_64_plain() {
     if let Some((code, output)) = run_alya_code_full(&diag_prog(64, false)) {
         assert_eq!(code, 0, "output was: {}", output);
