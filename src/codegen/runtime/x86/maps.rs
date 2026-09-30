@@ -210,7 +210,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add $4, %esp\n");
     out.push_str("    pop %edx\n");
     out.push_str("    pop %ecx\n");
-    out.push_str("    pop %eax\n"); // eax = i again
+    // Discard the spilled loop index: popping it into %eax would clobber
+    // the hash just returned in %eax, laying rehashed entries out by stale
+    // index (i & mask) instead of (hash & mask) so later lookups miss.
+    out.push_str("    add $4, %esp\n");
     out.push_str("    and %edx, %eax\n"); // new_slot in eax
     out.push_str("    push %eax\n"); // spill slot; probe uses (%esp)
     out.push_str(".L_x86_rehash_probe:\n");

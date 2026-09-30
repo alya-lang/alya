@@ -282,6 +282,42 @@ say m1
 }
 
 #[test]
+fn test_e2e_map_resize_keeps_entries() {
+    // Resize rehash must re-lay entries by hash, not by stale slot.
+    // x86 fn_set once computed the new slot from the old loop index
+    // (hash clobbered by a pop), scrambling every resize past 32
+    // entries; later lookups hit empty slots and read back null (0).
+    let code = r#"
+let m = map()
+let n = 500
+let i = 0
+while i < n
+    m[f"key_{i}"] = i * 3
+    i += 1
+end
+i = 0
+while i < n
+    if i % 2 == 0
+        m[f"key_{i}"] = i * 5
+    end
+    i += 1
+end
+let sum = 0
+i = 0
+while i < n
+    sum += m[f"key_{i}"]
+    i += 1
+end
+say sum
+say m.len()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "output was: {}", output);
+        assert_eq!(output, "498750\n500\n", "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_map_string_values() {
     let code = r#"
 let m = map()
