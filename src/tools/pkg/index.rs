@@ -13,7 +13,7 @@
 //!       "version": "0.2.0",
 //!       "tag": "v0.2.0",
 //!       "checksum": "sha256:<hex of alya-pkg.tar.gz>",
-//!       "requires_alya": "0.0.19",
+//!       "requires_alya": "0.0.20",
 //!       "tarball": "https://... (optional override)",
 //!       "yanked": false
 //!     }
@@ -603,7 +603,7 @@ mod tests {
         "repository": "https://github.com/alya-lang/http",
         "versions": [
             {"version": "0.1.0", "tag": "v0.1.0", "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
-            {"version": "0.2.0", "tag": "v0.2.0", "checksum": "0000000000000000000000000000000000000000000000000000000000000001", "requires_alya": "0.0.19"},
+            {"version": "0.2.0", "tag": "v0.2.0", "checksum": "0000000000000000000000000000000000000000000000000000000000000001", "requires_alya": "0.0.20"},
             {"version": "0.3.0", "tag": "v0.3.0", "yanked": true}
         ]
     }"#;

@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
 PackageIdentifier: Alya.alya
-PackageVersion: 0.0.19
+PackageVersion: 0.0.20
 PackageLocale: en-US
 PackageName: Alya Programming Language Compiler
 Publisher: Alya Language
@@ -26,19 +26,19 @@ PackageUrl: https://github.com/alya-lang/alya
 Installers:
   - Architecture: x64
     InstallerType: zip
-    InstallerUrl: https://github.com/alya-lang/alya/releases/download/v0.0.19/alya-v0.0.19-x86_64-windows.zip
+    InstallerUrl: https://github.com/alya-lang/alya/releases/download/v0.0.20/alya-v0.0.20-x86_64-windows.zip
     InstallerSha256: 7c19fbb3ba55663c8446aa33593475ca6cf423f20eac31f93f8be37cfd996308
     NestedInstallerType: portable
     NestedInstallerFiles:
-      - RelativeFilePath: alya-v0.0.19-x86_64-windows/alya.exe
+      - RelativeFilePath: alya-v0.0.20-x86_64-windows/alya.exe
         PortableCommandAlias: alya
   - Architecture: arm64
     InstallerType: zip
-    InstallerUrl: https://github.com/alya-lang/alya/releases/download/v0.0.19/alya-v0.0.19-arm64-windows.zip
+    InstallerUrl: https://github.com/alya-lang/alya/releases/download/v0.0.20/alya-v0.0.20-arm64-windows.zip
     InstallerSha256: 43f10a2debb275a108560f71d08a6511ef3bfe55a3de6c62b6db00134ae98de6
     NestedInstallerType: portable
     NestedInstallerFiles:
-      - RelativeFilePath: alya-v0.0.19-arm64-windows/alya.exe
+      - RelativeFilePath: alya-v0.0.20-arm64-windows/alya.exe
         PortableCommandAlias: alya
 ManifestType: singleton
 ManifestVersion: 1.6.0

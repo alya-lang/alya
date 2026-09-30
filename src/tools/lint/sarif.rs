@@ -217,16 +217,16 @@ mod tests {
 
     #[test]
     fn test_sarif_envelope() {
-        let log = sarif_log(&sample_report(), "0.0.19");
+        let log = sarif_log(&sample_report(), "0.0.20");
         assert_eq!(log["version"], "2.1.0");
         assert_eq!(log["runs"][0]["tool"]["driver"]["name"], "Alya Linter");
-        assert_eq!(log["runs"][0]["tool"]["driver"]["version"], "0.0.19");
+        assert_eq!(log["runs"][0]["tool"]["driver"]["version"], "0.0.20");
         assert_eq!(log["runs"][0]["results"].as_array().unwrap().len(), 2);
     }
 
     #[test]
     fn test_sarif_result_mapping() {
-        let log = sarif_log(&sample_report(), "0.0.19");
+        let log = sarif_log(&sample_report(), "0.0.20");
         let first = &log["runs"][0]["results"][0];
         assert_eq!(first["ruleId"], "unused-var");
         assert_eq!(first["level"], "warning");
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn test_sarif_rules_dictionary() {
-        let log = sarif_log(&sample_report(), "0.0.19");
+        let log = sarif_log(&sample_report(), "0.0.20");
         let rules = log["runs"][0]["tool"]["driver"]["rules"]
             .as_array()
             .unwrap();
@@ -272,14 +272,14 @@ mod tests {
     #[test]
     fn test_sarif_invocation() {
         // Absent by default ...
-        let plain = sarif_log(&sample_report(), "0.0.19");
+        let plain = sarif_log(&sample_report(), "0.0.20");
         assert!(plain["runs"][0].get("invocations").is_none());
         // ... and recorded when details are provided.
         let inv = SarifInvocation {
             command_line: "alya lint . --format sarif".to_string(),
             exit_code: 1,
         };
-        let log = sarif_log_with_invocation(&sample_report(), "0.0.19", Some(&inv));
+        let log = sarif_log_with_invocation(&sample_report(), "0.0.20", Some(&inv));
         let recorded = &log["runs"][0]["invocations"][0];
         assert_eq!(recorded["executionSuccessful"], true);
         assert_eq!(recorded["commandLine"], "alya lint . --format sarif");
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn test_sarif_empty_report_is_valid() {
-        let log = sarif_log(&LintReport::default(), "0.0.19");
+        let log = sarif_log(&LintReport::default(), "0.0.20");
         assert_eq!(log["version"], "2.1.0");
         assert_eq!(log["runs"][0]["results"].as_array().unwrap().len(), 0);
         assert_eq!(
