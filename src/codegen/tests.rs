@@ -1142,6 +1142,12 @@ fn test_macos_catch_once_initializer() {
 
     let asm_mac = generate(&ast, Architecture::X64, OperatingSystem::MacOS);
     assert!(asm_mac.contains("alya_catch_once:\n    .quad 0x30B1BCBA\n    .quad 0\n"));
+    // Mach-O __bss forbids nonzero initializers: the once object
+    // must live in __DATA,__data, after the __bss section.
+    let bss_pos = asm_mac.find("__DATA,__bss").unwrap();
+    let data_pos = asm_mac.find("__DATA,__data").unwrap();
+    let once_pos = asm_mac.find("alya_catch_once:").unwrap();
+    assert!(once_pos > data_pos && data_pos > bss_pos);
 
     let asm_lin = generate(&ast, Architecture::X64, OperatingSystem::Linux);
     assert!(asm_lin.contains("alya_catch_once:\n    .quad 0\n"));

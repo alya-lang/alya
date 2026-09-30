@@ -38,21 +38,19 @@ pub fn emit_data_sections(
             out.push_str("alya_argv:\n");
             out.push_str("    .quad 0\n");
             // Darwin pthread_once_t is 16 bytes ({long sig, char[8]})
-            // and must start as PTHREAD_ONCE_INIT (sig 0x30B1BCBA);
-            // a plain zero also under-reserves, letting the once
-            // token overlap alya_catch_key (re-init per call, fresh
-            // key each time: try/throw never share a block).
-            // glibc once_t is a zero-initialized int, covered by 8.
-            if matches!(os, OperatingSystem::MacOS) {
+            // starting as PTHREAD_ONCE_INIT (sig 0x30B1BCBA). Mach-O
+            // __bss forbids nonzero initializers, so macOS emits
+            // once+key in __DATA,__data below; other targets keep a
+            // zeroed 8-byte slot here (glibc once_t is a zero-init
+            // int). A zeroed 8-byte slot on Darwin would also
+            // under-reserve, letting the once token overlap the key
+            // (re-init per call: try/throw never share a block).
+            if !matches!(os, OperatingSystem::MacOS) {
                 out.push_str("alya_catch_once:\n");
-                out.push_str("    .quad 0x30B1BCBA\n");
                 out.push_str("    .quad 0\n");
-            } else {
-                out.push_str("alya_catch_once:\n");
+                out.push_str("alya_catch_key:\n");
                 out.push_str("    .quad 0\n");
             }
-            out.push_str("alya_catch_key:\n");
-            out.push_str("    .quad 0\n");
             // Quad (not long): FLS index APIs touch only the low
             // 32 bits, and a 4-byte slot would misalign every quad
             // label that follows (fatal atomics on ARM64 Windows).
@@ -394,6 +392,18 @@ pub fn emit_data_sections(
         out.push_str("\n.section __DATA,__data\n");
     } else {
         out.push_str("\n.section .data\n");
+    }
+
+    // Per-thread catch state anchors that cannot live in zerofill
+    // bss on macOS (alya-lang/alya#65): Darwin pthread_once_t is
+    // 16 bytes starting as PTHREAD_ONCE_INIT. Key stays zero-init.
+    if is_macos && !matches!(arch, Architecture::X86) {
+        out.push_str(".p2align 3\n");
+        out.push_str("alya_catch_once:\n");
+        out.push_str("    .quad 0x30B1BCBA\n");
+        out.push_str("    .quad 0\n");
+        out.push_str("alya_catch_key:\n");
+        out.push_str("    .quad 0\n");
     }
 
     let ptr_dir = if matches!(arch, Architecture::X86) {
