@@ -34,11 +34,12 @@ pub fn emit_try_begin(
     out: &mut String,
     arch: Architecture,
     catch_label: &str,
+    stack_offset: i32,
     os: OperatingSystem,
 ) {
     match arch {
         Architecture::ARM64 => arm64::emit_try_begin(out, catch_label, os),
-        Architecture::X64 => x64::emit_try_begin(out, catch_label),
+        Architecture::X64 => x64::emit_try_begin(out, catch_label, stack_offset, os),
         Architecture::X86 => x86::emit_try_begin(out, catch_label),
     }
 }
@@ -48,11 +49,12 @@ pub fn emit_try_end(
     arch: Architecture,
     end_label: &str,
     stack_delta: i32,
+    stack_offset: i32,
     os: OperatingSystem,
 ) {
     match arch {
         Architecture::ARM64 => arm64::emit_try_end(out, end_label, stack_delta, os),
-        Architecture::X64 => x64::emit_try_end(out, end_label, stack_delta),
+        Architecture::X64 => x64::emit_try_end(out, end_label, stack_delta, stack_offset, os),
         Architecture::X86 => x86::emit_try_end(out, end_label, stack_delta),
     }
 }
@@ -65,10 +67,15 @@ pub fn emit_catch_begin(out: &mut String, arch: Architecture, catch_label: &str)
     }
 }
 
-pub fn emit_catch_load_err(out: &mut String, arch: Architecture, os: OperatingSystem) {
+pub fn emit_catch_load_err(
+    out: &mut String,
+    arch: Architecture,
+    stack_offset: i32,
+    os: OperatingSystem,
+) {
     match arch {
         Architecture::ARM64 => arm64::emit_catch_load_err(out, os),
-        Architecture::X64 => x64::emit_catch_load_err(out),
+        Architecture::X64 => x64::emit_catch_load_err(out, stack_offset, os),
         Architecture::X86 => x86::emit_catch_load_err(out),
     }
 }

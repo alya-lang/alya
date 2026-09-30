@@ -1,3 +1,4 @@
+use super::control;
 use super::emit_adrp_add;
 use super::loads::{emit_arm64_load_x29_offset, emit_arm64_store_x29_offset};
 use crate::ast::BinaryOp;
@@ -5,25 +6,21 @@ use crate::codegen::kinds::{KIND_FLOAT, KIND_INT};
 use crate::codegen::target::OperatingSystem;
 
 pub fn emit_try_begin(out: &mut String, catch_label: &str, os: OperatingSystem) {
-    emit_adrp_add(out, "x9", "alya_catch_idx", os);
-    out.push_str("    ldr x10, [x9]\n");
-    emit_adrp_add(out, "x11", catch_label, os);
-    emit_adrp_add(out, "x12", "alya_catch_stack_handler", os);
-    out.push_str("    str x11, [x12, x10, lsl #3]\n");
-    out.push_str("    mov x13, sp\n");
-    emit_adrp_add(out, "x12", "alya_catch_stack_sp", os);
-    out.push_str("    str x13, [x12, x10, lsl #3]\n");
-    emit_adrp_add(out, "x12", "alya_catch_stack_bp", os);
-    out.push_str("    str x29, [x12, x10, lsl #3]\n");
-    out.push_str("    add x10, x10, #1\n");
-    out.push_str("    str x10, [x9]\n");
+    // Per-thread catch frames (alya-lang/alya#65): push
+    // (handler, sp, bp) as 16-byte call temps; the runtime records
+    // them in the current thread's block. sp math accounts for exactly
+    // one push when capturing the entry sp.
+    emit_adrp_add(out, "x0", catch_label, os);
+    out.push_str("    str x0, [sp, #-16]!\n");
+    out.push_str("    add x0, sp, #16\n");
+    out.push_str("    str x0, [sp, #-16]!\n");
+    out.push_str("    mov x0, x29\n");
+    out.push_str("    str x0, [sp, #-16]!\n");
+    control::emit_c_function_call(out, "alya_try_begin", 3, os);
 }
 
 pub fn emit_try_end(out: &mut String, end_label: &str, stack_delta: i32, os: OperatingSystem) {
-    emit_adrp_add(out, "x9", "alya_catch_idx", os);
-    out.push_str("    ldr x10, [x9]\n");
-    out.push_str("    sub x10, x10, #1\n");
-    out.push_str("    str x10, [x9]\n");
+    control::emit_c_function_call(out, "alya_try_end", 0, os);
     if stack_delta > 0 {
         out.push_str(&format!("    add sp, sp, #{}\n", stack_delta));
     }
@@ -35,8 +32,7 @@ pub fn emit_catch_begin(out: &mut String, catch_label: &str) {
 }
 
 pub fn emit_catch_load_err(out: &mut String, os: OperatingSystem) {
-    emit_adrp_add(out, "x9", "alya_err_msg", os);
-    out.push_str("    ldr x0, [x9]\n");
+    control::emit_c_function_call(out, "alya_catch_msg", 0, os);
 }
 
 pub fn emit_catch_end(out: &mut String, stack_delta: i32) {

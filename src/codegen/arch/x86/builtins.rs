@@ -2,19 +2,21 @@ use crate::ast::BinaryOp;
 use crate::codegen::kinds::{KIND_FLOAT, KIND_UNKNOWN};
 
 pub fn emit_try_begin(out: &mut String, catch_label: &str) {
-    out.push_str("    mov alya_catch_idx, %ecx\n");
+    // Per-thread catch frames (alya-lang/alya#65): cdecl right-to-left
+    // pushes; the runtime records (handler, sp, bp) in the current
+    // thread's block. esp math accounts for exactly one push when
+    // capturing the entry sp.
     out.push_str(&format!("    mov ${}, %eax\n", catch_label));
-    out.push_str("    mov $alya_catch_stack_handler, %edx\n");
-    out.push_str("    mov %eax, (%edx, %ecx, 4)\n");
-    out.push_str("    mov $alya_catch_stack_sp, %edx\n");
-    out.push_str("    mov %esp, (%edx, %ecx, 4)\n");
-    out.push_str("    mov $alya_catch_stack_bp, %edx\n");
-    out.push_str("    mov %ebp, (%edx, %ecx, 4)\n");
-    out.push_str("    incl alya_catch_idx\n");
+    out.push_str("    push %eax\n");
+    out.push_str("    lea 4(%esp), %eax\n");
+    out.push_str("    push %eax\n");
+    out.push_str("    push %ebp\n");
+    out.push_str("    call alya_try_begin\n");
+    out.push_str("    add $12, %esp\n");
 }
 
 pub fn emit_try_end(out: &mut String, end_label: &str, stack_delta: i32) {
-    out.push_str("    decl alya_catch_idx\n");
+    out.push_str("    call alya_try_end\n");
     if stack_delta > 0 {
         out.push_str(&format!("    add ${}, %esp\n", stack_delta));
     }
@@ -26,7 +28,7 @@ pub fn emit_catch_begin(out: &mut String, catch_label: &str) {
 }
 
 pub fn emit_catch_load_err(out: &mut String) {
-    out.push_str("    mov alya_err_msg, %eax\n");
+    out.push_str("    call alya_catch_msg\n");
 }
 
 pub fn emit_catch_end(out: &mut String, stack_delta: i32) {

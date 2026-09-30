@@ -1,21 +1,29 @@
+use super::control;
 use crate::ast::BinaryOp;
 use crate::codegen::kinds::{KIND_FLOAT, KIND_INT};
 use crate::codegen::target::OperatingSystem;
 
-pub fn emit_try_begin(out: &mut String, catch_label: &str) {
-    out.push_str("    mov alya_catch_idx(%rip), %r8\n");
+pub fn emit_try_begin(out: &mut String, catch_label: &str, stack_offset: i32, os: OperatingSystem) {
+    // Per-thread catch frames (alya-lang/alya#65): push
+    // (handler, sp, bp) as call temps; the runtime records them in
+    // the current thread's block. rsp math accounts for exactly one
+    // push when capturing the entry sp.
     out.push_str(&format!("    lea {}(%rip), %rax\n", catch_label));
-    out.push_str("    lea alya_catch_stack_handler(%rip), %r9\n");
-    out.push_str("    mov %rax, (%r9, %r8, 8)\n");
-    out.push_str("    lea alya_catch_stack_sp(%rip), %r9\n");
-    out.push_str("    mov %rsp, (%r9, %r8, 8)\n");
-    out.push_str("    lea alya_catch_stack_bp(%rip), %r9\n");
-    out.push_str("    mov %rbp, (%r9, %r8, 8)\n");
-    out.push_str("    incq alya_catch_idx(%rip)\n");
+    out.push_str("    push %rax\n");
+    out.push_str("    lea 8(%rsp), %rax\n");
+    out.push_str("    push %rax\n");
+    out.push_str("    push %rbp\n");
+    control::emit_c_function_call(out, "alya_try_begin", 3, stack_offset, os);
 }
 
-pub fn emit_try_end(out: &mut String, end_label: &str, stack_delta: i32) {
-    out.push_str("    decq alya_catch_idx(%rip)\n");
+pub fn emit_try_end(
+    out: &mut String,
+    end_label: &str,
+    stack_delta: i32,
+    stack_offset: i32,
+    os: OperatingSystem,
+) {
+    control::emit_c_function_call(out, "alya_try_end", 0, stack_offset, os);
     if stack_delta > 0 {
         out.push_str(&format!("    add ${}, %rsp\n", stack_delta));
     }
@@ -26,8 +34,8 @@ pub fn emit_catch_begin(out: &mut String, catch_label: &str) {
     out.push_str(&format!("{}:\n", catch_label));
 }
 
-pub fn emit_catch_load_err(out: &mut String) {
-    out.push_str("    mov alya_err_msg(%rip), %rax\n");
+pub fn emit_catch_load_err(out: &mut String, stack_offset: i32, os: OperatingSystem) {
+    control::emit_c_function_call(out, "alya_catch_msg", 0, stack_offset, os);
 }
 
 pub fn emit_catch_end(out: &mut String, stack_delta: i32) {

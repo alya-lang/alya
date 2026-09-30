@@ -1249,24 +1249,34 @@ impl CodeGen {
     }
 
     pub(crate) fn generate_throw(&mut self, opt_expr: Option<&Expr>) {
+        use crate::codegen::target::Architecture;
         if let Some(expr) = opt_expr {
-            // Struct errors with a string `message` field publish the
-            // text for the fatal printer (`alya_err_str`); the thrown
-            // value itself is unchanged so `catch` still binds it.
-            // Every other throw clears the slot (stale-guard).
-            if let Some(msg_idx) = self.struct_message_field_idx(expr) {
+            // fn_throw(value, msg): msg carries struct `message` text
+            // (or null); the runtime records both in the thread's block,
+            // so no global is involved and stale messages are impossible.
+            // The struct value itself is allocated once into a temp slot.
+            // Push order follows each arch's convention so the callee
+            // always sees (value, msg).
+            if self.struct_message_field_idx(expr).is_some() {
                 self.generate_expression(expr);
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
                 let tmp = self.ctx.stack_offset;
                 arch::emit_store_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
-                arch::emit_load_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
-                arch::emit_struct_field_get(&mut self.output, self.arch, msg_idx);
-                arch::emit_store_global(&mut self.output, self.arch, "alya_err_str", self.os);
-                arch::emit_load_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
-                arch::emit_push_temp(&mut self.output, self.arch);
+                let msg_idx = self.struct_message_field_idx(expr).unwrap_or(0);
+                if matches!(self.arch, Architecture::X86) {
+                    arch::emit_load_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
+                    arch::emit_struct_field_get(&mut self.output, self.arch, msg_idx);
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                    arch::emit_load_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                } else {
+                    arch::emit_load_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                    arch::emit_load_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
+                    arch::emit_struct_field_get(&mut self.output, self.arch, msg_idx);
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                }
             } else {
-                arch::emit_load_num(&mut self.output, self.arch, 0);
-                arch::emit_store_global(&mut self.output, self.arch, "alya_err_str", self.os);
                 let is_struct = self.get_expr_struct_name(expr).is_some()
                     || match expr {
                         Expr::StructInit { .. } => true,
@@ -1279,9 +1289,12 @@ impl CodeGen {
                         }
                         _ => false,
                     };
+                if matches!(self.arch, Architecture::X86) {
+                    arch::emit_load_num(&mut self.output, self.arch, 0);
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                }
                 if is_string_expr(expr, &self.ctx.variables) || is_struct {
                     self.generate_expression(expr);
-                    arch::emit_push_temp(&mut self.output, self.arch);
                 } else {
                     self.generate_expression(expr);
                     arch::emit_push_temp(&mut self.output, self.arch);
@@ -1293,6 +1306,10 @@ impl CodeGen {
                         self.ctx.stack_offset,
                         self.os,
                     );
+                }
+                arch::emit_push_temp(&mut self.output, self.arch);
+                if !matches!(self.arch, Architecture::X86) {
+                    arch::emit_load_num(&mut self.output, self.arch, 0);
                     arch::emit_push_temp(&mut self.output, self.arch);
                 }
             }
@@ -1300,7 +1317,7 @@ impl CodeGen {
                 &mut self.output,
                 self.arch,
                 "throw",
-                1,
+                2,
                 self.ctx.stack_offset,
                 self.os,
             );
@@ -1334,7 +1351,13 @@ impl CodeGen {
 
             if !catch_block.is_empty() || catch_var.is_some() {
                 // Try block with catch
-                arch::emit_try_begin(&mut self.output, self.arch, &catch_label, self.os);
+                arch::emit_try_begin(
+                    &mut self.output,
+                    self.arch,
+                    &catch_label,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
                 for s in try_block {
                     self.generate_statement(s);
                 }
@@ -1344,6 +1367,7 @@ impl CodeGen {
                     self.arch,
                     &finally_normal_label,
                     try_delta,
+                    self.ctx.stack_offset,
                     self.os,
                 );
 
@@ -1353,11 +1377,22 @@ impl CodeGen {
                 arch::emit_catch_begin(&mut self.output, self.arch, &catch_label);
 
                 // Temporary try handler so that errors inside catch run finally and rethrow
-                arch::emit_try_begin(&mut self.output, self.arch, &finally_rethrow_label, self.os);
+                arch::emit_try_begin(
+                    &mut self.output,
+                    self.arch,
+                    &finally_rethrow_label,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
 
                 if let Some(name) = catch_var {
                     let name = name.to_string();
-                    arch::emit_catch_load_err(&mut self.output, self.arch, self.os);
+                    arch::emit_catch_load_err(
+                        &mut self.output,
+                        self.arch,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
                     arch::emit_allocate_var(
                         &mut self.output,
                         self.arch,
@@ -1380,11 +1415,18 @@ impl CodeGen {
                     self.arch,
                     &finally_normal_label,
                     catch_delta,
+                    self.ctx.stack_offset,
                     self.os,
                 );
             } else {
                 // Try block WITHOUT catch (only finally)
-                arch::emit_try_begin(&mut self.output, self.arch, &finally_rethrow_label, self.os);
+                arch::emit_try_begin(
+                    &mut self.output,
+                    self.arch,
+                    &finally_rethrow_label,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
                 for s in try_block {
                     self.generate_statement(s);
                 }
@@ -1394,6 +1436,7 @@ impl CodeGen {
                     self.arch,
                     &finally_normal_label,
                     try_delta,
+                    self.ctx.stack_offset,
                     self.os,
                 );
             }
@@ -1434,14 +1477,27 @@ impl CodeGen {
             self.output.push_str(&format!("{}:\n", end_label));
         } else {
             // Existing try-catch without finally
-            arch::emit_try_begin(&mut self.output, self.arch, &catch_label, self.os);
+            arch::emit_try_begin(
+                &mut self.output,
+                self.arch,
+                &catch_label,
+                self.ctx.stack_offset,
+                self.os,
+            );
 
             for s in try_block {
                 self.generate_statement(s);
             }
 
             let try_delta = self.ctx.stack_offset - saved_stack_offset;
-            arch::emit_try_end(&mut self.output, self.arch, &end_label, try_delta, self.os);
+            arch::emit_try_end(
+                &mut self.output,
+                self.arch,
+                &end_label,
+                try_delta,
+                self.ctx.stack_offset,
+                self.os,
+            );
 
             // At catch entry, runtime SP has been restored to saved_stack_offset.
             self.ctx.stack_offset = saved_stack_offset;
@@ -1450,7 +1506,12 @@ impl CodeGen {
 
             if let Some(name) = catch_var {
                 let name = name.to_string();
-                arch::emit_catch_load_err(&mut self.output, self.arch, self.os);
+                arch::emit_catch_load_err(
+                    &mut self.output,
+                    self.arch,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
                 self.ctx
                     .variables
