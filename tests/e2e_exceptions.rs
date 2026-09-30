@@ -210,6 +210,51 @@ fn test_diag_threads_02_throw() {
 }
 
 #[test]
+fn test_diag_worker_uncaught_throw() {
+    // TEMP-DIAG: uncaught throw inside a worker — does the fatal
+    // path (printf + exit) work on a pthread-created thread, or
+    // does it signal there?
+    let code = r#"
+import "std/thread"
+
+function wdiag(idx)
+    throw "worker-boom"
+end
+
+function main()
+    let t = thread_spawn(wdiag, 0)
+    thread_join(t)
+    say "joined"
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_ne!(code, 0, "expected fatal exit, got output: {}", output);
+        assert!(
+            output.contains("Runtime error: worker-boom"),
+            "Got code {} output: {}",
+            code,
+            output
+        );
+    }
+}
+
+// TEMP-DIAG: dump ARM64 macOS asm for the worker-throw program.
+#[test]
+fn test_diag_dump_arm64_macos_throw() {
+    let code = "import \"std/thread\"\nfunction wdiag(idx)\n    let out = -999\n    try\n        throw \"boom\"\n    catch\n        out = idx + 1\n    end\n    return out\nend\nfunction main()\n    let t = thread_spawn(wdiag, 3)\n    say thread_join(t)\nend\nmain()\n";
+    let asm = alya::codegen::generate(
+        &alya::parser::Parser::new(alya::lexer::Lexer::new(code).tokenize().unwrap())
+            .parse()
+            .unwrap(),
+        alya::codegen::target::Architecture::ARM64,
+        alya::codegen::target::OperatingSystem::MacOS,
+    );
+    std::fs::write("E:/MyProject/Alya/.scratch/arm64mac_throw.s", &asm).unwrap();
+}
+
+#[test]
 fn test_diag_threads_04_plain() {
     if let Some((code, output)) = run_alya_code_full(&diag_prog(4, false)) {
         assert_eq!(code, 0, "output was: {}", output);
