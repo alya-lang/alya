@@ -2722,6 +2722,32 @@ ch.free()
 }
 
 #[test]
+fn test_e2e_channel_zero_payload() {
+    // alya-lang/alya#66: int 0 shares null's zero word, so recv must
+    // decide emptiness from queue state, never by testing the taken
+    // value against null (a dropped 0 spins until timeout). Value
+    // checks cannot tell 0 from null by design; promptness can: a
+    // delivered item returns at once, a timeout takes the full wait.
+    let code = r#"
+import "std/sync"
+
+let ch = Channel.new(8)
+ch.send(0)
+let t0 = clock_ms()
+let m = ch.recv_timeout(2000)
+let dt = clock_ms() - t0
+say dt < 500
+say m + 1
+say "done"
+"#;
+
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert_eq!(output, "1\n1\ndone\n", "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_rendezvous_channel_semantics() {
     let code = r#"
 import "std/sync"

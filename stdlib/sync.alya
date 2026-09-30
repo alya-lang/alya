@@ -415,16 +415,38 @@ end
 ## - `timeout_ms`: Maximum wait in milliseconds; non-positive waits until a value arrives or the channel closes.
 ##
 ## ### Returns
-## The received value, or null on timeout or close.
+## The received value, or null on timeout or close. A 0 payload is
+## returned as-is: only the queue state decides emptiness, never the
+## value. A null payload stays indistinguishable from timeout/close.
 pub function channel_recv(ch: Channel, timeout_ms: int = 5000)
     let start: int = clock_ms()
     while 1
-        let val = channel_try_recv(ch)
-        if val != null
+        # Take under the same lock that checks emptiness: testing the
+        # taken value against null would swallow a 0 payload (int 0
+        # shares null's zero word, so `0 != null` is false).
+        mutex_lock(ch.lock)
+        let head: int = ch.q[0]
+        let total: int = arr_len(ch.q)
+        let is_closed: int = ch.closed
+        if head < total
+            let val = ch.q[head]
+            head += 1
+            ch.q[0] = head
+            if head > 32 and (head * 2) >= total
+                let count: int = total - head
+                let i: int = 0
+                while i < count
+                    ch.q[i + 1] = ch.q[head + i]
+                    i += 1
+                end
+                ch.q[0] = 1
+                while arr_len(ch.q) > count + 1
+                    ch.q.pop()
+                end
+            end
+            mutex_unlock(ch.lock)
             return val
         end
-        mutex_lock(ch.lock)
-        let is_closed: int = ch.closed
         mutex_unlock(ch.lock)
         if is_closed == 1
             return null
