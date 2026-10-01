@@ -511,3 +511,29 @@ main()
         assert_eq!(output, "[x, y]\nx\ny\n[x, y]\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_x86_extern_i64_args_sign_extended() {
+    // i64 extern args must arrive as full 8-byte slots: pushing only
+    // the low word shifts every later C param by one arg (uv poller
+    // fds mismatched, completion key/udata swapped). llabs takes and
+    // returns long long, so a wrong hi word comes back wrong: -5 must
+    // arrive sign-extended (hi 0xFFFFFFFF) and return 5, while a zero
+    // hi word would come back as -5.
+    let code = r#"
+extern "C"
+    function llabs(n: i64) -> i64
+end
+
+function main()
+    say llabs(-5)
+    say llabs(777)
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "5\n777\n", "Got: {}", output);
+    }
+}

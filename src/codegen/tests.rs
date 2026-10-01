@@ -429,6 +429,39 @@ say clock_ms()
 }
 
 #[test]
+fn test_codegen_x86_extern_i64_args_push_8_bytes() {
+    // 64-bit C integers take 8-byte slots: pushing only the low word
+    // shifts every later param by one arg on x86 (uv poller fds
+    // mismatched, completion key/udata swapped). Signed spellings
+    // sign-extend, unsigned ones zero-extend.
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = r#"
+extern "C"
+    function fizz(a: i64, b: u64) -> i32
+end
+
+say fizz(1024, 777)
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm = generate(&ast, Architecture::X86, OperatingSystem::Linux);
+    assert!(asm.contains("call fizz"));
+    assert!(
+        asm.contains("sar $31, %ecx\n    push %ecx\n    push %eax"),
+        "signed i64 arg must sign-extend into an 8-byte push"
+    );
+    assert!(
+        asm.contains("xor %ecx, %ecx\n    push %ecx\n    push %eax"),
+        "unsigned u64 arg must zero-extend into an 8-byte push"
+    );
+}
+
+#[test]
 fn test_codegen_arm64_runtime_type_check_pointer_guard() {
     use crate::lexer::Lexer;
     use crate::parser::Parser;

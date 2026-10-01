@@ -2119,9 +2119,18 @@ impl CodeGen {
 
                 // x86 extern double convention (C ABI is exact):
                 // float-declared params take 8-byte doubles, float
-                // returns arrive in st0. Collected once, used by the
-                // push loop, the cleanup, and the return below.
-                let (extern_float_params, extern_returns_float): (Vec<bool>, bool) =
+                // returns arrive in st0. 64-bit integers (`int`/`i64`
+                // signed, `uint`/`u64` unsigned) likewise take 8-byte
+                // slots: pushing only the low word shifts every later
+                // param by one arg (uv poller fds mismatched, completion
+                // key/udata swapped). Collected once, used by the push
+                // loop, the cleanup, and the return below.
+                let (
+                    extern_float_params,
+                    extern_signed64_params,
+                    extern_unsigned64_params,
+                    extern_returns_float,
+                ): (Vec<bool>, Vec<bool>, Vec<bool>, bool) =
                     if matches!(self.arch, Architecture::X86) {
                         let info = self.ctx.extern_functions.get(call_name).or_else(|| {
                             let bare = call_name.rsplit("::").next().unwrap_or(call_name);
@@ -2142,15 +2151,23 @@ impl CodeGen {
                                         )
                                     })
                                     .collect(),
+                                inf.params
+                                    .iter()
+                                    .map(|t| matches!(t.as_deref(), Some("int") | Some("i64")))
+                                    .collect(),
+                                inf.params
+                                    .iter()
+                                    .map(|t| matches!(t.as_deref(), Some("uint") | Some("u64")))
+                                    .collect(),
                                 matches!(
                                     inf.return_type.as_deref(),
                                     Some("float") | Some("f64") | Some("f32") | Some("double")
                                 ),
                             ),
-                            None => (Vec::new(), false),
+                            None => (Vec::new(), Vec::new(), Vec::new(), false),
                         }
                     } else {
-                        (Vec::new(), false)
+                        (Vec::new(), Vec::new(), Vec::new(), false)
                     };
 
                 let initial_stack_offset = self.ctx.stack_offset;
@@ -2278,6 +2295,35 @@ impl CodeGen {
                                 self.output.push_str("    sub $8, %esp\n");
                                 self.output.push_str("    movsd %xmm0, (%esp)\n");
                                 pushed += 8;
+                            } else if !user_callee
+                                && (extern_signed64_params
+                                    .get(param_idx)
+                                    .copied()
+                                    .unwrap_or(false)
+                                    || extern_unsigned64_params
+                                        .get(param_idx)
+                                        .copied()
+                                        .unwrap_or(false))
+                            {
+                                // Declared-64-bit-integer extern param: the
+                                // value arrives in `%eax` carrying 32 bits,
+                                // so widen to a full 8-byte slot to keep
+                                // later params at C-ABI offsets
+                                // (sign-extended for signed spellings, zero
+                                // for unsigned).
+                                if extern_signed64_params
+                                    .get(param_idx)
+                                    .copied()
+                                    .unwrap_or(false)
+                                {
+                                    self.output.push_str("    mov %eax, %ecx\n");
+                                    self.output.push_str("    sar $31, %ecx\n");
+                                } else {
+                                    self.output.push_str("    xor %ecx, %ecx\n");
+                                }
+                                self.output.push_str("    push %ecx\n");
+                                arch::emit_push_temp(&mut self.output, self.arch);
+                                pushed += 8;
                             } else {
                                 arch::emit_push_temp(&mut self.output, self.arch);
                                 pushed += 4;
@@ -2350,11 +2396,11 @@ impl CodeGen {
                     }
                 }
                 self.ctx.stack_offset = initial_stack_offset;
-                // x86 float args push 8 bytes (not 4): the callee cleanup
+                // x86 8-byte args push 8 bytes (not 4): the callee cleanup
                 // emitted below only pops 4 per arg, so the remainder is
-                // popped here. Counts user proven-float args plus
-                // declared-float extern args plus intrinsic-native table
-                // args (see the push loop above).
+                // popped here. Counts user proven-float/double args plus
+                // declared-float and declared-64-bit-int extern args plus
+                // intrinsic-native table args (see the push loop above).
                 // (alya-lang/alya#59 follow-up).
                 let x86_float_extra: i32 = if matches!(self.arch, Architecture::X86) {
                     let user_n = if self.ctx.functions.contains(call_name) {
@@ -2368,7 +2414,19 @@ impl CodeGen {
                     } else {
                         0
                     };
-                    let extern_n = extern_float_params.iter().filter(|&&b| b).count();
+                    let extern_n = {
+                        let n = extern_float_params
+                            .len()
+                            .max(extern_signed64_params.len())
+                            .max(extern_unsigned64_params.len());
+                        (0..n)
+                            .filter(|i| {
+                                extern_float_params.get(*i).copied().unwrap_or(false)
+                                    || extern_signed64_params.get(*i).copied().unwrap_or(false)
+                                    || extern_unsigned64_params.get(*i).copied().unwrap_or(false)
+                            })
+                            .count()
+                    };
                     let native_n = if self.ctx.functions.contains(call_name)
                         || !matches!(self.arch, Architecture::X86)
                     {
