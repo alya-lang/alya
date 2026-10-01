@@ -20,7 +20,51 @@ fn rule_metadata(rule: &str) -> (&'static str, &'static str, &'static [&'static 
         "constant-condition" => ("Constant condition", "warning", &["correctness"]),
         "useless-expression" => ("Useless expression", "warning", &["maintainability"]),
         "naming-convention" => ("Naming convention violation", "note", &["maintainability"]),
+        "dynamic-is-float" => (
+            "Best-effort float check on dynamic value",
+            "warning",
+            &["correctness"],
+        ),
         _ => ("Alya lint finding", "warning", &["maintainability"]),
+    }
+}
+
+/// Per-rule markdown shown by code scanning as rule help. GitHub renders
+/// this `help.text`, not `helpUri`, so without it the alert page says
+/// "No rule help available for this alert."
+fn rule_help(rule: &str) -> &'static str {
+    match rule {
+        "unused-var" => {
+            "Local variable is declared but never read. Prefix intentional unused bindings with `_`, or remove the declaration."
+        }
+        "unused-param" => {
+            "Function parameter is never used in the body. Prefix intentional ones with `_`."
+        }
+        "unused-import" => {
+            "Imported module or symbol is never referenced. Remove the import."
+        }
+        "dead-code" => {
+            "Statement is unreachable (after `return`, `throw`, or an infinite loop). Remove it or fix the control flow."
+        }
+        "idiomatic-style" => {
+            "Unidiomatic construct or anti-pattern. Apply the replacement from the diagnostic message (e.g. `when` pattern matching instead of a long `if`/`elif` chain)."
+        }
+        "self-comparison" => {
+            "Value is compared with itself (`x == x`), which is almost always a bug. Compare against the intended operand."
+        }
+        "constant-condition" => {
+            "`if`/`while` condition is constant, making a branch dead or infinite. Replace it with the intended condition."
+        }
+        "useless-expression" => {
+            "Expression statement value is discarded and it has no side effects. Remove the statement or use its value."
+        }
+        "naming-convention" => {
+            "Declaration does not follow `snake_case` naming. Rename it (types keep their own convention)."
+        }
+        "dynamic-is-float" => {
+            "`is float` on a value whose kind is not statically provable is best-effort and may misread a real float. Annotate the source with `-> float` or check a literal instead."
+        }
+        _ => "See the Alya lint rule catalog via the rule help link.",
     }
 }
 
@@ -123,6 +167,7 @@ pub fn sarif_log_with_invocation(
             serde_json::json!({
                 "id": id,
                 "shortDescription": { "text": description },
+                "help": { "text": rule_help(id) },
                 "helpUri": rule_help_uri(id),
                 "properties": { "tags": tags },
                 "defaultConfiguration": { "level": default_level },
@@ -259,6 +304,7 @@ mod tests {
         assert!(ids.contains(&"naming-convention"));
         for r in rules {
             assert!(!r["shortDescription"]["text"].as_str().unwrap().is_empty());
+            assert!(!r["help"]["text"].as_str().unwrap().is_empty());
             assert!(["error", "warning", "note"]
                 .contains(&r["defaultConfiguration"]["level"].as_str().unwrap()));
             assert!(r["helpUri"]
