@@ -616,3 +616,40 @@ main()
         assert_eq!(output, "int\nint\nint\nstring\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_x86_struct_float_field_as_call_arg() {
+    // Struct float fields live in uniform 8-byte slots and the field
+    // read leaves the double in `%xmm0` (like map/array gets), so a
+    // field read passed to a float param must push 8 bytes, not 4.
+    // (math package: `t_approx(s.re, ...)` read back shifted garbage.)
+    let code = r#"
+struct Cxy
+    re: float,
+    im: float
+end
+
+function t_approx(a: float, b: float, eps: float) -> int
+    let d = a - b
+    if d < 0.0
+        d = 0.0 - d
+    end
+    if d <= eps
+        return 1
+    end
+    return 0
+end
+
+function main()
+    let s = Cxy { re: 4.0, im: -2.0 }
+    say t_approx(s.re, 4.0, 0.000001)
+    say t_approx(s.im, -2.0, 0.000001)
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "1\n1\n", "Got: {}", output);
+    }
+}

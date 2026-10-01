@@ -31,6 +31,7 @@ fn entry_files() -> Vec<String> {
         "05_push_float_array.alya".to_string(),
         "06_tag_dispatch.alya".to_string(),
         "07_shared_helper_is_checks.alya".to_string(),
+        "08_struct_float_call_arg.alya".to_string(),
     ]
 }
 
@@ -318,6 +319,21 @@ fn test_integration_07_shared_helper_is_output() {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("integration 07_shared_helper_is: OK"));
         assert!(output.contains("MAP\nH\nOTHER"));
+    }
+}
+
+#[test]
+fn test_integration_08_struct_float_arg_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 08_struct_float_arg: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("08_struct_float_call_arg.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 08_struct_float_arg: OK"));
+        assert!(output.contains("1\n1\n"));
     }
 }
 

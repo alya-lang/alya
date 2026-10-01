@@ -1,0 +1,34 @@
+# ==============================================================================
+# Alya Integration Fixture 08 (entry): struct float field as call arg
+# Distilled from: Lib/math complex arithmetic on x86
+#         (t_approx(s.re, ...) read back shifted garbage)
+# Guards: struct float fields live in uniform 8-byte slots whose read
+#         leaves the double in `%xmm0`, so passing one to a float param
+#         must push the full double on every backend (x86 pushed 4).
+# ==============================================================================
+
+struct Cxy
+    re: float,
+    im: float
+end
+
+function t_approx(a: float, b: float, eps: float) -> int
+    let d = a - b
+    if d < 0.0
+        d = 0.0 - d
+    end
+    if d <= eps
+        return 1
+    end
+    return 0
+end
+
+function main()
+    let s = Cxy { re: 4.0, im: -2.0 }
+    say t_approx(s.re, 4.0, 0.000001)
+    say t_approx(s.im, -2.0, 0.000001)
+end
+
+main()
+
+say f"integration 08_struct_float_arg: OK"

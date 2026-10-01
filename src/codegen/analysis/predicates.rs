@@ -1433,6 +1433,24 @@ pub fn is_proven_float_store(expr: &Expr, vars: &HashMap<String, VarType>) -> bo
             }
             false
         }
+        Expr::FieldAccess { object, field } | Expr::OptionalFieldAccess { object, field } => {
+            // Struct float fields live in uniform 8-byte slots and the
+            // field read leaves the double in `%xmm0` (like map/array
+            // gets), so a field read passed to a float param pushes 8
+            // bytes. Only the exact per-struct marker counts: the
+            // global `struct_field_flt` can be polluted by an unrelated
+            // struct holding a float under the same field name (same
+            // rationale as the map rule above).
+            if let Expr::Identifier(obj_name) = &**object {
+                if let Some(VarType::Struct { struct_name, .. }) = vars.get(obj_name) {
+                    let field_key = format!("struct_field_flt:{}.{}", struct_name, field);
+                    if vars.contains_key(&field_key) {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
         // A same-scope ternary with all-proven arms leaves the taken
         // arm's double in `%xmm0` on every path. Mixed arms stay
         // unproven (neither register holds both shapes).
