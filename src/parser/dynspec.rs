@@ -644,6 +644,11 @@ fn classify_arg(arg: &Expr, binds: Option<&HashMap<String, BindVal>>) -> Option<
 /// fallback for qualified/UFCS spellings. Routing stays sound because
 /// every use requires proven kinds. Specializations are never
 /// re-entered (their calls were already rewritten).
+/// The bare fallback bails on ambiguity (alya-lang/event#5): several
+/// same-named methods (e.g. `TcpStream.write` and `RingBuffer.write`)
+/// share one bare name, and picking by hash order misroutes receivers
+/// to the wrong type (flaky across builds). With several matches the
+/// call stays generic; codegen resolves it by receiver or fails loudly.
 fn callee_def<'a>(candidates: &'a HashMap<String, Candidate>, name: &str) -> Option<&'a Candidate> {
     if name.contains("__spk__") {
         return None;
@@ -651,14 +656,16 @@ fn callee_def<'a>(candidates: &'a HashMap<String, Candidate>, name: &str) -> Opt
     candidates.get(name).or_else(|| {
         let bare = name.rsplit("::").next().unwrap_or(name);
         let bare = bare.rsplit("__").next().unwrap_or(bare);
-        candidates
-            .iter()
-            .find(|(k, _)| {
-                let kb = k.rsplit("::").next().unwrap_or(k);
-                let kb = kb.rsplit("__").next().unwrap_or(kb);
-                kb == bare
-            })
-            .map(|(_, c)| c)
+        let mut matches = candidates.iter().filter(|(k, _)| {
+            let kb = k.rsplit("::").next().unwrap_or(k);
+            let kb = kb.rsplit("__").next().unwrap_or(kb);
+            kb == bare
+        });
+        let first = matches.next()?;
+        if matches.next().is_some() {
+            return None;
+        }
+        Some(first.1)
     })
 }
 
@@ -1004,5 +1011,66 @@ fn walk_top_stmt(
             new_clones,
         ),
         _ => rewrite_stmt_calls(stmt, candidates, binds, Some(""), versions, new_clones),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn candidate(name: &str) -> Candidate {
+        Candidate {
+            name: name.to_string(),
+            stmt: Stmt::Function {
+                name: name.to_string(),
+                params: vec!["self".to_string(), "data".to_string()],
+                param_types: vec![None, None],
+                return_type: None,
+                defaults: vec![None, None],
+                body: vec![],
+                type_params: vec![],
+                attributes: vec![],
+            },
+            params: vec!["self".to_string(), "data".to_string()],
+            open_idx: vec![1],
+            tests: true,
+        }
+    }
+
+    #[test]
+    fn callee_def_exact_name_wins() {
+        let mut candidates = HashMap::new();
+        candidates.insert("RingB__write".to_string(), candidate("RingB__write"));
+        let found = callee_def(&candidates, "RingB__write").unwrap();
+        assert_eq!(found.name, "RingB__write");
+    }
+
+    #[test]
+    fn callee_def_single_bare_match_routes() {
+        // One bare-name match keeps the legacy routing: there is no
+        // alternative to confuse it with.
+        let mut candidates = HashMap::new();
+        candidates.insert("RingB__write".to_string(), candidate("RingB__write"));
+        let found = callee_def(&candidates, "write").unwrap();
+        assert_eq!(found.name, "RingB__write");
+    }
+
+    #[test]
+    fn callee_def_ambiguous_bare_name_bails() {
+        // alya-lang/event#5: several same-named methods share one bare
+        // name (`TcpStream.write`, `RingBuffer.write`, ...). Routing by
+        // hash order misroutes receivers to the wrong type (flaky across
+        // builds), so ambiguous bare matches resolve to nothing and the
+        // call stays generic for receiver-based codegen instead.
+        let mut candidates = HashMap::new();
+        candidates.insert("TcpS__write".to_string(), candidate("TcpS__write"));
+        candidates.insert("RingB__write".to_string(), candidate("RingB__write"));
+        candidates.insert("StreamB__write".to_string(), candidate("StreamB__write"));
+        assert!(callee_def(&candidates, "write").is_none());
+        // Exact names still resolve.
+        assert_eq!(
+            callee_def(&candidates, "TcpS__write").unwrap().name,
+            "TcpS__write"
+        );
     }
 }

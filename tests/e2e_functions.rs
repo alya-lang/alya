@@ -912,3 +912,57 @@ say m[1] == m[1]
         assert_eq!(output, "1\n1\n1\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_ambiguous_method_never_misroutes() {
+    // alya-lang/event#5: two same-named methods with `is` bodies are
+    // both dynspec candidates sharing one bare name. Call-site
+    // specialization must not route a receiver to the wrong type's
+    // method (it did, by hash order). Ambiguous bare calls stay
+    // generic; codegen resolves by the annotated receiver instead.
+    let code = r#"
+struct TcpS
+    fd: int
+end
+
+struct RingB
+    raw: string
+end
+
+function TcpS.write(self: TcpS, data) -> int
+    if self is null or data is null
+        return 0
+    end
+    return 1
+end
+
+function RingB.write(self: RingB, data) -> int
+    if self is null or data is null
+        return 0
+    end
+    return 2
+end
+
+function write_via(s: TcpS, d) -> int
+    return s.write(d)
+end
+
+function write_via_ring(r: RingB, d) -> int
+    return r.write(d)
+end
+
+function main()
+    let t = TcpS { fd: 7 }
+    say write_via(t, "hi")
+    say write_via(t, "yo")
+    let g = RingB { raw: "x" }
+    say write_via_ring(g, "hi")
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "1\n1\n2\n", "Got: {}", output);
+    }
+}
