@@ -713,6 +713,57 @@ pub fn is_array_fold_true(expr: &Expr, vars: &HashMap<String, VarType>) -> bool 
     }
 }
 
+/// `is string` may fold to true only on exact evidence
+/// (alya-lang/alya#71). Plain identifiers need the strict prologue
+/// marker (`param_str_strict:`): the may-marking also covers
+/// merely-possible strings (existential per-call evidence gated only
+/// by literal vetoes). Everything else keeps the legacy predicate.
+pub fn is_string_fold_true(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    match expr {
+        Expr::Identifier(name) => vars.contains_key(&format!("param_str_strict:{}", name)),
+        _ => is_string_expr(expr, vars),
+    }
+}
+
+/// True when re-evaluating `expr` is side-effect free and
+/// allocation-free, so a multi-branch cascade may evaluate it per
+/// branch with identical semantics. Calls and freshly built values
+/// (arrays, maps, structs, interpolated strings) evaluate once into a
+/// hidden cell instead.
+pub fn typeof_operand_is_repeatable(expr: &Expr) -> bool {
+    match expr {
+        Expr::Call { .. } | Expr::OptionalCall { .. } => false,
+        Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. } | Expr::InterpolatedString(_) => {
+            false
+        }
+        Expr::Binary { left, right, .. } => {
+            typeof_operand_is_repeatable(left) && typeof_operand_is_repeatable(right)
+        }
+        Expr::Unary { expr, .. } | Expr::ForceUnwrap(expr) => typeof_operand_is_repeatable(expr),
+        Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+            typeof_operand_is_repeatable(array) && typeof_operand_is_repeatable(index)
+        }
+        Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+            typeof_operand_is_repeatable(object)
+        }
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            typeof_operand_is_repeatable(condition)
+                && typeof_operand_is_repeatable(then_branch)
+                && typeof_operand_is_repeatable(else_branch)
+        }
+        Expr::NullCoalesce { value, default } => {
+            typeof_operand_is_repeatable(value) && typeof_operand_is_repeatable(default)
+        }
+        Expr::Cast { expr, .. } => typeof_operand_is_repeatable(expr),
+        Expr::TypeCheck { expr, .. } => typeof_operand_is_repeatable(expr),
+        _ => true,
+    }
+}
+
 /// `is map` may fold to true only on exact evidence
 /// (alya-lang/alya#70). Mirrors `is_array_fold_true`.
 pub fn is_map_fold_true(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {

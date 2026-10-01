@@ -988,6 +988,156 @@ main()
 }
 
 #[test]
+fn test_e2e_issue71_typeof_shared_helper() {
+    // alya-lang/alya#71: `typeof` inside a shared helper must
+    // discriminate at runtime when callers pass different static kinds.
+    let code = r#"
+function kind_of(v) -> string
+    return typeof(v)
+end
+
+function disp(val, level: int, indent_size: int) -> string
+    if val is null
+        return "null"
+    end
+    return kind_of(val)
+end
+
+function main()
+    say disp({ "a": 1 }, 0, 2)
+    say disp([1], 0, 2)
+    say disp(42, 0, 2)
+    say disp("hi", 0, 2)
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "map\narray\nint\nstring\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_issue71_typeof_dynamic_param() {
+    // Unmarked dynamic params must also dispatch at runtime
+    // (previously everything folded to "int").
+    // NOTE: the dynamic float reports "int": without value tags a raw
+    // f64 is indistinguishable from an int at runtime, so floats land
+    // in the int bucket (same contract as `say` printing the bits and
+    // `is float` answering false). Only statically-known floats report
+    // "float".
+    let code = r#"
+function k(v) -> string
+    return typeof(v)
+end
+
+function main()
+    say k("hi")
+    say k([1])
+    say k(42)
+    say k(4.5)
+    say k({ "a": 1 })
+    say k(null)
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output, "string\narray\nint\nint\nmap\nint\n",
+            "Got: {}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_issue71_typeof_evaluates_once() {
+    // An impure argument must run exactly once.
+    let code = r#"
+let calls = [0]
+
+function next() -> int
+    calls[0] = calls[0] + 1
+    return calls[0]
+end
+
+function main()
+    say typeof(next())
+    say calls[0]
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "int\n1\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_issue71_is_string_shared_helper() {
+    // Same existential-evidence hole as #70, through string inference:
+    // `is string` inside a shared helper must not fold when callers
+    // pass different static kinds.
+    let code = r#"
+function is_str(v) -> int
+    if v is string
+        return 1
+    end
+    return 0
+end
+
+function disp(val, level: int) -> string
+    if is_str(val) == 1
+        return "STR"
+    else
+        return "OTHER"
+    end
+end
+
+function main()
+    say disp({ "a": 1 }, 0)
+    say disp([1], 0)
+    say disp(42, 0)
+    say disp("hi", 0)
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "OTHER\nOTHER\nOTHER\nSTR\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_is_array_dynamic_float_no_crash() {
+    // Header-kind reads must never fault on float bit patterns or
+    // negative aligned ints through generic dispatch (x64 high-bits
+    // guard; arm64 already had `lsr #47`).
+    let code = r#"
+function t(v)
+    say v is array
+    say v is map
+end
+
+function wrap(x)
+    t(x)
+end
+
+function main()
+    wrap(4.5)
+    wrap(-8)
+    wrap([1])
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "0\n0\n0\n0\n1\n0\n", "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_explicit_type_annotations() {
     let code = r#"
 # 1. Scalar types with explicit annotations

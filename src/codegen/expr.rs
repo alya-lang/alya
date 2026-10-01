@@ -4,8 +4,9 @@ use crate::codegen::analysis::{
     eq_operand_is_dynamic, escape_string, is_array_expr, is_array_fold_true,
     is_definitely_not_numeric, is_float_expr, is_map_expr, is_map_fold_true, is_null_expr,
     is_number_expr, is_proven_float_store, is_strict_dynamic_op, is_string_expr,
-    is_tag_carrying_read, struct_field_markers_mixed_vars, ternary_arm_carries, value_kind_tag,
-    value_kind_tag_x86_store, x86_arg_pushes_double,
+    is_string_fold_true, is_tag_carrying_read, struct_field_markers_mixed_vars,
+    ternary_arm_carries, typeof_operand_is_repeatable, value_kind_tag, value_kind_tag_x86_store,
+    x86_arg_pushes_double,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -1224,31 +1225,38 @@ impl CodeGen {
                 }
 
                 if name == "typeof" && args.len() == 1 {
-                    let type_name: String = if is_string_expr(&args[0], &self.ctx.variables) {
-                        "string".to_string()
-                    } else if is_float_expr(&args[0], &self.ctx.variables) {
-                        "float".to_string()
-                    } else if is_array_expr(&args[0], &self.ctx.variables) {
-                        "array".to_string()
-                    } else if is_map_expr(&args[0], &self.ctx.variables) {
-                        "map".to_string()
-                    } else if let Some(sname) = self.get_expr_struct_name(&args[0]) {
-                        sname
-                    } else if let Expr::Identifier(ref id) = args[0] {
-                        match self.ctx.variables.get(id) {
-                            Some(VarType::Float(_)) => "float".to_string(),
-                            Some(VarType::StringOffset(_) | VarType::StringLabel(_)) => {
-                                "string".to_string()
-                            }
-                            Some(VarType::Array(_)) => "array".to_string(),
-                            Some(VarType::Map(_)) => "map".to_string(),
-                            Some(VarType::Struct { struct_name, .. }) => struct_name.clone(),
-                            _ => "int".to_string(),
+                    // Struct/enum names are exact (annotation-driven).
+                    if let Some(sname) = self.get_expr_struct_name(&args[0]) {
+                        self.generate_expression(&Expr::String(sname));
+                        return;
+                    }
+                    // alya-lang/alya#71: identifiers fold only on strict
+                    // (must-) proof; the legacy chain below trusts
+                    // may-markings that also cover merely-possible kinds.
+                    if let Expr::Identifier(ref id) = args[0] {
+                        if self
+                            .ctx
+                            .variables
+                            .contains_key(&format!("param_arr_strict:{}", id))
+                        {
+                            self.generate_expression(&Expr::String("array".to_string()));
+                            return;
                         }
-                    } else {
-                        "int".to_string()
-                    };
-                    self.generate_expression(&Expr::String(type_name));
+                        if self
+                            .ctx
+                            .variables
+                            .contains_key(&format!("param_map_strict:{}", id))
+                        {
+                            self.generate_expression(&Expr::String("map".to_string()));
+                            return;
+                        }
+                    } else if let Some(kind) = Self::typeof_literal_kind(&args[0]) {
+                        // Literals carry their kind exactly; folding them
+                        // keeps the historical constant vocabulary.
+                        self.generate_expression(&Expr::String(kind.to_string()));
+                        return;
+                    }
+                    self.emit_typeof_cascade(&args[0]);
                     return;
                 }
 
@@ -3721,6 +3729,93 @@ impl CodeGen {
         }
     }
 
+    /// Exact static `typeof` vocabulary for literals (alya-lang/alya#71).
+    /// Everything else dispatches at runtime via `emit_typeof_cascade`.
+    fn typeof_literal_kind(expr: &Expr) -> Option<&'static str> {
+        match expr {
+            Expr::Number(_) | Expr::Null => Some("int"),
+            Expr::Float(_) => Some("float"),
+            Expr::String(_) | Expr::InterpolatedString(_) => Some("string"),
+            Expr::Array(_) => Some("array"),
+            Expr::Map(_) => Some("map"),
+            _ => None,
+        }
+    }
+
+    /// Runtime `typeof` dispatch (alya-lang/alya#71): a cascade of `is`
+    /// checks over one operand, ending in the historical `"int"`
+    /// fallback (ints, nulls, bools and anything else unrecognized all
+    /// report `"int"`, matching the literal vocabulary). Reuses the
+    /// verified dynamic `is` paths, so every branch discriminates at
+    /// runtime. Repeatable operands re-evaluate per branch (observably
+    /// identical); anything else evaluates once into a hidden
+    /// single-element cell (`__typeof_cell` frame slot) and branches
+    /// read element 0 — index reads carry no may-markings, so every
+    /// check dispatches at runtime. No retain/release delta: checks
+    /// never consume their operand, the same ownership profile as `is`
+    /// on a call today.
+    fn emit_typeof_cascade(&mut self, operand: &Expr) {
+        let branch_operand: Expr;
+        let mut prev_binding = None;
+        if typeof_operand_is_repeatable(operand) {
+            branch_operand = operand.clone();
+        } else {
+            arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+            let slot = self.ctx.stack_offset;
+            self.generate_expression(&Expr::Array(vec![operand.clone()]));
+            arch::emit_store_var(&mut self.output, self.arch, slot, self.ctx.stack_offset);
+            prev_binding = self
+                .ctx
+                .variables
+                .insert("__typeof_cell".to_string(), VarType::Array(slot));
+            branch_operand = Expr::Index {
+                array: Box::new(Expr::Identifier("__typeof_cell".to_string())),
+                index: Box::new(Expr::Number(0)),
+            };
+        }
+        let end_label = self.ctx.next_label();
+        // x86 skips the header checks: 32-bit slots cannot tell a heap
+        // address from float low-bits, so an unguarded dereference may
+        // fault where the 64-bit high-bits guard keeps it safe. x86
+        // arrays/maps through dynamic `typeof` report "int" (same as
+        // the old constant fallback) instead of risking the read.
+        let kinds: &[(&str, &str)] = match self.arch {
+            Architecture::X86 => &[("string", "string"), ("float", "float")],
+            _ => &[
+                ("array", "array"),
+                ("map", "map"),
+                ("string", "string"),
+                ("float", "float"),
+            ],
+        };
+        for (target, kind_name) in kinds {
+            let next_label = self.ctx.next_label();
+            self.generate_condition_jump_if_false(
+                &Expr::TypeCheck {
+                    expr: Box::new(branch_operand.clone()),
+                    target: target.to_string(),
+                    negated: false,
+                },
+                &next_label,
+            );
+            self.generate_expression(&Expr::String(kind_name.to_string()));
+            arch::emit_jump(&mut self.output, self.arch, &end_label);
+            self.output.push_str(&format!("{}:\n", next_label));
+        }
+        self.generate_expression(&Expr::String("int".to_string()));
+        self.output.push_str(&format!("{}:\n", end_label));
+        if prev_binding.is_some() || self.ctx.variables.contains_key("__typeof_cell") {
+            match prev_binding {
+                Some(prev) => {
+                    self.ctx.variables.insert("__typeof_cell".to_string(), prev);
+                }
+                None => {
+                    self.ctx.variables.remove("__typeof_cell");
+                }
+            }
+        }
+    }
+
     fn generate_type_check(&mut self, expr: &Expr, target: &str, negated: bool) {
         let t = target.to_lowercase();
         match t.as_str() {
@@ -3895,12 +3990,12 @@ impl CodeGen {
                     }
                     return;
                 }
-                let is_str = is_string_expr(expr, &self.ctx.variables);
+                let is_str = is_string_fold_true(expr, &self.ctx.variables);
                 if is_str {
                     arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
                 } else if is_float_expr(expr, &self.ctx.variables)
-                    || is_array_expr(expr, &self.ctx.variables)
-                    || is_map_expr(expr, &self.ctx.variables)
+                    || is_array_fold_true(expr, &self.ctx.variables)
+                    || is_map_fold_true(expr, &self.ctx.variables)
                     || is_null_expr(expr, &self.ctx.variables)
                     || matches!(expr, Expr::Number(_) | Expr::Float(_))
                 {
@@ -3959,7 +4054,7 @@ impl CodeGen {
                 // The legacy `is_array_expr` trusts the may-marking, which
                 // also covers merely-possible arrays.
                 let is_arr = is_array_fold_true(expr, &self.ctx.variables);
-                let is_def_non = is_string_expr(expr, &self.ctx.variables)
+                let is_def_non = is_string_fold_true(expr, &self.ctx.variables)
                     || is_map_fold_true(expr, &self.ctx.variables)
                     || is_float_expr(expr, &self.ctx.variables)
                     || is_null_expr(expr, &self.ctx.variables)
@@ -3975,7 +4070,7 @@ impl CodeGen {
             "map" | "dict" => {
                 // alya-lang/alya#70: same exactness contract as above.
                 let is_map = is_map_fold_true(expr, &self.ctx.variables);
-                let is_def_non = is_string_expr(expr, &self.ctx.variables)
+                let is_def_non = is_string_fold_true(expr, &self.ctx.variables)
                     || is_array_fold_true(expr, &self.ctx.variables)
                     || is_float_expr(expr, &self.ctx.variables)
                     || is_null_expr(expr, &self.ctx.variables)
@@ -4629,6 +4724,15 @@ impl CodeGen {
             Architecture::X64 => {
                 self.output.push_str("    test %rax, %rax\n");
                 self.output.push_str(&format!("    jz {}\n", false_label));
+                // High-bits guard (mirrors the arm64 `lsr #47` below):
+                // user heap addresses are below 2^47, but raw float
+                // bits and negative ints are not. Dereferencing those
+                // reads garbage or segfaults (alya-lang/alya#71);
+                // skipping the header read reports a safe false.
+                self.output.push_str("    mov %rax, %rdx\n");
+                self.output.push_str("    shr $47, %rdx\n");
+                self.output.push_str("    test %rdx, %rdx\n");
+                self.output.push_str(&format!("    jnz {}\n", false_label));
                 self.output.push_str("    test $7, %rax\n");
                 self.output.push_str(&format!("    jnz {}\n", false_label));
                 self.output.push_str("    cmp $65536, %rax\n");

@@ -1596,6 +1596,12 @@ impl CodeGen {
                         || t.starts_with("map[")
                         || (t.starts_with('[') && t.contains(':') && t.ends_with(']'))
                 });
+            // Explicit string annotations are enforced by the type
+            // checker, so they are exact like the collection ones.
+            let annot_str = param_types
+                .get(i)
+                .and_then(|t| t.as_deref())
+                .is_some_and(|t| t == "string" || t == "str");
             let mut is_arr = inference.infer_param_is_array(name, i, program) || annot_arr;
             let mut is_str_arr = inference.infer_param_is_string_array(name, i, program);
             let mut is_flt_arr = inference.infer_param_is_float_array(name, i, program);
@@ -1657,6 +1663,11 @@ impl CodeGen {
             let is_map_strict = annot_map
                 || spec_kind == Some('m')
                 || inference.infer_param_is_map_strict(name, i, program);
+            // Strict string fact for `is string` folding
+            // (alya-lang/alya#71): the may-fact also covers
+            // merely-possible strings, so folding trusts only enforced
+            // annotations and dynspec codes here.
+            let is_str_strict = annot_str || spec_kind == Some('s');
             let struct_type = if let Some(Some(t)) = param_types.get(i) {
                 let bare_base = t.split('[').next().unwrap_or(t);
                 let b = bare_base.rsplit("::").next().unwrap_or(bare_base);
@@ -1758,6 +1769,11 @@ impl CodeGen {
                 self.ctx
                     .variables
                     .insert(param.clone(), VarType::StringOffset(self.ctx.stack_offset));
+                if is_str_strict {
+                    self.ctx
+                        .variables
+                        .insert(format!("param_str_strict:{}", param), VarType::Number(0));
+                }
             } else if is_flt {
                 self.ctx
                     .variables

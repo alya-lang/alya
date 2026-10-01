@@ -588,3 +588,31 @@ main()
         assert_eq!(output, "MAP\nH\nOTHER\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_x86_issue71_typeof_degraded_to_int() {
+    // alya-lang/alya#71 on x86: 32-bit slots cannot tell a heap
+    // address from float low-bits, so the cascade skips the header
+    // checks instead of risking the read. Arrays/maps through dynamic
+    // `typeof` report "int" (the old constant fallback) while strings
+    // still dispatch at runtime. Locked in as documented behavior, not
+    // as a goal: a future tagged representation should close it.
+    let code = r#"
+function kind_of(v) -> string
+    return typeof(v)
+end
+
+function main()
+    say kind_of({ "a": 1 })
+    say kind_of([1])
+    say kind_of(42)
+    say kind_of("hi")
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "int\nint\nint\nstring\n", "Got: {}", output);
+    }
+}
