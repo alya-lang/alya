@@ -15,6 +15,11 @@ on:
         type: boolean
         required: true
         default: true
+      commit_distribution:
+        description: 'Commit distribution files (packages/distribution)'
+        type: boolean
+        required: true
+        default: true
 
 permissions:
   contents: write
@@ -166,6 +171,9 @@ jobs:
           files: dist/*
 
       - name: Update Distribution Manifests and Push Checksums
+        # Tag pushes keep the old behavior (always commit); manual runs
+        # follow the checkbox (on by default).
+        if: github.ref_type == 'tag' || inputs.commit_distribution == true
         run: |
           TAG="${{ steps.notes.outputs.tag }}"
           WIN_SHA=$(cut -d' ' -f1 < dist/alya-${TAG}-x86_64-windows.zip.sha256)
