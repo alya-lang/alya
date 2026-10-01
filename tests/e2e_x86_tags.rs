@@ -327,6 +327,104 @@ main()
 }
 
 #[test]
+fn test_x86_map_float_let_spill() {
+    // Inferred-`any` locals bound from a map float read must keep the
+    // full double: the `let` used to push only `%eax` (the lo word),
+    // so `2.5` (0x4004000000000000) read back as `0`.
+    let code = r#"
+function main()
+    let m = { "f1": 2.5 }
+    let v = m["f1"]
+    say v
+    say v + 0.5
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "2.5\n3\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_x86_map_float_arg_to_float_param() {
+    // A map float read passed to a `float` param must arrive as an
+    // 8-byte double: the caller pushed only `%eax`, so the callee
+    // read lo-word plus adjacent stack garbage.
+    let code = r#"
+function ident_f(x: float) -> float
+    return x
+end
+
+function main()
+    let m = { "f1": 2.5 }
+    say ident_f(m["f1"])
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "2.5\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_x86_map_float_dynamic_key_arg_and_layout() {
+    // Dynamic keys carry no marker (the cache package pattern), and a
+    // widened first arg must not shift the slots after it.
+    let code = r#"
+function ident_f(x: float) -> float
+    return x
+end
+
+function getf(values: map, k: string) -> float
+    return ident_f(values[k])
+end
+
+function mix(x: float, y: int) -> float
+    return x + y
+end
+
+function main()
+    let m = { "f1": 2.5, "i1": 7 }
+    say getf(m, "f1")
+    say mix(m["f1"], m["i1"])
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "2.5\n9.5\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_x86_map_int_arg_to_int_param_unchanged() {
+    // Widened index pushes stay value-safe for 4-byte callees: an int
+    // param still reads the same lo word, and the caller cleanup stays
+    // balanced (a mismatch here would crash, not just misprint).
+    let code = r#"
+function ident_i(x: int) -> int
+    return x
+end
+
+function main()
+    let m = { "i1": 7 }
+    say ident_i(m["i1"])
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "7\n", "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_x86_say_int_consts() {
     // Regression test for alya-lang/alya#56: `%lld` reads 8 bytes, so
     // constant ints must push hi+lo (not a single 4-byte word).

@@ -1315,6 +1315,19 @@ pub fn is_proven_float_store(expr: &Expr, vars: &HashMap<String, VarType>) -> bo
                 }
                 return false;
             }
+            // Map string-index reads with a recorded float marker: the
+            // map get leaves the entry's f64 bits in `%xmm0` on every
+            // path (the same get contract as `arr_is_flt` reads above),
+            // so the slot can be stored with `movsd`. Only the
+            // map-specific marker counts as proven: the global
+            // `map_field_flt` can be polluted by an unrelated map
+            // holding a float under the same field name.
+            if let (Expr::Identifier(map_name), Expr::String(field)) = (&**array, &**index) {
+                if vars.contains_key(&format!("map_flt:{}.{}", map_name, field)) {
+                    return true;
+                }
+                return false;
+            }
             false
         }
         // A same-scope ternary with all-proven arms leaves the taken
@@ -1355,6 +1368,19 @@ pub fn is_proven_float_store(expr: &Expr, vars: &HashMap<String, VarType>) -> bo
         | Expr::Cast { .. } => true,
         _ => false,
     }
+}
+
+/// True when an x86 user-callee call arg must push an 8-byte double:
+/// proven float shapes, plus any index read. The map/array get contract
+/// leaves the entry's f64 bits in `%xmm0` on every path, and the callee
+/// consumes 8 bytes for every float param — while int, untyped and
+/// pointer params read the same lo word an 8-byte push leaves as a
+/// 4-byte push would. Widening is therefore value-safe for every callee
+/// shape and layout-correct for float params. Dynamic keys carry no
+/// marker, so the proven predicate alone cannot cover them (e.g.
+/// `snapshot_encode_float(values[k])` in the cache package).
+pub fn x86_user_arg_pushes_double(arg: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    is_proven_float_store(arg, vars) || matches!(arg, Expr::Index { .. })
 }
 
 /// Store kind for x86 element writes: like [`value_kind_tag`], but a float
