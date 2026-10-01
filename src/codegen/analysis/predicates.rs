@@ -685,6 +685,58 @@ pub fn is_map_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     }
 }
 
+/// `is array` may fold to true only on exact evidence
+/// (alya-lang/alya#70). Plain identifiers need the strict prologue
+/// marker (`param_arr_strict:`): the may-marking (`VarType::Array`)
+/// also covers merely-possible arrays (existential call-site rule,
+/// alya-lang/alya#47), which folding must not trust. Transparent
+/// shapes recurse; everything else keeps the legacy predicate.
+pub fn is_array_fold_true(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    match expr {
+        Expr::Identifier(name) => vars.contains_key(&format!("param_arr_strict:{}", name)),
+        Expr::ForceUnwrap(inner) => is_array_fold_true(inner, vars),
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            (is_array_fold_true(then_branch, vars) || is_null_expr(then_branch, vars))
+                && (is_array_fold_true(else_branch, vars) || is_null_expr(else_branch, vars))
+                && (is_array_fold_true(then_branch, vars) || is_array_fold_true(else_branch, vars))
+        }
+        Expr::NullCoalesce { value, default } => {
+            (is_array_fold_true(value, vars) || is_null_expr(value, vars))
+                && (is_array_fold_true(default, vars) || is_null_expr(default, vars))
+                && (is_array_fold_true(value, vars) || is_array_fold_true(default, vars))
+        }
+        _ => is_array_expr(expr, vars),
+    }
+}
+
+/// `is map` may fold to true only on exact evidence
+/// (alya-lang/alya#70). Mirrors `is_array_fold_true`.
+pub fn is_map_fold_true(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    match expr {
+        Expr::Identifier(name) => vars.contains_key(&format!("param_map_strict:{}", name)),
+        Expr::ForceUnwrap(inner) => is_map_fold_true(inner, vars),
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            (is_map_fold_true(then_branch, vars) || is_null_expr(then_branch, vars))
+                && (is_map_fold_true(else_branch, vars) || is_null_expr(else_branch, vars))
+                && (is_map_fold_true(then_branch, vars) || is_map_fold_true(else_branch, vars))
+        }
+        Expr::NullCoalesce { value, default } => {
+            (is_map_fold_true(value, vars) || is_null_expr(value, vars))
+                && (is_map_fold_true(default, vars) || is_null_expr(default, vars))
+                && (is_map_fold_true(value, vars) || is_map_fold_true(default, vars))
+        }
+        _ => is_map_expr(expr, vars),
+    }
+}
+
 /// Codegen-side twin of the inference sentinel check: true when global
 /// field markers for `(sname, fname)` must not be emitted because mixed
 /// literal kinds were observed program-wide. Reads then fall back to

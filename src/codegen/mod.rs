@@ -1579,24 +1579,27 @@ impl CodeGen {
                 });
             let mut is_str = inference.infer_param_is_string(name, i, program);
             let mut is_flt = inference.infer_param_is_float(name, i, program);
-            let mut is_arr = inference.infer_param_is_array(name, i, program)
-                || param_types
-                    .get(i)
-                    .and_then(|t| t.as_deref())
-                    .is_some_and(|t| {
-                        t == "..." || t.starts_with("...") || t == "array" || t.ends_with("[]")
-                    });
+            // Explicit collection annotations are enforced by the type
+            // checker (mismatched arguments/lets are compile errors), so
+            // they are exact — unlike the may-fact inference below.
+            let annot_arr = param_types
+                .get(i)
+                .and_then(|t| t.as_deref())
+                .is_some_and(|t| {
+                    t == "..." || t.starts_with("...") || t == "array" || t.ends_with("[]")
+                });
+            let annot_map = param_types
+                .get(i)
+                .and_then(|t| t.as_deref())
+                .is_some_and(|t| {
+                    t == "map"
+                        || t.starts_with("map[")
+                        || (t.starts_with('[') && t.contains(':') && t.ends_with(']'))
+                });
+            let mut is_arr = inference.infer_param_is_array(name, i, program) || annot_arr;
             let mut is_str_arr = inference.infer_param_is_string_array(name, i, program);
             let mut is_flt_arr = inference.infer_param_is_float_array(name, i, program);
-            let mut is_map = inference.infer_param_is_map(name, i, program)
-                || param_types
-                    .get(i)
-                    .and_then(|t| t.as_deref())
-                    .is_some_and(|t| {
-                        t == "map"
-                            || t.starts_with("map[")
-                            || (t.starts_with('[') && t.contains(':') && t.ends_with(']'))
-                    });
+            let mut is_map = inference.infer_param_is_map(name, i, program) || annot_map;
             if let Some(s) = explicit_scalar {
                 match s {
                     "string" | "str" => {
@@ -1644,6 +1647,16 @@ impl CodeGen {
                 is_flt_arr = false;
                 is_map = kind == 'm';
             }
+            // Strict (must-) facts for `is` folding (alya-lang/alya#70):
+            // the may-facts above stay authoritative for retains/heap
+            // marking, but folding needs every caller proven. Enforced
+            // annotations and dynspec suffix codes are exact by contract.
+            let is_arr_strict = annot_arr
+                || spec_kind == Some('a')
+                || inference.infer_param_is_array_strict(name, i, program);
+            let is_map_strict = annot_map
+                || spec_kind == Some('m')
+                || inference.infer_param_is_map_strict(name, i, program);
             let struct_type = if let Some(Some(t)) = param_types.get(i) {
                 let bare_base = t.split('[').next().unwrap_or(t);
                 let b = bare_base.rsplit("::").next().unwrap_or(bare_base);
@@ -1753,6 +1766,11 @@ impl CodeGen {
                 self.ctx
                     .variables
                     .insert(param.clone(), VarType::Array(self.ctx.stack_offset));
+                if is_arr_strict {
+                    self.ctx
+                        .variables
+                        .insert(format!("param_arr_strict:{}", param), VarType::Number(0));
+                }
                 if is_str_arr {
                     self.ctx
                         .variables
@@ -1767,6 +1785,11 @@ impl CodeGen {
                 self.ctx
                     .variables
                     .insert(param.clone(), VarType::Map(self.ctx.stack_offset));
+                if is_map_strict {
+                    self.ctx
+                        .variables
+                        .insert(format!("param_map_strict:{}", param), VarType::Number(0));
+                }
             } else {
                 if param_types.get(i).and_then(|t| t.as_deref()).is_none() {
                     // Specialized params skip the untyped marker (their

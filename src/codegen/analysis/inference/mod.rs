@@ -21,6 +21,8 @@ pub struct ProgramInference {
     pub known_floats: HashSet<String>,
     pub known_arrays: HashSet<String>,
     pub known_maps: HashSet<String>,
+    pub known_arrays_strict: HashSet<String>,
+    pub known_maps_strict: HashSet<String>,
     pub struct_inf: StructInference,
 }
 
@@ -42,6 +44,8 @@ impl ProgramInference {
         let known_floats = collect_known_float_vars_with_index(program, &call_index);
         let known_arrays = collect_known_array_vars_with_index(program, &call_index);
         let known_maps = collect_known_map_vars_with_index(program, &call_index);
+        let known_arrays_strict = collect_known_array_vars_strict_with_index(program, &call_index);
+        let known_maps_strict = collect_known_map_vars_strict_with_index(program, &call_index);
         let struct_inf = StructInference::analyze(program);
         let d_inference = t_inf.elapsed();
 
@@ -51,6 +55,8 @@ impl ProgramInference {
                 known_floats,
                 known_arrays,
                 known_maps,
+                known_arrays_strict,
+                known_maps_strict,
                 struct_inf,
             },
             (d_call_index, d_inference),
@@ -110,6 +116,26 @@ impl ProgramInference {
     #[inline]
     pub fn infer_param_is_map(&self, func_name: &str, param_idx: usize, program: &Program) -> bool {
         infer_param_is_map_with(func_name, param_idx, program, &self.known_maps)
+    }
+
+    #[inline]
+    pub fn infer_param_is_array_strict(
+        &self,
+        func_name: &str,
+        param_idx: usize,
+        program: &Program,
+    ) -> bool {
+        infer_param_is_array_strict_with(func_name, param_idx, program, &self.known_arrays_strict)
+    }
+
+    #[inline]
+    pub fn infer_param_is_map_strict(
+        &self,
+        func_name: &str,
+        param_idx: usize,
+        program: &Program,
+    ) -> bool {
+        infer_param_is_map_strict_with(func_name, param_idx, program, &self.known_maps_strict)
     }
 
     #[inline]

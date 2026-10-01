@@ -900,6 +900,94 @@ end
 }
 
 #[test]
+fn test_e2e_issue70_shared_helper_is_checks() {
+    // alya-lang/alya#70: `is array` / `is map` inside shared helpers
+    // must not fold to a constant when callers pass different static
+    // kinds (map + array + int). The generic helper serves every
+    // caller, so only a whole-caller proof may fold it.
+    let code = r#"
+function is_list(v) -> int
+    if v is array
+        return 1
+    end
+    return 0
+end
+
+function is_map_obj(v) -> int
+    if v is map
+        return 1
+    end
+    return 0
+end
+
+function helper(v, level: int, indent_size: int) -> string
+    return "H"
+end
+
+function disp(val, level: int, indent_size: int) -> string
+    if val is null
+        return "null"
+    end
+    if is_list(val) == 1
+        return helper(val, level, indent_size)
+    elif is_map_obj(val) == 1
+        return "MAP"
+    else
+        return "OTHER"
+    end
+end
+
+function main()
+    say disp({ "a": 1 }, 0, 2)
+    say disp([1], 0, 2)
+    say disp(42, 0, 2)
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "MAP\nH\nOTHER\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_issue70_direct_calls_and_null() {
+    // Companion to the shared-helper shape: direct literal calls with
+    // mixed kinds, plus `null` (which is neither array nor map and must
+    // block any fold to true).
+    let code = r#"
+function is_list(v) -> int
+    if v is array
+        return 1
+    end
+    return 0
+end
+
+function is_map_obj(v) -> int
+    if v is map
+        return 1
+    end
+    return 0
+end
+
+function main()
+    say is_list([1])
+    say is_list({ "a": 1 })
+    say is_list(42)
+    say is_list(null)
+    say is_map_obj({ "a": 1 })
+    say is_map_obj([1])
+    say is_map_obj(null)
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "1\n0\n0\n0\n1\n0\n0\n", "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_explicit_type_annotations() {
     let code = r#"
 # 1. Scalar types with explicit annotations

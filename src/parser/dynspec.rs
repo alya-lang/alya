@@ -34,6 +34,31 @@ fn arg_kind_code(arg: &Expr) -> Option<char> {
     }
 }
 
+/// Proven kind of one parameter inside a `__spk__` clone scope.
+///
+/// Codes align with the origin's open (untyped, non-`self`) params in
+/// order — the same contract the codegen decoder relies on. Returns
+/// `None` for generic scopes, unknown params, or uncovered positions.
+/// Exact: a clone is only ever invoked through rewritten call sites
+/// whose arguments classified to these codes.
+pub fn spec_open_param_kind(
+    scope_fn: &str,
+    param: &str,
+    params: &[String],
+    param_types: &[Option<String>],
+) -> Option<char> {
+    let codes = dynspec_codes(scope_fn)?;
+    let mut open_idx = 0usize;
+    for (p, t) in params.iter().zip(param_types.iter()) {
+        if t.is_none() && p != "self" {
+            if p == param {
+                return codes.get(open_idx).copied();
+            }
+            open_idx += 1;
+        }
+    }
+    None
+}
 /// Decode a specialization suffix. Returns the per-param kind codes, or
 /// `None` when `name` is not a specialization this pass could have made.
 pub fn dynspec_codes(fn_name: &str) -> Option<Vec<char>> {

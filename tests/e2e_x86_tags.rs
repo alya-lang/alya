@@ -537,3 +537,54 @@ main()
         assert_eq!(output, "5\n777\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_x86_issue70_shared_helper_is_checks() {
+    // alya-lang/alya#70 is arch-independent (inference-level): shared
+    // helpers testing `is array` / `is map` must not fold when callers
+    // pass different static kinds.
+    let code = r#"
+function is_list(v) -> int
+    if v is array
+        return 1
+    end
+    return 0
+end
+
+function is_map_obj(v) -> int
+    if v is map
+        return 1
+    end
+    return 0
+end
+
+function helper(v, level: int, indent_size: int) -> string
+    return "H"
+end
+
+function disp(val, level: int, indent_size: int) -> string
+    if val is null
+        return "null"
+    end
+    if is_list(val) == 1
+        return helper(val, level, indent_size)
+    elif is_map_obj(val) == 1
+        return "MAP"
+    else
+        return "OTHER"
+    end
+end
+
+function main()
+    say disp({ "a": 1 }, 0, 2)
+    say disp([1], 0, 2)
+    say disp(42, 0, 2)
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_x86(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "MAP\nH\nOTHER\n", "Got: {}", output);
+    }
+}

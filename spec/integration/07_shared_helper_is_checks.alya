@@ -1,0 +1,49 @@
+# ==============================================================================
+# Alya Integration Fixture 07 (entry): shared-helper `is` checks
+# Distilled from: Lib/yaml serializer dispatch (alya-lang/alya#70)
+# Guards: `is array` / `is map` inside shared (unspecialized) helpers must
+#         not fold to a constant when callers pass different static kinds.
+#         The generic helper serves every caller, so only a whole-caller
+#         proof may fold it.
+# ==============================================================================
+
+function is_list(v) -> int
+    if v is array
+        return 1
+    end
+    return 0
+end
+
+function is_map_obj(v) -> int
+    if v is map
+        return 1
+    end
+    return 0
+end
+
+function helper(v, level: int, indent_size: int) -> string
+    return "H"
+end
+
+function disp(val, level: int, indent_size: int) -> string
+    if val is null
+        return "null"
+    end
+    if is_list(val) == 1
+        return helper(val, level, indent_size)
+    elif is_map_obj(val) == 1
+        return "MAP"
+    else
+        return "OTHER"
+    end
+end
+
+function main()
+    say disp({ "a": 1 }, 0, 2)
+    say disp([1], 0, 2)
+    say disp(42, 0, 2)
+end
+
+main()
+
+say f"integration 07_shared_helper_is: OK"

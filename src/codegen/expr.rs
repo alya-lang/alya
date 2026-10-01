@@ -1,10 +1,11 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
-    eq_operand_is_dynamic, escape_string, is_array_expr, is_definitely_not_numeric, is_float_expr,
-    is_map_expr, is_null_expr, is_number_expr, is_proven_float_store, is_strict_dynamic_op,
-    is_string_expr, is_tag_carrying_read, struct_field_markers_mixed_vars, ternary_arm_carries,
-    value_kind_tag, value_kind_tag_x86_store, x86_arg_pushes_double,
+    eq_operand_is_dynamic, escape_string, is_array_expr, is_array_fold_true,
+    is_definitely_not_numeric, is_float_expr, is_map_expr, is_map_fold_true, is_null_expr,
+    is_number_expr, is_proven_float_store, is_strict_dynamic_op, is_string_expr,
+    is_tag_carrying_read, struct_field_markers_mixed_vars, ternary_arm_carries, value_kind_tag,
+    value_kind_tag_x86_store, x86_arg_pushes_double,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -3954,9 +3955,12 @@ impl CodeGen {
                 }
             }
             "array" | "list" => {
-                let is_arr = is_array_expr(expr, &self.ctx.variables);
+                // alya-lang/alya#70: fold to true only on exact evidence.
+                // The legacy `is_array_expr` trusts the may-marking, which
+                // also covers merely-possible arrays.
+                let is_arr = is_array_fold_true(expr, &self.ctx.variables);
                 let is_def_non = is_string_expr(expr, &self.ctx.variables)
-                    || is_map_expr(expr, &self.ctx.variables)
+                    || is_map_fold_true(expr, &self.ctx.variables)
                     || is_float_expr(expr, &self.ctx.variables)
                     || is_null_expr(expr, &self.ctx.variables)
                     || is_number_expr(expr, &self.ctx.variables);
@@ -3969,9 +3973,10 @@ impl CodeGen {
                 }
             }
             "map" | "dict" => {
-                let is_map = is_map_expr(expr, &self.ctx.variables);
+                // alya-lang/alya#70: same exactness contract as above.
+                let is_map = is_map_fold_true(expr, &self.ctx.variables);
                 let is_def_non = is_string_expr(expr, &self.ctx.variables)
-                    || is_array_expr(expr, &self.ctx.variables)
+                    || is_array_fold_true(expr, &self.ctx.variables)
                     || is_float_expr(expr, &self.ctx.variables)
                     || is_null_expr(expr, &self.ctx.variables)
                     || is_number_expr(expr, &self.ctx.variables);

@@ -1,7 +1,8 @@
-use super::common::collect_function_defs;
+use super::common::{collect_function_defs, count_assignments};
 use crate::ast::*;
 use crate::codegen::analysis::traversal::CallIndex;
-use std::collections::HashSet;
+use crate::parser::dynspec::{dynspec_codes, spec_open_param_kind};
+use std::collections::{HashMap, HashSet};
 
 fn expr_is_definitely_array(
     expr: &Expr,
@@ -598,4 +599,302 @@ pub fn infer_param_is_array_with(
 pub fn infer_param_is_array(func_name: &str, param_idx: usize, program: &Program) -> bool {
     let known_arrays = collect_known_array_vars(program);
     infer_param_is_array_with(func_name, param_idx, program, &known_arrays)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Strict (must-) array facts for `is array` folding (alya-lang/alya#70).
+//
+// The may-fact above is existential: one definitely-array caller plus
+// merely-unclassifiable rest marks the param (deliberate, alya-lang/alya#47:
+// over-retaining is safe). Folding `is array` to a constant needs the
+// universal claim instead: EVERY caller passes an array. In particular
+// the generic survivor of call-site specialization serves exactly the
+// unclassifiable callers, so clone-scope witnesses must never prove it.
+// This fixpoint therefore admits only exact evidence — enforced
+// annotations, single-assignment literal aliases, structural calls, and
+// dynspec suffix codes — and never consults the may-set.
+// ═══════════════════════════════════════════════════════════════
+
+type FuncDef<'a> = (&'a str, &'a [String], &'a [Option<String>], &'a [Stmt]);
+
+/// Resolves one identifier to its dynspec suffix kind inside a clone
+/// scope (`None` for generic scopes). Exact: clones only run through
+/// classified call sites (same contract as the codegen decoder).
+fn spec_scope_kind(scope: &str, param: &str, funcs: &[FuncDef]) -> Option<char> {
+    if let Some((_, params, param_types, _)) = funcs.iter().find(|(n, _, _, _)| *n == scope) {
+        if let Some(k) = spec_open_param_kind(scope, param, params, param_types) {
+            return Some(k);
+        }
+    }
+    // Clone bodies are verbatim copies: fall back to the origin
+    // definition (and its bare name) when the clone itself is missing.
+    let origin = scope.split("__spk__").next().unwrap_or(scope);
+    if origin != scope {
+        for cand in [origin, origin.rsplit("::").next().unwrap_or(origin)] {
+            if let Some((_, params, param_types, _)) = funcs.iter().find(|(n, _, _, _)| *n == cand)
+            {
+                if let Some(k) = spec_open_param_kind(scope, param, params, param_types) {
+                    return Some(k);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Exact counterpart of `expr_is_definitely_array`: identifiers resolve
+/// only through strict facts (never the may-set) or the dynspec suffix
+/// codes. `null` is not an array and blocks strictness.
+fn expr_is_definitely_array_strict(
+    expr: &Expr,
+    fn_scope: Option<&str>,
+    strict: &HashSet<String>,
+    funcs: &[FuncDef],
+) -> bool {
+    if expr_is_definitely_array(expr, fn_scope, strict) {
+        return true;
+    }
+    if let (Expr::Identifier(name), Some(scope)) = (expr, fn_scope) {
+        return spec_scope_kind(scope, name, funcs) == Some('a');
+    }
+    false
+}
+
+fn strict_scope_counts<'a>(
+    fn_scope: Option<&str>,
+    counts: &'a HashMap<String, HashMap<String, usize>>,
+) -> Option<&'a HashMap<String, usize>> {
+    let scope = fn_scope.unwrap_or("");
+    if let Some(c) = counts.get(scope) {
+        return Some(c);
+    }
+    // Clone bodies are verbatim copies: their assignment counts match
+    // the origin's.
+    let origin = scope.split("__spk__").next().unwrap_or(scope);
+    counts.get(origin)
+}
+
+fn collect_strict_array_vars_from_stmts(
+    stmts: &[Stmt],
+    fn_scope: Option<&str>,
+    counts: &HashMap<String, HashMap<String, usize>>,
+    strict: &mut HashSet<String>,
+    funcs: &[FuncDef],
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let {
+                name,
+                type_ann,
+                value,
+            } => {
+                // Single-assignment only: a later reassignment could swap
+                // in a non-array (the may-rule has no such guard).
+                let single = strict_scope_counts(fn_scope, counts)
+                    .and_then(|c| c.get(name))
+                    .is_some_and(|n| *n == 1);
+                if single
+                    && (type_ann.as_deref() == Some("array")
+                        || type_ann.as_ref().is_some_and(|t| t.ends_with("[]"))
+                        || expr_is_definitely_array_strict(value, fn_scope, strict, funcs))
+                {
+                    if let Some(scope) = fn_scope {
+                        strict.insert(format!("{}:{}", scope, name));
+                    } else {
+                        strict.insert(name.clone());
+                    }
+                }
+            }
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                collect_strict_array_vars_from_stmts(try_block, fn_scope, counts, strict, funcs);
+                collect_strict_array_vars_from_stmts(catch_block, fn_scope, counts, strict, funcs);
+                if let Some(fb) = finally_block {
+                    collect_strict_array_vars_from_stmts(fb, fn_scope, counts, strict, funcs);
+                }
+            }
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                collect_strict_array_vars_from_stmts(then_block, fn_scope, counts, strict, funcs);
+                if let Some(eb) = else_block {
+                    collect_strict_array_vars_from_stmts(eb, fn_scope, counts, strict, funcs);
+                }
+            }
+            Stmt::While { body, .. }
+            | Stmt::Repeat { body }
+            | Stmt::For { body, .. }
+            | Stmt::ForEach { body, .. } => {
+                collect_strict_array_vars_from_stmts(body, fn_scope, counts, strict, funcs);
+            }
+            Stmt::Function {
+                name,
+                params,
+                param_types,
+                body,
+                ..
+            } => {
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                for (idx, param) in params.iter().enumerate() {
+                    // Explicit enforced annotations are exact (the type
+                    // checker rejects mismatched arguments and lets).
+                    let annotated =
+                        param_types
+                            .get(idx)
+                            .and_then(|t| t.as_deref())
+                            .is_some_and(|t| {
+                                t == "..."
+                                    || t.starts_with("...")
+                                    || t == "array"
+                                    || t.ends_with("[]")
+                            });
+                    if annotated
+                        || strict.contains(&format!("fn_param_arr:{}:{}", name, idx))
+                        || strict.contains(&format!("fn_param_arr:{}:{}", bare, idx))
+                    {
+                        strict.insert(format!("{}:{}", name, param));
+                        // Bare-sharing crosses module qualification only:
+                        // clones (`__spk__`) are different functions, and
+                        // sharing their proofs with the generic is exactly
+                        // the alya-lang/alya#70 hole.
+                        if !name.contains("__spk__") && bare != name {
+                            strict.insert(format!("{}:{}", bare, param));
+                        }
+                    }
+                }
+                collect_strict_array_vars_from_stmts(body, Some(name), counts, strict, funcs);
+            }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                collect_strict_array_vars_from_stmts(
+                    std::slice::from_ref(inner),
+                    fn_scope,
+                    counts,
+                    strict,
+                    funcs,
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+pub fn collect_known_array_vars_strict_with_index(
+    program: &Program,
+    call_index: &CallIndex,
+) -> HashSet<String> {
+    let mut strict = HashSet::new();
+    let mut funcs: Vec<FuncDef> = Vec::new();
+    collect_function_defs(&program.statements, &mut funcs);
+    let mut counts: HashMap<String, HashMap<String, usize>> = HashMap::new();
+    {
+        let mut top = HashMap::new();
+        count_assignments(&program.statements, &mut top);
+        counts.insert(String::new(), top);
+    }
+    for (name, _, _, body) in &funcs {
+        let mut c = HashMap::new();
+        count_assignments(body, &mut c);
+        counts.insert(name.to_string(), c);
+    }
+    // Seed exact per-clone param kinds from the dynspec suffix
+    // contract (clones only run through classified call sites).
+    for (name, params, param_types, _) in &funcs {
+        if let Some(codes) = dynspec_codes(name) {
+            let mut open_idx = 0usize;
+            for (p, t) in params.iter().zip(param_types.iter()) {
+                if t.is_none() && p != "self" {
+                    if codes.get(open_idx) == Some(&'a') {
+                        strict.insert(format!("{}:{}", name, p));
+                    }
+                    open_idx += 1;
+                }
+            }
+        }
+    }
+    for _ in 0..7 {
+        let prev_len = strict.len();
+        collect_strict_array_vars_from_stmts(
+            &program.statements,
+            None,
+            &counts,
+            &mut strict,
+            &funcs,
+        );
+        for (name, params, param_types, _) in &funcs {
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            for (idx, param) in params.iter().enumerate() {
+                if param_types
+                    .get(idx)
+                    .and_then(|t| t.as_deref())
+                    .is_some_and(|t| {
+                        t == "..." || t.starts_with("...") || t == "array" || t.ends_with("[]")
+                    })
+                {
+                    strict.insert(format!("fn_param_arr:{}:{}", name, idx));
+                    if !name.contains("__spk__") {
+                        strict.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                    }
+                    strict.insert(format!("{}:{}", name, param));
+                    if !name.contains("__spk__") && bare != *name {
+                        strict.insert(format!("{}:{}", bare, param));
+                    }
+                    continue;
+                }
+                if strict.contains(&format!("fn_param_arr:{}:{}", name, idx))
+                    || strict.contains(&format!("fn_param_arr:{}:{}", bare, idx))
+                {
+                    continue;
+                }
+                let mut call_args = Vec::new();
+                call_index.collect_all_call_args_scoped(name, bare, idx, &mut call_args);
+                // Universal (not existential): every caller must pass an
+                // array. Unknowns and null block the proof — they are the
+                // generic survivor's callers.
+                if !call_args.is_empty()
+                    && call_args.iter().all(|(caller_scope, arg)| {
+                        expr_is_definitely_array_strict(arg, *caller_scope, &strict, &funcs)
+                    })
+                {
+                    strict.insert(format!("fn_param_arr:{}:{}", name, idx));
+                    if !name.contains("__spk__") {
+                        strict.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                    }
+                }
+            }
+        }
+        if strict.len() == prev_len {
+            break;
+        }
+    }
+    strict
+}
+
+pub fn collect_known_array_vars_strict(program: &Program) -> HashSet<String> {
+    let call_index = CallIndex::build(&program.statements);
+    collect_known_array_vars_strict_with_index(program, &call_index)
+}
+
+pub fn infer_param_is_array_strict_with(
+    func_name: &str,
+    param_idx: usize,
+    _program: &Program,
+    strict: &HashSet<String>,
+) -> bool {
+    let bare = func_name.rsplit("::").next().unwrap_or(func_name);
+    let bare = bare.rsplit("__").next().unwrap_or(bare);
+    strict.contains(&format!("fn_param_arr:{}:{}", func_name, param_idx))
+        || strict.contains(&format!("fn_param_arr:{}:{}", bare, param_idx))
+}
+
+pub fn infer_param_is_array_strict(func_name: &str, param_idx: usize, program: &Program) -> bool {
+    let strict = collect_known_array_vars_strict(program);
+    infer_param_is_array_strict_with(func_name, param_idx, program, &strict)
 }
