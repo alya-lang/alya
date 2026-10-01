@@ -18,6 +18,19 @@ use std::time::Instant;
 
 static TEST_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
+/// Per-suite execution timeout as (seconds, duration), overridable via
+/// `ALYA_TEST_TIMEOUT_SECS` for slow targets (bignum-heavy suites exceed
+/// the 60s default on macOS Intel and 32-bit runners). Absent or invalid
+/// values fall back to 60; values below 1 clamp to 1.
+fn suite_timeout() -> (u64, std::time::Duration) {
+    let secs: u64 = std::env::var("ALYA_TEST_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .filter(|v| *v >= 1)
+        .unwrap_or(60);
+    (secs, std::time::Duration::from_secs(secs))
+}
+
 fn is_ignored_test_dir(name: &str) -> bool {
     name.starts_with('.')
         || matches!(
@@ -738,7 +751,7 @@ pub fn execute_test_file(
         .map_err(|e| format!("Failed to execute test binary '{}': {}", exe_str, e))?;
 
     let start_wait = Instant::now();
-    let timeout_limit = std::time::Duration::from_secs(60);
+    let timeout_limit = suite_timeout().1;
     let mut exited = false;
     let mut exit_status = None;
 
@@ -879,7 +892,7 @@ fn handle_test_result(
             });
 
             let status_label = if exec.is_timeout {
-                "TIMEOUT (60s limit exceeded)".to_string()
+                format!("TIMEOUT ({}s limit exceeded)", suite_timeout().0)
             } else if is_crash {
                 format!("CRASHED ({})", exit_desc)
             } else if !failed_assertions.is_empty() {
@@ -908,7 +921,7 @@ fn handle_test_result(
 
             // Record summary detail for the bottom list
             let detail = if exec.is_timeout {
-                "Timed out after 60 seconds".to_string()
+                format!("Timed out after {} seconds", suite_timeout().0)
             } else if is_crash {
                 if let Some(ref lp) = last_pass {
                     format!("{} (crashed after '{}')", exit_desc, lp)
