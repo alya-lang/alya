@@ -16,7 +16,7 @@ on:
         required: true
         default: true
       commit_distribution:
-        description: 'Commit distribution files (packages/distribution)'
+        description: 'Commit distribution files'
         type: boolean
         required: true
         default: true
