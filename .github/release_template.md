@@ -9,6 +9,7 @@ Alya is an expressive, compiled, multi-paradigm systems programming language des
 | Platform | Architecture | Package | Checksum |
 |:---|:---|:---|:---:|
 | <img src="https://svgl.app/library/linux.svg" width="16" height="16" valign="middle" alt="Linux" />&nbsp;**Linux** | `x86_64` | [alya-{{VERSION}}-x86_64-linux.tar.gz](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-x86_64-linux.tar.gz) | [`{{LINUX_SHA_SHORT}}`](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-x86_64-linux.tar.gz.sha256) |
+| <img src="https://svgl.app/library/linux.svg" width="16" height="16" valign="middle" alt="Linux" />&nbsp;**Linux** | `x86` (32-bit) | [alya-{{VERSION}}-x86-linux.tar.gz](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-x86-linux.tar.gz) | [`{{LINUX_X86_SHA_SHORT}}`](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-x86-linux.tar.gz.sha256) |
 | <img src="https://svgl.app/library/linux.svg" width="16" height="16" valign="middle" alt="Linux" />&nbsp;**Linux** | `arm64` (AArch64) | [alya-{{VERSION}}-arm64-linux.tar.gz](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-arm64-linux.tar.gz) | [`{{LINUX_ARM_SHA_SHORT}}`](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-arm64-linux.tar.gz.sha256) |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/apple_dark.svg"><source media="(prefers-color-scheme: light)" srcset="https://svgl.app/library/apple.svg"><img src="https://svgl.app/library/apple.svg" width="16" height="16" valign="middle" alt="macOS" /></picture>&nbsp;**macOS** | `arm64` (Apple Silicon) | [alya-{{VERSION}}-arm64-macos.tar.gz](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-arm64-macos.tar.gz) | [`{{MAC_ARM_SHA_SHORT}}`](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-arm64-macos.tar.gz.sha256) |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="https://svgl.app/library/apple_dark.svg"><source media="(prefers-color-scheme: light)" srcset="https://svgl.app/library/apple.svg"><img src="https://svgl.app/library/apple.svg" width="16" height="16" valign="middle" alt="macOS" /></picture>&nbsp;**macOS** | `x86_64` (Intel) | [alya-{{VERSION}}-x86_64-macos.tar.gz](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-x86_64-macos.tar.gz) | [`{{MAC_X64_SHA_SHORT}}`](https://github.com/{{REPO}}/releases/download/{{VERSION}}/alya-{{VERSION}}-x86_64-macos.tar.gz.sha256) |
@@ -19,6 +20,7 @@ Alya is an expressive, compiled, multi-paradigm systems programming language des
 
 ```text
 {{LINUX_SHA}}  alya-{{VERSION}}-x86_64-linux.tar.gz
+{{LINUX_X86_SHA}}  alya-{{VERSION}}-x86-linux.tar.gz
 {{LINUX_ARM_SHA}}  alya-{{VERSION}}-arm64-linux.tar.gz
 {{MAC_ARM_SHA}}  alya-{{VERSION}}-arm64-macos.tar.gz
 {{MAC_X64_SHA}}  alya-{{VERSION}}-x86_64-macos.tar.gz
