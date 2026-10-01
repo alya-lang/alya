@@ -176,6 +176,7 @@ impl CodeGenContext {
                 || k.starts_with("arr_struct_type:")
                 || k.starts_with("fn_param_str:")
                 || k.starts_with("fn_param_str_arr:")
+                || k.starts_with("fn_param_flt:")
                 || k.starts_with("fn_param_arr:")
                 || k.starts_with("channel_elem_str:")
                 || k.starts_with("fn_param_interface:")

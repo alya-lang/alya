@@ -1370,17 +1370,32 @@ pub fn is_proven_float_store(expr: &Expr, vars: &HashMap<String, VarType>) -> bo
     }
 }
 
-/// True when an x86 user-callee call arg must push an 8-byte double:
-/// proven float shapes, plus any index read. The map/array get contract
-/// leaves the entry's f64 bits in `%xmm0` on every path, and the callee
-/// consumes 8 bytes for every float param — while int, untyped and
-/// pointer params read the same lo word an 8-byte push leaves as a
-/// 4-byte push would. Widening is therefore value-safe for every callee
-/// shape and layout-correct for float params. Dynamic keys carry no
-/// marker, so the proven predicate alone cannot cover them (e.g.
+/// True when an x86 user-callee call arg must push an 8-byte double.
+/// Caller and callee must agree on the slot width: the callee consumes
+/// 8 bytes for float params (explicit `float` annotations, call-site
+/// inference, or a specialized-clone `f` code) and 4 bytes otherwise —
+/// pushing 8 for a 4-byte slot shifts every later param (e.g.
+/// multi-arg `spawn` thunks). The arg must also supply 8 bytes:
+/// proven float shapes, plus index reads (the map/array get contract
+/// leaves the entry's f64 bits in `%xmm0`; dynamic keys carry no
+/// marker, so the proven predicate alone cannot cover them, e.g.
 /// `snapshot_encode_float(values[k])` in the cache package).
-pub fn x86_user_arg_pushes_double(arg: &Expr, vars: &HashMap<String, VarType>) -> bool {
-    is_proven_float_store(arg, vars) || matches!(arg, Expr::Index { .. })
+pub fn x86_arg_pushes_double(
+    call_name: &str,
+    param_idx: usize,
+    arg: &Expr,
+    vars: &HashMap<String, VarType>,
+) -> bool {
+    let takes_double = if let Some(codes) = crate::parser::dynspec::dynspec_codes(call_name) {
+        codes.get(param_idx).copied() == Some('f')
+    } else {
+        let bare = call_name.rsplit("::").next().unwrap_or(call_name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        [call_name, bare]
+            .iter()
+            .any(|n| vars.contains_key(&format!("fn_param_flt:{}:{}", n, param_idx)))
+    };
+    takes_double && (is_proven_float_store(arg, vars) || matches!(arg, Expr::Index { .. }))
 }
 
 /// Store kind for x86 element writes: like [`value_kind_tag`], but a float

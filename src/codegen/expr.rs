@@ -4,7 +4,7 @@ use crate::codegen::analysis::{
     eq_operand_is_dynamic, escape_string, is_array_expr, is_definitely_not_numeric, is_float_expr,
     is_map_expr, is_null_expr, is_number_expr, is_proven_float_store, is_strict_dynamic_op,
     is_string_expr, is_tag_carrying_read, struct_field_markers_mixed_vars, ternary_arm_carries,
-    value_kind_tag, value_kind_tag_x86_store, x86_user_arg_pushes_double,
+    value_kind_tag, value_kind_tag_x86_store, x86_arg_pushes_double,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -2161,18 +2161,18 @@ impl CodeGen {
                 };
                 match self.arch {
                     Architecture::X86 => {
-                        // Float slots are 8 bytes on x86 for proven shapes
-                        // (the value really is a double in `%xmm0`) and for
-                        // index reads (the map/array get contract leaves the
-                        // entry's f64 bits in `%xmm0` on every path; int,
-                        // untyped and pointer callees read the same lo word
-                        // either way, so widening is value-safe everywhere
-                        // and layout-correct for float params). Other
-                        // unproven shapes keep the legacy 4-byte `%eax` push
-                        // (their `%xmm0` can be stale, e.g. mixed int/float
-                        // returns like a JSON value reader; mirrors the
-                        // callee-side proven rule; alya-lang/alya#59
-                        // follow-up).
+                        // Float params consume 8 bytes on x86, the rest 4
+                        // (matches the callee prologue): proven shapes and
+                        // index reads push the `%xmm0` double, since the
+                        // map/array get contract leaves the entry's f64
+                        // bits there on every path. Other unproven shapes
+                        // keep the legacy 4-byte `%eax` push (their `%xmm0`
+                        // can be stale, e.g. mixed int/float returns like a
+                        // JSON value reader; alya-lang/alya#59 follow-up).
+                        // Width follows the callee slot, never the arg
+                        // alone: an 8-byte push for a 4-byte param would
+                        // shift every later param (multi-arg `spawn`
+                        // thunks pass index reads to untyped params).
                         // Extern callee params come from declarations (C
                         // ABI is exact): float-declared params take the
                         // 8-byte double so the C side reads a aligned
@@ -2239,7 +2239,14 @@ impl CodeGen {
                                     self.os,
                                 );
                             }
-                            if user_callee && x86_user_arg_pushes_double(arg, &self.ctx.variables) {
+                            if user_callee
+                                && x86_arg_pushes_double(
+                                    call_name,
+                                    param_idx,
+                                    arg,
+                                    &self.ctx.variables,
+                                )
+                            {
                                 self.output.push_str("    sub $8, %esp\n");
                                 self.output.push_str("    movsd %xmm0, (%esp)\n");
                                 pushed += 8;
@@ -2353,7 +2360,10 @@ impl CodeGen {
                     let user_n = if self.ctx.functions.contains(call_name) {
                         actual_args
                             .iter()
-                            .filter(|a| x86_user_arg_pushes_double(a, &self.ctx.variables))
+                            .enumerate()
+                            .filter(|(idx, a)| {
+                                x86_arg_pushes_double(call_name, *idx, a, &self.ctx.variables)
+                            })
                             .count()
                     } else {
                         0

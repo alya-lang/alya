@@ -720,6 +720,12 @@ impl CodeGen {
                 || s.starts_with("fn_ret_tuple_flt:")
                 || s.starts_with("struct_field_flt:")
                 || s.starts_with("tuple_elem_flt:")
+                // Call-site width queries (x86 pushes 8 bytes for float
+                // params): seeded like the other `fn_*` markers and
+                // carried across function scopes (see `enter_function`).
+                // `fn_param_flt_arr:` is excluded on purpose (float-array
+                // params are 4-byte pointers).
+                || s.starts_with("fn_param_flt:")
             {
                 self.ctx.variables.insert(s.clone(), VarType::Float(0));
             }
