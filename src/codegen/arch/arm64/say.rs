@@ -9,6 +9,12 @@ pub fn emit_call_printf(out: &mut String, os: OperatingSystem) {
         ""
     };
     out.push_str(&format!("    bl {}printf\n", p));
+    // Flush stdout so piped `say` output survives a later crash
+    // (alya-lang/alya#72). x0 holds printf's int return here, which no
+    // caller needs afterwards; replace it with NULL. `bl` does not touch
+    // sp, so the alignment established for printf still holds.
+    out.push_str("    movz x0, #0\n");
+    out.push_str(&format!("    bl {}fflush\n", p));
 }
 
 pub fn emit_say_str(out: &mut String, label: &str, fmt_label: &str, os: OperatingSystem) {

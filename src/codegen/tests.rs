@@ -178,6 +178,49 @@ fn test_codegen_macos_x64_header_and_sections() {
 }
 
 #[test]
+fn test_codegen_say_flushes_stdout_on_all_backends() {
+    // alya-lang/alya#72: piped `say` output was lost on crash everywhere
+    // except Windows x64 because only that path flushed stdout. Every
+    // `say` must flush right after its own `printf` on every backend/OS.
+    // Assertions use the exact multi-line sequences the say paths emit:
+    // bare `call fflush` also appears in runtime helpers, so a bare
+    // substring check would pass on unpatched code.
+    let program = simple_program(Stmt::Say(Expr::String("hi".into())));
+
+    let asm = generate(&program, Architecture::X64, OperatingSystem::Linux);
+    assert!(asm.contains("call printf\n    xor %edi, %edi\n    call fflush"));
+    let asm = generate(&program, Architecture::X64, OperatingSystem::MacOS);
+    assert!(asm.contains("call _printf\n    xor %edi, %edi\n    call _fflush"));
+    let asm = generate(&program, Architecture::X64, OperatingSystem::Windows);
+    assert!(asm.contains("add $32, %rsp\n    xor %rcx, %rcx\n    sub $32, %rsp\n    call fflush"));
+
+    let asm = generate(&program, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(asm.contains("bl printf\n    movz x0, #0\n    bl fflush"));
+    let asm = generate(&program, Architecture::ARM64, OperatingSystem::MacOS);
+    assert!(asm.contains("bl _printf\n    movz x0, #0\n    bl _fflush"));
+
+    let asm = generate(&program, Architecture::X86, OperatingSystem::Linux);
+    assert!(asm.contains("call printf\n    push $0\n    call fflush\n    add $4, %esp"));
+}
+
+#[test]
+fn test_codegen_say_interpolated_many_args_flushes_on_windows() {
+    // The Windows >3-arg interpolated `say` path emits its own `printf`
+    // sequence instead of `emit_call_printf`; it must flush as well (#72).
+    let program = simple_program(Stmt::Say(Expr::InterpolatedString(vec![
+        Expr::Number(1),
+        Expr::Number(2),
+        Expr::Number(3),
+        Expr::Number(4),
+    ])));
+    let asm = generate(&program, Architecture::X64, OperatingSystem::Windows);
+    assert!(asm.contains("call printf"));
+    // The >3-arg path restores the stack (add $80 for 4 spilled args here)
+    // and then flushes with frame-entry padding.
+    assert!(asm.contains("add $80, %rsp\n    sub $32, %rsp\n    xor %rcx, %rcx\n    call fflush"));
+}
+
+#[test]
 fn test_codegen_arm64_large_number_immediate() {
     let program = simple_program(Stmt::Say(Expr::Number(424242)));
     let asm = generate(&program, Architecture::ARM64, OperatingSystem::MacOS);

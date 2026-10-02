@@ -24,6 +24,18 @@ pub fn emit_call_printf(out: &mut String, stack_offset: i32, os: OperatingSystem
         if misaligned {
             out.push_str("    add $8, %rsp\n");
         }
+        // Flush stdout so piped `say` output survives a later crash
+        // (parity with the Windows branch above; alya-lang/alya#72).
+        // %rsp is back to its pre-printf value, so the same alignment
+        // adjustment applies.
+        out.push_str("    xor %edi, %edi\n");
+        if misaligned {
+            out.push_str("    sub $8, %rsp\n");
+        }
+        out.push_str(&format!("    call {}fflush\n", p));
+        if misaligned {
+            out.push_str("    add $8, %rsp\n");
+        }
     }
 }
 
@@ -191,6 +203,13 @@ pub fn emit_say_interpolated_pop_and_call(
                 "    add ${}, %rsp\n",
                 total_alloc + (count as i32 * 8)
             ));
+            // Flush stdout like every other `say` path (alya-lang/alya#72).
+            // %rsp is restored above, so the frame-entry padding applies.
+            let padding = if stack_offset % 16 == 0 { 32 } else { 40 };
+            out.push_str(&format!("    sub ${}, %rsp\n", padding));
+            out.push_str("    xor %rcx, %rcx\n");
+            out.push_str("    call fflush\n");
+            out.push_str(&format!("    add ${}, %rsp\n", padding));
         }
     } else {
         let mut int_reg_indices = Vec::with_capacity(count);

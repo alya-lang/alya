@@ -1,5 +1,11 @@
 pub fn emit_call_printf(out: &mut String) {
     out.push_str("    call printf\n");
+    // Flush stdout so piped `say` output survives a later crash
+    // (alya-lang/alya#72). printf's own args are still on the stack;
+    // push a separate NULL argument for fflush.
+    out.push_str("    push $0\n");
+    out.push_str("    call fflush\n");
+    out.push_str("    add $4, %esp\n");
 }
 
 pub fn emit_say_str(out: &mut String, label: &str, fmt_label: &str) {
