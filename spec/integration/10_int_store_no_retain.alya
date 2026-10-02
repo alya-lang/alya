@@ -27,6 +27,16 @@ function swap_first_last(arr: int[])
     arr[99] = temp
 end
 
+function build_scaled() -> int[]
+    let arr: int[] = []
+    let i: int = 0
+    while i < 10000
+        arr.push(i * 8)
+        i += 1
+    end
+    return arr
+end
+
 function main()
     let arr = build()
     let before_first = arr[0]
@@ -35,6 +45,12 @@ function main()
     assert arr[0] == before_last
     assert arr[99] == before_first
     assert arr[50] == arr[50]
+
+    # Non-identifier values (arithmetic results, literals) must also
+    # skip the retain: they are never heap pointers either.
+    let big = build_scaled()
+    assert len(big) == 10000
+    assert big[8192] == 65536
 
     # Tuple-destructured heap value stored into a map must keep working
     # (retain required: `elem` is tracked as Number but holds an array).

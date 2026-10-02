@@ -2519,7 +2519,12 @@ impl CodeGen {
                 }
                 true
             }
-            _ => true,
+            // Field reads keep the f032afb retain: the field type is
+            // usually unknown statically. Anything else falls back to
+            // the pre-f032afb rule (heap expressions only): retaining
+            // e.g. an int arithmetic result would fault in rc_retain.
+            Expr::FieldAccess { .. } => true,
+            _ => false,
         }
     }
 
