@@ -159,6 +159,89 @@ fn print_run_hint(exe_file: &str) {
     }
 }
 
+/// Runs one command per workspace member (see `resolve_command_targets`).
+/// Default build outputs land beside each member; `-o`/`--bundle` with
+/// several members is rejected as ambiguous, and `run` targets exactly one.
+fn run_workspace_members(
+    args: &CliArgs,
+    members: Vec<crate::tools::pkg::workspace::WorkspaceMember>,
+) -> Result<(), String> {
+    if members.is_empty() {
+        return Err("Error: workspace resolves to no members".to_string());
+    }
+    if args.command == CommandKind::Run && members.len() > 1 {
+        return Err(
+            "Error: 'run' targets a single member in a workspace (select one with '-p/--package <name>')"
+                .to_string(),
+        );
+    }
+    if args.bundle && members.len() > 1 {
+        return Err(
+            "Error: '--bundle' with several workspace members is ambiguous (select one with '-p/--package <name>')"
+                .to_string(),
+        );
+    }
+    if args.output_file.is_some() && members.len() > 1 {
+        return Err(
+            "Error: '-o/--output' with several workspace members is ambiguous (select one with '-p/--package <name>')"
+                .to_string(),
+        );
+    }
+    let mut failed: Vec<String> = Vec::new();
+    for member in &members {
+        if !args.quiet {
+            println!("\n--- workspace member: {} ---", member.name);
+        }
+        let mut sub = args.clone();
+        sub.packages.clear();
+        sub.workspace = false;
+        sub.exclude.clear();
+        match args.command {
+            CommandKind::Test | CommandKind::Bench => {
+                sub.input_file = member.dir.to_string_lossy().replace('\\', "/");
+            }
+            _ => {
+                let entry =
+                    crate::tools::pkg::discovery::find_package_entry(&member.dir, &member.name)?;
+                if args.command == CommandKind::Build && args.output_file.is_none() {
+                    // Default artifacts beside their member (shared cwd
+                    // would collide when entries share a stem like `main`).
+                    let stem = entry
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("output");
+                    let exe_name = if matches!(args.os, codegen::OperatingSystem::Windows) {
+                        format!("{}.exe", stem)
+                    } else {
+                        stem.to_string()
+                    };
+                    sub.output_file = Some(
+                        member
+                            .dir
+                            .join(exe_name)
+                            .to_string_lossy()
+                            .replace('\\', "/"),
+                    );
+                }
+                sub.input_file = entry.to_string_lossy().replace('\\', "/");
+            }
+        }
+        if let Err(e) = run(sub) {
+            eprintln!("workspace member '{}' failed: {}", member.name, e);
+            failed.push(member.name.clone());
+        }
+    }
+    if !failed.is_empty() {
+        return Err(format!(
+            "Workspace command failed for {} member{}: {}",
+            failed.len(),
+            if failed.len() == 1 { "" } else { "s" },
+            failed.join(", ")
+        ));
+    }
+    Ok(())
+}
+
 /// Materializes a verified cache hit to its output path and completes the
 /// command (report or execute). Mirrors the miss-path reporting with
 /// "Fresh" wording.
@@ -238,6 +321,28 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     if let CommandKind::Pkg(ref pkg_cmd) = args.command {
         crate::tools::pkg::run_pkg(pkg_cmd)?;
         return Ok(());
+    }
+
+    // Workspace fan-out: one run per member. Recursion carries explicit
+    // inputs with selection cleared, so it always takes the single path.
+    if matches!(
+        args.command,
+        CommandKind::Build
+            | CommandKind::Run
+            | CommandKind::Check
+            | CommandKind::Test
+            | CommandKind::Bench
+    ) {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
+        if let Some(members) = crate::tools::pkg::workspace::resolve_command_targets(
+            &cwd,
+            args.input_file == ".",
+            &args.packages,
+            args.workspace,
+            &args.exclude,
+        )? {
+            return run_workspace_members(&args, members);
+        }
     }
 
     if args.command == CommandKind::Fmt {

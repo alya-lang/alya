@@ -15,7 +15,15 @@ fn is_valid_feature_name(name: &str) -> bool {
 fn is_known_section(section: &str) -> bool {
     matches!(
         section,
-        "" | "package" | "dependencies" | "build" | "features" | "lint" | "fmt" | "test" | "bench"
+        "" | "package"
+            | "dependencies"
+            | "build"
+            | "features"
+            | "workspace"
+            | "lint"
+            | "fmt"
+            | "test"
+            | "bench"
     ) || section.starts_with("profile.")
 }
 
@@ -175,7 +183,7 @@ fn collect_section_extras(content: &str) -> BTreeMap<String, Vec<String>> {
         }
         let known = matches!(
             current.as_str(),
-            "" | "package" | "dependencies" | "build" | "features"
+            "" | "package" | "dependencies" | "build" | "features" | "workspace"
         ) || current.starts_with("profile.");
         if trimmed.starts_with('#') || !known {
             extras
@@ -217,6 +225,9 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
     let mut build_extra = BTreeMap::new();
     let mut features: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut profile_values: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+    let mut workspace_members: Vec<String> = Vec::new();
+    let mut workspace_exclude: Vec<String> = Vec::new();
+    let mut workspace_seen = false;
     let section_extras = collect_section_extras(content);
 
     let mut current_section = String::new();
@@ -233,7 +244,7 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
             current_section = line[1..line.len() - 1].trim().to_string();
             if !is_known_section(&current_section) {
                 return Err(format!(
-                    "Unknown section '[{}]' in alya.toml at line {}: expected one of '[package]', '[dependencies]', '[build]', '[features]', '[profile.<name>]', '[lint]', '[fmt]', '[test]', '[bench]'",
+                    "Unknown section '[{}]' in alya.toml at line {}: expected one of '[package]', '[dependencies]', '[build]', '[features]', '[workspace]', '[profile.<name>]', '[lint]', '[fmt]', '[test]', '[bench]'",
                     current_section, line_no
                 ));
             }
@@ -360,6 +371,43 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                     }
                     features.insert(key.to_string(), members);
                 }
+                "workspace" => {
+                    workspace_seen = true;
+                    match key {
+                        "members" | "exclude" => {
+                            if !(val.starts_with('[') && val.ends_with(']')) {
+                                return Err(format!(
+                                    "Invalid [workspace] '{}' in alya.toml at line {}: value must be a string array like '[\"crates/*\"]'",
+                                    key, line_no
+                                ));
+                            }
+                            let entries = parse_string_array(val);
+                            for entry in &entries {
+                                if entry.is_empty()
+                                    || entry.starts_with('/')
+                                    || entry.starts_with('\\')
+                                    || entry.contains("..")
+                                {
+                                    return Err(format!(
+                                        "Invalid [workspace] '{}' entry '{}' in alya.toml at line {}: expected a relative path without '..'",
+                                        key, entry, line_no
+                                    ));
+                                }
+                            }
+                            if key == "members" {
+                                workspace_members = entries;
+                            } else {
+                                workspace_exclude = entries;
+                            }
+                        }
+                        other => {
+                            return Err(format!(
+                                "Unknown [workspace] key '{}' in alya.toml at line {}: expected one of 'members', 'exclude'",
+                                other, line_no
+                            ));
+                        }
+                    }
+                }
                 _ => {}
             }
             if let Some(profile_name) = current_section.strip_prefix("profile.") {
@@ -383,8 +431,40 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
         }
     }
 
-    if name.is_empty() {
+    let workspace = if workspace_seen {
+        if workspace_members.is_empty() {
+            return Err(
+                "Invalid [workspace] in alya.toml: 'members' must list at least one member"
+                    .to_string(),
+            );
+        }
+        Some(crate::tools::pkg::types::WorkspaceConfig {
+            members: workspace_members,
+            exclude: workspace_exclude,
+        })
+    } else {
+        None
+    };
+
+    // Virtual roots declare members only: no package payload of their own.
+    let is_virtual = name.is_empty();
+    if is_virtual && workspace.is_none() {
         return Err("Missing required field 'name' under [package] in alya.toml".to_string());
+    }
+    if is_virtual {
+        if !dependencies.is_empty()
+            || !features.is_empty()
+            || !profile_values.is_empty()
+            || build_links.is_some()
+            || !c_sources.is_empty()
+            || !build_extra.is_empty()
+        {
+            return Err(
+                "Invalid virtual [workspace] root in alya.toml: a root without [package] must not declare [dependencies], [features], [profile.*] or [build]"
+                    .to_string(),
+            );
+        }
+        name = "__workspace_root__".to_string();
     }
 
     validate_feature_graph(&features, &dependencies)?;
@@ -447,8 +527,14 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
         build,
         features,
         profiles,
+        workspace,
         section_extras,
     })
+}
+
+pub fn is_virtual_workspace_root(manifest: &PackageManifest) -> bool {
+    // Synthesized private package marks a members-only root.
+    manifest.workspace.is_some() && manifest.package.name == "__workspace_root__"
 }
 
 pub fn serialize_manifest(manifest: &PackageManifest) -> String {
@@ -509,6 +595,32 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
         for line in pkg_extras {
             out.push_str(line);
             out.push('\n');
+        }
+    }
+
+    if let Some(ws) = &manifest.workspace {
+        out.push_str("\n[workspace]\n");
+        let members_str = ws
+            .members
+            .iter()
+            .map(|m| format!("\"{}\"", m))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!("members = [{}]\n", members_str));
+        if !ws.exclude.is_empty() {
+            let exclude_str = ws
+                .exclude
+                .iter()
+                .map(|m| format!("\"{}\"", m))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!("exclude = [{}]\n", exclude_str));
+        }
+        if let Some(ws_extras) = manifest.section_extras.get("workspace") {
+            for line in ws_extras {
+                out.push_str(line);
+                out.push('\n');
+            }
         }
     }
 
@@ -663,6 +775,7 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
             || section == "dependencies"
             || section == "build"
             || section == "features"
+            || section == "workspace"
             || section.starts_with("profile.")
         {
             continue;

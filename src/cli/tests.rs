@@ -370,6 +370,9 @@ fn test_pkg_install_cli() {
             strict: false,
             features: Vec::new(),
             no_default_features: false,
+            packages: Vec::new(),
+            workspace: false,
+            exclude: Vec::new(),
         })
     );
 
@@ -381,6 +384,9 @@ fn test_pkg_install_cli() {
             strict: true,
             features: Vec::new(),
             no_default_features: false,
+            packages: Vec::new(),
+            workspace: false,
+            exclude: Vec::new(),
         })
     );
 
@@ -392,6 +398,9 @@ fn test_pkg_install_cli() {
             strict: true,
             features: Vec::new(),
             no_default_features: false,
+            packages: Vec::new(),
+            workspace: false,
+            exclude: Vec::new(),
         })
     );
 
@@ -409,6 +418,9 @@ fn test_pkg_install_cli() {
             strict: false,
             features: vec!["simd".to_string(), "tls".to_string()],
             no_default_features: true,
+            packages: Vec::new(),
+            workspace: false,
+            exclude: Vec::new(),
         })
     );
 
@@ -420,6 +432,44 @@ fn test_pkg_install_cli() {
         }
         _ => panic!("Expected PkgCommand::Install"),
     }
+
+    // Workspace selection on install.
+    let args = to_args(&["alya", "install", "--workspace"]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    match parsed.command {
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Install { workspace, .. }) => {
+            assert!(workspace);
+        }
+        _ => panic!("Expected PkgCommand::Install"),
+    }
+    assert!(CliArgs::parse_from(&to_args(&["alya", "install", "--exclude", "a"])).is_err());
+    assert!(CliArgs::parse_from(&to_args(&["alya", "install", "-p", "a", "--workspace"])).is_err());
+}
+
+#[test]
+fn test_workspace_selection_flags() {
+    // -p/--package repeatable + comma form (via `test`: "." needs no entry).
+    let args = to_args(&["alya", "test", "-p", "a", "--package", "b,c"]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    assert_eq!(parsed.packages, vec!["a", "b", "c"]);
+    assert!(!parsed.workspace);
+
+    // --workspace with --exclude.
+    let args = to_args(&["alya", "test", "--workspace", "--exclude", "skip"]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    assert!(parsed.workspace);
+    assert_eq!(parsed.exclude, vec!["skip"]);
+
+    // -p/--workspace and lone --exclude parse fine here; the conflict
+    // surfaces at target resolution (see workspace::tests::selection_rules).
+    let args = to_args(&["alya", "test", "-p", "a", "--workspace"]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    assert!(!parsed.packages.is_empty() && parsed.workspace);
+
+    // Selection flags reject an explicit file.
+    assert!(CliArgs::parse_from(&to_args(&["alya", "check", "main.alya", "-p", "a"])).is_err());
+    // Unknown commands reject selection flags.
+    assert!(CliArgs::parse_from(&to_args(&["alya", "fmt", "--workspace"])).is_err());
 
     let args = to_args(&["alya", "add", "raylib", "--path", "../raylib", "--optional"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();

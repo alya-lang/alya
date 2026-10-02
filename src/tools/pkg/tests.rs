@@ -251,10 +251,14 @@ fn test_manifest_profiles_strict() {
     let bad_debug = "[package]\nname = \"x\"\n[profile.dev]\ndebug = 1\n";
     assert!(parse_manifest(bad_debug).is_err());
 
-    // Unknown section.
-    let bad_section = "[package]\nname = \"x\"\n[workspace]\nmembers = []\n";
+    // Unknown section (workspace is known now; use a typo instead).
+    let bad_section = "[package]\nname = \"x\"\n[workspac]\nmembers = []\n";
     let err = parse_manifest(bad_section).unwrap_err();
-    assert!(err.contains("Unknown section '[workspace]'"));
+    assert!(err.contains("Unknown section '[workspac]'"));
+
+    // Empty workspace members list is rejected.
+    let empty_ws = "[package]\nname = \"x\"\n[workspace]\nmembers = []\n";
+    assert!(parse_manifest(empty_ws).is_err());
 
     // Tool sections stay accepted (preserved verbatim).
     let tools = "[package]\nname = \"x\"\n[lint]\ndisabled_rules = []\n";
@@ -378,13 +382,22 @@ fn test_install_features_gate_optional_path_dep() {
         "pub function f() {\n    return 1\n}\nend\n",
     )
     .unwrap();
-    run_install_in(&app_dir, false, &[], false).unwrap();
+    run_install_in(&app_dir, false, &[], false, &[], false, &[]).unwrap();
     let lock = parse_lockfile(&fs::read_to_string(app_dir.join("alya.lock")).unwrap()).unwrap();
     assert!(lock.packages.is_empty());
 
     // Enabling the feature installs (locks) it and unlocks the import.
     // Path sources resolve in place; optionality gates fetchable deps.
-    run_install_in(&app_dir, false, &["extra".to_string()], false).unwrap();
+    run_install_in(
+        &app_dir,
+        false,
+        &["extra".to_string()],
+        false,
+        &[],
+        false,
+        &[],
+    )
+    .unwrap();
     let lock = parse_lockfile(&fs::read_to_string(app_dir.join("alya.lock")).unwrap()).unwrap();
     assert_eq!(lock.packages.len(), 1);
     assert_eq!(lock.packages[0].name, "optlib");
@@ -392,7 +405,16 @@ fn test_install_features_gate_optional_path_dep() {
     assert!(resolved.is_some());
 
     // Unknown feature is a hard error.
-    assert!(run_install_in(&app_dir, false, &["nope".to_string()], false).is_err());
+    assert!(run_install_in(
+        &app_dir,
+        false,
+        &["nope".to_string()],
+        false,
+        &[],
+        false,
+        &[]
+    )
+    .is_err());
 
     let _ = fs::remove_dir_all(&base);
 }
@@ -465,7 +487,7 @@ fn test_index_install_from_file_urls_offline() {
             base.join("index").display().to_string().replace('\\', "/")
         ),
     );
-    run_install_in(&app_dir, false, &[], false).unwrap();
+    run_install_in(&app_dir, false, &[], false, &[], false, &[]).unwrap();
     match prev {
         Some(v) => std::env::set_var("ALYA_REGISTRY_INDEX", v),
         None => std::env::remove_var("ALYA_REGISTRY_INDEX"),
@@ -634,7 +656,7 @@ fn test_pkg_add_and_install_path_dependency() {
     fs::write(app_dir.join("alya.toml"), serialize_manifest(&app_manifest)).unwrap();
 
     // Run install in app_dir
-    run_install_in(&app_dir, false, &[], false).unwrap();
+    run_install_in(&app_dir, false, &[], false, &[], false, &[]).unwrap();
 
     assert!(app_dir.join("alya.lock").exists());
     let lock = parse_lockfile(&fs::read_to_string(app_dir.join("alya.lock")).unwrap()).unwrap();
@@ -1075,7 +1097,7 @@ fn test_transitive_dependency_resolution() {
     .unwrap();
 
     // Run install in root
-    let res = run_install_in(&root_dir, false, &[], false);
+    let res = run_install_in(&root_dir, false, &[], false, &[], false, &[]);
     assert!(res.is_ok(), "run_install_in failed: {:?}", res.err());
 
     // Verify lockfile contains BOTH pkg_a and pkg_b!
@@ -1212,7 +1234,7 @@ fn test_version_dependency_resolution_and_locking() {
     )
     .unwrap();
 
-    let res = run_install_in(&app_dir, false, &[], false);
+    let res = run_install_in(&app_dir, false, &[], false, &[], false, &[]);
     assert!(res.is_ok(), "run_install_in failed: {:?}", res.err());
 
     // Verify lockfile
@@ -1289,7 +1311,7 @@ fn test_duplicate_native_links_rejection() {
     )
     .unwrap();
 
-    let res = run_install_in(&app_dir, false, &[], false);
+    let res = run_install_in(&app_dir, false, &[], false, &[], false, &[]);
     assert!(res.is_err());
     let err_msg = res.err().unwrap();
     assert!(
@@ -1425,7 +1447,7 @@ fn test_major_version_segregation_installation() {
     )
     .unwrap();
 
-    let res = run_install_in(&app_dir, false, &[], false);
+    let res = run_install_in(&app_dir, false, &[], false, &[], false, &[]);
     assert!(res.is_ok(), "run_install_in failed: {:?}", res.err());
 
     let packages_dir = app_dir.join(".alya").join("packages");
@@ -1676,4 +1698,67 @@ fn test_lockfile_version2_roundtrip() {
     assert_eq!(parse_lockfile(&text).unwrap().version, 2);
     // Unversioned files keep defaulting to v1.
     assert_eq!(parse_lockfile("[[package]]\n").unwrap().version, 1);
+}
+
+#[test]
+fn test_workspace_shared_lock_install() {
+    let _env_guard = crate::tools::pkg::lock_registry_env();
+    let base = std::env::temp_dir().join(format!("alya_test_wsinstall_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    // Virtual root: members only.
+    fs::create_dir_all(&base).unwrap();
+    fs::write(
+        base.join("alya.toml"),
+        "[workspace]\nmembers = [\"crates/*\"]\n",
+    )
+    .unwrap();
+    // Library member with no deps.
+    let lib_dir = base.join("crates").join("lib");
+    fs::create_dir_all(lib_dir.join("src")).unwrap();
+    fs::write(
+        lib_dir.join("alya.toml"),
+        "[package]\nname = \"lib\"\nversion = \"0.1.0\"\nentry = \"src/lib.alya\"\n",
+    )
+    .unwrap();
+    fs::write(
+        lib_dir.join("src").join("lib.alya"),
+        "pub function f() {\n    return 1\n}\nend\n",
+    )
+    .unwrap();
+    // App member depending on lib via path.
+    let app_dir = base.join("crates").join("app");
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+    fs::write(
+        app_dir.join("alya.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nentry = \"src/main.alya\"\n\n[dependencies]\nlib = { path = \"../lib\" }\n",
+    )
+    .unwrap();
+    fs::write(app_dir.join("src").join("main.alya"), "say \"hi\"\n").unwrap();
+
+    // Install from a member dir still lands the shared lock at the root.
+    run_install_in(&app_dir, false, &[], false, &[], false, &[]).unwrap();
+    let lock_text = fs::read_to_string(base.join("alya.lock")).expect("shared root lock");
+    let lock = parse_lockfile(&lock_text).unwrap();
+    assert_eq!(lock.version, 2);
+    assert!(
+        lock.packages.iter().any(|p| p.name == "lib"),
+        "lock must pin the path dep"
+    );
+    assert!(!app_dir.join("alya.lock").exists());
+    assert!(!lib_dir.join("alya.lock").exists());
+
+    // Member selection is rejected for install (whole workspace or nothing).
+    let err = run_install_in(
+        &app_dir,
+        false,
+        &[],
+        false,
+        &["app".to_string()],
+        false,
+        &[],
+    )
+    .unwrap_err();
+    assert!(err.contains("always covers all members"), "got: {}", err);
+
+    let _ = fs::remove_dir_all(&base);
 }

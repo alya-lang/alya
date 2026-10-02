@@ -76,6 +76,11 @@ pub struct CliArgs {
     pub features: Vec<String>,
     pub no_default_features: bool,
     pub fresh: bool,
+    /// Workspace member selection (`--package` repeatable, `--workspace`,
+    /// `--exclude` repeatable). Empty + false = single-package behavior.
+    pub packages: Vec<String>,
+    pub workspace: bool,
+    pub exclude: Vec<String>,
     pub run_args: Vec<String>,
     pub test_jobs: Option<usize>,
     pub no_std: bool,
@@ -129,6 +134,9 @@ impl CliArgs {
                 features: Vec::new(),
                 no_default_features: false,
                 fresh: false,
+                packages: Vec::new(),
+                workspace: false,
+                exclude: Vec::new(),
                 bundle_id: None,
                 icon_path: None,
                 run_args: Vec::new(),
@@ -414,6 +422,7 @@ impl CliArgs {
         }
 
         let mut input_file = None;
+        let mut file_arg_given = false;
         let mut output_file = None;
         let mut quiet = false;
         let mut time = false;
@@ -430,6 +439,9 @@ impl CliArgs {
         let mut features: Vec<String> = Vec::new();
         let mut no_default_features = false;
         let mut fresh = false;
+        let mut packages: Vec<String> = Vec::new();
+        let mut workspace = false;
+        let mut exclude: Vec<String> = Vec::new();
         let mut os_explicit = false;
         let mut arch_explicit = false;
         let mut run_args = Vec::new();
@@ -611,6 +623,25 @@ impl CliArgs {
                 "--fresh" => {
                     fresh = true;
                 }
+                "-p" | "--package" => {
+                    if i + 1 < args.len() {
+                        push_features(&mut packages, &args[i + 1]);
+                        i += 1;
+                    } else {
+                        return Err("Error: Missing argument for '-p/--package'".to_string());
+                    }
+                }
+                "--workspace" => {
+                    workspace = true;
+                }
+                "--exclude" => {
+                    if i + 1 < args.len() {
+                        push_features(&mut exclude, &args[i + 1]);
+                        i += 1;
+                    } else {
+                        return Err("Error: Missing argument for '--exclude'".to_string());
+                    }
+                }
                 "--arch" => {
                     if i + 1 < args.len() {
                         arch_explicit = true;
@@ -659,11 +690,18 @@ impl CliArgs {
                             ));
                         }
                     } else {
+                        file_arg_given = true;
                         input_file = Some(arg.to_string());
                     }
                 }
                 other if other.starts_with("--features=") => {
                     push_features(&mut features, &other["--features=".len()..]);
+                }
+                other if other.starts_with("--package=") => {
+                    push_features(&mut packages, &other["--package=".len()..]);
+                }
+                other if other.starts_with("--exclude=") => {
+                    push_features(&mut exclude, &other["--exclude=".len()..]);
                 }
                 other => {
                     if command == CommandKind::Run && input_file.is_some() {
@@ -692,6 +730,10 @@ impl CliArgs {
                 ) {
                     if let Some(entry) = crate::tools::pkg::detect_package_entry() {
                         entry
+                    } else if crate::tools::pkg::workspace::find_workspace_root().is_some() {
+                        // Workspace root has no entry of its own: the driver
+                        // fans out to members ("." sentinel, never read as a file).
+                        ".".to_string()
                     } else {
                         return Err("Error: No input source file specified.".to_string());
                     }
@@ -718,6 +760,15 @@ impl CliArgs {
         }
         let feature_flags_used = !features.is_empty() || no_default_features;
         let profile_flags_used = release || profile_opt.is_some() || fresh;
+        let workspace_flags_used = !packages.is_empty() || workspace || !exclude.is_empty();
+        // Member selection never combines with an explicit file: the file
+        // already identifies the target.
+        if workspace_flags_used && file_arg_given {
+            return Err(
+                "Error: '--package'/'--workspace'/'--exclude' cannot be combined with an explicit input file"
+                    .to_string(),
+            );
+        }
         match command {
             CommandKind::Build | CommandKind::Run | CommandKind::Test | CommandKind::Bench => {}
             // `check` verifies source: features select what's verified,
@@ -731,6 +782,9 @@ impl CliArgs {
             _ => {
                 if profile_flags_used || feature_flags_used {
                     return Err("Error: '--profile'/'--release'/'--features'/'--no-default-features'/'--fresh' are only valid with 'build', 'run', 'test', 'bench' and 'check' ('--features' only for 'check')".to_string());
+                }
+                if workspace_flags_used {
+                    return Err("Error: '--package'/'--workspace'/'--exclude' are only valid with 'build', 'run', 'test', 'bench', 'check' and 'install'".to_string());
                 }
             }
         }
@@ -761,6 +815,9 @@ impl CliArgs {
             features,
             no_default_features,
             fresh,
+            packages,
+            workspace,
+            exclude,
             run_args,
             test_jobs,
             no_std,
@@ -800,6 +857,9 @@ impl CliArgs {
             features: Vec::new(),
             no_default_features: false,
             fresh: false,
+            packages: Vec::new(),
+            workspace: false,
+            exclude: Vec::new(),
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
@@ -841,6 +901,9 @@ impl CliArgs {
             features: Vec::new(),
             no_default_features: false,
             fresh: false,
+            packages: Vec::new(),
+            workspace: false,
+            exclude: Vec::new(),
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
@@ -882,6 +945,9 @@ impl CliArgs {
             features: Vec::new(),
             no_default_features: false,
             fresh: false,
+            packages: Vec::new(),
+            workspace: false,
+            exclude: Vec::new(),
             bundle_id: None,
             icon_path: None,
             run_args: Vec::new(),
@@ -1277,6 +1343,9 @@ fn parse_pkg_install_args(args: &[String]) -> Result<PkgCommand, String> {
     let mut strict = false;
     let mut features: Vec<String> = Vec::new();
     let mut no_default_features = false;
+    let mut packages: Vec<String> = Vec::new();
+    let mut workspace = false;
+    let mut exclude: Vec<String> = Vec::new();
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -1290,23 +1359,55 @@ fn parse_pkg_install_args(args: &[String]) -> Result<PkgCommand, String> {
                 }
             }
             "--no-default-features" => no_default_features = true,
+            "-p" | "--package" => {
+                if i + 1 < args.len() {
+                    push_features(&mut packages, &args[i + 1]);
+                    i += 1;
+                } else {
+                    return Err("Error: Missing argument for '-p/--package'".to_string());
+                }
+            }
+            "--workspace" => workspace = true,
+            "--exclude" => {
+                if i + 1 < args.len() {
+                    push_features(&mut exclude, &args[i + 1]);
+                    i += 1;
+                } else {
+                    return Err("Error: Missing argument for '--exclude'".to_string());
+                }
+            }
             "-h" | "--help" | "help" => return Ok(PkgCommand::Help),
             other if other.starts_with("--features=") => {
                 push_features(&mut features, &other["--features=".len()..]);
             }
+            other if other.starts_with("--package=") => {
+                push_features(&mut packages, &other["--package=".len()..]);
+            }
+            other if other.starts_with("--exclude=") => {
+                push_features(&mut exclude, &other["--exclude=".len()..]);
+            }
             other => {
                 return Err(format!(
-                    "Error: Unknown option '{}' for 'install'. Supported flags: --strict, --features <a,b>, --no-default-features",
+                    "Error: Unknown option '{}' for 'install'. Supported flags: --strict, --features <a,b>, --no-default-features, -p/--package <name>, --workspace, --exclude <name>",
                     other
                 ))
             }
         }
         i += 1;
     }
+    if !packages.is_empty() && workspace {
+        return Err("Error: '--package' cannot be combined with '--workspace'".to_string());
+    }
+    if !exclude.is_empty() && !workspace {
+        return Err("Error: '--exclude' requires '--workspace'".to_string());
+    }
     Ok(PkgCommand::Install {
         strict,
         features,
         no_default_features,
+        packages,
+        workspace,
+        exclude,
     })
 }
 

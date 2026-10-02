@@ -106,6 +106,7 @@ pub fn print_full_usage() {
     );
     println!("  --release, --profile <name>  Select the build profile (default: dev)");
     println!("  --features <a,b>, --no-default-features  Select package features");
+    println!("  -p, --package <n>, --workspace, --exclude <n>  Select workspace members");
     println!("  --fresh             Ignore the build cache (rebuild + overwrite)");
     println!("  --stats, --bench      Display detailed compilation and execution metrics");
     println!("  -v, --version         Show compiler version");
@@ -202,11 +203,15 @@ pub fn print_run_help() {
     println!("  --profile <name>    Use a custom [profile.<name>] table");
     println!("  --features <a,b>    Enable package features (repeatable)");
     println!("  --no-default-features  Skip the default feature set");
-    println!("  --fresh             Ignore the build cache (rebuild + overwrite)\n");
+    println!("  --fresh             Ignore the build cache (rebuild + overwrite)");
+    println!("  -p, --package <n>   Workspace member to target (repeatable)");
+    println!("  --workspace         Target all workspace members");
+    println!("  --exclude <n>       Skip workspace member (with --workspace; repeatable)\n");
     println!("EXAMPLES:");
     println!("  alya run                             # Run package entry from alya.toml");
     println!("  alya run hello.alya                  # Compile & run in one step");
     println!("  alya run app.alya -- --port 8080     # Forward args to the program");
+    println!("  alya run -p app                      # Run one workspace member");
 }
 
 pub fn print_build_help() {
@@ -233,12 +238,17 @@ pub fn print_build_help() {
     println!("  --profile <name>    Use a custom [profile.<name>] table");
     println!("  --features <a,b>    Enable package features (repeatable)");
     println!("  --no-default-features  Skip the default feature set");
-    println!("  --fresh             Ignore the build cache (rebuild + overwrite)\n");
+    println!("  --fresh             Ignore the build cache (rebuild + overwrite)");
+    println!("  -p, --package <n>   Workspace member to target (repeatable)");
+    println!("  --workspace         Target all workspace members");
+    println!("  --exclude <n>       Skip workspace member (with --workspace; repeatable)\n");
     println!("EXAMPLES:");
     println!("  alya build hello.alya                # Produce executable (hello.exe / hello)");
     println!("  alya build app.alya --bundle --gui   # GUI bundle for the host platform");
     println!("  alya build app.alya --bundle --os windows  # Cross-platform bundle");
     println!("  alya build app.alya --release        # Optimized release build");
+    println!("  alya build --workspace              # Build every workspace member");
+    println!("  alya build -p app                   # Build one workspace member");
 }
 
 pub fn print_check_help() {
@@ -248,10 +258,14 @@ pub fn print_check_help() {
     println!("ARGS:");
     println!("  [file]              Source file or package entry (default: alya.toml entry)\n");
     println!("OPTIONS:");
-    println!("  -q, --quiet         Suppress status messages and compiler banner\n");
+    println!("  -q, --quiet         Suppress status messages and compiler banner");
+    println!("  -p, --package <n>   Workspace member to target (repeatable)");
+    println!("  --workspace         Target all workspace members");
+    println!("  --exclude <n>       Skip workspace member (with --workspace; repeatable)\n");
     println!("EXAMPLES:");
     println!("  alya check hello.alya                # Quick syntax validation");
     println!("  alya check                           # Check package entry from alya.toml");
+    println!("  alya check --workspace               # Check every workspace member");
 }
 
 pub fn print_ast_help() {
@@ -305,11 +319,15 @@ pub fn print_test_help() {
     println!("  --profile <name>    Use a custom [profile.<name>] table");
     println!("  --features <a,b>    Enable package features (repeatable)");
     println!("  --no-default-features  Skip the default feature set");
-    println!("  --fresh             Ignore the build cache (rebuild + overwrite)\n");
+    println!("  --fresh             Ignore the build cache (rebuild + overwrite)");
+    println!("  -p, --package <n>   Workspace member to target (repeatable)");
+    println!("  --workspace         Target all workspace members");
+    println!("  --exclude <n>       Skip workspace member (with --workspace; repeatable)\n");
     println!("EXAMPLES:");
     println!("  alya test                            # Run all tests in project");
     println!("  alya test -j 4                       # Run with 4 parallel workers");
     println!("  alya test --sequential               # Run sequentially for debugging");
+    println!("  alya test --workspace                # Test every workspace member");
 }
 
 pub fn print_bench_help() {
@@ -323,10 +341,14 @@ pub fn print_bench_help() {
     println!("  --profile <name>    Use a custom [profile.<name>] table");
     println!("  --features <a,b>    Enable package features (repeatable)");
     println!("  --no-default-features  Skip the default feature set");
-    println!("  --fresh             Ignore the build cache (rebuild + overwrite)\n");
+    println!("  --fresh             Ignore the build cache (rebuild + overwrite)");
+    println!("  -p, --package <n>   Workspace member to target (repeatable)");
+    println!("  --workspace         Target all workspace members");
+    println!("  --exclude <n>       Skip workspace member (with --workspace; repeatable)\n");
     println!("EXAMPLES:");
     println!("  alya bench                           # Run all benchmarks in project");
     println!("  alya bench benches                   # Run benchmarks in a directory");
+    println!("  alya bench --workspace               # Benchmark every workspace member");
 }
 
 pub fn print_lint_help() {
@@ -455,7 +477,10 @@ pub fn print_install_help() {
     println!("OPTIONS:");
     println!("  --strict            Fail instead of falling back to source on broken assets");
     println!("  --features <a,b>    Enable package features (repeatable)");
-    println!("  --no-default-features  Skip the default feature set\n");
+    println!("  --no-default-features  Skip the default feature set");
+    println!("  --workspace         Install all workspace members (default in a workspace)\n");
+    println!("In a workspace the lockfile and `.alya/packages` are shared at the");
+    println!("root and install always covers every member.");
     println!("Version requirements resolve via the static index first");
     println!("(`ALYA_REGISTRY_INDEX`, default: raw.githubusercontent.com/alya-lang/index),");
     println!("then fall back to git-based resolution.\n");

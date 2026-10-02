@@ -9,6 +9,7 @@ pub mod manifest;
 pub mod resolver;
 pub mod toml;
 pub mod types;
+pub mod workspace;
 
 #[cfg(test)]
 mod tests;

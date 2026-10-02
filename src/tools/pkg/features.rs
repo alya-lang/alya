@@ -324,6 +324,7 @@ pub fn manifest_for_tests() -> PackageManifest {
         build: None,
         features: BTreeMap::new(),
         profiles: BTreeMap::new(),
+        workspace: None,
         section_extras: BTreeMap::new(),
     }
 }

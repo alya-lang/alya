@@ -46,7 +46,17 @@ pub fn run_pkg(cmd: &PkgCommand) -> Result<(), String> {
             strict,
             features,
             no_default_features,
-        } => run_install(*strict, features, *no_default_features),
+            packages,
+            workspace,
+            exclude,
+        } => run_install(
+            *strict,
+            features,
+            *no_default_features,
+            packages,
+            *workspace,
+            exclude,
+        ),
         PkgCommand::List => run_list(),
         PkgCommand::Update { upgrade } => run_update(*upgrade),
         PkgCommand::Cache { clean, .. } => {
@@ -122,6 +132,7 @@ pub fn run_init(path: Option<&str>, name: Option<&str>, is_lib: bool) -> Result<
         build: None,
         features: BTreeMap::new(),
         profiles: BTreeMap::new(),
+        workspace: None,
         section_extras: BTreeMap::new(),
     };
 
@@ -185,6 +196,12 @@ pub fn run_add(
         .map_err(|e| format!("Failed to read alya.toml: {}", e))?;
     let mut manifest = parse_manifest(&content)?;
     check_compiler_compatibility(&manifest)?;
+    if super::manifest::is_virtual_workspace_root(&manifest) {
+        return Err(
+            "Error: cannot 'add' a dependency to a virtual workspace root (it declares members only). Run 'add' inside a member directory instead."
+                .to_string(),
+        );
+    }
 
     let (resolved_name, auto_git) = resolve_package_spec(name);
 
@@ -281,7 +298,7 @@ pub fn run_add(
         println!("✓ Added dependency '{}' to alya.toml", resolved_name);
     }
 
-    run_install_in(&manifest_dir, false, &[], false)?;
+    run_install_in(&manifest_dir, false, &[], false, &[], false, &[])?;
     Ok(())
 }
 
@@ -289,11 +306,22 @@ pub fn run_install(
     strict: bool,
     features: &[String],
     no_default_features: bool,
+    packages: &[String],
+    workspace: bool,
+    exclude: &[String],
 ) -> Result<(), String> {
     let manifest_dir = find_manifest_dir().ok_or_else(|| {
         "Error: Could not find 'alya.toml' in current directory or any parent.".to_string()
     })?;
-    run_install_in(&manifest_dir, strict, features, no_default_features)
+    run_install_in(
+        &manifest_dir,
+        strict,
+        features,
+        no_default_features,
+        packages,
+        workspace,
+        exclude,
+    )
 }
 
 fn get_dep_major(dep: &DependencySource, from_dir: &Path) -> Option<u64> {
@@ -565,6 +593,87 @@ pub fn run_install_in(
     strict: bool,
     features: &[String],
     no_default_features: bool,
+    packages: &[String],
+    workspace: bool,
+    exclude: &[String],
+) -> Result<(), String> {
+    // Inside a workspace the lockfile and `.alya/packages` are shared at
+    // the root and install always covers every member (a partial install
+    // would corrupt the shared lock).
+    if let Some(root) = super::workspace::find_workspace_root_from(manifest_dir) {
+        if !packages.is_empty() || !exclude.is_empty() {
+            return Err(
+                "Error: '--package'/'--exclude' are not supported for 'install' in a workspace (install always covers all members)"
+                    .to_string(),
+            );
+        }
+        let _ = workspace;
+        return run_install_workspace(&root, strict, features, no_default_features);
+    }
+    run_install_single(manifest_dir, strict, features, no_default_features)
+}
+
+/// Installs every workspace member into the shared root `.alya/packages`
+/// with one root `alya.lock`. Member `--features` apply to each member.
+fn run_install_workspace(
+    root: &Path,
+    strict: bool,
+    features: &[String],
+    no_default_features: bool,
+) -> Result<(), String> {
+    use super::workspace::resolve_workspace_members;
+    let members = resolve_workspace_members(root)?;
+    let names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
+    println!(
+        "Workspace '{}': installing {} member{} ({})",
+        root.display(),
+        members.len(),
+        if members.len() == 1 { "" } else { "s" },
+        names.join(", ")
+    );
+    // Gather (name, dep, owner-dir) triples across all members; the
+    // shared stages below coalesce, segregate, and lock them together.
+    let mut requests: Vec<(String, DependencySource, PathBuf)> = Vec::new();
+    for member in &members {
+        let content = fs::read_to_string(member.dir.join("alya.toml"))
+            .map_err(|e| format!("Failed to read alya.toml: {}", e))?;
+        let manifest = parse_manifest(&content)?;
+        check_compiler_compatibility(&manifest)?;
+        let active = resolve_active_features(&manifest, features, no_default_features)
+            .map_err(|e| format!("Member '{}': {}", member.name, e))?;
+        let enabled = enabled_dependencies(&manifest, &active);
+        for (name, dep) in &manifest.dependencies {
+            if !enabled.contains(name) {
+                println!(
+                    "  Skipping optional dependency '{}' of member '{}' (no active feature enables it)",
+                    name, member.name
+                );
+                continue;
+            }
+            requests.push((name.clone(), dep.clone(), member.dir.clone()));
+        }
+    }
+    if !features.is_empty() || no_default_features {
+        let mut names: Vec<&str> = features.iter().map(|s| s.as_str()).collect();
+        names.sort();
+        println!(
+            "Active features (per member): {}",
+            if names.is_empty() {
+                "(none)".to_string()
+            } else {
+                names.join(", ")
+            }
+        );
+    }
+    install_resolved(root, requests, strict)
+}
+
+/// Legacy single-package install: lockfile and packages beside the package.
+fn run_install_single(
+    manifest_dir: &Path,
+    strict: bool,
+    features: &[String],
+    no_default_features: bool,
 ) -> Result<(), String> {
     let manifest_path = manifest_dir.join("alya.toml");
     let content = fs::read_to_string(&manifest_path)
@@ -586,11 +695,33 @@ pub fn run_install_in(
         );
     }
 
-    let packages_dir = manifest_dir.join(".alya").join("packages");
-    let lock_path = if manifest_dir.join("alya.lock").exists() {
-        manifest_dir.join("alya.lock")
+    let mut requests: Vec<(String, DependencySource, PathBuf)> = Vec::new();
+    for (name, dep) in &manifest.dependencies {
+        if !enabled.contains(name) {
+            println!(
+                "  Skipping optional dependency '{}' (no active feature enables it)",
+                name
+            );
+            continue;
+        }
+        requests.push((name.clone(), dep.clone(), manifest_dir.to_path_buf()));
+    }
+    install_resolved(manifest_dir, requests, strict)
+}
+
+/// Shared install stages: graph discovery + coalescing, major
+/// segregation, then installation under `lock_dir/.alya/packages` with the
+/// lockfile at `lock_dir/alya.lock`.
+fn install_resolved(
+    lock_dir: &Path,
+    requests: Vec<(String, DependencySource, PathBuf)>,
+    strict: bool,
+) -> Result<(), String> {
+    let packages_dir = lock_dir.join(".alya").join("packages");
+    let lock_path = if lock_dir.join("alya.lock").exists() {
+        lock_dir.join("alya.lock")
     } else {
-        manifest_dir.join("Alya.lock")
+        lock_dir.join("Alya.lock")
     };
     let existing_lock = if lock_path.exists() {
         fs::read_to_string(&lock_path)
@@ -606,15 +737,8 @@ pub fn run_install_in(
     let mut to_scan: VecDeque<(String, DependencySource, PathBuf)> = VecDeque::new();
     let mut reported: HashSet<String> = HashSet::new();
 
-    for (name, dep) in &manifest.dependencies {
-        if !enabled.contains(name) {
-            println!(
-                "  Skipping optional dependency '{}' (no active feature enables it)",
-                name
-            );
-            continue;
-        }
-        to_scan.push_back((name.clone(), dep.clone(), manifest_dir.to_path_buf()));
+    for (name, dep, owner) in requests {
+        to_scan.push_back((name, dep, owner));
     }
 
     while let Some((name, dep, from_manifest_dir)) = to_scan.pop_front() {
@@ -840,7 +964,7 @@ pub fn run_install_in(
 
         let entry = find_package_entry(&target_dir, &name)?;
         let rel_entry = entry
-            .strip_prefix(manifest_dir)
+            .strip_prefix(lock_dir)
             .unwrap_or(&entry)
             .to_string_lossy()
             .replace('\\', "/");
@@ -864,12 +988,12 @@ pub fn run_install_in(
         packages: locked_packages,
     };
 
-    let lockfile_path = manifest_dir.join("alya.lock");
+    let lockfile_path = lock_dir.join("alya.lock");
     fs::write(&lockfile_path, serialize_lockfile(&lock))
         .map_err(|e| format!("Failed to write alya.lock: {}", e))?;
 
     // On case-sensitive filesystems, remove legacy Alya.lock if distinct from alya.lock
-    let legacy_lock = manifest_dir.join("Alya.lock");
+    let legacy_lock = lock_dir.join("Alya.lock");
     if legacy_lock.exists() {
         if let (Ok(p1), Ok(p2)) = (lockfile_path.canonicalize(), legacy_lock.canonicalize()) {
             if p1 != p2 {
@@ -886,10 +1010,59 @@ pub fn run_install_in(
     Ok(())
 }
 
+/// Workspace `list`: members with versions plus shared-lock status.
+fn run_list_workspace(root: &Path) -> Result<(), String> {
+    use super::workspace::resolve_workspace_members;
+    let members = resolve_workspace_members(root)?;
+    println!(
+        "Workspace: {} ({} member{})",
+        root.display(),
+        members.len(),
+        if members.len() == 1 { "" } else { "s" }
+    );
+    let lock_path = if root.join("alya.lock").exists() {
+        root.join("alya.lock")
+    } else {
+        root.join("Alya.lock")
+    };
+    let lock = if lock_path.exists() {
+        fs::read_to_string(&lock_path)
+            .ok()
+            .and_then(|c| parse_lockfile(&c).ok())
+    } else {
+        None
+    };
+    for member in &members {
+        let content = fs::read_to_string(member.dir.join("alya.toml"))
+            .map_err(|e| format!("Failed to read alya.toml: {}", e))?;
+        let manifest = parse_manifest(&content)?;
+        let locked_note = match &lock {
+            Some(_) => "locked",
+            None => "not locked - run 'alya install'",
+        };
+        println!(
+            "  • {:<16} v{:<10} [{}]",
+            manifest.package.name, manifest.package.version, locked_note
+        );
+    }
+    if let Some(l) = lock {
+        println!(
+            "\nShared lock: {} package{} in {}",
+            l.packages.len(),
+            if l.packages.len() == 1 { "" } else { "s" },
+            lock_path.display()
+        );
+    }
+    Ok(())
+}
+
 pub fn run_list() -> Result<(), String> {
     let manifest_dir = find_manifest_dir().ok_or_else(|| {
         "Error: Could not find 'alya.toml' in current directory or any parent.".to_string()
     })?;
+    if let Some(root) = super::workspace::find_workspace_root_from(&manifest_dir) {
+        return run_list_workspace(&root);
+    }
     let manifest_path = manifest_dir.join("alya.toml");
     let content = fs::read_to_string(&manifest_path)
         .map_err(|e| format!("Failed to read alya.toml: {}", e))?;
@@ -1406,7 +1579,7 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
     }
 
     println!("Resolving and locking updated dependencies...\n");
-    run_install(false, &[], false)?;
+    run_install(false, &[], false, &[], false, &[])?;
     println!("\n✓ All dependencies updated successfully!");
     Ok(())
 }

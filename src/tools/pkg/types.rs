@@ -21,6 +21,10 @@ pub enum PkgCommand {
         strict: bool,
         features: Vec<String>,
         no_default_features: bool,
+        /// Workspace member selection (mirrors build/run/test flags).
+        packages: Vec<String>,
+        workspace: bool,
+        exclude: Vec<String>,
     },
     List,
     Update {
@@ -137,11 +141,23 @@ pub struct BuildConfig {
     pub build_extra: BTreeMap<String, String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WorkspaceConfig {
+    /// Member declarations: literal relative paths (`libs/foo`) or
+    /// single-level globs (`crates/*`). Relative to the workspace root.
+    pub members: Vec<String>,
+    /// Exclusions subtracted after member expansion (same syntax).
+    pub exclude: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageManifest {
     pub package: PackageInfo,
     pub dependencies: BTreeMap<String, DependencySource>,
     pub build: Option<BuildConfig>,
+    /// `[workspace]`: present on the workspace root. Virtual roots (no
+    /// `[package]`) get a synthesized private package; member lists only.
+    pub workspace: Option<WorkspaceConfig>,
     /// `[features]`: name -> member list. Members name another feature or a
     /// (usually optional) dependency. No language-level `cfg(feature)` exists
     /// yet: features gate optional dependencies only.
