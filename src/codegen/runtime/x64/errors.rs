@@ -370,6 +370,18 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     }
     out.push_str("    jmp fn_throw\n\n");
 
+    // alya_error_null_field (struct field access on a null base,
+    // alya-lang/alya#74): same catchable shape as the unwrap trap.
+    out.push_str("alya_error_null_field:\n");
+    if is_win {
+        out.push_str("    lea alya_str_null_field(%rip), %rcx\n");
+        out.push_str("    xor %edx, %edx\n");
+    } else {
+        out.push_str("    lea alya_str_null_field(%rip), %rdi\n");
+        out.push_str("    xor %esi, %esi\n");
+    }
+    out.push_str("    jmp fn_throw\n\n");
+
     // alya_error_mixed_float (dynamic mixed int/float arithmetic through
     // untyped params, alya-lang/alya#39): the static checker rejects
     // provably-mixed reads; this catches what only tags can prove.

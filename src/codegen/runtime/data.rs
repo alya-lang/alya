@@ -261,6 +261,8 @@ pub fn emit_data_sections(
     out.push_str(&format!("    {} \"index out of bounds\"\n", str_directive));
     out.push_str("alya_str_null_unwrap:\n");
     out.push_str(&format!("    {} \"force unwrap of null\"\n", str_directive));
+    out.push_str("alya_str_null_field:\n");
+    out.push_str(&format!("    {} \"field access on null\"\n", str_directive));
     out.push_str("alya_str_mixed_float:\n");
     out.push_str(&format!(
         "    {} \"mixed int/float arithmetic (convert explicitly)\"\n",

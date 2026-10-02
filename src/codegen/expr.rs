@@ -2843,6 +2843,18 @@ impl CodeGen {
 
                 let is_weak = self.is_struct_field_weak(object, field);
                 self.generate_expression(object);
+                // Null-base trap (alya-lang/alya#74): same rationale as the
+                // field-store trap in `generate_field_assign`. Plain
+                // `FieldAccess` only (`?.` forms are separate variants
+                // handled with short-circuit semantics elsewhere).
+                arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+                arch::emit_cond_jump(
+                    &mut self.output,
+                    self.arch,
+                    BinaryOp::Equal,
+                    false,
+                    "alya_error_null_field",
+                );
                 arch::emit_struct_field_get(&mut self.output, self.arch, field_idx);
                 if is_weak {
                     let lbl = self.ctx.next_label();

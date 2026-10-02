@@ -450,3 +450,59 @@ say "Done"
         );
     }
 }
+
+#[test]
+fn test_e2e_null_field_store_trapped() {
+    // alya-lang/alya#74: a field store through a null base must raise a
+    // catchable runtime error instead of segfaulting.
+    let code = r#"
+struct Box
+    val: int
+end
+
+function main()
+    let b: any = null
+    try
+        b.val = 42
+        say "UNREACHABLE"
+    catch err
+        say "caught: " + err
+    end
+    let ok = Box { val: 7 }
+    ok.val = 8
+    say ok.val
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "caught: field access on null\n8\n");
+    }
+}
+
+#[test]
+fn test_e2e_null_field_load_trapped() {
+    // alya-lang/alya#74, load side: same trap, valid access unaffected.
+    let code = r#"
+struct Box
+    val: int
+end
+
+function main()
+    let b: any = null
+    try
+        say b.val
+        say "UNREACHABLE"
+    catch err
+        say "caught: " + err
+    end
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "caught: field access on null\n");
+    }
+}

@@ -257,6 +257,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    push $alya_str_null_unwrap\n");
     out.push_str("    call fn_throw\n\n");
 
+    // alya_error_null_field (struct field access on a null base,
+    // alya-lang/alya#74): same catchable shape as the unwrap trap.
+    out.push_str("alya_error_null_field:\n");
+    out.push_str("    push $0\n");
+    out.push_str("    push $alya_str_null_field\n");
+    out.push_str("    call fn_throw\n\n");
+
     // alya_error_mixed_float (dynamic mixed int/float arithmetic,
     // alya-lang/alya#39; see the x64 note above).
     out.push_str("alya_error_mixed_float:\n");

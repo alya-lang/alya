@@ -1,5 +1,5 @@
 use super::CodeGen;
-use crate::ast::Expr;
+use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     escape_string, is_array_expr, is_float_array, is_float_expr, is_map_expr, is_null_expr,
     is_number_expr, is_proven_float_store, is_string_array, is_string_expr,
@@ -1120,6 +1120,25 @@ impl CodeGen {
 
         let temp_offset = self.temp_offset();
         self.generate_expression(object);
+        // Null-base trap (alya-lang/alya#74): a struct field store through
+        // a zero-word base segfaults. Trap it like `!` does, reporting a
+        // catchable error instead. Optional-chaining forms (`?.`) are
+        // excluded: null short-circuits there by design. Any zero word
+        // traps — only heap objects are valid bases, so integers, floats
+        // and null share the same (previously faulting) path.
+        if !matches!(
+            object,
+            Expr::OptionalFieldAccess { .. } | Expr::OptionalIndex { .. }
+        ) {
+            arch::emit_cmp_imm(&mut self.output, self.arch, 0);
+            arch::emit_cond_jump(
+                &mut self.output,
+                self.arch,
+                BinaryOp::Equal,
+                false,
+                "alya_error_null_field",
+            );
+        }
         arch::emit_push_temp(&mut self.output, self.arch);
         self.ctx.stack_offset += temp_offset;
 
