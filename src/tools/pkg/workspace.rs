@@ -124,6 +124,7 @@ fn expand_pattern(root: &Path, pattern: &str) -> Result<Vec<PathBuf>, String> {
 /// Resolves all members of the workspace at `root`: expands `members`,
 /// subtracts `exclude`, reads each member manifest. Errors on empty
 /// expansion, missing manifests, nested workspaces, and duplicate names.
+/// Members sort by package name for stable command output.
 pub fn resolve_workspace_members(root: &Path) -> Result<Vec<WorkspaceMember>, String> {
     let content = fs::read_to_string(root.join("alya.toml"))
         .map_err(|e| format!("Failed to read workspace root manifest: {}", e))?;
@@ -200,7 +201,33 @@ pub fn resolve_workspace_members(root: &Path) -> Result<Vec<WorkspaceMember>, St
             dir,
         });
     }
+    members.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(members)
+}
+
+/// All buildable targets of a workspace: members plus the root package
+/// itself when the root declares `[package]` (non-virtual). The root entry
+/// lets root-payload workspaces install, update, document, and build the
+/// root package instead of silently skipping it.
+pub fn workspace_targets(root: &Path) -> Result<Vec<WorkspaceMember>, String> {
+    let mut targets = resolve_workspace_members(root)?;
+    let content = fs::read_to_string(root.join("alya.toml"))
+        .map_err(|e| format!("Failed to read workspace root manifest: {}", e))?;
+    let manifest = parse_manifest(&content)?;
+    if !is_virtual_workspace_root(&manifest) {
+        if targets.iter().any(|m| m.name == manifest.package.name) {
+            return Err(format!(
+                "Duplicate workspace member name '{}' (root package collides with a member)",
+                manifest.package.name
+            ));
+        }
+        targets.push(WorkspaceMember {
+            name: manifest.package.name,
+            dir: root.to_path_buf(),
+        });
+        targets.sort_by(|a, b| a.name.cmp(&b.name));
+    }
+    Ok(targets)
 }
 
 /// Selects target members for a command: `--package` filters by name,
@@ -324,13 +351,13 @@ pub fn resolve_command_targets(
             return Ok(None);
         }
         // Defaulted directory input: root (or stray dir) fans out to all
-        // members; inside a member it stays single-package.
+        // targets; inside a member it stays single-package.
         if member_containing(&root, cwd).is_some() {
             return Ok(None);
         }
-        return Ok(Some(resolve_workspace_members(&root)?));
+        return Ok(Some(workspace_targets(&root)?));
     }
-    let all = resolve_workspace_members(&root)?;
+    let all = workspace_targets(&root)?;
     let cwd_member = member_containing(&root, cwd);
     Ok(Some(select_workspace_members(
         &all,

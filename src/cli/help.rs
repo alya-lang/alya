@@ -382,10 +382,16 @@ pub fn print_doc_help() {
     println!("OPTIONS:");
     println!("  -o, --output <dir>  Output directory (default: docs)");
     println!("  --html              Generate HTML documentation");
-    println!("  --md, --markdown    Generate Markdown documentation\n");
+    println!("  --md, --markdown    Generate Markdown documentation");
+    println!("  -p, --package <n>   Document one workspace member (repeatable)");
+    println!("  --workspace         Document all workspace members");
+    println!("  --exclude <n>       Skip workspace member (with --workspace)\n");
+    println!("In a workspace each member renders into <docs>/<member>/ plus a");
+    println!("root index; -o with several members is rejected as ambiguous.\n");
     println!("EXAMPLES:");
     println!("  alya doc                             # Document the current project");
     println!("  alya doc src --html                  # HTML docs for src/");
+    println!("  alya doc --workspace                # Document every workspace member");
 }
 
 pub fn print_pkg_help() {

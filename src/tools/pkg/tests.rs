@@ -1744,6 +1744,9 @@ fn test_workspace_shared_lock_install() {
         lock.packages.iter().any(|p| p.name == "lib"),
         "lock must pin the path dep"
     );
+    // Root-relative entry is lexically clean (no `app/../` detour).
+    let lib = lock.packages.iter().find(|p| p.name == "lib").unwrap();
+    assert_eq!(lib.entry, "crates/lib/src/lib.alya");
     assert!(!app_dir.join("alya.lock").exists());
     assert!(!lib_dir.join("alya.lock").exists());
 

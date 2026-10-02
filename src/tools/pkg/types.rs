@@ -29,6 +29,12 @@ pub enum PkgCommand {
     List,
     Update {
         upgrade: bool,
+        /// Accepted for uniformity with install; in a workspace update
+        /// always spans all members (`--package`/`--exclude` are rejected,
+        /// `--workspace` is a no-op).
+        packages: Vec<String>,
+        workspace: bool,
+        exclude: Vec<String>,
     },
     Cache {
         clean: bool,

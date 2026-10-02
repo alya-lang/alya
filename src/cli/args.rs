@@ -42,6 +42,10 @@ pub enum CommandKind {
         output_dir: Option<String>,
         html: bool,
         markdown: bool,
+        /// Workspace member selection (mirrors build/test flags).
+        packages: Vec<String>,
+        workspace: bool,
+        exclude: Vec<String>,
     },
     Lint {
         path: Option<String>,
@@ -240,6 +244,9 @@ impl CliArgs {
             }
             return Ok(Some(Self::create_pkg_args(PkgCommand::Update {
                 upgrade: false,
+                packages: Vec::new(),
+                workspace: false,
+                exclude: Vec::new(),
             })));
         }
         if first == "pkg" {
@@ -270,7 +277,12 @@ impl CliArgs {
                 "install" => parse_pkg_install_args(&args[3..])?,
                 "list" => PkgCommand::List,
                 "update" => parse_pkg_update_args(&args[3..])?,
-                "outdated" => PkgCommand::Update { upgrade: false },
+                "outdated" => PkgCommand::Update {
+                    upgrade: false,
+                    packages: Vec::new(),
+                    workspace: false,
+                    exclude: Vec::new(),
+                },
                 "cache" => parse_pkg_cache_args(&args[3..])?,
                 "clean" => parse_pkg_clean_args(&args[3..])?,
                 "help" | "-h" | "--help" => PkgCommand::Help,
@@ -1016,10 +1028,20 @@ fn parse_doc_type_flag(spec: &str) -> Result<DocType, String> {
 }
 
 fn parse_doc_args(args: &[String]) -> Result<CommandKind, String> {
+    fn push_names(dst: &mut Vec<String>, raw: &str) {
+        dst.extend(
+            raw.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+        );
+    }
     let mut input = None;
     let mut output_dir = None;
     let mut html = false;
     let mut markdown = false;
+    let mut packages: Vec<String> = Vec::new();
+    let mut workspace = false;
+    let mut exclude: Vec<String> = Vec::new();
 
     let mut i = 0;
     while i < args.len() {
@@ -1033,6 +1055,9 @@ fn parse_doc_args(args: &[String]) -> Result<CommandKind, String> {
                 );
                 println!("  --html               Generate HTML documentation");
                 println!("  --md, --markdown     Generate Markdown documentation");
+                println!("  -p, --package <n>  Document one workspace member (repeatable)");
+                println!("  --workspace          Document all workspace members");
+                println!("  --exclude <n>        Skip workspace member (with --workspace)");
                 println!("  -h, --help           Show help");
                 process::exit(0);
             }
@@ -1050,6 +1075,25 @@ fn parse_doc_args(args: &[String]) -> Result<CommandKind, String> {
             "--md" | "--markdown" => {
                 markdown = true;
             }
+            "-p" | "--package" => {
+                if i + 1 < args.len() {
+                    push_names(&mut packages, &args[i + 1]);
+                    i += 1;
+                } else {
+                    return Err("Error: Missing argument for '-p/--package'".to_string());
+                }
+            }
+            "--workspace" => {
+                workspace = true;
+            }
+            "--exclude" => {
+                if i + 1 < args.len() {
+                    push_names(&mut exclude, &args[i + 1]);
+                    i += 1;
+                } else {
+                    return Err("Error: Missing argument for '--exclude'".to_string());
+                }
+            }
             other if !other.starts_with('-') => {
                 if input.is_none() {
                     input = Some(other.to_string());
@@ -1057,11 +1101,32 @@ fn parse_doc_args(args: &[String]) -> Result<CommandKind, String> {
                     return Err(format!("Error: Unexpected argument '{}'", other));
                 }
             }
+            other if other.starts_with("--package=") => {
+                push_names(&mut packages, &other["--package=".len()..]);
+            }
+            other if other.starts_with("--exclude=") => {
+                push_names(&mut exclude, &other["--exclude=".len()..]);
+            }
             other => {
                 return Err(format!("Error: Unknown doc option '{}'", other));
             }
         }
         i += 1;
+    }
+
+    if !packages.is_empty() && workspace {
+        return Err("Error: '--package' cannot be combined with '--workspace'".to_string());
+    }
+    if !exclude.is_empty() && !workspace {
+        return Err("Error: '--exclude' requires '--workspace'".to_string());
+    }
+    // Member selection addresses members, never an explicit path.
+    let flags_used = !packages.is_empty() || workspace || !exclude.is_empty();
+    if flags_used && input.is_some() {
+        return Err(
+            "Error: '--package'/'--workspace'/'--exclude' cannot be combined with an explicit input path"
+                .to_string(),
+        );
     }
 
     let input_path = input.unwrap_or_else(|| {
@@ -1077,6 +1142,9 @@ fn parse_doc_args(args: &[String]) -> Result<CommandKind, String> {
         output_dir,
         html,
         markdown,
+        packages,
+        workspace,
+        exclude,
     })
 }
 
@@ -1412,20 +1480,66 @@ fn parse_pkg_install_args(args: &[String]) -> Result<PkgCommand, String> {
 }
 
 fn parse_pkg_update_args(args: &[String]) -> Result<PkgCommand, String> {
+    fn push_names(dst: &mut Vec<String>, raw: &str) {
+        dst.extend(
+            raw.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+        );
+    }
     let mut upgrade = false;
-    for arg in args {
-        match arg.as_str() {
+    let mut packages: Vec<String> = Vec::new();
+    let mut workspace = false;
+    let mut exclude: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
             "-u" | "--upgrade" => upgrade = true,
+            "-p" | "--package" => {
+                if i + 1 < args.len() {
+                    push_names(&mut packages, &args[i + 1]);
+                    i += 1;
+                } else {
+                    return Err("Error: Missing argument for '-p/--package'".to_string());
+                }
+            }
+            "--workspace" => workspace = true,
+            "--exclude" => {
+                if i + 1 < args.len() {
+                    push_names(&mut exclude, &args[i + 1]);
+                    i += 1;
+                } else {
+                    return Err("Error: Missing argument for '--exclude'".to_string());
+                }
+            }
             "-h" | "--help" | "help" => return Ok(PkgCommand::Help),
+            other if other.starts_with("--package=") => {
+                push_names(&mut packages, &other["--package=".len()..]);
+            }
+            other if other.starts_with("--exclude=") => {
+                push_names(&mut exclude, &other["--exclude=".len()..]);
+            }
             other => {
                 return Err(format!(
-                    "Error: Unknown option '{}' for 'update'. Supported flags: -u, --upgrade",
+                    "Error: Unknown option '{}' for 'update'. Supported flags: -u, --upgrade, -p/--package <name>, --workspace, --exclude <name>",
                     other
                 ))
             }
         }
+        i += 1;
     }
-    Ok(PkgCommand::Update { upgrade })
+    if !packages.is_empty() && workspace {
+        return Err("Error: '--package' cannot be combined with '--workspace'".to_string());
+    }
+    if !exclude.is_empty() && !workspace {
+        return Err("Error: '--exclude' requires '--workspace'".to_string());
+    }
+    Ok(PkgCommand::Update {
+        upgrade,
+        packages,
+        workspace,
+        exclude,
+    })
 }
 
 fn parse_toolchain_args(args: &[String]) -> Result<ToolchainCommand, String> {

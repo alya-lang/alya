@@ -58,7 +58,12 @@ pub fn run_pkg(cmd: &PkgCommand) -> Result<(), String> {
             exclude,
         ),
         PkgCommand::List => run_list(),
-        PkgCommand::Update { upgrade } => run_update(*upgrade),
+        PkgCommand::Update {
+            upgrade,
+            packages,
+            workspace,
+            exclude,
+        } => run_update(*upgrade, packages, *workspace, exclude),
         PkgCommand::Cache { clean, .. } => {
             if *clean {
                 run_clean(true)
@@ -322,6 +327,27 @@ pub fn run_install(
         workspace,
         exclude,
     )
+}
+
+/// Lexically normalizes a root-relative display path (`a/b/../c` →
+/// `a/c`, forward slashes). Pure component pass, no filesystem access, so
+/// lock entries stay deterministic on every platform.
+fn normalize_rel_display(path: &Path) -> String {
+    use std::path::Component::*;
+    let mut parts: Vec<String> = Vec::new();
+    for comp in path.components() {
+        match comp {
+            CurDir => {}
+            ParentDir => {
+                parts.pop();
+            }
+            Normal(s) => parts.push(s.to_string_lossy().replace('\\', "/")),
+            RootDir | Prefix(_) => {
+                parts.push(comp.as_os_str().to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    parts.join("/")
 }
 
 fn get_dep_major(dep: &DependencySource, from_dir: &Path) -> Option<u64> {
@@ -621,8 +647,8 @@ fn run_install_workspace(
     features: &[String],
     no_default_features: bool,
 ) -> Result<(), String> {
-    use super::workspace::resolve_workspace_members;
-    let members = resolve_workspace_members(root)?;
+    use super::workspace::workspace_targets;
+    let members = workspace_targets(root)?;
     let names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
     println!(
         "Workspace '{}': installing {} member{} ({})",
@@ -963,11 +989,10 @@ fn install_resolved(
         };
 
         let entry = find_package_entry(&target_dir, &name)?;
-        let rel_entry = entry
-            .strip_prefix(lock_dir)
-            .unwrap_or(&entry)
-            .to_string_lossy()
-            .replace('\\', "/");
+        // Path deps resolve in place (`crates/app/../calc`): normalize the
+        // `..` lexically so the shared lock records a clean root-relative
+        // path (`crates/calc/...`). Pure lexical pass, no filesystem access.
+        let rel_entry = normalize_rel_display(entry.strip_prefix(lock_dir).unwrap_or(&entry));
         let checksum = compute_package_checksum(&target_dir)?;
 
         locked_packages.push(LockedPackage {
@@ -1012,8 +1037,8 @@ fn install_resolved(
 
 /// Workspace `list`: members with versions plus shared-lock status.
 fn run_list_workspace(root: &Path) -> Result<(), String> {
-    use super::workspace::resolve_workspace_members;
-    let members = resolve_workspace_members(root)?;
+    use super::workspace::workspace_targets;
+    let members = workspace_targets(root)?;
     println!(
         "Workspace: {} ({} member{})",
         root.display(),
@@ -1233,7 +1258,12 @@ fn current_dep_rev(manifest_dir: &Path, lock: &Option<PackageLock>, name: &str) 
     .filter(|s| !s.is_empty())
 }
 
-pub fn run_update(upgrade: bool) -> Result<(), String> {
+pub fn run_update(
+    upgrade: bool,
+    packages: &[String],
+    workspace: bool,
+    exclude: &[String],
+) -> Result<(), String> {
     let manifest_dir = match find_manifest_dir() {
         Some(d) => d,
         None => {
@@ -1242,18 +1272,69 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
             );
         }
     };
-    let manifest_path = manifest_dir.join("alya.toml");
-    let manifest_src = fs::read_to_string(&manifest_path)
-        .map_err(|e| format!("Failed to read alya.toml: {}", e))?;
-    let mut manifest = parse_manifest(&manifest_src)?;
+    // Inside a workspace the shared root lock covers every target, so
+    // update always spans all of them (a partial update would corrupt the
+    // shared lock) — same rule as `install`.
+    if let Some(root) = super::workspace::find_workspace_root_from(&manifest_dir) {
+        if !packages.is_empty() || !exclude.is_empty() {
+            return Err(
+                "Error: '--package'/'--exclude' are not supported for 'update' in a workspace (update always covers all members)"
+                    .to_string(),
+            );
+        }
+        let _ = workspace;
+        return run_update_workspace(&root, upgrade);
+    }
+    let _ = (packages, workspace, exclude);
+    run_update_single(&manifest_dir, upgrade)
+}
 
-    if manifest.dependencies.is_empty() {
-        println!("No dependencies declared in alya.toml.");
+/// Workspace update: checks every target, rewrites changed member
+/// manifests, then re-locks once into the shared root lockfile.
+fn run_update_workspace(root: &Path, upgrade: bool) -> Result<(), String> {
+    use super::workspace::workspace_targets;
+    let members = workspace_targets(root)?;
+    let names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
+    println!(
+        "Workspace '{}': checking {} member{} ({})",
+        root.display(),
+        members.len(),
+        if members.len() == 1 { "" } else { "s" },
+        names.join(", ")
+    );
+    let lock_path = if root.join("alya.lock").exists() {
+        root.join("alya.lock")
+    } else {
+        root.join("Alya.lock")
+    };
+    let mut lock = if lock_path.exists() {
+        fs::read_to_string(&lock_path)
+            .ok()
+            .and_then(|c| parse_lockfile(&c).ok())
+    } else {
+        None
+    };
+    let mut total = 0usize;
+    for member in &members {
+        if members.len() > 1 {
+            println!("\n--- workspace member: {} ---", member.name);
+        }
+        total += update_one_manifest(&member.dir, root, &mut lock, &lock_path, upgrade)?;
+    }
+    if !upgrade {
         return Ok(());
     }
+    if total == 0 {
+        println!("\nAll workspace dependencies are already up to date!");
+        return Ok(());
+    }
+    println!("Resolving and locking updated dependencies...\n");
+    run_install_workspace(root, false, &[], false)?;
+    println!("\n✓ All workspace dependencies updated successfully!");
+    Ok(())
+}
 
-    println!("Checking dependencies for updates in alya.toml...\n");
-
+fn run_update_single(manifest_dir: &Path, upgrade: bool) -> Result<(), String> {
     let lock_path = if manifest_dir.join("alya.lock").exists() {
         manifest_dir.join("alya.lock")
     } else {
@@ -1266,7 +1347,124 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
     } else {
         None
     };
+    let upgradable =
+        update_one_manifest(manifest_dir, manifest_dir, &mut lock, &lock_path, upgrade)?;
+    if !upgrade || upgradable == 0 {
+        return Ok(());
+    }
+    println!("Resolving and locking updated dependencies...\n");
+    run_install(false, &[], false, &[], false, &[])?;
+    println!("\n✓ All dependencies updated successfully!");
+    Ok(())
+}
 
+/// Checks one manifest for updates, prints its table, and — with `upgrade`
+/// — rewrites changed pins, clears stale caches, and prunes the lock.
+/// `member_dir` owns the `alya.toml`; `install_root` owns `.alya/packages`
+/// and the lockfile (the workspace root in workspace mode). Returns the
+/// upgradable count. Checkout-only reporting (`upgrade == false`) and the
+/// all-up-to-date early-outs live here so single and workspace flows share
+/// them exactly.
+fn update_one_manifest(
+    member_dir: &Path,
+    install_root: &Path,
+    lock: &mut Option<PackageLock>,
+    lock_path: &Path,
+    upgrade: bool,
+) -> Result<usize, String> {
+    let manifest_path = member_dir.join("alya.toml");
+    let manifest_src = fs::read_to_string(&manifest_path)
+        .map_err(|e| format!("Failed to read alya.toml: {}", e))?;
+    let mut manifest = parse_manifest(&manifest_src)?;
+
+    if manifest.dependencies.is_empty() {
+        println!("No dependencies declared in alya.toml.");
+        return Ok(0);
+    }
+
+    println!("Checking dependencies for updates in alya.toml...\n");
+
+    let (rows, upgradable_count) = collect_update_rows(&manifest, install_root, lock, upgrade);
+
+    println!(
+        "  {:<16} {:<18} {:<18} {:<34}",
+        "PACKAGE", "CURRENT", "LATEST", "STATUS"
+    );
+    println!("  {}", "-".repeat(88));
+    for r in &rows {
+        let cur_disp = if r.can_upgrade && r.current != r.latest {
+            format!("{:<15} →", r.current)
+        } else {
+            format!("{:<17}", r.current)
+        };
+        println!(
+            "  {:<16} {:<18} {:<18} {:<34}",
+            r.name, cur_disp, r.latest, r.status
+        );
+    }
+
+    if !upgrade {
+        if upgradable_count > 0 {
+            println!(
+                "\n{} package(s) can be upgraded or refreshed.",
+                upgradable_count
+            );
+            println!("Run 'alya update -u' (or 'alya update --upgrade') to upgrade alya.toml and re-lock.");
+        } else {
+            println!("\nAll dependencies are up to date!");
+        }
+        return Ok(0);
+    }
+
+    if upgradable_count == 0 {
+        println!("\nAll dependencies are already up to date!");
+        return Ok(0);
+    }
+
+    let mut toml_changed = false;
+    for r in &rows {
+        if let Some(ref new_src) = r.new_source {
+            manifest
+                .dependencies
+                .insert(r.name.clone(), new_src.clone());
+            toml_changed = true;
+        }
+        if let Some(ref cache_key) = r.clear_cache_key {
+            if let Some(global_cache) = get_global_cache_dir() {
+                let cached_dir = global_cache.join(cache_key);
+                if cached_dir.exists() {
+                    let _ = fs::remove_dir_all(&cached_dir);
+                }
+            }
+            let local_pkg = install_root.join(".alya").join("packages").join(&r.name);
+            if local_pkg.exists() {
+                let _ = fs::remove_dir_all(&local_pkg);
+            }
+            if let Some(ref mut l) = lock {
+                l.packages.retain(|p| p.name != r.name);
+                let _ = fs::write(lock_path, serialize_lockfile(l));
+            }
+        }
+    }
+
+    if toml_changed {
+        fs::write(&manifest_path, serialize_manifest(&manifest))
+            .map_err(|e| format!("Failed to update alya.toml: {}", e))?;
+        println!("\n✓ Upgraded dependencies in alya.toml.");
+    } else {
+        println!("\nNo version changes needed in alya.toml.");
+    }
+    Ok(upgradable_count)
+}
+
+/// Builds the update table rows for one manifest. Pure remote inspection:
+/// no files are written here.
+fn collect_update_rows(
+    manifest: &PackageManifest,
+    install_root: &Path,
+    lock: &Option<PackageLock>,
+    upgrade: bool,
+) -> (Vec<UpdateRow>, usize) {
     let mut rows: Vec<UpdateRow> = Vec::new();
     let mut upgradable_count = 0usize;
 
@@ -1360,7 +1558,7 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
                             // still have moved (re-pointed baselines). Compare
                             // resolved revisions to detect that.
                             let remote_rev = query_tag_rev(url, cur_tag);
-                            let current_rev = current_dep_rev(&manifest_dir, &lock, name);
+                            let current_rev = current_dep_rev(install_root, lock, name);
                             let short = |s: &str| s[..7.min(s.len())].to_string();
                             match (remote_rev, current_rev) {
                                 (Some(rr), Some(cr)) if rr != cr => {
@@ -1415,7 +1613,7 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
                         b.clone()
                     };
 
-                    let local_pkg = manifest_dir.join(".alya").join("packages").join(name);
+                    let local_pkg = install_root.join(".alya").join("packages").join(name);
                     let cache_key = compute_cache_key(name, b, url);
                     let cached_dir = get_global_cache_dir().map(|c| c.join(&cache_key));
 
@@ -1509,79 +1707,7 @@ pub fn run_update(upgrade: bool) -> Result<(), String> {
         }
     }
 
-    println!(
-        "  {:<16} {:<18} {:<18} {:<34}",
-        "PACKAGE", "CURRENT", "LATEST", "STATUS"
-    );
-    println!("  {}", "-".repeat(88));
-    for r in &rows {
-        let cur_disp = if r.can_upgrade && r.current != r.latest {
-            format!("{:<15} →", r.current)
-        } else {
-            format!("{:<17}", r.current)
-        };
-        println!(
-            "  {:<16} {:<18} {:<18} {:<34}",
-            r.name, cur_disp, r.latest, r.status
-        );
-    }
-
-    if !upgrade {
-        if upgradable_count > 0 {
-            println!(
-                "\n{} package(s) can be upgraded or refreshed.",
-                upgradable_count
-            );
-            println!("Run 'alya update -u' (or 'alya update --upgrade') to upgrade alya.toml and re-lock.");
-        } else {
-            println!("\nAll dependencies are up to date!");
-        }
-        return Ok(());
-    }
-
-    if upgradable_count == 0 {
-        println!("\nAll dependencies are already up to date!");
-        return Ok(());
-    }
-
-    let mut toml_changed = false;
-    for r in &rows {
-        if let Some(ref new_src) = r.new_source {
-            manifest
-                .dependencies
-                .insert(r.name.clone(), new_src.clone());
-            toml_changed = true;
-        }
-        if let Some(ref cache_key) = r.clear_cache_key {
-            if let Some(global_cache) = get_global_cache_dir() {
-                let cached_dir = global_cache.join(cache_key);
-                if cached_dir.exists() {
-                    let _ = fs::remove_dir_all(&cached_dir);
-                }
-            }
-            let local_pkg = manifest_dir.join(".alya").join("packages").join(&r.name);
-            if local_pkg.exists() {
-                let _ = fs::remove_dir_all(&local_pkg);
-            }
-            if let Some(ref mut l) = lock {
-                l.packages.retain(|p| p.name != r.name);
-                let _ = fs::write(&lock_path, serialize_lockfile(l));
-            }
-        }
-    }
-
-    if toml_changed {
-        fs::write(&manifest_path, serialize_manifest(&manifest))
-            .map_err(|e| format!("Failed to update alya.toml: {}", e))?;
-        println!("\n✓ Upgraded dependencies in alya.toml.");
-    } else {
-        println!("\nNo version changes needed in alya.toml.");
-    }
-
-    println!("Resolving and locking updated dependencies...\n");
-    run_install(false, &[], false, &[], false, &[])?;
-    println!("\n✓ All dependencies updated successfully!");
-    Ok(())
+    (rows, upgradable_count)
 }
 
 pub fn print_pkg_help() {

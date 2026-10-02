@@ -406,8 +406,56 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         ref output_dir,
         html,
         markdown,
+        ref packages,
+        workspace,
+        ref exclude,
     } = args.command
     {
+        // Workspace fan-out: one doc tree per member under `<out>/<member>/`
+        // plus a root index. Triggers on explicit selection, or when the
+        // input directory IS the workspace root (default `alya doc` there).
+        let cwd = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
+        let flags_used = !packages.is_empty() || workspace || !exclude.is_empty();
+        let at_root = crate::tools::pkg::workspace::find_workspace_root_from(&cwd)
+            .and_then(|root| {
+                std::fs::canonicalize(input)
+                    .ok()
+                    .zip(std::fs::canonicalize(&root).ok())
+                    .map(|(a, b)| a == b)
+            })
+            .unwrap_or(false);
+        if flags_used || at_root {
+            let root = crate::tools::pkg::workspace::find_workspace_root_from(&cwd)
+                .ok_or_else(|| {
+                    "Error: '--package'/'--workspace'/'--exclude' used outside a workspace (no [workspace] root found)"
+                        .to_string()
+                })?;
+            let all = crate::tools::pkg::workspace::workspace_targets(&root)?;
+            let cwd_member = crate::tools::pkg::workspace::member_containing(&root, &cwd);
+            let members = if flags_used {
+                crate::tools::pkg::workspace::select_workspace_members(
+                    &all,
+                    packages,
+                    workspace,
+                    exclude,
+                    cwd_member.as_deref(),
+                )?
+            } else {
+                all
+            };
+            if output_dir.is_some() && members.len() > 1 {
+                return Err(
+                    "Error: '-o/--output' with several workspace members is ambiguous (select one with '-p/--package <name>')"
+                        .to_string(),
+                );
+            }
+            return crate::tools::doc::run_doc_workspace(
+                &members,
+                output_dir.as_deref(),
+                html,
+                markdown,
+            );
+        }
         crate::tools::doc::run_doc(input, output_dir.as_deref(), html, markdown)?;
         return Ok(());
     }

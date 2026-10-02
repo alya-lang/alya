@@ -40,6 +40,86 @@ pub fn run_doc(
     Ok(())
 }
 
+/// Documents every workspace member into `<out>/<member>/` plus a root
+/// index linking the members. `out` defaults to `docs` under the cwd.
+/// Member directories arrive absolute, so no root is needed.
+pub fn run_doc_workspace(
+    members: &[crate::tools::pkg::workspace::WorkspaceMember],
+    output_dir: Option<&str>,
+    gen_html: bool,
+    gen_markdown: bool,
+) -> Result<(), String> {
+    if members.is_empty() {
+        return Err("Error: workspace resolves to no members".to_string());
+    }
+    let (do_html, do_md) = match (gen_html, gen_markdown) {
+        (false, false) => (true, true), // default to both
+        (h, m) => (h, m),
+    };
+    let out_root = output_dir.unwrap_or("docs");
+    let out_path = Path::new(out_root);
+    fs::create_dir_all(out_path)
+        .map_err(|e| format!("Failed to create output directory '{}': {}", out_root, e))?;
+
+    for member in members {
+        println!("\n--- workspace member: {} ---", member.name);
+        // Member docs read like a standalone package: `src/` when present,
+        // else the member dir (mirrors the `alya doc` default).
+        let src_dir = member.dir.join("src");
+        let input = if src_dir.is_dir() {
+            src_dir.to_string_lossy().replace('\\', "/")
+        } else {
+            member.dir.to_string_lossy().replace('\\', "/")
+        };
+        let member_out = out_path.join(&member.name);
+        run_doc(
+            &input,
+            Some(&member_out.to_string_lossy().replace('\\', "/")),
+            do_html,
+            do_md,
+        )?;
+    }
+
+    // Root index linking the per-member trees.
+    let names: Vec<&str> = members.iter().map(|m| m.name.as_str()).collect();
+    if do_md {
+        let mut index_md = String::from("# Workspace API Documentation\n\n");
+        index_md.push_str(&format!(
+            "API reference index for {} workspace member{}.\n\n",
+            names.len(),
+            if names.len() == 1 { "" } else { "s" }
+        ));
+        index_md.push_str("| Member | API Link |\n| :--- | :--- |\n");
+        for name in &names {
+            index_md.push_str(&format!(
+                "| `{}` | [{}/index.md]({}/index.md) |\n",
+                name, name, name
+            ));
+        }
+        let index_file = out_path.join("index.md");
+        fs::write(&index_file, index_md)
+            .map_err(|e| format!("Failed to write index '{}': {}", index_file.display(), e))?;
+        println!("  ✓ Generated Index: {}", index_file.display());
+    }
+    if do_html {
+        let mut index_html = String::from(
+            "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\">\n<title>Workspace API Documentation</title>\n</head>\n<body>\n<h1>Workspace API Documentation</h1>\n<ul>\n",
+        );
+        for name in &names {
+            index_html.push_str(&format!(
+                "<li><a href=\"{}/index.html\">{}</a></li>\n",
+                name, name
+            ));
+        }
+        index_html.push_str("</ul>\n</body>\n</html>\n");
+        let index_file = out_path.join("index.html");
+        fs::write(&index_file, index_html)
+            .map_err(|e| format!("Failed to write index '{}': {}", index_file.display(), e))?;
+        println!("  ✓ Generated HTML Index: {}", index_file.display());
+    }
+    Ok(())
+}
+
 fn process_single_file(
     file_path: &Path,
     out_dir: &Path,
@@ -134,7 +214,9 @@ fn process_directory(
         }
     }
 
-    // Detect package name from alya.toml if available
+    // Detect package name from alya.toml if available. Virtual workspace
+    // roots (members only) are skipped: they have no package payload, and
+    // their synthesized name must never leak into documentation titles.
     let mut pkg_name = None;
     let mut curr = dir_path.to_path_buf();
     loop {
@@ -142,6 +224,12 @@ fn process_directory(
         if manifest_path.exists() {
             if let Ok(manifest_src) = fs::read_to_string(&manifest_path) {
                 if let Ok(manifest) = crate::tools::pkg::manifest::parse_manifest(&manifest_src) {
+                    if crate::tools::pkg::manifest::is_virtual_workspace_root(&manifest) {
+                        if !curr.pop() {
+                            break;
+                        }
+                        continue;
+                    }
                     pkg_name = Some(manifest.package.name);
                     break;
                 }

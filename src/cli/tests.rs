@@ -447,6 +447,34 @@ fn test_pkg_install_cli() {
 }
 
 #[test]
+fn test_doc_workspace_flags() {
+    let args = to_args(&["alya", "doc", "--workspace", "--exclude", "lab"]);
+    let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
+    match parsed.command {
+        CommandKind::Doc {
+            workspace, exclude, ..
+        } => {
+            assert!(workspace);
+            assert_eq!(exclude, vec!["lab".to_string()]);
+        }
+        _ => panic!("Expected CommandKind::Doc"),
+    }
+
+    let args_p = to_args(&["alya", "doc", "-p", "app"]);
+    let parsed_p = CliArgs::parse_from(&args_p).unwrap().unwrap();
+    match parsed_p.command {
+        CommandKind::Doc { packages, .. } => {
+            assert_eq!(packages, vec!["app".to_string()]);
+        }
+        _ => panic!("Expected CommandKind::Doc"),
+    }
+
+    // Selection flags reject an explicit path; lone --exclude is rejected.
+    assert!(CliArgs::parse_from(&to_args(&["alya", "doc", "src", "-p", "app"])).is_err());
+    assert!(CliArgs::parse_from(&to_args(&["alya", "doc", "--exclude", "a"])).is_err());
+}
+
+#[test]
 fn test_workspace_selection_flags() {
     // -p/--package repeatable + comma form (via `test`: "." needs no entry).
     let args = to_args(&["alya", "test", "-p", "a", "--package", "b,c"]);
@@ -494,22 +522,48 @@ fn test_pkg_subcommands() {
     let parsed2 = CliArgs::parse_from(&args2).unwrap().unwrap();
     assert_eq!(
         parsed2.command,
-        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update { upgrade: false })
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update {
+            upgrade: false,
+            packages: Vec::new(),
+            workspace: false,
+            exclude: Vec::new(),
+        })
     );
 
     let args_u = to_args(&["alya", "update", "-u"]);
     let parsed_u = CliArgs::parse_from(&args_u).unwrap().unwrap();
     assert_eq!(
         parsed_u.command,
-        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update { upgrade: true })
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update {
+            upgrade: true,
+            packages: Vec::new(),
+            workspace: false,
+            exclude: Vec::new(),
+        })
     );
 
     let args_outdated = to_args(&["alya", "pkg", "outdated"]);
     let parsed_outdated = CliArgs::parse_from(&args_outdated).unwrap().unwrap();
     assert_eq!(
         parsed_outdated.command,
-        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update { upgrade: false })
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update {
+            upgrade: false,
+            packages: Vec::new(),
+            workspace: false,
+            exclude: Vec::new(),
+        })
     );
+
+    // Workspace selection on update (rejected at execution, accepted here).
+    let args_ws = to_args(&["alya", "update", "--workspace"]);
+    let parsed_ws = CliArgs::parse_from(&args_ws).unwrap().unwrap();
+    match parsed_ws.command {
+        CommandKind::Pkg(crate::tools::pkg::PkgCommand::Update { workspace, .. }) => {
+            assert!(workspace);
+        }
+        _ => panic!("Expected PkgCommand::Update"),
+    }
+    assert!(CliArgs::parse_from(&to_args(&["alya", "update", "--exclude", "a"])).is_err());
 
     let args3 = to_args(&["alya", "pkg", "cache"]);
     let parsed3 = CliArgs::parse_from(&args3).unwrap().unwrap();

@@ -34,7 +34,14 @@ pub fn check_document(source: &str, file_path: Option<&std::path::Path>) -> Vec<
             if let Err(type_err) =
                 crate::codegen::analysis::type_checker::validate_types(&resolved_ast)
             {
-                diagnostics.push(type_error_to_diagnostic(&type_err, source));
+                // Single-file checking cannot see imported scopes: an
+                // `Unknown identifier` naming an import alias (or
+                // from-symbol) of a resolvable import is a false positive.
+                // Unresolvable imports keep the error (something really is
+                // missing).
+                if !is_resolved_import_name(&type_err, source, target_path) {
+                    diagnostics.push(type_error_to_diagnostic(&type_err, source));
+                }
             }
 
             // 2. Linter Analysis Rules (same filters as the `alya lint` CLI:
@@ -88,6 +95,43 @@ pub fn check_document(source: &str, file_path: Option<&std::path::Path>) -> Vec<
     }
 
     diagnostics
+}
+
+/// Extracts the identifier from `Unknown identifier '<name>'` type errors.
+fn unknown_identifier_name(msg: &str) -> Option<&str> {
+    msg.split("Unknown identifier '").nth(1)?.split('\'').next()
+}
+
+/// Whether a type error is just the single-file checker missing an
+/// import: `name` must be an import alias (or from-symbol) of an import
+/// that resolves to a real file from the document's directory.
+fn is_resolved_import_name(type_err: &str, source: &str, file: &std::path::Path) -> bool {
+    let Some(name) = unknown_identifier_name(type_err) else {
+        return false;
+    };
+    let first = name.split("::").next().unwrap_or(name);
+    let dir = file.parent();
+    parse_file_imports(source).iter().any(|imp| {
+        let in_scope = imp.alias.as_deref() == Some(first)
+            || imp.symbols.iter().any(|s| {
+                s.alias.as_deref() == Some(first) || (s.alias.is_none() && s.name == first)
+            })
+            || (!imp.is_from
+                && imp.alias.is_none()
+                && import_base_name(&imp.path).as_deref() == Some(first));
+        in_scope && resolve_import_to_file(&imp.path, dir).is_some()
+    })
+}
+
+/// File stem of an import path (`./a/b.alya` -> `b`, `pkg/sub` -> `sub`):
+/// the name an unaliased plain import contributes to scope.
+fn import_base_name(path: &str) -> Option<String> {
+    let last = path.replace('\\', "/");
+    let last = last.rsplit('/').next()?.trim();
+    if last.is_empty() {
+        return None;
+    }
+    Some(last.strip_suffix(".alya").unwrap_or(last).to_string())
 }
 
 fn parse_error_to_diagnostic(err: &str, source: &str) -> Diagnostic {
@@ -3003,6 +3047,48 @@ mod tests {
         std::fs::write(dir.join("a.alya"), "say 1\n").unwrap();
         let rel = resolve_import_to_file("./a.alya", Some(&dir)).expect("relative resolves");
         assert!(rel.is_absolute(), "must be absolute, got {}", rel.display());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_resolved_import_name_filter() {
+        let dir =
+            std::env::temp_dir().join(format!("alya-lsp-importfilter-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("dep.alya"),
+            "pub function f() {\n return 1\n}\nend\n",
+        )
+        .unwrap();
+        let file = dir.join("main.alya");
+
+        // Aliased import that resolves: false positive, filter it.
+        let src = "import \"./dep.alya\" as dep\nsay dep\n";
+        assert!(is_resolved_import_name(
+            "TypeError: Unknown identifier 'dep'",
+            src,
+            &file
+        ));
+        // Same alias, missing file: keep the error.
+        let missing = "import \"./gone.alya\" as gone\nsay gone\n";
+        assert!(!is_resolved_import_name(
+            "TypeError: Unknown identifier 'gone'",
+            missing,
+            &file
+        ));
+        // Non-identifier errors never filter.
+        assert!(!is_resolved_import_name(
+            "TypeError: Cannot add String and Number",
+            src,
+            &file
+        ));
+        // Unrelated name never filters, even with imports present.
+        assert!(!is_resolved_import_name(
+            "TypeError: Unknown identifier 'other'",
+            src,
+            &file
+        ));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
