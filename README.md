@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/github/license/alya-lang/alya?color=blue&label=License)](LICENSE)
 [![Rust](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Falya-lang%2Falya%2Fmain%2FCargo.toml&query=%24.package.rust-version&label=Rust&color=orange&prefix=%3E%3D)](https://www.rust-lang.org/)
 [![Compiler Version](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Falya-lang%2Falya%2Fmain%2FCargo.toml&query=%24.package.version&label=Version&color=brightgreen)](Cargo.toml)
-[![Target Architectures](https://img.shields.io/badge/Arch-x86%20%7C%20x64%20%7C%20ARM64-blueviolet)](#platform-support)
+[![Target Architectures](https://img.shields.io/badge/Arch-x64%20%7C%20ARM64-blueviolet)](#platform-support)
 
 <p align="center">
   <a href="#syntax-at-a-glance">Syntax</a> •
@@ -65,7 +65,7 @@ end
 
 ## Key Highlights
 
-- ⚡ **Direct Native Codegen**: Emits clean assembly for **ARM64** (Apple Silicon & AArch64), **x64**, and **x86 (32-bit)** with branch fusion, immediate range splitting (`movz`/`movk`), and zero-cycle idioms.
+- ⚡ **Direct Native Codegen**: Emits clean assembly for **ARM64** (Apple Silicon & AArch64) and **x64** with branch fusion, immediate range splitting (`movz`/`movk`), and zero-cycle idioms.
 - 🚀 **Near-C Execution Speed**: Runs within 1.0x–2.0x of C (GCC `-O2`) and outperforms JavaScript JIT engines (Bun / V8) without VM warmup delays.
 - 🛠️ **Built-in Developer Tooling**: In-place code formatter (`alya fmt`) and test runner (`alya test`) built directly into the compiler binary—no external dependencies needed.
 - 📚 **Batteries-Included Standard Library**: Built-in modules for `std/net` (TCP/UDP sockets), `std/console` (terminal control), `std/glob`, `std/rand` (SplitMix64, UUID v4/v7, ULID), `std/color`, `std/log`, `std/str`, `std/math`, `std/fs`, `std/path`, `std/json`, `std/hash`, `std/collections`, `std/test`, and `std/mem` (Arena allocator).
@@ -141,11 +141,11 @@ Alya is engineered for rapid compilation and high-performance native execution a
 
 ## Platform Support
 
-| Operating System | x86 (32-bit) | x64 (64-bit) | ARM64 (AArch64) |
-| :--------------- | :----------: | :----------: | :-------------: |
-| **Linux**        | ✅ Supported | ✅ Fully Supported (ELF64) | ✅ Fully Supported (ELF64, native CI + release) |
-| **macOS**        | ❌ Deprecated by Apple | ✅ Fully Supported (Mach-O, Intel + Apple Silicon) | ✅ Fully Supported (Apple Silicon) |
-| **Windows**      | ✅ Supported | ✅ Fully Supported (MinGW-w64) | ✅ Fully Supported (native ARM64 toolchain + release) |
+| Operating System | x64 (64-bit) | ARM64 (AArch64) |
+| :--------------- | :----------: | :-------------: |
+| **Linux**        | ✅ Fully Supported (ELF64) | ✅ Fully Supported (ELF64, native CI + release) |
+| **macOS**        | ✅ Fully Supported (Mach-O, Intel + Apple Silicon) | ✅ Fully Supported (Apple Silicon) |
+| **Windows**      | ✅ Fully Supported (MinGW-w64) | ✅ Fully Supported (native ARM64 toolchain + release) |
 
 ---
 

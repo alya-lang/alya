@@ -39,8 +39,6 @@ pub fn harness_gcc() -> std::path::PathBuf {
     };
     let arch = if cfg!(target_arch = "aarch64") {
         Architecture::ARM64
-    } else if cfg!(target_arch = "x86") {
-        Architecture::X86
     } else {
         Architecture::X64
     };
@@ -138,50 +136,6 @@ pub fn run_alya_code_with_options_full(
     )
 }
 
-/// True when the host compiler can build 32-bit binaries (`gcc -m32`).
-/// x86-execution tests consult this and skip (return None) where multilib
-/// is missing instead of failing on toolchain gaps.
-#[allow(dead_code)]
-pub fn x86_exec_available() -> bool {
-    static AVAIL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *AVAIL.get_or_init(|| {
-        let dir = std::env::temp_dir();
-        let pid = std::process::id();
-        let c_path = dir.join(format!("alya_m32_probe_{}.c", pid));
-        let o_path = dir.join(format!("alya_m32_probe_{}", pid));
-        if std::fs::write(&c_path, "int main(){return 0;}").is_err() {
-            return false;
-        }
-        let out = Command::new(harness_gcc())
-            .arg("-m32")
-            .arg(&c_path)
-            .arg("-o")
-            .arg(&o_path)
-            .output();
-        let _ = std::fs::remove_file(&c_path);
-        let _ = std::fs::remove_file(&o_path);
-        out.is_ok_and(|o| o.status.success())
-    })
-}
-
-/// Compiles `source` for 32-bit x86 and runs it on the host (WOW64 on
-/// Windows x64, native/multilib elsewhere). Returns None — skipping, not
-/// failing — where the toolchain lacks `-m32` support.
-#[allow(dead_code)]
-pub fn run_alya_code_x86(source: &str) -> Option<(i32, String)> {
-    // Check if gcc is available
-    if Command::new("gcc").arg("--version").output().is_err() {
-        eprintln!("Skipping x86 E2E test: GCC is not available in PATH.");
-        return None;
-    }
-    if !x86_exec_available() {
-        eprintln!("Skipping x86 E2E test: compiler lacks -m32 multilib support.");
-        return None;
-    }
-
-    run_alya_code_inner(source, None, &[], false, &[], Some(Architecture::X86), 0)
-}
-
 #[allow(clippy::too_many_arguments)]
 fn run_alya_code_inner(
     source: &str,
@@ -206,9 +160,7 @@ fn run_alya_code_inner(
         "linux"
     };
     let host_arch_raw = std::env::consts::ARCH;
-    let host_arch = if arch_override == Some(Architecture::X86) {
-        "x86"
-    } else if host_arch_raw == "x86_64" {
+    let host_arch = if host_arch_raw == "x86_64" {
         "x64"
     } else if host_arch_raw == "aarch64" {
         "arm64"
@@ -247,8 +199,6 @@ fn run_alya_code_inner(
         forced
     } else if cfg!(target_arch = "aarch64") {
         Architecture::ARM64
-    } else if cfg!(target_arch = "x86") {
-        Architecture::X86
     } else {
         Architecture::X64
     };
@@ -277,14 +227,6 @@ fn run_alya_code_inner(
 
     let mut gcc = Command::new(harness_gcc());
     gcc.arg(&asm_path).arg("-o").arg(&exe_path);
-    if matches!(arch, Architecture::X86) {
-        gcc.arg("-m32");
-        if matches!(os, OperatingSystem::Windows) {
-            // Hand-written 32-bit asm has no compiler-detected `main`:
-            // force the console entry or ld picks the GUI startup.
-            gcc.arg("-mconsole");
-        }
-    }
     if matches!(os, OperatingSystem::Linux) {
         gcc.arg("-no-pie");
         gcc.arg("-lm");

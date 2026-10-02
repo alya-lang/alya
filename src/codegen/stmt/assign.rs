@@ -2,8 +2,8 @@ use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     escape_string, is_array_expr, is_float_array, is_float_expr, is_map_expr, is_null_expr,
-    is_number_expr, is_proven_float_store, is_string_array, is_string_expr,
-    struct_field_markers_mixed_vars, value_kind_tag, value_kind_tag_x86_store,
+    is_number_expr, is_string_array, is_string_expr, struct_field_markers_mixed_vars,
+    value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -508,17 +508,7 @@ impl CodeGen {
                 } else {
                     is_struct_from_ann.or_else(|| self.get_expr_struct_name(value))
                 };
-                // x86 records Float only for proven shapes (explicit
-                // annotation or provably-double values): marker-based
-                // floatness would store stale `%xmm0` for int content.
-                // Other arches keep the shared inference (their value
-                // mirror preserves ints; see `is_proven_float_store`).
-                let is_flt = is_explicit_flt
-                    || if matches!(self.arch, Architecture::X86) {
-                        is_proven_float_store(value, &self.ctx.variables)
-                    } else {
-                        is_float_expr(value, &self.ctx.variables)
-                    };
+                let is_flt = is_explicit_flt || is_float_expr(value, &self.ctx.variables);
                 let is_map = is_explicit_map || is_map_expr(value, &self.ctx.variables);
                 let is_null = is_null_expr(value, &self.ctx.variables);
                 let is_alias_heap = match value {
@@ -586,15 +576,6 @@ impl CodeGen {
                 // Reuse a rebound slot when safe (issue #80); otherwise
                 // allocate fresh. `slot` is the home offset from here on.
                 let slot = self.let_home_slot(old_heap_offset, is_flt);
-                if matches!(self.arch, Architecture::X86) && is_flt {
-                    // Float slots are 8 bytes on x86 (stores are movsd);
-                    // a single 4-byte slot would overrun the neighbour.
-                    arch::emit_allocate_var(
-                        &mut self.output,
-                        self.arch,
-                        &mut self.ctx.stack_offset,
-                    );
-                }
 
                 if let Some(ename) = &is_enum {
                     self.ctx.variables.insert(
@@ -690,32 +671,6 @@ impl CodeGen {
                     self.ctx
                         .variables
                         .insert(name.clone(), VarType::Float(self.ctx.stack_offset));
-                    if matches!(self.arch, Architecture::X86) {
-                        // x86 has no %rax float mirror, so the allocation
-                        // above pushed stale words: store the double
-                        // explicitly. Index reads always leave the slot
-                        // bits in `%xmm0` (array/map get contract), so
-                        // they store exactly like proven shapes.
-                        if is_proven_float_store(value, &self.ctx.variables)
-                            || matches!(value, Expr::Index { .. })
-                        {
-                            self.output.push_str(&format!(
-                                "    movsd %xmm0, -{}(%ebp)\n",
-                                self.ctx.stack_offset
-                            ));
-                        } else {
-                            // Explicitly-typed float holding a non-double
-                            // (e.g. an int): store sign-extended, mirroring
-                            // x64's `%rax` exactly.
-                            let off = self.ctx.stack_offset;
-                            self.output.push_str("    mov %eax, %ecx\n");
-                            self.output.push_str("    sar $31, %ecx\n");
-                            self.output
-                                .push_str(&format!("    mov %eax, -{}(%ebp)\n", off));
-                            self.output
-                                .push_str(&format!("    mov %ecx, -{}(%ebp)\n", off - 4));
-                        }
-                    }
                 } else if is_null {
                     self.ctx.variables.insert(name.clone(), VarType::Null(slot));
                 } else {
@@ -905,9 +860,8 @@ impl CodeGen {
     /// Home slot for a `let` value: reuse a rebound heap slot when safe,
     /// else allocate fresh. Reusing keeps the gen-time slot identical to
     /// every run-time iteration of a loop, so the rebind release always
-    /// targets the live value (issue #80). Skipped for float values on
-    /// x86 (the old 4-byte handle slot cannot hold an 8-byte double) and
-    /// for float values everywhere (their store convention differs).
+    /// targets the live value (issue #80). Skipped for float values
+    /// (their store convention differs).
     /// Returns the slot offset now holding the value.
     fn let_home_slot(&mut self, old_offset: Option<i32>, is_float_value: bool) -> i32 {
         let reuse = match old_offset {
@@ -931,15 +885,6 @@ impl CodeGen {
     /// mirrors `=` exactly. No-op for first declarations (alya-lang/alya#79).
     fn emit_let_rebind_release(&mut self, old_offset: Option<i32>, is_flt: bool) {
         if let Some(old_offset) = old_offset {
-            // x86 keeps float values only in `%xmm0` (no int-register
-            // mirror like the other backends), and the release call
-            // below clobbers it: spill the double across the sequence.
-            let spill_x86_float = matches!(self.arch, Architecture::X86) && is_flt;
-            if spill_x86_float {
-                self.output.push_str("    sub $8, %esp\n");
-                self.output.push_str("    movsd %xmm0, (%esp)\n");
-                self.ctx.stack_offset += 8;
-            }
             let temp_offset = self.temp_offset();
             arch::emit_push_temp(&mut self.output, self.arch);
             self.ctx.stack_offset += temp_offset;
@@ -959,11 +904,6 @@ impl CodeGen {
             );
             self.ctx.stack_offset -= temp_offset;
             arch::emit_pop_temp(&mut self.output, self.arch);
-            if spill_x86_float {
-                self.output.push_str("    movsd (%esp), %xmm0\n");
-                self.output.push_str("    add $8, %esp\n");
-                self.ctx.stack_offset -= 8;
-            }
             if is_flt {
                 match self.arch {
                     Architecture::X64 => {
@@ -972,7 +912,6 @@ impl CodeGen {
                     Architecture::ARM64 => {
                         self.output.push_str("    fmov d0, x0\n");
                     }
-                    Architecture::X86 => {}
                 }
             }
         }
@@ -1106,7 +1045,6 @@ impl CodeGen {
                     Architecture::ARM64 => {
                         self.output.push_str("    fmov d0, x0\n");
                     }
-                    Architecture::X86 => {}
                 }
             }
         }
@@ -1360,15 +1298,10 @@ impl CodeGen {
             arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
         }
         self.ctx.stack_offset -= temp_offset;
-        // x86 stores every field as 8 bytes (uniform slots like x64,
-        // alya-lang/alya#62): materialize the double first.
         let field_idx = self
             .resolve_struct_field_target(object, field)
             .map(|(_, idx)| idx)
             .unwrap_or(0);
-        if matches!(self.arch, crate::codegen::target::Architecture::X86) {
-            self.x86_materialize_double(value);
-        }
         arch::emit_struct_field_set(&mut self.output, self.arch, field_idx);
     }
 
@@ -1403,73 +1336,29 @@ impl CodeGen {
             || matches!(index, Expr::String(_))
         {
             let actual_args = [array, index, value];
-            match self.arch {
-                Architecture::X86 => {
-                    // 5-arg fn_set(map, key, lo, hi, kind): the value was
-                    // just generated (floats in %xmm0, rest in %eax).
-                    for arg in actual_args.iter().rev() {
-                        self.generate_expression(arg);
-                        if std::ptr::eq(*arg, value) {
-                            // Retain dynamic/aliased values stored in collections: untyped variables
-                            // or re-read identifiers hold heap objects whose producer slot may drop later.
-                            if self.is_heap_expression(value)
-                                || matches!(
-                                    value,
-                                    Expr::Identifier(_)
-                                        | Expr::Index { .. }
-                                        | Expr::FieldAccess { .. }
-                                )
-                            {
-                                arch::emit_rc_retain(
-                                    &mut self.output,
-                                    self.arch,
-                                    self.ctx.stack_offset,
-                                    self.os,
-                                );
-                            }
-                            let set_kind = if matches!(self.arch, Architecture::X86) {
-                                value_kind_tag_x86_store(value, &self.ctx.variables)
-                            } else {
-                                value_kind_tag(value, &self.ctx.variables)
-                            };
-                            arch::emit_value_lo_hi_kind(&mut self.output, self.arch, set_kind);
-                        } else {
-                            arch::emit_push_temp(&mut self.output, self.arch);
-                        }
-                    }
+            for arg in actual_args.iter() {
+                self.generate_expression(arg);
+                if std::ptr::eq(*arg, value)
+                    && (self.is_heap_expression(value)
+                        || matches!(
+                            value,
+                            Expr::Identifier(_) | Expr::Index { .. } | Expr::FieldAccess { .. }
+                        ))
+                {
+                    arch::emit_rc_retain(
+                        &mut self.output,
+                        self.arch,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
                 }
-                _ => {
-                    for arg in actual_args.iter() {
-                        self.generate_expression(arg);
-                        if std::ptr::eq(*arg, value)
-                            && (self.is_heap_expression(value)
-                                || matches!(
-                                    value,
-                                    Expr::Identifier(_)
-                                        | Expr::Index { .. }
-                                        | Expr::FieldAccess { .. }
-                                ))
-                        {
-                            arch::emit_rc_retain(
-                                &mut self.output,
-                                self.arch,
-                                self.ctx.stack_offset,
-                                self.os,
-                            );
-                        }
-                        arch::emit_push_temp(&mut self.output, self.arch);
-                    }
-                }
+                arch::emit_push_temp(&mut self.output, self.arch);
             }
             arch::emit_function_call(
                 &mut self.output,
                 self.arch,
                 "set",
-                if matches!(self.arch, Architecture::X86) {
-                    5
-                } else {
-                    3
-                },
+                3,
                 self.ctx.stack_offset,
                 self.os,
             );
@@ -1478,38 +1367,22 @@ impl CodeGen {
             // (identifier map, literal key, literal value): re-evaluating
             // anything else could duplicate side effects. Dynamics leave
             // the tag cleared by `set` itself (unknown = 0).
-            // x86 entries carry the tag at +16 with fn_map_set_tag.
-            if matches!(
-                self.arch,
-                Architecture::X64 | Architecture::ARM64 | Architecture::X86
-            ) {
-                if let (Expr::Identifier(_), Expr::String(_)) = (array, index) {
-                    let kind = crate::codegen::analysis::value_kind_tag(value, &self.ctx.variables);
-                    if kind != crate::codegen::kinds::KIND_UNKNOWN {
-                        let tag_args = [array.clone(), index.clone(), Expr::Number(kind as i128)];
-                        match self.arch {
-                            Architecture::X86 => {
-                                for arg in tag_args.iter().rev() {
-                                    self.generate_expression(arg);
-                                    arch::emit_push_temp(&mut self.output, self.arch);
-                                }
-                            }
-                            _ => {
-                                for arg in tag_args.iter() {
-                                    self.generate_expression(arg);
-                                    arch::emit_push_temp(&mut self.output, self.arch);
-                                }
-                            }
-                        }
-                        arch::emit_function_call(
-                            &mut self.output,
-                            self.arch,
-                            "map_set_tag",
-                            3,
-                            self.ctx.stack_offset,
-                            self.os,
-                        );
+            if let (Expr::Identifier(_), Expr::String(_)) = (array, index) {
+                let kind = crate::codegen::analysis::value_kind_tag(value, &self.ctx.variables);
+                if kind != crate::codegen::kinds::KIND_UNKNOWN {
+                    let tag_args = [array.clone(), index.clone(), Expr::Number(kind as i128)];
+                    for arg in tag_args.iter() {
+                        self.generate_expression(arg);
+                        arch::emit_push_temp(&mut self.output, self.arch);
                     }
+                    arch::emit_function_call(
+                        &mut self.output,
+                        self.arch,
+                        "map_set_tag",
+                        3,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
                 }
             }
             if is_string_expr(value, &self.ctx.variables) {
@@ -1609,11 +1482,7 @@ impl CodeGen {
                 arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
             }
             self.ctx.stack_offset -= temp_offset * 2;
-            let set_kind = if matches!(self.arch, Architecture::X86) {
-                value_kind_tag_x86_store(value, &self.ctx.variables)
-            } else {
-                value_kind_tag(value, &self.ctx.variables)
-            };
+            let set_kind = value_kind_tag(value, &self.ctx.variables);
             arch::emit_array_set(&mut self.output, self.arch, set_kind);
         }
     }

@@ -21,7 +21,7 @@ Architecture ◄── Standard Library ◄── Error Handling ◄── Data 
 | **[5. Data Structures](data-structures.md)** | Collections & Structs | Dynamic arrays, Hash Maps (`map()`), structs (`struct Point`), multi-pass type inference | 🟡 Intermediate |
 | **[6. Error Handling](error-handling.md)** | Safety & Exceptions | Structured `try ... catch ... finally`, runtime guards (div-by-zero, bounds), custom `throw` | 🟡 Intermediate |
 | **[7. Standard Library Reference](standard-library.md)** | Batteries Included | Complete catalog: `std/net`, `std/console`, `std/glob`, `std/rand` (UUID v4/v7), `std/time`, `std/str`, `std/math`, `std/fs`... | 🔴 Advanced |
-| **[8. Architecture & Internals](architecture-and-internals.md)** | Compiler & Codegen | Pipeline, ARM64/x64/x86 codegen, Branch Fusion, Struct Inference, ARM64 Immediate Range Splitting | 🔴 Advanced |
+| **[8. Architecture & Internals](architecture-and-internals.md)** | Compiler & Codegen | Pipeline, ARM64/x64 codegen, Branch Fusion, Struct Inference, ARM64 Immediate Range Splitting | 🔴 Advanced |
 
 ---
 

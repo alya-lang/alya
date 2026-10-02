@@ -71,9 +71,9 @@ function os.cwd() -> string
 function os.set_cwd(path: string) -> bool
 function os.exit(code: int = 0)
 function os.platform() -> string      # "windows", "linux", "macos"
-function os.arch() -> string          # "x64", "arm64", "x86"
+function os.arch() -> string          # "x64", "arm64"
 enum os.OS { Windows, Linux, MacOS, Unknown }
-enum os.Arch { X64, X86, ARM64, Unknown }
+enum os.Arch { X64, ARM64, Unknown }
 function os.current_os() -> os.OS
 function os.current_arch() -> os.Arch
 ```

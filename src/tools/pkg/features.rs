@@ -163,7 +163,6 @@ pub fn target_arch_name(arch: Architecture) -> &'static str {
     match arch {
         Architecture::X64 => "x64",
         Architecture::ARM64 => "arm64",
-        Architecture::X86 => "x86",
     }
 }
 

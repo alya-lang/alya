@@ -60,15 +60,6 @@ impl CodeGen {
                 self.output.push_str("    cmpl $0x5A110002, %edx\n");
                 self.output.push_str(&format!("    jne {}\n", l_dyn));
             }
-            Architecture::X86 => {
-                self.output.push_str("    test %eax, %eax\n");
-                self.output.push_str(&format!("    jz {}\n", l_null));
-                self.output.push_str("    cmp $65536, %eax\n");
-                self.output.push_str(&format!("    jb {}\n", l_dyn));
-                self.output.push_str("    movl -8(%eax), %ecx\n");
-                self.output.push_str("    cmpl $0x5A110002, %ecx\n");
-                self.output.push_str(&format!("    jne {}\n", l_dyn));
-            }
             Architecture::ARM64 => {
                 self.output.push_str(&format!("    cbz x0, {}\n", l_null));
                 self.output.push_str("    movz x1, #1, lsl #16\n");
@@ -176,10 +167,6 @@ impl CodeGen {
                 let mut format_str = String::new();
                 let mut exprs: Vec<Expr> = Vec::new();
                 let mut is_floats = Vec::new();
-                // Per-part string flags for x86: `%lld`/`%llx` int parts
-                // and `%g` float parts are 8 bytes on the stack, `%s`
-                // string parts are 4 (alya-lang/alya#59 follow-up).
-                let mut is_strings = Vec::new();
 
                 for part in parts {
                     match part {
@@ -193,19 +180,16 @@ impl CodeGen {
                                 format_str.push_str(&format!("%{}", spec));
                                 exprs.push(arg.clone());
                                 is_floats.push(true);
-                                is_strings.push(false);
                             } else if spec.starts_with('0')
                                 && spec.chars().skip(1).all(|c| c.is_ascii_digit())
                             {
                                 format_str.push_str(&format!("%{}lld", spec));
                                 exprs.push(arg.clone());
                                 is_floats.push(false);
-                                is_strings.push(false);
                             } else if spec == "#x" || spec == "x" {
                                 format_str.push_str("%#llx");
                                 exprs.push(arg.clone());
                                 is_floats.push(false);
-                                is_strings.push(false);
                             } else if spec == "#b" || spec == "b" {
                                 format_str.push_str("%s");
                                 exprs.push(Expr::Call {
@@ -213,22 +197,18 @@ impl CodeGen {
                                     args: vec![arg.clone()],
                                 });
                                 is_floats.push(false);
-                                is_strings.push(true);
                             } else if let Some(width) = spec.strip_prefix('>') {
                                 format_str.push_str(&format!("%{}s", width));
                                 exprs.push(arg.clone());
                                 is_floats.push(false);
-                                is_strings.push(true);
                             } else if let Some(width) = spec.strip_prefix('<') {
                                 format_str.push_str(&format!("%-{}s", width));
                                 exprs.push(arg.clone());
                                 is_floats.push(false);
-                                is_strings.push(true);
                             } else {
                                 format_str.push_str("%lld");
                                 exprs.push(arg.clone());
                                 is_floats.push(false);
-                                is_strings.push(false);
                             }
                         }
                         _ => {
@@ -264,12 +244,10 @@ impl CodeGen {
                                         args: vec![part.clone()],
                                     });
                                     is_floats.push(false);
-                                    is_strings.push(true);
                                 } else if is_string_array(part, &self.ctx.variables) {
                                     format_str.push_str("%s");
                                     exprs.push(string_array_display_expr(part.clone()));
                                     is_floats.push(false);
-                                    is_strings.push(true);
                                 } else if matches!(part, Expr::Index { .. })
                                     && is_tag_carrying_read(part, &self.ctx.variables)
                                     && !is_string_expr(part, &self.ctx.variables)
@@ -286,7 +264,6 @@ impl CodeGen {
                                         args: vec![part.clone()],
                                     });
                                     is_floats.push(false);
-                                    is_strings.push(true);
                                 } else {
                                     let is_flt = is_float_expr(part, &self.ctx.variables);
                                     let is_str = is_string_expr(part, &self.ctx.variables);
@@ -299,7 +276,6 @@ impl CodeGen {
                                     }
                                     exprs.push(part.clone());
                                     is_floats.push(is_flt);
-                                    is_strings.push(is_str);
                                 }
                             }
                         }
@@ -316,44 +292,12 @@ impl CodeGen {
                 let initial_stack_offset = self.ctx.stack_offset;
                 let word_size: i32 = match self.arch {
                     Architecture::ARM64 => 16,
-                    Architecture::X86 => 4,
                     _ => 8,
                 };
-                match self.arch {
-                    Architecture::X86 => {
-                        // cdecl pushes right-to-left; each part pushes its
-                        // printf-sized shape: ints sign-extended hi+lo (8),
-                        // floats the 8-byte double from %xmm0, strings the
-                        // 4-byte pointer (alya-lang/alya#59 follow-up).
-                        let n = exprs.len();
-                        let mut pushed: i32 = 0;
-                        for (idx, expr) in exprs.iter().rev().enumerate() {
-                            let fwd = n - 1 - idx;
-                            self.ctx.stack_offset = initial_stack_offset + pushed;
-                            self.generate_expression(expr);
-                            if is_floats[fwd] {
-                                self.output.push_str("    sub $8, %esp\n");
-                                self.output.push_str("    movsd %xmm0, (%esp)\n");
-                                pushed += 8;
-                            } else if is_strings[fwd] {
-                                arch::emit_push_temp(&mut self.output, self.arch);
-                                pushed += 4;
-                            } else {
-                                self.output.push_str("    mov %eax, %ecx\n");
-                                self.output.push_str("    sar $31, %ecx\n");
-                                self.output.push_str("    push %ecx\n");
-                                self.output.push_str("    push %eax\n");
-                                pushed += 8;
-                            }
-                        }
-                    }
-                    _ => {
-                        for (idx, expr) in exprs.iter().enumerate() {
-                            self.ctx.stack_offset = initial_stack_offset + (idx as i32 * word_size);
-                            self.generate_expression(expr);
-                            arch::emit_push_temp(&mut self.output, self.arch);
-                        }
-                    }
+                for (idx, expr) in exprs.iter().enumerate() {
+                    self.ctx.stack_offset = initial_stack_offset + (idx as i32 * word_size);
+                    self.generate_expression(expr);
+                    arch::emit_push_temp(&mut self.output, self.arch);
                 }
                 self.ctx.stack_offset = initial_stack_offset;
 
@@ -362,7 +306,6 @@ impl CodeGen {
                     self.arch,
                     &fmt_label,
                     &is_floats,
-                    &is_strings,
                     self.ctx.stack_offset,
                     self.os,
                 );
@@ -638,20 +581,12 @@ impl CodeGen {
                             self.emit_string_directive("%g\\n");
                             self.output.push_str(".text\n");
 
-                            if matches!(self.arch, Architecture::X86) {
-                                // Float slots are 8 bytes on x86: load the
-                                // double into %xmm0 (a 4-byte load would
-                                // leave say_float printing stale bits).
-                                self.output
-                                    .push_str(&format!("    movsd -{}(%ebp), %xmm0\n", offset));
-                            } else {
-                                arch::emit_load_var(
-                                    &mut self.output,
-                                    self.arch,
-                                    offset,
-                                    self.ctx.stack_offset,
-                                );
-                            }
+                            arch::emit_load_var(
+                                &mut self.output,
+                                self.arch,
+                                offset,
+                                self.ctx.stack_offset,
+                            );
                             arch::emit_say_float(
                                 &mut self.output,
                                 self.arch,
@@ -727,9 +662,6 @@ impl CodeGen {
                             match self.arch {
                                 Architecture::X64 => {
                                     self.output.push_str("    movq (%rax), %rax\n");
-                                }
-                                Architecture::X86 => {
-                                    self.output.push_str("    movl (%eax), %eax\n");
                                 }
                                 Architecture::ARM64 => {
                                     self.output.push_str("    ldr x0, [x0]\n");
@@ -940,8 +872,8 @@ impl CodeGen {
                         self.generate_expression(expr);
                         arch::emit_push_temp(&mut self.output, self.arch);
                         // fn_get returns the entry kind tag alongside the value
-                        // (x64/x86: %edx, arm64: w1). Array loads deliver the
-                        // slot kind the same way on x64/x86 (Phase 1, #39).
+                        // (x64: %edx, arm64: w1). Array loads deliver the
+                        // slot kind the same way on x64 (Phase 1, #39).
                         // Tagged values dispatch directly; unknown falls
                         // through to the legacy pointer-range classifier
                         // below.
@@ -952,59 +884,52 @@ impl CodeGen {
                         // leave the tag register holding the index, so they
                         // must skip tag dispatch.
                         let carries_kind = is_map_read_index(expr, &self.ctx.variables)
-                            || (matches!(
-                                self.arch,
-                                Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                            ) && (is_array_kind_read(expr, &self.ctx.variables)
-                                || is_dynamic_element_read(expr, &self.ctx.variables)));
-                        let (l_tag_flt, l_tag_str2, l_tag_arr, l_tag_map, l_tag_int) = if matches!(
-                            self.arch,
-                            Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                        )
-                            && carries_kind
-                        {
-                            let flt = self.ctx.next_label();
-                            let s2 = self.ctx.next_label();
-                            let arr = self.ctx.next_label();
-                            let mp = self.ctx.next_label();
-                            let it = self.ctx.next_label();
-                            if matches!(self.arch, Architecture::X64 | Architecture::X86) {
-                                self.output
-                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
-                                self.output.push_str(&format!("    je {}\n", flt));
-                                self.output
-                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_STRING));
-                                self.output.push_str(&format!("    je {}\n", s2));
-                                self.output
-                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_ARRAY));
-                                self.output.push_str(&format!("    je {}\n", arr));
-                                self.output
-                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_MAP));
-                                self.output.push_str(&format!("    je {}\n", mp));
-                                self.output
-                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_INT));
-                                self.output.push_str(&format!("    je {}\n", it));
+                            || is_array_kind_read(expr, &self.ctx.variables)
+                            || is_dynamic_element_read(expr, &self.ctx.variables);
+                        let (l_tag_flt, l_tag_str2, l_tag_arr, l_tag_map, l_tag_int) =
+                            if carries_kind {
+                                let flt = self.ctx.next_label();
+                                let s2 = self.ctx.next_label();
+                                let arr = self.ctx.next_label();
+                                let mp = self.ctx.next_label();
+                                let it = self.ctx.next_label();
+                                if matches!(self.arch, Architecture::X64) {
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                                    self.output.push_str(&format!("    je {}\n", flt));
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_STRING));
+                                    self.output.push_str(&format!("    je {}\n", s2));
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_ARRAY));
+                                    self.output.push_str(&format!("    je {}\n", arr));
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_MAP));
+                                    self.output.push_str(&format!("    je {}\n", mp));
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_INT));
+                                    self.output.push_str(&format!("    je {}\n", it));
+                                } else {
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                                    self.output.push_str(&format!("    b.eq {}\n", flt));
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_STRING));
+                                    self.output.push_str(&format!("    b.eq {}\n", s2));
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_ARRAY));
+                                    self.output.push_str(&format!("    b.eq {}\n", arr));
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_MAP));
+                                    self.output.push_str(&format!("    b.eq {}\n", mp));
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_INT));
+                                    self.output.push_str(&format!("    b.eq {}\n", it));
+                                }
+                                (Some(flt), Some(s2), Some(arr), Some(mp), Some(it))
                             } else {
-                                self.output
-                                    .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
-                                self.output.push_str(&format!("    b.eq {}\n", flt));
-                                self.output
-                                    .push_str(&format!("    cmp w1, #{}\n", KIND_STRING));
-                                self.output.push_str(&format!("    b.eq {}\n", s2));
-                                self.output
-                                    .push_str(&format!("    cmp w1, #{}\n", KIND_ARRAY));
-                                self.output.push_str(&format!("    b.eq {}\n", arr));
-                                self.output
-                                    .push_str(&format!("    cmp w1, #{}\n", KIND_MAP));
-                                self.output.push_str(&format!("    b.eq {}\n", mp));
-                                self.output
-                                    .push_str(&format!("    cmp w1, #{}\n", KIND_INT));
-                                self.output.push_str(&format!("    b.eq {}\n", it));
-                            }
-                            (Some(flt), Some(s2), Some(arr), Some(mp), Some(it))
-                        } else {
-                            (None, None, None, None, None)
-                        };
+                                (None, None, None, None, None)
+                            };
                         self.emit_runtime_classify(self.os);
                         arch::emit_cmp_imm(&mut self.output, self.arch, KIND_STRING);
                         arch::emit_cond_jump(
@@ -1043,11 +968,8 @@ impl CodeGen {
                             self.os,
                         );
                         self.output.push_str(&format!("{}:\n", l_idx_end));
-                        // Tagged fast paths (x64/x86). Each pops the saved
+                        // Tagged fast paths. Each pops the saved
                         // value and prints with the tag-correct runtime.
-                        // On x86 the float bits ride in %xmm0 (untouched by
-                        // compare/classify), ints print via the
-                        // sign-extending say_acc, pointers use the low word.
                         if let (Some(t_flt), Some(t_str2), Some(t_arr), Some(t_map), Some(t_int)) =
                             (l_tag_flt, l_tag_str2, l_tag_arr, l_tag_map, l_tag_int)
                         {
@@ -1153,8 +1075,7 @@ impl CodeGen {
                 // else falls through to the static handling below.
                 // Value contract per arch: int/string in the int register,
                 // float bits in the int register (x64/arm64 rebuild f64
-                // from them; x86's loader left it in xmm0, untouched
-                // since by jumps only). Qualified calls share the
+                // from them). Qualified calls share the
                 // contract: the return-tag protocol leaves (value, tag)
                 // with the tag fresh after the call.
                 let tag_dispatched = matches!(expr, Expr::Ternary { .. } | Expr::Call { .. })
@@ -1163,7 +1084,7 @@ impl CodeGen {
                     let flt = self.ctx.next_label();
                     let s2 = self.ctx.next_label();
                     let end = self.ctx.next_label();
-                    if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                    if matches!(self.arch, Architecture::X64) {
                         self.output
                             .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                         self.output.push_str(&format!("    je {}\n", flt));
@@ -1277,7 +1198,6 @@ impl CodeGen {
                         Architecture::ARM64 => {
                             self.output.push_str("    fmov d0, x0\n");
                         }
-                        Architecture::X86 => {}
                     }
                     let fmt_tflt = self.ctx.next_string_label();
                     self.emit_rodata_section();

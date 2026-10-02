@@ -6,10 +6,6 @@ fn test_e2e_mem_float_roundtrip() {
     // std/mem read_float/write_float delegate to raw 64-bit peek/poke.
     // Alya floats travel as raw f64 bits in value slots, so the round-trip
     // is exact on 64-bit backends. Locks that contract in.
-    // x86 is excluded: its peek/poke are 32-bit (known backend limitation).
-    if cfg!(target_arch = "x86") {
-        return;
-    }
     let code = r#"
 import "std/mem"
 let arena = Arena.new(1024)
@@ -42,10 +38,6 @@ end
 fn test_e2e_mem_narrow_roundtrip() {
     // std/mem read_f32/write_f32/read_i32/write_i32 narrow memory access.
     // f32 widens exactly to f64; i32 sign-extends into the 64-bit slot.
-    // x86 is excluded: its value slots are 32-bit (known backend limitation).
-    if cfg!(target_arch = "x86") {
-        return;
-    }
     let code = r#"
 import "std/mem"
 let arena = Arena.new(1024)
@@ -791,8 +783,6 @@ say ret
 
     let expected_arch = if cfg!(target_arch = "aarch64") {
         "arm64"
-    } else if cfg!(target_arch = "x86") {
-        "x86"
     } else {
         "x64"
     };
@@ -868,7 +858,6 @@ end
 
 let arch_ok = when my_arch
     is os.Arch.X64   => 1
-    is os.Arch.X86   => 1
     is os.Arch.ARM64 => 1
     else             => 0
 end

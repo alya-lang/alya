@@ -32,8 +32,8 @@ For low-level systems programming, memory-constrained buffers, and C interop, ex
 #### 4. Floating-Point (`float`)
 - 64-bit IEEE 754 double-precision floating-point number.
 - Single-precision `f32` is available for graphics and FFI interop.
-- Values travel as raw f64 bits in 64-bit value slots, so `std/mem` raw `peek`/`poke` round-trips are exact on 64-bit targets.
-- Comparison and arithmetic fast paths materialize a call/binary-expression left operand from its slot before operating, so e.g. `read_float(p, 0) == 3.14` evaluates correctly. The x86 backend uses 32-bit value slots: float loads, stores, and comparisons truncate there (known limitation).
+- Values travel as raw f64 bits in 64-bit value slots, so `std/mem` raw `peek`/`poke` round-trips are exact.
+- Comparison and arithmetic fast paths materialize a call/binary-expression left operand from its slot before operating, so e.g. `read_float(p, 0) == 3.14` evaluates correctly.
 
 #### 5. String (`string`)
 - UTF-8 immutable character sequence, reference-counted (ARC) on the heap.
@@ -131,9 +131,7 @@ change. Behavior specified here as "proposal" is not yet implemented;
 behavior marked "current engine" is netted by the existing test suite.
 
 #### 1. Value slots (current engine)
-- On 64-bit targets (x64, ARM64) every value occupies one 64-bit slot
-  (register or stack word). The x86 backend uses 32-bit slots with the
-  float truncation documented in §1.1 ¶4.
+- Every value occupies one 64-bit slot (register or stack word).
 - `int` (and sized integers): raw two's complement in the slot, full
   64-bit range (`u64::MAX` is the integer-literal ceiling).
 - `float`: raw IEEE-754 f64 bits, always unboxed. Boxing floats is a
@@ -161,8 +159,8 @@ behavior marked "current engine" is netted by the existing test suite.
 
 #### 3. Tag scheme (proposal; Phase 1 implemented)
 - **Phase 1 — container slots (implemented).** Array slots carry a kind
-  sidecar: one value-kind byte per slot alongside the 8-byte payload
-  (x64, ARM64; x86 stays untagged). Every element store writes its
+  sidecar: one value-kind byte per slot alongside the 8-byte payload.
+  Every element store writes its
   kind (statically known or 0 unknown); reads expose it. Cost: one
   byte per slot plus a second allocation per array (freed with the
   buffer). Untyped reads and `is int` / `is string` / `is float`

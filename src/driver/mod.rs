@@ -461,21 +461,13 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     }
 
     // Warnings for cross-compilation on Windows host
-    if cfg!(target_os = "windows") {
-        if matches!(args.arch, Architecture::ARM64) {
-            eprintln!("Warning: ARM64 assembly generation is not supported on Windows MinGW/GCC.");
-            eprintln!("         Windows GCC can only assemble x64 and x86 code.");
-            eprintln!(
-                "         The generated ARM64 assembly is valid but requires an ARM64 assembler."
-            );
-            eprintln!();
-        }
-        if matches!(args.arch, Architecture::X86) {
-            eprintln!("Warning: x86 (32-bit) compilation requires gcc with multilib support.");
-            eprintln!("         On Windows, you may need MinGW-w64 with 32-bit support.");
-            eprintln!("         Try: gcc -m32 output.s -o program");
-            eprintln!();
-        }
+    if cfg!(target_os = "windows") && matches!(args.arch, Architecture::ARM64) {
+        eprintln!("Warning: ARM64 assembly generation is not supported on Windows MinGW/GCC.");
+        eprintln!("         Windows GCC can only assemble x64 code.");
+        eprintln!(
+            "         The generated ARM64 assembly is valid but requires an ARM64 assembler."
+        );
+        eprintln!();
     }
 
     // Determine smart base name from input file

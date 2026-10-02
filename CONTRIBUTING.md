@@ -62,7 +62,7 @@ The compiler codebase in `src/` is organized into modular subsystems:
   - `ast.rs`: AST node definitions.
   - `expr.rs`: Expression parsing with operator precedence.
   - `stmt.rs`: Statement parsing (assignments, loops, conditionals, functions, `try...catch`).
-- [`src/codegen/`](src/codegen/): Target assembly generation (X64, X86, ARM64).
+- [`src/codegen/`](src/codegen/): Target assembly generation (X64, ARM64).
   - `runtime/`: System and target-specific runtime routines (`say`, math intrinsics, exit handlers).
   - `expr.rs`: Code generation for arithmetic, logic, and function calls.
   - `stmt.rs`: Code generation for control flow and exception handling.

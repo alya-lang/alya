@@ -36,7 +36,6 @@ body:
       label: Target Architecture
       description: Target CPU architecture being compiled for
       options:
-        - x86 (i686 / 32-bit)
         - x64 (x86_64)
         - ARM64 (Apple Silicon / aarch64)
     validations:

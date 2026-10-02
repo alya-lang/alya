@@ -19,7 +19,7 @@ Source Code (.alya)
         │
    [4. Type Inference]      ──► Infers variable types (Int, Float, String, Array, Map, Struct)
         │
-   [5. Code Generator]      ──► Emits native GNU/Mach-O assembly (ARM64 / x64 / x86)
+   [5. Code Generator]      ──► Emits native GNU/Mach-O assembly (ARM64 / x64)
         │
    [6. Linker Driver]       ──► Invokes host GCC / Clang to produce final executable
         │
@@ -36,7 +36,6 @@ Alya automatically targets the host platform by default, or can cross-generate a
 |---|---|---|---|
 | **x64 (x86_64)** | System V AMD64 (Linux/macOS)<br>Microsoft x64 (Windows) | `%rax`, `%rdi`, `%rsi`, `%rdx`, `%rcx`, `%rbx`, `%xmm0-%xmm3` | Linux (ELF64), Windows (PE/COFF), macOS (Mach-O) |
 | **ARM64 (aarch64)** | AAPCS64 (Linux)<br>Darwin ARM64 (Apple Silicon) | `x0-x7` (args/return), `x9-x15` (scratch), `d0-d3` (floats) | macOS (Apple Silicon M1–M4), Linux (AArch64) |
-| **x86 (i686)** | cdecl | `%eax`, `%edx`, `%ecx`, `%ebx`, `%xmm0-%xmm1` | Linux (ELF32), Windows (MinGW 32-bit) |
 
 ---
 
@@ -63,12 +62,12 @@ When indexing an array (`arr[i]`), standard naive checks require:
 * `i < 0` check (signed branch)
 * `i >= length` check (signed branch)
 
-Alya emits a single unsigned comparison (`jae` on x86/x64, `b.hs` on ARM64). Because negative signed integers wrap into astronomical values (`> 2^63 - 1`) in unsigned interpretation, any negative index automatically triggers the out-of-bounds handler, cutting bounds-check instructions and branch mispredictions in half.
+Alya emits a single unsigned comparison (`jae` on x64, `b.hs` on ARM64). Because negative signed integers wrap into astronomical values (`> 2^63 - 1`) in unsigned interpretation, any negative index automatically triggers the out-of-bounds handler, cutting bounds-check instructions and branch mispredictions in half.
 
 ---
 
 ### C. Zero-Cycle Register Zeroing
-When loading constant `0` into registers on x86 and x64, Alya emits `xor %eax, %eax` rather than `mov $0, %rax`. Modern x86 processors recognize the `xor reg, reg` idiom directly in the register rename stage, executing it with zero latency (0 clock cycles) and avoiding immediate constant decoding.
+When loading constant `0` into registers on x64, Alya emits `xor %eax, %eax` rather than `mov $0, %rax`. Modern x86 processors recognize the `xor reg, reg` idiom directly in the register rename stage, executing it with zero latency (0 clock cycles) and avoiding immediate constant decoding.
 
 ---
 
@@ -88,7 +87,7 @@ Standard ARM64 instructions limit immediate operands to 16-bit values with shift
 ---
 
 ### G. SplitMix64 High-Entropy PRNG
-The runtime PRNG uses the SplitMix64 algorithm, auto-seeded via high-resolution hardware cycle counters (`rdtsc` on x86/x64, `cntvct_el0` on ARM64) and system epoch timestamps. This completely resolves the low-bit periodicity defects common to simple linear congruential generators (LCG).
+The runtime PRNG uses the SplitMix64 algorithm, auto-seeded via high-resolution hardware cycle counters (`rdtsc` on x64, `cntvct_el0` on ARM64) and system epoch timestamps. This completely resolves the low-bit periodicity defects common to simple linear congruential generators (LCG).
 
 ---
 

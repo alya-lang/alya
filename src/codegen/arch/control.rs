@@ -1,4 +1,4 @@
-use super::{arm64, x64, x86};
+use super::{arm64, x64};
 use crate::ast::BinaryOp;
 use crate::codegen::target::{Architecture, OperatingSystem};
 
@@ -6,7 +6,6 @@ pub fn emit_cmp_reg(out: &mut String, arch: Architecture) {
     match arch {
         Architecture::ARM64 => out.push_str("    cmp x0, x1\n"),
         Architecture::X64 => out.push_str("    cmp %rbx, %rax\n"),
-        Architecture::X86 => out.push_str("    cmp %ebx, %eax\n"),
     }
 }
 
@@ -26,9 +25,6 @@ pub fn emit_cmp_imm(out: &mut String, arch: Architecture, imm: i64) {
             } else {
                 out.push_str(&format!("    movabs ${}, %rbx\n    cmp %rbx, %rax\n", imm));
             }
-        }
-        Architecture::X86 => {
-            out.push_str(&format!("    cmp ${}, %eax\n", imm as i32));
         }
     }
 }
@@ -53,7 +49,7 @@ pub fn emit_cond_jump(
             };
             out.push_str(&format!("    {} {}\n", cond, target));
         }
-        Architecture::X64 | Architecture::X86 => {
+        Architecture::X64 => {
             let jmp = match (op, invert) {
                 (BinaryOp::Less, false) | (BinaryOp::GreaterEqual, true) => "jl",
                 (BinaryOp::Less, true) | (BinaryOp::GreaterEqual, false) => "jge",
@@ -71,8 +67,7 @@ pub fn emit_cond_jump(
 pub fn emit_float_cmp_reg(out: &mut String, arch: Architecture) {
     // Same contract as emit_float_binary_op_reg: the left operand's raw f64
     // bits arrive in the integer return register, so sync the FP register
-    // first (call/arithmetic results never touch it). x86 left as-is: its
-    // 32-bit value slots cannot carry f64 bits (known backend limitation).
+    // first (call/arithmetic results never touch it).
     match arch {
         Architecture::ARM64 => {
             out.push_str("    fmov d0, x0\n");
@@ -82,7 +77,6 @@ pub fn emit_float_cmp_reg(out: &mut String, arch: Architecture) {
             out.push_str("    movq %rax, %xmm0\n");
             out.push_str("    ucomisd %xmm1, %xmm0\n")
         }
-        Architecture::X86 => out.push_str("    ucomisd %xmm1, %xmm0\n"),
     }
 }
 
@@ -106,7 +100,7 @@ pub fn emit_float_cond_jump(
             };
             out.push_str(&format!("    {} {}\n", cond, target));
         }
-        Architecture::X64 | Architecture::X86 => {
+        Architecture::X64 => {
             let jmp = match (op, invert) {
                 (BinaryOp::Less, false) | (BinaryOp::GreaterEqual, true) => "jb",
                 (BinaryOp::Less, true) | (BinaryOp::GreaterEqual, false) => "jae",
@@ -125,7 +119,6 @@ pub fn emit_jump_if_zero(out: &mut String, arch: Architecture, label: &str) {
     match arch {
         Architecture::ARM64 => arm64::emit_jump_if_zero(out, label),
         Architecture::X64 => x64::emit_jump_if_zero(out, label),
-        Architecture::X86 => x86::emit_jump_if_zero(out, label),
     }
 }
 
@@ -133,7 +126,6 @@ pub fn emit_jump_if_not_zero(out: &mut String, arch: Architecture, label: &str) 
     match arch {
         Architecture::ARM64 => arm64::emit_jump_if_not_zero(out, label),
         Architecture::X64 => x64::emit_jump_if_not_zero(out, label),
-        Architecture::X86 => x86::emit_jump_if_not_zero(out, label),
     }
 }
 
@@ -141,7 +133,6 @@ pub fn emit_jump(out: &mut String, arch: Architecture, label: &str) {
     match arch {
         Architecture::ARM64 => arm64::emit_jump(out, label),
         Architecture::X64 => x64::emit_jump(out, label),
-        Architecture::X86 => x86::emit_jump(out, label),
     }
 }
 
@@ -149,7 +140,6 @@ pub fn emit_compare_and_jump_if_greater(out: &mut String, arch: Architecture, la
     match arch {
         Architecture::ARM64 => arm64::emit_compare_and_jump_if_greater(out, label),
         Architecture::X64 => x64::emit_compare_and_jump_if_greater(out, label),
-        Architecture::X86 => x86::emit_compare_and_jump_if_greater(out, label),
     }
 }
 
@@ -161,7 +151,6 @@ pub fn emit_compare_and_jump_if_greater_or_equal(
     match arch {
         Architecture::ARM64 => arm64::emit_compare_and_jump_if_greater_or_equal(out, label),
         Architecture::X64 => x64::emit_compare_and_jump_if_greater_or_equal(out, label),
-        Architecture::X86 => x86::emit_compare_and_jump_if_greater_or_equal(out, label),
     }
 }
 
@@ -177,7 +166,6 @@ pub fn emit_increment_var(
             arm64::emit_increment_var(out, var_offset, stack_offset, start_label)
         }
         Architecture::X64 => x64::emit_increment_var(out, var_offset, start_label),
-        Architecture::X86 => x86::emit_increment_var(out, var_offset, start_label),
     }
 }
 
@@ -208,7 +196,6 @@ pub fn emit_function_prologue(out: &mut String, arch: Architecture, name: &str) 
     match arch {
         Architecture::ARM64 => arm64::emit_function_prologue(out, &mangled),
         Architecture::X64 => x64::emit_function_prologue(out, &mangled),
-        Architecture::X86 => x86::emit_function_prologue(out, &mangled),
     }
 }
 
@@ -219,7 +206,6 @@ pub fn emit_export_alias(out: &mut String, arch: Architecture, alias: &str) {
     match arch {
         Architecture::ARM64 => arm64::emit_export_alias(out, alias),
         Architecture::X64 => x64::emit_export_alias(out, alias),
-        Architecture::X86 => x86::emit_export_alias(out, alias),
     }
 }
 
@@ -227,7 +213,6 @@ pub fn emit_function_epilogue(out: &mut String, arch: Architecture) {
     match arch {
         Architecture::ARM64 => arm64::emit_function_epilogue(out),
         Architecture::X64 => x64::emit_function_epilogue(out),
-        Architecture::X86 => x86::emit_function_epilogue(out),
     }
 }
 
@@ -241,7 +226,6 @@ pub fn emit_function_param_push(
     match arch {
         Architecture::ARM64 => arm64::emit_function_param_push(out, param_idx, stack_offset),
         Architecture::X64 => x64::emit_function_param_push(out, param_idx, stack_offset, os),
-        Architecture::X86 => x86::emit_function_param_push(out, param_idx, stack_offset),
     }
 }
 
@@ -257,7 +241,6 @@ pub fn emit_function_call(
     match arch {
         Architecture::ARM64 => arm64::emit_function_call(out, &mangled, args_count),
         Architecture::X64 => x64::emit_function_call(out, &mangled, args_count, stack_offset, os),
-        Architecture::X86 => x86::emit_function_call(out, &mangled, args_count),
     }
 }
 
@@ -273,7 +256,6 @@ pub fn emit_c_function_call(
     match arch {
         Architecture::ARM64 => arm64::emit_c_function_call(out, &mangled, args_count, os),
         Architecture::X64 => x64::emit_c_function_call(out, &mangled, args_count, stack_offset, os),
-        Architecture::X86 => x86::emit_c_function_call(out, &mangled, args_count),
     }
 }
 
@@ -290,7 +272,6 @@ pub fn emit_indirect_function_call(
         Architecture::X64 => {
             x64::emit_indirect_function_call(out, var_offset, args_count, stack_offset, os)
         }
-        Architecture::X86 => x86::emit_indirect_function_call(out, var_offset, args_count),
     }
 }
 
@@ -301,18 +282,17 @@ pub fn emit_stack_restore(out: &mut String, arch: Architecture, delta: i32) {
     match arch {
         Architecture::ARM64 => arm64::emit_stack_restore(out, delta),
         Architecture::X64 => x64::emit_stack_restore(out, delta),
-        Architecture::X86 => x86::emit_stack_restore(out, delta),
     }
 }
 
 /// Traps when a just-read value kind tag is float (alya-lang/alya#39
 /// Phase 2b): call immediately after generating an untyped-param Index
-/// read, while the tag is still fresh (x64/x86: %edx, arm64: w1).
+/// read, while the tag is still fresh (x64: %edx, arm64: w1).
 /// Non-float (int/unknown) tags fall through to integer semantics.
 pub fn emit_mixed_float_check(out: &mut String, arch: Architecture) {
     use crate::codegen::kinds::KIND_FLOAT;
     match arch {
-        Architecture::X64 | Architecture::X86 => {
+        Architecture::X64 => {
             out.push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
             out.push_str("    je alya_error_mixed_float\n");
         }

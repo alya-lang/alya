@@ -112,9 +112,9 @@ When emitting GNU/Mach-O assembly, the code generator must apply machine-level m
 1. **Branch Fusion**:
    - Compare and jump statements inside `if` and `while` conditions must be fused into a single relational jump (`cmp` + `jge`/`jl`) without generating intermediate boolean byte flags.
 2. **Single Unsigned Bounds Checks**:
-   - Array index checks (`arr[i]`) must use a single unsigned comparison (`jae` on x86/x64, `b.hs` on ARM64) to validate both negative index bounds and length overflow in a single CPU cycle.
+   - Array index checks (`arr[i]`) must use a single unsigned comparison (`jae` on x64, `b.hs` on ARM64) to validate both negative index bounds and length overflow in a single CPU cycle.
 3. **Zero-Cycle Register Zeroing**:
-   - Emits `xor %eax, %eax` on x86/x64 instead of `mov $0, %rax`, taking advantage of CPU register-renaming zero-latency idioms.
+   - Emits `xor %eax, %eax` on x64 instead of `mov $0, %rax`, taking advantage of CPU register-renaming zero-latency idioms.
 4. **Compile-Time Struct Field Offsets**:
    - Field access (`point.x`, `user.id`) must resolve to static byte offsets at compile time, eliminating runtime hash-map or dictionary indirection.
 5. **Profile-Gated Peephole Passes** (`codegen::peephole`, tiers O1-O3):

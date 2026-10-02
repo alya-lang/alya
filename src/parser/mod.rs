@@ -35,7 +35,7 @@ pub struct Parser {
 pub struct CfgContext {
     /// Target OS name: `windows` | `linux` | `macos`.
     pub os: String,
-    /// Target arch name: `x64` | `arm64` | `x86` (aliases tolerated at eval).
+    /// Target arch name: `x64` | `arm64` (aliases tolerated at eval).
     pub arch: String,
     /// Active profile's debug flag (`debug = true|false` conditions).
     pub debug: bool,

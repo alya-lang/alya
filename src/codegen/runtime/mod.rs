@@ -4,8 +4,6 @@ pub mod data;
 pub mod fiber;
 #[rustfmt::skip]
 pub mod x64;
-#[rustfmt::skip]
-pub mod x86;
 
 use super::target::{Architecture, OperatingSystem};
 
@@ -30,6 +28,5 @@ pub fn emit_runtime(
     match arch {
         Architecture::ARM64 => arm64::emit_arm64_runtime(out, os),
         Architecture::X64 => x64::emit_x64_runtime(out, os),
-        Architecture::X86 => x86::emit_x86_runtime(out, os),
     }
 }

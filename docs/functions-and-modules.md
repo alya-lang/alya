@@ -31,7 +31,7 @@ greet("Bob", "Good day", "?")   # "Good day, Bob?"
 ```
 
 ### Call Conventions & Native Stack Frames
-Alya generates native ABI-compliant function calls (`call` on x86/x64, `bl` on ARM64) with stack frame alignment and standard register calling conventions, avoiding any interpreter dispatch overhead.
+Alya generates native ABI-compliant function calls (`call` on x64, `bl` on ARM64) with stack frame alignment and standard register calling conventions, avoiding any interpreter dispatch overhead.
 
 ### Multiple Return Values & Tuples
 Functions can return multiple values separated by commas. Callers can unpack them directly using tuple destructuring:

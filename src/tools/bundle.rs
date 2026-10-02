@@ -308,7 +308,6 @@ impl BundleOptions {
         match arch {
             Some(Architecture::X64) => Some(0x8664),
             Some(Architecture::ARM64) => Some(0xAA64),
-            Some(Architecture::X86) => Some(0x014C),
             None => None,
         }
     }

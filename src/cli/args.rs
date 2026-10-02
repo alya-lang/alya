@@ -100,8 +100,6 @@ impl CliArgs {
         if args.len() < 2 {
             let arch = if cfg!(target_arch = "aarch64") {
                 Architecture::ARM64
-            } else if cfg!(target_arch = "x86") {
-                Architecture::X86
             } else {
                 Architecture::X64
             };
@@ -440,8 +438,6 @@ impl CliArgs {
         let mut mem_trace = false;
         let mut arch = if cfg!(target_arch = "aarch64") {
             Architecture::ARM64
-        } else if cfg!(target_arch = "x86") {
-            Architecture::X86
         } else {
             Architecture::X64
         };
@@ -620,11 +616,10 @@ impl CliArgs {
                         arch_explicit = true;
                         arch = match args[i + 1].as_str() {
                             "x64" => Architecture::X64,
-                            "x86" => Architecture::X86,
                             "arm64" => Architecture::ARM64,
                             other => {
                                 return Err(format!(
-                                    "Error: Unknown architecture '{}'. Supported: x86, x64, arm64",
+                                    "Error: Unknown architecture '{}'. Supported: x64, arm64",
                                     other
                                 ))
                             }
@@ -776,8 +771,6 @@ impl CliArgs {
     fn create_pkg_args(pkg_cmd: PkgCommand) -> Self {
         let arch = if cfg!(target_arch = "aarch64") {
             Architecture::ARM64
-        } else if cfg!(target_arch = "x86") {
-            Architecture::X86
         } else {
             Architecture::X64
         };
@@ -819,8 +812,6 @@ impl CliArgs {
     fn create_host_args(command: CommandKind) -> Self {
         let arch = if cfg!(target_arch = "aarch64") {
             Architecture::ARM64
-        } else if cfg!(target_arch = "x86") {
-            Architecture::X86
         } else {
             Architecture::X64
         };
@@ -862,8 +853,6 @@ impl CliArgs {
     fn create_simple_args(command: CommandKind) -> Self {
         let arch = if cfg!(target_arch = "aarch64") {
             Architecture::ARM64
-        } else if cfg!(target_arch = "x86") {
-            Architecture::X86
         } else {
             Architecture::X64
         };

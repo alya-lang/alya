@@ -35,7 +35,7 @@ end
 ```
 Supported configurations include:
 - `os = "windows"` | `"linux"` | `"macos"` (evaluated against the `--os` build target, not the host)
-- `arch = "x64"` | `"arm64"` | `"x86"` (evaluated against the `--arch` build target; `x86_64`/`aarch64` aliases accepted)
+- `arch = "x64"` | `"arm64"` (evaluated against the `--arch` build target; `x86_64`/`aarch64` aliases accepted)
 - `debug = true` | `false` (the active `[profile.*]` debug flag; `true` outside packages)
 - `feature = "<name>"` (a manifest `[features]` member active via `--features`; unknown names are false)
 - `not(<condition>)` negation; stack multiple `@cfg` lines for conjunction.

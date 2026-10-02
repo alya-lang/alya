@@ -188,11 +188,6 @@ function arch_tag18() -> string
     return "arm64-path"
 end
 
-@cfg(arch = "x86")
-function arch_tag18() -> string
-    return "x86-path"
-end
-
 say f"Arch tag: {arch_tag18()}"
 say f"Noinline add: {slow_add18(20, 22)}"
 

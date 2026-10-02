@@ -48,8 +48,6 @@ fn test_repl_session_assemble() {
 fn test_repl_execute_snippet() {
     let arch = if cfg!(target_arch = "aarch64") {
         Architecture::ARM64
-    } else if cfg!(target_arch = "x86") {
-        Architecture::X86
     } else {
         Architecture::X64
     };
@@ -183,8 +181,6 @@ fn test_update_or_add_statement_typed_and_pub() {
 fn test_repl_execute_new_language_features() {
     let arch = if cfg!(target_arch = "aarch64") {
         Architecture::ARM64
-    } else if cfg!(target_arch = "x86") {
-        Architecture::X86
     } else {
         Architecture::X64
     };

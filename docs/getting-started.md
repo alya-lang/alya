@@ -70,7 +70,7 @@ Options:
       --time               Display detailed microsecond stage timings
       --stats, --bench     Display compilation throughput statistics
   -q, --quiet              Suppress banner and informational compiler output
-      --arch <arch>        Target architecture: x86, x64, arm64 (default: host)
+      --arch <arch>        Target architecture: x64, arm64 (default: host)
       --os <os>            Target OS: windows, linux, macos (default: host)
   -v, --version            Show compiler version
   -h, --help               Show help message

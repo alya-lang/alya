@@ -82,19 +82,16 @@ impl CodeGen {
                     self.generate_expression(left);
                     if !left_is_flt && !is_definitely_not_numeric(left, &self.ctx.variables) {
                         // Index carries kind tag alongside the value
-                        // (x64/x86: %edx, arm64: w1): skip int->float
+                        // (x64: %edx, arm64: w1): skip int->float
                         // when the value is already a float (map routing
                         // or Phase 1 array slot kinds).
                         if matches!(
-                            self.arch,
-                            Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                        ) && matches!(
                             &**left,
                             Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
                         ) && is_tag_carrying_read(left, &self.ctx.variables)
                         {
                             let l_skip = self.ctx.next_label();
-                            if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                            if matches!(self.arch, Architecture::X64) {
                                 self.output.push_str("    cmpl $2, %edx\n");
                                 self.output.push_str(&format!("    je {}\n", l_skip));
                             } else {
@@ -126,40 +123,18 @@ impl CodeGen {
                         );
                         return;
                     } else {
-                        // x86 pushes the left double as 8 bytes (the op
-                        // pops 8); other arches push one word. Mirrors the
-                        // general float-binop path (alya-lang/alya#62).
-                        if matches!(self.arch, Architecture::X86) {
-                            if !left_is_flt && is_definitely_not_numeric(left, &self.ctx.variables)
-                            {
-                                self.emit_x86_bits_to_float();
-                            }
-                            self.output
-                                .push_str("    sub $8, %esp\n    movsd %xmm0, (%esp)\n");
-                            self.ctx.stack_offset += 8;
-                        } else {
-                            arch::emit_push_temp(&mut self.output, self.arch);
-                        }
+                        arch::emit_push_temp(&mut self.output, self.arch);
                         self.generate_expression(right);
-                        if matches!(self.arch, Architecture::X86)
-                            && !right_is_flt
-                            && is_definitely_not_numeric(right, &self.ctx.variables)
-                        {
-                            self.emit_x86_bits_to_float();
-                        }
                         if !right_is_flt && !is_definitely_not_numeric(right, &self.ctx.variables) {
                             // Index carries kind tag (x64: %edx, arm64: w1;
                             // map routing or Phase 1 array slot kinds).
                             if matches!(
-                                self.arch,
-                                Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                            ) && matches!(
                                 &**right,
                                 Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
                             ) && is_tag_carrying_read(right, &self.ctx.variables)
                             {
                                 let l_skip = self.ctx.next_label();
-                                if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                                if matches!(self.arch, Architecture::X64) {
                                     self.output
                                         .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    je {}\n", l_skip));
@@ -175,9 +150,6 @@ impl CodeGen {
                             }
                         }
                         arch::emit_float_binary_op(&mut self.output, self.arch, *op);
-                        if matches!(self.arch, Architecture::X86) {
-                            self.ctx.stack_offset -= 8;
-                        }
                     }
                     arch::emit_jump_if_zero(&mut self.output, self.arch, target_label);
                     return;
@@ -338,19 +310,16 @@ impl CodeGen {
                     self.generate_expression(left);
                     if !left_is_flt && !is_definitely_not_numeric(left, &self.ctx.variables) {
                         // Index carries kind tag alongside the value
-                        // (x64/x86: %edx, arm64: w1): skip int->float
+                        // (x64: %edx, arm64: w1): skip int->float
                         // when the value is already a float (map routing
                         // or Phase 1 array slot kinds).
                         if matches!(
-                            self.arch,
-                            Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                        ) && matches!(
                             &**left,
                             Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
                         ) && is_tag_carrying_read(left, &self.ctx.variables)
                         {
                             let l_skip = self.ctx.next_label();
-                            if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                            if matches!(self.arch, Architecture::X64) {
                                 self.output.push_str("    cmpl $2, %edx\n");
                                 self.output.push_str(&format!("    je {}\n", l_skip));
                             } else {
@@ -382,40 +351,18 @@ impl CodeGen {
                         );
                         return;
                     } else {
-                        // x86 pushes the left double as 8 bytes (the op
-                        // pops 8); other arches push one word. Mirrors the
-                        // general float-binop path (alya-lang/alya#62).
-                        if matches!(self.arch, Architecture::X86) {
-                            if !left_is_flt && is_definitely_not_numeric(left, &self.ctx.variables)
-                            {
-                                self.emit_x86_bits_to_float();
-                            }
-                            self.output
-                                .push_str("    sub $8, %esp\n    movsd %xmm0, (%esp)\n");
-                            self.ctx.stack_offset += 8;
-                        } else {
-                            arch::emit_push_temp(&mut self.output, self.arch);
-                        }
+                        arch::emit_push_temp(&mut self.output, self.arch);
                         self.generate_expression(right);
-                        if matches!(self.arch, Architecture::X86)
-                            && !right_is_flt
-                            && is_definitely_not_numeric(right, &self.ctx.variables)
-                        {
-                            self.emit_x86_bits_to_float();
-                        }
                         if !right_is_flt && !is_definitely_not_numeric(right, &self.ctx.variables) {
                             // Index carries kind tag (x64: %edx, arm64: w1;
                             // map routing or Phase 1 array slot kinds).
                             if matches!(
-                                self.arch,
-                                Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                            ) && matches!(
                                 &**right,
                                 Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
                             ) && is_tag_carrying_read(right, &self.ctx.variables)
                             {
                                 let l_skip = self.ctx.next_label();
-                                if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                                if matches!(self.arch, Architecture::X64) {
                                     self.output
                                         .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    je {}\n", l_skip));
@@ -431,9 +378,6 @@ impl CodeGen {
                             }
                         }
                         arch::emit_float_binary_op(&mut self.output, self.arch, *op);
-                        if matches!(self.arch, Architecture::X86) {
-                            self.ctx.stack_offset -= 8;
-                        }
                     }
                     arch::emit_jump_if_not_zero(&mut self.output, self.arch, target_label);
                     return;
@@ -647,9 +591,9 @@ impl CodeGen {
 
     /// A `let` value shape safe to pre-null in a loop entry: literals,
     /// direct struct constructors, and proven-fresh calls/arrays/maps.
-    /// Anything else (notably floats, which need wider slots on x86,
-    /// and unmarked calls, which may return ints) is skipped and keeps
-    /// leaking safely instead of risking a bad release (issue #80).
+    /// Anything else (notably floats and unmarked calls, which may
+    /// return ints) is skipped and keeps leaking safely instead of risking
+    /// a bad release (issue #80).
     fn loop_let_is_prenullable(&self, value: &Expr) -> bool {
         if is_float_expr(value, &self.ctx.variables) {
             return false;
@@ -1055,30 +999,10 @@ impl CodeGen {
             self.output.push_str(&format!("{}:\n", start_label));
 
             let initial_stack_offset = self.ctx.stack_offset;
-            match self.arch {
-                Architecture::X86 => {
-                    arch::emit_load_num(&mut self.output, self.arch, 5000);
-                    arch::emit_push_temp(&mut self.output, self.arch);
-                    arch::emit_load_var(
-                        &mut self.output,
-                        self.arch,
-                        ch_offset,
-                        initial_stack_offset + 4,
-                    );
-                    arch::emit_push_temp(&mut self.output, self.arch);
-                }
-                _ => {
-                    arch::emit_load_var(
-                        &mut self.output,
-                        self.arch,
-                        ch_offset,
-                        initial_stack_offset,
-                    );
-                    arch::emit_push_temp(&mut self.output, self.arch);
-                    arch::emit_load_num(&mut self.output, self.arch, 5000);
-                    arch::emit_push_temp(&mut self.output, self.arch);
-                }
-            }
+            arch::emit_load_var(&mut self.output, self.arch, ch_offset, initial_stack_offset);
+            arch::emit_push_temp(&mut self.output, self.arch);
+            arch::emit_load_num(&mut self.output, self.arch, 5000);
+            arch::emit_push_temp(&mut self.output, self.arch);
 
             let recv_fn = self
                 .ctx
@@ -1219,18 +1143,6 @@ impl CodeGen {
             }
             _ => {
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
-                if matches!(self.arch, Architecture::X86)
-                    && matches!(var_type_for_primary, VarType::Float(_))
-                {
-                    // Float slots are 8 bytes on x86 (element stores are
-                    // movsd); a single 4-byte slot would overrun the
-                    // neighbouring index slot and end the loop early.
-                    arch::emit_allocate_var(
-                        &mut self.output,
-                        self.arch,
-                        &mut self.ctx.stack_offset,
-                    );
-                }
                 let off = self.ctx.stack_offset;
                 let vt = set_var_offset(&var_type_for_primary, off);
                 self.ctx.variables.insert(var.clone(), vt);
@@ -1271,17 +1183,6 @@ impl CodeGen {
                         self.arch,
                         &mut self.ctx.stack_offset,
                     );
-                    if matches!(self.arch, Architecture::X86)
-                        && matches!(v2_type_raw, VarType::Float(_))
-                    {
-                        // Float slots are 8 bytes on x86 (see the loop
-                        // variable above).
-                        arch::emit_allocate_var(
-                            &mut self.output,
-                            self.arch,
-                            &mut self.ctx.stack_offset,
-                        );
-                    }
                     let off = self.ctx.stack_offset;
                     let vt = set_var_offset(&v2_type_raw, off);
                     self.ctx.variables.insert(v2_str.clone(), vt);
@@ -1448,33 +1349,22 @@ impl CodeGen {
     }
 
     pub(crate) fn generate_throw(&mut self, opt_expr: Option<&Expr>) {
-        use crate::codegen::target::Architecture;
         if let Some(expr) = opt_expr {
             // fn_throw(value, msg): msg carries struct `message` text
             // (or null); the runtime records both in the thread's block,
             // so no global is involved and stale messages are impossible.
             // The struct value itself is allocated once into a temp slot.
-            // Push order follows each arch's convention so the callee
-            // always sees (value, msg).
             if self.struct_message_field_idx(expr).is_some() {
                 self.generate_expression(expr);
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
                 let tmp = self.ctx.stack_offset;
                 arch::emit_store_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
                 let msg_idx = self.struct_message_field_idx(expr).unwrap_or(0);
-                if matches!(self.arch, Architecture::X86) {
-                    arch::emit_load_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
-                    arch::emit_struct_field_get(&mut self.output, self.arch, msg_idx);
-                    arch::emit_push_temp(&mut self.output, self.arch);
-                    arch::emit_load_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
-                    arch::emit_push_temp(&mut self.output, self.arch);
-                } else {
-                    arch::emit_load_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
-                    arch::emit_push_temp(&mut self.output, self.arch);
-                    arch::emit_load_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
-                    arch::emit_struct_field_get(&mut self.output, self.arch, msg_idx);
-                    arch::emit_push_temp(&mut self.output, self.arch);
-                }
+                arch::emit_load_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
+                arch::emit_push_temp(&mut self.output, self.arch);
+                arch::emit_load_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
+                arch::emit_struct_field_get(&mut self.output, self.arch, msg_idx);
+                arch::emit_push_temp(&mut self.output, self.arch);
             } else {
                 let is_struct = self.get_expr_struct_name(expr).is_some()
                     || match expr {
@@ -1488,10 +1378,6 @@ impl CodeGen {
                         }
                         _ => false,
                     };
-                if matches!(self.arch, Architecture::X86) {
-                    arch::emit_load_num(&mut self.output, self.arch, 0);
-                    arch::emit_push_temp(&mut self.output, self.arch);
-                }
                 if is_string_expr(expr, &self.ctx.variables) || is_struct {
                     self.generate_expression(expr);
                 } else {
@@ -1507,10 +1393,8 @@ impl CodeGen {
                     );
                 }
                 arch::emit_push_temp(&mut self.output, self.arch);
-                if !matches!(self.arch, Architecture::X86) {
-                    arch::emit_load_num(&mut self.output, self.arch, 0);
-                    arch::emit_push_temp(&mut self.output, self.arch);
-                }
+                arch::emit_load_num(&mut self.output, self.arch, 0);
+                arch::emit_push_temp(&mut self.output, self.arch);
             }
             arch::emit_function_call(
                 &mut self.output,

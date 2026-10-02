@@ -529,8 +529,7 @@ pub fn collect_known_float_vars_with_index(
                     // Provenance: an explicit `-> float` annotation is
                     // enforced by the type checker, so these returns are
                     // exclusively float (unlike inference markers, which
-                    // fire when ANY branch returns float). The x86 backend
-                    // consults the `ann` key to trust `%xmm0` at stores.
+                    // fire when ANY branch returns float).
                     known_floats.insert(format!("fn_ret_flt_ann:{}", name));
                     known_floats.insert(format!("fn_ret_flt_ann:{}", bare));
                 } else if ret_trimmed.starts_with('(') && ret_trimmed.ends_with(')') {

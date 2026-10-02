@@ -151,7 +151,6 @@ impl CodeGen {
                     self.generate_expression(expr);
                     let word_size: i32 = match self.arch {
                         Architecture::ARM64 => 16,
-                        Architecture::X86 => 4,
                         _ => 8,
                     };
                     // Return-tag protocol (Phase 2b, alya-lang/alya#39):
@@ -179,9 +178,6 @@ impl CodeGen {
                                 Architecture::ARM64 => {
                                     self.output.push_str("    fmov x0, d0\n");
                                 }
-                                Architecture::X86 => {
-                                    self.output.push_str("    movd %xmm0, %eax\n");
-                                }
                             }
                         }
                         let lit_kind: Option<i64> = match expr {
@@ -192,7 +188,7 @@ impl CodeGen {
                         };
                         if let Some(kind) = lit_kind {
                             match self.arch {
-                                Architecture::X64 | Architecture::X86 => {
+                                Architecture::X64 => {
                                     self.output.push_str(&format!("    movl ${}, %edx\n", kind));
                                 }
                                 Architecture::ARM64 => {
@@ -201,26 +197,8 @@ impl CodeGen {
                             }
                         }
                     }
-                    // On x86 a float return lives in %xmm0, which defers
-                    // and releases (calls) clobber: spill the full double,
-                    // not just `%eax`. Other archs mirror the value into
-                    // the int register already. Only proven shapes spill
-                    // the double: marker-based floatness can hold a
-                    // non-float at runtime with stale `%xmm0`.
-                    let x86_float_spill = matches!(self.arch, Architecture::X86)
-                        && is_flt
-                        && (crate::codegen::analysis::is_proven_float_store(
-                            expr,
-                            &self.ctx.variables,
-                        ) || self.x86_value_in_xmm0(expr));
-                    if x86_float_spill {
-                        self.output.push_str("    sub $8, %esp\n");
-                        self.output.push_str("    movsd %xmm0, (%esp)\n");
-                        self.ctx.stack_offset += 8;
-                    } else {
-                        arch::emit_push_temp(&mut self.output, self.arch);
-                        self.ctx.stack_offset += word_size;
-                    }
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                    self.ctx.stack_offset += word_size;
                     if ret_tagged {
                         // Spill the tag across defers/releases (calls
                         // clobber it); restored below. Mirrors the value
@@ -234,10 +212,6 @@ impl CodeGen {
                                 self.output.push_str("    str w1, [sp, #-16]!\n");
                                 self.ctx.stack_offset += 16;
                             }
-                            Architecture::X86 => {
-                                self.output.push_str("    push %edx\n");
-                                self.ctx.stack_offset += 4;
-                            }
                         }
                     }
 
@@ -249,7 +223,7 @@ impl CodeGen {
                             && matches!(expr, Expr::Ternary { .. } | Expr::NullCoalesce { .. });
                         self.emit_rc_release_scope_return(&heap_offsets, check_match);
                     }
-                    self.ctx.stack_offset -= if x86_float_spill { 8 } else { word_size };
+                    self.ctx.stack_offset -= word_size;
                     if ret_tagged {
                         match self.arch {
                             Architecture::X64 => {
@@ -260,18 +234,9 @@ impl CodeGen {
                                 self.output.push_str("    ldr w1, [sp], #16\n");
                                 self.ctx.stack_offset -= 16;
                             }
-                            Architecture::X86 => {
-                                self.output.push_str("    pop %edx\n");
-                                self.ctx.stack_offset -= 4;
-                            }
                         }
                     }
-                    if x86_float_spill {
-                        self.output.push_str("    movsd (%esp), %xmm0\n");
-                        self.output.push_str("    add $8, %esp\n");
-                    } else {
-                        arch::emit_pop_temp(&mut self.output, self.arch);
-                    }
+                    arch::emit_pop_temp(&mut self.output, self.arch);
                     if is_flt {
                         match self.arch {
                             Architecture::X64 => {
@@ -280,7 +245,6 @@ impl CodeGen {
                             Architecture::ARM64 => {
                                 self.output.push_str("    fmov d0, x0\n");
                             }
-                            Architecture::X86 => {}
                         }
                     }
                 } else {

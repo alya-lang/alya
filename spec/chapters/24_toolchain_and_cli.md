@@ -21,7 +21,7 @@ Compiles the target file into a temporary executable and runs it immediately.
 #### 2. `alya build [file] [flags]`
 Compiles source files into a standalone native executable:
 - **`--release`**: Enables optimizations (branch fusion, dead-code elimination, unboxing) and strips `@test` and `bench` blocks.
-- **`--arch <arch>`**: Cross-compilation target architecture (`x64`, `arm64`, `x86`).
+- **`--arch <arch>`**: Cross-compilation target architecture (`x64`, `arm64`).
 - **`--os <os>`**: Cross-compilation target OS (`windows`, `linux`, `macos`).
 - **`-o, --output <path>`**: Explicit output binary path.
 - **`--bundle`**: macOS application bundle generation (generates `.app`, `Info.plist`, and multi-resolution `.icns`).

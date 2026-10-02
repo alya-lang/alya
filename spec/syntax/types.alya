@@ -33,7 +33,7 @@ let num_u16: u16 = 65535              # 16-bit unsigned
 let num_u32: u32 = 4294967295         # 32-bit unsigned
 let num_u64: u64 = 18446744073709551615 # 64-bit unsigned
 
-# Architecture-dependent pointer size (32-bit on x86, 64-bit on x64/ARM64)
+# Pointer size integer (64-bit on x64/ARM64)
 let mem_offset: usize = 0x7FFF_FFFF
 
 say f"Unsigned scalars: u8={num_u8}, u16={num_u16}, u32={num_u32}, usize={mem_offset}"

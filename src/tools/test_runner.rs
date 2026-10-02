@@ -1079,7 +1079,6 @@ pub fn run_tests(
     let arch_str = match arch {
         Architecture::X64 => "x64",
         Architecture::ARM64 => "arm64",
-        Architecture::X86 => "x86",
     };
     // Architecture-gated files (`# SKIP-ARCH:` header) never execute here.
     let (skipped_files, test_files): (Vec<_>, Vec<_>) = test_files
@@ -1277,7 +1276,6 @@ pub fn run_benches(
     let arch_str = match arch {
         Architecture::X64 => "x64",
         Architecture::ARM64 => "arm64",
-        Architecture::X86 => "x86",
     };
     let os_str = match os {
         OperatingSystem::Windows => "windows",

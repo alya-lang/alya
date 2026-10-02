@@ -128,14 +128,11 @@ pub fn get_local_toolchain_dir() -> Option<PathBuf> {
 pub fn get_platform_triple(arch: Architecture, os: OperatingSystem) -> String {
     match (os, arch) {
         (OperatingSystem::Windows, Architecture::X64) => "x86_64-pc-windows-gnu".to_string(),
-        (OperatingSystem::Windows, Architecture::X86) => "i686-pc-windows-gnu".to_string(),
         (OperatingSystem::Windows, Architecture::ARM64) => "aarch64-pc-windows-gnu".to_string(),
         (OperatingSystem::Linux, Architecture::X64) => "x86_64-unknown-linux-musl".to_string(),
         (OperatingSystem::Linux, Architecture::ARM64) => "aarch64-unknown-linux-musl".to_string(),
-        (OperatingSystem::Linux, Architecture::X86) => "i686-unknown-linux-musl".to_string(),
         (OperatingSystem::MacOS, Architecture::ARM64) => "aarch64-apple-darwin".to_string(),
         (OperatingSystem::MacOS, Architecture::X64) => "x86_64-apple-darwin".to_string(),
-        (OperatingSystem::MacOS, Architecture::X86) => "i686-apple-darwin".to_string(),
     }
 }
 
@@ -182,7 +179,6 @@ fn compiler_machine_prefix(path: &Path) -> Option<String> {
 fn machine_matches_arch(machine: &str, arch: Architecture) -> bool {
     match arch {
         Architecture::X64 => machine == "x86_64" || machine == "amd64",
-        Architecture::X86 => machine.starts_with('i') && machine.ends_with("86"),
         Architecture::ARM64 => machine == "aarch64" || machine == "arm64",
     }
 }
@@ -193,43 +189,8 @@ fn machine_matches_arch(machine: &str, arch: Architecture) -> bool {
 pub fn compiler_matches_arch(path: &Path, arch: Architecture) -> bool {
     match compiler_machine_prefix(path) {
         None => true,
-        Some(machine) => {
-            if machine_matches_arch(&machine, arch) {
-                return true;
-            }
-            // A 64-bit Linux system compiler with multilib assembles our
-            // `-m32` output fine (the x86 CI leg installs gcc-multilib for
-            // exactly this); rejecting it leaves no usable toolchain.
-            if matches!(arch, Architecture::X86)
-                && (machine == "x86_64" || machine == "amd64")
-                && cfg!(target_os = "linux")
-            {
-                return compiler_supports_m32(path);
-            }
-            false
-        }
+        Some(machine) => machine_matches_arch(&machine, arch),
     }
-}
-
-/// Probes `-m32` support with a real compile (a `--version` query would
-/// not touch the multilib backend). Linux-only caller.
-fn compiler_supports_m32(path: &Path) -> bool {
-    use std::io::Write;
-    use std::process::Stdio;
-    let mut child = match Command::new(path)
-        .args(["-m32", "-x", "c", "-o", "/dev/null", "-"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(_) => return false,
-    };
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(b"int main(void){return 0;}\n");
-    }
-    child.wait().map(|s| s.success()).unwrap_or(false)
 }
 
 /// Detects system toolchain via PATH
@@ -417,18 +378,10 @@ pub fn install_toolchain(
     let fallback_name = match (os, arch) {
         (OperatingSystem::Windows, Architecture::X64) => "alya-toolchain-windows-x64.zip",
         (OperatingSystem::Windows, Architecture::ARM64) => "alya-toolchain-windows-arm64.zip",
-        (OperatingSystem::Windows, Architecture::X86) => "alya-toolchain-windows-x86.zip",
         (OperatingSystem::Linux, Architecture::X64) => "alya-toolchain-linux-x64.tar.gz",
         (OperatingSystem::Linux, Architecture::ARM64) => "alya-toolchain-linux-arm64.tar.gz",
-        (OperatingSystem::Linux, Architecture::X86) => "alya-toolchain-linux-x86.tar.gz",
         (OperatingSystem::MacOS, Architecture::ARM64) => "alya-toolchain-macos-arm64.tar.gz",
         (OperatingSystem::MacOS, Architecture::X64) => "alya-toolchain-macos-x64.tar.gz",
-        _ => {
-            return Err(format!(
-                "Error: No pre-built minimal toolchain available for {:?} on {:?}",
-                arch, os
-            ));
-        }
     };
 
     // Prefer the live manifest (single source of truth for supported
@@ -691,10 +644,6 @@ mod tests {
             "x86_64-pc-windows-gnu"
         );
         assert_eq!(
-            get_platform_triple(Architecture::X86, OperatingSystem::Windows),
-            "i686-pc-windows-gnu"
-        );
-        assert_eq!(
             get_platform_triple(Architecture::ARM64, OperatingSystem::Windows),
             "aarch64-pc-windows-gnu"
         );
@@ -705,10 +654,6 @@ mod tests {
         assert_eq!(
             get_platform_triple(Architecture::ARM64, OperatingSystem::Linux),
             "aarch64-unknown-linux-musl"
-        );
-        assert_eq!(
-            get_platform_triple(Architecture::X86, OperatingSystem::Linux),
-            "i686-unknown-linux-musl"
         );
         assert_eq!(
             get_platform_triple(Architecture::ARM64, OperatingSystem::MacOS),
@@ -736,9 +681,9 @@ mod tests {
                         "compressed_size_mb": 89
                     }
                 },
-                "i686-unknown-linux-musl": {
+                "x86_64-unknown-linux-musl": {
                     "archive": {
-                        "filename": "alya-toolchain-linux-x86.tar.gz",
+                        "filename": "alya-toolchain-linux-x64.tar.gz",
                         "sha256": "def456",
                         "compressed_size_mb": 33
                     }
@@ -750,8 +695,8 @@ mod tests {
             Some("alya-toolchain-windows-arm64.zip".to_string())
         );
         assert_eq!(
-            manifest_archive_for(manifest, "i686-unknown-linux-musl"),
-            Some("alya-toolchain-linux-x86.tar.gz".to_string())
+            manifest_archive_for(manifest, "x86_64-unknown-linux-musl"),
+            Some("alya-toolchain-linux-x64.tar.gz".to_string())
         );
         assert_eq!(
             manifest_archive_for(manifest, "x86_64-pc-windows-gnu"),
@@ -772,9 +717,6 @@ mod tests {
         assert!(machine_matches_arch("x86_64", Architecture::X64));
         assert!(machine_matches_arch("amd64", Architecture::X64));
         assert!(!machine_matches_arch("aarch64", Architecture::X64));
-        assert!(machine_matches_arch("i686", Architecture::X86));
-        assert!(machine_matches_arch("i386", Architecture::X86));
-        assert!(!machine_matches_arch("x86_64", Architecture::X86));
         assert!(machine_matches_arch("aarch64", Architecture::ARM64));
         assert!(machine_matches_arch("arm64", Architecture::ARM64));
         assert!(!machine_matches_arch("x86_64", Architecture::ARM64));

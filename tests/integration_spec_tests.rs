@@ -49,8 +49,6 @@ fn host_os() -> OperatingSystem {
 fn host_arch() -> Architecture {
     if cfg!(target_arch = "aarch64") {
         Architecture::ARM64
-    } else if cfg!(target_arch = "x86") {
-        Architecture::X86
     } else {
         Architecture::X64
     }
@@ -97,9 +95,6 @@ fn run_entry_with_base_dir(source: &str, base_dir: &Path) -> Option<(i32, String
 
     let mut gcc = std::process::Command::new(common::harness_gcc());
     gcc.arg(&asm_path).arg("-o").arg(&exe_path);
-    if matches!(arch, Architecture::X86) {
-        gcc.arg("-m32");
-    }
     if matches!(os, OperatingSystem::Linux) {
         gcc.arg("-no-pie");
         gcc.arg("-lm");
@@ -190,7 +185,6 @@ fn test_integration_codegen_matrix() {
         for (arch, os) in [
             (Architecture::X64, OperatingSystem::Windows),
             (Architecture::X64, OperatingSystem::Linux),
-            (Architecture::X86, OperatingSystem::Linux),
             (Architecture::ARM64, OperatingSystem::Linux),
             (Architecture::ARM64, OperatingSystem::MacOS),
         ] {

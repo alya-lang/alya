@@ -3,10 +3,9 @@ use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     eq_operand_is_dynamic, escape_string, is_array_expr, is_array_fold_true,
     is_definitely_not_numeric, is_float_expr, is_map_expr, is_map_fold_true, is_null_expr,
-    is_number_expr, is_proven_float_store, is_strict_dynamic_op, is_string_expr,
-    is_string_fold_true, is_tag_carrying_read, struct_field_markers_mixed_vars,
-    ternary_arm_carries, typeof_operand_is_repeatable, value_kind_tag, value_kind_tag_x86_store,
-    x86_arg_pushes_double,
+    is_number_expr, is_strict_dynamic_op, is_string_expr, is_string_fold_true,
+    is_tag_carrying_read, struct_field_markers_mixed_vars, ternary_arm_carries,
+    typeof_operand_is_repeatable, value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -14,18 +13,6 @@ use crate::codegen::kinds::{KIND_FLOAT, KIND_INT, KIND_STRING, KIND_UNKNOWN};
 use crate::codegen::target::{Architecture, OperatingSystem};
 
 impl CodeGen {
-    /// Materializes a definitely-non-numeric x86 value (e.g. a string
-    /// pointer in `%eax`) as double bits in `%xmm0`, mirroring x64's
-    /// `movq %rax, %xmm0` before float compares. Pointer-bits-as-double
-    /// essentially never equal a real double, so mixed comparisons
-    /// deterministically read false instead of stale-register roulette.
-    pub(crate) fn emit_x86_bits_to_float(&mut self) {
-        debug_assert!(matches!(self.arch, Architecture::X86));
-        self.output.push_str("    movd %eax, %xmm0\n");
-        self.output.push_str("    psllq $32, %xmm0\n");
-        self.output.push_str("    psrlq $32, %xmm0\n");
-    }
-
     pub(crate) fn generate_expression(&mut self, expr: &Expr) {
         match expr {
             Expr::Null => {
@@ -118,14 +105,6 @@ impl CodeGen {
                                     self.output.push_str("    movq %xmm0, %rax\n");
                                     return;
                                 }
-                                Architecture::X86 => {
-                                    // Float slots are 8 bytes on x86 (like
-                                    // float binop temps); a 4-byte load
-                                    // would read half the double.
-                                    self.output
-                                        .push_str(&format!("    movsd -{}(%ebp), %xmm0\n", offset));
-                                    return;
-                                }
                             },
                             _ => {}
                         }
@@ -166,12 +145,6 @@ impl CodeGen {
                                     .push_str(&format!("    movsd -{}(%rbp), %xmm0\n", offset));
                                 self.output.push_str("    movq %xmm0, %rax\n");
                             }
-                            Architecture::X86 => {
-                                // Float slots are 8 bytes on x86; a 4-byte
-                                // load would read half the double.
-                                self.output
-                                    .push_str(&format!("    movsd -{}(%ebp), %xmm0\n", offset));
-                            }
                         },
                         VarType::StringLabel(label) => {
                             arch::emit_load_str_label(&mut self.output, self.arch, &label, self.os);
@@ -200,10 +173,6 @@ impl CodeGen {
                         Architecture::X64 => {
                             self.output
                                 .push_str(&format!("    leaq fn_{}(%rip), %rax\n", mangled));
-                        }
-                        Architecture::X86 => {
-                            self.output
-                                .push_str(&format!("    movl $fn_{}, %eax\n", mangled));
                         }
                     }
                 }
@@ -441,19 +410,18 @@ impl CodeGen {
                         self.generate_expression(left);
                         if !left_is_float && !is_definitely_not_numeric(left, &self.ctx.variables) {
                             // Index carries kind tag alongside the value
-                            // (x64/x86: %edx, arm64: w1): skip int->float
+                            // (x64: %edx, arm64: w1): skip int->float
                             // when the value is already a float.
                             // Array loads carry slot kinds (Phase 1, #39).
-                            if matches!(
-                                self.arch,
-                                Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                            ) && matches!(
-                                &**left,
-                                Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                            ) && is_tag_carrying_read(left, &self.ctx.variables)
+                            if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                                && matches!(
+                                    &**left,
+                                    Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                                )
+                                && is_tag_carrying_read(left, &self.ctx.variables)
                             {
                                 let l_skip = self.ctx.next_label();
-                                if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                                if matches!(self.arch, Architecture::X64) {
                                     self.output
                                         .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    je {}\n", l_skip));
@@ -467,14 +435,6 @@ impl CodeGen {
                             } else {
                                 arch::emit_int_to_float(&mut self.output, self.arch);
                             }
-                        } else if matches!(self.arch, Architecture::X86)
-                            && !left_is_float
-                            && is_definitely_not_numeric(left, &self.ctx.variables)
-                        {
-                            // No conversion ran (non-numeric left): the imm
-                            // op reads %xmm0, so materialize the value bits
-                            // instead of comparing stale registers.
-                            self.emit_x86_bits_to_float();
                         }
                         arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n);
                         return;
@@ -482,18 +442,17 @@ impl CodeGen {
                     if let Expr::Number(n) = &**right {
                         self.generate_expression(left);
                         if !left_is_float && !is_definitely_not_numeric(left, &self.ctx.variables) {
-                            // Index carries kind tag (x64/x86: %edx, arm64: w1).
+                            // Index carries kind tag (x64: %edx, arm64: w1).
                             // Array loads carry slot kinds (Phase 1, #39).
-                            if matches!(
-                                self.arch,
-                                Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                            ) && matches!(
-                                &**left,
-                                Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                            ) && is_tag_carrying_read(left, &self.ctx.variables)
+                            if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                                && matches!(
+                                    &**left,
+                                    Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                                )
+                                && is_tag_carrying_read(left, &self.ctx.variables)
                             {
                                 let l_skip = self.ctx.next_label();
-                                if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                                if matches!(self.arch, Architecture::X64) {
                                     self.output
                                         .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    je {}\n", l_skip));
@@ -517,18 +476,19 @@ impl CodeGen {
                             if !left_is_float
                                 && !is_definitely_not_numeric(left, &self.ctx.variables)
                             {
-                                // Index carries kind tag (x64/x86: %edx, arm64: w1).
+                                // Index carries kind tag (x64: %edx, arm64: w1).
                                 // Array loads carry slot kinds (Phase 1, #39).
-                                if matches!(
-                                    self.arch,
-                                    Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                                ) && matches!(
-                                    &**left,
-                                    Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                                ) && is_tag_carrying_read(left, &self.ctx.variables)
+                                if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                                    && matches!(
+                                        &**left,
+                                        Expr::Index { .. }
+                                            | Expr::Ternary { .. }
+                                            | Expr::Call { .. }
+                                    )
+                                    && is_tag_carrying_read(left, &self.ctx.variables)
                                 {
                                     let l_skip = self.ctx.next_label();
-                                    if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                                    if matches!(self.arch, Architecture::X64) {
                                         self.output
                                             .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                         self.output.push_str(&format!("    je {}\n", l_skip));
@@ -542,12 +502,6 @@ impl CodeGen {
                                 } else {
                                     arch::emit_int_to_float(&mut self.output, self.arch);
                                 }
-                            } else if matches!(self.arch, Architecture::X86)
-                                && !left_is_float
-                                && is_definitely_not_numeric(left, &self.ctx.variables)
-                            {
-                                // As above: materialize instead of stale.
-                                self.emit_x86_bits_to_float();
                             }
                             arch::emit_load_var_to_scratch(
                                 &mut self.output,
@@ -636,18 +590,17 @@ impl CodeGen {
                 if is_float {
                     self.generate_expression(left);
                     if !left_is_float && !is_definitely_not_numeric(left, &self.ctx.variables) {
-                        // Index carries kind tag (x64/x86: %edx, arm64: w1).
+                        // Index carries kind tag (x64: %edx, arm64: w1).
                         // Array loads carry slot kinds (Phase 1, #39).
-                        if matches!(
-                            self.arch,
-                            Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                        ) && matches!(
-                            left.as_ref(),
-                            Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                        ) && is_tag_carrying_read(left, &self.ctx.variables)
+                        if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                            && matches!(
+                                left.as_ref(),
+                                Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                            )
+                            && is_tag_carrying_read(left, &self.ctx.variables)
                         {
                             let l_skip = self.ctx.next_label();
-                            if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                            if matches!(self.arch, Architecture::X64) {
                                 self.output
                                     .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                 self.output.push_str(&format!("    je {}\n", l_skip));
@@ -661,20 +614,8 @@ impl CodeGen {
                         } else {
                             arch::emit_int_to_float(&mut self.output, self.arch);
                         }
-                    } else if matches!(self.arch, Architecture::X86)
-                        && !left_is_float
-                        && is_definitely_not_numeric(left, &self.ctx.variables)
-                    {
-                        // No conversion ran (non-numeric left): materialize
-                        // the pushed double from the value bits.
-                        self.emit_x86_bits_to_float();
                     }
-                    if matches!(self.arch, Architecture::X86) {
-                        self.output
-                            .push_str("    sub $8, %esp\n    movsd %xmm0, (%esp)\n");
-                    } else {
-                        arch::emit_push_temp(&mut self.output, self.arch);
-                    }
+                    arch::emit_push_temp(&mut self.output, self.arch);
 
                     let float_temp_offset = match self.arch {
                         Architecture::ARM64 => 16,
@@ -683,17 +624,16 @@ impl CodeGen {
                     self.ctx.stack_offset += float_temp_offset;
                     self.generate_expression(right);
                     if !right_is_float && !is_definitely_not_numeric(right, &self.ctx.variables) {
-                        // Index carries kind tag (x64/x86: %edx, arm64: w1).
-                        if matches!(
-                            self.arch,
-                            Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                        ) && matches!(
-                            right.as_ref(),
-                            Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                        ) && is_tag_carrying_read(right, &self.ctx.variables)
+                        // Index carries kind tag (x64: %edx, arm64: w1).
+                        if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                            && matches!(
+                                right.as_ref(),
+                                Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                            )
+                            && is_tag_carrying_read(right, &self.ctx.variables)
                         {
                             let l_skip = self.ctx.next_label();
-                            if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                            if matches!(self.arch, Architecture::X64) {
                                 self.output
                                     .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                 self.output.push_str(&format!("    je {}\n", l_skip));
@@ -707,12 +647,6 @@ impl CodeGen {
                         } else {
                             arch::emit_int_to_float(&mut self.output, self.arch);
                         }
-                    } else if matches!(self.arch, Architecture::X86)
-                        && !right_is_float
-                        && is_definitely_not_numeric(right, &self.ctx.variables)
-                    {
-                        // As for the left side above.
-                        self.emit_x86_bits_to_float();
                     }
                     self.ctx.stack_offset -= float_temp_offset;
 
@@ -791,7 +725,7 @@ impl CodeGen {
                 // ternary is not statically float but an arm delivers a
                 // tag, every other arm materializes its static kind so
                 // the join always carries the taken arm's tag in the tag
-                // register (x64/x86: %edx, arm64: w1). Tag-carrying arms
+                // register (x64: %edx, arm64: w1). Tag-carrying arms
                 // need no emission; unknown shapes record 0 (status quo).
                 let ternary_carries = !is_flt
                     && (ternary_arm_carries(then_branch, &self.ctx.variables)
@@ -805,7 +739,7 @@ impl CodeGen {
                         _ => KIND_UNKNOWN,
                     };
                     match self.arch {
-                        Architecture::X64 | Architecture::X86 => {
+                        Architecture::X64 => {
                             self.output.push_str(&format!("    movl ${}, %edx\n", tag));
                         }
                         Architecture::ARM64 => {
@@ -819,16 +753,16 @@ impl CodeGen {
                 {
                     // Kind-carrying reads already holding float bits skip
                     // the conversion (map routing or Phase 1 array kinds).
-                    let already_float = matches!(
-                        self.arch,
-                        Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                    ) && matches!(
-                        &**then_branch,
-                        Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                    ) && is_tag_carrying_read(then_branch, &self.ctx.variables);
+                    let already_float =
+                        matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                            && matches!(
+                                &**then_branch,
+                                Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                            )
+                            && is_tag_carrying_read(then_branch, &self.ctx.variables);
                     if already_float {
                         let l_skip = self.ctx.next_label();
-                        if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                        if matches!(self.arch, Architecture::X64) {
                             self.output
                                 .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                             self.output.push_str(&format!("    je {}\n", l_skip));
@@ -854,7 +788,7 @@ impl CodeGen {
                         _ => KIND_UNKNOWN,
                     };
                     match self.arch {
-                        Architecture::X64 | Architecture::X86 => {
+                        Architecture::X64 => {
                             self.output.push_str(&format!("    movl ${}, %edx\n", tag));
                         }
                         Architecture::ARM64 => {
@@ -868,16 +802,16 @@ impl CodeGen {
                 {
                     // Kind-carrying reads already holding float bits skip
                     // the conversion (map routing or Phase 1 array kinds).
-                    let already_float = matches!(
-                        self.arch,
-                        Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                    ) && matches!(
-                        &**else_branch,
-                        Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                    ) && is_tag_carrying_read(else_branch, &self.ctx.variables);
+                    let already_float =
+                        matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                            && matches!(
+                                &**else_branch,
+                                Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                            )
+                            && is_tag_carrying_read(else_branch, &self.ctx.variables);
                     if already_float {
                         let l_skip = self.ctx.next_label();
-                        if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                        if matches!(self.arch, Architecture::X64) {
                             self.output
                                 .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                             self.output.push_str(&format!("    je {}\n", l_skip));
@@ -916,16 +850,17 @@ impl CodeGen {
                             // Kind-carrying reads already holding float
                             // bits skip the conversion.
                             let already_float =
-                                matches!(
-                                    self.arch,
-                                    Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                                ) && matches!(
-                                    &**value,
-                                    Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                                ) && is_tag_carrying_read(value, &self.ctx.variables);
+                                matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                                    && matches!(
+                                        &**value,
+                                        Expr::Index { .. }
+                                            | Expr::Ternary { .. }
+                                            | Expr::Call { .. }
+                                    )
+                                    && is_tag_carrying_read(value, &self.ctx.variables);
                             if already_float {
                                 let l_skip = self.ctx.next_label();
-                                if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                                if matches!(self.arch, Architecture::X64) {
                                     self.output
                                         .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                     self.output.push_str(&format!("    je {}\n", l_skip));
@@ -952,16 +887,16 @@ impl CodeGen {
                     {
                         // Kind-carrying reads already holding float bits skip
                         // the conversion (map routing or Phase 1 array kinds).
-                        let already_float = matches!(
-                            self.arch,
-                            Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                        ) && matches!(
-                            &**default,
-                            Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                        ) && is_tag_carrying_read(default, &self.ctx.variables);
+                        let already_float =
+                            matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                                && matches!(
+                                    &**default,
+                                    Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                                )
+                                && is_tag_carrying_read(default, &self.ctx.variables);
                         if already_float {
                             let l_skip = self.ctx.next_label();
-                            if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                            if matches!(self.arch, Architecture::X64) {
                                 self.output
                                     .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                 self.output.push_str(&format!("    je {}\n", l_skip));
@@ -1040,7 +975,6 @@ impl CodeGen {
                     arch::emit_push_temp(&mut self.output, self.arch);
                     let temp_offset: i32 = match self.arch {
                         Architecture::ARM64 => 16,
-                        Architecture::X86 => 4,
                         _ => 8,
                     };
                     self.ctx.stack_offset += temp_offset;
@@ -1113,12 +1047,6 @@ impl CodeGen {
                                 self.ctx.stack_offset,
                                 self.os,
                             );
-                        }
-                        // x86 stores every field as 8 bytes (uniform slots
-                        // like x64, alya-lang/alya#62): materialize the
-                        // double for non-float values first.
-                        if matches!(self.arch, Architecture::X86) {
-                            self.x86_materialize_double(arg);
                         }
                         arch::emit_struct_field_set_imm(&mut self.output, self.arch, i);
                     }
@@ -1306,7 +1234,6 @@ impl CodeGen {
                     arch::emit_push_temp(&mut self.output, self.arch);
                     let temp_offset: i32 = match self.arch {
                         Architecture::ARM64 => 16,
-                        Architecture::X86 => 4,
                         _ => 8,
                     };
                     self.ctx.stack_offset += temp_offset;
@@ -1325,13 +1252,7 @@ impl CodeGen {
                         );
                     }
                     self.ctx.stack_offset -= temp_offset;
-                    // x86 stores stale `%xmm0` for unproven float kinds;
-                    // other arches keep the shared tag.
-                    let push_kind = if matches!(self.arch, Architecture::X86) {
-                        value_kind_tag_x86_store(&args[1], &self.ctx.variables)
-                    } else {
-                        value_kind_tag(&args[1], &self.ctx.variables)
-                    };
+                    let push_kind = value_kind_tag(&args[1], &self.ctx.variables);
                     arch::emit_array_push(
                         &mut self.output,
                         self.arch,
@@ -1370,16 +1291,15 @@ impl CodeGen {
                         // Kind-carrying reads already holding float bits
                         // must skip the conversion (else cvt mangles them).
                         let already_float =
-                            matches!(
-                                self.arch,
-                                Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                            ) && matches!(
-                                &args[0],
-                                Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                            ) && is_tag_carrying_read(&args[0], &self.ctx.variables);
+                            matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                                && matches!(
+                                    &args[0],
+                                    Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                                )
+                                && is_tag_carrying_read(&args[0], &self.ctx.variables);
                         if already_float {
                             let l_skip = self.ctx.next_label();
-                            if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                            if matches!(self.arch, Architecture::X64) {
                                 self.output
                                     .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                 self.output.push_str(&format!("    je {}\n", l_skip));
@@ -1448,85 +1368,34 @@ impl CodeGen {
                     if is_float_expr(&args[0], &self.ctx.variables) {
                         let initial_stack_offset = self.ctx.stack_offset;
                         self.generate_expression(&args[0]);
-                        if matches!(self.arch, Architecture::X86) {
-                            // x86 passes the f64 on the stack (callee reads
-                            // 8(%ebp)/12(%ebp)); other archs mirror the
-                            // pushed value into the float register.
-                            self.output.push_str("    sub $8, %esp\n");
-                            self.output.push_str("    movsd %xmm0, (%esp)\n");
-                            arch::emit_function_call(
-                                &mut self.output,
-                                self.arch,
-                                "str_from_float",
-                                2,
-                                initial_stack_offset,
-                                self.os,
-                            );
-                        } else {
-                            arch::emit_push_temp(&mut self.output, self.arch);
-                            arch::emit_function_call(
-                                &mut self.output,
-                                self.arch,
-                                "str_from_float",
-                                1,
-                                initial_stack_offset,
-                                self.os,
-                            );
-                        }
+                        arch::emit_push_temp(&mut self.output, self.arch);
+                        arch::emit_function_call(
+                            &mut self.output,
+                            self.arch,
+                            "str_from_float",
+                            1,
+                            initial_stack_offset,
+                            self.os,
+                        );
                         return;
                     }
                     // Variable-key map reads and (Phase 1, #39) plain
                     // array reads carry the entry kind tag
                     // (x64: %edx, arm64: w1; see fn_get). Floats must go
                     // through str_from_float; everything else uses generic str.
-                    if matches!(
-                        self.arch,
-                        Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                    ) && matches!(
-                        &args[0],
-                        Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                    ) && is_tag_carrying_read(&args[0], &self.ctx.variables)
+                    if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                        && matches!(
+                            &args[0],
+                            Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                        )
+                        && is_tag_carrying_read(&args[0], &self.ctx.variables)
                     {
                         let initial_stack_offset = self.ctx.stack_offset;
                         self.generate_expression(&args[0]);
-                        if matches!(self.arch, Architecture::X86) {
-                            // x86 keeps call args on the stack: lo word for
-                            // generic str, full f64 for str_from_float.
-                            // f64 rides in %xmm0 (array/map loaders rebuild
-                            // it); the tag is fresh in %edx.
-                            let l_flt = self.ctx.next_label();
-                            let l_end = self.ctx.next_label();
-                            self.output
-                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
-                            self.output.push_str(&format!("    je {}\n", l_flt));
-                            arch::emit_push_temp(&mut self.output, self.arch);
-                            arch::emit_function_call(
-                                &mut self.output,
-                                self.arch,
-                                "str",
-                                1,
-                                initial_stack_offset,
-                                self.os,
-                            );
-                            arch::emit_jump(&mut self.output, self.arch, &l_end);
-                            self.output.push_str(&format!("{}:\n", l_flt));
-                            self.output.push_str("    sub $8, %esp\n");
-                            self.output.push_str("    movsd %xmm0, (%esp)\n");
-                            arch::emit_function_call(
-                                &mut self.output,
-                                self.arch,
-                                "str_from_float",
-                                2,
-                                initial_stack_offset,
-                                self.os,
-                            );
-                            self.output.push_str(&format!("{}:\n", l_end));
-                            return;
-                        }
                         arch::emit_push_temp(&mut self.output, self.arch);
                         let l_flt = self.ctx.next_label();
                         let l_end = self.ctx.next_label();
-                        if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                        if matches!(self.arch, Architecture::X64) {
                             self.output
                                 .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                             self.output.push_str(&format!("    je {}\n", l_flt));
@@ -1633,9 +1502,6 @@ impl CodeGen {
                                 Architecture::X64 => {
                                     self.output.push_str("    mov %rax, %rdx\n");
                                 }
-                                Architecture::X86 => {
-                                    self.output.push_str("    mov %eax, %edx\n");
-                                }
                             }
                             arch::emit_load_var_to_scratch(
                                 &mut self.output,
@@ -1645,8 +1511,6 @@ impl CodeGen {
                             );
                             if matches!(self.arch, Architecture::X64) {
                                 self.output.push_str("    mov %rbx, %rcx\n");
-                            } else if matches!(self.arch, Architecture::X86) {
-                                self.output.push_str("    mov %ebx, %ecx\n");
                             }
                             let done_label = self.ctx.next_label();
                             arch::emit_char_code_at_direct(
@@ -1689,9 +1553,6 @@ impl CodeGen {
                                         Architecture::X64 => {
                                             self.output.push_str("    mov %rax, %rdx\n");
                                         }
-                                        Architecture::X86 => {
-                                            self.output.push_str("    mov %eax, %edx\n");
-                                        }
                                     }
                                     arch::emit_load_var_to_scratch(
                                         &mut self.output,
@@ -1701,8 +1562,6 @@ impl CodeGen {
                                     );
                                     if matches!(self.arch, Architecture::X64) {
                                         self.output.push_str("    mov %rbx, %rcx\n");
-                                    } else if matches!(self.arch, Architecture::X86) {
-                                        self.output.push_str("    mov %ebx, %ecx\n");
                                     }
                                     let done_label = self.ctx.next_label();
                                     arch::emit_char_code_at_direct(
@@ -1737,9 +1596,6 @@ impl CodeGen {
                                         Architecture::X64 => {
                                             self.output.push_str("    mov %rax, %rdx\n");
                                         }
-                                        Architecture::X86 => {
-                                            self.output.push_str("    mov %eax, %edx\n");
-                                        }
                                     }
                                     arch::emit_load_var_to_scratch(
                                         &mut self.output,
@@ -1749,8 +1605,6 @@ impl CodeGen {
                                     );
                                     if matches!(self.arch, Architecture::X64) {
                                         self.output.push_str("    mov %rbx, %rcx\n");
-                                    } else if matches!(self.arch, Architecture::X86) {
-                                        self.output.push_str("    mov %ebx, %ecx\n");
                                     }
                                     let done_label = self.ctx.next_label();
                                     arch::emit_char_code_at_direct(
@@ -1892,7 +1746,6 @@ impl CodeGen {
                             let initial_stack_offset = self.ctx.stack_offset;
                             let word_size: i32 = match self.arch {
                                 Architecture::ARM64 => 16,
-                                Architecture::X86 => 4,
                                 _ => 8,
                             };
 
@@ -1925,31 +1778,6 @@ impl CodeGen {
                                     "x16",
                                     actual_args.len(),
                                 );
-                            } else if matches!(self.arch, Architecture::X86) {
-                                // x86 fat pointers are 4-byte cells:
-                                // data at 0, vtable at 4, vtable entries
-                                // 4 bytes. cdecl: push reversed so the
-                                // receiver lands at 8(%ebp).
-                                let n_args = actual_args.len();
-                                for (idx, arg) in actual_args.iter().skip(1).rev().enumerate() {
-                                    self.ctx.stack_offset = initial_stack_offset + (idx as i32 * 4);
-                                    self.generate_expression(arg);
-                                    arch::emit_push_temp(&mut self.output, self.arch);
-                                }
-                                self.ctx.stack_offset =
-                                    initial_stack_offset + ((n_args as i32 - 1) * 4);
-                                self.generate_expression(first_arg);
-                                self.output.push_str("    movl (%eax), %ecx\n");
-                                self.output.push_str("    push %ecx\n");
-                                self.output.push_str("    movl 4(%eax), %ecx\n");
-                                self.output.push_str(&format!(
-                                    "    movl {}(%ecx), %ecx\n",
-                                    (method_idx + 1) * 4
-                                ));
-                                self.output.push_str("    call *%ecx\n");
-                                self.output
-                                    .push_str(&format!("    add ${}, %esp\n", n_args as i32 * 4));
-                                self.ctx.stack_offset = initial_stack_offset;
                             } else {
                                 // Evaluate receiver: load concrete instance data_ptr (offset 0 of fat pointer)
                                 self.generate_expression(first_arg);
@@ -2131,338 +1959,67 @@ impl CodeGen {
                 }
                 let call_name = call_name_str.as_str();
 
-                // x86 extern double convention (C ABI is exact):
-                // float-declared params take 8-byte doubles, float
-                // returns arrive in st0. 64-bit integers (`int`/`i64`
-                // signed, `uint`/`u64` unsigned) likewise take 8-byte
-                // slots: pushing only the low word shifts every later
-                // param by one arg (uv poller fds mismatched, completion
-                // key/udata swapped). Collected once, used by the push
-                // loop, the cleanup, and the return below.
-                let (
-                    extern_float_params,
-                    extern_signed64_params,
-                    extern_unsigned64_params,
-                    extern_returns_float,
-                ): (Vec<bool>, Vec<bool>, Vec<bool>, bool) =
-                    if matches!(self.arch, Architecture::X86) {
-                        let info = self.ctx.extern_functions.get(call_name).or_else(|| {
-                            let bare = call_name.rsplit("::").next().unwrap_or(call_name);
-                            let bare = bare.rsplit("__").next().unwrap_or(bare);
-                            self.ctx.extern_functions.get(bare)
-                        });
-                        match info {
-                            Some(inf) => (
-                                inf.params
-                                    .iter()
-                                    .map(|t| {
-                                        matches!(
-                                            t.as_deref(),
-                                            Some("float")
-                                                | Some("f64")
-                                                | Some("f32")
-                                                | Some("double")
-                                        )
-                                    })
-                                    .collect(),
-                                inf.params
-                                    .iter()
-                                    .map(|t| matches!(t.as_deref(), Some("int") | Some("i64")))
-                                    .collect(),
-                                inf.params
-                                    .iter()
-                                    .map(|t| matches!(t.as_deref(), Some("uint") | Some("u64")))
-                                    .collect(),
-                                matches!(
-                                    inf.return_type.as_deref(),
-                                    Some("float") | Some("f64") | Some("f32") | Some("double")
-                                ),
-                            ),
-                            None => (Vec::new(), Vec::new(), Vec::new(), false),
-                        }
-                    } else {
-                        (Vec::new(), Vec::new(), Vec::new(), false)
-                    };
-
                 let initial_stack_offset = self.ctx.stack_offset;
                 let word_size: i32 = match self.arch {
                     Architecture::ARM64 => 16,
-                    Architecture::X86 => 4,
                     _ => 8,
                 };
-                match self.arch {
-                    Architecture::X86 => {
-                        // Float params consume 8 bytes on x86, the rest 4
-                        // (matches the callee prologue): proven shapes and
-                        // index reads push the `%xmm0` double, since the
-                        // map/array get contract leaves the entry's f64
-                        // bits there on every path. Other unproven shapes
-                        // keep the legacy 4-byte `%eax` push (their `%xmm0`
-                        // can be stale, e.g. mixed int/float returns like a
-                        // JSON value reader; alya-lang/alya#59 follow-up).
-                        // Width follows the callee slot, never the arg
-                        // alone: an 8-byte push for a 4-byte param would
-                        // shift every later param (multi-arg `spawn`
-                        // thunks pass index reads to untyped params).
-                        // Extern callee params come from declarations (C
-                        // ABI is exact): float-declared params take the
-                        // 8-byte double so the C side reads a aligned
-                        // layout.
-                        let user_callee = self.ctx.functions.contains(call_name);
-                        let mut pushed: i32 = 0;
-                        for (idx, arg) in actual_args.iter().rev().enumerate() {
-                            let param_idx = actual_args.len() - 1 - idx;
-                            let coerce_vtable = if self.get_expr_interface_name(arg).is_some() {
-                                None
-                            } else if let Some(sname) = self.get_expr_struct_name(arg) {
-                                let expected_iface = self
-                                    .ctx
+                for (param_idx, arg) in actual_args.iter().enumerate() {
+                    let coerce_vtable = if self.get_expr_interface_name(arg).is_some() {
+                        None
+                    } else if let Some(sname) = self.get_expr_struct_name(arg) {
+                        let expected_iface = self
+                            .ctx
+                            .variables
+                            .get(&format!("fn_param_interface:{}:{}", call_name, param_idx))
+                            .or_else(|| {
+                                let bare = call_name.rsplit("::").next().unwrap_or(call_name);
+                                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                                self.ctx
                                     .variables
-                                    .get(&format!("fn_param_interface:{}:{}", call_name, param_idx))
-                                    .or_else(|| {
-                                        let bare =
-                                            call_name.rsplit("::").next().unwrap_or(call_name);
-                                        let bare = bare.rsplit("__").next().unwrap_or(bare);
-                                        self.ctx.variables.get(&format!(
-                                            "fn_param_interface:{}:{}",
-                                            bare, param_idx
-                                        ))
-                                    })
-                                    .and_then(|vt| match vt {
-                                        VarType::Interface { interface_name, .. } => {
-                                            Some(interface_name.clone())
-                                        }
-                                        _ => None,
-                                    });
-                                if let Some(iname) = expected_iface {
-                                    let bare_s = sname.rsplit("::").next().unwrap_or(&sname);
-                                    let bare_s = bare_s.rsplit("__").next().unwrap_or(bare_s);
-                                    let bare_i = iname.rsplit("::").next().unwrap_or(&iname);
-                                    let bare_i = bare_i.rsplit("__").next().unwrap_or(bare_i);
+                                    .get(&format!("fn_param_interface:{}:{}", bare, param_idx))
+                            })
+                            .and_then(|vt| match vt {
+                                VarType::Interface { interface_name, .. } => {
+                                    Some(interface_name.clone())
+                                }
+                                _ => None,
+                            });
+                        if let Some(iname) = expected_iface {
+                            let bare_s = sname.rsplit("::").next().unwrap_or(&sname);
+                            let bare_s = bare_s.rsplit("__").next().unwrap_or(bare_s);
+                            let bare_i = iname.rsplit("::").next().unwrap_or(&iname);
+                            let bare_i = bare_i.rsplit("__").next().unwrap_or(bare_i);
 
-                                    let vtable = self
-                                        .ctx
-                                        .vtables
-                                        .get(&(bare_s.to_string(), bare_i.to_string()))
-                                        .or_else(|| {
-                                            self.ctx.vtables.get(&(sname.clone(), iname.clone()))
-                                        })
-                                        .cloned()
-                                        .unwrap_or_else(|| {
-                                            format!("alya_vtable_{}_{}", bare_s, bare_i)
-                                        });
-                                    Some(vtable)
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            };
-
-                            self.ctx.stack_offset = initial_stack_offset + pushed;
-                            self.generate_expression(arg);
-                            if let Some(vtable_label) = coerce_vtable {
-                                arch::emit_fat_ptr_new(
-                                    &mut self.output,
-                                    self.arch,
-                                    &vtable_label,
-                                    self.ctx.stack_offset,
-                                    self.os,
-                                );
-                            }
-                            if user_callee
-                                && x86_arg_pushes_double(
-                                    call_name,
-                                    param_idx,
-                                    arg,
-                                    &self.ctx.variables,
-                                )
-                            {
-                                self.output.push_str("    sub $8, %esp\n");
-                                self.output.push_str("    movsd %xmm0, (%esp)\n");
-                                pushed += 8;
-                            } else if !user_callee
-                                && extern_float_params.get(param_idx).copied().unwrap_or(false)
-                            {
-                                // Declared-float extern param: size follows
-                                // the declaration (see above).
-                                self.output.push_str("    sub $8, %esp\n");
-                                self.output.push_str("    movsd %xmm0, (%esp)\n");
-                                pushed += 8;
-                            } else if !user_callee
-                                && crate::codegen::analysis::x86_native_arg_pushes_double(
-                                    call_name,
-                                    param_idx,
-                                    arg,
-                                    &self.ctx.variables,
-                                )
-                            {
-                                // Intrinsic natives with stack-double params
-                                // (see `x86_native_float_args`): proven
-                                // floats push as-is, coercing entries
-                                // convert ints first (signatures demand
-                                // floats; layout must stay 8 bytes either
-                                // way).
-                                if !is_proven_float_store(arg, &self.ctx.variables) {
-                                    arch::emit_int_to_float(&mut self.output, self.arch);
-                                }
-                                self.output.push_str("    sub $8, %esp\n");
-                                self.output.push_str("    movsd %xmm0, (%esp)\n");
-                                pushed += 8;
-                            } else if !user_callee
-                                && (extern_signed64_params
-                                    .get(param_idx)
-                                    .copied()
-                                    .unwrap_or(false)
-                                    || extern_unsigned64_params
-                                        .get(param_idx)
-                                        .copied()
-                                        .unwrap_or(false))
-                            {
-                                // Declared-64-bit-integer extern param: the
-                                // value arrives in `%eax` carrying 32 bits,
-                                // so widen to a full 8-byte slot to keep
-                                // later params at C-ABI offsets
-                                // (sign-extended for signed spellings, zero
-                                // for unsigned).
-                                if extern_signed64_params
-                                    .get(param_idx)
-                                    .copied()
-                                    .unwrap_or(false)
-                                {
-                                    self.output.push_str("    mov %eax, %ecx\n");
-                                    self.output.push_str("    sar $31, %ecx\n");
-                                } else {
-                                    self.output.push_str("    xor %ecx, %ecx\n");
-                                }
-                                self.output.push_str("    push %ecx\n");
-                                arch::emit_push_temp(&mut self.output, self.arch);
-                                pushed += 8;
-                            } else {
-                                arch::emit_push_temp(&mut self.output, self.arch);
-                                pushed += 4;
-                            }
+                            let vtable = self
+                                .ctx
+                                .vtables
+                                .get(&(bare_s.to_string(), bare_i.to_string()))
+                                .or_else(|| self.ctx.vtables.get(&(sname.clone(), iname.clone())))
+                                .cloned()
+                                .unwrap_or_else(|| format!("alya_vtable_{}_{}", bare_s, bare_i));
+                            Some(vtable)
+                        } else {
+                            None
                         }
-                    }
-                    _ => {
-                        for (param_idx, arg) in actual_args.iter().enumerate() {
-                            let coerce_vtable = if self.get_expr_interface_name(arg).is_some() {
-                                None
-                            } else if let Some(sname) = self.get_expr_struct_name(arg) {
-                                let expected_iface = self
-                                    .ctx
-                                    .variables
-                                    .get(&format!("fn_param_interface:{}:{}", call_name, param_idx))
-                                    .or_else(|| {
-                                        let bare =
-                                            call_name.rsplit("::").next().unwrap_or(call_name);
-                                        let bare = bare.rsplit("__").next().unwrap_or(bare);
-                                        self.ctx.variables.get(&format!(
-                                            "fn_param_interface:{}:{}",
-                                            bare, param_idx
-                                        ))
-                                    })
-                                    .and_then(|vt| match vt {
-                                        VarType::Interface { interface_name, .. } => {
-                                            Some(interface_name.clone())
-                                        }
-                                        _ => None,
-                                    });
-                                if let Some(iname) = expected_iface {
-                                    let bare_s = sname.rsplit("::").next().unwrap_or(&sname);
-                                    let bare_s = bare_s.rsplit("__").next().unwrap_or(bare_s);
-                                    let bare_i = iname.rsplit("::").next().unwrap_or(&iname);
-                                    let bare_i = bare_i.rsplit("__").next().unwrap_or(bare_i);
+                    } else {
+                        None
+                    };
 
-                                    let vtable = self
-                                        .ctx
-                                        .vtables
-                                        .get(&(bare_s.to_string(), bare_i.to_string()))
-                                        .or_else(|| {
-                                            self.ctx.vtables.get(&(sname.clone(), iname.clone()))
-                                        })
-                                        .cloned()
-                                        .unwrap_or_else(|| {
-                                            format!("alya_vtable_{}_{}", bare_s, bare_i)
-                                        });
-                                    Some(vtable)
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            };
-
-                            self.ctx.stack_offset =
-                                initial_stack_offset + (param_idx as i32 * word_size);
-                            self.generate_expression(arg);
-                            if let Some(vtable_label) = coerce_vtable {
-                                arch::emit_fat_ptr_new(
-                                    &mut self.output,
-                                    self.arch,
-                                    &vtable_label,
-                                    self.ctx.stack_offset,
-                                    self.os,
-                                );
-                            }
-                            arch::emit_push_temp(&mut self.output, self.arch);
-                        }
+                    self.ctx.stack_offset = initial_stack_offset + (param_idx as i32 * word_size);
+                    self.generate_expression(arg);
+                    if let Some(vtable_label) = coerce_vtable {
+                        arch::emit_fat_ptr_new(
+                            &mut self.output,
+                            self.arch,
+                            &vtable_label,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
                     }
+                    arch::emit_push_temp(&mut self.output, self.arch);
                 }
                 self.ctx.stack_offset = initial_stack_offset;
-                // x86 8-byte args push 8 bytes (not 4): the callee cleanup
-                // emitted below only pops 4 per arg, so the remainder is
-                // popped here. Counts user proven-float/double args plus
-                // declared-float and declared-64-bit-int extern args plus
-                // intrinsic-native table args (see the push loop above).
-                // (alya-lang/alya#59 follow-up).
-                let x86_float_extra: i32 = if matches!(self.arch, Architecture::X86) {
-                    let user_n = if self.ctx.functions.contains(call_name) {
-                        actual_args
-                            .iter()
-                            .enumerate()
-                            .filter(|(idx, a)| {
-                                x86_arg_pushes_double(call_name, *idx, a, &self.ctx.variables)
-                            })
-                            .count()
-                    } else {
-                        0
-                    };
-                    let extern_n = {
-                        let n = extern_float_params
-                            .len()
-                            .max(extern_signed64_params.len())
-                            .max(extern_unsigned64_params.len());
-                        (0..n)
-                            .filter(|i| {
-                                extern_float_params.get(*i).copied().unwrap_or(false)
-                                    || extern_signed64_params.get(*i).copied().unwrap_or(false)
-                                    || extern_unsigned64_params.get(*i).copied().unwrap_or(false)
-                            })
-                            .count()
-                    };
-                    let native_n = if self.ctx.functions.contains(call_name)
-                        || !matches!(self.arch, Architecture::X86)
-                    {
-                        0
-                    } else {
-                        actual_args
-                            .iter()
-                            .enumerate()
-                            .filter(|(idx, a)| {
-                                crate::codegen::analysis::x86_native_arg_pushes_double(
-                                    call_name,
-                                    *idx,
-                                    a,
-                                    &self.ctx.variables,
-                                )
-                            })
-                            .count()
-                    };
-                    (user_n + extern_n + native_n) as i32 * 4
-                } else {
-                    0
-                };
                 let is_extern = self.ctx.extern_functions.contains_key(call_name)
                     || self
                         .ctx
@@ -2493,10 +2050,6 @@ impl CodeGen {
                         initial_stack_offset,
                         self.os,
                     );
-                    if x86_float_extra > 0 {
-                        self.output
-                            .push_str(&format!("    add ${}, %esp\n", x86_float_extra));
-                    }
                 } else if is_extern {
                     let extern_name = call_name.rsplit("::").next().unwrap_or(call_name);
                     let extern_name = extern_name.rsplit("__").next().unwrap_or(extern_name);
@@ -2508,20 +2061,6 @@ impl CodeGen {
                         initial_stack_offset,
                         self.os,
                     );
-                    if x86_float_extra > 0 {
-                        self.output
-                            .push_str(&format!("    add ${}, %esp\n", x86_float_extra));
-                    }
-                    if matches!(self.arch, Architecture::X86) && extern_returns_float {
-                        // C doubles return in st0: spill to the float
-                        // register (and mirror the low word, like the
-                        // native math wrappers).
-                        self.output.push_str("    sub $8, %esp\n");
-                        self.output.push_str("    fstpl (%esp)\n");
-                        self.output.push_str("    movsd (%esp), %xmm0\n");
-                        self.output.push_str("    mov (%esp), %eax\n");
-                        self.output.push_str("    add $8, %esp\n");
-                    }
                     let is_flt_ret = self
                         .ctx
                         .variables
@@ -2545,7 +2084,6 @@ impl CodeGen {
                             Architecture::ARM64 => {
                                 self.output.push_str("    fmov x0, d0\n");
                             }
-                            Architecture::X86 => {}
                         }
                     } else {
                         let is_i32_ret = self
@@ -2563,49 +2101,21 @@ impl CodeGen {
                                 Architecture::ARM64 => {
                                     self.output.push_str("    sxtw x0, w0\n");
                                 }
-                                Architecture::X86 => {}
                             }
                         }
                     }
                 } else {
-                    // x86 float-valued `poke_int` stores through a
-                    // dedicated 8-byte entry: the int runtime would only
-                    // store the low word.
-                    let bare_tail = call_name.rsplit("::").next().unwrap_or(call_name);
-                    let bare_tail = bare_tail.rsplit("__").next().unwrap_or(bare_tail);
-                    let bare_tail = bare_tail.strip_prefix("fn_").unwrap_or(bare_tail);
-                    // Only bare builtin spellings rename (namespaced hits
-                    // keep their legacy target exactly as before).
-                    let eff_name: &str = if matches!(self.arch, Architecture::X86)
-                        && bare_tail == "poke_int"
-                        && call_name == bare_tail
-                        && actual_args.len() > 2
-                        && crate::codegen::analysis::x86_native_arg_pushes_double(
-                            call_name,
-                            2,
-                            &actual_args[2],
-                            &self.ctx.variables,
-                        ) {
-                        "poke_float"
-                    } else {
-                        call_name
-                    };
                     arch::emit_function_call(
                         &mut self.output,
                         self.arch,
-                        eff_name,
+                        call_name,
                         actual_args.len(),
                         initial_stack_offset,
                         self.os,
                     );
-                    if x86_float_extra > 0 {
-                        self.output
-                            .push_str(&format!("    add ${}, %esp\n", x86_float_extra));
-                    }
                 }
             }
             Expr::StructInit { name, fields } => {
-                // x86 allocates float-aware cells (#62); the literal-init
                 // loop below stores with matching stride (same definition
                 // resolution).
                 let bare_init = name.rsplit("::").next().unwrap_or(name);
@@ -2616,7 +2126,6 @@ impl CodeGen {
                     .get(name)
                     .or_else(|| self.ctx.structs.get(bare_init))
                     .cloned();
-                // Field count; the x86 runtime sizes uniform 8-byte slots
                 // itself (alya-lang/alya#62).
                 let field_count = init_sdef
                     .as_ref()
@@ -2749,7 +2258,6 @@ impl CodeGen {
                 arch::emit_push_temp(&mut self.output, self.arch);
                 let temp_offset: i32 = match self.arch {
                     Architecture::ARM64 => 16,
-                    Architecture::X86 => 4,
                     _ => 8,
                 };
                 self.ctx.stack_offset += temp_offset;
@@ -2784,9 +2292,6 @@ impl CodeGen {
                                 self.os,
                             );
                         }
-                        if matches!(self.arch, Architecture::X86) {
-                            self.x86_materialize_double(arg_expr);
-                        }
                         arch::emit_struct_field_set_imm(&mut self.output, self.arch, i);
                     }
                 } else {
@@ -2799,10 +2304,6 @@ impl CodeGen {
                                 self.ctx.stack_offset,
                                 self.os,
                             );
-                        }
-                        // Unknown struct: uniform slots like a known one.
-                        if matches!(self.arch, Architecture::X86) {
-                            self.x86_materialize_double(fval);
                         }
                         arch::emit_struct_field_set_imm(&mut self.output, self.arch, i);
                     }
@@ -2821,7 +2322,6 @@ impl CodeGen {
                         Architecture::ARM64 => {
                             self.output.push_str("    fmov d0, x0\n");
                         }
-                        Architecture::X86 => {}
                     }
                     return;
                 }
@@ -2878,7 +2378,6 @@ impl CodeGen {
                     Architecture::ARM64 => {
                         self.output.push_str("    fmov d0, x0\n");
                     }
-                    Architecture::X86 => {}
                 }
             }
             Expr::Array(elements) => {
@@ -2892,7 +2391,6 @@ impl CodeGen {
                 arch::emit_push_temp(&mut self.output, self.arch);
                 let temp_offset: i32 = match self.arch {
                     Architecture::ARM64 => 16,
-                    Architecture::X86 => 4,
                     _ => 8,
                 };
                 self.ctx.stack_offset += temp_offset;
@@ -2928,11 +2426,7 @@ impl CodeGen {
                             self.os,
                         );
                     }
-                    let elem_kind = if matches!(self.arch, Architecture::X86) {
-                        value_kind_tag_x86_store(elem, &self.ctx.variables)
-                    } else {
-                        value_kind_tag(elem, &self.ctx.variables)
-                    };
+                    let elem_kind = value_kind_tag(elem, &self.ctx.variables);
                     arch::emit_array_set_imm(&mut self.output, self.arch, i, elem_kind);
                 }
 
@@ -2973,22 +2467,31 @@ impl CodeGen {
                         );
                         let v_offset = self.ctx.stack_offset;
 
-                        match self.arch {
-                            Architecture::X86 => {
-                                arch::emit_load_var(
-                                    &mut self.output,
-                                    self.arch,
-                                    v_offset,
-                                    self.ctx.stack_offset,
-                                );
-                                // Fresh-owned values (literals, direct
-                                // struct constructors) move into the map
-                                // (alya-lang/alya#79); other heap values
-                                // keep the retaining share.
-                                let v_moves = matches!(
-                                    v,
-                                    Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. }
-                                ) || match v {
+                        arch::emit_load_var(
+                            &mut self.output,
+                            self.arch,
+                            saved_offset,
+                            self.ctx.stack_offset,
+                        );
+                        arch::emit_push_temp(&mut self.output, self.arch);
+
+                        arch::emit_load_var(
+                            &mut self.output,
+                            self.arch,
+                            k_offset,
+                            self.ctx.stack_offset,
+                        );
+                        arch::emit_push_temp(&mut self.output, self.arch);
+
+                        arch::emit_load_var(
+                            &mut self.output,
+                            self.arch,
+                            v_offset,
+                            self.ctx.stack_offset,
+                        );
+                        let v_moves =
+                            matches!(v, Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. })
+                                || match v {
                                     Expr::Call { name, .. } => {
                                         self.ctx.structs.contains_key(name)
                                             || crate::codegen::analysis::call_returns_fresh_value(
@@ -2998,98 +2501,21 @@ impl CodeGen {
                                     }
                                     _ => false,
                                 };
-                                if self.is_heap_expression(v) && !v_moves {
-                                    arch::emit_rc_retain(
-                                        &mut self.output,
-                                        self.arch,
-                                        self.ctx.stack_offset,
-                                        self.os,
-                                    );
-                                }
-                                // 5-arg fn_set(map, key, lo, hi, kind).
-                                // x86 trusts only proven float kinds (stale
-                                // `%xmm0` otherwise); other arches keep the
-                                // shared tag.
-                                let set_kind = if matches!(self.arch, Architecture::X86) {
-                                    value_kind_tag_x86_store(v, &self.ctx.variables)
-                                } else {
-                                    value_kind_tag(v, &self.ctx.variables)
-                                };
-                                arch::emit_value_lo_hi_kind(&mut self.output, self.arch, set_kind);
-
-                                arch::emit_load_var(
-                                    &mut self.output,
-                                    self.arch,
-                                    k_offset,
-                                    self.ctx.stack_offset,
-                                );
-                                arch::emit_push_temp(&mut self.output, self.arch);
-
-                                arch::emit_load_var(
-                                    &mut self.output,
-                                    self.arch,
-                                    saved_offset,
-                                    self.ctx.stack_offset,
-                                );
-                                arch::emit_push_temp(&mut self.output, self.arch);
-                            }
-                            _ => {
-                                arch::emit_load_var(
-                                    &mut self.output,
-                                    self.arch,
-                                    saved_offset,
-                                    self.ctx.stack_offset,
-                                );
-                                arch::emit_push_temp(&mut self.output, self.arch);
-
-                                arch::emit_load_var(
-                                    &mut self.output,
-                                    self.arch,
-                                    k_offset,
-                                    self.ctx.stack_offset,
-                                );
-                                arch::emit_push_temp(&mut self.output, self.arch);
-
-                                arch::emit_load_var(
-                                    &mut self.output,
-                                    self.arch,
-                                    v_offset,
-                                    self.ctx.stack_offset,
-                                );
-                                let v_moves = matches!(
-                                    v,
-                                    Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. }
-                                ) || match v {
-                                    Expr::Call { name, .. } => {
-                                        self.ctx.structs.contains_key(name)
-                                            || crate::codegen::analysis::call_returns_fresh_value(
-                                                name,
-                                                &self.ctx.variables,
-                                            )
-                                    }
-                                    _ => false,
-                                };
-                                if self.is_heap_expression(v) && !v_moves {
-                                    arch::emit_rc_retain(
-                                        &mut self.output,
-                                        self.arch,
-                                        self.ctx.stack_offset,
-                                        self.os,
-                                    );
-                                }
-                                arch::emit_push_temp(&mut self.output, self.arch);
-                            }
+                        if self.is_heap_expression(v) && !v_moves {
+                            arch::emit_rc_retain(
+                                &mut self.output,
+                                self.arch,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
                         }
+                        arch::emit_push_temp(&mut self.output, self.arch);
 
                         arch::emit_function_call(
                             &mut self.output,
                             self.arch,
                             "set",
-                            if matches!(self.arch, Architecture::X86) {
-                                5
-                            } else {
-                                3
-                            },
+                            3,
                             self.ctx.stack_offset,
                             self.os,
                         );
@@ -3098,44 +2524,39 @@ impl CodeGen {
                         // so literal-built maps would otherwise read back
                         // unknown (raw bits in loops, classify fallback in
                         // `say`). Slots reload without re-evaluating, so any
-                        // key shape is safe. x86 needs nothing: its 5-arg
-                        // `set` already stored the kind.
-                        if !matches!(self.arch, Architecture::X86) {
-                            let kind =
-                                crate::codegen::analysis::value_kind_tag(v, &self.ctx.variables);
-                            if kind != crate::codegen::kinds::KIND_UNKNOWN {
-                                arch::emit_load_var(
-                                    &mut self.output,
-                                    self.arch,
-                                    saved_offset,
-                                    self.ctx.stack_offset,
-                                );
-                                arch::emit_push_temp(&mut self.output, self.arch);
-                                arch::emit_load_var(
-                                    &mut self.output,
-                                    self.arch,
-                                    k_offset,
-                                    self.ctx.stack_offset,
-                                );
-                                arch::emit_push_temp(&mut self.output, self.arch);
-                                arch::emit_load_num(&mut self.output, self.arch, kind);
-                                arch::emit_push_temp(&mut self.output, self.arch);
-                                arch::emit_function_call(
-                                    &mut self.output,
-                                    self.arch,
-                                    "map_set_tag",
-                                    3,
-                                    self.ctx.stack_offset,
-                                    self.os,
-                                );
-                            }
+                        // key shape is safe.
+                        let kind = crate::codegen::analysis::value_kind_tag(v, &self.ctx.variables);
+                        if kind != crate::codegen::kinds::KIND_UNKNOWN {
+                            arch::emit_load_var(
+                                &mut self.output,
+                                self.arch,
+                                saved_offset,
+                                self.ctx.stack_offset,
+                            );
+                            arch::emit_push_temp(&mut self.output, self.arch);
+                            arch::emit_load_var(
+                                &mut self.output,
+                                self.arch,
+                                k_offset,
+                                self.ctx.stack_offset,
+                            );
+                            arch::emit_push_temp(&mut self.output, self.arch);
+                            arch::emit_load_num(&mut self.output, self.arch, kind);
+                            arch::emit_push_temp(&mut self.output, self.arch);
+                            arch::emit_function_call(
+                                &mut self.output,
+                                self.arch,
+                                "map_set_tag",
+                                3,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
                         }
 
                         arch::emit_pop_temp(&mut self.output, self.arch);
                         arch::emit_pop_temp(&mut self.output, self.arch);
                         self.ctx.stack_offset -= match self.arch {
                             Architecture::ARM64 => 32,
-                            Architecture::X86 => 8,
                             _ => 16,
                         };
                     }
@@ -3143,7 +2564,6 @@ impl CodeGen {
                     arch::emit_pop_temp(&mut self.output, self.arch);
                     self.ctx.stack_offset -= match self.arch {
                         Architecture::ARM64 => 16,
-                        Architecture::X86 => 4,
                         _ => 8,
                     };
                 }
@@ -3183,26 +2603,12 @@ impl CodeGen {
                     let initial_stack_offset = self.ctx.stack_offset;
                     let word_size: i32 = match self.arch {
                         Architecture::ARM64 => 16,
-                        Architecture::X86 => 4,
                         _ => 8,
                     };
-                    match self.arch {
-                        Architecture::X86 => {
-                            for (idx, arg) in actual_args.iter().rev().enumerate() {
-                                self.ctx.stack_offset =
-                                    initial_stack_offset + (idx as i32 * word_size);
-                                self.generate_expression(arg);
-                                arch::emit_push_temp(&mut self.output, self.arch);
-                            }
-                        }
-                        _ => {
-                            for (idx, arg) in actual_args.iter().enumerate() {
-                                self.ctx.stack_offset =
-                                    initial_stack_offset + (idx as i32 * word_size);
-                                self.generate_expression(arg);
-                                arch::emit_push_temp(&mut self.output, self.arch);
-                            }
-                        }
+                    for (idx, arg) in actual_args.iter().enumerate() {
+                        self.ctx.stack_offset = initial_stack_offset + (idx as i32 * word_size);
+                        self.generate_expression(arg);
+                        arch::emit_push_temp(&mut self.output, self.arch);
                     }
                     self.ctx.stack_offset = initial_stack_offset;
                     arch::emit_function_call(
@@ -3237,26 +2643,13 @@ impl CodeGen {
                             let initial_stack_offset = self.ctx.stack_offset;
                             let word_size: i32 = match self.arch {
                                 Architecture::ARM64 => 16,
-                                Architecture::X86 => 4,
                                 _ => 8,
                             };
-                            match self.arch {
-                                Architecture::X86 => {
-                                    for (idx, arg) in actual_args.iter().rev().enumerate() {
-                                        self.ctx.stack_offset =
-                                            initial_stack_offset + (idx as i32 * word_size);
-                                        self.generate_expression(arg);
-                                        arch::emit_push_temp(&mut self.output, self.arch);
-                                    }
-                                }
-                                _ => {
-                                    for (idx, arg) in actual_args.iter().enumerate() {
-                                        self.ctx.stack_offset =
-                                            initial_stack_offset + (idx as i32 * word_size);
-                                        self.generate_expression(arg);
-                                        arch::emit_push_temp(&mut self.output, self.arch);
-                                    }
-                                }
+                            for (idx, arg) in actual_args.iter().enumerate() {
+                                self.ctx.stack_offset =
+                                    initial_stack_offset + (idx as i32 * word_size);
+                                self.generate_expression(arg);
+                                arch::emit_push_temp(&mut self.output, self.arch);
                             }
                             self.ctx.stack_offset = initial_stack_offset;
                             arch::emit_function_call(
@@ -3275,26 +2668,12 @@ impl CodeGen {
                     let initial_stack_offset = self.ctx.stack_offset;
                     let word_size: i32 = match self.arch {
                         Architecture::ARM64 => 16,
-                        Architecture::X86 => 4,
                         _ => 8,
                     };
-                    match self.arch {
-                        Architecture::X86 => {
-                            for (idx, arg) in actual_args.iter().rev().enumerate() {
-                                self.ctx.stack_offset =
-                                    initial_stack_offset + (idx as i32 * word_size);
-                                self.generate_expression(arg);
-                                arch::emit_push_temp(&mut self.output, self.arch);
-                            }
-                        }
-                        _ => {
-                            for (idx, arg) in actual_args.iter().enumerate() {
-                                self.ctx.stack_offset =
-                                    initial_stack_offset + (idx as i32 * word_size);
-                                self.generate_expression(arg);
-                                arch::emit_push_temp(&mut self.output, self.arch);
-                            }
-                        }
+                    for (idx, arg) in actual_args.iter().enumerate() {
+                        self.ctx.stack_offset = initial_stack_offset + (idx as i32 * word_size);
+                        self.generate_expression(arg);
+                        arch::emit_push_temp(&mut self.output, self.arch);
                     }
                     self.ctx.stack_offset = initial_stack_offset;
                     arch::emit_function_call(
@@ -3309,7 +2688,6 @@ impl CodeGen {
                     let initial_stack_offset = self.ctx.stack_offset;
                     let temp_offset: i32 = match self.arch {
                         Architecture::ARM64 => 16,
-                        Architecture::X86 => 4,
                         _ => 8,
                     };
                     self.generate_expression(array);
@@ -3363,7 +2741,6 @@ impl CodeGen {
                         Architecture::ARM64 => {
                             self.output.push_str("    fmov d0, x0\n");
                         }
-                        Architecture::X86 => {}
                     }
                     return;
                 }
@@ -3421,7 +2798,6 @@ impl CodeGen {
                     Architecture::ARM64 => {
                         self.output.push_str("    fmov d0, x0\n");
                     }
-                    Architecture::X86 => {}
                 }
                 arch::emit_jump(&mut self.output, self.arch, &end_label);
 
@@ -3434,9 +2810,6 @@ impl CodeGen {
                     Architecture::ARM64 => {
                         self.output.push_str("    mov x0, #0\n");
                         self.output.push_str("    fmov d0, xzr\n");
-                    }
-                    Architecture::X86 => {
-                        self.output.push_str("    movl $0, %eax\n");
                     }
                 }
                 self.output.push_str(&format!("{}:\n", end_label));
@@ -3470,9 +2843,6 @@ impl CodeGen {
                     Architecture::ARM64 => {
                         self.output.push_str("    mov x0, #0\n");
                         self.output.push_str("    fmov d0, xzr\n");
-                    }
-                    Architecture::X86 => {
-                        self.output.push_str("    movl $0, %eax\n");
                     }
                 }
                 self.output.push_str(&format!("{}:\n", end_label));
@@ -3521,9 +2891,6 @@ impl CodeGen {
                     Architecture::ARM64 => {
                         self.output.push_str("    mov x0, #0\n");
                         self.output.push_str("    fmov d0, xzr\n");
-                    }
-                    Architecture::X86 => {
-                        self.output.push_str("    movl $0, %eax\n");
                     }
                 }
                 self.output.push_str(&format!("{}:\n", end_label));
@@ -3647,61 +3014,6 @@ impl CodeGen {
                             self.output.push_str("    orr w0, w1, w2\n");
                             self.output.push_str(&format!("{}:\n", end_lbl));
                         }
-                        Architecture::X86 => {
-                            let end_lbl = self.ctx.next_label();
-                            let multi_lbl = self.ctx.next_label();
-                            let chk3_lbl = self.ctx.next_label();
-                            let chk4_lbl = self.ctx.next_label();
-                            self.output.push_str("    movzbl (%eax), %ecx\n");
-                            self.output.push_str("    cmp $0x80, %ecx\n");
-                            self.output.push_str(&format!("    jae {}\n", multi_lbl));
-                            self.output.push_str("    mov %ecx, %eax\n");
-                            self.output.push_str(&format!("    jmp {}\n", end_lbl));
-                            self.output.push_str(&format!("{}:\n", multi_lbl));
-                            self.output.push_str("    mov %ecx, %edx\n");
-                            self.output.push_str("    and $0xE0, %edx\n");
-                            self.output.push_str("    cmp $0xC0, %edx\n");
-                            self.output.push_str(&format!("    jne {}\n", chk3_lbl));
-                            self.output.push_str("    and $0x1F, %ecx\n");
-                            self.output.push_str("    shl $6, %ecx\n");
-                            self.output.push_str("    movzbl 1(%eax), %edx\n");
-                            self.output.push_str("    and $0x3F, %edx\n");
-                            self.output.push_str("    or %edx, %ecx\n");
-                            self.output.push_str("    mov %ecx, %eax\n");
-                            self.output.push_str(&format!("    jmp {}\n", end_lbl));
-                            self.output.push_str(&format!("{}:\n", chk3_lbl));
-                            self.output.push_str("    mov %ecx, %edx\n");
-                            self.output.push_str("    and $0xF0, %edx\n");
-                            self.output.push_str("    cmp $0xE0, %edx\n");
-                            self.output.push_str(&format!("    jne {}\n", chk4_lbl));
-                            self.output.push_str("    and $0x0F, %ecx\n");
-                            self.output.push_str("    shl $12, %ecx\n");
-                            self.output.push_str("    movzbl 1(%eax), %edx\n");
-                            self.output.push_str("    and $0x3F, %edx\n");
-                            self.output.push_str("    shl $6, %edx\n");
-                            self.output.push_str("    or %edx, %ecx\n");
-                            self.output.push_str("    movzbl 2(%eax), %edx\n");
-                            self.output.push_str("    and $0x3F, %edx\n");
-                            self.output.push_str("    or %edx, %ecx\n");
-                            self.output.push_str("    mov %ecx, %eax\n");
-                            self.output.push_str(&format!("    jmp {}\n", end_lbl));
-                            self.output.push_str(&format!("{}:\n", chk4_lbl));
-                            self.output.push_str("    and $0x07, %ecx\n");
-                            self.output.push_str("    shl $18, %ecx\n");
-                            self.output.push_str("    movzbl 1(%eax), %edx\n");
-                            self.output.push_str("    and $0x3F, %edx\n");
-                            self.output.push_str("    shl $12, %edx\n");
-                            self.output.push_str("    or %edx, %ecx\n");
-                            self.output.push_str("    movzbl 2(%eax), %edx\n");
-                            self.output.push_str("    and $0x3F, %edx\n");
-                            self.output.push_str("    shl $6, %edx\n");
-                            self.output.push_str("    or %edx, %ecx\n");
-                            self.output.push_str("    movzbl 3(%eax), %edx\n");
-                            self.output.push_str("    and $0x3F, %edx\n");
-                            self.output.push_str("    or %edx, %ecx\n");
-                            self.output.push_str("    mov %ecx, %eax\n");
-                            self.output.push_str(&format!("{}:\n", end_lbl));
-                        }
                     }
                 } else if t == "float" || t == "f64" {
                     // int -> float (Chapter 02 §1.4). Float and string operands
@@ -3711,16 +3023,16 @@ impl CodeGen {
                     if !is_float_expr(expr, &self.ctx.variables)
                         && !is_string_expr(expr, &self.ctx.variables)
                     {
-                        let already_float = matches!(
-                            self.arch,
-                            Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                        ) && matches!(
-                            &**expr,
-                            Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                        ) && is_tag_carrying_read(expr, &self.ctx.variables);
+                        let already_float =
+                            matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                                && matches!(
+                                    &**expr,
+                                    Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                                )
+                                && is_tag_carrying_read(expr, &self.ctx.variables);
                         if already_float {
                             let l_skip = self.ctx.next_label();
-                            if matches!(self.arch, Architecture::X64 | Architecture::X86) {
+                            if matches!(self.arch, Architecture::X64) {
                                 self.output
                                     .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
                                 self.output.push_str(&format!("    je {}\n", l_skip));
@@ -3754,7 +3066,6 @@ impl CodeGen {
                     }
                     match self.arch {
                         Architecture::X64 => self.output.push_str("    and $0xFF, %rax\n"),
-                        Architecture::X86 => self.output.push_str("    and $0xFF, %eax\n"),
                         Architecture::ARM64 => self.output.push_str("    and x0, x0, #0xff\n"),
                     }
                 } else if t == "u16" {
@@ -3763,7 +3074,6 @@ impl CodeGen {
                     }
                     match self.arch {
                         Architecture::X64 => self.output.push_str("    and $0xFFFF, %rax\n"),
-                        Architecture::X86 => self.output.push_str("    and $0xFFFF, %eax\n"),
                         Architecture::ARM64 => self.output.push_str("    and x0, x0, #0xffff\n"),
                     }
                 } else if t == "i8" {
@@ -3772,7 +3082,6 @@ impl CodeGen {
                     }
                     match self.arch {
                         Architecture::X64 => self.output.push_str("    movsbq %al, %rax\n"),
-                        Architecture::X86 => self.output.push_str("    movsbl %al, %eax\n"),
                         Architecture::ARM64 => self.output.push_str("    sxtb x0, w0\n"),
                     }
                 } else if t == "i16" {
@@ -3781,17 +3090,15 @@ impl CodeGen {
                     }
                     match self.arch {
                         Architecture::X64 => self.output.push_str("    movswq %ax, %rax\n"),
-                        Architecture::X86 => self.output.push_str("    movswl %ax, %eax\n"),
                         Architecture::ARM64 => self.output.push_str("    sxth x0, w0\n"),
                     }
                 } else if t == "i32" || t == "u32" {
                     if is_float_expr(expr, &self.ctx.variables) {
                         arch::emit_float_to_int(&mut self.output, self.arch);
                     }
-                    // 32-bit moves zero-extend on x64/ARM64; x86 is native 32-bit.
+                    // 32-bit moves zero-extend on x64/ARM64.
                     match self.arch {
                         Architecture::X64 => self.output.push_str("    mov %eax, %eax\n"),
-                        Architecture::X86 => {}
                         Architecture::ARM64 => self.output.push_str("    mov w0, w0\n"),
                     }
                 }
@@ -3844,20 +3151,12 @@ impl CodeGen {
             };
         }
         let end_label = self.ctx.next_label();
-        // x86 skips the header checks: 32-bit slots cannot tell a heap
-        // address from float low-bits, so an unguarded dereference may
-        // fault where the 64-bit high-bits guard keeps it safe. x86
-        // arrays/maps through dynamic `typeof` report "int" (same as
-        // the old constant fallback) instead of risking the read.
-        let kinds: &[(&str, &str)] = match self.arch {
-            Architecture::X86 => &[("string", "string"), ("float", "float")],
-            _ => &[
-                ("array", "array"),
-                ("map", "map"),
-                ("string", "string"),
-                ("float", "float"),
-            ],
-        };
+        let kinds: &[(&str, &str)] = &[
+            ("array", "array"),
+            ("map", "map"),
+            ("string", "string"),
+            ("float", "float"),
+        ];
         for (target, kind_name) in kinds {
             let next_label = self.ctx.next_label();
             self.generate_condition_jump_if_false(
@@ -3903,14 +3202,13 @@ impl CodeGen {
             "string" | "str" => {
                 // Variable-key map reads and (Phase 1, #39) plain array
                 // reads carry the kind tag alongside the value
-                // (x64/x86: %edx, arm64: w1). Tag 3 = string.
-                if matches!(
-                    self.arch,
-                    Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                ) && matches!(
-                    expr,
-                    Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                ) && is_tag_carrying_read(expr, &self.ctx.variables)
+                // (x64: %edx, arm64: w1). Tag 3 = string.
+                if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                    && matches!(
+                        expr,
+                        Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                    )
+                    && is_tag_carrying_read(expr, &self.ctx.variables)
                 {
                     self.generate_expression(expr);
                     let l_true = self.ctx.next_label();
@@ -3960,45 +3258,6 @@ impl CodeGen {
                             self.output.push_str("    xor %eax, %eax\n");
                         } else {
                             self.output.push_str("    movq $1, %rax\n");
-                        }
-                        self.output.push_str(&format!("{}:\n", l_end));
-                    } else if matches!(self.arch, Architecture::X86) {
-                        // x86 mirrors x64 with 32-bit registers and
-                        // absolute addressing (no %rip-relative lea).
-                        // %eax = value, %edx = tag (0 unknown, 3 string).
-                        self.output
-                            .push_str(&format!("    cmpl ${}, %edx\n", KIND_STRING));
-                        self.output.push_str(&format!("    je {}\n", l_true));
-                        self.output
-                            .push_str(&format!("    cmpl ${}, %edx\n", KIND_UNKNOWN));
-                        self.output.push_str(&format!("    jne {}\n", l_no));
-                        self.output.push_str("    cmp $65536, %eax\n");
-                        self.output.push_str(&format!("    jb {}\n", l_no));
-                        self.output.push_str("    lea alya_rodata_start, %ecx\n");
-                        self.output.push_str("    cmp %ecx, %eax\n");
-                        self.output.push_str(&format!("    jb {}\n", l_no));
-                        self.output.push_str("    lea alya_rodata_end, %ecx\n");
-                        self.output.push_str("    cmp %ecx, %eax\n");
-                        self.output.push_str(&format!("    jb {}\n", l_str));
-                        self.output.push_str("    lea alya_str_buf, %ecx\n");
-                        self.output.push_str("    cmp %ecx, %eax\n");
-                        self.output.push_str(&format!("    jb {}\n", l_no));
-                        self.output.push_str("    lea 67108864(%ecx), %ecx\n");
-                        self.output.push_str("    cmp %ecx, %eax\n");
-                        self.output.push_str(&format!("    jb {}\n", l_str));
-                        self.output.push_str(&format!("{}:\n", l_no));
-                        if negated {
-                            self.output.push_str("    mov $1, %eax\n");
-                        } else {
-                            self.output.push_str("    xor %eax, %eax\n");
-                        }
-                        self.output.push_str(&format!("    jmp {}\n", l_end));
-                        self.output.push_str(&format!("{}:\n", l_str));
-                        self.output.push_str(&format!("{}:\n", l_true));
-                        if negated {
-                            self.output.push_str("    xor %eax, %eax\n");
-                        } else {
-                            self.output.push_str("    mov $1, %eax\n");
                         }
                         self.output.push_str(&format!("{}:\n", l_end));
                     } else {
@@ -4094,15 +3353,6 @@ impl CodeGen {
                             });
                             self.output.push_str("    movzbq %al, %rax\n");
                         }
-                        Architecture::X86 => {
-                            arch::emit_cmp_imm(&mut self.output, self.arch, KIND_STRING);
-                            self.output.push_str(if negated {
-                                "    setne %al\n"
-                            } else {
-                                "    sete %al\n"
-                            });
-                            self.output.push_str("    movzbl %al, %eax\n");
-                        }
                         Architecture::ARM64 => {
                             self.output
                                 .push_str(&format!("    cmp x0, #{}\n", KIND_STRING));
@@ -4157,13 +3407,12 @@ impl CodeGen {
                 // Index carries kind tag alongside the value
                 // (x64: %edx, arm64: w1; 2 = float), via map routing or
                 // (Phase 1, #39) plain array reads.
-                if matches!(
-                    self.arch,
-                    Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                ) && matches!(
-                    expr,
-                    Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                ) && is_tag_carrying_read(expr, &self.ctx.variables)
+                if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                    && matches!(
+                        expr,
+                        Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                    )
+                    && is_tag_carrying_read(expr, &self.ctx.variables)
                 {
                     self.generate_expression(expr);
                     if matches!(self.arch, Architecture::X64) {
@@ -4177,19 +3426,6 @@ impl CodeGen {
                             self.output.push_str("    sete %al\n");
                         }
                         self.output.push_str("    movzbq %al, %rax\n");
-                    } else if matches!(self.arch, Architecture::X86) {
-                        // x86 mirrors x64 with 32-bit registers. Like x64,
-                        // unknown tags read as non-float (no fallback).
-                        if negated {
-                            self.output
-                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
-                            self.output.push_str("    setne %al\n");
-                        } else {
-                            self.output
-                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
-                            self.output.push_str("    sete %al\n");
-                        }
-                        self.output.push_str("    movzbl %al, %eax\n");
                     } else if negated {
                         self.output
                             .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
@@ -4219,15 +3455,14 @@ impl CodeGen {
             }
             "int" | "integer" | "number" => {
                 // Index tag 1=int (0 unknown defaults to int).
-                // x64/x86: %edx, arm64: w1; via map routing or (Phase 1, #39)
+                // x64: %edx, arm64: w1; via map routing or (Phase 1, #39)
                 // plain array reads.
-                if matches!(
-                    self.arch,
-                    Architecture::X64 | Architecture::ARM64 | Architecture::X86
-                ) && matches!(
-                    expr,
-                    Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                ) && is_tag_carrying_read(expr, &self.ctx.variables)
+                if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                    && matches!(
+                        expr,
+                        Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                    )
+                    && is_tag_carrying_read(expr, &self.ctx.variables)
                 {
                     self.generate_expression(expr);
                     let l_true = self.ctx.next_label();
@@ -4250,27 +3485,6 @@ impl CodeGen {
                             self.output.push_str("    xor %eax, %eax\n");
                         } else {
                             self.output.push_str("    movq $1, %rax\n");
-                        }
-                        self.output.push_str(&format!("{}:\n", l_end));
-                    } else if matches!(self.arch, Architecture::X86) {
-                        // x86 mirrors x64 with 32-bit registers.
-                        self.output
-                            .push_str(&format!("    cmpl ${}, %edx\n", KIND_INT));
-                        self.output.push_str(&format!("    je {}\n", l_true));
-                        self.output
-                            .push_str(&format!("    cmpl ${}, %edx\n", KIND_UNKNOWN));
-                        self.output.push_str(&format!("    je {}\n", l_true));
-                        if negated {
-                            self.output.push_str("    mov $1, %eax\n");
-                        } else {
-                            self.output.push_str("    xor %eax, %eax\n");
-                        }
-                        self.output.push_str(&format!("    jmp {}\n", l_end));
-                        self.output.push_str(&format!("{}:\n", l_true));
-                        if negated {
-                            self.output.push_str("    xor %eax, %eax\n");
-                        } else {
-                            self.output.push_str("    mov $1, %eax\n");
                         }
                         self.output.push_str(&format!("{}:\n", l_end));
                     } else {
@@ -4502,46 +3716,6 @@ impl CodeGen {
                 ));
                 self.output.push_str(&format!("{}:\n", end_label));
             }
-            Architecture::X86 => {
-                self.output.push_str("    test %eax, %eax\n");
-                self.output.push_str(&format!("    jz {}\n", false_label));
-                self.output.push_str("    test $3, %eax\n");
-                self.output.push_str(&format!("    jnz {}\n", false_label));
-                self.output.push_str("    cmp $65536, %eax\n");
-                self.output.push_str(&format!("    jb {}\n", false_label));
-                self.output.push_str("    movl -8(%eax), %edx\n");
-                self.output.push_str("    cmp $0x5A110003, %edx\n");
-                self.output
-                    .push_str(&format!("    je {}\n", concrete_label));
-                self.output.push_str("    cmp $0x5A110004, %edx\n");
-                self.output.push_str(&format!("    jne {}\n", false_label));
-                // Fat pointer
-                self.output.push_str("    movl 4(%eax), %ecx\n");
-                self.output.push_str("    test %ecx, %ecx\n");
-                self.output.push_str(&format!("    jz {}\n", false_label));
-                self.output.push_str("    movl (%ecx), %ecx\n");
-                self.output
-                    .push_str(&format!("    jmp {}\n", check_desc_label));
-                // Concrete
-                self.output.push_str(&format!("{}:\n", concrete_label));
-                self.output.push_str("    movl (%eax), %ecx\n");
-                // Check desc
-                self.output.push_str(&format!("{}:\n", check_desc_label));
-                self.output
-                    .push_str(&format!("    cmp ${}, %ecx\n", desc_label));
-                self.output.push_str(&format!("    jne {}\n", false_label));
-                self.output.push_str(&format!(
-                    "    movl ${}, %eax\n",
-                    if negated { 0 } else { 1 }
-                ));
-                self.output.push_str(&format!("    jmp {}\n", end_label));
-                self.output.push_str(&format!("{}:\n", false_label));
-                self.output.push_str(&format!(
-                    "    movl ${}, %eax\n",
-                    if negated { 1 } else { 0 }
-                ));
-                self.output.push_str(&format!("{}:\n", end_label));
-            }
             Architecture::ARM64 => {
                 self.output.push_str("    cbz x0, ");
                 self.output.push_str(&format!("{}\n", false_label));
@@ -4685,51 +3859,6 @@ impl CodeGen {
                 ));
                 self.output.push_str(&format!("{}:\n", end_label));
             }
-            Architecture::X86 => {
-                self.output.push_str("    test %eax, %eax\n");
-                self.output.push_str(&format!("    jz {}\n", false_label));
-                self.output.push_str("    test $3, %eax\n");
-                self.output.push_str(&format!("    jnz {}\n", false_label));
-                self.output.push_str("    cmp $65536, %eax\n");
-                self.output.push_str(&format!("    jb {}\n", false_label));
-                self.output.push_str("    movl -8(%eax), %edx\n");
-                self.output.push_str("    cmp $0x5A110003, %edx\n");
-                self.output
-                    .push_str(&format!("    je {}\n", concrete_label));
-                self.output.push_str("    cmp $0x5A110004, %edx\n");
-                self.output.push_str(&format!("    jne {}\n", false_label));
-                // Fat pointer
-                self.output.push_str("    movl 4(%eax), %ecx\n");
-                self.output.push_str("    test %ecx, %ecx\n");
-                self.output.push_str(&format!("    jz {}\n", false_label));
-                self.output.push_str("    movl (%ecx), %ecx\n");
-                self.output
-                    .push_str(&format!("    jmp {}\n", check_desc_label));
-                // Concrete
-                self.output.push_str(&format!("{}:\n", concrete_label));
-                self.output.push_str("    movl (%eax), %ecx\n");
-                // Check desc
-                self.output.push_str(&format!("{}:\n", check_desc_label));
-                for s in &unique_structs {
-                    let desc_label = format!("alya_struct_desc_{}", s);
-                    self.output
-                        .push_str(&format!("    cmp ${}, %ecx\n", desc_label));
-                    self.output.push_str(&format!("    je {}\n", true_label));
-                }
-                self.output.push_str(&format!("    jmp {}\n", false_label));
-                self.output.push_str(&format!("{}:\n", true_label));
-                self.output.push_str(&format!(
-                    "    movl ${}, %eax\n",
-                    if negated { 0 } else { 1 }
-                ));
-                self.output.push_str(&format!("    jmp {}\n", end_label));
-                self.output.push_str(&format!("{}:\n", false_label));
-                self.output.push_str(&format!(
-                    "    movl ${}, %eax\n",
-                    if negated { 1 } else { 0 }
-                ));
-                self.output.push_str(&format!("{}:\n", end_label));
-            }
             Architecture::ARM64 => {
                 self.output.push_str("    cbz x0, ");
                 self.output.push_str(&format!("{}\n", false_label));
@@ -4823,29 +3952,6 @@ impl CodeGen {
                 ));
                 self.output.push_str(&format!("{}:\n", end_label));
             }
-            Architecture::X86 => {
-                self.output.push_str("    test %eax, %eax\n");
-                self.output.push_str(&format!("    jz {}\n", false_label));
-                self.output.push_str("    test $3, %eax\n");
-                self.output.push_str(&format!("    jnz {}\n", false_label));
-                self.output.push_str("    cmp $65536, %eax\n");
-                self.output.push_str(&format!("    jb {}\n", false_label));
-                self.output.push_str("    movl -8(%eax), %edx\n");
-                self.output
-                    .push_str(&format!("    cmp $0x{:X}, %edx\n", tag as u32));
-                self.output.push_str(&format!("    jne {}\n", false_label));
-                self.output.push_str(&format!(
-                    "    movl ${}, %eax\n",
-                    if negated { 0 } else { 1 }
-                ));
-                self.output.push_str(&format!("    jmp {}\n", end_label));
-                self.output.push_str(&format!("{}:\n", false_label));
-                self.output.push_str(&format!(
-                    "    movl ${}, %eax\n",
-                    if negated { 1 } else { 0 }
-                ));
-                self.output.push_str(&format!("{}:\n", end_label));
-            }
             Architecture::ARM64 => {
                 self.output.push_str("    cbz x0, ");
                 self.output.push_str(&format!("{}\n", false_label));
@@ -4922,35 +4028,6 @@ impl CodeGen {
                 self.output.push_str(&format!("{}:\n", l_str));
                 self.output
                     .push_str(&format!("    movq ${}, %rax\n", KIND_STRING));
-                self.output.push_str(&format!("    jmp {}\n", l_end));
-                self.output.push_str(&format!("{}:\n", l_end));
-            }
-            Architecture::X86 => {
-                self.output.push_str("    cmp $65536, %eax\n");
-                self.output.push_str(&format!("    jb {}\n", l_int));
-                self.output.push_str("    lea alya_rodata_start, %edx\n");
-                self.output.push_str("    cmp %edx, %eax\n");
-                self.output.push_str(&format!("    jb {}\n", l_not_ro));
-                self.output.push_str("    lea alya_rodata_end, %ecx\n");
-                self.output.push_str("    cmp %ecx, %eax\n");
-                self.output.push_str(&format!("    jb {}\n", l_str));
-                self.output.push_str(&format!("{}:\n", l_not_ro));
-                self.output.push_str("    lea alya_str_buf, %edx\n");
-                self.output.push_str("    cmp %edx, %eax\n");
-                self.output.push_str(&format!("    jb {}\n", l_int));
-                self.output.push_str("    lea 67108864(%edx), %ecx\n");
-                self.output.push_str("    cmp %ecx, %eax\n");
-                self.output.push_str(&format!("    jae {}\n", l_int));
-                self.output.push_str("    cmpb $0, (%eax)\n");
-                self.output.push_str(&format!("    je {}\n", l_int));
-                self.output.push_str(&format!("    jmp {}\n", l_str));
-                self.output.push_str(&format!("{}:\n", l_int));
-                self.output
-                    .push_str(&format!("    movl ${}, %eax\n", KIND_INT));
-                self.output.push_str(&format!("    jmp {}\n", l_end));
-                self.output.push_str(&format!("{}:\n", l_str));
-                self.output
-                    .push_str(&format!("    movl ${}, %eax\n", KIND_STRING));
                 self.output.push_str(&format!("    jmp {}\n", l_end));
                 self.output.push_str(&format!("{}:\n", l_end));
             }
@@ -5063,32 +4140,13 @@ impl CodeGen {
     pub(crate) fn generate_dynamic_equality(&mut self, left: &Expr, right: &Expr, op: BinaryOp) {
         let is_eq = matches!(op, BinaryOp::Equal);
         self.generate_expression(left);
-        // x86 pushes floats as 8-byte doubles, but only proven shapes
-        // (see `is_proven_float_store`): marker-based floatness can hold
-        // a non-float at runtime with stale `%xmm0`, and pushing that
-        // would corrupt the value this path classifies.
-        let l_push8 = matches!(self.arch, Architecture::X86)
-            && is_proven_float_store(left, &self.ctx.variables);
-        let l_size: i32 = if l_push8 {
-            self.output.push_str("    sub $8, %esp\n");
-            self.output.push_str("    movsd %xmm0, (%esp)\n");
-            8
-        } else {
-            arch::emit_push_temp(&mut self.output, self.arch);
-            self.temp_offset()
-        };
-        self.ctx.stack_offset += l_size;
+        arch::emit_push_temp(&mut self.output, self.arch);
+        let temp_offset = self.temp_offset();
+        self.ctx.stack_offset += temp_offset;
 
         self.generate_expression(right);
-        self.ctx.stack_offset -= l_size;
-        if matches!(self.arch, Architecture::X86)
-            && is_proven_float_store(right, &self.ctx.variables)
-        {
-            self.output.push_str("    sub $8, %esp\n");
-            self.output.push_str("    movsd %xmm0, (%esp)\n");
-        } else {
-            arch::emit_push_temp(&mut self.output, self.arch);
-        }
+        self.ctx.stack_offset -= temp_offset;
+        arch::emit_push_temp(&mut self.output, self.arch);
 
         let l_not_str = self.ctx.next_label();
         let l_end = self.ctx.next_label();
@@ -5124,118 +4182,6 @@ impl CodeGen {
                 self.output.push_str("    movzbq %al, %rax\n");
                 self.output.push_str(&format!("{}:\n", l_end));
             }
-            Architecture::X86 => {
-                // Sizes mirror the pushes above (proven floats are 8
-                // bytes, everything else 4).
-                let l_float = is_proven_float_store(left, &self.ctx.variables);
-                let r_float = is_proven_float_store(right, &self.ctx.variables);
-                let l_str = is_string_expr(left, &self.ctx.variables);
-                let r_str = is_string_expr(right, &self.ctx.variables);
-                if (l_str && r_float) || (r_str && l_float) {
-                    // Disjoint static types (string vs float): constant,
-                    // with no pointer ever dereferenced.
-                    let total = (if l_float { 8 } else { 4 }) + (if r_float { 8 } else { 4 });
-                    self.output.push_str(&format!("    add ${}, %esp\n", total));
-                    if is_eq {
-                        self.output.push_str("    xor %eax, %eax\n");
-                    } else {
-                        self.output.push_str("    mov $1, %eax\n");
-                    }
-                    self.output.push_str(&format!("{}:\n", l_end));
-                    self.output.push_str(&format!("{}:\n", l_not_str));
-                    return;
-                }
-                if l_float || r_float {
-                    // A static float side can never be a string, so the
-                    // content-compare path is skipped (a "both strings"
-                    // verdict could only be heuristic collision on float
-                    // bits). The other side is classified when dynamic;
-                    // values compare bitwise over both words, matching
-                    // the x64 word compare.
-                    let l_dyn =
-                        !l_float && !l_str && eq_operand_is_dynamic(left, &self.ctx.variables);
-                    let r_dyn =
-                        !r_float && !r_str && eq_operand_is_dynamic(right, &self.ctx.variables);
-                    let l_size = if l_float { 8 } else { 4 };
-                    let r_size = if r_float { 8 } else { 4 };
-                    if l_dyn || r_dyn {
-                        // Classify the dynamic side's lo-word: right at
-                        // (%esp), left at (r_size)(%esp).
-                        if r_dyn {
-                            self.output.push_str("    movl (%esp), %eax\n");
-                        } else {
-                            self.output
-                                .push_str(&format!("    movl {}(%esp), %eax\n", r_size));
-                        }
-                        self.emit_runtime_classify(self.os);
-                        self.output.push_str("    cmp $3, %eax\n");
-                        self.output.push_str(&format!("    je {}\n", l_not_str));
-                    }
-                    // Bitwise compare over both words (hi of a 4-byte
-                    // side is its sign extension).
-                    self.output.push_str("    pop %eax\n");
-                    if r_size == 8 {
-                        self.output.push_str("    pop %ecx\n");
-                    } else {
-                        self.output.push_str("    mov %eax, %ecx\n");
-                        self.output.push_str("    sar $31, %ecx\n");
-                    }
-                    self.output.push_str("    pop %ebx\n");
-                    if l_size == 8 {
-                        self.output.push_str("    pop %edx\n");
-                    } else {
-                        self.output.push_str("    mov %ebx, %edx\n");
-                        self.output.push_str("    sar $31, %edx\n");
-                    }
-                    self.output.push_str("    cmp %ebx, %eax\n");
-                    self.output.push_str(&format!("    jne {}\n", l_not_str));
-                    self.output.push_str("    cmp %edx, %ecx\n");
-                    self.output.push_str(&format!("    jne {}\n", l_not_str));
-                    if is_eq {
-                        self.output.push_str("    mov $1, %eax\n");
-                    } else {
-                        self.output.push_str("    xor %eax, %eax\n");
-                    }
-                    arch::emit_jump(&mut self.output, self.arch, &l_end);
-                    self.output.push_str(&format!("{}:\n", l_not_str));
-                    if is_eq {
-                        self.output.push_str("    xor %eax, %eax\n");
-                    } else {
-                        self.output.push_str("    mov $1, %eax\n");
-                    }
-                    self.output.push_str(&format!("{}:\n", l_end));
-                    return;
-                }
-                self.output.push_str("    movl (%esp), %eax\n");
-                self.emit_runtime_classify(self.os);
-                self.output.push_str("    movl %eax, %ebx\n");
-                self.output.push_str("    movl 4(%esp), %eax\n");
-                self.emit_runtime_classify(self.os);
-                self.output.push_str("    cmp $3, %eax\n");
-                self.output.push_str(&format!("    jne {}\n", l_not_str));
-                self.output.push_str("    cmp $3, %ebx\n");
-                self.output.push_str(&format!("    jne {}\n", l_not_str));
-                self.output.push_str("    pop %eax\n");
-                arch::emit_string_equality_call(
-                    &mut self.output,
-                    self.arch,
-                    op,
-                    self.ctx.stack_offset,
-                    self.os,
-                );
-                arch::emit_jump(&mut self.output, self.arch, &l_end);
-                self.output.push_str(&format!("{}:\n", l_not_str));
-                self.output.push_str("    pop %ebx\n");
-                self.output.push_str("    pop %eax\n");
-                self.output.push_str("    cmp %ebx, %eax\n");
-                if is_eq {
-                    self.output.push_str("    sete %al\n");
-                } else {
-                    self.output.push_str("    setne %al\n");
-                }
-                self.output.push_str("    movzbl %al, %eax\n");
-                self.output.push_str(&format!("{}:\n", l_end));
-            }
             Architecture::ARM64 => {
                 self.output.push_str("    ldr x0, [sp]\n");
                 self.emit_runtime_classify(self.os);
@@ -5269,41 +4215,6 @@ impl CodeGen {
                 self.output.push_str(&format!("{}:\n", l_end));
             }
         }
-    }
-
-    /// True when generating `value` on x86 leaves its double in `%xmm0`:
-    /// proven float shapes, index reads (get contract) and field reads
-    /// (uniform 8-byte slots load via `movsd`, alya-lang/alya#62). Struct
-    /// field stores consult this to pick `movsd` over the sign-extended
-    /// fallback.
-    pub(crate) fn x86_value_in_xmm0(&self, value: &Expr) -> bool {
-        if crate::codegen::analysis::is_proven_float_store(value, &self.ctx.variables) {
-            return true;
-        }
-        match value {
-            Expr::Index { .. } => true,
-            // Uniform 8-byte slots always load via `movsd`.
-            Expr::FieldAccess { .. } => true,
-            _ => false,
-        }
-    }
-
-    /// Ensures `%xmm0` holds the value's 8-byte pattern on x86: a no-op
-    /// when [`x86_value_in_xmm0`](Self::x86_value_in_xmm0) holds, otherwise
-    /// builds the sign-extended pattern from `%eax` (mirrors x64's `%rax`
-    /// exactly). Wide field stores call this first.
-    pub(crate) fn x86_materialize_double(&mut self, value: &Expr) {
-        if !matches!(self.arch, Architecture::X86) {
-            return;
-        }
-        if self.x86_value_in_xmm0(value) {
-            return;
-        }
-        self.output.push_str("    mov %eax, %ecx\n");
-        self.output.push_str("    sar $31, %ecx\n");
-        self.output.push_str("    movd %eax, %xmm0\n");
-        self.output.push_str("    movd %ecx, %xmm1\n");
-        self.output.push_str("    punpckldq %xmm1, %xmm0\n");
     }
 
     /// Resolves a field access to its defining struct and field index,

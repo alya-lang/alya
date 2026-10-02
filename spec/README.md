@@ -88,7 +88,7 @@ Source Code (.alya)
         │
    [Pass 5: Linear Type Inference]──► O(1) CallIndex lookups (eliminates O(N³) recursive tree walks)
         │
-   [Pass 6: Code Generator]       ──► Direct GNU/Mach-O assembly (x64, ARM64, x86)
+   [Pass 6: Code Generator]       ──► Direct GNU/Mach-O assembly (x64, ARM64)
         │
    [Pass 7: Linker Driver]        ──► Native host linker produces final standalone binary
         │
@@ -104,11 +104,10 @@ Standalone Native Executable (.exe / ELF / Mach-O)
 - **Direct Multi-Target Codegen**: Emits native assembly for:
   - **x64 (x86_64)**: System V AMD64 (Linux, macOS) & Microsoft x64 ABI (Windows MinGW).
   - **ARM64 (aarch64)**: Apple Silicon Mach-O & Linux ELF64.
-  - **x86 (i686)**: 32-bit compatibility mode (32-bit value slots: float loads, stores, and comparisons truncate).
 - **Hardware-Aware Codegen Optimizations**:
   - **Branch Fusion**: Fuses comparisons and jumps in conditional paths (`cmp` + `jge`), eliminating redundant intermediate flags.
   - **Single Unsigned Bounds Checks**: Compares array indices with a single unsigned check (`jae` / `b.hs`), capturing negative numbers and overflow in one cycle.
-  - **Zero-Cycle Register Zeroing**: Emits `xor %eax, %eax` on x86/x64, recognized directly in the CPU register rename stage with zero latency.
+  - **Zero-Cycle Register Zeroing**: Emits `xor %eax, %eax` on x64, recognized directly in the CPU register rename stage with zero latency.
   - **Compile-Time Struct Offsets**: Multi-pass fixed-point inference statically resolves struct field offsets, eliminating runtime dictionary lookups.
 - **Memory Model**:
   - Primitives (`int`, `float`, `bool`) are stack-allocated, copy-by-value.

@@ -241,10 +241,6 @@ pub fn build_c_objects(
                 path_to_gcc_arg(&obj_path),
             ];
 
-            if matches!(arch, Architecture::X86) {
-                gcc_args.push("-m32".to_string());
-            }
-
             // Enable section-level dead code elimination for C sources
             gcc_args.push("-ffunction-sections".to_string());
             gcc_args.push("-fdata-sections".to_string());

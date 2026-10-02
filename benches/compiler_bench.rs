@@ -284,7 +284,6 @@ fn main() {
     let host_arch = match std::env::consts::ARCH {
         "x86_64" => Architecture::X64,
         "aarch64" => Architecture::ARM64,
-        "x86" => Architecture::X86,
         _ => Architecture::X64,
     };
 
@@ -379,7 +378,6 @@ fn main() {
     let host_label: &'static str = match host_arch {
         Architecture::X64 => "CodeGen::generate (Host: x64)",
         Architecture::ARM64 => "CodeGen::generate (Host: ARM64)",
-        Architecture::X86 => "CodeGen::generate (Host: x86)",
     };
 
     let codegen_host_stat = run_bench(

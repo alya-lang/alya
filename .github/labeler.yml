@@ -51,12 +51,6 @@
       - any-glob-to-any-file:
           - "src/diagnostics/**"
 
-"arch: x86":
-  - changed-files:
-      - any-glob-to-any-file:
-          - "src/codegen/arch/x86.rs"
-          - "src/codegen/runtime/x86.rs"
-
 "arch: x64":
   - changed-files:
       - any-glob-to-any-file:

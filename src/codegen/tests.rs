@@ -22,22 +22,9 @@ fn test_codegen_x64_windows_header_and_footer() {
 }
 
 #[test]
-fn test_codegen_x86_header_and_footer() {
-    let program = simple_program(Stmt::Say(Expr::Number(42)));
-    let asm = generate(&program, Architecture::X86, OperatingSystem::Linux);
-
-    assert!(asm.contains(".global main"));
-    assert!(asm.contains("main:"));
-    assert!(asm.contains("push %ebp"));
-    assert!(asm.contains("mov %esp, %ebp"));
-    assert!(asm.contains("ret"));
-}
-
-#[test]
 fn test_codegen_map_entry_tags_present_x64_arm64() {
     // Packed kind tags must exist in the emitted runtimes that support
-    // them (x64 + arm64, 24-byte entries). x86 entries are 12-byte and
-    // stay untagged.
+    // them (x64 + arm64, 24-byte entries).
     let program = simple_program(Stmt::Say(Expr::Number(42)));
     let asm_x64 = generate(&program, Architecture::X64, OperatingSystem::Windows);
     assert!(asm_x64.contains("fn_map_set_tag"));
@@ -198,9 +185,6 @@ fn test_codegen_say_flushes_stdout_on_all_backends() {
     assert!(asm.contains("bl printf\n    movz x0, #0\n    bl fflush"));
     let asm = generate(&program, Architecture::ARM64, OperatingSystem::MacOS);
     assert!(asm.contains("bl _printf\n    movz x0, #0\n    bl _fflush"));
-
-    let asm = generate(&program, Architecture::X86, OperatingSystem::Linux);
-    assert!(asm.contains("call printf\n    push $0\n    call fflush\n    add $4, %esp"));
 }
 
 #[test]
@@ -224,9 +208,6 @@ fn test_codegen_say_collections_flush_on_all_backends() {
     assert!(asm.contains("bl alya_print_array\n    movz x0, #0\n    bl fflush"));
     let asm = generate(&map_program, Architecture::ARM64, OperatingSystem::MacOS);
     assert!(asm.contains("bl alya_print_map\n    movz x0, #0\n    bl _fflush"));
-
-    let asm = generate(&array_program, Architecture::X86, OperatingSystem::Linux);
-    assert!(asm.contains("call alya_print_array\n    add $4, %esp\n    push $0\n    call fflush"));
 }
 
 #[test]
@@ -498,39 +479,6 @@ say clock_ms()
 }
 
 #[test]
-fn test_codegen_x86_extern_i64_args_push_8_bytes() {
-    // 64-bit C integers take 8-byte slots: pushing only the low word
-    // shifts every later param by one arg on x86 (uv poller fds
-    // mismatched, completion key/udata swapped). Signed spellings
-    // sign-extend, unsigned ones zero-extend.
-    use crate::lexer::Lexer;
-    use crate::parser::Parser;
-
-    let code = r#"
-extern "C"
-    function fizz(a: i64, b: u64) -> i32
-end
-
-say fizz(1024, 777)
-"#;
-    let mut lexer = Lexer::new(code);
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-    let ast = parser.parse().unwrap();
-
-    let asm = generate(&ast, Architecture::X86, OperatingSystem::Linux);
-    assert!(asm.contains("call fizz"));
-    assert!(
-        asm.contains("sar $31, %ecx\n    push %ecx\n    push %eax"),
-        "signed i64 arg must sign-extend into an 8-byte push"
-    );
-    assert!(
-        asm.contains("xor %ecx, %ecx\n    push %ecx\n    push %eax"),
-        "unsigned u64 arg must zero-extend into an 8-byte push"
-    );
-}
-
-#[test]
 fn test_codegen_arm64_runtime_type_check_pointer_guard() {
     use crate::lexer::Lexer;
     use crate::parser::Parser;
@@ -580,7 +528,6 @@ fn test_codegen_macos_arm64_mem_trace_stack_passing() {
 // Fixed by emitting:
 //   x64:   movslq %eax, %rax   (sign-extend %eax → %rax)
 //   ARM64: sxtw x0, w0          (sign-extend w0   → x0)
-//   x86:   (nothing — 32-bit registers have no upper bits to fix)
 //
 // Root cause found while debugging the VPN pump disconnect bug where
 // alya_vpn_pump_server_vpn (returning i32 = -1) was read as +4294967295,
@@ -666,32 +613,6 @@ let res = alya_vpn_pump_client_vpn(5)
         asm_arm64_mac.contains("sxtw x0, w0"),
         "ARM64 macOS: missing sign-extension 'sxtw x0, w0' after i32-returning extern call"
     );
-}
-
-#[test]
-fn test_codegen_extern_c_i32_return_no_sign_extension_x86() {
-    use crate::lexer::Lexer;
-    use crate::parser::Parser;
-
-    let code = r#"
-extern "C"
-    function some_fn(x: i32) -> i32
-end
-
-let res = some_fn(1)
-"#;
-    let mut lexer = Lexer::new(code);
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-    let ast = parser.parse().unwrap();
-
-    // x86: 32-bit register has no upper bits — no sign-extension instruction needed
-    let asm_x86 = generate(&ast, Architecture::X86, OperatingSystem::Linux);
-    assert!(
-        !asm_x86.contains("movslq"),
-        "x86: should NOT emit 'movslq' — 32-bit registers need no sign-extension"
-    );
-    assert!(!asm_x86.contains("sxtw"), "x86: should NOT emit 'sxtw'");
 }
 
 #[test]

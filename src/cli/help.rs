@@ -92,9 +92,7 @@ pub fn print_full_usage() {
     println!("  --fix                 Automatically apply quick fixes (with lint)");
     println!("  --check               Check without modifying (with fmt or lint)");
     println!("  -u, --upgrade         Rewrite alya.toml with latest versions (with update)");
-    println!(
-        "  --arch <arch>         Target architecture: x86, x64, arm64 (default: auto-detected)"
-    );
+    println!("  --arch <arch>         Target architecture: x64, arm64 (default: auto-detected)");
     println!("  --os <os>             Target OS: windows, linux, macos (default: auto-detected)");
     println!("  -j, --jobs <N>        Number of parallel test worker jobs (default: CPU cores)");
     println!("  --sequential          Run tests sequentially in single thread (alias for -j 1)");
@@ -193,7 +191,7 @@ pub fn print_run_help() {
     println!("ARGS:");
     println!("  [file]              Source file or package entry (default: alya.toml entry)\n");
     println!("OPTIONS:");
-    println!("  --arch <arch>       Target architecture: x86, x64, arm64");
+    println!("  --arch <arch>       Target architecture: x64, arm64");
     println!("  --os <os>           Target OS: windows, linux, macos");
     println!("  -q, --quiet         Suppress status messages and compiler banner");
     println!("  --time              Display timing for each compilation phase");
@@ -227,7 +225,7 @@ pub fn print_build_help() {
     println!("  --bundle-id <id>    Set CFBundleIdentifier (default: com.alya.<name>)");
     println!("  --icon <path>       Set custom application icon (.icns) for macOS bundle");
     println!("  --doc-type <spec>   macOS bundle claims a document type: <ext>:<uti>[:icon.icns] (repeatable)");
-    println!("  --arch <arch>       Target architecture: x86, x64, arm64");
+    println!("  --arch <arch>       Target architecture: x64, arm64");
     println!("  --os <os>           Target OS: windows, linux, macos");
     println!("  -q, --quiet         Suppress status messages and compiler banner");
     println!("  --time              Display timing for each compilation phase");

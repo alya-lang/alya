@@ -519,7 +519,6 @@ impl CodeGen {
     pub(crate) fn temp_offset(&self) -> i32 {
         match self.arch {
             crate::codegen::target::Architecture::ARM64 => 16,
-            crate::codegen::target::Architecture::X86 => 4,
             _ => 8,
         }
     }
@@ -720,11 +719,10 @@ impl CodeGen {
                 || s.starts_with("fn_ret_tuple_flt:")
                 || s.starts_with("struct_field_flt:")
                 || s.starts_with("tuple_elem_flt:")
-                // Call-site width queries (x86 pushes 8 bytes for float
-                // params): seeded like the other `fn_*` markers and
+                // Call-site width queries: seeded like the other `fn_*` markers and
                 // carried across function scopes (see `enter_function`).
                 // `fn_param_flt_arr:` is excluded on purpose (float-array
-                // params are 4-byte pointers).
+                // params are pointers).
                 || s.starts_with("fn_param_flt:")
             {
                 self.ctx.variables.insert(s.clone(), VarType::Float(0));
@@ -1182,13 +1180,7 @@ impl CodeGen {
         arch::emit_header(&mut self.output, self.arch, self.os);
 
         if self.mem_trace {
-            if matches!(self.arch, Architecture::X86) {
-                self.output
-                    .push_str("    movl $1, alya_mem_trace_enabled\n");
-                self.output.push_str("    push $alya_mem_trace_report\n");
-                self.output.push_str("    call atexit\n");
-                self.output.push_str("    add $4, %esp\n");
-            } else if matches!(self.arch, Architecture::ARM64) {
+            if matches!(self.arch, Architecture::ARM64) {
                 arch::arm64::emit_adrp_add(
                     &mut self.output,
                     "x0",
@@ -1232,11 +1224,7 @@ impl CodeGen {
 
         if !self.ctx.globals.is_empty() {
             self.emit_data_section();
-            let word_dir = if matches!(self.arch, Architecture::X86) {
-                ".long"
-            } else {
-                ".quad"
-            };
+            let word_dir = ".quad";
             for (symbol, _) in self.ctx.globals.values() {
                 let mangled = crate::codegen::arch::control::mangle_symbol_name(symbol);
                 self.output.push_str(&format!(
@@ -1316,14 +1304,7 @@ impl CodeGen {
         self.emit_cleanup_scope(None);
 
         if self.mem_trace {
-            if matches!(self.arch, Architecture::X86) {
-                self.output.push_str("    push %ebp\n");
-                self.output.push_str("    mov %esp, %ebp\n");
-                self.output.push_str("    and $-16, %esp\n");
-                self.output.push_str("    call alya_mem_trace_report\n");
-                self.output.push_str("    mov %ebp, %esp\n");
-                self.output.push_str("    pop %ebp\n");
-            } else if matches!(self.arch, Architecture::ARM64) {
+            if matches!(self.arch, Architecture::ARM64) {
                 self.output.push_str("    bl alya_mem_trace_report\n");
             } else if matches!(self.os, OperatingSystem::Windows) {
                 self.output.push_str("    push %rbp\n");
@@ -1355,7 +1336,6 @@ impl CodeGen {
                         self.output.push_str("    call fn___native_fiber_drain\n");
                     }
                 }
-                Architecture::X86 => self.output.push_str("    call fn___native_fiber_drain\n"),
             }
         }
 
@@ -1584,9 +1564,6 @@ impl CodeGen {
         // (same value types, no new TypeErrors: checking still sees Any).
         let spec_codes: Vec<char> = crate::parser::dynspec::dynspec_codes(name).unwrap_or_default();
         let mut spec_seen = 0usize;
-        // x86 caller/callee layout: float params consume 8 bytes, the rest
-        // 4 (matches the call-site 8-byte double pushes).
-        let mut src_off: i32 = 8;
         for (i, param) in params.iter().enumerate() {
             // Explicit scalar annotations are authoritative and override
             // heuristic inference. Rationale: whole-program inference keys
@@ -1759,32 +1736,13 @@ impl CodeGen {
             } else {
                 None
             };
-            // `self` is always a 4-byte handle, never a float slot.
-            let param_is_float = is_flt && !(i == 0 && param == "self") && struct_type.is_none();
-            if matches!(self.arch, crate::codegen::target::Architecture::X86) {
-                if param_is_float {
-                    // Consume 8 bytes: push hi then lo so the local slot
-                    // reads back via movsd (low word at recorded offset).
-                    self.output
-                        .push_str(&format!("    push {}(%ebp)\n", src_off + 4));
-                    self.output
-                        .push_str(&format!("    push {}(%ebp)\n", src_off));
-                    self.ctx.stack_offset += 8;
-                } else {
-                    self.output
-                        .push_str(&format!("    push {}(%ebp)\n", src_off));
-                    self.ctx.stack_offset += 4;
-                }
-                src_off += if param_is_float { 8 } else { 4 };
-            } else {
-                arch::emit_function_param_push(
-                    &mut self.output,
-                    self.arch,
-                    i,
-                    &mut self.ctx.stack_offset,
-                    self.os,
-                );
-            }
+            arch::emit_function_param_push(
+                &mut self.output,
+                self.arch,
+                i,
+                &mut self.ctx.stack_offset,
+                self.os,
+            );
             if let Some(ref sname) = struct_type {
                 self.ctx.variables.insert(
                     param.clone(),
@@ -1946,7 +1904,7 @@ impl CodeGen {
                     .contains_key(&format!("fn_ret_tagged:{}", bare))
             {
                 match self.arch {
-                    Architecture::X64 | Architecture::X86 => {
+                    Architecture::X64 => {
                         self.output.push_str("    movl $0, %edx\n");
                     }
                     Architecture::ARM64 => {
@@ -2080,39 +2038,6 @@ impl CodeGen {
                     );
                     self.output.push_str(&format!(".L_skip_{}:\n", clean_uid));
                 }
-            }
-            Architecture::X86 => {
-                self.output.push_str("    push $0\n");
-                self.ctx.stack_offset += 4;
-                for &offset in heap_offsets {
-                    let uid = self.ctx.next_label();
-                    let clean_uid = uid.trim_start_matches('.');
-                    self.output.push_str("    cmpl $0, (%esp)\n");
-                    self.output
-                        .push_str(&format!("    jne .L_rel_{}\n", clean_uid));
-                    self.output
-                        .push_str(&format!("    mov -{}(%ebp), %eax\n", offset));
-                    self.output.push_str("    cmp 4(%esp), %eax\n");
-                    self.output
-                        .push_str(&format!("    jne .L_rel_{}\n", clean_uid));
-                    self.output.push_str("    test %eax, %eax\n");
-                    self.output
-                        .push_str(&format!("    jz .L_rel_{}\n", clean_uid));
-                    self.output.push_str("    movl $1, (%esp)\n");
-                    self.output
-                        .push_str(&format!("    jmp .L_skip_{}\n", clean_uid));
-                    self.output.push_str(&format!(".L_rel_{}:\n", clean_uid));
-                    arch::emit_rc_release_stack(
-                        &mut self.output,
-                        self.arch,
-                        offset,
-                        self.ctx.stack_offset,
-                        self.os,
-                    );
-                    self.output.push_str(&format!(".L_skip_{}:\n", clean_uid));
-                }
-                self.output.push_str("    pop %ecx\n");
-                self.ctx.stack_offset -= 4;
             }
         }
     }
@@ -2599,13 +2524,7 @@ pub fn generate_full(
     codegen.no_std = no_std;
     codegen.mem_trace = mem_trace;
     codegen.generate_program(program);
-    let mut out = codegen.output;
-    // 32-bit Windows decorates C imports (cdecl `_`, stdcall `_@N`);
-    // ELF needs no decoration. Applied once, centrally, so neither the
-    // runtime emitters nor user FFI callsites need OS gating.
-    if matches!(arch, Architecture::X86) && matches!(os, OperatingSystem::Windows) {
-        out = crate::codegen::arch::x86::decorate_windows_externals(&out);
-    }
+    let out = codegen.output;
     (out, codegen.profile)
 }
 

@@ -419,7 +419,7 @@ pub function read_byte(ptr, offset)
 end
 
 ## Reads a float at the given offset via raw 64-bit load (exact bit
-## round-trip with write_float on 64-bit targets; x86 truncates to 32 bits).
+## round-trip with write_float).
 ##
 ## ### Parameters
 ## - `ptr`: Base raw pointer.

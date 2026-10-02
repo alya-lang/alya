@@ -17,8 +17,6 @@ assert_str_eq(murmur3_hex("hello world"), "5e928f0f", "murmur3_hex 'hello world'
 assert_eq(fnv1a("hello"), fnv1a("hello"), "fnv1a deterministic")
 assert_eq(fnv1(""), 2166136261, "fnv1 empty")
 assert_eq(fnv1("hello world"), 1418570095, "fnv1 'hello world'")
-# 64-bit hex needs 64-bit ints (x86 ints are 32-bit by design).
-@cfg(not(arch = "x86"))
 assert_str_eq(fnv1a64_hex("hello world"), "779a65e7023cd2e7", "fnv1a64_hex 'hello world'")
 
 # 3. CRC Family (CRC-16, CRC-32, CRC-64)
@@ -29,8 +27,6 @@ assert_str_eq(crc16_hex("hello world"), "efeb", "crc16_hex 'hello world'")
 assert_eq(crc32("hello world"), 222957957, "crc32 'hello world'")
 assert_str_eq(crc32_hex("hello world"), "0d4a1185", "crc32_hex 'hello world'")
 
-# 64-bit hex needs 64-bit ints (x86 ints are 32-bit by design).
-@cfg(not(arch = "x86"))
 assert_str_eq(crc64_hex("hello world"), "12511f272d9bc22a", "crc64_hex 'hello world'")
 
 # 4. Jenkins & ELF Hashes

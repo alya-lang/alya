@@ -259,7 +259,7 @@ import "std/time"
 ```
 * **`std/os`**:
   * `os_name()`: Target OS (`"windows"`, `"linux"`, `"macos"`).
-  * `arch_name()`: Target architecture (`"x64"`, `"arm64"`, `"x86"`).
+  * `arch_name()`: Target architecture (`"x64"`, `"arm64"`).
   * `get_pid()` / `pid()`: Current process OS Process ID integer.
   * `get_cwd()` / `cwd()`: Current working directory path string.
   * `set_cwd(path)` / `chdir(path)`: Change current working directory.

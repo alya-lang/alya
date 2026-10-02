@@ -8,12 +8,10 @@
 ##
 ## ### Variants
 ## - `X64`: 64-bit x86 (`x64`).
-## - `X86`: 32-bit x86 (`x86`).
 ## - `ARM64`: 64-bit ARM (`arm64`).
 ## - `Unknown`: Unrecognized architecture (`unknown`).
 pub enum Arch
     X64 = "x64"
-    X86 = "x86"
     ARM64 = "arm64"
     Unknown = "unknown"
 end
@@ -55,7 +53,6 @@ end
 pub function current_arch() -> Arch
     return when target_arch()
         is "x64" => Arch.X64
-        is "x86" => Arch.X86
         is "arm64" => Arch.ARM64
         else => Arch.Unknown
     end

@@ -11,10 +11,9 @@ As we establish the formal Alya Language Specification, this document catalogs t
 While most modern languages incur the multi-hundred-megabyte dependency footprint and sluggish startup of LLVM or virtual machine runtimes (JVM, V8), `alya` generates raw GNU/Mach-O assembly directly:
 
 - **Zero LLVM / IR Overhead**: Assembly is emitted directly from the typed AST, resulting in instantaneous compilation cycles.
-- **Triple Target Architecture Support**:
+- **Dual Target Architecture Support**:
   - **x64 (x86_64)**: Full support for Linux ELF64, Windows PE/COFF (MinGW), and macOS Mach-O.
   - **ARM64 (aarch64)**: First-class Apple Silicon (M1–M4 Darwin Mach-O) and Linux AArch64 ELF emitters.
-  - **x86 (i686)**: 32-bit legacy x86 emitter with `cdecl` calling convention (32-bit value slots: float loads, stores, and comparisons truncate).
 - **Strict ABI Compliance**:
   - **Microsoft x64 ABI**: Correct 32-byte shadow space allocation, 16-byte stack frame alignment, and `%rcx`, `%rdx`, `%r8`, `%r9` register passing.
   - **System V AMD64 ABI**: Correct standard register convention (`%rdi`, `%rsi`, `%rdx`, `%rcx`, `%r8`, `%r9`).
@@ -30,10 +29,10 @@ The code generator includes targeted machine-level optimizations that rival seas
 Instead of the naive 5-instruction comparison idiom (`cmp` -> `setl` -> `movzbq` -> `test` -> `jz`), `alya` fuses relational operators inside conditional expressions (`if`, `while`) into a single comparison and jump (`cmp $50000, %rax` followed by `jge .Lend`). This eliminates register pressure and intermediate boolean flag allocation.
 
 ### B. Single Unsigned Bounds Check
-Array indexing checks (`arr[i]`) use a single unsigned comparison (`jae` on x86/x64, `b.hs` on ARM64). Because negative signed integers wrap into astronomical unsigned integers (`> 2^63 - 1`), both negative index checks and length overflow checks are dispatched in a single instruction.
+Array indexing checks (`arr[i]`) use a single unsigned comparison (`jae` on x64, `b.hs` on ARM64). Because negative signed integers wrap into astronomical unsigned integers (`> 2^63 - 1`), both negative index checks and length overflow checks are dispatched in a single instruction.
 
 ### C. Zero-Cycle Register Zeroing
-When loading integer constant `0` into registers on x86/x64, `alya` emits `xor %eax, %eax` rather than `mov $0, %rax`. Modern CPU execution pipelines recognize `xor reg, reg` during register renaming, executing it with zero clock cycles and without occupying execution ports.
+When loading integer constant `0` into registers on x64, `alya` emits `xor %eax, %eax` rather than `mov $0, %rax`. Modern CPU execution pipelines recognize `xor reg, reg` during register renaming, executing it with zero clock cycles and without occupying execution ports.
 
 ### D. ARM64 Immediate Range Splitting (`movz` / `movk`)
 ARM64 instructions restrict immediate constants to 16 bits with shifts. `alya` automatically analyzes out-of-range integer constants and decomposes them into paired `movz` (move zero) and `movk` (move keep) instructions.
@@ -87,7 +86,7 @@ A fully realized, dependency-locking package management subsystem built natively
 
 - **19 Embedded Modules (`std/*`)**:
   - `std/fs`, `std/path`, `std/os`, `std/process`, `std/io`, `std/net`, `std/sync`, `std/time`, `std/mem`, `std/math`, `std/str`, `std/collections`, `std/console`, `std/test`, `std/simd`, `std/hash`, `std/json`, `std/cli`, `std/log`.
-- **High-Entropy Hardware PRNG**: The runtime PRNG implements the SplitMix64 algorithm seeded from hardware CPU cycle counters (`rdtsc` on x86/x64, `cntvct_el0` on ARM64).
+- **High-Entropy Hardware PRNG**: The runtime PRNG implements the SplitMix64 algorithm seeded from hardware CPU cycle counters (`rdtsc` on x64, `cntvct_el0` on ARM64).
 - **Strict Boundary & Bare-Metal Compatibility**:
   - Core OS syscalls and primitives embedded directly in the `alya` binary.
   - Support for `--no-std` for embedded microcontrollers and kernels.
@@ -116,7 +115,7 @@ A fully realized, dependency-locking package management subsystem built natively
 | Compiler Subsystem | Key Asset | Status | Protection Priority |
 |---|---|:---:|:---:|
 | **Direct Codegen** | Direct GNU/Mach-O assembly (no LLVM) | Stable | 🔴 Critical |
-| **Architectures** | x64, ARM64 (Apple Silicon M1-M4), x86 (32-bit slots: float ops truncate) | Stable | 🔴 Critical |
+| **Architectures** | x64, ARM64 (Apple Silicon M1-M4) | Stable | 🔴 Critical |
 | **Optimizations** | Branch Fusion, Unsigned Bounds Check, Zero-Cycle idioms | Stable | 🔴 Critical |
 | **Inference Engine**| Fixed-point compile-time struct field offset resolution | Stable | 🔴 Critical |
 | **Package Manager** | `alya.toml`, `alya.lock` (SHA-256), global cache | Stable | 🟡 High |

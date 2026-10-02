@@ -117,83 +117,6 @@ pub fn emit_data_sections(
             out.push_str("alya_fiber_pool_head:\n");
             out.push_str("    .quad 0\n");
         }
-        Architecture::X86 => {
-            out.push_str("alya_str_idx:\n");
-            out.push_str("    .space 256\n");
-            out.push_str("alya_thread_slot_seq:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_argc:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_argv:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_catch_once:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_catch_key:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_catch_fls:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_rand_state:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_allocated_bytes:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_mem_trace_enabled:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_mem_report_done:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_mem_records_head:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_mem_total_allocs:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_mem_total_frees:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_mem_active_allocs:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_mem_total_bytes:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_mem_active_bytes:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_mem_peak_bytes:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_mem_live_structs:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_mem_live_arrays:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_mem_live_maps:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_mem_live_strings:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_mem_live_raw:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_gc_roots:\n");
-            out.push_str("    .space 262144\n");
-            out.push_str("alya_gc_roots_count:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_gc_collected_cycles:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_gc_in_progress:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_fiber_count:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_fiber_active_count:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_fiber_runqueue_head:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_fiber_runqueue_tail:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_fiber_current:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_fiber_sched_ctx:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_fiber_main:\n");
-            out.push_str("    .space 64\n");
-            out.push_str("alya_fiber_lock:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_fiber_seq:\n");
-            out.push_str("    .long 0\n");
-            out.push_str("alya_fiber_pool_head:\n");
-            out.push_str("    .long 0\n");
-        }
     }
 
     let is_macos = matches!(os, OperatingSystem::MacOS);
@@ -212,7 +135,6 @@ pub fn emit_data_sections(
     };
     let arch_str = match arch {
         Architecture::X64 => "x64",
-        Architecture::X86 => "x86",
         Architecture::ARM64 => "arm64",
     };
     out.push_str("alya_str_target_os:\n");
@@ -275,11 +197,7 @@ pub fn emit_data_sections(
     out.push_str("alya_fmt_arr_close:\n");
     out.push_str(&format!("    {} \"]\\n\"\n", str_directive));
     out.push_str("alya_fmt_arr_elem:\n");
-    if matches!(arch, Architecture::X86) {
-        out.push_str(&format!("    {} \"%d\"\n", str_directive));
-    } else {
-        out.push_str(&format!("    {} \"%lld\"\n", str_directive));
-    }
+    out.push_str(&format!("    {} \"%lld\"\n", str_directive));
     out.push_str("alya_fmt_arr_comma:\n");
     out.push_str(&format!("    {} \", \"\n", str_directive));
 
@@ -303,21 +221,13 @@ pub fn emit_data_sections(
     out.push_str("alya_fmt_struct_close:\n");
     out.push_str(&format!("    {} \" }}\\n\"\n", str_directive));
     out.push_str("alya_fmt_struct_field:\n");
-    if matches!(arch, Architecture::X86) {
-        out.push_str(&format!("    {} \"%s: %d\"\n", str_directive));
-    } else {
-        out.push_str(&format!("    {} \"%s: %lld\"\n", str_directive));
-    }
+    out.push_str(&format!("    {} \"%s: %lld\"\n", str_directive));
 
     out.push_str("alya_fmt_struct_comma:\n");
     out.push_str(&format!("    {} \", \"\n", str_directive));
 
     // Memory trace report format strings
-    let int_fmt = if matches!(arch, Architecture::X86) {
-        "%d"
-    } else {
-        "%lld"
-    };
+    let int_fmt = "%lld";
     out.push_str("alya_mem_fmt_header:\n");
     out.push_str(&format!("    {} \"\\n============================================================\\n                 ALYA MEMORY TRACE & LEAK REPORT\\n============================================================\\n\"\n", str_directive));
     out.push_str("alya_mem_fmt_totals:\n");
@@ -399,7 +309,7 @@ pub fn emit_data_sections(
     // Per-thread catch state anchors that cannot live in zerofill
     // bss on macOS (alya-lang/alya#65): Darwin pthread_once_t is
     // 16 bytes starting as PTHREAD_ONCE_INIT. Key stays zero-init.
-    if is_macos && !matches!(arch, Architecture::X86) {
+    if is_macos {
         out.push_str(".p2align 3\n");
         out.push_str("alya_catch_once:\n");
         out.push_str("    .quad 0x30B1BCBA\n");
@@ -408,11 +318,7 @@ pub fn emit_data_sections(
         out.push_str("    .quad 0\n");
     }
 
-    let ptr_dir = if matches!(arch, Architecture::X86) {
-        ".long"
-    } else {
-        ".quad"
-    };
+    let ptr_dir = ".quad";
 
     let mut emitted_descs = std::collections::HashSet::new();
     for (name, sdef) in structs {
