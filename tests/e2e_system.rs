@@ -3464,7 +3464,8 @@ main()
 #[test]
 fn test_e2e_mem_trace_map_cascade_freed() {
     // alya-lang/alya#81: freeing a map must also drop heap-kind
-    // values (tags 3..6: string, array, map, struct) and keys.
+    // values (tags 4..6: array, map, struct). Strings and keys are
+    // deliberately untouched (no refcount header).
     let code = r#"
 struct MapItem
     id: int,

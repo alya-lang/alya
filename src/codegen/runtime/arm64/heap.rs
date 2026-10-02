@@ -426,8 +426,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_arm64_rc_free_inner_map:\n");
     out.push_str("    ldr x0, [x19, #16]\n");
     out.push_str("    cbz x0, .L_arm64_rc_free_kind\n");
-    // Maps: release keys and heap-kind values (tags 3..6 in the entry tag)
-    // before freeing the entries buffer (alya-lang/alya#81).
+    // Maps: release heap-kind values (tags 4..6: array, map, struct)
+    // before freeing the entries buffer (alya-lang/alya#81). Strings
+    // (tag 3) and keys are deliberately untouched: strings carry no
+    // refcount header, so releasing them would corrupt the heap.
     out.push_str("    stp x21, x22, [sp, #-32]!\n");
     out.push_str("    stp x23, x24, [sp, #16]\n");
     out.push_str("    ldr x21, [x19, #8]\n");
@@ -441,15 +443,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldr w9, [x24, #16]\n");
     out.push_str("    cmp w9, #1\n");
     out.push_str("    b.ne .L_arm64_rc_map_cascade_next\n");
-    // Release key (string)
-    out.push_str("    ldr x0, [x24]\n");
-    out.push_str("    bl fn_rc_release\n");
-    // Recompute entry address
-    out.push_str("    add x24, x23, x23, lsl #1\n");
-    out.push_str("    add x24, x22, x24, lsl #3\n");
-    // Release value if tag in 3..6 (string, array, map, struct)
+    // Release value if tag in 4..6 (array, map, struct)
     out.push_str("    ldr w9, [x24, #20]\n");
-    out.push_str("    cmp w9, #3\n");
+    out.push_str("    cmp w9, #4\n");
     out.push_str("    b.lt .L_arm64_rc_map_cascade_next\n");
     out.push_str("    cmp w9, #6\n");
     out.push_str("    b.gt .L_arm64_rc_map_cascade_next\n");

@@ -615,8 +615,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movq 16(%rbx), %rax\n");
     out.push_str("    test %rax, %rax\n");
     out.push_str("    jz .L_x64_rc_free_kind\n");
-    // Maps: release keys and heap-kind values (tags 3..6 in the entry tag)
-    // before freeing the entries buffer (alya-lang/alya#81).
+    // Maps: release heap-kind values (tags 4..6: array, map, struct)
+    // before freeing the entries buffer (alya-lang/alya#81). Strings
+    // (tag 3) and keys are deliberately untouched: strings carry no
+    // refcount header, so releasing them would corrupt the heap.
     out.push_str("    push %rbx\n");
     out.push_str("    push %r12\n");
     out.push_str("    push %r13\n");
@@ -633,28 +635,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add %r12, %rax\n");
     out.push_str("    cmpl $1, 16(%rax)\n");
     out.push_str("    jne .L_x64_rc_map_cascade_next\n");
-    // Release key (string)
-    out.push_str("    push %rcx\n");
-    out.push_str("    push %r12\n");
-    out.push_str("    push %r13\n");
-    out.push_str("    push %rax\n");
-    out.push_str("    movq (%rax), %rax\n");
-    if is_win {
-        out.push_str("    mov %rax, %rcx\n");
-        out.push_str("    sub $32, %rsp\n");
-        out.push_str("    call fn_rc_release\n");
-        out.push_str("    add $32, %rsp\n");
-    } else {
-        out.push_str("    mov %rax, %rdi\n");
-        out.push_str("    call fn_rc_release\n");
-    }
-    out.push_str("    pop %rax\n");
-    out.push_str("    pop %r13\n");
-    out.push_str("    pop %r12\n");
-    out.push_str("    pop %rcx\n");
-    // Release value if tag in 3..6 (string, array, map, struct)
+    // Release value if tag in 4..6 (array, map, struct)
     out.push_str("    movl 20(%rax), %edx\n");
-    out.push_str("    cmp $3, %edx\n");
+    out.push_str("    cmp $4, %edx\n");
     out.push_str("    jl .L_x64_rc_map_cascade_next\n");
     out.push_str("    cmp $6, %edx\n");
     out.push_str("    jg .L_x64_rc_map_cascade_next\n");

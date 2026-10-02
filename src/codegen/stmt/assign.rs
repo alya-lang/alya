@@ -1410,7 +1410,16 @@ impl CodeGen {
                     for arg in actual_args.iter().rev() {
                         self.generate_expression(arg);
                         if std::ptr::eq(*arg, value) {
-                            if self.is_heap_expression(value) {
+                            // Retain dynamic/aliased values stored in collections: untyped variables
+                            // or re-read identifiers hold heap objects whose producer slot may drop later.
+                            if self.is_heap_expression(value)
+                                || matches!(
+                                    value,
+                                    Expr::Identifier(_)
+                                        | Expr::Index { .. }
+                                        | Expr::FieldAccess { .. }
+                                )
+                            {
                                 arch::emit_rc_retain(
                                     &mut self.output,
                                     self.arch,
@@ -1432,7 +1441,15 @@ impl CodeGen {
                 _ => {
                     for arg in actual_args.iter() {
                         self.generate_expression(arg);
-                        if std::ptr::eq(*arg, value) && self.is_heap_expression(value) {
+                        if std::ptr::eq(*arg, value)
+                            && (self.is_heap_expression(value)
+                                || matches!(
+                                    value,
+                                    Expr::Identifier(_)
+                                        | Expr::Index { .. }
+                                        | Expr::FieldAccess { .. }
+                                ))
+                        {
                             arch::emit_rc_retain(
                                 &mut self.output,
                                 self.arch,
@@ -1583,7 +1600,12 @@ impl CodeGen {
             self.ctx.stack_offset += temp_offset;
 
             self.generate_expression(value);
-            if self.is_heap_expression(value) {
+            if self.is_heap_expression(value)
+                || matches!(
+                    value,
+                    Expr::Identifier(_) | Expr::Index { .. } | Expr::FieldAccess { .. }
+                )
+            {
                 arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
             }
             self.ctx.stack_offset -= temp_offset * 2;

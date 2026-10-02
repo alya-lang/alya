@@ -473,8 +473,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movl 8(%ebx), %eax\n");
     out.push_str("    test %eax, %eax\n");
     out.push_str("    jz .L_x86_rc_free_outer\n");
-    // Maps: release keys and heap-kind values (tags 3..6 in the entry tag)
-    // before freeing the entries buffer (alya-lang/alya#81).
+    // Maps: release heap-kind values (tags 4..6: array, map, struct)
+    // before freeing the entries buffer (alya-lang/alya#81). Strings
+    // (tag 3) and keys are deliberately untouched: strings carry no
+    // refcount header, so releasing them would corrupt the heap.
     out.push_str("    push %ebx\n");
     out.push_str("    push %esi\n");
     out.push_str("    push %edi\n");
@@ -490,21 +492,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add %esi, %eax\n");
     out.push_str("    cmpl $1, 12(%eax)\n");
     out.push_str("    jne .L_x86_rc_map_cascade_next\n");
-    // Release key (string)
-    out.push_str("    push %ecx\n");
-    out.push_str("    push %esi\n");
-    out.push_str("    push %edi\n");
-    out.push_str("    push 8(%eax)\n");
-    out.push_str("    call fn_rc_release\n");
-    out.push_str("    add $4, %esp\n");
-    out.push_str("    pop %edi\n");
-    out.push_str("    pop %esi\n");
-    out.push_str("    pop %ecx\n");
-    // Recompute entry address
-    out.push_str("    imul $20, %ecx, %eax\n");
-    out.push_str("    add %esi, %eax\n");
+    // Release value if tag in 4..6 (array, map, struct)
     out.push_str("    movzbl 16(%eax), %edx\n");
-    out.push_str("    cmp $3, %edx\n");
+    out.push_str("    cmp $4, %edx\n");
     out.push_str("    jl .L_x86_rc_map_cascade_next\n");
     out.push_str("    cmp $6, %edx\n");
     out.push_str("    jg .L_x86_rc_map_cascade_next\n");
