@@ -308,6 +308,78 @@ end
 }
 
 #[test]
+fn test_lint_unused_import_aliased_unused_in_facade_flagged() {
+    // Regression (alya-lang/alya#75): an `as`-aliased import that is never
+    // referenced is dead even when the importing file declares `pub` items.
+    // Aliases namespace the module for local use only — neither
+    // `facade::symbol` nor `facade::alias::symbol` resolves downstream
+    // (verified against the compiler), so no re-export protection applies
+    // and the verdict must not depend on whether the target resolves
+    // (i.e. CI linting before `alya install` vs. local runs with a warm
+    // `.alya/packages` cache).
+    let tmp = std::env::temp_dir().join(format!("alya_lint_aliased_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp);
+    std::fs::write(
+        tmp.join("helper.alya"),
+        "pub function helper_add(a: int, b: int) -> int\n    return a + b\nend\n",
+    )
+    .unwrap();
+
+    let lib_file = tmp.join("lib.alya");
+    let source = r#"
+import "./helper.alya" as helper
+
+pub function facade_version() -> int
+    return 2
+end
+"#;
+    let diags = lint_source(source, &lib_file).unwrap();
+    let import_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-import").collect();
+    assert_eq!(import_diags.len(), 1);
+    assert_eq!(
+        import_diags[0].message,
+        "imported module 'helper' is never used"
+    );
+    assert!(
+        import_diags[0].fix.is_some(),
+        "dead aliased import removal is safe and must keep its auto-fix"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_lint_unused_import_aliased_used_stays_silent() {
+    // Guard against false positives: an `as`-aliased import referenced via
+    // its namespace must stay silent, including in `pub`-bearing files.
+    let tmp = std::env::temp_dir().join(format!("alya_lint_aliased_used_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp);
+    std::fs::write(
+        tmp.join("helper.alya"),
+        "pub function helper_add(a: int, b: int) -> int\n    return a + b\nend\n",
+    )
+    .unwrap();
+
+    let lib_file = tmp.join("lib.alya");
+    let source = r#"
+import "./helper.alya" as helper
+
+pub function facade_version() -> int
+    return helper::helper_add(1, 2)
+end
+"#;
+    let diags = lint_source(source, &lib_file).unwrap();
+    let import_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-import").collect();
+    assert!(
+        import_diags.is_empty(),
+        "used aliased import must stay silent, got: {:?}",
+        import_diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn test_lint_dead_code_following_return() {
     let source = r#"
 function run()

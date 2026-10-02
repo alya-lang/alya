@@ -734,6 +734,12 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
         line: usize,
         col: usize,
         is_full_line: bool,
+        // Whether the import carries an explicit `as` alias. Aliased
+        // imports only namespace the module for local use: their symbols
+        // are not re-exported downstream (`facade::symbol` and
+        // `facade::alias::symbol` do not resolve), so they can never be
+        // load-bearing re-export conduits.
+        is_aliased: bool,
     }
 
     let mut imports = Vec::new();
@@ -749,6 +755,7 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
 
             let mut imported_name = None;
             let mut raw_path = None;
+            let mut is_aliased = false;
             if i < tokens.len() {
                 match &tokens[i].token_type {
                     TokenType::String(path) => {
@@ -771,6 +778,7 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
             }
 
             if i < tokens.len() && matches!(tokens[i].token_type, TokenType::As) {
+                is_aliased = true;
                 i += 1;
                 if i < tokens.len() {
                     if let TokenType::Identifier(alias) = &tokens[i].token_type {
@@ -787,6 +795,7 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                     line: import_line,
                     col: import_col,
                     is_full_line: true,
+                    is_aliased,
                 });
                 import_token_ranges.push((start_idx, i));
             }
@@ -834,6 +843,7 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                             line: sym_line,
                             col: sym_col,
                             is_full_line: false,
+                            is_aliased: false,
                         });
                     } else {
                         i += 1;
@@ -901,7 +911,10 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                 if let Some(exported) = get_exported_symbols_from_module(path, file_path) {
                     if exported.iter().any(|sym| code_idents.contains(sym)) {
                         is_used = true;
-                    } else if !exported.is_empty() && is_facade_file(tokens, &import_token_ranges) {
+                    } else if !imp.is_aliased
+                        && !exported.is_empty()
+                        && is_facade_file(tokens, &import_token_ranges)
+                    {
                         // Re-export candidate: this file declares `pub`/`extern`
                         // items, so it acts as a module surface and its imports
                         // double as re-exports — downstream consumers resolve
@@ -912,6 +925,14 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                         // build-breaking `--fix` (e.g. `src/lib.alya` facades
                         // importing submodule files whose symbols are only
                         // referenced downstream).
+                        //
+                        // Unaliased imports only: an explicit `as` alias
+                        // namespaces the module for local use without
+                        // re-exporting it (`facade::symbol` and
+                        // `facade::alias::symbol` do not resolve
+                        // downstream), so an unreferenced aliased import is
+                        // always dead — flag it deterministically instead of
+                        // depending on whether the target resolves.
                         continue;
                     }
                 }
