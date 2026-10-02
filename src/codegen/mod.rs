@@ -1004,6 +1004,21 @@ impl CodeGen {
             }
         }
 
+        // Multi-level freshness inference for temp-ownership release (alya-lang/alya#81):
+        // propagates freshness across call chains (e.g. g() returns f() where f() is fresh)
+        // and seeds built-in container constructors.
+        let struct_names: std::collections::HashSet<String> =
+            self.ctx.structs.keys().cloned().collect();
+        let fresh_fns = crate::codegen::analysis::infer_program_fresh_functions(
+            &program.statements,
+            &struct_names,
+        );
+        for f in &fresh_fns {
+            self.ctx
+                .variables
+                .insert(format!("fn_ret_fresh:{}", f), VarType::Number(0));
+        }
+
         let struct_inf = &inference.struct_inf;
         for ((sname, fname), inner_st) in &struct_inf.field_types {
             if self.ctx.structs.contains_key(inner_st) {

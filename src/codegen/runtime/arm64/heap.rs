@@ -426,6 +426,43 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_arm64_rc_free_inner_map:\n");
     out.push_str("    ldr x0, [x19, #16]\n");
     out.push_str("    cbz x0, .L_arm64_rc_free_kind\n");
+    // Maps: release keys and heap-kind values (tags 3..6 in the entry tag)
+    // before freeing the entries buffer (alya-lang/alya#81).
+    out.push_str("    stp x21, x22, [sp, #-32]!\n");
+    out.push_str("    stp x23, x24, [sp, #16]\n");
+    out.push_str("    ldr x21, [x19, #8]\n");
+    out.push_str("    ldr x22, [x19, #16]\n");
+    out.push_str("    mov x23, #0\n");
+    out.push_str(".L_arm64_rc_map_cascade_loop:\n");
+    out.push_str("    cmp x23, x21\n");
+    out.push_str("    b.ge .L_arm64_rc_map_cascade_done\n");
+    out.push_str("    add x24, x23, x23, lsl #1\n");
+    out.push_str("    add x24, x22, x24, lsl #3\n");
+    out.push_str("    ldr w9, [x24, #16]\n");
+    out.push_str("    cmp w9, #1\n");
+    out.push_str("    b.ne .L_arm64_rc_map_cascade_next\n");
+    // Release key (string)
+    out.push_str("    ldr x0, [x24]\n");
+    out.push_str("    bl fn_rc_release\n");
+    // Recompute entry address
+    out.push_str("    add x24, x23, x23, lsl #1\n");
+    out.push_str("    add x24, x22, x24, lsl #3\n");
+    // Release value if tag in 3..6 (string, array, map, struct)
+    out.push_str("    ldr w9, [x24, #20]\n");
+    out.push_str("    cmp w9, #3\n");
+    out.push_str("    b.lt .L_arm64_rc_map_cascade_next\n");
+    out.push_str("    cmp w9, #6\n");
+    out.push_str("    b.gt .L_arm64_rc_map_cascade_next\n");
+    out.push_str("    ldr x0, [x24, #8]\n");
+    out.push_str("    bl fn_rc_release\n");
+    out.push_str(".L_arm64_rc_map_cascade_next:\n");
+    out.push_str("    add x23, x23, #1\n");
+    out.push_str("    b .L_arm64_rc_map_cascade_loop\n");
+    out.push_str(".L_arm64_rc_map_cascade_done:\n");
+    out.push_str("    ldp x23, x24, [sp, #16]\n");
+    out.push_str("    ldp x21, x22, [sp], #32\n");
+    out.push_str("    ldr x0, [x19, #16]\n");
+    out.push_str("    cbz x0, .L_arm64_rc_free_kind\n");
     out.push_str(&format!("    bl {}free\n", p));
     // Array kind sidecar (Phase 1, alya-lang/alya#39): freed with the
     // element buffer. Only arrays carry one (x20 still holds the

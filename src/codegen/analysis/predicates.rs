@@ -1416,14 +1416,18 @@ pub fn call_returns_fresh_value(name: &str, vars: &HashMap<String, VarType>) -> 
 }
 
 /// Worker for `fn_returns_fresh_value`: every `return` in the body must
-/// yield a fresh-owned expression. Single-level and conservative: nested
-/// calls are never fresh (their freshness is a separate marker), and a
-/// body with no explicit return is unknown.
-pub fn fn_returns_fresh_value(
+/// yield a fresh-owned expression. Propagates freshness across known fresh
+/// functions and transparent operators (alya-lang/alya#81).
+pub fn fn_returns_fresh_value_ext(
     body: &[Stmt],
     struct_names: &std::collections::HashSet<String>,
+    fresh_fns: &std::collections::HashSet<String>,
 ) -> bool {
-    fn fresh_expr(e: &Expr, struct_names: &std::collections::HashSet<String>) -> bool {
+    fn fresh_expr(
+        e: &Expr,
+        struct_names: &std::collections::HashSet<String>,
+        fresh_fns: &std::collections::HashSet<String>,
+    ) -> bool {
         match e {
             Expr::Array(_)
             | Expr::Map(_)
@@ -1435,14 +1439,33 @@ pub fn fn_returns_fresh_value(
             Expr::Call { name, .. } => {
                 let bare = name.rsplit("::").next().unwrap_or(name.as_str());
                 let bare = bare.rsplit("__").next().unwrap_or(bare);
-                struct_names.contains(name) || struct_names.contains(bare)
+                struct_names.contains(name)
+                    || struct_names.contains(bare)
+                    || fresh_fns.contains(name)
+                    || fresh_fns.contains(bare)
+                    || fresh_fns.contains(&name.replace("::", "__"))
+                    || fresh_fns.contains(&name.replace("__", "::"))
             }
+            Expr::Ternary {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                fresh_expr(then_branch, struct_names, fresh_fns)
+                    && fresh_expr(else_branch, struct_names, fresh_fns)
+            }
+            Expr::NullCoalesce { value, default } => {
+                fresh_expr(value, struct_names, fresh_fns)
+                    && fresh_expr(default, struct_names, fresh_fns)
+            }
+            Expr::ForceUnwrap(inner) => fresh_expr(inner, struct_names, fresh_fns),
             _ => false,
         }
     }
     fn walk(
         stmts: &[Stmt],
         struct_names: &std::collections::HashSet<String>,
+        fresh_fns: &std::collections::HashSet<String>,
         found: &mut bool,
         ok: &mut bool,
     ) {
@@ -1454,7 +1477,7 @@ pub fn fn_returns_fresh_value(
                 Stmt::Return(opt) => {
                     *found = true;
                     if let Some(e) = opt {
-                        if !fresh_expr(e, struct_names) {
+                        if !fresh_expr(e, struct_names, fresh_fns) {
                             *ok = false;
                             return;
                         }
@@ -1465,25 +1488,25 @@ pub fn fn_returns_fresh_value(
                     else_block,
                     ..
                 } => {
-                    walk(then_block, struct_names, found, ok);
+                    walk(then_block, struct_names, fresh_fns, found, ok);
                     if let Some(els) = else_block {
-                        walk(els, struct_names, found, ok);
+                        walk(els, struct_names, fresh_fns, found, ok);
                     }
                 }
                 Stmt::While { body, .. }
                 | Stmt::Repeat { body }
                 | Stmt::For { body, .. }
-                | Stmt::ForEach { body, .. } => walk(body, struct_names, found, ok),
+                | Stmt::ForEach { body, .. } => walk(body, struct_names, fresh_fns, found, ok),
                 Stmt::TryCatch {
                     try_block,
                     catch_block,
                     finally_block,
                     ..
                 } => {
-                    walk(try_block, struct_names, found, ok);
-                    walk(catch_block, struct_names, found, ok);
+                    walk(try_block, struct_names, fresh_fns, found, ok);
+                    walk(catch_block, struct_names, fresh_fns, found, ok);
                     if let Some(fin) = finally_block {
-                        walk(fin, struct_names, found, ok);
+                        walk(fin, struct_names, fresh_fns, found, ok);
                     }
                 }
                 // Nested functions are separate scopes; their returns do
@@ -1495,8 +1518,95 @@ pub fn fn_returns_fresh_value(
     }
     let mut found = false;
     let mut ok = true;
-    walk(body, struct_names, &mut found, &mut ok);
+    walk(body, struct_names, fresh_fns, &mut found, &mut ok);
     found && ok
+}
+
+pub fn fn_returns_fresh_value(
+    body: &[Stmt],
+    struct_names: &std::collections::HashSet<String>,
+) -> bool {
+    let empty = std::collections::HashSet::new();
+    fn_returns_fresh_value_ext(body, struct_names, &empty)
+}
+
+/// Fixed-point freshness inference over all functions in the program (alya-lang/alya#81).
+/// Propagates freshness across call chains (e.g. `g()` returns `f()`, where `f()` is fresh).
+/// Bounded to 32 passes to guarantee termination against any theoretical cycle.
+pub fn infer_program_fresh_functions(
+    statements: &[Stmt],
+    struct_names: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    let mut fresh_set = std::collections::HashSet::new();
+
+    let builtin_fresh = [
+        "split",
+        "lines",
+        "read_lines",
+        "array_clone",
+        "array_slice",
+        "array_concat",
+        "array_reverse",
+        "array_unique",
+        "array_sort",
+        "array_chunk",
+        "array_fill",
+        "keys",
+        "values",
+        "map_entries",
+        "set_to_array",
+        "queue_to_array",
+        "csv_parse",
+        "json_parse_array",
+        "parse_array",
+        "map",
+        "map_clone",
+        "map_merge",
+        "map_from_entries",
+        "set_new",
+        "set_from_array",
+        "set_union",
+        "set_intersection",
+        "set_difference",
+        "json_parse_object",
+        "parse_object",
+        "url_parse_query",
+    ];
+    for b in builtin_fresh {
+        fresh_set.insert(b.to_string());
+    }
+
+    let mut fns: Vec<(String, &[Stmt])> = Vec::new();
+    for s in statements {
+        if let Stmt::Function { name, body, .. } = s.inner_stmt() {
+            fns.push((name.clone(), body));
+        }
+    }
+
+    let mut changed = true;
+    let mut passes = 0;
+    while changed && passes < 32 {
+        changed = false;
+        passes += 1;
+        for (name, body) in &fns {
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            if fresh_set.contains(name) && fresh_set.contains(bare) {
+                continue;
+            }
+            if fn_returns_fresh_value_ext(body, struct_names, &fresh_set) {
+                fresh_set.insert(name.clone());
+                fresh_set.insert(bare.to_string());
+                let colon = name.replace("__", "::");
+                let mangled = name.replace("::", "__");
+                fresh_set.insert(colon);
+                fresh_set.insert(mangled);
+                changed = true;
+            }
+        }
+    }
+
+    fresh_set
 }
 
 /// True when an x86 element store can trust a float kind tag: the value

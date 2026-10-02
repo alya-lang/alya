@@ -3114,16 +3114,20 @@ fn test_e2e_mem_trace_leak_detection() {
 struct Node
     id
     label
+    arr
+    meta
+    next
 end
 
-let mut i = 0
-while i < 1
-    let leaked_struct = Node { id: 101, label: "leak_node" }
-    let leaked_array = [10, 20, 30, 40]
-    let leaked_map = { "key": 999 }
-    say "Allocated objects inside unmanaged loop iteration."
-    i = i + 1
+function leak_cycle()
+    let a = Node { id: 101, label: "leak_node", arr: [10, 20, 30, 40], meta: { "key": 999 }, next: 0 }
+    let b = Node { id: 102, label: "leak_node2", arr: [], meta: {}, next: 0 }
+    a.next = b
+    b.next = a
+    say "Allocated cyclic objects causing memory leaks."
 end
+
+leak_cycle()
 "#;
 
     if let Some((code, output)) = run_alya_code_with_trace(code) {
@@ -3299,6 +3303,296 @@ main()
         assert!(
             output.contains("Arrays          : 0 active"),
             "Expected 0 live arrays, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_mem_trace_loop_let_freed() {
+    // alya-lang/alya#80: `let` rebinding inside a loop body must drop
+    // the previous value every iteration (pre-nulled slots make the
+    // first-iteration release safe).
+    let code = r#"
+function mkarr() -> array
+    return [1, 2, 3]
+end
+
+function main()
+    let i = 0
+    while i < 5
+        let a = mkarr()
+        i += 1
+    end
+    say "done"
+end
+
+main()
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected clean execution status, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Arrays          : 0 active"),
+            "Expected 0 live arrays, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_mem_trace_loop_outer_rebind_freed() {
+    // alya-lang/alya#80: rebinding an outer variable in a loop must
+    // release the old slot (and null it so scope restores stay safe),
+    // with correct values afterwards.
+    let code = r#"
+function mkarr() -> array
+    return [1, 2, 3]
+end
+
+function main()
+    let a = mkarr()
+    let i = 0
+    while i < 2
+        let a = mkarr()
+        i += 1
+    end
+    say len(a)
+end
+
+main()
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected clean execution status, got:\n{}",
+            output
+        );
+        assert!(
+            output.lines().any(|l| l.trim() == "3"),
+            "Expected len 3 in output, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_mem_trace_if_rebind_freed() {
+    // alya-lang/alya#80: rebinding inside an `if` body must not
+    // double-free when the scope restores the outer binding.
+    let code = r#"
+function mkarr() -> array
+    return [1, 2, 3]
+end
+
+function main()
+    let a = mkarr()
+    if true
+        let a = mkarr()
+    end
+    say len(a)
+end
+
+main()
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected clean execution status, got:\n{}",
+            output
+        );
+        assert!(
+            output.lines().any(|l| l.trim() == "3"),
+            "Expected len 3 in output, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_mem_trace_discarded_heap_freed() {
+    // alya-lang/alya#81: bare `f();` or literal expression statements
+    // producing fresh heap objects must drop the return temp immediately.
+    let code = r#"
+struct DiscardRec
+    x: int
+end
+
+function mkarr() -> array
+    return [1, 2, 3]
+end
+
+function main()
+    mkarr()
+    [4, 5, 6]
+    DiscardRec { x: 10 }
+    say 1
+end
+
+main()
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected clean execution status, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Arrays          : 0 active"),
+            "Expected 0 live arrays, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Structs         : 0 active"),
+            "Expected 0 live structs, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_mem_trace_map_cascade_freed() {
+    // alya-lang/alya#81: freeing a map must also drop heap-kind
+    // values (tags 3..6: string, array, map, struct) and keys.
+    let code = r#"
+struct MapItem
+    id: int,
+    name: string
+end
+
+function mkitem(id: int, name: string) -> MapItem
+    return MapItem { id: id, name: name }
+end
+
+function main()
+    let m = {
+        "first": mkitem(1, "a"),
+        "second": mkitem(2, "b")
+    }
+    say len(m)
+end
+
+main()
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected clean execution status, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Maps            : 0 active"),
+            "Expected 0 live maps, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Structs         : 0 active"),
+            "Expected 0 live structs, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_mem_trace_heap_temp_index_freed() {
+    // alya-lang/alya#81: `let v = FRESH()[k]` where v is a heap target
+    // (struct/array/map) must track and free the container temp while
+    // keeping the indexed element safely retained.
+    let code = r#"
+struct BoxVal
+    num: int
+end
+
+function mkboxes() -> array
+    return [BoxVal { num: 42 }, BoxVal { num: 99 }]
+end
+
+function main()
+    let b: BoxVal = mkboxes()[0]
+    say b.num
+end
+
+main()
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("42"),
+            "Expected output 42, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected clean execution status, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Arrays          : 0 active"),
+            "Expected 0 live arrays, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Structs         : 0 active"),
+            "Expected 0 live structs, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_mem_trace_multilevel_freshness_freed() {
+    // alya-lang/alya#81: multi-level freshness inference propagates through
+    // call chains so container literals move elements instead of over-retaining.
+    let code = r#"
+struct Elem
+    val: int
+end
+
+function make_leaf() -> Elem
+    return Elem { val: 42 }
+end
+
+function make_wrapped() -> Elem
+    return make_leaf()
+end
+
+function main()
+    let arr = [make_wrapped()]
+    say len(arr)
+end
+
+main()
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected clean execution status, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Arrays          : 0 active"),
+            "Expected 0 live arrays, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Structs         : 0 active"),
+            "Expected 0 live structs, got:\n{}",
             output
         );
     }

@@ -1,8 +1,8 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr, Stmt};
 use crate::codegen::analysis::{
-    is_definitely_not_numeric, is_float_array, is_float_expr, is_map_expr, is_string_array,
-    is_string_expr, is_tag_carrying_read,
+    is_array_expr, is_definitely_not_numeric, is_float_array, is_float_expr, is_map_expr,
+    is_string_array, is_string_expr, is_tag_carrying_read,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -645,11 +645,133 @@ impl CodeGen {
         self.ctx.variables = final_variables;
     }
 
+    /// A `let` value shape safe to pre-null in a loop entry: literals,
+    /// direct struct constructors, and proven-fresh calls/arrays/maps.
+    /// Anything else (notably floats, which need wider slots on x86,
+    /// and unmarked calls, which may return ints) is skipped and keeps
+    /// leaking safely instead of risking a bad release (issue #80).
+    fn loop_let_is_prenullable(&self, value: &Expr) -> bool {
+        if is_float_expr(value, &self.ctx.variables) {
+            return false;
+        }
+        match value {
+            Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. } => true,
+            Expr::Call { name, .. } => {
+                self.ctx.structs.contains_key(name)
+                    || crate::codegen::analysis::call_returns_fresh_value(name, &self.ctx.variables)
+                    || is_array_expr(value, &self.ctx.variables)
+                    || is_map_expr(value, &self.ctx.variables)
+                    || self.get_expr_struct_name(value).is_some()
+            }
+            _ => false,
+        }
+    }
+
+    /// Collect `let`-bound names with proven-heap values in a loop body,
+    /// recursing into plain blocks but not into nested loops (which
+    /// manage their own scopes) or functions (fresh frames). Only names
+    /// absent from the entry map qualify: present names rebind outer
+    /// slots, which `let` already releases soundly.
+    fn collect_loop_heap_lets(
+        &self,
+        body: &[Stmt],
+        entry: &std::collections::HashMap<String, VarType>,
+        out: &mut Vec<String>,
+    ) {
+        for s in body {
+            match s.inner_stmt() {
+                Stmt::Let { name, value, .. } => {
+                    if !entry.contains_key(name)
+                        && !out.contains(name)
+                        && self.loop_let_is_prenullable(value)
+                    {
+                        out.push(name.clone());
+                    }
+                }
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    self.collect_loop_heap_lets(then_block, entry, out);
+                    if let Some(els) = else_block {
+                        self.collect_loop_heap_lets(els, entry, out);
+                    }
+                }
+                Stmt::TryCatch {
+                    try_block,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    self.collect_loop_heap_lets(try_block, entry, out);
+                    self.collect_loop_heap_lets(catch_block, entry, out);
+                    if let Some(fin) = finally_block {
+                        self.collect_loop_heap_lets(fin, entry, out);
+                    }
+                }
+                Stmt::While { .. }
+                | Stmt::Repeat { .. }
+                | Stmt::For { .. }
+                | Stmt::ForEach { .. }
+                | Stmt::Function { .. } => {}
+                _ => {}
+            }
+        }
+    }
+
+    /// Allocate one slot per name and null it, returning the (name,
+    /// offset) pairs. Tracking insertion is left to the caller (after
+    /// loop prologue reads, so outer names resolve correctly).
+    fn pre_null_loop_vars(&mut self, names: &[String]) -> Vec<(String, i32)> {
+        let mut out = Vec::new();
+        for name in names {
+            arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+            let off = self.ctx.stack_offset;
+            arch::emit_load_num(&mut self.output, self.arch, 0);
+            arch::emit_store_var(&mut self.output, self.arch, off, self.ctx.stack_offset);
+            out.push((name.clone(), off));
+        }
+        out
+    }
+
+    /// Insert pre-nulled slots into tracking so body `let`s reuse (rather
+    /// than shadow) them.
+    fn track_loop_vars(&mut self, vars: &[(String, i32)]) {
+        for (name, off) in vars {
+            self.ctx
+                .variables
+                .insert(name.clone(), VarType::Array(*off));
+        }
+    }
+
+    /// Drop the pre-nulled temps at loop exit (normal exhaustion and
+    /// `break` land here; `return` is covered by scope machinery).
+    /// Null-or-valid slots make this unconditionally safe.
+    fn release_loop_vars(&mut self, vars: &[(String, i32)]) {
+        for (_, off) in vars {
+            arch::emit_rc_release_stack(
+                &mut self.output,
+                self.arch,
+                *off,
+                self.ctx.stack_offset,
+                self.os,
+            );
+        }
+    }
+
     pub(super) fn generate_while(&mut self, condition: &Expr, body: &[Stmt]) {
         let start_label = self.ctx.next_label();
         let end_label = self.ctx.next_label();
-        let loop_body_stack_offset = self.ctx.stack_offset;
         let loop_body_variables = self.ctx.variables.clone();
+        // Pre-null loop-fresh heap `let` slots once, before iterations:
+        // every rebinding then targets a null-or-valid slot, so the
+        // release is always safe (issue #80). Tracking is inserted
+        // after the condition so outer reads resolve correctly.
+        let mut prenull_names = Vec::new();
+        self.collect_loop_heap_lets(body, &loop_body_variables, &mut prenull_names);
+        let prenulled = self.pre_null_loop_vars(&prenull_names);
+        let loop_body_stack_offset = self.ctx.stack_offset;
 
         self.ctx.push_loop(
             start_label.clone(),
@@ -659,6 +781,7 @@ impl CodeGen {
 
         self.output.push_str(&format!("{}:\n", start_label));
         self.generate_condition_jump_if_false(condition, &end_label);
+        self.track_loop_vars(&prenulled);
 
         for s in body {
             self.generate_statement(s);
@@ -673,6 +796,7 @@ impl CodeGen {
 
         arch::emit_jump(&mut self.output, self.arch, &start_label);
         self.output.push_str(&format!("{}:\n", end_label));
+        self.release_loop_vars(&prenulled);
 
         self.ctx.pop_loop();
     }
@@ -680,8 +804,11 @@ impl CodeGen {
     pub(super) fn generate_repeat(&mut self, body: &[Stmt]) {
         let start_label = self.ctx.next_label();
         let end_label = self.ctx.next_label();
-        let loop_body_stack_offset = self.ctx.stack_offset;
         let loop_body_variables = self.ctx.variables.clone();
+        let mut prenull_names = Vec::new();
+        self.collect_loop_heap_lets(body, &loop_body_variables, &mut prenull_names);
+        let prenulled = self.pre_null_loop_vars(&prenull_names);
+        let loop_body_stack_offset = self.ctx.stack_offset;
 
         self.ctx.push_loop(
             start_label.clone(),
@@ -690,6 +817,7 @@ impl CodeGen {
         );
 
         self.output.push_str(&format!("{}:\n", start_label));
+        self.track_loop_vars(&prenulled);
 
         for s in body {
             self.generate_statement(s);
@@ -704,6 +832,7 @@ impl CodeGen {
 
         arch::emit_jump(&mut self.output, self.arch, &start_label);
         self.output.push_str(&format!("{}:\n", end_label));
+        self.release_loop_vars(&prenulled);
 
         self.ctx.pop_loop();
     }
@@ -737,8 +866,11 @@ impl CodeGen {
         let start_label = self.ctx.next_label();
         let step_label = self.ctx.next_label();
         let end_label = self.ctx.next_label();
-        let loop_body_stack_offset = self.ctx.stack_offset;
         let loop_body_variables = self.ctx.variables.clone();
+        let mut prenull_names = Vec::new();
+        self.collect_loop_heap_lets(body, &loop_body_variables, &mut prenull_names);
+        let prenulled = self.pre_null_loop_vars(&prenull_names);
+        let loop_body_stack_offset = self.ctx.stack_offset;
 
         self.ctx.push_loop(
             step_label.clone(),
@@ -767,6 +899,7 @@ impl CodeGen {
                 &end_label,
             );
         }
+        self.track_loop_vars(&prenulled);
 
         for s in body {
             self.generate_statement(s);
@@ -788,6 +921,7 @@ impl CodeGen {
             &start_label,
         );
         self.output.push_str(&format!("{}:\n", end_label));
+        self.release_loop_vars(&prenulled);
 
         self.ctx.pop_loop();
     }
@@ -1206,8 +1340,11 @@ impl CodeGen {
         let end_label = self.ctx.next_label();
         let map_label = self.ctx.next_label();
         let done_label = self.ctx.next_label();
-        let loop_body_stack_offset = self.ctx.stack_offset;
         let loop_body_variables = self.ctx.variables.clone();
+        let mut prenull_names = Vec::new();
+        self.collect_loop_heap_lets(body, &loop_body_variables, &mut prenull_names);
+        let prenulled = self.pre_null_loop_vars(&prenull_names);
+        let loop_body_stack_offset = self.ctx.stack_offset;
 
         self.ctx.push_loop(
             step_label.clone(),
@@ -1243,6 +1380,7 @@ impl CodeGen {
             map_val_is_float,
             map_val_is_string,
         );
+        self.track_loop_vars(&prenulled);
 
         for s in body {
             self.generate_statement(s);
@@ -1277,6 +1415,7 @@ impl CodeGen {
                 self.os,
             );
         }
+        self.release_loop_vars(&prenulled);
 
         self.ctx.pop_loop();
         if let Some(hid) = iter_tmp_var {

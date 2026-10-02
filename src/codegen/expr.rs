@@ -10,7 +10,7 @@ use crate::codegen::analysis::{
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
-use crate::codegen::kinds::{kind_of_literal, KIND_FLOAT, KIND_INT, KIND_STRING, KIND_UNKNOWN};
+use crate::codegen::kinds::{KIND_FLOAT, KIND_INT, KIND_STRING, KIND_UNKNOWN};
 use crate::codegen::target::{Architecture, OperatingSystem};
 
 impl CodeGen {
@@ -3096,7 +3096,9 @@ impl CodeGen {
                         // key shape is safe. x86 needs nothing: its 5-arg
                         // `set` already stored the kind.
                         if !matches!(self.arch, Architecture::X86) {
-                            if let Some(kind) = kind_of_literal(v) {
+                            let kind =
+                                crate::codegen::analysis::value_kind_tag(v, &self.ctx.variables);
+                            if kind != crate::codegen::kinds::KIND_UNKNOWN {
                                 arch::emit_load_var(
                                     &mut self.output,
                                     self.arch,

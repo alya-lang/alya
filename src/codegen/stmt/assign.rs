@@ -7,7 +7,6 @@ use crate::codegen::analysis::{
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
-use crate::codegen::kinds::kind_of_literal;
 use crate::codegen::target::Architecture;
 
 impl CodeGen {
@@ -147,10 +146,20 @@ impl CodeGen {
             Expr::Null => {
                 self.generate_expression(value);
                 self.emit_let_rebind_release(old_heap_offset, false);
-                arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
-                self.ctx
-                    .variables
-                    .insert(name.clone(), VarType::Null(self.ctx.stack_offset));
+                // Rebinding null needs no store: the rebind release
+                // already nulled the old slot.
+                let slot = match old_heap_offset {
+                    Some(off) if off > 0 => off,
+                    _ => {
+                        arch::emit_allocate_var(
+                            &mut self.output,
+                            self.arch,
+                            &mut self.ctx.stack_offset,
+                        );
+                        self.ctx.stack_offset
+                    }
+                };
+                self.ctx.variables.insert(name.clone(), VarType::Null(slot));
             }
             Expr::String(s) => {
                 let label = self.ctx.next_string_label();
@@ -160,10 +169,10 @@ impl CodeGen {
                 self.output.push_str(".text\n");
                 arch::emit_load_str_label(&mut self.output, self.arch, &label, self.os);
                 self.emit_let_rebind_release(old_heap_offset, false);
-                arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+                let slot = self.let_home_slot(old_heap_offset, false);
                 self.ctx
                     .variables
-                    .insert(name.clone(), VarType::StringOffset(self.ctx.stack_offset));
+                    .insert(name.clone(), VarType::StringOffset(slot));
             }
             Expr::Array(elements) => {
                 let is_str_arr = (!elements.is_empty()
@@ -198,11 +207,11 @@ impl CodeGen {
                 self.generate_expression(value);
 
                 self.emit_let_rebind_release(old_heap_offset, false);
-                arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+                let slot = self.let_home_slot(old_heap_offset, false);
 
                 self.ctx
                     .variables
-                    .insert(name.clone(), VarType::Array(self.ctx.stack_offset));
+                    .insert(name.clone(), VarType::Array(slot));
                 if let Some(sname) = struct_elem_type {
                     self.ctx.variables.insert(
                         format!("arr_struct_type:{}", name),
@@ -262,13 +271,13 @@ impl CodeGen {
                 self.generate_expression(value);
 
                 self.emit_let_rebind_release(old_heap_offset, false);
-                arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+                let slot = self.let_home_slot(old_heap_offset, false);
 
                 self.ctx.variables.insert(
                     name.clone(),
                     VarType::Struct {
                         struct_name: sname.clone(),
-                        offset: self.ctx.stack_offset,
+                        offset: slot,
                     },
                 );
 
@@ -359,13 +368,13 @@ impl CodeGen {
                 self.generate_expression(value);
 
                 self.emit_let_rebind_release(old_heap_offset, false);
-                arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+                let slot = self.let_home_slot(old_heap_offset, false);
 
                 self.ctx.variables.insert(
                     name.clone(),
                     VarType::Struct {
                         struct_name: sname.clone(),
-                        offset: self.ctx.stack_offset,
+                        offset: slot,
                     },
                 );
 
@@ -520,14 +529,13 @@ impl CodeGen {
                             | Some(VarType::Struct { .. })
                     ),
                     Expr::Index { .. } | Expr::FieldAccess { .. } => {
-                        is_arr || is_map || is_struct.is_some()
+                        is_arr || is_map || is_struct.is_some() || self.is_heap_expression(value)
                     }
                     _ => false,
                 };
-                // `let v: int = FRESH()[k]` (or float): hidden-slot
-                // temp-index so the temp dies immediately
-                // (alya-lang/alya#79). Decided before generating: the
-                // value must be evaluated exactly once.
+                // `let v = FRESH()[k]`: hidden-slot temp-index so the temp
+                // is tracked and freed (alya-lang/alya#79, alya-lang/alya#81).
+                // Covers scalars (no retain needed) and heap targets (retained via is_alias_heap).
                 let desugar_temp_index = match value {
                     Expr::Index { array, .. } => {
                         matches!(
@@ -551,7 +559,9 @@ impl CodeGen {
                                 | Some("f64")
                                 | Some("f32")
                         ) || is_number_expr(value, &self.ctx.variables)
-                            || is_float_expr(value, &self.ctx.variables))
+                            || is_float_expr(value, &self.ctx.variables)
+                            || is_alias_heap
+                            || self.is_heap_expression(value))
                     }
                     _ => false,
                 };
@@ -573,7 +583,9 @@ impl CodeGen {
                 }
 
                 self.emit_let_rebind_release(old_heap_offset, is_flt);
-                arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+                // Reuse a rebound slot when safe (issue #80); otherwise
+                // allocate fresh. `slot` is the home offset from here on.
+                let slot = self.let_home_slot(old_heap_offset, is_flt);
                 if matches!(self.arch, Architecture::X86) && is_flt {
                     // Float slots are 8 bytes on x86 (stores are movsd);
                     // a single 4-byte slot would overrun the neighbour.
@@ -596,13 +608,11 @@ impl CodeGen {
                         name.clone(),
                         VarType::Struct {
                             struct_name: sname,
-                            offset: self.ctx.stack_offset,
+                            offset: slot,
                         },
                     );
                 } else if is_map {
-                    self.ctx
-                        .variables
-                        .insert(name.clone(), VarType::Map(self.ctx.stack_offset));
+                    self.ctx.variables.insert(name.clone(), VarType::Map(slot));
                     if let Expr::Map(entries) = value {
                         for (k, v) in entries {
                             if is_string_expr(v, &self.ctx.variables) {
@@ -657,7 +667,7 @@ impl CodeGen {
                 } else if is_arr {
                     self.ctx
                         .variables
-                        .insert(name.clone(), VarType::Array(self.ctx.stack_offset));
+                        .insert(name.clone(), VarType::Array(slot));
                     if matches!(type_ann, Some("string[]") | Some("str[]"))
                         || is_string_array(value, &self.ctx.variables)
                     {
@@ -675,7 +685,7 @@ impl CodeGen {
                 } else if is_str {
                     self.ctx
                         .variables
-                        .insert(name.clone(), VarType::StringOffset(self.ctx.stack_offset));
+                        .insert(name.clone(), VarType::StringOffset(slot));
                 } else if is_flt {
                     self.ctx
                         .variables
@@ -707,13 +717,11 @@ impl CodeGen {
                         }
                     }
                 } else if is_null {
-                    self.ctx
-                        .variables
-                        .insert(name.clone(), VarType::Null(self.ctx.stack_offset));
+                    self.ctx.variables.insert(name.clone(), VarType::Null(slot));
                 } else {
                     self.ctx
                         .variables
-                        .insert(name.clone(), VarType::Number(self.ctx.stack_offset));
+                        .insert(name.clone(), VarType::Number(slot));
                     if matches!(
                         type_ann,
                         Some("int")
@@ -894,12 +902,44 @@ impl CodeGen {
         }
     }
 
+    /// Home slot for a `let` value: reuse a rebound heap slot when safe,
+    /// else allocate fresh. Reusing keeps the gen-time slot identical to
+    /// every run-time iteration of a loop, so the rebind release always
+    /// targets the live value (issue #80). Skipped for float values on
+    /// x86 (the old 4-byte handle slot cannot hold an 8-byte double) and
+    /// for float values everywhere (their store convention differs).
+    /// Returns the slot offset now holding the value.
+    fn let_home_slot(&mut self, old_offset: Option<i32>, is_float_value: bool) -> i32 {
+        let reuse = match old_offset {
+            Some(off) if off > 0 => !is_float_value,
+            _ => false,
+        };
+        if let Some(off) = old_offset.filter(|_| reuse) {
+            arch::emit_store_var(&mut self.output, self.arch, off, self.ctx.stack_offset);
+            off
+        } else {
+            arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+            self.ctx.stack_offset
+        }
+    }
+
     /// Release the previous heap value when `let` rebinds an existing
-    /// name (loop-body redeclaration). The new value is already generated
-    /// (and retained when aliased), so dropping the old slot mirrors `=`
-    /// exactly. No-op for first declarations (alya-lang/alya#79).
+    /// name, then null the old slot. Nulling makes scope restores safe:
+    /// a resurrected binding can only ever release null, never a stale
+    /// pointer (double-free guard, issue #80). The new value is already
+    /// generated (and retained when aliased), so dropping the old slot
+    /// mirrors `=` exactly. No-op for first declarations (alya-lang/alya#79).
     fn emit_let_rebind_release(&mut self, old_offset: Option<i32>, is_flt: bool) {
         if let Some(old_offset) = old_offset {
+            // x86 keeps float values only in `%xmm0` (no int-register
+            // mirror like the other backends), and the release call
+            // below clobbers it: spill the double across the sequence.
+            let spill_x86_float = matches!(self.arch, Architecture::X86) && is_flt;
+            if spill_x86_float {
+                self.output.push_str("    sub $8, %esp\n");
+                self.output.push_str("    movsd %xmm0, (%esp)\n");
+                self.ctx.stack_offset += 8;
+            }
             let temp_offset = self.temp_offset();
             arch::emit_push_temp(&mut self.output, self.arch);
             self.ctx.stack_offset += temp_offset;
@@ -910,8 +950,20 @@ impl CodeGen {
                 self.ctx.stack_offset,
                 self.os,
             );
+            arch::emit_load_num(&mut self.output, self.arch, 0);
+            arch::emit_store_var(
+                &mut self.output,
+                self.arch,
+                old_offset,
+                self.ctx.stack_offset,
+            );
             self.ctx.stack_offset -= temp_offset;
             arch::emit_pop_temp(&mut self.output, self.arch);
+            if spill_x86_float {
+                self.output.push_str("    movsd (%esp), %xmm0\n");
+                self.output.push_str("    add $8, %esp\n");
+                self.ctx.stack_offset -= 8;
+            }
             if is_flt {
                 match self.arch {
                     Architecture::X64 => {
@@ -1007,8 +1059,8 @@ impl CodeGen {
             _ => false,
         };
 
-        // `v = FRESH()[k]` with a scalar target: evaluate through a
-        // hidden slot so the temp dies immediately (alya-lang/alya#79).
+        // `v = FRESH()[k]`: evaluate through a hidden slot so the temp
+        // is tracked and freed (alya-lang/alya#79, alya-lang/alya#81).
         let mut generated = false;
         if let Expr::Index { array, index } = value {
             let fresh = matches!(
@@ -1020,7 +1072,8 @@ impl CodeGen {
                 Some(VarType::Number(_)) | Some(VarType::Float(_))
             ) || is_number_expr(value, &self.ctx.variables)
                 || is_float_expr(value, &self.ctx.variables);
-            if fresh && target_scalar {
+            let target_heap = is_alias_heap || self.is_heap_expression(value);
+            if fresh && (target_scalar || target_heap) {
                 generated = self.gen_temp_index_value(array, index);
             }
         }
@@ -1414,7 +1467,8 @@ impl CodeGen {
                 Architecture::X64 | Architecture::ARM64 | Architecture::X86
             ) {
                 if let (Expr::Identifier(_), Expr::String(_)) = (array, index) {
-                    if let Some(kind) = kind_of_literal(value) {
+                    let kind = crate::codegen::analysis::value_kind_tag(value, &self.ctx.variables);
+                    if kind != crate::codegen::kinds::KIND_UNKNOWN {
                         let tag_args = [array.clone(), index.clone(), Expr::Number(kind as i128)];
                         match self.arch {
                             Architecture::X86 => {

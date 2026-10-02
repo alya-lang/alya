@@ -13,7 +13,36 @@ impl CodeGen {
             Stmt::Import { .. } | Stmt::ExternBlock { .. } | Stmt::Const { .. } => {}
             Stmt::Say(expr) => self.generate_say(expr),
             Stmt::Expr(expr) => {
+                // Discarded heap temporaries: release fresh-owned results
+                // (literals, direct struct constructors, freshness-marked calls)
+                // immediately after evaluating (alya-lang/alya#81). Borrow-returning
+                // calls and non-heap expressions are skipped to prevent use-after-free.
+                let drops_fresh_heap = self.is_heap_expression(expr)
+                    && (matches!(
+                        expr,
+                        Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. }
+                    ) || match expr {
+                        Expr::Call { name, .. } => {
+                            let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+                            let bare = bare.rsplit("__").next().unwrap_or(bare);
+                            self.ctx.structs.contains_key(name)
+                                || self.ctx.structs.contains_key(bare)
+                                || crate::codegen::analysis::call_returns_fresh_value(
+                                    name,
+                                    &self.ctx.variables,
+                                )
+                        }
+                        _ => false,
+                    });
                 self.generate_expression(expr);
+                if drops_fresh_heap {
+                    arch::emit_rc_release(
+                        &mut self.output,
+                        self.arch,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                }
             }
             Stmt::Let {
                 name,
