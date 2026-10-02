@@ -149,6 +149,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
 
+    // x86 hardware masks shift counts by 31; clamp counts >= 32 to zero to prevent wrap.
     out.push_str(".global fn_bit_shl\n");
     out.push_str("fn_bit_shl:\n");
     out.push_str("    push %ebp\n");
@@ -156,7 +157,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    push %ecx\n");
     out.push_str("    mov 8(%ebp), %eax\n");
     out.push_str("    mov 12(%ebp), %ecx\n");
+    out.push_str("    cmp $32, %ecx\n");
+    out.push_str("    jae 1f\n");
     out.push_str("    shll %cl, %eax\n");
+    out.push_str("    jmp 2f\n");
+    out.push_str("1:\n");
+    out.push_str("    xor %eax, %eax\n");
+    out.push_str("2:\n");
     out.push_str("    pop %ecx\n");
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");
@@ -168,7 +175,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    push %ecx\n");
     out.push_str("    mov 8(%ebp), %eax\n");
     out.push_str("    mov 12(%ebp), %ecx\n");
+    out.push_str("    cmp $32, %ecx\n");
+    out.push_str("    jae 1f\n");
     out.push_str("    shrl %cl, %eax\n");
+    out.push_str("    jmp 2f\n");
+    out.push_str("1:\n");
+    out.push_str("    xor %eax, %eax\n");
+    out.push_str("2:\n");
     out.push_str("    pop %ecx\n");
     out.push_str("    pop %ebp\n");
     out.push_str("    ret\n\n");

@@ -53,13 +53,26 @@ pub fn emit_binary_op(out: &mut String, op: BinaryOp) {
         BinaryOp::And | BinaryOp::BitAnd => out.push_str("    and %ebx, %eax\n"),
         BinaryOp::Or | BinaryOp::BitOr => out.push_str("    or %ebx, %eax\n"),
         BinaryOp::BitXor => out.push_str("    xor %ebx, %eax\n"),
+        // x86 hardware masks shift counts by 31; shifts >= 32 wrap to mod 32 unless clamped to zero.
         BinaryOp::Shl => {
             out.push_str("    mov %ebx, %ecx\n");
+            out.push_str("    cmp $32, %ecx\n");
+            out.push_str("    jae 1f\n");
             out.push_str("    shl %cl, %eax\n");
+            out.push_str("    jmp 2f\n");
+            out.push_str("1:\n");
+            out.push_str("    xor %eax, %eax\n");
+            out.push_str("2:\n");
         }
         BinaryOp::Shr => {
             out.push_str("    mov %ebx, %ecx\n");
+            out.push_str("    cmp $32, %ecx\n");
+            out.push_str("    jae 1f\n");
             out.push_str("    shr %cl, %eax\n");
+            out.push_str("    jmp 2f\n");
+            out.push_str("1:\n");
+            out.push_str("    xor %eax, %eax\n");
+            out.push_str("2:\n");
         }
         BinaryOp::In | BinaryOp::NotIn | BinaryOp::Range | BinaryOp::RangeInclusive => {}
     }
@@ -155,11 +168,23 @@ pub fn emit_bit_op(out: &mut String, op: &str) {
         "bit_xor" => out.push_str("    xor %ebx, %eax\n"),
         "bit_shl" => {
             out.push_str("    mov %ebx, %ecx\n");
+            out.push_str("    cmp $32, %ecx\n");
+            out.push_str("    jae 1f\n");
             out.push_str("    shl %cl, %eax\n");
+            out.push_str("    jmp 2f\n");
+            out.push_str("1:\n");
+            out.push_str("    xor %eax, %eax\n");
+            out.push_str("2:\n");
         }
         "bit_shr" => {
             out.push_str("    mov %ebx, %ecx\n");
+            out.push_str("    cmp $32, %ecx\n");
+            out.push_str("    jae 1f\n");
             out.push_str("    shr %cl, %eax\n");
+            out.push_str("    jmp 2f\n");
+            out.push_str("1:\n");
+            out.push_str("    xor %eax, %eax\n");
+            out.push_str("2:\n");
         }
         _ => {}
     }
@@ -306,11 +331,23 @@ pub fn emit_bit_op_reg(out: &mut String, op: &str) {
         "bit_xor" => out.push_str("    xor %ebx, %eax\n"),
         "bit_shl" => {
             out.push_str("    mov %ebx, %ecx\n");
+            out.push_str("    cmp $32, %ecx\n");
+            out.push_str("    jae 1f\n");
             out.push_str("    shl %cl, %eax\n");
+            out.push_str("    jmp 2f\n");
+            out.push_str("1:\n");
+            out.push_str("    xor %eax, %eax\n");
+            out.push_str("2:\n");
         }
         "bit_shr" => {
             out.push_str("    mov %ebx, %ecx\n");
+            out.push_str("    cmp $32, %ecx\n");
+            out.push_str("    jae 1f\n");
             out.push_str("    shr %cl, %eax\n");
+            out.push_str("    jmp 2f\n");
+            out.push_str("1:\n");
+            out.push_str("    xor %eax, %eax\n");
+            out.push_str("2:\n");
         }
         _ => {}
     }
@@ -319,8 +356,20 @@ pub fn emit_bit_op_reg(out: &mut String, op: &str) {
 pub fn emit_bit_op_imm(out: &mut String, op: &str, imm: i64) {
     let imm32 = imm as i32;
     match op {
-        "bit_shl" => out.push_str(&format!("    shl ${}, %eax\n", imm & 31)),
-        "bit_shr" => out.push_str(&format!("    shr ${}, %eax\n", imm & 31)),
+        "bit_shl" => {
+            if (0..32).contains(&imm) {
+                out.push_str(&format!("    shl ${}, %eax\n", imm));
+            } else {
+                out.push_str("    xor %eax, %eax\n");
+            }
+        }
+        "bit_shr" => {
+            if (0..32).contains(&imm) {
+                out.push_str(&format!("    shr ${}, %eax\n", imm));
+            } else {
+                out.push_str("    xor %eax, %eax\n");
+            }
+        }
         "bit_and" => out.push_str(&format!("    and ${}, %eax\n", imm32)),
         "bit_or" => out.push_str(&format!("    or ${}, %eax\n", imm32)),
         "bit_xor" => out.push_str(&format!("    xor ${}, %eax\n", imm32)),
