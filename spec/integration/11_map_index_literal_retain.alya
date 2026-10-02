@@ -1,0 +1,35 @@
+# ==============================================================================
+# Alya Integration Fixture 11 (entry): map literal retaining indexed map values
+# Distilled from: Lib/crypto/src/rsa.alya (rsa_try_pubkey_at)
+# Guards: when constructing a map literal { "k": source_map["key"] }, the value
+#         extracted from source_map must be retained. When source_map goes out
+#         of scope, its elements must not be freed if they were stored in the new map.
+# ==============================================================================
+
+function extract_data() -> map
+    let inner = { "bytes": [10, 20, 30, 40, 50], "tag": "test" }
+    let out = { "data": inner["bytes"], "e": 65537 }
+    return out
+end
+
+function main()
+    let res = extract_data()
+    # Trigger an allocation to overwrite any freed heap block if UAF occurred
+    let dummy: int[] = []
+    let i = 0
+    while i < 100
+        dummy.push(i)
+        i += 1
+    end
+
+    let d = res["data"]
+    assert len(d) == 5
+    assert d[0] == 10
+    assert d[1] == 20
+    assert d[4] == 50
+    assert res["e"] == 65537
+
+    say "integration 11_map_index_literal_retain: OK"
+end
+
+main()

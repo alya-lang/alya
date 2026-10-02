@@ -645,8 +645,17 @@ impl CodeGen {
                                     format!("struct_field_arr_flt:{}.{}", bare, f),
                                     VarType::Number(0),
                                 );
+                            } else if crate::codegen::analysis::is_int_array_annotation(t) {
                                 self.ctx.variables.insert(
-                                    format!("struct_field_arr_flt:{}", f),
+                                    format!("struct_field_arr_int:{}.{}", name, f),
+                                    VarType::Number(0),
+                                );
+                                self.ctx.variables.insert(
+                                    format!("struct_field_arr_int:{}.{}", bare, f),
+                                    VarType::Number(0),
+                                );
+                                self.ctx.variables.insert(
+                                    format!("struct_field_arr_int:{}", f),
                                     VarType::Number(0),
                                 );
                             }
@@ -2476,20 +2485,39 @@ impl CodeGen {
         }
     }
 
-    /// Retain gate for collection stores (`push`, map `set`, array `set`).
+    /// Retain gate for collection stores (`push`, map `set`, array `set`, literal construction).
     /// Storing an aliased heap value must retain it so it survives later
     /// drops of the producer slot (loop-end releases, scope restores).
     /// But a proven scalar is never a heap pointer, and `rc_retain`
     /// faults on large 8-aligned ints (they pass its pointer guards and
     /// it reads `-16(ptr)`): skip the retain for proven-int/float
     /// identifiers and for reads from proven-int/float arrays. Anything
-    /// else (notably mistracked heap values such as tuple-destructured
-    /// arrays recorded as `Number`) keeps the retain.
+    /// else (notably dynamic map/index reads or tuple-destructured
+    /// values) keeps the retain so it avoids use-after-free.
     pub(crate) fn store_value_needs_retain(&self, expr: &crate::ast::Expr) -> bool {
         use crate::ast::Expr;
+
+        // Literals and arithmetic/comparison expressions are never heap objects.
+        match expr {
+            Expr::Number(_)
+            | Expr::Float(_)
+            | Expr::String(_)
+            | Expr::InterpolatedString(_)
+            | Expr::Null => return false,
+            Expr::Binary { .. } | Expr::Unary { .. } => return false,
+            _ => {}
+        }
+
         if self.is_heap_expression(expr) {
             return true;
         }
+
+        if crate::codegen::analysis::is_float_expr(expr, &self.ctx.variables)
+            || crate::codegen::analysis::is_string_expr(expr, &self.ctx.variables)
+        {
+            return false;
+        }
+
         match expr {
             Expr::Identifier(name) => {
                 if self
@@ -2499,31 +2527,55 @@ impl CodeGen {
                 {
                     return false;
                 }
-                if crate::codegen::analysis::is_float_expr(expr, &self.ctx.variables) {
+                if matches!(self.ctx.variables.get(name), Some(VarType::Number(_)))
+                    && !self
+                        .ctx
+                        .variables
+                        .contains_key(&format!("param_is_untyped:{}", name))
+                {
                     return false;
                 }
                 true
             }
             Expr::Index { array, .. } => {
-                if let Expr::Identifier(base) = array.as_ref() {
-                    if self
-                        .ctx
-                        .variables
-                        .contains_key(&format!("arr_is_int:{}", base))
-                    {
-                        return false;
-                    }
+                // If it's a map read (e.g. ni["bytes"]), the value might be a heap
+                // object stored in the map (array, map, struct). We must retain it
+                // so it survives when the enclosing map drops!
+                if crate::codegen::analysis::is_map_expr(array, &self.ctx.variables) {
+                    return true;
                 }
-                if crate::codegen::analysis::is_float_expr(expr, &self.ctx.variables) {
-                    return false;
+                // For array element reads (arr[i]), elements are scalars (integers,
+                // floats, bytes) unless the array is known to hold heap objects
+                // (structs, nested arrays, maps).
+                if self.is_heap_expression(expr) {
+                    return true;
+                }
+                false
+            }
+            Expr::FieldAccess { object, field } => {
+                if let Expr::Identifier(obj_name) = object.as_ref() {
+                    if let Some(VarType::Struct { struct_name, .. }) =
+                        self.ctx.variables.get(obj_name)
+                    {
+                        if let Some(sinfo) = self.ctx.structs.get(struct_name) {
+                            if let Some(idx) = sinfo.fields.iter().position(|f| f == field) {
+                                if let Some(Some(ftype)) = sinfo.field_types.get(idx) {
+                                    if crate::codegen::analysis::is_int_scalar_annotation(ftype)
+                                        || ftype == "float"
+                                        || ftype == "f64"
+                                        || ftype == "f32"
+                                        || ftype == "string"
+                                        || ftype == "str"
+                                    {
+                                        return false;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 true
             }
-            // Field reads keep the f032afb retain: the field type is
-            // usually unknown statically. Anything else falls back to
-            // the pre-f032afb rule (heap expressions only): retaining
-            // e.g. an int arithmetic result would fault in rc_retain.
-            Expr::FieldAccess { .. } => true,
             _ => false,
         }
     }

@@ -169,6 +169,7 @@ impl CodeGenContext {
                 || k.starts_with("map_field_flt:")
                 || k.starts_with("map_flt:")
                 || k.starts_with("struct_field_arr:")
+                || k.starts_with("struct_field_arr_int:")
                 || k.starts_with("struct_field_map:")
                 || k.starts_with("struct_field_struct:")
                 || k.starts_with("arr_is_str:")

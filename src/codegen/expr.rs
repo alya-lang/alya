@@ -2496,7 +2496,7 @@ impl CodeGen {
                                     }
                                     _ => false,
                                 };
-                        if self.is_heap_expression(v) && !v_moves {
+                        if self.store_value_needs_retain(v) && !v_moves {
                             arch::emit_rc_retain(
                                 &mut self.output,
                                 self.arch,
