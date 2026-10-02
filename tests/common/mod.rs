@@ -9,18 +9,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static TEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// Returns `Some(reason)` when native-execution tests must be skipped on this
-/// platform instead of compiling and running binaries. Centralizes the
-/// macOS/Darwin gap so every harness reports the same reason instead of
-/// silently passing. NOTE: `e2e_*` tests intentionally do NOT consult this —
-/// they run wherever a C toolchain exists and act as a canary: if they ever
-/// go green on macOS, these skips are stale and must be removed.
+/// platform instead of compiling and running binaries. All supported targets
+/// (Linux, Windows, macOS) are fully verified and execute natively.
 #[allow(dead_code)]
 pub fn execution_skip_reason() -> Option<&'static str> {
-    if cfg!(target_os = "macos") {
-        Some("Darwin ARM64 target pending full ABI alignment (native execution unverified)")
-    } else {
-        None
-    }
+    None
 }
 
 /// Selects the C compiler used to assemble harness-generated binaries.
