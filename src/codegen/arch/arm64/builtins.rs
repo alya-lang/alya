@@ -115,12 +115,29 @@ pub fn emit_array_len(out: &mut String) {
     out.push_str("1:\n");
 }
 
-pub fn emit_print_array(out: &mut String) {
+pub fn emit_print_array(out: &mut String, os: OperatingSystem) {
     out.push_str("    bl alya_print_array\n");
+    // Flush stdout so piped `say` output survives a later crash
+    // (alya-lang/alya#72). x0 is dead here; `bl` keeps sp aligned.
+    let p = if matches!(os, OperatingSystem::MacOS) {
+        "_"
+    } else {
+        ""
+    };
+    out.push_str("    movz x0, #0\n");
+    out.push_str(&format!("    bl {}fflush\n", p));
 }
 
-pub fn emit_print_map(out: &mut String) {
+pub fn emit_print_map(out: &mut String, os: OperatingSystem) {
     out.push_str("    bl alya_print_map\n");
+    // See emit_print_array: every collection `say` ends flushed (#72).
+    let p = if matches!(os, OperatingSystem::MacOS) {
+        "_"
+    } else {
+        ""
+    };
+    out.push_str("    movz x0, #0\n");
+    out.push_str(&format!("    bl {}fflush\n", p));
 }
 
 pub fn emit_struct_new(
@@ -158,8 +175,16 @@ pub fn emit_struct_field_set(out: &mut String, field_idx: usize) {
     out.push_str(&format!("    str x0, [x1, #{}]\n", (field_idx + 1) * 8));
 }
 
-pub fn emit_print_struct(out: &mut String) {
+pub fn emit_print_struct(out: &mut String, os: OperatingSystem) {
     out.push_str("    bl alya_print_struct\n");
+    // See emit_print_array: every collection `say` ends flushed (#72).
+    let p = if matches!(os, OperatingSystem::MacOS) {
+        "_"
+    } else {
+        ""
+    };
+    out.push_str("    movz x0, #0\n");
+    out.push_str(&format!("    bl {}fflush\n", p));
 }
 
 #[allow(clippy::too_many_arguments)]

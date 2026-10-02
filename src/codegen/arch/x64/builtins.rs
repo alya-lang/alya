@@ -160,6 +160,33 @@ pub fn emit_array_len(out: &mut String) {
     out.push_str("1:\n");
 }
 
+// Flushes stdout via fflush(NULL) after a collection `say` so piped
+// output survives a later crash (alya-lang/alya#72). Call when %rsp is
+// back to its pre-print value: the caller's padding/alignment applies
+// unchanged. Only clobbers caller-saved registers.
+fn emit_stdout_flush_win(out: &mut String, padding: i32) {
+    out.push_str(&format!("    sub ${}, %rsp\n", padding));
+    out.push_str("    xor %rcx, %rcx\n");
+    out.push_str("    call fflush\n");
+    out.push_str(&format!("    add ${}, %rsp\n", padding));
+}
+
+fn emit_stdout_flush_sysv(out: &mut String, misaligned: bool, os: OperatingSystem) {
+    let p = if matches!(os, OperatingSystem::MacOS) {
+        "_"
+    } else {
+        ""
+    };
+    out.push_str("    xor %edi, %edi\n");
+    if misaligned {
+        out.push_str("    sub $8, %rsp\n");
+    }
+    out.push_str(&format!("    call {}fflush\n", p));
+    if misaligned {
+        out.push_str("    add $8, %rsp\n");
+    }
+}
+
 pub fn emit_print_array(out: &mut String, stack_offset: i32, os: OperatingSystem) {
     if matches!(os, OperatingSystem::Windows) {
         let padding = if stack_offset % 16 == 0 { 32 } else { 40 };
@@ -167,6 +194,7 @@ pub fn emit_print_array(out: &mut String, stack_offset: i32, os: OperatingSystem
         out.push_str(&format!("    sub ${}, %rsp\n", padding));
         out.push_str("    call alya_print_array\n");
         out.push_str(&format!("    add ${}, %rsp\n", padding));
+        emit_stdout_flush_win(out, padding);
     } else {
         let misaligned = stack_offset % 16 != 0;
         if misaligned {
@@ -177,6 +205,7 @@ pub fn emit_print_array(out: &mut String, stack_offset: i32, os: OperatingSystem
         if misaligned {
             out.push_str("    add $8, %rsp\n");
         }
+        emit_stdout_flush_sysv(out, misaligned, os);
     }
 }
 
@@ -187,6 +216,7 @@ pub fn emit_print_map(out: &mut String, stack_offset: i32, os: OperatingSystem) 
         out.push_str(&format!("    sub ${}, %rsp\n", padding));
         out.push_str("    call alya_print_map\n");
         out.push_str(&format!("    add ${}, %rsp\n", padding));
+        emit_stdout_flush_win(out, padding);
     } else {
         let misaligned = stack_offset % 16 != 0;
         if misaligned {
@@ -197,6 +227,7 @@ pub fn emit_print_map(out: &mut String, stack_offset: i32, os: OperatingSystem) 
         if misaligned {
             out.push_str("    add $8, %rsp\n");
         }
+        emit_stdout_flush_sysv(out, misaligned, os);
     }
 }
 
@@ -276,6 +307,7 @@ pub fn emit_print_struct(out: &mut String, stack_offset: i32, os: OperatingSyste
         out.push_str(&format!("    sub ${}, %rsp\n", padding));
         out.push_str("    call alya_print_struct\n");
         out.push_str(&format!("    add ${}, %rsp\n", padding));
+        emit_stdout_flush_win(out, padding);
     } else {
         let misaligned = stack_offset % 16 != 0;
         if misaligned {
@@ -286,6 +318,7 @@ pub fn emit_print_struct(out: &mut String, stack_offset: i32, os: OperatingSyste
         if misaligned {
             out.push_str("    add $8, %rsp\n");
         }
+        emit_stdout_flush_sysv(out, misaligned, os);
     }
 }
 

@@ -204,6 +204,32 @@ fn test_codegen_say_flushes_stdout_on_all_backends() {
 }
 
 #[test]
+fn test_codegen_say_collections_flush_on_all_backends() {
+    // alya-lang/alya#72 follow-up: `say` of arrays/maps goes through
+    // alya_print_* runtime helpers instead of `emit_call_printf`, so those
+    // paths need their own trailing flush. Same exact-block discipline
+    // as the scalar test: runtime helpers contain bare flushes too.
+    let array_program = simple_program(Stmt::Say(Expr::Array(vec![Expr::Number(1)])));
+    let map_program = simple_program(Stmt::Say(Expr::Map(vec![(
+        Expr::String("k".into()),
+        Expr::Number(1),
+    )])));
+
+    let asm = generate(&array_program, Architecture::X64, OperatingSystem::Linux);
+    assert!(asm.contains("call alya_print_array\n    xor %edi, %edi\n    call fflush"));
+    let asm = generate(&map_program, Architecture::X64, OperatingSystem::Linux);
+    assert!(asm.contains("call alya_print_map\n    xor %edi, %edi\n    call fflush"));
+
+    let asm = generate(&array_program, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(asm.contains("bl alya_print_array\n    movz x0, #0\n    bl fflush"));
+    let asm = generate(&map_program, Architecture::ARM64, OperatingSystem::MacOS);
+    assert!(asm.contains("bl alya_print_map\n    movz x0, #0\n    bl _fflush"));
+
+    let asm = generate(&array_program, Architecture::X86, OperatingSystem::Linux);
+    assert!(asm.contains("call alya_print_array\n    add $4, %esp\n    push $0\n    call fflush"));
+}
+
+#[test]
 fn test_codegen_say_interpolated_many_args_flushes_on_windows() {
     // The Windows >3-arg interpolated `say` path emits its own `printf`
     // sequence instead of `emit_call_printf`; it must flush as well (#72).

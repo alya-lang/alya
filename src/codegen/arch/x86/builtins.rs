@@ -177,11 +177,20 @@ pub fn emit_print_array(out: &mut String) {
     out.push_str("    push %eax\n");
     out.push_str("    call alya_print_array\n");
     out.push_str("    add $4, %esp\n");
+    // Flush stdout so piped `say` output survives a later crash
+    // (alya-lang/alya#72).
+    out.push_str("    push $0\n");
+    out.push_str("    call fflush\n");
+    out.push_str("    add $4, %esp\n");
 }
 
 pub fn emit_print_map(out: &mut String) {
     out.push_str("    push %eax\n");
     out.push_str("    call alya_print_map\n");
+    out.push_str("    add $4, %esp\n");
+    // See emit_print_array: every collection `say` ends flushed (#72).
+    out.push_str("    push $0\n");
+    out.push_str("    call fflush\n");
     out.push_str("    add $4, %esp\n");
 }
 
@@ -223,6 +232,10 @@ pub fn emit_struct_field_set(out: &mut String, field_idx: usize) {
 pub fn emit_print_struct(out: &mut String) {
     out.push_str("    push %eax\n");
     out.push_str("    call alya_print_struct\n");
+    out.push_str("    add $4, %esp\n");
+    // See emit_print_array: every collection `say` ends flushed (#72).
+    out.push_str("    push $0\n");
+    out.push_str("    call fflush\n");
     out.push_str("    add $4, %esp\n");
 }
 
