@@ -1283,27 +1283,48 @@ impl TypeChecker {
                         | BinaryOp::Shl
                         | BinaryOp::Shr
                 );
+                let op_sym = match op {
+                    BinaryOp::Add => "+",
+                    BinaryOp::Subtract => "-",
+                    BinaryOp::Multiply => "*",
+                    BinaryOp::Divide => "/",
+                    BinaryOp::Modulo => "%",
+                    BinaryOp::BitAnd => "&",
+                    BinaryOp::BitOr => "|",
+                    BinaryOp::BitXor => "^",
+                    BinaryOp::Shl => "<<",
+                    BinaryOp::Shr => ">>",
+                    _ => "?",
+                };
                 if is_arith && (is_collection(&lt) || is_collection(&rt)) {
                     // `string + x` keeps its concat/stringify path.
                     let is_str_concat =
                         matches!(op, BinaryOp::Add) && (lt == Type::String || rt == Type::String);
                     if !is_str_concat {
-                        let sym = match op {
-                            BinaryOp::Add => "+",
-                            BinaryOp::Subtract => "-",
-                            BinaryOp::Multiply => "*",
-                            BinaryOp::Divide => "/",
-                            BinaryOp::Modulo => "%",
-                            BinaryOp::BitAnd => "&",
-                            BinaryOp::BitOr => "|",
-                            BinaryOp::BitXor => "^",
-                            BinaryOp::Shl => "<<",
-                            BinaryOp::Shr => ">>",
-                            _ => "?",
-                        };
                         return Err(format!(
                             "TypeError: Operator '{}' cannot be applied to '{}' and '{}'",
-                            sym, lt, rt
+                            op_sym, lt, rt
+                        ));
+                    }
+                }
+
+                // Chapter 03 (alya-lang/alya#73): arithmetic and bitwise
+                // operators on statically-known strings have no defined
+                // semantics either, except `string + x` (concat). String
+                // repetition is `str_repeat()`, not `*`: accepting
+                // `"X" * 5` emits integer multiplication on a heap
+                // pointer and yields silent garbage. Structs stay exempt
+                // (operator overloads) and `Any` stays lenient, exactly
+                // like the collection rule above.
+                let is_proven_string = lt == Type::String || rt == Type::String;
+                let is_struct_operand =
+                    matches!(&lt, Type::Struct(_)) || matches!(&rt, Type::Struct(_));
+                if is_arith && is_proven_string && !is_struct_operand {
+                    let is_str_concat = matches!(op, BinaryOp::Add);
+                    if !is_str_concat {
+                        return Err(format!(
+                            "TypeError: Operator '{}' cannot be applied to '{}' and '{}'",
+                            op_sym, lt, rt
                         ));
                     }
                 }

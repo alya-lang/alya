@@ -1,0 +1,11 @@
+# EXPECT-FAIL: check: Operator '*' cannot be applied to 'string' and 'int'
+# Chapter 03: arithmetic on strings is a compile-time error, except
+# `string + x` (concat). String repetition is `str_repeat()`, not `*`;
+# accepting `"X" * 5` emits integer multiplication on a heap pointer and
+# yields silent garbage (alya-lang/alya#73).
+function main()
+    let r = "X" * 5
+    say r
+end
+
+main()
