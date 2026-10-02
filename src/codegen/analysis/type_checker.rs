@@ -593,6 +593,14 @@ pub struct TypeChecker {
     /// Per-scope arrays with statically visible float/int element
     /// evidence (alya-lang/alya#39 Phase 2): scope "" is top level.
     mixed_arrays: HashMap<String, ArrayKindEvidence>,
+    /// Extern C function names, collected from `ExternBlock` nodes
+    /// (alya-lang/alya#77): usable as values, so they resolve.
+    extern_fns: HashSet<String>,
+    /// `from`-import symbols (`from "m" import sym [as alias]`, usable
+    /// bare). Plain `import ... [as alias]` names are NOT values — an
+    /// alias only namespaces its module for local use — so they stay
+    /// out (alya-lang/alya#77).
+    imported_symbols: HashSet<String>,
 }
 
 impl Default for TypeChecker {
@@ -616,6 +624,8 @@ impl TypeChecker {
             current_fn_return_type: None,
             current_fn_name: None,
             mixed_arrays: HashMap::new(),
+            extern_fns: HashSet::new(),
+            imported_symbols: HashSet::new(),
         };
         tc.register_builtins();
         tc
@@ -1113,6 +1123,39 @@ impl TypeChecker {
         !declared
     }
 
+    /// Whether an identifier resolves to any known declaration: a variable
+    /// in scope, an assigned (bare-assign counts as declaration) name, a
+    /// function (incl. builtins), struct, enum, interface, extern C
+    /// function, or `from`-import symbol (alya-lang/alya#77). Anything
+    /// else reads as the zero word at runtime — reject it instead of
+    /// producing silent garbage. Call callees, field names, type names
+    /// and struct/enum qualifiers are not `Identifier` nodes, so this
+    /// only gates value-position reads.
+    fn is_declared_name(&self, name: &str) -> bool {
+        if self.lookup_var(name).is_some() {
+            return true;
+        }
+        let bare = name.rsplit("::").next().unwrap_or(name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        for set in self.assigned.iter().rev() {
+            if set.contains(name) || set.contains(bare) {
+                return true;
+            }
+        }
+        self.functions.contains_key(name)
+            || self.functions.contains_key(bare)
+            || self.structs.contains_key(name)
+            || self.structs.contains_key(bare)
+            || self.enums.contains(name)
+            || self.enums.contains(bare)
+            || self.interfaces.contains_key(name)
+            || self.interfaces.contains_key(bare)
+            || self.extern_fns.contains(name)
+            || self.extern_fns.contains(bare)
+            || self.imported_symbols.contains(name)
+            || self.imported_symbols.contains(bare)
+    }
+
     fn resolve_type(&self, ty: Type) -> Type {
         match ty {
             Type::Struct(ref name) => {
@@ -1227,7 +1270,14 @@ impl TypeChecker {
                 if self.enums.contains(bare) {
                     return Ok(Type::Enum(bare.to_string()));
                 }
-                Ok(Type::Any)
+                // Unknown identifiers read as the zero word at runtime
+                // (alya-lang/alya#77). Anything declared — variables in
+                // scope, functions, structs, enums, interfaces, externs,
+                // from-import symbols — keeps the lenient `Any`.
+                if self.is_declared_name(name) {
+                    return Ok(Type::Any);
+                }
+                Err(format!("TypeError: Unknown identifier '{}'", name))
             }
 
             Expr::Array(items) => {
@@ -1476,12 +1526,19 @@ impl TypeChecker {
             Expr::Identifier(name)
                 if self.lookup_var(name).is_some() && !self.is_assigned(name) =>
             {
-                // Definite-assignment read check (Chapter 01 §1.1). Unknown
-                // names stay lenient here; inference resolves them to `Any`.
+                // Definite-assignment read check (Chapter 01 §1.1).
                 return Err(format!(
                     "TypeError: Variable '{}' is used before assignment",
                     name
                 ));
+            }
+            Expr::Identifier(name) if !self.is_declared_name(name) => {
+                // Unknown identifiers read as the zero word at runtime
+                // (alya-lang/alya#77): reject them instead of producing
+                // silent garbage. Call callees, field/type names and
+                // qualifiers are not `Identifier` nodes, so this only
+                // gates value-position reads.
+                return Err(format!("TypeError: Unknown identifier '{}'", name));
             }
             Expr::Binary { op, left, right } => {
                 self.check_expr(left)?;
@@ -2166,6 +2223,33 @@ impl TypeChecker {
                                 .entry(sname.to_string())
                                 .or_default()
                                 .insert(mname.to_string());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Pass 2c: Collect extern C functions and `from`-import symbols so
+        // value-position uses of them resolve (alya-lang/alya#77). Plain
+        // `import ... [as alias]` names are deliberately excluded: an
+        // alias only namespaces its module for local use and never
+        // denotes a value.
+        for stmt in &program.statements {
+            match stmt.inner_stmt() {
+                Stmt::ExternBlock { functions, .. } => {
+                    for f in functions {
+                        self.extern_fns.insert(f.name.clone());
+                    }
+                }
+                Stmt::Import {
+                    symbols: Some(syms),
+                    ..
+                } => {
+                    for s in syms {
+                        self.imported_symbols.insert(s.name.clone());
+                        if let Some(alias) = &s.alias {
+                            self.imported_symbols.insert(alias.clone());
                         }
                     }
                 }

@@ -1,0 +1,9 @@
+# EXPECT-FAIL: check: Unknown identifier 'nosuchvar'
+# Chapter 01: reading an identifier that is never declared yields the
+# zero word at runtime (alya-lang/alya#77). Reject it at check time
+# instead of producing silent garbage.
+function main()
+    say nosuchvar
+end
+
+main()
