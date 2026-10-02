@@ -873,6 +873,27 @@ impl CodeGen {
                     }
                 }
 
+                // Freshness markers for temp-ownership release: when every
+                // return yields a freshly-owned value, callers may drop
+                // the temp (alya-lang/alya#79). Seeded with the same four
+                // spellings as the struct markers above.
+                if let crate::ast::Stmt::Function { body, .. } = stmt.inner_stmt() {
+                    let struct_names: std::collections::HashSet<String> =
+                        self.ctx.structs.keys().cloned().collect();
+                    if crate::codegen::analysis::fn_returns_fresh_value(body, &struct_names) {
+                        let colon_name = name.replace("__", "::");
+                        let mangled_name = name.replace("::", "__");
+                        for key in [
+                            format!("fn_ret_fresh:{}", name),
+                            format!("fn_ret_fresh:{}", bare),
+                            format!("fn_ret_fresh:{}", colon_name),
+                            format!("fn_ret_fresh:{}", mangled_name),
+                        ] {
+                            self.ctx.variables.insert(key, VarType::Number(0));
+                        }
+                    }
+                }
+
                 if let Some(rt) = return_type.as_deref() {
                     if rt == "array" || rt.ends_with("[]") {
                         self.ctx

@@ -3162,6 +3162,149 @@ end
 }
 
 #[test]
+fn test_e2e_mem_trace_foreach_temp_freed() {
+    // alya-lang/alya#79: iterating a fresh call-result array must drop
+    // the temp each trip instead of leaking one array per iteration.
+    let code = r#"
+function mkarr() -> array
+    return [1, 2, 3, 4, 5]
+end
+
+function main()
+    let i = 0
+    while i < 50
+        for x in mkarr()
+        end
+        i += 1
+    end
+end
+
+main()
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected clean execution status, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Arrays          : 0 active"),
+            "Expected 0 live arrays, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_mem_trace_let_rebind_freed() {
+    // alya-lang/alya#79: straight-line `let` rebinding must drop the
+    // previous heap value like `=` does.
+    let code = r#"
+function mkarr() -> array
+    return [1, 2, 3]
+end
+
+function main()
+    let a = mkarr()
+    let a = mkarr()
+    say len(a)
+end
+
+main()
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected clean execution status, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_mem_trace_temp_index_freed() {
+    // alya-lang/alya#79: `let v: int = fresh()[k]` must not leak the
+    // temp map (each call gets a fresh frame, so the hidden temp slot
+    // is scope-freed per call).
+    let code = r#"
+import "std/time"
+
+function get_year(epoch: int) -> int
+    let y: int = epoch_to_date(epoch)["year"]
+    return y
+end
+
+function main()
+    say get_year(1704067200)
+    say get_year(1721068245)
+    say get_year(1730613600)
+end
+
+main()
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected clean execution status, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Maps            : 0 active"),
+            "Expected 0 live maps, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_mem_trace_array_cascade_freed() {
+    // alya-lang/alya#79: freeing an array must also drop heap-kind
+    // elements (kinds 4/5/6), or every element leaks one reference.
+    let code = r#"
+struct Rec
+    name: string,
+    val: int
+end
+
+function mkrec(n: string) -> Rec
+    return Rec { name: n, val: 1 }
+end
+
+function main()
+    let t = [mkrec("a"), mkrec("b")]
+    say len(t)
+end
+
+main()
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected clean execution status, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Structs         : 0 active"),
+            "Expected 0 live structs, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Arrays          : 0 active"),
+            "Expected 0 live arrays, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
 fn test_e2e_mem_trace_cyclic_leak() {
     let code = r#"
 struct Node

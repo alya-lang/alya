@@ -819,6 +819,47 @@ impl CodeGen {
         arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
         let arr_offset = self.ctx.stack_offset;
 
+        // A fresh-owned iterable (call result, literal, or the `runes`
+        // array built for string iteration) has no owning variable: the
+        // loop must release it or it leaks every iteration
+        // (alya-lang/alya#79). Calls qualify only with a freshness
+        // marker (or as direct struct constructors): a call may return
+        // a borrow, which must not be dropped. Named variables stay
+        // borrowed; their scope owns the release.
+        let owns_iter_temp = is_str_iter
+            || matches!(
+                iterable,
+                Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. }
+            )
+            || match iterable {
+                Expr::Call { name, .. } => {
+                    self.ctx.structs.contains_key(name)
+                        || crate::codegen::analysis::call_returns_fresh_value(
+                            name,
+                            &self.ctx.variables,
+                        )
+                }
+                _ => false,
+            };
+        // Registered as a plain tracked variable so `return` inside the
+        // body drops it through the normal scope machinery; removed again
+        // after the loop to avoid a second release at scope end.
+        let iter_tmp_var: Option<String> = if owns_iter_temp {
+            let hid = format!(
+                "__foreach_tmp_{}",
+                self.ctx
+                    .next_label()
+                    .trim_start_matches('.')
+                    .trim_start_matches('L')
+            );
+            self.ctx
+                .variables
+                .insert(hid.clone(), VarType::Array(arr_offset));
+            Some(hid)
+        } else {
+            None
+        };
+
         arch::emit_load_num(&mut self.output, self.arch, 0);
         arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
         let idx_offset = self.ctx.stack_offset;
@@ -954,6 +995,9 @@ impl CodeGen {
             self.output.push_str(&format!("{}:\n", end_label));
 
             self.ctx.pop_loop();
+            if let Some(hid) = &iter_tmp_var {
+                self.ctx.variables.remove(hid);
+            }
             return;
         }
 
@@ -1220,8 +1264,24 @@ impl CodeGen {
             &start_label,
         );
         self.output.push_str(&format!("{}:\n", end_label));
+        // Normal exhaustion and `break` both land here with the iterable
+        // slot still live: drop the owned temp (alya-lang/alya#79).
+        // `return` paths never reach this label; they are covered by the
+        // tracked temp variable above.
+        if owns_iter_temp {
+            arch::emit_rc_release_stack(
+                &mut self.output,
+                self.arch,
+                arr_offset,
+                self.ctx.stack_offset,
+                self.os,
+            );
+        }
 
         self.ctx.pop_loop();
+        if let Some(hid) = iter_tmp_var {
+            self.ctx.variables.remove(&hid);
+        }
     }
 
     /// Index of the string `message` field when `expr` is a struct

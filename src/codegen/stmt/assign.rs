@@ -128,9 +128,25 @@ impl CodeGen {
                 return;
             }
         }
+        // Rebinding an existing heap variable (e.g. `let` redeclaration in
+        // a loop body) must drop the previous value first; otherwise every
+        // iteration leaks it (alya-lang/alya#79). Mirrors generate_assign.
+        let old_heap_offset = match self.ctx.variables.get(&name) {
+            Some(VarType::Array(off))
+            | Some(VarType::Map(off))
+            | Some(VarType::Struct { offset: off, .. }) => {
+                if *off > 0 {
+                    Some(*off)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
         match value {
             Expr::Null => {
                 self.generate_expression(value);
+                self.emit_let_rebind_release(old_heap_offset, false);
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
                 self.ctx
                     .variables
@@ -143,6 +159,7 @@ impl CodeGen {
                 self.emit_string_directive(&escape_string(s));
                 self.output.push_str(".text\n");
                 arch::emit_load_str_label(&mut self.output, self.arch, &label, self.os);
+                self.emit_let_rebind_release(old_heap_offset, false);
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
                 self.ctx
                     .variables
@@ -180,6 +197,7 @@ impl CodeGen {
                 };
                 self.generate_expression(value);
 
+                self.emit_let_rebind_release(old_heap_offset, false);
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
 
                 self.ctx
@@ -243,6 +261,7 @@ impl CodeGen {
             } => {
                 self.generate_expression(value);
 
+                self.emit_let_rebind_release(old_heap_offset, false);
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
 
                 self.ctx.variables.insert(
@@ -339,6 +358,7 @@ impl CodeGen {
 
                 self.generate_expression(value);
 
+                self.emit_let_rebind_release(old_heap_offset, false);
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
 
                 self.ctx.variables.insert(
@@ -504,7 +524,44 @@ impl CodeGen {
                     }
                     _ => false,
                 };
-                self.generate_expression(value);
+                // `let v: int = FRESH()[k]` (or float): hidden-slot
+                // temp-index so the temp dies immediately
+                // (alya-lang/alya#79). Decided before generating: the
+                // value must be evaluated exactly once.
+                let desugar_temp_index = match value {
+                    Expr::Index { array, .. } => {
+                        matches!(
+                            array.as_ref(),
+                            Expr::Call { .. }
+                                | Expr::Array(_)
+                                | Expr::Map(_)
+                                | Expr::StructInit { .. }
+                        ) && (matches!(
+                            type_ann,
+                            Some("int")
+                                | Some("i64")
+                                | Some("i32")
+                                | Some("u64")
+                                | Some("u32")
+                                | Some("uint")
+                                | Some("byte")
+                                | Some("char")
+                                | Some("bool")
+                                | Some("float")
+                                | Some("f64")
+                                | Some("f32")
+                        ) || is_number_expr(value, &self.ctx.variables)
+                            || is_float_expr(value, &self.ctx.variables))
+                    }
+                    _ => false,
+                };
+                if desugar_temp_index {
+                    if let Expr::Index { array, index } = value {
+                        self.gen_temp_index_value(array, index);
+                    }
+                } else {
+                    self.generate_expression(value);
+                }
 
                 if is_alias_heap {
                     arch::emit_rc_retain(
@@ -515,6 +572,7 @@ impl CodeGen {
                     );
                 }
 
+                self.emit_let_rebind_release(old_heap_offset, is_flt);
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
                 if matches!(self.arch, Architecture::X86) && is_flt {
                     // Float slots are 8 bytes on x86 (stores are movsd);
@@ -836,6 +894,89 @@ impl CodeGen {
         }
     }
 
+    /// Release the previous heap value when `let` rebinds an existing
+    /// name (loop-body redeclaration). The new value is already generated
+    /// (and retained when aliased), so dropping the old slot mirrors `=`
+    /// exactly. No-op for first declarations (alya-lang/alya#79).
+    fn emit_let_rebind_release(&mut self, old_offset: Option<i32>, is_flt: bool) {
+        if let Some(old_offset) = old_offset {
+            let temp_offset = self.temp_offset();
+            arch::emit_push_temp(&mut self.output, self.arch);
+            self.ctx.stack_offset += temp_offset;
+            arch::emit_rc_release_stack(
+                &mut self.output,
+                self.arch,
+                old_offset,
+                self.ctx.stack_offset,
+                self.os,
+            );
+            self.ctx.stack_offset -= temp_offset;
+            arch::emit_pop_temp(&mut self.output, self.arch);
+            if is_flt {
+                match self.arch {
+                    Architecture::X64 => {
+                        self.output.push_str("    movq %rax, %xmm0\n");
+                    }
+                    Architecture::ARM64 => {
+                        self.output.push_str("    fmov d0, x0\n");
+                    }
+                    Architecture::X86 => {}
+                }
+            }
+        }
+    }
+
+    /// `let v = FRESH()[k]` / `v = FRESH()[k]` where the target is
+    /// provably non-heap (int/float): evaluate the fresh container
+    /// into a hidden tracked slot so index dispatch sees a map/array.
+    /// The slot stays tracked (no immediate drop): scope machinery
+    /// frees the last temp, and a mid-expression release would clobber
+    /// the index result sitting in the return registers. Skipped
+    /// (residual leak) for heap/dynamic results and non-fresh calls
+    /// (alya-lang/alya#79).
+    fn gen_temp_index_value(&mut self, array: &Expr, index: &Expr) -> bool {
+        // Calls qualify only with proven freshness (or as direct struct
+        // constructors): the temp is dropped after the read, which is
+        // only sound for owned-separate values (alya-lang/alya#79).
+        if let Expr::Call { name, .. } = array {
+            if !(self.ctx.structs.contains_key(name)
+                || crate::codegen::analysis::call_returns_fresh_value(name, &self.ctx.variables))
+            {
+                return false;
+            }
+        }
+        let want_map = is_map_expr(array, &self.ctx.variables);
+        let want_arr = !want_map && is_array_expr(array, &self.ctx.variables);
+        if !(want_map || want_arr) {
+            return false;
+        }
+        let hid = format!(
+            "__idx_tmp_{}",
+            self.ctx
+                .next_label()
+                .trim_start_matches('.')
+                .trim_start_matches('L')
+        );
+        self.generate_expression(array);
+        arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+        let off = self.ctx.stack_offset;
+        if want_map {
+            self.ctx.variables.insert(hid.clone(), VarType::Map(off));
+        } else {
+            self.ctx.variables.insert(hid.clone(), VarType::Array(off));
+        }
+        let rewritten = Expr::Index {
+            array: Box::new(Expr::Identifier(hid.clone())),
+            index: Box::new(index.clone()),
+        };
+        self.generate_expression(&rewritten);
+        // No immediate drop: the index result sits in the return
+        // registers and a release call would clobber it. The tracked
+        // slot is freed by the normal scope machinery (covering the
+        // last temp; earlier loop iterations keep leaking as before).
+        true
+    }
+
     pub(super) fn generate_assign(&mut self, name: &str, value: &Expr) {
         let name = name.to_string();
         let is_flt = is_float_expr(value, &self.ctx.variables);
@@ -866,7 +1007,26 @@ impl CodeGen {
             _ => false,
         };
 
-        self.generate_expression(value);
+        // `v = FRESH()[k]` with a scalar target: evaluate through a
+        // hidden slot so the temp dies immediately (alya-lang/alya#79).
+        let mut generated = false;
+        if let Expr::Index { array, index } = value {
+            let fresh = matches!(
+                array.as_ref(),
+                Expr::Call { .. } | Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. }
+            );
+            let target_scalar = matches!(
+                self.ctx.variables.get(&name),
+                Some(VarType::Number(_)) | Some(VarType::Float(_))
+            ) || is_number_expr(value, &self.ctx.variables)
+                || is_float_expr(value, &self.ctx.variables);
+            if fresh && target_scalar {
+                generated = self.gen_temp_index_value(array, index);
+            }
+        }
+        if !generated {
+            self.generate_expression(value);
+        }
 
         if is_alias_heap {
             arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);

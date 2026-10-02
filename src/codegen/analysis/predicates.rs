@@ -1377,7 +1377,126 @@ pub fn value_kind_tag(expr: &Expr, vars: &HashMap<String, VarType>) -> i64 {
             return KIND_STRUCT;
         }
     }
+    if let Expr::Call { name, .. } = expr {
+        // Struct-returning calls (explicit `-> Struct` annotations seed
+        // `fn_ret_struct`, like `fn_ret_arr` feeds is_array_expr above):
+        // without this their slots store UNKNOWN and container-free
+        // cascades cannot see them (alya-lang/alya#79).
+        if call_returns_struct(name, vars) {
+            return KIND_STRUCT;
+        }
+    }
     KIND_UNKNOWN
+}
+
+/// True when the callee is known to return a struct (explicit annotation
+/// or inference marker), checking the same name spellings as the array
+/// markers (`name`, `bare`, `__`/`::` swaps).
+pub fn call_returns_struct(name: &str, vars: &HashMap<String, VarType>) -> bool {
+    let bare = name.rsplit("::").next().unwrap_or(name);
+    let bare = bare.rsplit("__").next().unwrap_or(bare);
+    vars.contains_key(&format!("fn_ret_struct:{}", name))
+        || vars.contains_key(&format!("fn_ret_struct:{}", bare))
+        || vars.contains_key(&format!("fn_ret_struct:{}", name.replace("::", "__")))
+        || vars.contains_key(&format!("fn_ret_struct:{}", name.replace("__", "::")))
+}
+
+/// True when the callee provably returns a freshly-owned value on every
+/// path (literals, direct struct constructors, scalars, null): the
+/// caller receives a dedicated reference it may release
+/// (alya-lang/alya#79). Anything else (variables, reads, general calls,
+/// unknown shapes) may alias caller-visible state.
+pub fn call_returns_fresh_value(name: &str, vars: &HashMap<String, VarType>) -> bool {
+    let bare = name.rsplit("::").next().unwrap_or(name);
+    let bare = bare.rsplit("__").next().unwrap_or(bare);
+    vars.contains_key(&format!("fn_ret_fresh:{}", name))
+        || vars.contains_key(&format!("fn_ret_fresh:{}", bare))
+        || vars.contains_key(&format!("fn_ret_fresh:{}", name.replace("::", "__")))
+        || vars.contains_key(&format!("fn_ret_fresh:{}", name.replace("__", "::")))
+}
+
+/// Worker for `fn_returns_fresh_value`: every `return` in the body must
+/// yield a fresh-owned expression. Single-level and conservative: nested
+/// calls are never fresh (their freshness is a separate marker), and a
+/// body with no explicit return is unknown.
+pub fn fn_returns_fresh_value(
+    body: &[Stmt],
+    struct_names: &std::collections::HashSet<String>,
+) -> bool {
+    fn fresh_expr(e: &Expr, struct_names: &std::collections::HashSet<String>) -> bool {
+        match e {
+            Expr::Array(_)
+            | Expr::Map(_)
+            | Expr::StructInit { .. }
+            | Expr::Number(_)
+            | Expr::Float(_)
+            | Expr::String(_)
+            | Expr::Null => true,
+            Expr::Call { name, .. } => {
+                let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                struct_names.contains(name) || struct_names.contains(bare)
+            }
+            _ => false,
+        }
+    }
+    fn walk(
+        stmts: &[Stmt],
+        struct_names: &std::collections::HashSet<String>,
+        found: &mut bool,
+        ok: &mut bool,
+    ) {
+        for s in stmts {
+            if !*ok {
+                return;
+            }
+            match s.inner_stmt() {
+                Stmt::Return(opt) => {
+                    *found = true;
+                    if let Some(e) = opt {
+                        if !fresh_expr(e, struct_names) {
+                            *ok = false;
+                            return;
+                        }
+                    }
+                }
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    walk(then_block, struct_names, found, ok);
+                    if let Some(els) = else_block {
+                        walk(els, struct_names, found, ok);
+                    }
+                }
+                Stmt::While { body, .. }
+                | Stmt::Repeat { body }
+                | Stmt::For { body, .. }
+                | Stmt::ForEach { body, .. } => walk(body, struct_names, found, ok),
+                Stmt::TryCatch {
+                    try_block,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    walk(try_block, struct_names, found, ok);
+                    walk(catch_block, struct_names, found, ok);
+                    if let Some(fin) = finally_block {
+                        walk(fin, struct_names, found, ok);
+                    }
+                }
+                // Nested functions are separate scopes; their returns do
+                // not affect the outer function.
+                Stmt::Function { .. } => {}
+                _ => {}
+            }
+        }
+    }
+    let mut found = false;
+    let mut ok = true;
+    walk(body, struct_names, &mut found, &mut ok);
+    found && ok
 }
 
 /// True when an x86 element store can trust a float kind tag: the value

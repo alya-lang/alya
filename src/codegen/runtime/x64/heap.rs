@@ -546,6 +546,72 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    je .L_x64_rc_free_inner\n");
     out.push_str("    jmp .L_x64_rc_free_outer\n");
     out.push_str(".L_x64_rc_free_inner:\n");
+    out.push_str("    cmp $0x5A110001, %r12\n");
+    out.push_str("    jne .L_x64_rc_free_inner_map\n");
+    // Arrays: release heap-kind elements (kinds 4/5/6 in the kind
+    // sidecar) before freeing the buffers, or every element leaks one
+    // reference (alya-lang/alya#79). Only statically-known heap kinds
+    // are touched: probing unknown slots could misread a large int as a
+    // pointer. Maps keep the legacy path (entries only).
+    out.push_str("    push %rbx\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    out.push_str("    movq (%rbx), %r13\n");
+    out.push_str("    movq 16(%rbx), %r12\n");
+    out.push_str("    movq 24(%rbx), %r11\n");
+    out.push_str("    test %r12, %r12\n");
+    out.push_str("    jz .L_x64_rc_cascade_done\n");
+    out.push_str("    test %r11, %r11\n");
+    out.push_str("    jz .L_x64_rc_cascade_done\n");
+    out.push_str("    xor %ecx, %ecx\n");
+    out.push_str(".L_x64_rc_cascade_loop:\n");
+    out.push_str("    cmp %r13, %rcx\n");
+    out.push_str("    jge .L_x64_rc_cascade_done\n");
+    out.push_str("    movb (%r11, %rcx), %al\n");
+    out.push_str("    cmp $4, %al\n");
+    out.push_str("    je .L_x64_rc_cascade_rel\n");
+    out.push_str("    cmp $5, %al\n");
+    out.push_str("    je .L_x64_rc_cascade_rel\n");
+    out.push_str("    cmp $6, %al\n");
+    out.push_str("    jne .L_x64_rc_cascade_next\n");
+    out.push_str(".L_x64_rc_cascade_rel:\n");
+    out.push_str("    push %rcx\n");
+    out.push_str("    push %r11\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    out.push_str("    movq (%r12, %rcx, 8), %rax\n");
+    if is_win {
+        out.push_str("    mov %rax, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call fn_rc_release\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str("    call fn_rc_release\n");
+    }
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    pop %r11\n");
+    out.push_str("    pop %rcx\n");
+    out.push_str(".L_x64_rc_cascade_next:\n");
+    out.push_str("    inc %rcx\n");
+    out.push_str("    jmp .L_x64_rc_cascade_loop\n");
+    out.push_str(".L_x64_rc_cascade_done:\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    pop %rbx\n");
+    out.push_str("    movq 16(%rbx), %rax\n");
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jz .L_x64_rc_free_kind\n");
+    if is_win {
+        out.push_str("    mov %rax, %rcx\n");
+        out.push_str("    call free\n");
+    } else {
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str(&format!("    call {}free\n", p));
+    }
+    out.push_str("    jmp .L_x64_rc_free_kind\n");
+    out.push_str(".L_x64_rc_free_inner_map:\n");
     out.push_str("    movq 16(%rbx), %rax\n");
     out.push_str("    test %rax, %rax\n");
     out.push_str("    jz .L_x64_rc_free_kind\n");

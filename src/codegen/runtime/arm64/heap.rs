@@ -373,6 +373,57 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    b.eq .L_arm64_rc_free_inner\n");
     out.push_str("    b .L_arm64_rc_free_outer\n");
     out.push_str(".L_arm64_rc_free_inner:\n");
+    out.push_str("    movz x2, #0x0001\n");
+    out.push_str("    movk x2, #0x5A11, lsl #16\n");
+    out.push_str("    cmp x20, x2\n");
+    out.push_str("    b.ne .L_arm64_rc_free_inner_map\n");
+    // Arrays: release heap-kind elements (kinds 4/5/6 in the kind
+    // sidecar) before freeing the buffers, or every element leaks one
+    // reference (alya-lang/alya#79). Only statically-known heap kinds
+    // are touched. Maps keep the legacy path (entries only).
+    out.push_str("    ldr x9, [x19]\n");
+    out.push_str("    ldr x10, [x19, #16]\n");
+    out.push_str("    ldr x11, [x19, #24]\n");
+    out.push_str("    cbz x10, .L_arm64_rc_free_elem\n");
+    out.push_str("    cbz x11, .L_arm64_rc_free_elem\n");
+    out.push_str("    sub sp, sp, #32\n");
+    out.push_str("    str x9, [sp]\n");
+    out.push_str("    str x10, [sp, #8]\n");
+    out.push_str("    str x11, [sp, #16]\n");
+    out.push_str("    mov x12, #0\n");
+    out.push_str("    str x12, [sp, #24]\n");
+    out.push_str(".L_arm64_rc_cascade_loop:\n");
+    out.push_str("    ldr x12, [sp, #24]\n");
+    out.push_str("    ldr x9, [sp]\n");
+    out.push_str("    cmp x12, x9\n");
+    out.push_str("    b.ge .L_arm64_rc_cascade_done\n");
+    out.push_str("    ldr x11, [sp, #16]\n");
+    out.push_str("    ldrb w13, [x11, x12]\n");
+    out.push_str("    cmp w13, #4\n");
+    out.push_str("    b.eq .L_arm64_rc_cascade_rel\n");
+    out.push_str("    cmp w13, #5\n");
+    out.push_str("    b.eq .L_arm64_rc_cascade_rel\n");
+    out.push_str("    cmp w13, #6\n");
+    out.push_str("    b.ne .L_arm64_rc_cascade_next\n");
+    out.push_str(".L_arm64_rc_cascade_rel:\n");
+    out.push_str("    ldr x10, [sp, #8]\n");
+    out.push_str("    lsl x13, x12, #3\n");
+    out.push_str("    ldr x0, [x10, x13]\n");
+    out.push_str("    str x12, [sp, #24]\n");
+    out.push_str("    bl fn_rc_release\n");
+    out.push_str("    ldr x12, [sp, #24]\n");
+    out.push_str(".L_arm64_rc_cascade_next:\n");
+    out.push_str("    add x12, x12, #1\n");
+    out.push_str("    str x12, [sp, #24]\n");
+    out.push_str("    b .L_arm64_rc_cascade_loop\n");
+    out.push_str(".L_arm64_rc_cascade_done:\n");
+    out.push_str("    add sp, sp, #32\n");
+    out.push_str(".L_arm64_rc_free_elem:\n");
+    out.push_str("    ldr x0, [x19, #16]\n");
+    out.push_str("    cbz x0, .L_arm64_rc_free_kind\n");
+    out.push_str(&format!("    bl {}free\n", p));
+    out.push_str("    b .L_arm64_rc_free_kind\n");
+    out.push_str(".L_arm64_rc_free_inner_map:\n");
     out.push_str("    ldr x0, [x19, #16]\n");
     out.push_str("    cbz x0, .L_arm64_rc_free_kind\n");
     out.push_str(&format!("    bl {}free\n", p));

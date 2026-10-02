@@ -408,6 +408,68 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    je .L_x86_rc_free_inner\n");
     out.push_str("    jmp .L_x86_rc_free_outer\n");
     out.push_str(".L_x86_rc_free_inner:\n");
+    out.push_str("    cmpl $0x5A110001, %esi\n");
+    out.push_str("    jne .L_x86_rc_free_inner_map\n");
+    // Arrays: release heap-kind elements (kinds 4/5/6 in the kind
+    // sidecar) before freeing the buffers, or every element leaks one
+    // reference (alya-lang/alya#79). Only statically-known heap kinds
+    // are touched: probing unknown slots could misread a large int as a
+    // pointer. Maps keep the legacy path (entries only).
+    out.push_str("    push %ebx\n");
+    out.push_str("    push %esi\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    movl (%ebx), %edi\n");
+    out.push_str("    movl 8(%ebx), %esi\n");
+    out.push_str("    movl 12(%ebx), %edx\n");
+    out.push_str("    test %esi, %esi\n");
+    out.push_str("    jz .L_x86_rc_cascade_done\n");
+    out.push_str("    test %edx, %edx\n");
+    out.push_str("    jz .L_x86_rc_cascade_done\n");
+    out.push_str("    xor %ecx, %ecx\n");
+    out.push_str(".L_x86_rc_cascade_loop:\n");
+    out.push_str("    cmpl %edi, %ecx\n");
+    out.push_str("    jge .L_x86_rc_cascade_done\n");
+    out.push_str("    movb (%edx, %ecx), %al\n");
+    out.push_str("    cmpb $4, %al\n");
+    out.push_str("    je .L_x86_rc_cascade_rel\n");
+    out.push_str("    cmpb $5, %al\n");
+    out.push_str("    je .L_x86_rc_cascade_rel\n");
+    out.push_str("    cmpb $6, %al\n");
+    out.push_str("    jne .L_x86_rc_cascade_next\n");
+    out.push_str(".L_x86_rc_cascade_rel:\n");
+    out.push_str("    push %ecx\n");
+    out.push_str("    push %edx\n");
+    out.push_str("    push %edi\n");
+    out.push_str("    movl (%esi, %ecx, 8), %eax\n");
+    out.push_str("    push %eax\n");
+    out.push_str("    call fn_rc_release\n");
+    out.push_str("    add $4, %esp\n");
+    out.push_str("    pop %edi\n");
+    out.push_str("    pop %edx\n");
+    out.push_str("    pop %ecx\n");
+    out.push_str(".L_x86_rc_cascade_next:\n");
+    out.push_str("    incl %ecx\n");
+    out.push_str("    jmp .L_x86_rc_cascade_loop\n");
+    out.push_str(".L_x86_rc_cascade_done:\n");
+    out.push_str("    movl 12(%ebx), %eax\n");
+    out.push_str("    test %eax, %eax\n");
+    out.push_str("    jz .L_x86_rc_free_elembuf\n");
+    out.push_str("    push %eax\n");
+    out.push_str(&format!("    call {}free\n", p));
+    out.push_str("    add $4, %esp\n");
+    out.push_str(".L_x86_rc_free_elembuf:\n");
+    out.push_str("    movl 8(%ebx), %eax\n");
+    out.push_str("    test %eax, %eax\n");
+    out.push_str("    jz .L_x86_rc_cascade_restore\n");
+    out.push_str("    push %eax\n");
+    out.push_str(&format!("    call {}free\n", p));
+    out.push_str("    add $4, %esp\n");
+    out.push_str(".L_x86_rc_cascade_restore:\n");
+    out.push_str("    pop %edi\n");
+    out.push_str("    pop %esi\n");
+    out.push_str("    pop %ebx\n");
+    out.push_str("    jmp .L_x86_rc_free_outer\n");
+    out.push_str(".L_x86_rc_free_inner_map:\n");
     out.push_str("    movl 8(%ebx), %eax\n");
     out.push_str("    test %eax, %eax\n");
     out.push_str("    jz .L_x86_rc_free_outer\n");

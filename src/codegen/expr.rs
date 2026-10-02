@@ -2893,8 +2893,29 @@ impl CodeGen {
                 self.ctx.stack_offset += temp_offset;
 
                 for (i, elem) in elements.iter().enumerate() {
+                    // Fresh-owned elements (literals, direct struct
+                    // constructors, freshness-marked calls) move into the
+                    // array: no retain is needed and no producer temp is
+                    // left behind (alya-lang/alya#79). Other calls and
+                    // borrowed values keep the retaining share; their
+                    // producer temp cannot be proven separate (aliasing
+                    // calls), so it stays a residual leak rather than
+                    // risking a use-after-free.
+                    let elem_moves = matches!(
+                        elem,
+                        Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. }
+                    ) || match elem {
+                        Expr::Call { name, .. } => {
+                            self.ctx.structs.contains_key(name)
+                                || crate::codegen::analysis::call_returns_fresh_value(
+                                    name,
+                                    &self.ctx.variables,
+                                )
+                        }
+                        _ => false,
+                    };
                     self.generate_expression(elem);
-                    if self.is_heap_expression(elem) {
+                    if self.is_heap_expression(elem) && !elem_moves {
                         arch::emit_rc_retain(
                             &mut self.output,
                             self.arch,
@@ -2955,7 +2976,24 @@ impl CodeGen {
                                     v_offset,
                                     self.ctx.stack_offset,
                                 );
-                                if self.is_heap_expression(v) {
+                                // Fresh-owned values (literals, direct
+                                // struct constructors) move into the map
+                                // (alya-lang/alya#79); other heap values
+                                // keep the retaining share.
+                                let v_moves = matches!(
+                                    v,
+                                    Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. }
+                                ) || match v {
+                                    Expr::Call { name, .. } => {
+                                        self.ctx.structs.contains_key(name)
+                                            || crate::codegen::analysis::call_returns_fresh_value(
+                                                name,
+                                                &self.ctx.variables,
+                                            )
+                                    }
+                                    _ => false,
+                                };
+                                if self.is_heap_expression(v) && !v_moves {
                                     arch::emit_rc_retain(
                                         &mut self.output,
                                         self.arch,
@@ -3013,7 +3051,20 @@ impl CodeGen {
                                     v_offset,
                                     self.ctx.stack_offset,
                                 );
-                                if self.is_heap_expression(v) {
+                                let v_moves = matches!(
+                                    v,
+                                    Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. }
+                                ) || match v {
+                                    Expr::Call { name, .. } => {
+                                        self.ctx.structs.contains_key(name)
+                                            || crate::codegen::analysis::call_returns_fresh_value(
+                                                name,
+                                                &self.ctx.variables,
+                                            )
+                                    }
+                                    _ => false,
+                                };
+                                if self.is_heap_expression(v) && !v_moves {
                                     arch::emit_rc_retain(
                                         &mut self.output,
                                         self.arch,
