@@ -1507,14 +1507,38 @@ pub fn x86_arg_pushes_double(
     arg: &Expr,
     vars: &HashMap<String, VarType>,
 ) -> bool {
+    let bare = call_name.rsplit("::").next().unwrap_or(call_name);
+    let bare = bare.rsplit("__").next().unwrap_or(bare);
+    // Mangled private helpers like `...___mat_absf` strip the leading underscore
+    // when splitting on `__`. Preserve `_{bare}` and wildcard suffix match so
+    // callers push the full 8-byte double instead of a 4-byte int.
+    let bare_under = if call_name.ends_with(&format!("___{}", bare)) {
+        Some(format!("_{}", bare))
+    } else {
+        None
+    };
     let takes_double = if let Some(codes) = crate::parser::dynspec::dynspec_codes(call_name) {
         codes.get(param_idx).copied() == Some('f')
     } else {
-        let bare = call_name.rsplit("::").next().unwrap_or(call_name);
-        let bare = bare.rsplit("__").next().unwrap_or(bare);
-        [call_name, bare]
+        let mut candidates = vec![call_name, bare];
+        if let Some(ref bu) = bare_under {
+            candidates.push(bu.as_str());
+        }
+        candidates
             .iter()
             .any(|n| vars.contains_key(&format!("fn_param_flt:{}:{}", n, param_idx)))
+            || vars.keys().any(|k| {
+                k.starts_with("fn_param_flt:")
+                    && k.ends_with(&format!(":{}", param_idx))
+                    && (k.ends_with(&format!("__{}:{}", bare, param_idx))
+                        || k.ends_with(&format!("::{}:{}", bare, param_idx))
+                        || k.ends_with(&format!(":{}:{}", bare, param_idx))
+                        || (bare_under.as_ref().is_some_and(|bu| {
+                            k.ends_with(&format!("__{}:{}", bu, param_idx))
+                                || k.ends_with(&format!("::{}:{}", bu, param_idx))
+                                || k.ends_with(&format!(":{}:{}", bu, param_idx))
+                        })))
+            })
     };
     takes_double && (is_proven_float_store(arg, vars) || matches!(arg, Expr::Index { .. }))
 }

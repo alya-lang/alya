@@ -1,0 +1,32 @@
+# ==============================================================================
+# Alya Integration Fixture 09 (entry): leading underscore float helper & return
+# Distilled from: Lib/math/src/matrix.alya `_mat_absf` & `_mat_at` on x86
+# Guards: mangled function names with leading underscores must properly
+#         resolve float parameters so callers push 8-byte doubles on x86,
+#         and returning array elements in float functions must preserve xmm0.
+# ==============================================================================
+
+function _my_absf(x: float) -> float
+    if x < 0.0
+        return 0.0 - x
+    end
+    return x
+end
+
+function _read_elem(arr, idx: int) -> float
+    return arr[idx]
+end
+
+function main()
+    let v = -4.5
+    let abs_val = _my_absf(v)
+    let list = [1.25, -3.5, 7.75]
+    let elem = _read_elem(list, 1)
+    let elem_abs = _my_absf(elem)
+
+    say abs_val
+    say elem_abs
+    say f"integration 09_private_float_param: OK"
+end
+
+main()

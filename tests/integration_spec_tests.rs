@@ -32,6 +32,7 @@ fn entry_files() -> Vec<String> {
         "06_tag_dispatch.alya".to_string(),
         "07_shared_helper_is_checks.alya".to_string(),
         "08_struct_float_call_arg.alya".to_string(),
+        "09_private_float_param.alya".to_string(),
     ]
 }
 
@@ -334,6 +335,21 @@ fn test_integration_08_struct_float_arg_output() {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("integration 08_struct_float_arg: OK"));
         assert!(output.contains("1\n1\n"));
+    }
+}
+
+#[test]
+fn test_integration_09_private_float_param_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 09_private_float_param: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("09_private_float_param.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 09_private_float_param: OK"));
+        assert!(output.contains("4.5\n3.5\n"));
     }
 }
 

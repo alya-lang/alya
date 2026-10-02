@@ -22,6 +22,9 @@
 # | `04_float_return_index.alya` | `Lib/math/src/matrix.alya` `_mat_at` | `-> float` function returning `w[idx]` must sync the float return register |
 # | `05_push_float_array.alya` | `Lib/math/src/matrix.alya` builders | `push`-built float arrays must read back floats, incl. across a builder return |
 # | `06_tag_dispatch.alya` | `Lib/math` mixed builders + `kind()` | per-element kind dispatch in `say` + `is int`/`is float` on element reads |
+# | `07_shared_helper_is_checks.alya` | `Lib/csv` + `Lib/json` polymorphic helpers | fold `is array`/`is map` only on whole-caller proof |
+# | `08_struct_float_call_arg.alya` | `Lib/math` complex arithmetic on x86 | struct float fields passed to float params must push full 8-byte double |
+# | `09_private_float_param.alya` | `Lib/math/src/matrix.alya` `_mat_absf` & `_mat_at` | mangled private float helpers push 8-byte doubles & index return preserves xmm0 |
 #
 # ## Known collision (deliberate rename)
 #

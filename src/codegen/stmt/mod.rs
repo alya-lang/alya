@@ -168,10 +168,10 @@ impl CodeGen {
                     // non-float at runtime with stale `%xmm0`.
                     let x86_float_spill = matches!(self.arch, Architecture::X86)
                         && is_flt
-                        && crate::codegen::analysis::is_proven_float_store(
+                        && (crate::codegen::analysis::is_proven_float_store(
                             expr,
                             &self.ctx.variables,
-                        );
+                        ) || self.x86_value_in_xmm0(expr));
                     if x86_float_spill {
                         self.output.push_str("    sub $8, %esp\n");
                         self.output.push_str("    movsd %xmm0, (%esp)\n");
