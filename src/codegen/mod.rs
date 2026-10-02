@@ -1618,6 +1618,12 @@ impl CodeGen {
             let mut is_arr = inference.infer_param_is_array(name, i, program) || annot_arr;
             let mut is_str_arr = inference.infer_param_is_string_array(name, i, program);
             let mut is_flt_arr = inference.infer_param_is_float_array(name, i, program);
+            // Explicit integer-array annotations are enforced by the
+            // type checker, so they are exact element-kind facts.
+            let is_int_arr = param_types
+                .get(i)
+                .and_then(|t| t.as_deref())
+                .is_some_and(crate::codegen::analysis::is_int_array_annotation);
             let mut is_map = inference.infer_param_is_map(name, i, program) || annot_map;
             if let Some(s) = explicit_scalar {
                 match s {
@@ -1790,6 +1796,11 @@ impl CodeGen {
                     self.ctx
                         .variables
                         .insert(format!("arr_is_flt:{}", param), VarType::Number(0));
+                }
+                if is_int_arr {
+                    self.ctx
+                        .variables
+                        .insert(format!("arr_is_int:{}", param), VarType::Number(0));
                 }
             } else if is_map {
                 self.ctx
@@ -2462,6 +2473,53 @@ impl CodeGen {
             }
             Expr::ForceUnwrap(inner) => self.is_heap_expression(inner),
             _ => false,
+        }
+    }
+
+    /// Retain gate for collection stores (`push`, map `set`, array `set`).
+    /// Storing an aliased heap value must retain it so it survives later
+    /// drops of the producer slot (loop-end releases, scope restores).
+    /// But a proven scalar is never a heap pointer, and `rc_retain`
+    /// faults on large 8-aligned ints (they pass its pointer guards and
+    /// it reads `-16(ptr)`): skip the retain for proven-int/float
+    /// identifiers and for reads from proven-int/float arrays. Anything
+    /// else (notably mistracked heap values such as tuple-destructured
+    /// arrays recorded as `Number`) keeps the retain.
+    pub(crate) fn store_value_needs_retain(&self, expr: &crate::ast::Expr) -> bool {
+        use crate::ast::Expr;
+        if self.is_heap_expression(expr) {
+            return true;
+        }
+        match expr {
+            Expr::Identifier(name) => {
+                if self
+                    .ctx
+                    .variables
+                    .contains_key(&format!("var_is_int:{}", name))
+                {
+                    return false;
+                }
+                if crate::codegen::analysis::is_float_expr(expr, &self.ctx.variables) {
+                    return false;
+                }
+                true
+            }
+            Expr::Index { array, .. } => {
+                if let Expr::Identifier(base) = array.as_ref() {
+                    if self
+                        .ctx
+                        .variables
+                        .contains_key(&format!("arr_is_int:{}", base))
+                    {
+                        return false;
+                    }
+                }
+                if crate::codegen::analysis::is_float_expr(expr, &self.ctx.variables) {
+                    return false;
+                }
+                true
+            }
+            _ => true,
         }
     }
 

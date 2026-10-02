@@ -1238,12 +1238,7 @@ impl CodeGen {
                     };
                     self.ctx.stack_offset += temp_offset;
                     self.generate_expression(&args[1]);
-                    if self.is_heap_expression(&args[1])
-                        || matches!(
-                            &args[1],
-                            Expr::Identifier(_) | Expr::Index { .. } | Expr::FieldAccess { .. }
-                        )
-                    {
+                    if self.store_value_needs_retain(&args[1]) {
                         arch::emit_rc_retain(
                             &mut self.output,
                             self.arch,

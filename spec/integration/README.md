@@ -25,6 +25,7 @@
 # | `07_shared_helper_is_checks.alya` | `Lib/csv` + `Lib/json` polymorphic helpers | fold `is array`/`is map` only on whole-caller proof |
 # | `08_struct_float_call_arg.alya` | `Lib/math` complex arithmetic on x86 | struct float fields passed to float params must push full 8-byte double |
 # | `09_private_float_param.alya` | `Lib/math/src/matrix.alya` `_mat_absf` & `_mat_at` | mangled private float helpers push 8-byte doubles & index return preserves xmm0 |
+# | `10_int_store_no_retain.alya` | `Src/benchmarks/cross_lang/algorithms/quicksort.alya` fill + swap | `push`/index stores of proven ints skip `rc_retain`; aliased heap keeps it |
 #
 # ## Known collision (deliberate rename)
 #

@@ -1329,6 +1329,41 @@ pub fn is_number_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     }
 }
 
+/// True for explicit integer-array annotations (`int[]`, `i64[]`, ...).
+/// Explicit collection annotations are enforced by the type checker, so
+/// they are exact: every element is a machine word, never a heap pointer.
+/// Used to skip `rc_retain` on element reads stored into collections
+/// (retaining a large 8-aligned int faults inside `rc_retain`).
+pub fn is_int_array_annotation(ann: &str) -> bool {
+    let t = ann.trim();
+    if !t.ends_with("[]") {
+        return false;
+    }
+    let base = t[..t.len() - 2].trim();
+    let base = base.rsplit("::").next().unwrap_or(base);
+    let base = base.rsplit("__").next().unwrap_or(base);
+    matches!(
+        base,
+        "int"
+            | "i64"
+            | "isize"
+            | "uint"
+            | "u64"
+            | "usize"
+            | "i32"
+            | "i16"
+            | "i8"
+            | "u32"
+            | "u16"
+            | "u8"
+            | "byte"
+            | "bool"
+            | "boolean"
+            | "char"
+            | "rune"
+    )
+}
+
 /// Returns true when `expr` is provably NOT a plain number (a string,
 /// array, map, or statically-known struct value).
 ///

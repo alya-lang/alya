@@ -1,0 +1,51 @@
+# ==============================================================================
+# Alya Integration Fixture 10 (entry): int values stored into int[] collections
+# Distilled from: Src/benchmarks/cross_lang/algorithms/quicksort.alya
+# Guards: `push` of a rebound int variable and `arr[i] = arr[j]` index stores
+#         must NOT emit `rc_retain` for the value. Proven scalars are never
+#         heap pointers, and retain faults on large 8-aligned ints (they pass
+#         its pointer guards, then it reads `-16(ptr)` and segfaults).
+#         Aliased/unknown values (e.g. tuple-destructured heap values tracked
+#         as Number) must KEEP the retain so they survive producer-slot drops.
+# ==============================================================================
+
+function build() -> int[]
+    let arr: int[] = []
+    let seed: int = 42
+    let i: int = 0
+    while i < 100
+        seed = (seed * 2121 + 12347) % 1000000
+        arr.push(seed)
+        i += 1
+    end
+    return arr
+end
+
+function swap_first_last(arr: int[])
+    let temp: int = arr[0]
+    arr[0] = arr[99]
+    arr[99] = temp
+end
+
+function main()
+    let arr = build()
+    let before_first = arr[0]
+    let before_last = arr[99]
+    swap_first_last(arr)
+    assert arr[0] == before_last
+    assert arr[99] == before_first
+    assert arr[50] == arr[50]
+
+    # Tuple-destructured heap value stored into a map must keep working
+    # (retain required: `elem` is tracked as Number but holds an array).
+    let m = map()
+    let pair = [11, 22]
+    let elem = pair
+    m["vals"] = elem
+    assert m["vals"][0] == 11
+    assert m["vals"][1] == 22
+
+    say f"integration 10_int_store_no_retain: OK"
+end
+
+main()

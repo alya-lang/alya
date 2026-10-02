@@ -184,6 +184,12 @@ impl CodeGen {
                     .first()
                     .is_some_and(|e| is_float_expr(e, &self.ctx.variables))
                     || matches!(type_ann, Some("float[]") | Some("f64[]"));
+                // Explicit integer-array annotations are enforced by the
+                // type checker, so they are exact element-kind facts.
+                // Literal-based inference would go stale on later pushes
+                // of other kinds, so only the annotation qualifies.
+                let is_int_arr =
+                    type_ann.is_some_and(crate::codegen::analysis::is_int_array_annotation);
                 let struct_elem_type = if let Some(t) = type_ann.and_then(|t| t.strip_suffix("[]"))
                 {
                     if self.ctx.structs.contains_key(t) {
@@ -230,6 +236,11 @@ impl CodeGen {
                     self.ctx
                         .variables
                         .insert(format!("arr_is_flt:{}", name), VarType::Number(0));
+                }
+                if is_int_arr {
+                    self.ctx
+                        .variables
+                        .insert(format!("arr_is_int:{}", name), VarType::Number(0));
                 }
                 for (i, elem) in elements.iter().enumerate() {
                     if is_string_expr(elem, &self.ctx.variables) {
@@ -1338,13 +1349,7 @@ impl CodeGen {
             let actual_args = [array, index, value];
             for arg in actual_args.iter() {
                 self.generate_expression(arg);
-                if std::ptr::eq(*arg, value)
-                    && (self.is_heap_expression(value)
-                        || matches!(
-                            value,
-                            Expr::Identifier(_) | Expr::Index { .. } | Expr::FieldAccess { .. }
-                        ))
-                {
+                if std::ptr::eq(*arg, value) && self.store_value_needs_retain(value) {
                     arch::emit_rc_retain(
                         &mut self.output,
                         self.arch,
@@ -1473,12 +1478,7 @@ impl CodeGen {
             self.ctx.stack_offset += temp_offset;
 
             self.generate_expression(value);
-            if self.is_heap_expression(value)
-                || matches!(
-                    value,
-                    Expr::Identifier(_) | Expr::Index { .. } | Expr::FieldAccess { .. }
-                )
-            {
+            if self.store_value_needs_retain(value) {
                 arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
             }
             self.ctx.stack_offset -= temp_offset * 2;
