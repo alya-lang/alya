@@ -1483,3 +1483,22 @@ say 1_000_000
         );
     }
 }
+
+#[test]
+fn test_e2e_bare_assign_declares_readable_var() {
+    // alya-lang/alya#82: bare assignment declares the variable; later
+    // reads must resolve consistently instead of printing empty output
+    // or garbage depending on surrounding code.
+    let code = r#"
+function main()
+    auto_declared = 99
+    say auto_declared
+    say auto_declared + 1
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "99\n100\n");
+    }
+}

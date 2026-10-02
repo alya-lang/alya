@@ -20,7 +20,19 @@ impl CodeGen {
                 type_ann,
                 value,
             } => self.generate_let(name, type_ann.as_deref(), value),
-            Stmt::Assign { name, value } => self.generate_assign(name, value),
+            Stmt::Assign { name, value } => {
+                // Bare assignment to a new name declares it (spec
+                // §variables, alya-lang/alya#82): route through
+                // `generate_let` so the value gets a home slot and a
+                // registered type. Otherwise the value is dropped and
+                // later reads hit arbitrary slots (empty output or
+                // garbage depending on surrounding code).
+                if !self.ctx.variables.contains_key(name) && !self.ctx.globals.contains_key(name) {
+                    self.generate_let(name, None, value);
+                } else {
+                    self.generate_assign(name, value);
+                }
+            }
             Stmt::FieldAssign {
                 object,
                 field,
