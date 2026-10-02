@@ -174,7 +174,6 @@ def main():
     # 7. Checksums from dist/
     dist_dir = Path("dist")
     linux_pkg = f"alya-{tag}-x86_64-linux.tar.gz"
-    linux_x86_pkg = f"alya-{tag}-x86-linux.tar.gz"
     linux_arm_pkg = f"alya-{tag}-arm64-linux.tar.gz"
     mac_arm_pkg = f"alya-{tag}-arm64-macos.tar.gz"
     mac_x64_pkg = f"alya-{tag}-x86_64-macos.tar.gz"
@@ -182,7 +181,6 @@ def main():
     win_arm_pkg = f"alya-{tag}-arm64-windows.zip"
 
     linux_sha = get_checksum(dist_dir, linux_pkg)
-    linux_x86_sha = get_checksum(dist_dir, linux_x86_pkg)
     linux_arm_sha = get_checksum(dist_dir, linux_arm_pkg)
     mac_arm_sha = get_checksum(dist_dir, mac_arm_pkg)
     mac_x64_sha = get_checksum(dist_dir, mac_x64_pkg)
@@ -190,7 +188,6 @@ def main():
     win_arm_sha = get_checksum(dist_dir, win_arm_pkg)
 
     linux_sha_short = linux_sha[:8] if linux_sha != "—" else "—"
-    linux_x86_sha_short = linux_x86_sha[:8] if linux_x86_sha != "—" else "—"
     linux_arm_sha_short = linux_arm_sha[:8] if linux_arm_sha != "—" else "—"
     mac_arm_sha_short = mac_arm_sha[:8] if mac_arm_sha != "—" else "—"
     mac_x64_sha_short = mac_x64_sha[:8] if mac_x64_sha != "—" else "—"
@@ -210,7 +207,6 @@ def main():
             "| Platform | Architecture | Package | Checksum |\n"
             "|:---|:---|:---|:---:|\n"
             f"| Linux | `x86_64` | [{linux_pkg}]({repo_url}/releases/download/{{VERSION}}/{linux_pkg}) | [{{{{LINUX_SHA_SHORT}}}}]({repo_url}/releases/download/{{VERSION}}/{linux_pkg}.sha256) |\n"
-            f"| Linux | `x86` (32-bit) | [{linux_x86_pkg}]({repo_url}/releases/download/{{VERSION}}/{linux_x86_pkg}) | [{{{{LINUX_X86_SHA_SHORT}}}}]({repo_url}/releases/download/{{VERSION}}/{linux_x86_pkg}.sha256) |\n"
             f"| Linux | `arm64` (AArch64) | [{linux_arm_pkg}]({repo_url}/releases/download/{{VERSION}}/{linux_arm_pkg}) | [{{{{LINUX_ARM_SHA_SHORT}}}}]({repo_url}/releases/download/{{VERSION}}/{linux_arm_pkg}.sha256) |\n"
             f"| macOS | `arm64` (Apple Silicon) | [{mac_arm_pkg}]({repo_url}/releases/download/{{VERSION}}/{mac_arm_pkg}) | [{{{{MAC_ARM_SHA_SHORT}}}}]({repo_url}/releases/download/{{VERSION}}/{mac_arm_pkg}.sha256) |\n"
             f"| macOS | `x86_64` (Intel) | [{mac_x64_pkg}]({repo_url}/releases/download/{{VERSION}}/{mac_x64_pkg}) | [{{{{MAC_X64_SHA_SHORT}}}}]({repo_url}/releases/download/{{VERSION}}/{mac_x64_pkg}.sha256) |\n"
@@ -219,7 +215,6 @@ def main():
             "### 🔒 SHA-256 Checksums\n\n"
             "```text\n"
             f"{{{{LINUX_SHA}}}}  {linux_pkg}\n"
-            f"{{{{LINUX_X86_SHA}}}}  {linux_x86_pkg}\n"
             f"{{{{LINUX_ARM_SHA}}}}  {linux_arm_pkg}\n"
             f"{{{{MAC_ARM_SHA}}}}  {mac_arm_pkg}\n"
             f"{{{{MAC_X64_SHA}}}}  {mac_x64_pkg}\n"
@@ -237,14 +232,12 @@ def main():
         "{{REPO}}": repo,
         "{{REPO_URL}}": repo_url,
         "{{LINUX_SHA}}": linux_sha,
-        "{{LINUX_X86_SHA}}": linux_x86_sha,
         "{{LINUX_ARM_SHA}}": linux_arm_sha,
         "{{MAC_ARM_SHA}}": mac_arm_sha,
         "{{MAC_X64_SHA}}": mac_x64_sha,
         "{{WIN_SHA}}": win_sha,
         "{{WIN_ARM_SHA}}": win_arm_sha,
         "{{LINUX_SHA_SHORT}}": linux_sha_short,
-        "{{LINUX_X86_SHA_SHORT}}": linux_x86_sha_short,
         "{{LINUX_ARM_SHA_SHORT}}": linux_arm_sha_short,
         "{{MAC_ARM_SHA_SHORT}}": mac_arm_sha_short,
         "{{MAC_X64_SHA_SHORT}}": mac_x64_sha_short,

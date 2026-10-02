@@ -55,10 +55,6 @@ jobs:
             label: Linux x64
           - os: ubuntu-24.04-arm
             label: Linux ARM64
-          - os: ubuntu-latest
-            label: Linux x86
-            target: i686-unknown-linux-gnu
-            cargo_args: --target i686-unknown-linux-gnu
           - os: windows-latest
             label: Windows x64
           - os: windows-11-arm
@@ -73,15 +69,9 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
-
-      - name: Install 32-bit C toolchain (Linux x86 leg)
-        if: matrix.target == 'i686-unknown-linux-gnu'
-        run: sudo apt-get update && sudo apt-get install -y gcc-multilib libc6-i386
 
       - name: Provision Windows ARM64 C toolchain
         if: matrix.os == 'windows-11-arm'
@@ -112,10 +102,6 @@ jobs:
             label: Linux x64
           - os: ubuntu-24.04-arm
             label: Linux ARM64
-          - os: ubuntu-latest
-            label: Linux x86
-            target: i686-unknown-linux-gnu
-            cargo_args: --target i686-unknown-linux-gnu
           - os: windows-latest
             label: Windows x64
           - os: windows-11-arm
@@ -130,15 +116,9 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Install 32-bit C toolchain (Linux x86 leg)
-        if: matrix.target == 'i686-unknown-linux-gnu'
-        run: sudo apt-get update && sudo apt-get install -y gcc-multilib libc6-i386
-
       - name: Build release binary
-        run: cargo build --release --verbose ${{ matrix.cargo_args }}
+        run: cargo build --release --verbose
