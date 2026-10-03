@@ -67,6 +67,11 @@ fn host_arch() -> Architecture {
     }
 }
 
+// Process-wide temp counter: parallel tests share pid and can share a
+// clock tick, so pid+nanos alone collides and concurrent writes corrupt
+// the .s (duplicate labels at assemble time). Mirrors common/mod.rs.
+static INTEG_ID_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn run_entry_with_base_dir(source: &str, base_dir: &Path) -> Option<(i32, String)> {
     if std::process::Command::new("gcc")
         .arg("--version")
@@ -98,11 +103,12 @@ fn run_entry_with_base_dir(source: &str, base_dir: &Path) -> Option<(i32, String
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let asm_path = format!("temp_integ_{}_{}.s", std::process::id(), nanos);
+    let id = INTEG_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let asm_path = format!("temp_integ_{}_{}_{}.s", std::process::id(), id, nanos);
     let exe_path = if cfg!(target_os = "windows") {
-        format!("temp_integ_{}_{}.exe", std::process::id(), nanos)
+        format!("temp_integ_{}_{}_{}.exe", std::process::id(), id, nanos)
     } else {
-        format!("temp_integ_{}_{}", std::process::id(), nanos)
+        format!("temp_integ_{}_{}_{}", std::process::id(), id, nanos)
     };
     fs::write(&asm_path, &asm_code).expect("Failed to write temp asm");
 
