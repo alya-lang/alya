@@ -1,0 +1,1578 @@
+# Alya self-hosting spike: lexer written in Alya, mirroring
+# src/lexer/{mod.rs,reader.rs,cursor.rs,token.rs} token-for-token.
+#
+# Canonical dump (stdout, one line per token):
+#   line|col|kind|norm
+# Error files print `0|0|error|LINE:COL` and exit 1.
+# A trailing `0|0|stats|ms=..|tokens=..` line carries timing (ignored by diff).
+#
+# Design notes (all verified against the develop compiler):
+# - Input scanned as BYTES with manual UTF-8 decode: `for ch in` rune
+#   iteration and `chr()` are broken for non-ASCII on develop, and columns
+#   must count codepoints exactly like the Rust `Vec<char>` cursor.
+# - String values never materialize as Alya strings: codepoints stream
+#   straight into JSON escapes (also dodges NUL truncation, handled by the
+#   harness as a documented special case).
+# - Integer values accumulate in u64 with manual overflow pre-checks whose
+#   threshold literals all fit i64 (u64 display is signed in Alya).
+# - Floats emit the source LEXEME; the harness bit-compares parsed doubles
+#   (Alya's float printer rounds, so values are never text-compared).
+# - Lexer state lives in a struct: module globals are not writable from
+#   functions at runtime (compiles, then dies silently).
+# - f-strings are never fed runtime text: `{holes}` in file content would
+#   interpolate. Concatenation only.
+
+import "std/fs" as fs
+import "std/os" as os
+import "std/str"
+import "std/time" as time
+
+struct Lexer
+    bytes: array
+    n: int
+    pos: int
+    line: int
+    col: int
+    out: string[]
+    last_kind: string
+    had_ws: int
+    err_line: int
+    err_col: int
+    failed: int
+end
+
+function Lexer.cur(self) -> int
+    if self.pos >= self.n
+        return -1
+    end
+    return self.bytes[self.pos]
+end
+
+function Lexer.peek(self) -> int
+    if self.pos + 1 >= self.n
+        return -1
+    end
+    return self.bytes[self.pos + 1]
+end
+
+function Lexer.peek_at(self, k: int) -> int
+    if self.pos + k >= self.n
+        return -1
+    end
+    return self.bytes[self.pos + k]
+end
+
+function Lexer.advance(self)
+    if self.pos >= self.n
+        return
+    end
+    if self.bytes[self.pos] == 10
+        self.line += 1
+        self.col = 1
+    else
+        self.col += 1
+    end
+    self.pos += 1
+end
+
+function int_to_dec(v: int) -> string
+    if v == 0
+        return "0"
+    end
+    let neg = 0
+    let x = v
+    if x < 0
+        neg = 1
+        x = 0 - x
+    end
+    let digs = []
+    while x > 0
+        digs.push(x % 10)
+        x = x / 10
+    end
+    let s = ""
+    if neg == 1
+        s = "-"
+    end
+    let i = len(digs) - 1
+    while i >= 0
+        s = s + chr(48 + digs[i])
+        i -= 1
+    end
+    return s
+end
+
+function Lexer.emit_at(self, line: int, col: int, kind: string, norm: string)
+    self.out.push(int_to_dec(line) + "|" + int_to_dec(col) + "|" + kind + "|" + norm)
+end
+
+function Lexer.emit(self, kind: string, norm: string)
+    self.emit_at(self.line, self.col, kind, norm)
+end
+
+function Lexer.fail(self, line: int, col: int)
+    self.err_line = line
+    self.err_col = col
+    self.failed = 1
+end
+
+# Width of the UTF-8 sequence starting at a lead byte.
+function utf8_width(b: int) -> int
+    if b < 128
+        return 1
+    end
+    if b >= 240 and b < 248
+        return 4
+    end
+    if b >= 224 and b < 240
+        return 3
+    end
+    if b >= 192 and b < 224
+        return 2
+    end
+    return 1
+end
+
+# Decode the codepoint at the current position, consuming its bytes.
+# Continuation validation is best-effort: file input is valid UTF-8 by
+# construction on both runtimes, so the fallback never fires on real input.
+function Lexer.decode_cp(self) -> int
+    let b = self.bytes[self.pos]
+    if b < 128
+        self.advance()
+        return b
+    end
+    let w = utf8_width(b)
+    if w == 1
+        self.advance()
+        return b
+    end
+    let cp = 0
+    if w == 4
+        cp = bit_and(b, 7)
+    elif w == 3
+        cp = bit_and(b, 15)
+    else
+        cp = bit_and(b, 31)
+    end
+    self.advance()
+    let k = 1
+    while k < w
+        let c = self.cur()
+        if c < 0
+            break
+        end
+        if bit_and(c, 192) != 128
+            break
+        end
+        cp = cp * 64 + bit_and(c, 63)
+        self.advance()
+        k += 1
+    end
+    # Column counts codepoints, not bytes: advance() stepped per byte.
+    self.col = self.col - w + 1
+    return cp
+end
+
+function hex_val_of(cp: int) -> int
+    if cp >= 48 and cp <= 57
+        return cp - 48
+    end
+    if cp >= 97 and cp <= 102
+        return cp - 87
+    end
+    if cp >= 65 and cp <= 70
+        return cp - 55
+    end
+    return -1
+end
+
+function hex4(v: int) -> string
+    let digits = "0123456789abcdef"
+    let s = ""
+    s = s + char_at(digits, bit_and(bit_shr(v, 12), 15))
+    s = s + char_at(digits, bit_and(bit_shr(v, 8), 15))
+    s = s + char_at(digits, bit_and(bit_shr(v, 4), 15))
+    s = s + char_at(digits, bit_and(v, 15))
+    return s
+end
+
+# Append one ASCII source byte as JSON-escaped dump content.
+function append_raw(esc: string, c: int) -> string
+    if c == 92 or c == 34 or c < 32
+        return esc + escape_cp(c)
+    end
+    return esc + chr(c)
+end
+
+# JSON-escape one codepoint for the dump norm (pure ASCII output).
+function escape_cp(cp: int) -> string
+    if cp == 34
+        return "\\" + chr(34)
+    end
+    if cp == 92
+        return "\\\\"
+    end
+    if cp == 10
+        return "\\" + "n"
+    end
+    if cp == 9
+        return "\\" + "t"
+    end
+    if cp == 13
+        return "\\" + "r"
+    end
+    if cp == 8
+        return "\\" + "b"
+    end
+    if cp == 12
+        return "\\" + "f"
+    end
+    if cp < 32 or cp == 127
+        return "\\" + "u" + hex4(cp)
+    end
+    if cp < 128
+        return chr(cp)
+    end
+    if cp < 65536
+        return "\\" + "u" + hex4(cp)
+    end
+    let v = cp - 65536
+    let hi = 55296 + bit_shr(v, 10)
+    let lo = 56320 + bit_and(v, 1023)
+    return "\\" + "u" + hex4(hi) + "\\" + "u" + hex4(lo)
+end
+
+# --- unsigned-64 helpers ---
+# Alya's u64 is nominal: arithmetic wraps mod 2^64 (exact bits) but
+# comparisons, division, remainder, and display are SIGNED. Anything above
+# i64::MAX needs these exact helpers (verified against the develop backend).
+
+# Unsigned a < b via high-bit split (equal high bits -> signed order is exact).
+function u64_lt(a: u64, b: u64) -> int
+    let zero: u64 = 0
+    let ha = 0
+    let hb = 0
+    if a < zero
+        ha = 1
+    end
+    if b < zero
+        hb = 1
+    end
+    if ha != hb
+        return ha < hb
+    end
+    return a < b
+end
+
+function u64_gt(a: u64, b: u64) -> int
+    return u64_lt(b, a)
+end
+
+# Exact [quotient, remainder] of v / 10 for the full u64 range. Fast path
+# uses native ops (exact when the high bit is clear); otherwise binary long
+# division with only shifts/masks/adds/subs and small comparisons.
+function u64_divmod10(v: u64) -> array
+    let ten: u64 = 10
+    let zero: u64 = 0
+    let one: u64 = 1
+    if v < zero
+        let q: u64 = 0
+        let r: u64 = 0
+        let i = 63
+        while i >= 0
+            r = r * 2 + bit_and(bit_shr(v, i), one)
+            if r > 9
+                r = r - ten
+                q = q + bit_shl(one, i)
+            end
+            i -= 1
+        end
+        return [q, r]
+    end
+    return [v / ten, v % ten]
+end
+
+# Manual u64 -> decimal (Alya prints u64 through i64 eyes).
+function u64_to_dec(v: u64) -> string
+    let zero: u64 = 0
+    if v == zero
+        return "0"
+    end
+    let digs = []
+    let x = v
+    while x != zero
+        let qr = u64_divmod10(x)
+        digs.push(qr[1] as int)
+        x = qr[0]
+    end
+    let s = ""
+    let i = len(digs) - 1
+    while i >= 0
+        s = s + chr(48 + digs[i])
+        i -= 1
+    end
+    return s
+end
+
+# Canonical keyword name, or "" for plain identifiers. Aliases included:
+# fn -> function, nil -> null. If/elif chain (no map-index risk).
+function canonical_word(w: string) -> string
+    if w == "say" or w == "let" or w == "if" or w == "else" or w == "elif"
+        return w
+    end
+    if w == "while" or w == "for" or w == "in" or w == "end" or w == "return"
+        return w
+    end
+    if w == "when" or w == "is" or w == "then" or w == "repeat" or w == "break"
+        return w
+    end
+    if w == "continue" or w == "ask" or w == "try" or w == "catch" or w == "finally"
+        return w
+    end
+    if w == "throw" or w == "import" or w == "as" or w == "struct" or w == "enum"
+        return w
+    end
+    if w == "const" or w == "extern" or w == "from" or w == "defer" or w == "pub"
+        return w
+    end
+    if w == "interface" or w == "spawn" or w == "select" or w == "assert"
+        return w
+    end
+    if w == "test" or w == "bench" or w == "self" or w == "weak" or w == "comptime"
+        return w
+    end
+    if w == "sizeof" or w == "alignof" or w == "typeof"
+        return w
+    end
+    if w == "true" or w == "false" or w == "null"
+        return w
+    end
+    if w == "and" or w == "or" or w == "not"
+        return w
+    end
+    if w == "function" or w == "fn"
+        return "function"
+    end
+    if w == "nil"
+        return "null"
+    end
+    return ""
+end
+
+function lx_is_digit(b: int) -> int
+    return b >= 48 and b <= 57
+end
+
+function lx_is_alpha(b: int) -> int
+    if b >= 97 and b <= 122
+        return 1
+    end
+    if b >= 65 and b <= 90
+        return 1
+    end
+    if b == 95
+        return 1
+    end
+    return 0
+end
+
+function lx_is_alnum(b: int) -> int
+    if lx_is_digit(b) == 1
+        return 1
+    end
+    return lx_is_alpha(b)
+end
+
+function lx_is_hexdigit(b: int) -> int
+    if lx_is_digit(b) == 1
+        return 1
+    end
+    if b >= 97 and b <= 102
+        return 1
+    end
+    if b >= 65 and b <= 70
+        return 1
+    end
+    return 0
+end
+
+# Float-lexeme validator matching Rust f64::parse acceptance on
+# scanner-produced shapes: mantissa with >=1 digit and <=1 dot,
+# optional single exponent with optional sign and >=1 digit.
+function valid_float(s: string) -> int
+    let n = len(s)
+    let ei = -1
+    let i = 0
+    while i < n
+        let c = char_at(s, i)
+        if c == "e" or c == "E"
+            if ei != -1
+                return 0
+            end
+            ei = i
+        end
+        i += 1
+    end
+    let mend = n
+    if ei != -1
+        mend = ei
+    end
+    if mend == 0
+        return 0
+    end
+    let digits = 0
+    let dots = 0
+    i = 0
+    while i < mend
+        let c = char_at(s, i)
+        if c == "."
+            dots += 1
+            if dots > 1
+                return 0
+            end
+        elif c >= "0" and c <= "9"
+            digits += 1
+        else
+            return 0
+        end
+        i += 1
+    end
+    if digits == 0
+        return 0
+    end
+    if ei == -1
+        return 1
+    end
+    let j = ei + 1
+    if j < n
+        let sgn = char_at(s, j)
+        if sgn == "+" or sgn == "-"
+            j += 1
+        end
+    end
+    if j >= n
+        return 0
+    end
+    while j < n
+        let c = char_at(s, j)
+        if c < "0" or c > "9"
+            return 0
+        end
+        j += 1
+    end
+    return 1
+end
+
+# --- number reader: decimal value text (floats prefixed), "" on error ---
+function Lexer.read_number(self) -> string
+    let sl = self.line
+    let sc = self.col
+    if self.cur() == 48
+        let p = self.peek()
+        if p == 120 or p == 88 or p == 98 or p == 66 or p == 111 or p == 79
+            self.advance()
+            let base = 0
+            if p == 120 or p == 88
+                base = 16
+            elif p == 98 or p == 66
+                base = 2
+            else
+                base = 8
+            end
+            self.advance()
+            let val: u64 = 0
+            let count = 0
+            while 1 == 1
+                let c = self.cur()
+                if c == 95
+                    self.advance()
+                elif base == 16 and lx_is_hexdigit(c) == 1
+                    if u64_gt(val, 1152921504606846975) == 1
+                        self.fail(sl, sc)
+                        return ""
+                    end
+                    val = val * 16 + (hex_val_of(c) as u64)
+                    count += 1
+                    self.advance()
+                elif base == 2 and (c == 48 or c == 49)
+                    if u64_gt(val, 9223372036854775807) == 1
+                        self.fail(sl, sc)
+                        return ""
+                    end
+                    val = val * 2 + ((c - 48) as u64)
+                    count += 1
+                    self.advance()
+                elif base == 8 and c >= 48 and c <= 55
+                    if u64_gt(val, 2305843009213693951) == 1
+                        self.fail(sl, sc)
+                        return ""
+                    end
+                    val = val * 8 + ((c - 48) as u64)
+                    count += 1
+                    self.advance()
+                else
+                    break
+                end
+            end
+            if count == 0
+                self.fail(sl, sc)
+                return ""
+            end
+            if lx_is_alnum(self.cur()) == 1
+                self.fail(sl, sc)
+                return ""
+            end
+            return u64_to_dec(val)
+        end
+    end
+    let has_dot = 0
+    let lex = ""
+    if self.cur() == 46
+        has_dot = 1
+        lex = lex + "."
+        self.advance()
+    end
+    while 1 == 1
+        let c = self.cur()
+        if lx_is_digit(c) == 1
+            lex = lex + chr(c)
+            self.advance()
+        elif c == 95
+            self.advance()
+        elif c == 46 and has_dot == 0 and lx_is_digit(self.peek()) == 1
+            has_dot = 1
+            lex = lex + "."
+            self.advance()
+        elif (c == 101 or c == 69) and len(lex) > 0
+            has_dot = 1
+            lex = lex + chr(c)
+            self.advance()
+            let sgn = self.cur()
+            if sgn == 43 or sgn == 45
+                lex = lex + chr(sgn)
+                self.advance()
+            end
+        else
+            break
+        end
+    end
+    if has_dot == 1
+        if valid_float(lex) == 0
+            self.fail(sl, sc)
+            return ""
+        end
+        return "@@FLOAT@@" + lex
+    end
+    let val: u64 = 0
+    let i = 0
+    while i < len(lex)
+        let d = char_at(lex, i)
+        let dv = 9
+        if d == "0"
+            dv = 0
+        elif d == "1"
+            dv = 1
+        elif d == "2"
+            dv = 2
+        elif d == "3"
+            dv = 3
+        elif d == "4"
+            dv = 4
+        elif d == "5"
+            dv = 5
+        elif d == "6"
+            dv = 6
+        elif d == "7"
+            dv = 7
+        elif d == "8"
+            dv = 8
+        end
+        if u64_gt(val, 1844674407370955161) == 1
+            self.fail(sl, sc)
+            return ""
+        end
+        if val == 1844674407370955161 and dv > 5
+            self.fail(sl, sc)
+            return ""
+        end
+        val = val * 10 + (dv as u64)
+        i += 1
+    end
+    return u64_to_dec(val)
+end
+
+# Escape reader shared by plain/format/triple strings. triple=1 keeps
+# unknown escapes verbatim (backslash + char, like Rust).
+# Output is dump-ready: every control/newline lands pre-escaped, so token
+# lines never contain raw newlines. Only raw multibyte content still goes
+# through @@U@@ markers (resolved to JSON escapes in a second pass).
+# \u errors attribute to the string start (esl/ecol), like Rust.
+function Lexer.read_escape(self, esc: string, triple: int, esl: int, ecol: int) -> string
+    self.advance()
+    let c = self.cur()
+    if c == 110
+        return esc + escape_cp(10)
+    end
+    if c == 116
+        return esc + escape_cp(9)
+    end
+    if c == 114
+        return esc + escape_cp(13)
+    end
+    if c == 101
+        return esc + escape_cp(27)
+    end
+    if c == 97
+        return esc + escape_cp(7)
+    end
+    if c == 98
+        return esc + escape_cp(8)
+    end
+    if c == 102
+        return esc + escape_cp(12)
+    end
+    if c == 118
+        return esc + escape_cp(11)
+    end
+    if c == 48
+        return esc + escape_cp(0)
+    end
+    if c == 92
+        return esc + escape_cp(92)
+    end
+    if c == 34
+        return esc + escape_cp(34)
+    end
+    if c == 123
+        return esc + "{"
+    end
+    if c == 125
+        return esc + "}"
+    end
+    if c == 117
+        self.advance()
+        if self.cur() != 123
+            self.fail(esl, ecol)
+            return esc
+        end
+        self.advance()
+        let cp = 0
+        let ndig = 0
+        while 1 == 1
+            let h = self.cur()
+            if h == 125
+                break
+            end
+            if h == 34 or h == 10 or h < 0
+                self.fail(esl, ecol)
+                return esc
+            end
+            let v = hex_val_of(h)
+            if v < 0
+                self.fail(esl, ecol)
+                return esc
+            end
+            cp = cp * 16 + v
+            ndig += 1
+            self.advance()
+        end
+        if self.cur() != 125
+            self.fail(esl, ecol)
+            return esc
+        end
+        if ndig == 0 or cp > 1114111 or (cp >= 55296 and cp <= 57343)
+            self.fail(esl, ecol)
+            return esc
+        end
+        return esc + escape_cp(cp)
+    end
+    if c < 0
+        self.fail(self.line, self.col)
+        return esc
+    end
+    if c < 128
+        if triple == 1
+            return esc + escape_cp(92) + escape_cp(c)
+        end
+        return esc + escape_cp(c)
+    end
+    let cp = self.decode_cp()
+    if triple == 1
+        return esc + escape_cp(92) + escape_cp(cp)
+    end
+    return esc + escape_cp(cp)
+end
+
+# Resolve @@U@@<dec>@@/U@@ markers into JSON escapes.
+function resolve_unicode_marks(esc: string) -> string
+    let res = ""
+    let i = 0
+    let n = len(esc)
+    while i < n
+        if i + 5 < n and esc[i..i + 5] == "@@U@@"
+            let j = i + 5
+            let num = ""
+            while j < n and char_at(esc, j) != "@"
+                num = num + char_at(esc, j)
+                j += 1
+            end
+            let cp = 0
+            let k = 0
+            while k < len(num)
+                let dd = char_at(num, k)
+                let dv = 0
+                if dd == "1"
+                    dv = 1
+                elif dd == "2"
+                    dv = 2
+                elif dd == "3"
+                    dv = 3
+                elif dd == "4"
+                    dv = 4
+                elif dd == "5"
+                    dv = 5
+                elif dd == "6"
+                    dv = 6
+                elif dd == "7"
+                    dv = 7
+                elif dd == "8"
+                    dv = 8
+                elif dd == "9"
+                    dv = 9
+                end
+                cp = cp * 10 + dv
+                k += 1
+            end
+            res = res + escape_cp(cp)
+            i = j + 6
+        else
+            res = res + char_at(esc, i)
+            i += 1
+        end
+    end
+    return res
+end
+
+function Lexer.read_string(self, triple: int) -> string
+    let sl = self.line
+    let sc = self.col
+    self.advance()
+    let esc = ""
+    while 1 == 1
+        let c = self.cur()
+        if c < 0
+            self.fail(sl, sc)
+            return ""
+        end
+        if c == 34
+            self.advance()
+            return resolve_unicode_marks(esc)
+        end
+        if c == 92
+            esc = self.read_escape(esc, triple, sl, sc)
+            if self.failed == 1
+                return ""
+            end
+            self.advance()
+        else
+            if c == 0
+                esc = esc + escape_cp(0)
+                self.advance()
+            elif c < 128
+                esc = append_raw(esc, c)
+                self.advance()
+            else
+                let cp = self.decode_cp()
+                esc = esc + "@@U@@" + int_to_dec(cp) + "@@/U@@"
+            end
+        end
+    end
+    self.fail(sl, sc)
+    return ""
+end
+
+function Lexer.read_triple(self) -> string
+    let tsl = self.line
+    let tsc = self.col
+    self.advance()
+    self.advance()
+    self.advance()
+    if self.cur() == 13 and self.peek() == 10
+        self.advance()
+        self.advance()
+    elif self.cur() == 10
+        self.advance()
+    end
+    let sl = self.line
+    let sc = self.col
+    let esc = ""
+    while 1 == 1
+        let c = self.cur()
+        if c < 0
+            self.fail(tsl, tsc)
+            return ""
+        end
+        if c == 34 and self.peek() == 34 and self.peek_at(2) == 34
+            self.advance()
+            self.advance()
+            self.advance()
+            return resolve_unicode_marks(esc)
+        end
+        if c == 13
+            self.advance()
+            if self.cur() == 10
+                self.advance()
+            end
+            esc = esc + escape_cp(10)
+        elif c == 92
+            esc = self.read_escape(esc, 1, tsl, tsc)
+            if self.failed == 1
+                return ""
+            end
+            self.advance()
+        else
+            if c == 0
+                esc = esc + escape_cp(0)
+                self.advance()
+            elif c < 128
+                esc = append_raw(esc, c)
+                self.advance()
+            else
+                let cp = self.decode_cp()
+                esc = esc + "@@U@@" + int_to_dec(cp) + "@@/U@@"
+            end
+        end
+    end
+    self.fail(tsl, tsc)
+    return ""
+end
+
+function Lexer.read_format_string(self) -> string
+    let sl = self.line
+    let sc = self.col
+    self.advance()
+    let esc = ""
+    let depth = 0
+    while 1 == 1
+        let c = self.cur()
+        if c < 0
+            self.fail(sl, sc)
+            return ""
+        end
+        if depth == 0 and c == 34
+            self.advance()
+            return resolve_unicode_marks(esc)
+        end
+        if depth > 0 and c == 34
+            esc = esc + escape_cp(34)
+            self.advance()
+            while 1 == 1
+                let d = self.cur()
+                if d < 0
+                    self.fail(sl, sc)
+                    return ""
+                end
+                if d == 34
+                    esc = esc + escape_cp(34)
+                    self.advance()
+                    break
+                end
+                if d == 92
+                    esc = esc + escape_cp(92)
+                    self.advance()
+                    let e2 = self.cur()
+                    if e2 < 0
+                        self.fail(sl, sc)
+                        return ""
+                    end
+                    if e2 < 128
+                        esc = append_raw(esc, e2)
+                    else
+                        let cp2 = self.decode_cp()
+                        esc = esc + "@@U@@" + int_to_dec(cp2) + "@@/U@@"
+                    end
+                    self.advance()
+                else
+                    if d == 0
+                        esc = esc + escape_cp(0)
+                        self.advance()
+                    elif d < 128
+                        esc = append_raw(esc, d)
+                        self.advance()
+                    else
+                        let cp = self.decode_cp()
+                        esc = esc + "@@U@@" + int_to_dec(cp) + "@@/U@@"
+                    end
+                end
+            end
+        elif c == 123
+            if self.peek() == 123 and depth == 0
+                esc = esc + "{" + "{"
+                self.advance()
+                self.advance()
+            else
+                depth += 1
+                esc = esc + "{"
+                self.advance()
+            end
+        elif c == 125
+            if self.peek() == 125 and depth == 0
+                esc = esc + "}" + "}"
+                self.advance()
+                self.advance()
+            else
+                if depth > 0
+                    depth -= 1
+                end
+                esc = esc + "}"
+                self.advance()
+            end
+        elif c == 92
+            esc = self.read_escape(esc, 0, sl, sc)
+            if self.failed == 1
+                return ""
+            end
+            self.advance()
+        else
+            if c == 0
+                esc = esc + escape_cp(0)
+                self.advance()
+            elif c < 128
+                esc = append_raw(esc, c)
+                self.advance()
+            else
+                let cp = self.decode_cp()
+                esc = esc + "@@U@@" + int_to_dec(cp) + "@@/U@@"
+            end
+        end
+    end
+    self.fail(sl, sc)
+    return ""
+end
+
+function Lexer.read_raw(self) -> string
+    let sl = self.line
+    let sc = self.col
+    self.advance()
+    let esc = ""
+    while 1 == 1
+        let c = self.cur()
+        if c < 0
+            self.fail(sl, sc)
+            return ""
+        end
+        if c == 96
+            self.advance()
+            return resolve_unicode_marks(esc)
+        end
+        if c == 13
+            self.advance()
+            if self.cur() == 10
+                self.advance()
+            end
+            esc = esc + escape_cp(10)
+        else
+            if c == 0
+                esc = esc + escape_cp(0)
+                self.advance()
+            elif c < 128
+                esc = append_raw(esc, c)
+                self.advance()
+            else
+                let cp = self.decode_cp()
+                esc = esc + "@@U@@" + int_to_dec(cp) + "@@/U@@"
+            end
+        end
+    end
+    self.fail(sl, sc)
+    return ""
+end
+
+function Lexer.read_raw_quoted(self) -> string
+    let sl = self.line
+    let sc = self.col
+    self.advance()
+    let esc = ""
+    while 1 == 1
+        let c = self.cur()
+        if c < 0
+            self.fail(sl, sc)
+            return ""
+        end
+        if c == 34
+            self.advance()
+            return resolve_unicode_marks(esc)
+        end
+        if c == 13
+            self.advance()
+            if self.cur() == 10
+                self.advance()
+            end
+            esc = esc + escape_cp(10)
+        else
+            if c == 0
+                esc = esc + escape_cp(0)
+                self.advance()
+            elif c < 128
+                esc = append_raw(esc, c)
+                self.advance()
+            else
+                let cp = self.decode_cp()
+                esc = esc + "@@U@@" + int_to_dec(cp) + "@@/U@@"
+            end
+        end
+    end
+    self.fail(sl, sc)
+    return ""
+end
+
+# Rune reader returning the codepoint. Mirrors the smaller rune escape set.
+function Lexer.read_rune_cp(self) -> int
+    let sl = self.line
+    let sc = self.col
+    self.advance()
+    let c = self.cur()
+    let cp = 0
+    if c == 92
+        self.advance()
+        let e = self.cur()
+        if e == 110
+            cp = 10
+        elif e == 116
+            cp = 9
+        elif e == 114
+            cp = 13
+        elif e == 48
+            cp = 0
+        elif e == 92
+            cp = 92
+        elif e == 39
+            cp = 39
+        elif e == 34
+            cp = 34
+        elif e == 101
+            cp = 27
+        elif e == 117
+            self.advance()
+            if self.cur() != 123
+                self.fail(sl, sc)
+                return 0
+            end
+            self.advance()
+            cp = 0
+            let ndig = 0
+            while 1 == 1
+                let h = self.cur()
+                if h == 125
+                    break
+                end
+                if h == 34 or h == 10 or h < 0
+                    self.fail(sl, sc)
+                    return 0
+                end
+                let v = hex_val_of(h)
+                if v < 0
+                    self.fail(sl, sc)
+                    return 0
+                end
+                cp = cp * 16 + v
+                ndig += 1
+                self.advance()
+            end
+            if self.cur() != 125
+                self.fail(sl, sc)
+                return 0
+            end
+            if ndig == 0 or cp > 1114111 or (cp >= 55296 and cp <= 57343)
+                self.fail(sl, sc)
+                return 0
+            end
+        elif e < 0
+            self.fail(sl, sc)
+            return 0
+        else
+            cp = e
+        end
+    elif c == 39
+        self.fail(sl, sc)
+        return 0
+    elif c < 0
+        self.fail(sl, sc)
+        return 0
+    elif c < 128
+        cp = c
+    else
+        cp = self.decode_cp()
+        if self.cur() != 39
+            self.fail(sl, sc)
+            return 0
+        end
+        self.advance()
+        return cp
+    end
+    self.advance()
+    if self.cur() != 39
+        self.fail(sl, sc)
+        return 0
+    end
+    self.advance()
+    return cp
+end
+
+function Lexer.read_identifier(self) -> string
+    let s = ""
+    while 1 == 1
+        let c = self.cur()
+        if lx_is_alpha(c) == 1 or lx_is_digit(c) == 1
+            s = s + chr(c)
+            self.advance()
+        else
+            break
+        end
+    end
+    return s
+end
+
+function Lexer.skip_comment(self)
+    while 1 == 1
+        let c = self.cur()
+        if c == 10 or c < 0
+            break
+        end
+        self.advance_cp()
+    end
+end
+
+function Lexer.skip_multiline(self)
+    let sl = self.line
+    let sc = self.col
+    while 1 == 1
+        let c = self.cur()
+        if c < 0
+            self.fail(sl, sc)
+            return
+        end
+        if c == 42 and self.peek() == 47
+            self.advance()
+            self.advance()
+            return
+        end
+        self.advance_cp()
+    end
+end
+
+# Advance one codepoint (codecs count columns per codepoint, like Rust).
+function Lexer.advance_cp(self)
+    let b = self.cur()
+    if b < 0
+        return
+    end
+    if b < 128
+        self.advance()
+        return
+    end
+    let w = utf8_width(b)
+    if w == 1
+        self.advance()
+        return
+    end
+    let k = 0
+    while k < w
+        if self.cur() < 0
+            break
+        end
+        self.advance()
+        k += 1
+    end
+    self.col = self.col - w + 1
+end
+
+function Lexer.tokenize(self)
+    while 1 == 1
+        let c = self.cur()
+        if c < 0
+            break
+        end
+        let line = self.line
+        let col = self.col
+        if c == 32 or c == 9 or c == 13
+            while 1 == 1
+                let w = self.cur()
+                if w == 32 or w == 9 or w == 13
+                    self.advance()
+                else
+                    break
+                end
+            end
+            self.had_ws = 1
+        elif c == 10
+            self.emit("newline", "")
+            self.last_kind = "other"
+            self.had_ws = 1
+            self.advance()
+        elif c == 35
+            self.skip_comment()
+            self.had_ws = 1
+        else
+            let prev_ws = self.had_ws
+            self.had_ws = 0
+            if c == 34
+                let s = ""
+                if self.peek_at(1) == 34 and self.peek_at(2) == 34
+                    s = self.read_triple()
+                else
+                    s = self.read_string(0)
+                end
+                if self.failed == 1
+                    break
+                end
+                self.emit_at(line, col, "string", s)
+                self.last_kind = "other"
+            elif c == 96
+                let s = self.read_raw()
+                if self.failed == 1
+                    break
+                end
+                self.emit_at(line, col, "string", s)
+                self.last_kind = "other"
+            elif c == 39
+                let cp = self.read_rune_cp()
+                if self.failed == 1
+                    break
+                end
+                self.emit_at(line, col, "rune", escape_cp(cp))
+                self.last_kind = "other"
+            elif c == 64
+                self.advance()
+                self.emit_at(line, col, "op", "@")
+                self.last_kind = "other"
+            elif c == 43
+                self.advance()
+                if self.cur() == 61
+                    self.advance()
+                    self.emit_at(line, col, "op", "+=")
+                else
+                    self.emit_at(line, col, "op", "+")
+                end
+                self.last_kind = "other"
+            elif c == 45
+                self.advance()
+                if self.cur() == 61
+                    self.advance()
+                    self.emit_at(line, col, "op", "-=")
+                elif self.cur() == 62
+                    self.advance()
+                    self.emit_at(line, col, "op", "->")
+                else
+                    self.emit_at(line, col, "op", "-")
+                end
+                self.last_kind = "other"
+            elif c == 42
+                self.advance()
+                if self.cur() == 61
+                    self.advance()
+                    self.emit_at(line, col, "op", "*=")
+                else
+                    self.emit_at(line, col, "op", "*")
+                end
+                self.last_kind = "other"
+            elif c == 47
+                self.advance()
+                if self.cur() == 47
+                    self.skip_comment()
+                    self.had_ws = 1
+                elif self.cur() == 42
+                    self.advance()
+                    self.skip_multiline()
+                    if self.failed == 1
+                        break
+                    end
+                    self.had_ws = 1
+                elif self.cur() == 61
+                    self.advance()
+                    self.emit_at(line, col, "op", "/=")
+                    self.last_kind = "other"
+                else
+                    self.emit_at(line, col, "op", "/")
+                    self.last_kind = "other"
+                end
+            elif c == 37
+                self.advance()
+                if self.cur() == 61
+                    self.advance()
+                    self.emit_at(line, col, "op", "%=")
+                else
+                    self.emit_at(line, col, "op", "%")
+                end
+                self.last_kind = "other"
+            elif c == 40
+                self.advance()
+                self.emit_at(line, col, "delim", "(")
+                self.last_kind = "other"
+            elif c == 41
+                self.advance()
+                self.emit_at(line, col, "delim", ")")
+                self.last_kind = "rparen"
+            elif c == 91
+                self.advance()
+                self.emit_at(line, col, "delim", "[")
+                self.last_kind = "other"
+            elif c == 93
+                self.advance()
+                self.emit_at(line, col, "delim", "]")
+                self.last_kind = "rbrack"
+            elif c == 123
+                self.advance()
+                self.emit_at(line, col, "delim", "{")
+                self.last_kind = "other"
+            elif c == 125
+                self.advance()
+                self.emit_at(line, col, "delim", "}")
+                self.last_kind = "rbrace"
+            elif c == 44
+                self.advance()
+                self.emit_at(line, col, "delim", ",")
+                self.last_kind = "other"
+            elif c == 58
+                self.advance()
+                if self.cur() == 58
+                    self.advance()
+                    self.emit_at(line, col, "delim", "::")
+                else
+                    self.emit_at(line, col, "delim", ":")
+                end
+                self.last_kind = "other"
+            elif c == 63
+                self.advance()
+                if self.cur() == 63
+                    self.advance()
+                    self.emit_at(line, col, "delim", "??")
+                elif self.cur() == 46
+                    self.advance()
+                    self.emit_at(line, col, "delim", "?.")
+                else
+                    self.emit_at(line, col, "delim", "?")
+                end
+                self.last_kind = "other"
+            elif c == 46
+                if self.peek_at(1) == 46 and self.peek_at(2) == 46
+                    self.advance()
+                    self.advance()
+                    self.advance()
+                    self.emit_at(line, col, "delim", "...")
+                    self.last_kind = "other"
+                elif self.peek_at(1) == 46
+                    self.advance()
+                    self.advance()
+                    if self.cur() == 61
+                        self.advance()
+                        self.emit_at(line, col, "delim", "..=")
+                    else
+                        self.emit_at(line, col, "delim", "..")
+                    end
+                    self.last_kind = "other"
+                elif lx_is_digit(self.peek()) == 1 and (prev_ws == 1 or self.last_kind == "none" or (self.last_kind != "ident" and self.last_kind != "rparen" and self.last_kind != "rbrack" and self.last_kind != "rbrace"))
+                    self.emit_number_at(line, col)
+                    if self.failed == 1
+                        break
+                    end
+                else
+                    self.advance()
+                    self.emit_at(line, col, "delim", ".")
+                    self.last_kind = "other"
+                end
+            elif c == 61
+                self.advance()
+                if self.cur() == 61
+                    self.advance()
+                    self.emit_at(line, col, "op", "==")
+                elif self.cur() == 62
+                    self.advance()
+                    self.emit_at(line, col, "op", "=>")
+                else
+                    self.emit_at(line, col, "op", "=")
+                end
+                self.last_kind = "other"
+            elif c == 33
+                self.advance()
+                if self.cur() == 61
+                    self.advance()
+                    self.emit_at(line, col, "op", "!=")
+                else
+                    self.emit_at(line, col, "keyword", "not")
+                end
+                self.last_kind = "other"
+            elif c == 38
+                self.advance()
+                if self.cur() == 38
+                    self.advance()
+                    self.emit_at(line, col, "keyword", "and")
+                elif self.cur() == 61
+                    self.advance()
+                    self.emit_at(line, col, "op", "&=")
+                else
+                    self.emit_at(line, col, "op", "&")
+                end
+                self.last_kind = "other"
+            elif c == 124
+                self.advance()
+                if self.cur() == 124
+                    self.advance()
+                    self.emit_at(line, col, "keyword", "or")
+                elif self.cur() == 61
+                    self.advance()
+                    self.emit_at(line, col, "op", "|=")
+                else
+                    self.emit_at(line, col, "op", "|")
+                end
+                self.last_kind = "other"
+            elif c == 94
+                self.advance()
+                if self.cur() == 61
+                    self.advance()
+                    self.emit_at(line, col, "op", "^=")
+                else
+                    self.emit_at(line, col, "op", "^")
+                end
+                self.last_kind = "other"
+            elif c == 126
+                self.advance()
+                self.emit_at(line, col, "op", "~")
+                self.last_kind = "other"
+            elif c == 60
+                self.advance()
+                if self.cur() == 60
+                    self.advance()
+                    if self.cur() == 61
+                        self.advance()
+                        self.emit_at(line, col, "op", "<<=")
+                    else
+                        self.emit_at(line, col, "op", "<<")
+                    end
+                elif self.cur() == 61
+                    self.advance()
+                    self.emit_at(line, col, "op", "<=")
+                else
+                    self.emit_at(line, col, "op", "<")
+                end
+                self.last_kind = "other"
+            elif c == 62
+                self.advance()
+                if self.cur() == 62
+                    self.advance()
+                    if self.cur() == 61
+                        self.advance()
+                        self.emit_at(line, col, "op", ">>=")
+                    else
+                        self.emit_at(line, col, "op", ">>")
+                    end
+                elif self.cur() == 61
+                    self.advance()
+                    self.emit_at(line, col, "op", ">=")
+                else
+                    self.emit_at(line, col, "op", ">")
+                end
+                self.last_kind = "other"
+            elif lx_is_digit(c) == 1
+                self.emit_number_at(line, col)
+                if self.failed == 1
+                    break
+                end
+            elif c == 102 and self.peek() == 34
+                self.advance()
+                let s = ""
+                if self.peek_at(1) == 34 and self.peek_at(2) == 34
+                    s = self.read_triple()
+                else
+                    s = self.read_format_string()
+                end
+                if self.failed == 1
+                    break
+                end
+                self.emit_at(line, col, "string", s)
+                self.last_kind = "other"
+            elif c == 114 and self.peek() == 34
+                self.advance()
+                let s = self.read_raw_quoted()
+                if self.failed == 1
+                    break
+                end
+                self.emit_at(line, col, "string", s)
+                self.last_kind = "other"
+            elif c == 98 and self.peek() == 34
+                self.advance()
+                let s = self.read_string(0)
+                if self.failed == 1
+                    break
+                end
+                self.emit_at(line, col, "string", s)
+                self.last_kind = "other"
+            elif c == 98 and self.peek() == 39
+                self.advance()
+                let cp = self.read_rune_cp()
+                if self.failed == 1
+                    break
+                end
+                self.emit_at(line, col, "number", int_to_dec(cp % 256))
+                self.last_kind = "other"
+            elif lx_is_alpha(c) == 1
+                let w = self.read_identifier()
+                let canon = canonical_word(w)
+                if canon == ""
+                    self.emit_at(line, col, "ident", w)
+                else
+                    self.emit_at(line, col, "keyword", canon)
+                end
+                self.last_kind = "ident"
+            else
+                self.fail(line, col)
+                break
+            end
+        end
+    end
+    if self.failed == 0
+        self.emit("eof", "")
+    end
+end
+
+# Shared number-token emission (dot-led and digit-led agree here).
+function Lexer.emit_number_at(self, line: int, col: int)
+    let v = self.read_number()
+    if self.failed == 1
+        return
+    end
+    if len(v) >= 9 and v[0..9] == "@@FLOAT@@"
+        self.emit_at(line, col, "float", v[9..len(v)])
+    else
+        self.emit_at(line, col, "number", v)
+    end
+    self.last_kind = "other"
+end
+
+function main()
+    let args = os.cli_args()
+    if len(args) == 0
+        say "usage: lexer <file>"
+        os.exit_process(2)
+    end
+    let path = args[len(args) - 1]
+    let src = fs.read_string(path)
+    let bytes = str.bytes_from_string(src)
+    let lx = Lexer { bytes: bytes, n: len(bytes), pos: 0, line: 1, col: 1, out: [], last_kind: "none", had_ws: 1, err_line: 0, err_col: 0, failed: 0 }
+    if lx.n >= 3 and lx.bytes[0] == 239 and lx.bytes[1] == 187 and lx.bytes[2] == 191
+        lx.pos = 3
+    end
+    let t0 = time.now_ms()
+    lx.tokenize()
+    let ms = time.now_ms() - t0
+    if lx.failed == 1
+        lx.out.push("0|0|error|" + int_to_dec(lx.err_line) + ":" + int_to_dec(lx.err_col))
+        say lx.out.join("\n")
+        os.exit_process(1)
+    end
+    lx.out.push("0|0|stats|ms=" + int_to_dec(ms) + "|tokens=" + int_to_dec(len(lx.out)))
+    say lx.out.join("\n")
+end
+
+main()
