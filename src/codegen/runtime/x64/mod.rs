@@ -1,6 +1,7 @@
 pub mod alloc;
 pub mod arena;
 pub mod arrays;
+pub mod crash;
 pub mod errors;
 pub mod fs;
 pub mod gc;
@@ -34,6 +35,7 @@ pub fn emit_x64_runtime(out: &mut String, os: OperatingSystem) {
     thread::emit(out, os);
     fiber::emit(out, os);
     errors::emit(out, os);
+    crash::emit(out, os);
 }
 
 pub fn emit_str_buf_ctx(out: &mut String, os: OperatingSystem) {

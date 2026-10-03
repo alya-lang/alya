@@ -2,6 +2,18 @@ use crate::codegen::context::StructDefInfo;
 use crate::codegen::target::{Architecture, OperatingSystem};
 use std::collections::HashMap;
 
+// B3: crash-diagnostic messages. Lengths are baked into the handlers, so
+// the rodata emission below must stay byte-identical to these.
+pub const CRASH_SEGV: &str = "Alya runtime crash: invalid memory access (SIGSEGV)\n";
+pub const CRASH_ILL: &str = "Alya runtime crash: illegal instruction (SIGILL)\n";
+pub const CRASH_FPE: &str = "Alya runtime crash: arithmetic fault (SIGFPE)\n";
+pub const CRASH_BUS: &str = "Alya runtime crash: bus error (SIGBUS)\n";
+pub const CRASH_ABRT: &str = "Alya runtime crash: aborted (SIGABRT)\n";
+pub const CRASH_OTHER: &str = "Alya runtime crash: unhandled fault\n";
+pub const CRASH_WIN_AV: &str = "Alya runtime crash: invalid memory access (0xC0000005)\n";
+pub const CRASH_WIN_DIV: &str = "Alya runtime crash: integer divide by zero (0xC0000094)\n";
+pub const CRASH_WIN_ILL: &str = "Alya runtime crash: illegal instruction (0xC000001D)\n";
+
 pub fn emit_data_sections(
     out: &mut String,
     arch: Architecture,
@@ -163,6 +175,10 @@ pub fn emit_data_sections(
     out.push_str(&format!("    {} \"%s\\n\"\n", str_directive));
     out.push_str("alya_fmt_flt_val:\n");
     out.push_str(&format!("    {} \"%g\"\n", str_directive));
+    // B4: shortest-round-trip float printing tries precisions 6..17 with
+    // this format, keeping the first whose strtod parses back to the input.
+    out.push_str("alya_fmt_flt_prec:\n");
+    out.push_str(&format!("    {} \"%.*g\"\n", str_directive));
     out.push_str("alya_str_console_clear:\n");
     out.push_str(
         "    .byte 0x1b, 0x5b, 0x32, 0x4a, 0x1b, 0x5b, 0x33, 0x4a, 0x1b, 0x5b, 0x48, 0x00\n",
@@ -171,6 +187,52 @@ pub fn emit_data_sections(
     out.push_str("    .byte 0x1b, 0x5d, 0x30, 0x3b, 0x25, 0x73, 0x07, 0x00\n");
     out.push_str("alya_str_console_bell:\n");
     out.push_str("    .byte 0x07, 0x00\n");
+    // B3: crash-diagnostic messages (see CRASH_* consts above).
+    out.push_str("alya_crash_segv:\n");
+    out.push_str(&format!(
+        "    {} \"Alya runtime crash: invalid memory access (SIGSEGV)\\n\"\n",
+        str_directive
+    ));
+    out.push_str("alya_crash_ill:\n");
+    out.push_str(&format!(
+        "    {} \"Alya runtime crash: illegal instruction (SIGILL)\\n\"\n",
+        str_directive
+    ));
+    out.push_str("alya_crash_fpe:\n");
+    out.push_str(&format!(
+        "    {} \"Alya runtime crash: arithmetic fault (SIGFPE)\\n\"\n",
+        str_directive
+    ));
+    out.push_str("alya_crash_bus:\n");
+    out.push_str(&format!(
+        "    {} \"Alya runtime crash: bus error (SIGBUS)\\n\"\n",
+        str_directive
+    ));
+    out.push_str("alya_crash_abrt:\n");
+    out.push_str(&format!(
+        "    {} \"Alya runtime crash: aborted (SIGABRT)\\n\"\n",
+        str_directive
+    ));
+    out.push_str("alya_crash_other:\n");
+    out.push_str(&format!(
+        "    {} \"Alya runtime crash: unhandled fault\\n\"\n",
+        str_directive
+    ));
+    out.push_str("alya_crash_win_av:\n");
+    out.push_str(&format!(
+        "    {} \"Alya runtime crash: invalid memory access (0xC0000005)\\n\"\n",
+        str_directive
+    ));
+    out.push_str("alya_crash_win_div:\n");
+    out.push_str(&format!(
+        "    {} \"Alya runtime crash: integer divide by zero (0xC0000094)\\n\"\n",
+        str_directive
+    ));
+    out.push_str("alya_crash_win_ill:\n");
+    out.push_str(&format!(
+        "    {} \"Alya runtime crash: illegal instruction (0xC000001D)\\n\"\n",
+        str_directive
+    ));
     out.push_str("alya_fmt_runtime_err:\n");
     out.push_str(&format!("    {} \"Runtime error: %s\\n\"\n", str_directive));
     out.push_str("alya_str_unhandled_err:\n");

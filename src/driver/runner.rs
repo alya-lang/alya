@@ -130,6 +130,25 @@ pub fn execute_binary(
                 None => eprintln!("Error: program terminated abnormally"),
             }
         }
+        // Windows has no signals: a child killed by the OS reports the
+        // NTSTATUS as its exit code. Name the known crash codes so an
+        // unhandled fault (one the in-binary handler passed along) is not
+        // silent. Mirrors tools/test_runner.rs crash decoding.
+        #[cfg(windows)]
+        match code as u32 {
+            0xC0000005 => eprintln!("Error: program terminated by Access Violation (0xC0000005)"),
+            0xC00000FD => eprintln!("Error: program terminated by Stack Overflow (0xC00000FD)"),
+            0xC000001D => {
+                eprintln!("Error: program terminated by Illegal Instruction (0xC000001D)")
+            }
+            0xC0000094 => {
+                eprintln!("Error: program terminated by Integer Divide by Zero (0xC0000094)")
+            }
+            0xC0000409 => {
+                eprintln!("Error: program terminated by Stack Buffer Overrun (0xC0000409)")
+            }
+            _ => {}
+        }
         std::process::exit(code);
     }
 

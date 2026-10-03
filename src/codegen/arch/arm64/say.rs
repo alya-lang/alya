@@ -81,17 +81,10 @@ pub fn emit_say_acc(out: &mut String, fmt_label: &str, os: OperatingSystem) {
 }
 
 pub fn emit_say_float(out: &mut String, fmt_label: &str, os: OperatingSystem) {
-    out.push_str("    mov x1, x0\n");
-    out.push_str("    fmov d0, x0\n");
-    emit_adrp_add(out, "x0", fmt_label, os);
-    if matches!(os, OperatingSystem::MacOS) {
-        out.push_str("    sub sp, sp, #16\n");
-        out.push_str("    str x1, [sp]\n");
-        emit_call_printf(out, os);
-        out.push_str("    add sp, sp, #16\n");
-    } else {
-        emit_call_printf(out, os);
-    }
+    // B4: floats print shortest-round-trip. The float bits in x0 go through
+    // fn_str_from_float first (it reads x0); the caller passes a %s format.
+    out.push_str("    bl fn_str_from_float\n");
+    emit_say_acc(out, fmt_label, os);
 }
 
 pub fn emit_say_interpolated_pop_and_call(

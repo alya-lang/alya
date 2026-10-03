@@ -287,16 +287,28 @@ impl CodeGen {
                                     let is_str = is_string_expr(part, &self.ctx.variables);
                                     if is_str {
                                         format_str.push_str("%s");
+                                        exprs.push(part.clone());
+                                        is_floats.push(false);
                                     } else if is_flt {
-                                        format_str.push_str("%g");
+                                        // B4: floats print shortest-round-trip
+                                        // via str() (fn_str_from_float), so
+                                        // the format takes a string here.
+                                        format_str.push_str("%s");
+                                        exprs.push(Expr::Call {
+                                            name: "str".into(),
+                                            args: vec![part.clone()],
+                                        });
+                                        is_floats.push(false);
                                     } else if is_unsigned_expr(part, &self.ctx.variables) {
                                         // B4: u64 interpolation prints unsigned.
                                         format_str.push_str("%llu");
+                                        exprs.push(part.clone());
+                                        is_floats.push(false);
                                     } else {
                                         format_str.push_str("%lld");
+                                        exprs.push(part.clone());
+                                        is_floats.push(false);
                                     }
-                                    exprs.push(part.clone());
-                                    is_floats.push(is_flt);
                                 }
                             }
                         }
@@ -361,7 +373,7 @@ impl CodeGen {
                 self.emit_rodata_section();
                 self.output.push_str(&format!("{}:\n", fmt_label));
                 if is_flt {
-                    self.emit_string_directive("%g\\n");
+                    self.emit_string_directive("%s\\n");
                 } else if is_unsigned_expr(expr, &self.ctx.variables) {
                     // B4: unsigned arithmetic results print unsigned.
                     self.emit_string_directive("%llu\\n");
@@ -405,7 +417,7 @@ impl CodeGen {
                     self.output.push_str(&format!("{}:\n", fmt_label));
                     match kind {
                         Some(VarType::Float(_)) => {
-                            self.emit_string_directive("%g\\n");
+                            self.emit_string_directive("%s\\n");
                             self.output.push_str(".text\n");
                             if let Some((symbol, _)) = self.ctx.globals.get(name).cloned() {
                                 arch::emit_load_global(
@@ -709,7 +721,7 @@ impl CodeGen {
                             let fmt_label = self.ctx.next_string_label();
                             self.emit_rodata_section();
                             self.output.push_str(&format!("{}:\n", fmt_label));
-                            self.emit_string_directive("%g\\n");
+                            self.emit_string_directive("%s\\n");
                             self.output.push_str(".text\n");
 
                             arch::emit_load_var(
@@ -863,7 +875,7 @@ impl CodeGen {
                 let fmt_label = self.ctx.next_string_label();
                 self.emit_rodata_section();
                 self.output.push_str(&format!("{}:\n", fmt_label));
-                self.emit_string_directive("%g\\n");
+                self.emit_string_directive("%s\\n");
                 self.output.push_str(".text\n");
 
                 arch::emit_load_float(&mut self.output, self.arch, *n);
@@ -1119,7 +1131,7 @@ impl CodeGen {
                             let fmt_tag_flt = self.ctx.next_string_label();
                             self.emit_rodata_section();
                             self.output.push_str(&format!("{}:\n", fmt_tag_flt));
-                            self.emit_string_directive("%g\\n");
+                            self.emit_string_directive("%s\\n");
                             self.output.push_str(".text\n");
                             arch::emit_say_float(
                                 &mut self.output,
@@ -1300,10 +1312,9 @@ impl CodeGen {
                 let fmt_label = self.ctx.next_string_label();
                 self.emit_rodata_section();
                 self.output.push_str(&format!("{}:\n", fmt_label));
-                if is_str {
+                if is_str || is_flt {
+                    // B4: floats print via str_from_float, so both take %s.
                     self.emit_string_directive("%s\\n");
-                } else if is_flt {
-                    self.emit_string_directive("%g\\n");
                 } else {
                     self.emit_string_directive("%lld\\n");
                 }
@@ -1341,7 +1352,7 @@ impl CodeGen {
                     let fmt_tflt = self.ctx.next_string_label();
                     self.emit_rodata_section();
                     self.output.push_str(&format!("{}:\n", fmt_tflt));
-                    self.emit_string_directive("%g\\n");
+                    self.emit_string_directive("%s\\n");
                     self.output.push_str(".text\n");
                     arch::emit_say_float(
                         &mut self.output,

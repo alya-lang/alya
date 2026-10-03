@@ -690,6 +690,7 @@ fn test_codegen_arm64_runtime_symbols() {
     assert!(asm_arm64.contains("alya_fat_ptr_new:"));
     assert!(asm_arm64.contains("fn_format_binary:"));
     assert!(asm_arm64.contains("fn_runes:"));
+    assert!(asm_arm64.contains("fn_string_codepoints:"));
     assert!(asm_arm64.contains("b.ls .L_arm64_rc_retain_done"));
 }
 
@@ -714,11 +715,10 @@ fn test_arm64_linux_variadic_mixed_float_int_registers() {
     use crate::lexer::Lexer;
     use crate::parser::Parser;
 
-    // Regression: On Linux ARM64 (standard AAPCS64), variadic functions like printf
-    // retrieve general-purpose arguments from x1..x7 and floating-point arguments
-    // from d0..d7 independently. When a float argument precedes a string or int,
-    // the string must be passed in the next available x-register (e.g. x1 if it is
-    // the first non-format GP argument), while the float goes into d0.
+    // B4: float interpolation parts are pre-formatted via str()
+    // (fn_str_from_float), so every printf arg arrives in GP regs and no
+    // float rides d0 here. The old d0 shape this test pinned is gone by
+    // design; the AAPCS64 concern is moot on this path.
     let code =
         "let root = 8.0\nlet name = \"linux\"\nsay f\"Square root: {root}, Host OS: {name}\"\n";
     let mut lexer = Lexer::new(code);
@@ -727,9 +727,10 @@ fn test_arm64_linux_variadic_mixed_float_int_registers() {
     let ast = parser.parse().unwrap();
 
     let asm_lin = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(asm_lin.contains("bl fn_str_from_float"));
     assert!(asm_lin.contains("ldr x1, [sp], #16"));
-    assert!(asm_lin.contains("ldr x16, [sp], #16"));
-    assert!(asm_lin.contains("fmov d0, x16"));
+    assert!(asm_lin.contains("ldr x2, [sp], #16"));
+    assert!(!asm_lin.contains("fmov d0, x16"));
 }
 
 #[test]

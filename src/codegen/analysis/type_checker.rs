@@ -1999,6 +1999,16 @@ impl TypeChecker {
                             self.define_var(var, *k);
                         }
                     }
+                    // B2: string iteration yields rune codepoints (spec
+                    // ch.21 §1.4); two-var form binds index + codepoint.
+                    Type::String => {
+                        if let Some(val_name) = value_var {
+                            self.define_var(var, Type::Int);
+                            self.define_var(val_name, Type::Rune);
+                        } else {
+                            self.define_var(var, Type::Rune);
+                        }
+                    }
                     _ => {
                         self.define_var(var, Type::Any);
                         if let Some(val_name) = value_var {

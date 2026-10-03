@@ -61,7 +61,9 @@ function safe_trig_calc(degrees: float) -> (float, float)
 end
 
 let c_val, s_val = safe_trig_calc(45.0)
-say f"Cos(45deg) = {c_val}, Sin(45deg) = {s_val}"
+# Explicit precision: default interpolation renders shortest-round-trip
+# (full double digits), which varies by 1 ulp across platform libms.
+say f"Cos(45deg) = {c_val:.6f}, Sin(45deg) = {s_val:.6f}"
 
 # ------------------------------------------------------------------------------
 # 5. Raw Pointer Handling and Null Pointer Checking

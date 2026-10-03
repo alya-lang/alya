@@ -21,8 +21,11 @@ say f"Rocket codepoint (numeric): {rocket_rune as int}"
 let sample = "Alya Çiçek"
 
 say "Iterating by codepoints (runes):"
+# The loop yields codepoint ints; char_at() renders the glyph back.
+let ri = 0
 for ch in sample
-    say f"  Rune: '{ch}' (Codepoint: {ch as int})"
+    say f"  Rune: '{char_at(sample, ri)}' (Codepoint: {ch})"
+    ri += 1
 end
 
 say "Iterating by raw UTF-8 bytes:"

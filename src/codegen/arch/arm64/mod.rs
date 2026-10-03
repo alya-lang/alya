@@ -26,6 +26,11 @@ pub fn emit_header(out: &mut String, os: OperatingSystem) {
     if matches!(os, OperatingSystem::MacOS) {
         out.push_str(".globl _main\n");
         out.push_str(".extern _printf\n");
+        out.push_str(".extern _snprintf\n");
+        out.push_str(".extern _strtod\n");
+        out.push_str(".extern _signal\n");
+        out.push_str(".extern _write\n");
+        out.push_str(".extern __exit\n");
         out.push_str(".extern _exit\n");
         out.push_str(".extern _atexit\n");
         out.push_str(".extern _getchar\n");
@@ -104,6 +109,12 @@ pub fn emit_header(out: &mut String, os: OperatingSystem) {
     } else if matches!(os, OperatingSystem::Windows) {
         out.push_str(".global main\n");
         out.push_str(".extern printf\n");
+        out.push_str(".extern snprintf\n");
+        out.push_str(".extern strtod\n");
+        out.push_str(".extern AddVectoredExceptionHandler\n");
+        out.push_str(".extern GetStdHandle\n");
+        out.push_str(".extern WriteFile\n");
+        out.push_str(".extern ExitProcess\n");
         out.push_str(".extern exit\n");
         out.push_str(".extern atexit\n");
         out.push_str(".extern getchar\n");
@@ -194,6 +205,11 @@ pub fn emit_header(out: &mut String, os: OperatingSystem) {
     } else {
         out.push_str(".global main\n");
         out.push_str(".extern printf\n");
+        out.push_str(".extern snprintf\n");
+        out.push_str(".extern strtod\n");
+        out.push_str(".extern signal\n");
+        out.push_str(".extern write\n");
+        out.push_str(".extern _exit\n");
         out.push_str(".extern exit\n");
         out.push_str(".extern atexit\n");
         out.push_str(".extern getchar\n");

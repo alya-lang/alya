@@ -1211,6 +1211,17 @@ impl CodeGen {
         let t_emit = std::time::Instant::now();
         arch::emit_header(&mut self.output, self.arch, self.os);
 
+        // B3: install the crash handler first, before any user code runs.
+        if matches!(self.arch, Architecture::ARM64) {
+            self.output.push_str("    bl alya_crash_init\n");
+        } else if matches!(self.os, OperatingSystem::Windows) {
+            self.output.push_str("    sub $32, %rsp\n");
+            self.output.push_str("    call alya_crash_init\n");
+            self.output.push_str("    add $32, %rsp\n");
+        } else {
+            self.output.push_str("    call alya_crash_init\n");
+        }
+
         if self.mem_trace {
             if matches!(self.arch, Architecture::ARM64) {
                 arch::arm64::emit_adrp_add(

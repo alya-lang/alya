@@ -905,24 +905,67 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea (%r8, %rbx), %r12\n");
     out.push_str("    mov %r12, %r13\n");
     out.push_str("    mov %rbx, %r15\n");
+    // B4: shortest-round-trip printing. snprintf(buf, "%.*g", prec, val)
+    // for prec = 6..17, keeping the first rendering whose strtod parses
+    // back to the input bits. Short values keep their %g shape ("3.14",
+    // "3e+08"); only previously-rounded values gain digits.
+    out.push_str("    mov $6, %ebx\n");
+    out.push_str("    sub $64, %rsp\n");
+    out.push_str(".L_x64_str_flt_try:\n");
     if matches!(os, OperatingSystem::Windows) {
-        out.push_str("    mov %r12, %rcx\n");
-        out.push_str("    lea alya_fmt_flt_val(%rip), %rdx\n");
-        out.push_str("    mov %r14, %r8\n");
-        out.push_str("    movq %r14, %xmm2\n");
+        out.push_str("    mov %rsp, %rcx\n");
+        out.push_str("    mov $64, %rdx\n");
+        out.push_str("    lea alya_fmt_flt_prec(%rip), %r8\n");
+        out.push_str("    mov %rbx, %r9\n");
+        out.push_str("    mov %r14, %rax\n");
+        out.push_str("    movq %r14, %xmm4\n");
         out.push_str("    sub $40, %rsp\n");
-        out.push_str("    call sprintf\n");
+        out.push_str("    mov %rax, 32(%rsp)\n");
+        out.push_str("    call snprintf\n");
         out.push_str("    add $40, %rsp\n");
     } else {
-        out.push_str("    mov %r12, %rdi\n");
-        out.push_str("    lea alya_fmt_flt_val(%rip), %rsi\n");
+        out.push_str("    mov %rsp, %rdi\n");
+        out.push_str("    mov $64, %rsi\n");
+        out.push_str("    lea alya_fmt_flt_prec(%rip), %rdx\n");
+        out.push_str("    mov %rbx, %rcx\n");
         out.push_str("    movq %r14, %xmm0\n");
         out.push_str("    mov $1, %rax\n");
         out.push_str("    sub $8, %rsp\n");
         let p = if matches!(os, OperatingSystem::MacOS) { "_" } else { "" };
-        out.push_str(&format!("    call {}sprintf\n", p));
+        out.push_str(&format!("    call {}snprintf\n", p));
         out.push_str("    add $8, %rsp\n");
     }
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %rsp, %rcx\n");
+        out.push_str("    xor %rdx, %rdx\n");
+        out.push_str("    sub $40, %rsp\n");
+        out.push_str("    call strtod\n");
+        out.push_str("    add $40, %rsp\n");
+    } else {
+        out.push_str("    mov %rsp, %rdi\n");
+        out.push_str("    xor %rsi, %rsi\n");
+        out.push_str("    sub $8, %rsp\n");
+        let p = if matches!(os, OperatingSystem::MacOS) { "_" } else { "" };
+        out.push_str(&format!("    call {}strtod\n", p));
+        out.push_str("    add $8, %rsp\n");
+    }
+    out.push_str("    movq %xmm0, %rax\n");
+    out.push_str("    cmp %r14, %rax\n");
+    out.push_str("    je .L_x64_str_flt_match\n");
+    out.push_str("    inc %rbx\n");
+    out.push_str("    cmp $17, %rbx\n");
+    out.push_str("    jle .L_x64_str_flt_try\n");
+    out.push_str(".L_x64_str_flt_match:\n");
+    out.push_str("    xor %eax, %eax\n");
+    out.push_str(".L_x64_str_flt_copy:\n");
+    out.push_str("    movb (%rsp, %rax), %dl\n");
+    out.push_str("    movb %dl, (%r12, %rax)\n");
+    out.push_str("    test %dl, %dl\n");
+    out.push_str("    jz .L_x64_str_flt_copied\n");
+    out.push_str("    inc %rax\n");
+    out.push_str("    jmp .L_x64_str_flt_copy\n");
+    out.push_str(".L_x64_str_flt_copied:\n");
+    out.push_str("    add $64, %rsp\n");
     super::emit_str_buf_ctx(out, os);
     out.push_str("    add %rax, %r15\n");
     out.push_str("    inc %r15\n");
@@ -1688,6 +1731,144 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    inc %rbx\n");
     out.push_str("    jmp .L_x64_runes_loop\n");
     out.push_str(".L_x64_runes_done:\n");
+    out.push_str("    mov %r14, %rax\n");
+    out.push_str("    add $40, %rsp\n");
+    out.push_str("    pop %r15\n");
+    out.push_str("    pop %r14\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    pop %rbx\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_string_codepoints
+    // B2: `for ch in s` yields rune codepoints (spec ch.21 §1.4), so the
+    // foreach temp holds decoded codepoint ints, not 1-char strings like
+    // fn_runes. Width validation mirrors fn_runes; decode mirrors fn_ord.
+    out.push_str(".global fn_string_codepoints\n");
+    out.push_str("fn_string_codepoints:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %rbx\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    out.push_str("    push %r14\n");
+    out.push_str("    push %r15\n");
+    out.push_str("    sub $40, %rsp\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %rcx, %r12\n");
+        out.push_str("    call fn_char_count\n");
+    } else {
+        out.push_str("    mov %rdi, %r12\n");
+        out.push_str("    call fn_char_count\n");
+    }
+    out.push_str("    mov %rax, %r13\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r13, %rcx\n");
+        out.push_str("    call alya_array_new\n");
+    } else {
+        out.push_str("    mov %r13, %rdi\n");
+        out.push_str("    call alya_array_new\n");
+    }
+    out.push_str("    mov %rax, %r14\n");
+    out.push_str("    mov 16(%rax), %r15\n");
+    out.push_str("    xor %rbx, %rbx\n");
+    out.push_str(".L_x64_codepoints_loop:\n");
+    out.push_str("    cmp %r13, %rbx\n");
+    out.push_str("    jge .L_x64_codepoints_done\n");
+    out.push_str("    movzbq (%r12), %rax\n");
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jz .L_x64_codepoints_done\n");
+    out.push_str("    mov $1, %rcx\n");
+    out.push_str("    cmp $0x80, %rax\n");
+    out.push_str("    jb .L_x64_codepoints_decode\n");
+    out.push_str("    mov %rax, %rdx\n");
+    out.push_str("    and $0xE0, %rdx\n");
+    out.push_str("    cmp $0xC0, %rdx\n");
+    out.push_str("    jne .L_x64_codepoints_chk3\n");
+    out.push_str("    movzbq 1(%r12), %rdx\n");
+    out.push_str("    and $0xC0, %rdx\n");
+    out.push_str("    cmp $0x80, %rdx\n");
+    out.push_str("    jne .L_x64_codepoints_decode\n");
+    out.push_str("    mov $2, %rcx\n");
+    out.push_str("    jmp .L_x64_codepoints_decode\n");
+    out.push_str(".L_x64_codepoints_chk3:\n");
+    out.push_str("    mov %rax, %rdx\n");
+    out.push_str("    and $0xF0, %rdx\n");
+    out.push_str("    cmp $0xE0, %rdx\n");
+    out.push_str("    jne .L_x64_codepoints_chk4\n");
+    out.push_str("    movzbq 1(%r12), %rdx\n");
+    out.push_str("    and $0xC0, %rdx\n");
+    out.push_str("    cmp $0x80, %rdx\n");
+    out.push_str("    jne .L_x64_codepoints_decode\n");
+    out.push_str("    movzbq 2(%r12), %rdx\n");
+    out.push_str("    and $0xC0, %rdx\n");
+    out.push_str("    cmp $0x80, %rdx\n");
+    out.push_str("    jne .L_x64_codepoints_decode\n");
+    out.push_str("    mov $3, %rcx\n");
+    out.push_str("    jmp .L_x64_codepoints_decode\n");
+    out.push_str(".L_x64_codepoints_chk4:\n");
+    out.push_str("    mov %rax, %rdx\n");
+    out.push_str("    and $0xF8, %rdx\n");
+    out.push_str("    cmp $0xF0, %rdx\n");
+    out.push_str("    jne .L_x64_codepoints_decode\n");
+    out.push_str("    movzbq 1(%r12), %rdx\n");
+    out.push_str("    and $0xC0, %rdx\n");
+    out.push_str("    cmp $0x80, %rdx\n");
+    out.push_str("    jne .L_x64_codepoints_decode\n");
+    out.push_str("    movzbq 2(%r12), %rdx\n");
+    out.push_str("    and $0xC0, %rdx\n");
+    out.push_str("    cmp $0x80, %rdx\n");
+    out.push_str("    jne .L_x64_codepoints_decode\n");
+    out.push_str("    movzbq 3(%r12), %rdx\n");
+    out.push_str("    and $0xC0, %rdx\n");
+    out.push_str("    cmp $0x80, %rdx\n");
+    out.push_str("    jne .L_x64_codepoints_decode\n");
+    out.push_str("    mov $4, %rcx\n");
+    out.push_str(".L_x64_codepoints_decode:\n");
+    out.push_str("    cmp $1, %rcx\n");
+    out.push_str("    je .L_x64_codepoints_store\n");
+    out.push_str("    cmp $2, %rcx\n");
+    out.push_str("    je .L_x64_codepoints_w2\n");
+    out.push_str("    cmp $3, %rcx\n");
+    out.push_str("    je .L_x64_codepoints_w3\n");
+    out.push_str("    and $0x07, %eax\n");
+    out.push_str("    shl $18, %rax\n");
+    out.push_str("    movzbq 1(%r12), %rdx\n");
+    out.push_str("    and $0x3F, %rdx\n");
+    out.push_str("    shl $12, %rdx\n");
+    out.push_str("    or %rdx, %rax\n");
+    out.push_str("    movzbq 2(%r12), %rdx\n");
+    out.push_str("    and $0x3F, %rdx\n");
+    out.push_str("    shl $6, %rdx\n");
+    out.push_str("    or %rdx, %rax\n");
+    out.push_str("    movzbq 3(%r12), %rdx\n");
+    out.push_str("    and $0x3F, %rdx\n");
+    out.push_str("    or %rdx, %rax\n");
+    out.push_str("    jmp .L_x64_codepoints_store\n");
+    out.push_str(".L_x64_codepoints_w2:\n");
+    out.push_str("    and $0x1F, %eax\n");
+    out.push_str("    shl $6, %rax\n");
+    out.push_str("    movzbq 1(%r12), %rdx\n");
+    out.push_str("    and $0x3F, %rdx\n");
+    out.push_str("    or %rdx, %rax\n");
+    out.push_str("    jmp .L_x64_codepoints_store\n");
+    out.push_str(".L_x64_codepoints_w3:\n");
+    out.push_str("    and $0x0F, %eax\n");
+    out.push_str("    shl $12, %rax\n");
+    out.push_str("    movzbq 1(%r12), %rdx\n");
+    out.push_str("    and $0x3F, %rdx\n");
+    out.push_str("    shl $6, %rdx\n");
+    out.push_str("    or %rdx, %rax\n");
+    out.push_str("    movzbq 2(%r12), %rdx\n");
+    out.push_str("    and $0x3F, %rdx\n");
+    out.push_str("    or %rdx, %rax\n");
+    out.push_str(".L_x64_codepoints_store:\n");
+    out.push_str("    movq %rax, (%r15, %rbx, 8)\n");
+    out.push_str("    add %rcx, %r12\n");
+    out.push_str("    inc %rbx\n");
+    out.push_str("    jmp .L_x64_codepoints_loop\n");
+    out.push_str(".L_x64_codepoints_done:\n");
     out.push_str("    mov %r14, %rax\n");
     out.push_str("    add $40, %rsp\n");
     out.push_str("    pop %r15\n");

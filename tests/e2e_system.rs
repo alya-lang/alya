@@ -83,6 +83,51 @@ say str(-0.5)
 }
 
 #[test]
+fn test_e2e_float_shortest_round_trip() {
+    // B4: floats print shortest-round-trip across say/str/interpolation:
+    // exact values survive, short values keep their shape.
+    let code = r#"
+say 0.1 + 0.2
+say 3.14
+say 1.0
+say str(0.1 + 0.2)
+say f"{0.1 + 0.2}"
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output, "0.30000000000000004\n3.14\n1\n0.30000000000000004\n0.30000000000000004\n",
+            "Got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
+fn test_e2e_crash_diagnostic_segfault() {
+    // B3: a true segfault (unchecked null poke) prints a trap message and
+    // exits non-zero instead of dying silently. Unix reports SIGSEGV,
+    // Windows the NTSTATUS code; both share the "Alya runtime crash:" line.
+    let code = r#"
+say "before"
+poke_int(null, 0, 1)
+say "after"
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_ne!(code, 0, "expected fatal exit, got output: {}", output);
+        assert!(
+            output.contains("before") && output.contains("Alya runtime crash:"),
+            "missing crash diagnostic, got:\n{}",
+            output
+        );
+        assert!(
+            !output.contains("after"),
+            "reached past the fault:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
 fn test_e2e_builtins() {
     let code = r#"
 say len("Hello, Alya!")

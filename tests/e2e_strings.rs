@@ -326,7 +326,8 @@ say ord(chr(20013))
 
 #[test]
 fn test_e2e_runes_unicode_iteration() {
-    // B2: runes() splits codepoints; for-in over strings uses it.
+    // B2: runes() splits codepoints; for-in over strings yields rune
+    // codepoints (spec ch.21 §1.4), not 1-char strings.
     let code = r#"
 let r = runes("a€中😀")
 say len(r)
@@ -335,10 +336,15 @@ say len(r[1])
 say ord(r[1])
 say ord(r[3])
 let n = 0
+let total = 0
 for ch in "a€中"
+    say typeof(ch)
+    say chr(ch)
+    total += ch
     n += 1
 end
 say n
+say total
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(
@@ -346,7 +352,10 @@ say n
             "Execution failed with code {} and output:\n{}",
             code, output
         );
-        assert_eq!(output, "4\na\n3\n8364\n128512\n3\n");
+        assert_eq!(
+            output,
+            "4\na\n3\n8364\n128512\nint\na\nint\n€\nint\n中\n3\n28474\n"
+        );
     }
 }
 

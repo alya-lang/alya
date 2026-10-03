@@ -709,8 +709,10 @@ fn test_golden_spec_lexical_execution() {
             code, output
         );
         assert!(output.contains("Decimal: 1000000000, Hex: 3405691582, Bin: 240, Oct: 493"));
-        assert!(output.contains("Pi: 3.14159, Scientific: 0.000125, Speed of light: 3e+08"));
-        assert!(output.contains("User 'Alice' has balance: $158.287 (Tax included)"));
+        assert!(
+            output.contains("Pi: 3.141592653589793, Scientific: 0.000125, Speed of light: 3e+08")
+        );
+        assert!(output.contains("User 'Alice' has balance: $158.2875 (Tax included)"));
         assert!(output.contains("Literal curly braces: { and } without interpolation"));
         assert!(output.contains(
             "Windows Path: HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"

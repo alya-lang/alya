@@ -726,20 +726,56 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     emit_adrp_add(out, "x2", "alya_str_buf", os);
     out.push_str("    add x19, x2, x1\n");
     out.push_str("    mov x20, x1\n");
-    out.push_str("    mov x0, x19\n");
-    emit_adrp_add(out, "x1", "alya_fmt_flt_val", os);
-    out.push_str("    fmov d0, d1\n");
-    // Variadic ABI: Apple arm64 reads FP varargs from GP regs/stack (never
-    // d-regs), so the double must also ride in x2 and on the stack (Linux
-    // ignores both and reads d0). Without this, sprintf formatted whatever
-    // happened to sit there as `%g` garbage such as 3.04462e-314 for every
-    // str(float) on macOS. Mirrors the proven say.rs macOS spill pattern.
-    out.push_str("    fmov x2, d0\n");
+    // B4: shortest-round-trip printing. snprintf(buf, "%.*g", prec, val)
+    // for prec = 6..17, keeping the first rendering whose strtod parses
+    // back to the input bits. Short values keep their %g shape ("3.14",
+    // "3e+08"); only previously-rounded values gain digits.
+    // x21 keeps the bit pattern: d-regs are caller-saved across the
+    // snprintf/strtod calls below. The precision counter also needs a
+    // callee-saved home: x22 (saved/restored by this frame).
+    out.push_str("    fmov x21, d1\n");
+    out.push_str("    mov w22, #6\n");
+    out.push_str("    sub sp, sp, #64\n");
+    out.push_str(".L_arm64_str_flt_try:\n");
+    out.push_str("    mov x0, sp\n");
+    out.push_str("    mov x1, #64\n");
+    emit_adrp_add(out, "x2", "alya_fmt_flt_prec", os);
+    out.push_str("    fmov d0, x21\n");
+    // Variadic ABI: Apple arm64 reads varargs from the stack, so both the
+    // prec int and the double ride there in order (Linux ignores them and
+    // reads w3/d0). Mirrors the proven say.rs macOS spill pattern.
+    // (x21 holds the bit pattern as an int; plain mov carries it to x4.
+    // prec rides in w22: w3 would die in the snprintf call below.)
+    out.push_str("    mov x4, x21\n");
     out.push_str("    sub sp, sp, #16\n");
-    out.push_str("    str x2, [sp]\n");
+    out.push_str("    str x22, [sp]\n");
+    out.push_str("    str x4, [sp, #8]\n");
+    // Linux reads the int vararg from w3: reload it every iteration
+    // (snprintf clobbers w3, which is why the counter lives in w22).
+    out.push_str("    mov w3, w22\n");
     let p = if matches!(os, OperatingSystem::MacOS) { "_" } else { "" };
-    out.push_str(&format!("    bl {}sprintf\n", p));
+    out.push_str(&format!("    bl {}snprintf\n", p));
     out.push_str("    add sp, sp, #16\n");
+    out.push_str("    mov x0, sp\n");
+    out.push_str("    mov x1, #0\n");
+    out.push_str(&format!("    bl {}strtod\n", p));
+    out.push_str("    fmov x5, d0\n");
+    out.push_str("    cmp x5, x21\n");
+    out.push_str("    b.eq .L_arm64_str_flt_match\n");
+    out.push_str("    add w22, w22, #1\n");
+    out.push_str("    cmp w22, #17\n");
+    out.push_str("    b.ls .L_arm64_str_flt_try\n");
+    out.push_str(".L_arm64_str_flt_match:\n");
+    out.push_str("    mov x0, #0\n");
+    out.push_str(".L_arm64_str_flt_copy:\n");
+    out.push_str("    ldrb w6, [sp, x0]\n");
+    out.push_str("    add x7, x19, x0\n");
+    out.push_str("    strb w6, [x7]\n");
+    out.push_str("    cbz w6, .L_arm64_str_flt_copied\n");
+    out.push_str("    add x0, x0, #1\n");
+    out.push_str("    b .L_arm64_str_flt_copy\n");
+    out.push_str(".L_arm64_str_flt_copied:\n");
+    out.push_str("    add sp, sp, #64\n");
     out.push_str("    add x20, x20, x0\n");
     out.push_str("    add x20, x20, #1\n");
     out.push_str("    add x20, x20, #7\n");
@@ -1369,6 +1405,124 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x23, x23, #1\n");
     out.push_str("    b .L_arm64_runes_loop\n");
     out.push_str(".L_arm64_runes_done:\n");
+    out.push_str("    mov x0, x21\n");
+    out.push_str("    ldp x23, x24, [sp, #48]\n");
+    out.push_str("    ldp x21, x22, [sp, #32]\n");
+    out.push_str("    ldp x19, x20, [sp, #16]\n");
+    out.push_str("    ldp x29, x30, [sp], #64\n");
+    out.push_str("    ret\n\n");
+
+    // fn_string_codepoints
+    // B2: `for ch in s` yields rune codepoints (spec ch.21 §1.4), so the
+    // foreach temp holds decoded codepoint ints, not 1-char strings like
+    // fn_runes. Width validation mirrors fn_runes; decode mirrors fn_ord.
+    out.push_str(".global fn_string_codepoints\n");
+    out.push_str(".align 2\n");
+    out.push_str("fn_string_codepoints:\n");
+    out.push_str("    stp x29, x30, [sp, #-64]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    stp x19, x20, [sp, #16]\n");
+    out.push_str("    stp x21, x22, [sp, #32]\n");
+    out.push_str("    stp x23, x24, [sp, #48]\n");
+    out.push_str("    mov x19, x0\n");
+    out.push_str("    bl fn_char_count\n");
+    out.push_str("    mov x20, x0\n");
+    out.push_str("    bl alya_array_new\n");
+    out.push_str("    mov x21, x0\n");
+    out.push_str("    ldr x22, [x21, #16]\n");
+    out.push_str("    mov x23, #0\n");
+    out.push_str(".L_arm64_codepoints_loop:\n");
+    out.push_str("    cmp x23, x20\n");
+    out.push_str("    b.ge .L_arm64_codepoints_done\n");
+    out.push_str("    ldrb w0, [x19]\n");
+    out.push_str("    cbz w0, .L_arm64_codepoints_done\n");
+    out.push_str("    mov x1, #1\n");
+    out.push_str("    cmp w0, #0x80\n");
+    out.push_str("    b.lo .L_arm64_codepoints_decode\n");
+    out.push_str("    and w2, w0, #0xE0\n");
+    out.push_str("    cmp w2, #0xC0\n");
+    out.push_str("    b.ne .L_arm64_codepoints_chk3\n");
+    out.push_str("    ldrb w2, [x19, #1]\n");
+    out.push_str("    and w2, w2, #0xC0\n");
+    out.push_str("    cmp w2, #0x80\n");
+    out.push_str("    b.ne .L_arm64_codepoints_decode\n");
+    out.push_str("    mov x1, #2\n");
+    out.push_str("    b .L_arm64_codepoints_decode\n");
+    out.push_str(".L_arm64_codepoints_chk3:\n");
+    out.push_str("    and w2, w0, #0xF0\n");
+    out.push_str("    cmp w2, #0xE0\n");
+    out.push_str("    b.ne .L_arm64_codepoints_chk4\n");
+    out.push_str("    ldrb w2, [x19, #1]\n");
+    out.push_str("    and w2, w2, #0xC0\n");
+    out.push_str("    cmp w2, #0x80\n");
+    out.push_str("    b.ne .L_arm64_codepoints_decode\n");
+    out.push_str("    ldrb w2, [x19, #2]\n");
+    out.push_str("    and w2, w2, #0xC0\n");
+    out.push_str("    cmp w2, #0x80\n");
+    out.push_str("    b.ne .L_arm64_codepoints_decode\n");
+    out.push_str("    mov x1, #3\n");
+    out.push_str("    b .L_arm64_codepoints_decode\n");
+    out.push_str(".L_arm64_codepoints_chk4:\n");
+    out.push_str("    and w2, w0, #0xF8\n");
+    out.push_str("    cmp w2, #0xF0\n");
+    out.push_str("    b.ne .L_arm64_codepoints_decode\n");
+    out.push_str("    ldrb w2, [x19, #1]\n");
+    out.push_str("    and w2, w2, #0xC0\n");
+    out.push_str("    cmp w2, #0x80\n");
+    out.push_str("    b.ne .L_arm64_codepoints_decode\n");
+    out.push_str("    ldrb w2, [x19, #2]\n");
+    out.push_str("    and w2, w2, #0xC0\n");
+    out.push_str("    cmp w2, #0x80\n");
+    out.push_str("    b.ne .L_arm64_codepoints_decode\n");
+    out.push_str("    ldrb w2, [x19, #3]\n");
+    out.push_str("    and w2, w2, #0xC0\n");
+    out.push_str("    cmp w2, #0x80\n");
+    out.push_str("    b.ne .L_arm64_codepoints_decode\n");
+    out.push_str("    mov x1, #4\n");
+    out.push_str(".L_arm64_codepoints_decode:\n");
+    out.push_str("    cmp x1, #1\n");
+    out.push_str("    b.eq .L_arm64_codepoints_store\n");
+    out.push_str("    cmp x1, #2\n");
+    out.push_str("    b.eq .L_arm64_codepoints_w2\n");
+    out.push_str("    cmp x1, #3\n");
+    out.push_str("    b.eq .L_arm64_codepoints_w3\n");
+    out.push_str("    and w0, w0, #0x7\n");
+    out.push_str("    lsl x0, x0, #18\n");
+    out.push_str("    ldrb w2, [x19, #1]\n");
+    out.push_str("    and w2, w2, #0x3F\n");
+    out.push_str("    lsl x2, x2, #12\n");
+    out.push_str("    orr x0, x0, x2\n");
+    out.push_str("    ldrb w2, [x19, #2]\n");
+    out.push_str("    and w2, w2, #0x3F\n");
+    out.push_str("    lsl x2, x2, #6\n");
+    out.push_str("    orr x0, x0, x2\n");
+    out.push_str("    ldrb w2, [x19, #3]\n");
+    out.push_str("    and w2, w2, #0x3F\n");
+    out.push_str("    orr x0, x0, x2\n");
+    out.push_str("    b .L_arm64_codepoints_store\n");
+    out.push_str(".L_arm64_codepoints_w2:\n");
+    out.push_str("    and w0, w0, #0x1F\n");
+    out.push_str("    lsl x0, x0, #6\n");
+    out.push_str("    ldrb w2, [x19, #1]\n");
+    out.push_str("    and w2, w2, #0x3F\n");
+    out.push_str("    orr x0, x0, x2\n");
+    out.push_str("    b .L_arm64_codepoints_store\n");
+    out.push_str(".L_arm64_codepoints_w3:\n");
+    out.push_str("    and w0, w0, #0x0F\n");
+    out.push_str("    lsl x0, x0, #12\n");
+    out.push_str("    ldrb w2, [x19, #1]\n");
+    out.push_str("    and w2, w2, #0x3F\n");
+    out.push_str("    lsl x2, x2, #6\n");
+    out.push_str("    orr x0, x0, x2\n");
+    out.push_str("    ldrb w2, [x19, #2]\n");
+    out.push_str("    and w2, w2, #0x3F\n");
+    out.push_str("    orr x0, x0, x2\n");
+    out.push_str(".L_arm64_codepoints_store:\n");
+    out.push_str("    str x0, [x22, x23, lsl #3]\n");
+    out.push_str("    add x19, x19, x1\n");
+    out.push_str("    add x23, x23, #1\n");
+    out.push_str("    b .L_arm64_codepoints_loop\n");
+    out.push_str(".L_arm64_codepoints_done:\n");
     out.push_str("    mov x0, x21\n");
     out.push_str("    ldp x23, x24, [sp, #48]\n");
     out.push_str("    ldp x21, x22, [sp, #32]\n");

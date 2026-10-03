@@ -132,18 +132,11 @@ pub fn emit_say_acc(out: &mut String, fmt_label: &str, stack_offset: i32, os: Op
 }
 
 pub fn emit_say_float(out: &mut String, fmt_label: &str, stack_offset: i32, os: OperatingSystem) {
-    if matches!(os, OperatingSystem::Windows) {
-        out.push_str("    mov %rax, %rdx\n");
-        out.push_str("    movq %rax, %xmm1\n");
-        out.push_str(&format!("    lea {}(%rip), %rcx\n", fmt_label));
-        out.push_str("    xor %rax, %rax\n");
-        emit_call_printf(out, stack_offset, os);
-    } else {
-        out.push_str("    movq %rax, %xmm0\n");
-        out.push_str(&format!("    lea {}(%rip), %rdi\n", fmt_label));
-        out.push_str("    mov $1, %al\n");
-        emit_call_printf(out, stack_offset, os);
-    }
+    // B4: floats print shortest-round-trip. The float bits in %rax go
+    // through fn_str_from_float first; the caller passes a %s format.
+    out.push_str("    push %rax\n");
+    super::control::emit_function_call(out, "str_from_float", 1, stack_offset, os);
+    emit_say_acc(out, fmt_label, stack_offset, os);
 }
 
 pub fn emit_say_interpolated_pop_and_call(

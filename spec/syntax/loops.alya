@@ -161,12 +161,16 @@ say f"Primes under 50: {primes_under_50}"
 # ------------------------------------------------------------------------------
 # 9. String Iteration & Variable Bounds (Chapter 06 §1.3, §1.4)
 # ------------------------------------------------------------------------------
-# Iterating a string yields one single-char string per Unicode scalar.
+# Iterating a string yields one rune (Unicode codepoint int) per scalar
+# (Chapter 21 §1.4). Use chr() to render the glyph back to a string.
 let spelled = ""
+let code_sum = 0
 for ch in "abc"
-    spelled += ch
+    spelled += chr(ch)
+    code_sum += ch
 end
 assert_eq(spelled, "abc")
+assert_eq(code_sum, 97 + 98 + 99)
 
 let lo_b = 2
 let hi_b = 5

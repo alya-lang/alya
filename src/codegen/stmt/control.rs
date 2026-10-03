@@ -940,10 +940,12 @@ impl CodeGen {
             let initial_stack_offset = self.ctx.stack_offset;
             self.generate_expression(iterable);
             arch::emit_push_temp(&mut self.output, self.arch);
+            // B2: iterate decoded rune codepoints (spec ch.21 §1.4), not
+            // 1-char strings: the temp holds ints like `bytes()` does.
             arch::emit_function_call(
                 &mut self.output,
                 self.arch,
-                "runes",
+                "string_codepoints",
                 1,
                 initial_stack_offset,
                 self.os,
@@ -954,9 +956,9 @@ impl CodeGen {
         arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
         let arr_offset = self.ctx.stack_offset;
 
-        // A fresh-owned iterable (call result, literal, or the `runes`
-        // array built for string iteration) has no owning variable: the
-        // loop must release it or it leaks every iteration
+        // A fresh-owned iterable (call result, literal, or the
+        // `string_codepoints` array built for string iteration) has no owning
+        // variable: the loop must release it or it leaks every iteration
         // (alya-lang/alya#79). Calls qualify only with a freshness
         // marker (or as direct struct constructors): a call may return
         // a borrow, which must not be dropped. Named variables stay
@@ -1158,6 +1160,10 @@ impl CodeGen {
                 struct_name: sname.clone(),
                 offset: 0,
             }
+        } else if is_str_iter {
+            // B2: string iteration yields rune codepoints (spec ch.21
+            // §1.4), so the loop var is an int; string arrays stay strings.
+            VarType::Number(0)
         } else if is_str {
             VarType::StringOffset(0)
         } else if is_flt {
@@ -1215,6 +1221,9 @@ impl CodeGen {
                     struct_name: sname.clone(),
                     offset: 0,
                 }
+            } else if is_str_iter {
+                // B2: two-var string iteration binds index + codepoint.
+                VarType::Number(0)
             } else if is_str || is_map_str_val {
                 VarType::StringOffset(0)
             } else if is_flt {
