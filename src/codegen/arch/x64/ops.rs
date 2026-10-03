@@ -1,6 +1,6 @@
 use crate::ast::{BinaryOp, UnaryOp};
 
-pub fn emit_binary_op(out: &mut String, op: BinaryOp) {
+pub fn emit_binary_op(out: &mut String, op: BinaryOp, unsigned: bool) {
     out.push_str("    mov %rax, %rbx\n");
     out.push_str("    pop %rax\n");
     match op {
@@ -10,14 +10,24 @@ pub fn emit_binary_op(out: &mut String, op: BinaryOp) {
         BinaryOp::Divide => {
             out.push_str("    test %rbx, %rbx\n");
             out.push_str("    jz alya_error_div_zero\n");
-            out.push_str("    cqo\n");
-            out.push_str("    idiv %rbx\n");
+            if unsigned {
+                out.push_str("    xor %edx, %edx\n");
+                out.push_str("    div %rbx\n");
+            } else {
+                out.push_str("    cqo\n");
+                out.push_str("    idiv %rbx\n");
+            }
         }
         BinaryOp::Modulo => {
             out.push_str("    test %rbx, %rbx\n");
             out.push_str("    jz alya_error_div_zero\n");
-            out.push_str("    cqo\n");
-            out.push_str("    idiv %rbx\n");
+            if unsigned {
+                out.push_str("    xor %edx, %edx\n");
+                out.push_str("    div %rbx\n");
+            } else {
+                out.push_str("    cqo\n");
+                out.push_str("    idiv %rbx\n");
+            }
             out.push_str("    mov %rdx, %rax\n");
         }
         BinaryOp::Equal => {
@@ -32,22 +42,38 @@ pub fn emit_binary_op(out: &mut String, op: BinaryOp) {
         }
         BinaryOp::Less => {
             out.push_str("    cmp %rbx, %rax\n");
-            out.push_str("    setl %al\n");
+            if unsigned {
+                out.push_str("    setb %al\n");
+            } else {
+                out.push_str("    setl %al\n");
+            }
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::Greater => {
             out.push_str("    cmp %rbx, %rax\n");
-            out.push_str("    setg %al\n");
+            if unsigned {
+                out.push_str("    seta %al\n");
+            } else {
+                out.push_str("    setg %al\n");
+            }
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::LessEqual => {
             out.push_str("    cmp %rbx, %rax\n");
-            out.push_str("    setle %al\n");
+            if unsigned {
+                out.push_str("    setbe %al\n");
+            } else {
+                out.push_str("    setle %al\n");
+            }
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::GreaterEqual => {
             out.push_str("    cmp %rbx, %rax\n");
-            out.push_str("    setge %al\n");
+            if unsigned {
+                out.push_str("    setae %al\n");
+            } else {
+                out.push_str("    setge %al\n");
+            }
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::And | BinaryOp::BitAnd => out.push_str("    and %rbx, %rax\n"),
@@ -65,7 +91,7 @@ pub fn emit_binary_op(out: &mut String, op: BinaryOp) {
     }
 }
 
-pub fn emit_binary_op_reg(out: &mut String, op: BinaryOp) {
+pub fn emit_binary_op_reg(out: &mut String, op: BinaryOp, unsigned: bool) {
     match op {
         BinaryOp::Add => out.push_str("    add %rbx, %rax\n"),
         BinaryOp::Subtract => out.push_str("    sub %rbx, %rax\n"),
@@ -73,14 +99,24 @@ pub fn emit_binary_op_reg(out: &mut String, op: BinaryOp) {
         BinaryOp::Divide => {
             out.push_str("    test %rbx, %rbx\n");
             out.push_str("    jz alya_error_div_zero\n");
-            out.push_str("    cqo\n");
-            out.push_str("    idiv %rbx\n");
+            if unsigned {
+                out.push_str("    xor %edx, %edx\n");
+                out.push_str("    div %rbx\n");
+            } else {
+                out.push_str("    cqo\n");
+                out.push_str("    idiv %rbx\n");
+            }
         }
         BinaryOp::Modulo => {
             out.push_str("    test %rbx, %rbx\n");
             out.push_str("    jz alya_error_div_zero\n");
-            out.push_str("    cqo\n");
-            out.push_str("    idiv %rbx\n");
+            if unsigned {
+                out.push_str("    xor %edx, %edx\n");
+                out.push_str("    div %rbx\n");
+            } else {
+                out.push_str("    cqo\n");
+                out.push_str("    idiv %rbx\n");
+            }
             out.push_str("    mov %rdx, %rax\n");
         }
         BinaryOp::Equal => {
@@ -95,22 +131,38 @@ pub fn emit_binary_op_reg(out: &mut String, op: BinaryOp) {
         }
         BinaryOp::Less => {
             out.push_str("    cmp %rbx, %rax\n");
-            out.push_str("    setl %al\n");
+            if unsigned {
+                out.push_str("    setb %al\n");
+            } else {
+                out.push_str("    setl %al\n");
+            }
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::Greater => {
             out.push_str("    cmp %rbx, %rax\n");
-            out.push_str("    setg %al\n");
+            if unsigned {
+                out.push_str("    seta %al\n");
+            } else {
+                out.push_str("    setg %al\n");
+            }
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::LessEqual => {
             out.push_str("    cmp %rbx, %rax\n");
-            out.push_str("    setle %al\n");
+            if unsigned {
+                out.push_str("    setbe %al\n");
+            } else {
+                out.push_str("    setle %al\n");
+            }
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::GreaterEqual => {
             out.push_str("    cmp %rbx, %rax\n");
-            out.push_str("    setge %al\n");
+            if unsigned {
+                out.push_str("    setae %al\n");
+            } else {
+                out.push_str("    setge %al\n");
+            }
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::And | BinaryOp::BitAnd => out.push_str("    and %rbx, %rax\n"),
@@ -128,7 +180,7 @@ pub fn emit_binary_op_reg(out: &mut String, op: BinaryOp) {
     }
 }
 
-pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
+pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64, unsigned: bool) {
     let fits_i32 = (i32::MIN as i64..=i32::MAX as i64).contains(&imm);
     match op {
         BinaryOp::Add => {
@@ -155,6 +207,11 @@ pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
         BinaryOp::Divide => {
             if imm == 0 {
                 out.push_str("    jmp alya_error_div_zero\n");
+            } else if unsigned {
+                out.push_str(&format!(
+                    "    mov ${}, %rbx\n    xor %edx, %edx\n    div %rbx\n",
+                    imm
+                ));
             } else {
                 out.push_str(&format!("    mov ${}, %rbx\n    cqo\n    idiv %rbx\n", imm));
             }
@@ -162,6 +219,11 @@ pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
         BinaryOp::Modulo => {
             if imm == 0 {
                 out.push_str("    jmp alya_error_div_zero\n");
+            } else if unsigned {
+                out.push_str(&format!(
+                    "    mov ${}, %rbx\n    xor %edx, %edx\n    div %rbx\n    mov %rdx, %rax\n",
+                    imm
+                ));
             } else {
                 out.push_str(&format!(
                     "    mov ${}, %rbx\n    cqo\n    idiv %rbx\n    mov %rdx, %rax\n",
@@ -191,7 +253,11 @@ pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
             } else {
                 out.push_str(&format!("    movabs ${}, %rbx\n    cmp %rbx, %rax\n", imm));
             }
-            out.push_str("    setl %al\n    movzbq %al, %rax\n");
+            if unsigned {
+                out.push_str("    setb %al\n    movzbq %al, %rax\n");
+            } else {
+                out.push_str("    setl %al\n    movzbq %al, %rax\n");
+            }
         }
         BinaryOp::LessEqual => {
             if fits_i32 {
@@ -199,7 +265,11 @@ pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
             } else {
                 out.push_str(&format!("    movabs ${}, %rbx\n    cmp %rbx, %rax\n", imm));
             }
-            out.push_str("    setle %al\n    movzbq %al, %rax\n");
+            if unsigned {
+                out.push_str("    setbe %al\n    movzbq %al, %rax\n");
+            } else {
+                out.push_str("    setle %al\n    movzbq %al, %rax\n");
+            }
         }
         BinaryOp::Greater => {
             if fits_i32 {
@@ -207,7 +277,11 @@ pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
             } else {
                 out.push_str(&format!("    movabs ${}, %rbx\n    cmp %rbx, %rax\n", imm));
             }
-            out.push_str("    setg %al\n    movzbq %al, %rax\n");
+            if unsigned {
+                out.push_str("    seta %al\n    movzbq %al, %rax\n");
+            } else {
+                out.push_str("    setg %al\n    movzbq %al, %rax\n");
+            }
         }
         BinaryOp::GreaterEqual => {
             if fits_i32 {
@@ -215,7 +289,11 @@ pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
             } else {
                 out.push_str(&format!("    movabs ${}, %rbx\n    cmp %rbx, %rax\n", imm));
             }
-            out.push_str("    setge %al\n    movzbq %al, %rax\n");
+            if unsigned {
+                out.push_str("    setae %al\n    movzbq %al, %rax\n");
+            } else {
+                out.push_str("    setge %al\n    movzbq %al, %rax\n");
+            }
         }
         BinaryOp::And | BinaryOp::BitAnd => {
             if fits_i32 {

@@ -111,6 +111,49 @@ fn receiver_struct_name(expr: &Expr, vars: &HashMap<String, VarType>) -> Option<
     }
 }
 
+/// Whether a stored string value needs an immortal stable-region copy
+/// (`alya_str_store`) instead of the ring-buffer pointer as produced.
+/// String literals live in rodata (immortal already); every other string
+/// value may sit in the wrapping ring buffer, so named stores (variables,
+/// container slots, struct fields) duplicate it. Transient uses (say,
+/// conditions, call args, returns) keep the ring pointer.
+/// Explicitly heap-owned calls (`str_clone`, `string_clone`, paired with
+/// `str_free`) are excluded: duplicating them would break the free pairing
+/// (freeing a stable-region copy corrupts the heap).
+pub fn string_store_needs_dup(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    if let Expr::Call { name, .. } = expr {
+        let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        if bare == "str_clone" || bare == "string_clone" {
+            return false;
+        }
+    }
+    is_string_expr(expr, vars) && !matches!(expr, Expr::String(_))
+}
+
+/// Whether an integer expression carries unsigned (u64-family) semantics
+/// (B4): explicit `u64`/`u32`/`uint`/`usize` annotations (locals, globals,
+/// params), `as u64`-family casts, over-i64 literals, or binary/unary
+/// compositions thereof (unsigned contaminates, C-promotion style).
+/// Everything else is signed (status quo): computed/dynamic values without
+/// an unsigned root keep today's behavior exactly.
+pub fn is_unsigned_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    match expr {
+        Expr::Number(n) => *n > i64::MAX as i128,
+        Expr::Identifier(name) => vars.contains_key(&format!("var_is_uint:{}", name)),
+        Expr::Cast { target, .. } => {
+            let t = target.to_lowercase();
+            t == "u64" || t == "uint" || t == "u32" || t == "usize" || t == "u8" || t == "u16"
+        }
+        Expr::Binary { left, right, .. } => {
+            is_unsigned_expr(left, vars) || is_unsigned_expr(right, vars)
+        }
+        Expr::Unary { expr: inner, .. } => is_unsigned_expr(inner, vars),
+        Expr::ForceUnwrap(inner) => is_unsigned_expr(inner, vars),
+        _ => false,
+    }
+}
+
 pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::String(_) => true,
@@ -1693,5 +1736,54 @@ pub fn eq_operand_is_dynamic(expr: &Expr, vars: &HashMap<String, VarType>) -> bo
         Expr::Identifier(name) => !vars.contains_key(&format!("var_is_int:{}", name)),
         Expr::Call { name, .. } => !call_returns_known_int(name, vars),
         _ => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_vars() -> HashMap<String, VarType> {
+        let mut vars = HashMap::new();
+        vars.insert("s".to_string(), VarType::StringOffset(8));
+        vars.insert("n".to_string(), VarType::Number(16));
+        vars
+    }
+
+    #[test]
+    fn string_store_needs_dup_only_for_nonliteral_strings() {
+        let vars = test_vars();
+        // Literals live in rodata: never duplicated.
+        assert!(!string_store_needs_dup(&Expr::String("lit".into()), &vars));
+        // Concat results and identifiers live in the ring: duplicate.
+        assert!(string_store_needs_dup(
+            &Expr::Binary {
+                left: Box::new(Expr::Identifier("s".into())),
+                op: crate::ast::BinaryOp::Add,
+                right: Box::new(Expr::String("x".into())),
+            },
+            &vars
+        ));
+        assert!(string_store_needs_dup(&Expr::Identifier("s".into()), &vars));
+        // Non-strings never duplicate.
+        assert!(!string_store_needs_dup(
+            &Expr::Identifier("n".into()),
+            &vars
+        ));
+        assert!(!string_store_needs_dup(&Expr::Number(1), &vars));
+        // Explicitly heap-owned clones keep their free pairing: never duplicate.
+        for name in ["str_clone", "string_clone"] {
+            assert!(
+                !string_store_needs_dup(
+                    &Expr::Call {
+                        name: name.to_string(),
+                        args: vec![Expr::Identifier("s".into())],
+                    },
+                    &vars
+                ),
+                "{}",
+                name
+            );
+        }
     }
 }

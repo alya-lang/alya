@@ -326,6 +326,22 @@ pub fn emit_rc_retain(
     }
 }
 
+/// Duplicate the string in `rax`/`x0` into immortal stable-region memory
+/// (B1: named stores must outlive the wrapping ring buffer). Single
+/// argument in, same register out. Literals pass through untouched inside
+/// the helper (small-value guard); callers skip them statically anyway.
+pub fn emit_str_store(
+    out: &mut String,
+    arch: Architecture,
+    stack_offset: i32,
+    os: OperatingSystem,
+) {
+    match arch {
+        Architecture::X64 => x64::builtins::emit_str_store(out, stack_offset, os),
+        Architecture::ARM64 => arm64::builtins::emit_str_store(out),
+    }
+}
+
 pub fn emit_rc_release(
     out: &mut String,
     arch: Architecture,

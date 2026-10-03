@@ -4,8 +4,9 @@ use crate::codegen::analysis::{
     eq_operand_is_dynamic, escape_string, is_array_expr, is_array_fold_true,
     is_definitely_not_numeric, is_float_expr, is_map_expr, is_map_fold_true, is_null_expr,
     is_number_expr, is_strict_dynamic_op, is_string_expr, is_string_fold_true,
-    is_tag_carrying_read, struct_field_markers_mixed_vars, ternary_arm_carries,
-    typeof_operand_is_repeatable, value_kind_tag,
+    is_tag_carrying_read, is_unsigned_expr, string_store_needs_dup,
+    struct_field_markers_mixed_vars, ternary_arm_carries, typeof_operand_is_repeatable,
+    value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -42,6 +43,7 @@ impl CodeGen {
                         BinaryOp::Equal,
                         false,
                         "alya_error_null_unwrap",
+                        false,
                     );
                 }
             }
@@ -524,7 +526,14 @@ impl CodeGen {
                         {
                             arch::emit_mixed_float_check(&mut self.output, self.arch);
                         }
-                        arch::emit_binary_op_imm(&mut self.output, self.arch, *op, *n as i64);
+                        arch::emit_binary_op_imm(
+                            &mut self.output,
+                            self.arch,
+                            *op,
+                            *n as i64,
+                            is_unsigned_expr(left, &self.ctx.variables)
+                                || is_unsigned_expr(right, &self.ctx.variables),
+                        );
                         return;
                     }
                     if let Expr::Identifier(name) = &**right {
@@ -541,7 +550,13 @@ impl CodeGen {
                                 offset,
                                 false,
                             );
-                            arch::emit_binary_op_reg(&mut self.output, self.arch, *op);
+                            arch::emit_binary_op_reg(
+                                &mut self.output,
+                                self.arch,
+                                *op,
+                                is_unsigned_expr(left, &self.ctx.variables)
+                                    || is_unsigned_expr(right, &self.ctx.variables),
+                            );
                             return;
                         }
                     }
@@ -563,7 +578,14 @@ impl CodeGen {
                             {
                                 arch::emit_mixed_float_check(&mut self.output, self.arch);
                             }
-                            arch::emit_binary_op_imm(&mut self.output, self.arch, *op, *n as i64);
+                            arch::emit_binary_op_imm(
+                                &mut self.output,
+                                self.arch,
+                                *op,
+                                *n as i64,
+                                is_unsigned_expr(left, &self.ctx.variables)
+                                    || is_unsigned_expr(right, &self.ctx.variables),
+                            );
                             return;
                         }
                         if let Expr::Identifier(name) = &**left {
@@ -580,7 +602,13 @@ impl CodeGen {
                                     offset,
                                     false,
                                 );
-                                arch::emit_binary_op_reg(&mut self.output, self.arch, *op);
+                                arch::emit_binary_op_reg(
+                                    &mut self.output,
+                                    self.arch,
+                                    *op,
+                                    is_unsigned_expr(left, &self.ctx.variables)
+                                        || is_unsigned_expr(right, &self.ctx.variables),
+                                );
                                 return;
                             }
                         }
@@ -670,7 +698,13 @@ impl CodeGen {
                         arch::emit_mixed_float_check(&mut self.output, self.arch);
                     }
                     self.ctx.stack_offset -= temp_offset;
-                    arch::emit_binary_op(&mut self.output, self.arch, *op);
+                    arch::emit_binary_op(
+                        &mut self.output,
+                        self.arch,
+                        *op,
+                        is_unsigned_expr(left, &self.ctx.variables)
+                            || is_unsigned_expr(right, &self.ctx.variables),
+                    );
                 }
             }
             Expr::Unary { op, expr } => {
@@ -845,6 +879,7 @@ impl CodeGen {
                             BinaryOp::Equal,
                             false,
                             &default_label,
+                            false,
                         );
                         if !is_definitely_not_numeric(value, &self.ctx.variables) {
                             // Kind-carrying reads already holding float
@@ -921,6 +956,7 @@ impl CodeGen {
                         BinaryOp::NotEqual,
                         false,
                         &end_label,
+                        false,
                     );
                     self.generate_expression(default);
                     self.output.push_str(&format!("{}:\n", end_label));
@@ -1090,6 +1126,7 @@ impl CodeGen {
                         BinaryOp::NotEqual,
                         false,
                         &ok_label,
+                        false,
                     );
                     let default_msg =
                         Expr::String("Assertion failed: values are not equal".to_string());
@@ -1117,6 +1154,7 @@ impl CodeGen {
                         BinaryOp::NotEqual,
                         false,
                         &ok_label,
+                        false,
                     );
                     let default_msg = Expr::String("Assertion failed".to_string());
                     let msg_expr = if args.len() == 2 {
@@ -1240,6 +1278,15 @@ impl CodeGen {
                     self.generate_expression(&args[1]);
                     if self.store_value_needs_retain(&args[1]) {
                         arch::emit_rc_retain(
+                            &mut self.output,
+                            self.arch,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    }
+                    // B1: named stores outlive the wrapping ring buffer.
+                    if string_store_needs_dup(&args[1], &self.ctx.variables) {
+                        arch::emit_str_store(
                             &mut self.output,
                             self.arch,
                             self.ctx.stack_offset,
@@ -1418,6 +1465,21 @@ impl CodeGen {
                             self.os,
                         );
                         self.output.push_str(&format!("{}:\n", l_end));
+                        return;
+                    }
+                    // B4: unsigned ints use the unsigned decimal converter.
+                    if is_unsigned_expr(&args[0], &self.ctx.variables) {
+                        let initial_stack_offset = self.ctx.stack_offset;
+                        self.generate_expression(&args[0]);
+                        arch::emit_push_temp(&mut self.output, self.arch);
+                        arch::emit_function_call(
+                            &mut self.output,
+                            self.arch,
+                            "str_from_uint",
+                            1,
+                            initial_stack_offset,
+                            self.os,
+                        );
                         return;
                     }
                 }
@@ -2327,6 +2389,15 @@ impl CodeGen {
                                 self.os,
                             );
                         }
+                        // B1: named stores outlive the wrapping ring buffer.
+                        if string_store_needs_dup(arg_expr, &self.ctx.variables) {
+                            arch::emit_str_store(
+                                &mut self.output,
+                                self.arch,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                        }
                         arch::emit_struct_field_set_imm(&mut self.output, self.arch, i);
                     }
                 } else {
@@ -2334,6 +2405,15 @@ impl CodeGen {
                         self.generate_expression(fval);
                         if self.is_heap_expression(fval) {
                             arch::emit_rc_retain(
+                                &mut self.output,
+                                self.arch,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                        }
+                        // B1: named stores outlive the wrapping ring buffer.
+                        if string_store_needs_dup(fval, &self.ctx.variables) {
+                            arch::emit_str_store(
                                 &mut self.output,
                                 self.arch,
                                 self.ctx.stack_offset,
@@ -2394,6 +2474,7 @@ impl CodeGen {
                     BinaryOp::Equal,
                     false,
                     "alya_error_null_field",
+                    false,
                 );
                 arch::emit_struct_field_get(&mut self.output, self.arch, field_idx);
                 if is_weak {
@@ -2461,6 +2542,15 @@ impl CodeGen {
                             self.os,
                         );
                     }
+                    // B1: named stores outlive the wrapping ring buffer.
+                    if string_store_needs_dup(elem, &self.ctx.variables) {
+                        arch::emit_str_store(
+                            &mut self.output,
+                            self.arch,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    }
                     let elem_kind = value_kind_tag(elem, &self.ctx.variables);
                     arch::emit_array_set_imm(&mut self.output, self.arch, i, elem_kind);
                 }
@@ -2487,6 +2577,15 @@ impl CodeGen {
 
                     for (k, v) in entries {
                         self.generate_expression(k);
+                        // B1: named stores outlive the wrapping ring buffer.
+                        if string_store_needs_dup(k, &self.ctx.variables) {
+                            arch::emit_str_store(
+                                &mut self.output,
+                                self.arch,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                        }
                         arch::emit_allocate_var(
                             &mut self.output,
                             self.arch,
@@ -2495,13 +2594,21 @@ impl CodeGen {
                         let k_offset = self.ctx.stack_offset;
 
                         self.generate_expression(v);
+                        // B1: named stores outlive the wrapping ring buffer.
+                        if string_store_needs_dup(v, &self.ctx.variables) {
+                            arch::emit_str_store(
+                                &mut self.output,
+                                self.arch,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                        }
                         arch::emit_allocate_var(
                             &mut self.output,
                             self.arch,
                             &mut self.ctx.stack_offset,
                         );
                         let v_offset = self.ctx.stack_offset;
-
                         arch::emit_load_var(
                             &mut self.output,
                             self.arch,
@@ -2813,6 +2920,7 @@ impl CodeGen {
                     BinaryOp::Equal,
                     false,
                     &null_label,
+                    false,
                 );
 
                 arch::emit_struct_field_get(&mut self.output, self.arch, field_idx);
@@ -2861,6 +2969,7 @@ impl CodeGen {
                     BinaryOp::Equal,
                     false,
                     &null_label,
+                    false,
                 );
 
                 self.generate_expression(&Expr::Index {
@@ -2898,6 +3007,7 @@ impl CodeGen {
                         BinaryOp::Equal,
                         false,
                         &null_label,
+                        false,
                     );
                 } else if let Some(target) = args.first() {
                     self.generate_expression(target);
@@ -2908,6 +3018,7 @@ impl CodeGen {
                         BinaryOp::Equal,
                         false,
                         &null_label,
+                        false,
                     );
                 }
 
@@ -4030,6 +4141,7 @@ impl CodeGen {
         let l_str = self.ctx.next_label();
         let l_int = self.ctx.next_label();
         let l_not_ro = self.ctx.next_label();
+        let l_stable = self.ctx.next_label();
         let l_end = self.ctx.next_label();
         match self.arch {
             Architecture::X64 => {
@@ -4048,6 +4160,19 @@ impl CodeGen {
                 self.output.push_str(&format!("    jb {}\n", l_str));
                 self.output.push_str(&format!("{}:\n", l_not_ro));
                 self.output.push_str("    lea alya_str_buf(%rip), %rdx\n");
+                self.output.push_str("    cmp %rdx, %rax\n");
+                self.output.push_str(&format!("    jb {}\n", l_stable));
+                self.output.push_str("    lea 67108864(%rdx), %rcx\n");
+                self.output.push_str("    cmp %rcx, %rax\n");
+                self.output.push_str(&format!("    jae {}\n", l_stable));
+                self.output.push_str("    cmpb $0, (%rax)\n");
+                self.output.push_str(&format!("    je {}\n", l_int));
+                self.output.push_str(&format!("    jmp {}\n", l_str));
+                // Stable store region (B1): immortal strings live here
+                // whole-program — same string treatment as str_buf above.
+                self.output.push_str(&format!("{}:\n", l_stable));
+                self.output
+                    .push_str("    lea alya_str_stable(%rip), %rdx\n");
                 self.output.push_str("    cmp %rdx, %rax\n");
                 self.output.push_str(&format!("    jb {}\n", l_int));
                 self.output.push_str("    lea 67108864(%rdx), %rcx\n");
@@ -4096,8 +4221,29 @@ impl CodeGen {
                     os,
                 );
                 self.output.push_str("    cmp x0, x1\n");
-                self.output.push_str(&format!("    b.lo {}\n", l_int));
+                self.output.push_str(&format!("    b.lo {}\n", l_stable));
                 self.output.push_str("    movz x2, #1024, lsl #16\n");
+                self.output.push_str("    add x2, x1, x2\n");
+                self.output.push_str("    cmp x0, x2\n");
+                self.output.push_str(&format!("    b.hs {}\n", l_stable));
+                self.output.push_str("    ldrb w2, [x0]\n");
+                self.output.push_str(&format!("    cbz w2, {}\n", l_int));
+                self.output.push_str(&format!("    b {}\n", l_str));
+                // Stable store region (B1): immortal strings live here
+                // whole-program — same string treatment as str_buf above.
+                self.output.push_str(&format!("{}:\n", l_stable));
+                // Stable store region (B1): immortal strings live here
+                // whole-program — same string treatment as str_buf above.
+                crate::codegen::arch::arm64::emit_adrp_add(
+                    &mut self.output,
+                    "x1",
+                    "alya_str_stable",
+                    os,
+                );
+                self.output.push_str("    cmp x0, x1\n");
+                self.output.push_str(&format!("    b.lo {}\n", l_int));
+                self.output.push_str("    mov x2, #64\n");
+                self.output.push_str("    lsl x2, x2, #20\n");
                 self.output.push_str("    add x2, x1, x2\n");
                 self.output.push_str("    cmp x0, x2\n");
                 self.output.push_str(&format!("    b.hs {}\n", l_int));

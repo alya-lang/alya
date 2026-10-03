@@ -577,6 +577,26 @@ pub fn emit_rc_retain(out: &mut String, stack_offset: i32, os: OperatingSystem) 
     }
 }
 
+pub fn emit_str_store(out: &mut String, stack_offset: i32, os: OperatingSystem) {
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %rax, %rcx\n");
+        let padding = if stack_offset % 16 == 0 { 32 } else { 40 };
+        out.push_str(&format!("    sub ${}, %rsp\n", padding));
+        out.push_str("    call alya_str_store\n");
+        out.push_str(&format!("    add ${}, %rsp\n", padding));
+    } else {
+        out.push_str("    mov %rax, %rdi\n");
+        let misaligned = stack_offset % 16 != 0;
+        if misaligned {
+            out.push_str("    sub $8, %rsp\n");
+        }
+        out.push_str("    call alya_str_store\n");
+        if misaligned {
+            out.push_str("    add $8, %rsp\n");
+        }
+    }
+}
+
 pub fn emit_rc_release(out: &mut String, stack_offset: i32, os: OperatingSystem) {
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov %rax, %rcx\n");

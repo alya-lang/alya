@@ -1,8 +1,12 @@
 pub fn emit_load_num(out: &mut String, val: i64) {
     if val == 0 {
         out.push_str("    xor %eax, %eax\n");
-    } else {
+    } else if (i32::MIN as i64..=i32::MAX as i64).contains(&val) {
         out.push_str(&format!("    mov ${}, %rax\n", val));
+    } else {
+        // B4: full 64-bit immediates (e.g. 1<<63, u64 max bit patterns)
+        // do not fit in a 32-bit sign-extended mov.
+        out.push_str(&format!("    movabs ${}, %rax\n", val));
     }
 }
 

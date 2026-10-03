@@ -1,0 +1,39 @@
+function build(i: int) -> string
+    return int_to_dec(i) + "|" + int_to_dec(i * 2) + "|keyword|let"
+end
+
+function main()
+    let arr = []
+    let i = 0
+    while i < 2000
+        arr.push(build(i))
+        i += 1
+    end
+    let h = ""
+    let k = 0
+    while k < 2000
+        h = h + arr[k]
+        k += 1
+    end
+    say len(h)
+end
+
+function int_to_dec(v: int) -> string
+    if v == 0
+        return "0"
+    end
+    let digs = []
+    while v > 0
+        digs.push(v % 10)
+        v = v / 10
+    end
+    let s = ""
+    let i = len(digs) - 1
+    while i >= 0
+        s = s + chr(48 + digs[i])
+        i -= 1
+    end
+    return s
+end
+
+main()

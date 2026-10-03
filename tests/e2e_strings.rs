@@ -272,6 +272,85 @@ say len(chr(1114111))
 }
 
 #[test]
+fn test_e2e_char_at_unicode() {
+    // B2: char_at indexes codepoints (not bytes). len() stays bytes.
+    let code = r#"
+say char_at("hello", 1)
+say char_at("héllo", 1)
+say char_at("héllo", 1) == "é"
+say len(char_at("héllo", 1))
+say len("héllo")
+say char_count("héllo")
+say char_at("a€中😀", 0)
+say char_at("a€中😀", 1) == "€"
+say char_at("a€中😀", 3) == "😀"
+say char_at("abc", 5) == ""
+say char_at("abc", -1) == ""
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(
+            output,
+            concat!("e\n", "é\n", "1\n", "2\n", "6\n", "5\n", "a\n", "1\n", "1\n", "1\n", "1\n",)
+        );
+    }
+}
+
+#[test]
+fn test_e2e_ord_utf8_decode() {
+    // B2: ord decodes the first UTF-8 codepoint; legacy single bytes
+    // (chr 1..255) round-trip.
+    let code = r#"
+say ord("A")
+say ord(chr(8364))
+say ord(chr(233))
+say ord("é")
+say ord("€")
+say ord("中")
+say ord("😀")
+say ord(chr(20013))
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "65\n8364\n233\n233\n8364\n20013\n128512\n20013\n");
+    }
+}
+
+#[test]
+fn test_e2e_runes_unicode_iteration() {
+    // B2: runes() splits codepoints; for-in over strings uses it.
+    let code = r#"
+let r = runes("a€中😀")
+say len(r)
+say r[0]
+say len(r[1])
+say ord(r[1])
+say ord(r[3])
+let n = 0
+for ch in "a€中"
+    n += 1
+end
+say n
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "4\na\n3\n8364\n128512\n3\n");
+    }
+}
+
+#[test]
 fn test_e2e_std_json_unicode_escapes() {
     // stdlib json must decode \u escapes as UTF-8 with surrogate-pair
     // combining (stdlib/json.alya). BMP singles already work via the
@@ -614,5 +693,87 @@ main()
             code, output
         );
         assert_eq!(output, "a\n");
+    }
+}
+
+#[test]
+fn test_e2e_string_store_outlives_ring() {
+    // B1: stored strings must survive later concat volume. The runtime
+    // string ring wraps ~950KB; pre-fix, array-held concat results were
+    // silently overwritten (stale reads) and reading them segfaulted.
+    // Push distinct content, burn past the wrap with different content,
+    // then verify every element reads back intact.
+    let code = r#"
+function main()
+    let arr = []
+    arr.push("aa" + "bb")
+    arr.push("cc" + "dd")
+    arr.push("ee" + "ff")
+    let d = ""
+    let i = 0
+    while i < 240000
+        d = "wx" + "yz"
+        i += 1
+    end
+    say arr[0]
+    say arr[1]
+    say arr[2]
+    let h = ""
+    h = h + arr[0]
+    h = h + arr[1]
+    h = h + arr[2]
+    say h
+end
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "aabb\nccdd\neeff\naabbccddeeff\n");
+    }
+}
+
+#[test]
+fn test_e2e_string_accum_across_wrap() {
+    // B1: accumulating reads across the ring wrap must neither crash nor
+    // corrupt. ~416-byte elements cross the ~950KB wrap within ~70
+    // iterations; the final length and both ends are asserted exactly.
+    let code = r#"
+function big() -> string
+    return "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+end
+function main()
+    let arr = []
+    let i = 0
+    while i < 80
+        arr.push(big() + big())
+        i += 1
+    end
+    let h = ""
+    let k = 0
+    while k < 80
+        h = h + arr[k]
+        k += 1
+    end
+    say len(h)
+    say h[0..16]
+    say h[len(h) - 16..len(h)]
+end
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(lines.len(), 3, "Got: {}", output);
+        assert_eq!(lines[0], "33280", "Got: {}", output);
+        assert_eq!(lines[1], "0123456789abcdef", "Got: {}", output);
+        assert_eq!(lines[2], "0123456789abcdef", "Got: {}", output);
     }
 }

@@ -109,6 +109,10 @@ pub fn emit_array_pop(out: &mut String) {
     out.push_str("    bl alya_array_pop\n");
 }
 
+pub fn emit_str_store(out: &mut String) {
+    out.push_str("    bl alya_str_store\n");
+}
+
 pub fn emit_array_len(out: &mut String) {
     out.push_str("    cbz x0, 1f\n");
     out.push_str("    ldr x0, [x0]\n");

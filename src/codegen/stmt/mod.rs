@@ -338,6 +338,7 @@ impl CodeGen {
                 crate::ast::BinaryOp::Equal,
                 false,
                 &skip_label,
+                false,
             );
             self.generate_statement(&inner_stmt);
             self.output.push_str(&format!("{}:\n", skip_label));

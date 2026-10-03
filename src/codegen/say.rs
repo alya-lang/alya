@@ -3,7 +3,7 @@ use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     call_returns_known_int, escape_string, is_array_expr, is_array_kind_read,
     is_dynamic_element_read, is_float_expr, is_map_expr, is_map_read_index, is_null_expr,
-    is_string_array, is_string_expr, is_tag_carrying_read,
+    is_string_array, is_string_expr, is_tag_carrying_read, is_unsigned_expr,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -97,7 +97,14 @@ impl CodeGen {
         arch::emit_push_temp(&mut self.output, self.arch);
         self.emit_runtime_classify(self.os);
         arch::emit_cmp_imm(&mut self.output, self.arch, KIND_STRING);
-        arch::emit_cond_jump(&mut self.output, self.arch, BinaryOp::Equal, false, &l_str);
+        arch::emit_cond_jump(
+            &mut self.output,
+            self.arch,
+            BinaryOp::Equal,
+            false,
+            &l_str,
+            false,
+        );
         arch::emit_pop_temp(&mut self.output, self.arch);
         let fmt_dyn_int_label = self.ctx.next_string_label();
         self.emit_rodata_section();
@@ -183,7 +190,13 @@ impl CodeGen {
                             } else if spec.starts_with('0')
                                 && spec.chars().skip(1).all(|c| c.is_ascii_digit())
                             {
-                                format_str.push_str(&format!("%{}lld", spec));
+                                // B4: unsigned zero-padded ints print with %llu.
+                                let conv = if is_unsigned_expr(arg, &self.ctx.variables) {
+                                    "llu"
+                                } else {
+                                    "lld"
+                                };
+                                format_str.push_str(&format!("%{}{}", spec, conv));
                                 exprs.push(arg.clone());
                                 is_floats.push(false);
                             } else if spec == "#x" || spec == "x" {
@@ -206,7 +219,12 @@ impl CodeGen {
                                 exprs.push(arg.clone());
                                 is_floats.push(false);
                             } else {
-                                format_str.push_str("%lld");
+                                // B4: unsigned ints print with %llu.
+                                if is_unsigned_expr(arg, &self.ctx.variables) {
+                                    format_str.push_str("%llu");
+                                } else {
+                                    format_str.push_str("%lld");
+                                }
                                 exprs.push(arg.clone());
                                 is_floats.push(false);
                             }
@@ -271,6 +289,9 @@ impl CodeGen {
                                         format_str.push_str("%s");
                                     } else if is_flt {
                                         format_str.push_str("%g");
+                                    } else if is_unsigned_expr(part, &self.ctx.variables) {
+                                        // B4: u64 interpolation prints unsigned.
+                                        format_str.push_str("%llu");
                                     } else {
                                         format_str.push_str("%lld");
                                     }
@@ -341,6 +362,9 @@ impl CodeGen {
                 self.output.push_str(&format!("{}:\n", fmt_label));
                 if is_flt {
                     self.emit_string_directive("%g\\n");
+                } else if is_unsigned_expr(expr, &self.ctx.variables) {
+                    // B4: unsigned arithmetic results print unsigned.
+                    self.emit_string_directive("%llu\\n");
                 } else {
                     self.emit_string_directive("%lld\\n");
                 }
@@ -423,7 +447,17 @@ impl CodeGen {
                             return;
                         }
                         _ if is_int => {
-                            self.emit_string_directive("%lld\\n");
+                            // B4: u64 globals print unsigned.
+                            let fmt = if self
+                                .ctx
+                                .variables
+                                .contains_key(&format!("var_is_uint:{}", name))
+                            {
+                                "%llu\\n"
+                            } else {
+                                "%lld\\n"
+                            };
+                            self.emit_string_directive(fmt);
                             self.output.push_str(".text\n");
                             if let Some((symbol, _)) = self.ctx.globals.get(name).cloned() {
                                 arch::emit_load_global(
@@ -443,7 +477,69 @@ impl CodeGen {
                             self.output.push('\n');
                             return;
                         }
-                        _ => {}
+                        _ => {
+                            // Unknown global kind: top-level lets generate
+                            // after function bodies (#55-C), so kind markers
+                            // are absent here. Load the value and classify
+                            // at runtime (string -> %s, else -> %lld),
+                            // mirroring the dynamic fallback above.
+                            // NOTE: the outer fmt_label above stays an empty
+                            // rodata label (harmless); switch back to .text
+                            // before emitting any code.
+                            self.output.push_str(".text\n");
+                            if let Some((symbol, _)) = self.ctx.globals.get(name).cloned() {
+                                arch::emit_load_global(
+                                    &mut self.output,
+                                    self.arch,
+                                    &symbol,
+                                    self.os,
+                                );
+                                let l_gstr = self.ctx.next_label();
+                                let l_gend = self.ctx.next_label();
+                                arch::emit_push_temp(&mut self.output, self.arch);
+                                self.emit_runtime_classify(self.os);
+                                arch::emit_cmp_imm(&mut self.output, self.arch, KIND_STRING);
+                                arch::emit_cond_jump(
+                                    &mut self.output,
+                                    self.arch,
+                                    BinaryOp::Equal,
+                                    false,
+                                    &l_gstr,
+                                    false,
+                                );
+                                arch::emit_pop_temp(&mut self.output, self.arch);
+                                let fmt_gint_label = self.ctx.next_string_label();
+                                self.emit_rodata_section();
+                                self.output.push_str(&format!("{}:\n", fmt_gint_label));
+                                self.emit_string_directive("%lld\\n");
+                                self.output.push_str(".text\n");
+                                arch::emit_say_acc(
+                                    &mut self.output,
+                                    self.arch,
+                                    &fmt_gint_label,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
+                                arch::emit_jump(&mut self.output, self.arch, &l_gend);
+                                self.output.push_str(&format!("{}:\n", l_gstr));
+                                arch::emit_pop_temp(&mut self.output, self.arch);
+                                let fmt_gstr_label = self.ctx.next_string_label();
+                                self.emit_rodata_section();
+                                self.output.push_str(&format!("{}:\n", fmt_gstr_label));
+                                self.emit_string_directive("%s\\n");
+                                self.output.push_str(".text\n");
+                                arch::emit_say_acc(
+                                    &mut self.output,
+                                    self.arch,
+                                    &fmt_gstr_label,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
+                                self.output.push_str(&format!("{}:\n", l_gend));
+                                self.output.push('\n');
+                                return;
+                            }
+                        }
                     }
                 }
                 if let Some(var_type) = self.ctx.variables.get(name).cloned() {
@@ -491,7 +587,17 @@ impl CodeGen {
                                 let fmt_int_label = self.ctx.next_string_label();
                                 self.emit_rodata_section();
                                 self.output.push_str(&format!("{}:\n", fmt_int_label));
-                                self.emit_string_directive("%lld\\n");
+                                // B4: u64-annotated locals print unsigned.
+                                let fmt = if self
+                                    .ctx
+                                    .variables
+                                    .contains_key(&format!("var_is_uint:{}", name))
+                                {
+                                    "%llu\\n"
+                                } else {
+                                    "%lld\\n"
+                                };
+                                self.emit_string_directive(fmt);
                                 self.output.push_str(".text\n");
                                 arch::emit_load_var(
                                     &mut self.output,
@@ -532,6 +638,7 @@ impl CodeGen {
                                 BinaryOp::Equal,
                                 false,
                                 &l_dyn_str,
+                                false,
                             );
                             let fmt_int_label = self.ctx.next_string_label();
                             self.emit_rodata_section();
@@ -749,7 +856,13 @@ impl CodeGen {
                 let fmt_label = self.ctx.next_string_label();
                 self.emit_rodata_section();
                 self.output.push_str(&format!("{}:\n", fmt_label));
-                self.emit_string_directive("%lld\\n");
+                // B4: u64 max (18446744073709551615) must print unsigned.
+                let fmt = if *n > i64::MAX as i128 {
+                    "%llu\\n"
+                } else {
+                    "%lld\\n"
+                };
+                self.emit_string_directive(fmt);
                 self.output.push_str(".text\n");
 
                 arch::emit_say_num_const(
@@ -938,6 +1051,7 @@ impl CodeGen {
                             BinaryOp::Equal,
                             false,
                             &l_idx_str,
+                            false,
                         );
                         arch::emit_pop_temp(&mut self.output, self.arch);
                         let fmt_idx_int_label = self.ctx.next_string_label();
@@ -1116,6 +1230,7 @@ impl CodeGen {
                         BinaryOp::Equal,
                         false,
                         &l_call_str,
+                        false,
                     );
                     arch::emit_pop_temp(&mut self.output, self.arch);
                     let fmt_call_int_label = self.ctx.next_string_label();

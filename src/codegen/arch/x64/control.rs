@@ -14,18 +14,26 @@ pub fn emit_jump(out: &mut String, label: &str) {
     out.push_str(&format!("    jmp {}\n", label));
 }
 
-pub fn emit_compare_and_jump_if_greater(out: &mut String, label: &str) {
+pub fn emit_compare_and_jump_if_greater(out: &mut String, label: &str, unsigned: bool) {
     out.push_str("    mov %rax, %rbx\n");
     out.push_str("    pop %rax\n");
     out.push_str("    cmp %rbx, %rax\n");
-    out.push_str(&format!("    jg {}\n", label));
+    if unsigned {
+        out.push_str(&format!("    ja {}\n", label));
+    } else {
+        out.push_str(&format!("    jg {}\n", label));
+    }
 }
 
-pub fn emit_compare_and_jump_if_greater_or_equal(out: &mut String, label: &str) {
+pub fn emit_compare_and_jump_if_greater_or_equal(out: &mut String, label: &str, unsigned: bool) {
     out.push_str("    mov %rax, %rbx\n");
     out.push_str("    pop %rax\n");
     out.push_str("    cmp %rbx, %rax\n");
-    out.push_str(&format!("    jge {}\n", label));
+    if unsigned {
+        out.push_str(&format!("    jae {}\n", label));
+    } else {
+        out.push_str(&format!("    jge {}\n", label));
+    }
 }
 
 pub fn emit_increment_var(out: &mut String, var_offset: i32, start_label: &str) {

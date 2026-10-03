@@ -1,6 +1,6 @@
 use crate::ast::{BinaryOp, UnaryOp};
 
-pub fn emit_binary_op(out: &mut String, op: BinaryOp) {
+pub fn emit_binary_op(out: &mut String, op: BinaryOp, unsigned: bool) {
     out.push_str("    ldr x1, [sp], #16\n");
     match op {
         BinaryOp::Add => out.push_str("    add x0, x1, x0\n"),
@@ -8,11 +8,19 @@ pub fn emit_binary_op(out: &mut String, op: BinaryOp) {
         BinaryOp::Multiply => out.push_str("    mul x0, x1, x0\n"),
         BinaryOp::Divide => {
             out.push_str("    cbz x0, alya_error_div_zero\n");
-            out.push_str("    sdiv x0, x1, x0\n");
+            if unsigned {
+                out.push_str("    udiv x0, x1, x0\n");
+            } else {
+                out.push_str("    sdiv x0, x1, x0\n");
+            }
         }
         BinaryOp::Modulo => {
             out.push_str("    cbz x0, alya_error_div_zero\n");
-            out.push_str("    sdiv x2, x1, x0\n");
+            if unsigned {
+                out.push_str("    udiv x2, x1, x0\n");
+            } else {
+                out.push_str("    sdiv x2, x1, x0\n");
+            }
             out.push_str("    msub x0, x2, x0, x1\n");
         }
         BinaryOp::Equal => {
@@ -25,19 +33,35 @@ pub fn emit_binary_op(out: &mut String, op: BinaryOp) {
         }
         BinaryOp::Less => {
             out.push_str("    cmp x1, x0\n");
-            out.push_str("    cset x0, lt\n");
+            if unsigned {
+                out.push_str("    cset x0, lo\n");
+            } else {
+                out.push_str("    cset x0, lt\n");
+            }
         }
         BinaryOp::LessEqual => {
             out.push_str("    cmp x1, x0\n");
-            out.push_str("    cset x0, le\n");
+            if unsigned {
+                out.push_str("    cset x0, ls\n");
+            } else {
+                out.push_str("    cset x0, le\n");
+            }
         }
         BinaryOp::Greater => {
             out.push_str("    cmp x1, x0\n");
-            out.push_str("    cset x0, gt\n");
+            if unsigned {
+                out.push_str("    cset x0, hi\n");
+            } else {
+                out.push_str("    cset x0, gt\n");
+            }
         }
         BinaryOp::GreaterEqual => {
             out.push_str("    cmp x1, x0\n");
-            out.push_str("    cset x0, ge\n");
+            if unsigned {
+                out.push_str("    cset x0, hs\n");
+            } else {
+                out.push_str("    cset x0, ge\n");
+            }
         }
         BinaryOp::And | BinaryOp::BitAnd => {
             out.push_str("    and x0, x1, x0\n");
@@ -58,18 +82,26 @@ pub fn emit_binary_op(out: &mut String, op: BinaryOp) {
     }
 }
 
-pub fn emit_binary_op_reg(out: &mut String, op: BinaryOp) {
+pub fn emit_binary_op_reg(out: &mut String, op: BinaryOp, unsigned: bool) {
     match op {
         BinaryOp::Add => out.push_str("    add x0, x0, x1\n"),
         BinaryOp::Subtract => out.push_str("    sub x0, x0, x1\n"),
         BinaryOp::Multiply => out.push_str("    mul x0, x0, x1\n"),
         BinaryOp::Divide => {
             out.push_str("    cbz x1, alya_error_div_zero\n");
-            out.push_str("    sdiv x0, x0, x1\n");
+            if unsigned {
+                out.push_str("    udiv x0, x0, x1\n");
+            } else {
+                out.push_str("    sdiv x0, x0, x1\n");
+            }
         }
         BinaryOp::Modulo => {
             out.push_str("    cbz x1, alya_error_div_zero\n");
-            out.push_str("    sdiv x2, x0, x1\n");
+            if unsigned {
+                out.push_str("    udiv x2, x0, x1\n");
+            } else {
+                out.push_str("    sdiv x2, x0, x1\n");
+            }
             out.push_str("    msub x0, x2, x1, x0\n");
         }
         BinaryOp::Equal => {
@@ -82,19 +114,35 @@ pub fn emit_binary_op_reg(out: &mut String, op: BinaryOp) {
         }
         BinaryOp::Less => {
             out.push_str("    cmp x0, x1\n");
-            out.push_str("    cset x0, lt\n");
+            if unsigned {
+                out.push_str("    cset x0, lo\n");
+            } else {
+                out.push_str("    cset x0, lt\n");
+            }
         }
         BinaryOp::LessEqual => {
             out.push_str("    cmp x0, x1\n");
-            out.push_str("    cset x0, le\n");
+            if unsigned {
+                out.push_str("    cset x0, ls\n");
+            } else {
+                out.push_str("    cset x0, le\n");
+            }
         }
         BinaryOp::Greater => {
             out.push_str("    cmp x0, x1\n");
-            out.push_str("    cset x0, gt\n");
+            if unsigned {
+                out.push_str("    cset x0, hi\n");
+            } else {
+                out.push_str("    cset x0, gt\n");
+            }
         }
         BinaryOp::GreaterEqual => {
             out.push_str("    cmp x0, x1\n");
-            out.push_str("    cset x0, ge\n");
+            if unsigned {
+                out.push_str("    cset x0, hs\n");
+            } else {
+                out.push_str("    cset x0, ge\n");
+            }
         }
         BinaryOp::And | BinaryOp::BitAnd => {
             out.push_str("    and x0, x0, x1\n");
@@ -115,7 +163,7 @@ pub fn emit_binary_op_reg(out: &mut String, op: BinaryOp) {
     }
 }
 
-pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
+pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64, unsigned: bool) {
     match op {
         BinaryOp::Add => {
             if (0..=4095).contains(&imm) {
@@ -146,7 +194,11 @@ pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
                 out.push_str("    b alya_error_div_zero\n");
             } else {
                 super::loads::emit_load_reg_imm64(out, "x1", imm);
-                out.push_str("    sdiv x0, x0, x1\n");
+                if unsigned {
+                    out.push_str("    udiv x0, x0, x1\n");
+                } else {
+                    out.push_str("    sdiv x0, x0, x1\n");
+                }
             }
         }
         BinaryOp::Modulo => {
@@ -154,7 +206,11 @@ pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
                 out.push_str("    b alya_error_div_zero\n");
             } else {
                 super::loads::emit_load_reg_imm64(out, "x1", imm);
-                out.push_str("    sdiv x2, x0, x1\n");
+                if unsigned {
+                    out.push_str("    udiv x2, x0, x1\n");
+                } else {
+                    out.push_str("    sdiv x2, x0, x1\n");
+                }
                 out.push_str("    msub x0, x2, x1, x0\n");
             }
         }
@@ -183,7 +239,11 @@ pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
                 super::loads::emit_load_reg_imm64(out, "x1", imm);
                 out.push_str("    cmp x0, x1\n");
             }
-            out.push_str("    cset x0, lt\n");
+            if unsigned {
+                out.push_str("    cset x0, lo\n");
+            } else {
+                out.push_str("    cset x0, lt\n");
+            }
         }
         BinaryOp::LessEqual => {
             if (0..=4095).contains(&imm) {
@@ -192,7 +252,11 @@ pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
                 super::loads::emit_load_reg_imm64(out, "x1", imm);
                 out.push_str("    cmp x0, x1\n");
             }
-            out.push_str("    cset x0, le\n");
+            if unsigned {
+                out.push_str("    cset x0, ls\n");
+            } else {
+                out.push_str("    cset x0, le\n");
+            }
         }
         BinaryOp::Greater => {
             if (0..=4095).contains(&imm) {
@@ -201,7 +265,11 @@ pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
                 super::loads::emit_load_reg_imm64(out, "x1", imm);
                 out.push_str("    cmp x0, x1\n");
             }
-            out.push_str("    cset x0, gt\n");
+            if unsigned {
+                out.push_str("    cset x0, hi\n");
+            } else {
+                out.push_str("    cset x0, gt\n");
+            }
         }
         BinaryOp::GreaterEqual => {
             if (0..=4095).contains(&imm) {
@@ -210,7 +278,11 @@ pub fn emit_binary_op_imm(out: &mut String, op: BinaryOp, imm: i64) {
                 super::loads::emit_load_reg_imm64(out, "x1", imm);
                 out.push_str("    cmp x0, x1\n");
             }
-            out.push_str("    cset x0, ge\n");
+            if unsigned {
+                out.push_str("    cset x0, hs\n");
+            } else {
+                out.push_str("    cset x0, ge\n");
+            }
         }
         BinaryOp::And | BinaryOp::BitAnd => {
             if imm > 0 && (imm & (imm + 1)) == 0 {

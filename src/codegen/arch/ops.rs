@@ -2,24 +2,30 @@ use super::{arm64, x64};
 use crate::ast::{BinaryOp, UnaryOp};
 use crate::codegen::target::Architecture;
 
-pub fn emit_binary_op(out: &mut String, arch: Architecture, op: BinaryOp) {
+pub fn emit_binary_op(out: &mut String, arch: Architecture, op: BinaryOp, unsigned: bool) {
     match arch {
-        Architecture::ARM64 => arm64::emit_binary_op(out, op),
-        Architecture::X64 => x64::emit_binary_op(out, op),
+        Architecture::ARM64 => arm64::emit_binary_op(out, op, unsigned),
+        Architecture::X64 => x64::emit_binary_op(out, op, unsigned),
     }
 }
 
-pub fn emit_binary_op_reg(out: &mut String, arch: Architecture, op: BinaryOp) {
+pub fn emit_binary_op_reg(out: &mut String, arch: Architecture, op: BinaryOp, unsigned: bool) {
     match arch {
-        Architecture::ARM64 => arm64::emit_binary_op_reg(out, op),
-        Architecture::X64 => x64::emit_binary_op_reg(out, op),
+        Architecture::ARM64 => arm64::emit_binary_op_reg(out, op, unsigned),
+        Architecture::X64 => x64::emit_binary_op_reg(out, op, unsigned),
     }
 }
 
-pub fn emit_binary_op_imm(out: &mut String, arch: Architecture, op: BinaryOp, imm: i64) {
+pub fn emit_binary_op_imm(
+    out: &mut String,
+    arch: Architecture,
+    op: BinaryOp,
+    imm: i64,
+    unsigned: bool,
+) {
     match arch {
-        Architecture::ARM64 => arm64::emit_binary_op_imm(out, op, imm),
-        Architecture::X64 => x64::emit_binary_op_imm(out, op, imm),
+        Architecture::ARM64 => arm64::emit_binary_op_imm(out, op, imm, unsigned),
+        Architecture::X64 => x64::emit_binary_op_imm(out, op, imm, unsigned),
     }
 }
 
