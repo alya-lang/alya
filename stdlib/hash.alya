@@ -420,7 +420,7 @@ pub function int_to_hex(val: int, width: int = 0) -> string
         let s: string = ""
         let w: int = 0
         while w < width
-            s = s + "0"
+            s += "0"
             w += 1
         end
         return s

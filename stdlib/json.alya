@@ -21,12 +21,12 @@ pub function json_array(items) -> string
     let i: int = 0
     while i < count
         if i > 0
-            res = res + ", "
+            res += ", "
         end
-        res = res + items[i]
+        res += items[i]
         i += 1
     end
-    res = res + "]"
+    res += "]"
     return res
 end
 
@@ -93,7 +93,7 @@ pub function json_float(n: float) -> string
         return str(iv) + ".0"
     end
     while frac % 10 == 0
-        frac = frac / 10
+        frac /= 10
     end
     if frac < 10 and fv < 0.1
         return str(iv) + ".0" + str(frac)
@@ -158,13 +158,13 @@ pub function json_object(m) -> string
     let first: int = 1
     for k, v in m
         if first == 0
-            res = res + ", "
+            res += ", "
         else
             first = 0
         end
-        res = res + "\"" + json_escape(k) + "\": " + str(v)
+        res += "\"" + json_escape(k) + "\": " + str(v)
     end
-    res = res + "}"
+    res += "}"
     return res
 end
 
@@ -315,14 +315,14 @@ function _json_parse_string(s: string, pos: int[], slen: int) -> string
             if pos[0] < slen
                 let esc: string = char_at(s, pos[0])
                 when esc
-                    is "\"" then res = res + "\""
-                    is "\\" then res = res + "\\"
-                    is "/"  then res = res + "/"
-                    is "n"  then res = res + "\n"
-                    is "r"  then res = res + "\r"
-                    is "t"  then res = res + "\t"
-                    is "b"  then res = res + chr(8)
-                    is "f"  then res = res + chr(12)
+                    is "\"" then res += "\""
+                    is "\\" then res += "\\"
+                    is "/"  then res += "/"
+                    is "n"  then res += "\n"
+                    is "r"  then res += "\r"
+                    is "t"  then res += "\t"
+                    is "b"  then res += chr(8)
+                    is "f"  then res += chr(12)
                     is "u"  then
                         if pos[0] + 4 < slen
                             let h0: int = _json_hex_val(char_at(s, pos[0] + 1))
@@ -345,15 +345,15 @@ function _json_parse_string(s: string, pos: int[], slen: int) -> string
                             elif (pcode >= 55296 and pcode <= 56319) or (pcode >= 56320 and pcode <= 57343)
                                 pcode = 65533
                             end
-                            res = res + _json_chr_utf8(pcode)
+                            res += _json_chr_utf8(pcode)
                             pos[0] = pos[0] + 4
                         end
                     else
-                        res = res + esc
+                        res += esc
                 end
             end
         else
-            res = res + ch
+            res += ch
         end
         pos[0] = pos[0] + 1
     end
@@ -414,7 +414,7 @@ pub function json_is_valid(text: string) -> bool
     let pos: int[] = [0]
     let res = _json_parse_val(s, pos, slen)
     _json_skip_ws(s, pos, slen)
-    if pos[0] == slen and res != null
+    if pos[0] == slen and res is not null
         return true
     end
     return false

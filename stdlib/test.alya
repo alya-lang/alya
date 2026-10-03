@@ -660,9 +660,9 @@ function _bench_format_thousands(n: int) -> string
     end
     while i < slen
         if len(res) > 0
-            res = res + ","
+            res += ","
         end
-        res = res + substring(s, i, 3)
+        res += substring(s, i, 3)
         i += 3
     end
     return res
@@ -672,7 +672,7 @@ function _bench_pad_right(s: string, width: int) -> string
     let res: string = str_from_ptr(s)
     let slen: int = len(res)
     while slen < width
-        res = res + " "
+        res += " "
         slen += 1
     end
     return res
@@ -692,7 +692,7 @@ function _bench_repeat(c: string, count: int) -> string
     let res: string = ""
     let i: int = 0
     while i < count
-        res = res + c
+        res += c
         i += 1
     end
     return res
@@ -871,9 +871,9 @@ pub function bench_summary(b: BenchRunner)
             let r_dec: int = r_val % 100
             let r_str: string = str(r_int) + "."
             if r_dec < 10
-                r_str = r_str + "0"
+                r_str += "0"
             end
-            r_str = r_str + str(r_dec)
+            r_str += str(r_dec)
             let rlen: int = len(r_str)
             if rlen > w_ratio
                 w_ratio = rlen
@@ -894,9 +894,9 @@ pub function bench_summary(b: BenchRunner)
                     let a_dec: int = a_val % 100
                     a_ratio_str = str(a_int) + "."
                     if a_dec < 10
-                        a_ratio_str = a_ratio_str + "0"
+                        a_ratio_str += "0"
                     end
-                    a_ratio_str = a_ratio_str + str(a_dec)
+                    a_ratio_str += str(a_dec)
                 end
             else
                 if r_k.op_alloc > 0
@@ -952,9 +952,9 @@ pub function bench_summary(b: BenchRunner)
             let ratio_dec: int = ratio_val % 100
             let ratio_str: string = str(ratio_int) + "."
             if ratio_dec < 10
-                ratio_str = ratio_str + "0"
+                ratio_str += "0"
             end
-            ratio_str = ratio_str + str(ratio_dec)
+            ratio_str += str(ratio_dec)
 
             let a_ratio_str: string = "-"
             if baseline_alloc > 0
@@ -966,9 +966,9 @@ pub function bench_summary(b: BenchRunner)
                     let a_dec: int = a_val % 100
                     a_ratio_str = str(a_int) + "."
                     if a_dec < 10
-                        a_ratio_str = a_ratio_str + "0"
+                        a_ratio_str += "0"
                     end
-                    a_ratio_str = a_ratio_str + str(a_dec)
+                    a_ratio_str += str(a_dec)
                 end
             else
                 if r.op_alloc > 0

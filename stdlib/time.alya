@@ -186,11 +186,11 @@ end
 pub function date_ymd_to_epoch(year: int, month: int, day: int) -> int
     let y: int = year
     if month <= 2
-        y = y - 1
+        y -= 1
     end
     let era: int = y / 400
     if y < 0 and y % 400 != 0
-        era = era - 1
+        era -= 1
     end
     let yoe: int = y - (era * 400)
     let m_adj: int = 0
@@ -238,21 +238,21 @@ pub function epoch_to_date(epoch_sec: int)
     let days: int = epoch_sec / 86400
     let rem: int = epoch_sec % 86400
     if rem < 0
-        rem = rem + 86400
-        days = days - 1
+        rem += 86400
+        days -= 1
     end
     let hour: int = rem / 3600
     let minute: int = (rem % 3600) / 60
     let second: int = rem % 60
     let weekday: int = (days + 4) % 7
     if weekday < 0
-        weekday = weekday + 7
+        weekday += 7
     end
 
     let z: int = days + 719468
     let era: int = z / 146097
     if z < 0 and z % 146097 != 0
-        era = era - 1
+        era -= 1
     end
     let doe: int = z - (era * 146097)
     let yoe: int = (doe - (doe / 1460) + (doe / 36524) - (doe / 146096)) / 365
@@ -627,7 +627,7 @@ pub function duration_str(ms: int) -> string
     let hr: int = t / 3600000
     let rem: int = t - hr * 3600000
     let mn: int = rem / 60000
-    rem = rem - mn * 60000
+    rem -= mn * 60000
     let sc: int = rem / 1000
     let msl: int = rem - sc * 1000
     if hr > 0

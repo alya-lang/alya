@@ -199,7 +199,7 @@ pub function logger_log(l: Logger, level: int, message: string) -> int
 
     let badge: string = "[" + log_level_name(level) + "]"
     while len(badge) < 7
-        badge = badge + " "
+        badge += " "
     end
 
     let colored_badge: string = badge
@@ -220,14 +220,14 @@ pub function logger_log(l: Logger, level: int, message: string) -> int
 
     let prefix: string = ""
     if l.log_timestamps == 1
-        prefix = prefix + "[" + _log_timestamp() + "] "
+        prefix += "[" + _log_timestamp() + "] "
     end
     let name_str: string = str_from_ptr(l.log_name)
     if len(name_str) > 0
         if l.log_colored == 1
-            prefix = prefix + color_magenta("[" + name_str + "]") + " "
+            prefix += color_magenta("[" + name_str + "]") + " "
         else
-            prefix = prefix + "[" + name_str + "] "
+            prefix += "[" + name_str + "] "
         end
     end
 

@@ -725,7 +725,7 @@ pub function hex_decode(s: string) -> string
         hi = _hex_val(char_at(s, i))
         lo = _hex_val(char_at(s, i + 1))
         b = bit_or(bit_shl(hi, 4), lo)
-        res = res + chr(b)
+        res += chr(b)
         i += 2
     end
     return res
@@ -750,7 +750,7 @@ pub function hex_encode(s: string) -> string
         c = ord(char_at(s, i))
         hi = bit_and(bit_shr(c, 4), 15)
         lo = bit_and(c, 15)
-        res = res + char_at(hex_chars, hi) + char_at(hex_chars, lo)
+        res += char_at(hex_chars, hi) + char_at(hex_chars, lo)
         i += 1
     end
     return res
@@ -826,7 +826,7 @@ pub function bytes_to_hex(b) -> string
     let c: int = 0
     while i < n
         c = bit_and(b[i], 255)
-        res = res + char_at(hex_chars, bit_and(bit_shr(c, 4), 15)) + char_at(hex_chars, bit_and(c, 15))
+        res += char_at(hex_chars, bit_and(bit_shr(c, 4), 15)) + char_at(hex_chars, bit_and(c, 15))
         i += 1
     end
     return res
@@ -908,7 +908,7 @@ pub function base64_decode(s: string) -> string
     let res: string = ""
     let i: int = 0
     while i < blen
-        res = res + chr(bytes[i])
+        res += chr(bytes[i])
         i += 1
     end
     return res
@@ -1022,17 +1022,17 @@ pub function base64_encode_bytes(bytes: int[]) -> string
         idx2 = bit_and(bit_or(bit_shl(bit_and(b1, 15), 2), bit_shr(b2, 6)), 63)
         idx3 = bit_and(b2, 63)
 
-        res = res + char_at(b64_chars, idx0)
-        res = res + char_at(b64_chars, idx1)
+        res += char_at(b64_chars, idx0)
+        res += char_at(b64_chars, idx1)
         if has_b1 == true
-            res = res + char_at(b64_chars, idx2)
+            res += char_at(b64_chars, idx2)
         else
-            res = res + "="
+            res += "="
         end
         if has_b2 == true
-            res = res + char_at(b64_chars, idx3)
+            res += char_at(b64_chars, idx3)
         else
-            res = res + "="
+            res += "="
         end
         i += 3
     end

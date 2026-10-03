@@ -52,7 +52,7 @@ end
 ## The number of bytes written, or 0 when dst has no destination.
 pub function io_copy(src: Reader, dst: Writer) -> int
     let data: string = io_read_all(src)
-    if dst != null and dst.destination != null
+    if dst is not null and dst.destination is not null
         let wf = dst.destination
         wf(data)
         return len(data)
@@ -68,7 +68,7 @@ end
 ## ### Returns
 ## The data returned by the source, or "" when r or its source is unset.
 pub function io_read_all(r: Reader) -> string
-    if r == null or r.source == null
+    if r is null or r.source is null
         return ""
     end
     let f = r.source
@@ -143,7 +143,7 @@ end
 ## ### Returns
 ## Nothing.
 pub function write(target: Writer, data: string)
-    if target != null and target.destination != null
+    if target is not null and target.destination is not null
         let wf = target.destination
         wf(data)
     else
@@ -173,7 +173,7 @@ end
 ## ### Returns
 ## Nothing.
 pub function Writer.write(self: Writer, data: string)
-    if self != null and self.destination != null
+    if self is not null and self.destination is not null
         let wf = self.destination
         wf(data)
     else

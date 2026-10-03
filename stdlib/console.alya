@@ -428,7 +428,7 @@ pub function ansi_strip(text: string) -> string
                 i += 1
             end
         else
-            res = res + ch
+            res += ch
         end
         i += 1
     end

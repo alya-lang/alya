@@ -226,10 +226,10 @@ function _normalize_angle(rad: float) -> float
     let cycles: int = int(rad / two_pi)
     let rem: float = rad - float(cycles) * two_pi
     while rem > pi
-        rem = rem - two_pi
+        rem -= two_pi
     end
     while rem < -pi
-        rem = rem + two_pi
+        rem += two_pi
     end
     return rem
 end

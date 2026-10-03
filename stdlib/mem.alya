@@ -107,7 +107,7 @@ pub function pool_new(block_size, capacity)
     end
     let rem = block_size % 8
     if rem != 0
-        block_size = block_size + (8 - rem)
+        block_size += (8 - rem)
     end
     if capacity <= 0
         capacity = 16
@@ -832,7 +832,7 @@ end
 pub function buffer_write_byte(buf: ByteBuffer, val)
     buffer_ensure_capacity(buf, buf.size + 1)
     poke_byte(buf.ptr, buf.size, val)
-    buf.size = buf.size + 1
+    buf.size += 1
 end
 
 ## Appends a 64-bit integer to the buffer.
@@ -846,7 +846,7 @@ end
 pub function buffer_write_int(buf: ByteBuffer, val)
     buffer_ensure_capacity(buf, buf.size + 8)
     poke_int(buf.ptr, buf.size, val)
-    buf.size = buf.size + 8
+    buf.size += 8
     return 8
 end
 
@@ -866,7 +866,7 @@ pub function buffer_write_string(buf: ByteBuffer, str)
     buffer_ensure_capacity(buf, buf.size + slen)
     let src_ptr = str_to_ptr(str)
     copy_mem(buf.ptr + buf.size, src_ptr, slen)
-    buf.size = buf.size + slen
+    buf.size += slen
     return slen
 end
 
@@ -1039,7 +1039,7 @@ pub function pool_alloc(pool: Pool)
     end
     let block = pool.free_head
     pool.free_head = peek_int(block, 0)
-    pool.allocated_count = pool.allocated_count + 1
+    pool.allocated_count += 1
     poke_int(block, 0, 0)
     return block
 end
@@ -1111,7 +1111,7 @@ pub function pool_free(pool: Pool, ptr)
     end
     poke_int(ptr, 0, pool.free_head)
     pool.free_head = ptr
-    pool.allocated_count = pool.allocated_count - 1
+    pool.allocated_count -= 1
     return true
 end
 

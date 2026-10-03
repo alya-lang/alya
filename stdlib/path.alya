@@ -233,9 +233,9 @@ pub function to_native_separators(path: string) -> string
         while i < plen
             ch = char_at(path, i)
             if ch == "/"
-                res = res + "\\"
+                res += "\\"
             else
-                res = res + ch
+                res += ch
             end
             i += 1
         end
@@ -259,9 +259,9 @@ pub function to_slash(path: string) -> string
     while i < plen
         ch = char_at(path, i)
         if ch == "\\"
-            res = res + "/"
+            res += "/"
         else
-            res = res + ch
+            res += ch
         end
         i += 1
     end
@@ -652,8 +652,8 @@ pub function glob_escape(s: string) -> string
     while i < tlen
         let ch: string = char_at(text, i)
         when ch
-            is "*", "?", "[", "]", "{", "}", "\\" then res = res + "\\" + ch
-            else res = res + ch
+            is "*", "?", "[", "]", "{", "}", "\\" then res += "\\" + ch
+            else res += ch
         end
         i += 1
     end
