@@ -147,6 +147,18 @@ pub fn execute_binary(
             0xC0000409 => {
                 eprintln!("Error: program terminated by Stack Buffer Overrun (0xC0000409)")
             }
+            0x80000003 => eprintln!("Error: program terminated by Breakpoint Trap (0x80000003)"),
+            0xC000000D => {
+                eprintln!("Error: program terminated by Invalid Parameter (0xC000000D)")
+            }
+            // Catch-all for unlisted NTSTATUS crashes so a new fault is
+            // reported with its code instead of exiting silently.
+            c if c >= 0x80000000 => {
+                eprintln!(
+                    "Error: program terminated by OS exception (NTSTATUS: 0x{:08X})",
+                    c
+                )
+            }
             _ => {}
         }
         std::process::exit(code);
@@ -162,10 +174,20 @@ fn signal_name(sig: i32) -> &'static str {
         2 => "SIGINT",
         3 => "SIGQUIT",
         4 => "SIGILL",
+        5 => "SIGTRAP",
         6 => "SIGABRT",
+        // SIGBUS is 7 on Linux but 10 on macOS (where 7 is SIGEMT and
+        // 10 is SIGUSR1 on Linux). Mirrors codegen/runtime crash handler.
+        #[cfg(target_os = "macos")]
+        7 => "SIGEMT",
+        #[cfg(not(target_os = "macos"))]
+        7 => "SIGBUS",
         8 => "SIGFPE",
         9 => "SIGKILL",
+        #[cfg(target_os = "macos")]
         10 => "SIGBUS",
+        #[cfg(not(target_os = "macos"))]
+        10 => "SIGUSR1",
         11 => "SIGSEGV",
         13 => "SIGPIPE",
         14 => "SIGALRM",
