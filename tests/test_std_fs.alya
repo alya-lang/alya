@@ -2,6 +2,7 @@ import "std/test"
 import "std/fs"
 import "std/os"
 import "std/path"
+import "std/str"
 
 test_suite("Alya std/fs Test Suite")
 
@@ -40,7 +41,11 @@ assert_eq(file_lines_count(f), 4, "lines count after append")
 # 4. Pure path helpers on the scratch name
 assert_str_eq(file_extension(f), "txt", "file_extension")
 assert_str_eq(file_basename(f), "alya_std_fs_test.txt", "file_basename")
-assert_str_eq(file_parent(f), temp_dir(), "file_parent")
+# Trailing separators differ per platform (macOS temp_dir ends with `/`
+# while file_parent trims it): compare separator-normalized forms.
+let parent_norm = trim_char(to_slash(file_parent(f)), "/")
+let tmp_norm = trim_char(to_slash(temp_dir()), "/")
+assert_str_eq(parent_norm, tmp_norm, "file_parent")
 
 # 5. Copy, move, remove
 assert_eq(copy_file(f, f2), 1, "copy_file")
