@@ -1,0 +1,37 @@
+# ==============================================================================
+# Alya Integration Fixture 13 (entry): returning heap value indexed from a map
+# Distilled from: Lib/tls/src/core/record.alya (tls_alert_bytes)
+# Guards: when returning an indexed heap expression from a local container
+#         (e.g. `return rec["bytes"]`), the returned value must be retained
+#         before the container is released during function epilogue cleanup.
+# ==============================================================================
+
+function make_record(payload) -> map
+    return { "bytes": payload, "type": 21 }
+end
+
+function get_record_bytes() -> array
+    let rec = make_record([1, 2, 3, 4, 5])
+    return rec["bytes"]
+end
+
+function main()
+    let bytes = get_record_bytes()
+
+    # Trigger allocations to overwrite any freed heap block if UAF occurred
+    let dummy: int[] = []
+    let i = 0
+    while i < 100
+        dummy.push(i)
+        i += 1
+    end
+
+    assert len(bytes) == 5
+    assert bytes[0] == 1
+    assert bytes[1] == 2
+    assert bytes[4] == 5
+
+    say "integration 13_return_index_retain: OK"
+end
+
+main()

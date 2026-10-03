@@ -36,6 +36,7 @@ fn entry_files() -> Vec<String> {
         "10_int_store_no_retain.alya".to_string(),
         "11_map_index_literal_retain.alya".to_string(),
         "12_tuple_struct_return_alias.alya".to_string(),
+        "13_return_index_retain.alya".to_string(),
     ]
 }
 
@@ -375,6 +376,20 @@ fn test_integration_11_map_index_literal_retain_output() {
     if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("integration 11_map_index_literal_retain: OK"));
+    }
+}
+
+#[test]
+fn test_integration_13_return_index_retain_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 13_return_index_retain: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("13_return_index_retain.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 13_return_index_retain: OK"));
     }
 }
 

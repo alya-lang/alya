@@ -149,6 +149,32 @@ impl CodeGen {
                         }
                     }
                     self.generate_expression(expr);
+                    // Borrowed heap returns (indexing, field access, non-fresh calls) must be
+                    // retained before scope cleanup releases the container, preventing use-after-free.
+                    let v_moves = matches!(
+                        expr,
+                        Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. }
+                    ) || match expr {
+                        Expr::Call { name, .. } => {
+                            self.ctx.structs.contains_key(name)
+                                || crate::codegen::analysis::call_returns_fresh_value(
+                                    name,
+                                    &self.ctx.variables,
+                                )
+                        }
+                        _ => false,
+                    };
+                    let needs_return_retain = skip_offset.is_none()
+                        && !v_moves
+                        && (self.is_heap_expression(expr) || self.store_value_needs_retain(expr));
+                    if needs_return_retain {
+                        arch::emit_rc_retain(
+                            &mut self.output,
+                            self.arch,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    }
                     let word_size: i32 = match self.arch {
                         Architecture::ARM64 => 16,
                         _ => 8,
