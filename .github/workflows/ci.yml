@@ -81,7 +81,7 @@ jobs:
       - name: Run test suite
         run: cargo test --verbose ${{ matrix.cargo_args }}
 
-      - name: Run self-hosted test suites
+      - name: Run Alya test suites (alya test)
         run: cargo run ${{ matrix.cargo_args }} -- test
 
       - name: Verify Toolchain Commands
