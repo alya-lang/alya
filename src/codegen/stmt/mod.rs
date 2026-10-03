@@ -149,23 +149,11 @@ impl CodeGen {
                         }
                     }
                     self.generate_expression(expr);
-                    // Borrowed heap returns (indexing, field access, non-fresh calls) must be
+                    // Borrowed heap returns (indexing, field access) must be
                     // retained before scope cleanup releases the container, preventing use-after-free.
-                    let v_moves = matches!(
-                        expr,
-                        Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. }
-                    ) || match expr {
-                        Expr::Call { name, .. } => {
-                            self.ctx.structs.contains_key(name)
-                                || crate::codegen::analysis::call_returns_fresh_value(
-                                    name,
-                                    &self.ctx.variables,
-                                )
-                        }
-                        _ => false,
-                    };
-                    let needs_return_retain = skip_offset.is_none()
-                        && !v_moves
+                    let is_borrowed_container_access =
+                        matches!(expr, Expr::Index { .. } | Expr::FieldAccess { .. });
+                    let needs_return_retain = is_borrowed_container_access
                         && (self.is_heap_expression(expr) || self.store_value_needs_retain(expr));
                     if needs_return_retain {
                         arch::emit_rc_retain(
