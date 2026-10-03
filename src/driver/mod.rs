@@ -456,7 +456,7 @@ pub fn run(args: CliArgs) -> Result<(), String> {
                 markdown,
             );
         }
-        crate::tools::doc::run_doc(input, output_dir.as_deref(), html, markdown)?;
+        crate::tools::doc::run_doc(input, output_dir.as_deref(), html, markdown, None)?;
         return Ok(());
     }
 

@@ -1128,6 +1128,7 @@ fn test_doc_run_directory_e2e() {
         Some(&out_dir.to_string_lossy()),
         true,
         true,
+        None,
     );
     assert!(res.is_ok(), "run_doc should succeed: {:?}", res.err());
 

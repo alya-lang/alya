@@ -208,6 +208,7 @@ a { color: inherit; }
   top: 57px;
   height: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px 12px 48px 24px;
   font-size: 0.85rem;
 }
@@ -232,6 +233,9 @@ a { color: inherit; }
   border-radius: 6px;
   font-family: var(--font-mono);
   font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sidenav a:hover { background: var(--muted); color: var(--fg); }
 .sidenav a.active { background: var(--muted); color: var(--fg); font-weight: 600; }
@@ -240,11 +244,12 @@ a { color: inherit; }
   top: 57px;
   height: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px 24px 48px 12px;
   font-size: 0.8rem;
 }
 .toc h5 { margin: 0 0 8px; font-size: 0.75rem; font-weight: 600; color: var(--fg); }
-.toc a { display: block; color: var(--fg-muted); text-decoration: none; padding: 3px 0 3px 12px; border-left: 2px solid var(--border); }
+.toc a { display: block; color: var(--fg-muted); text-decoration: none; padding: 3px 0 3px 12px; border-left: 2px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .toc a:hover { color: var(--fg); }
 .toc a.on { color: var(--fg); border-left-color: var(--fg); font-weight: 500; }
 
@@ -488,13 +493,17 @@ table.tbl tr:hover td { background: var(--bg-soft); }
 "##;
 
 pub fn generate_html(module: &DocModule) -> String {
-    generate_html_with_nav(module, &[])
+    generate_html_with_nav(module, &[], None)
 }
 
 /// Generate a module page, with sibling-module navigation when the caller
 /// passes the full module list (directory mode). Single-file mode passes an
 /// empty list and gets a back-link plus page-local navigation instead.
-pub fn generate_html_with_nav(module: &DocModule, all_modules: &[DocModule]) -> String {
+pub fn generate_html_with_nav(
+    module: &DocModule,
+    all_modules: &[DocModule],
+    up_link: Option<(&str, &str)>,
+) -> String {
     let mut html = String::new();
 
     html.push_str("<!DOCTYPE html>\n<html lang=\"en\" data-theme=\"light\">\n<head>\n");
@@ -547,6 +556,13 @@ pub fn generate_html_with_nav(module: &DocModule, all_modules: &[DocModule]) -> 
     // Sidebar: back-link, sibling modules grouped by category (when known),
     // then page-local navigation across every item kind.
     html.push_str("<aside class=\"sidenav\">\n");
+    if let Some((label, href)) = up_link {
+        html.push_str(&format!(
+            "  <a class=\"btn\" href=\"{}\" style=\"margin-bottom:12px;\">\u{2191} {}</a>\n",
+            href,
+            escape_html(label)
+        ));
+    }
     html.push_str("  <a class=\"btn\" href=\"index.html\" style=\"margin-bottom:12px;\">\u{2190} All modules</a>\n");
     if !all_modules.is_empty() {
         html.push_str(&render_nav_siblings(&module.name, all_modules));
@@ -1145,7 +1161,11 @@ fn render_html_functions(html: &mut String, module: &DocModule) {
 /**
  * Generate a modern, categorized documentation hub / portal (index.html).
  */
-pub fn generate_index_html(modules: &[DocModule], pkg_name: Option<&str>) -> String {
+pub fn generate_index_html(
+    modules: &[DocModule],
+    pkg_name: Option<&str>,
+    up_link: Option<(&str, &str)>,
+) -> String {
     let mut html = String::new();
 
     html.push_str("<!DOCTYPE html>\n<html lang=\"en\" data-theme=\"light\">\n<head>\n");
@@ -1206,8 +1226,16 @@ pub fn generate_index_html(modules: &[DocModule], pkg_name: Option<&str>) -> Str
 
     html.push_str("<div class=\"shell\">\n\n");
 
-    // Sidebar: category groups with per-module links.
+    // Sidebar: category groups with per-module links. The Workspace
+    // button (when present) stays above everything: it is the way out.
     html.push_str("<aside class=\"sidenav\">\n");
+    if let Some((label, href)) = up_link {
+        html.push_str(&format!(
+            "  <a class=\"btn\" href=\"{}\" style=\"margin-bottom:12px;\">\u{2191} {}</a>\n",
+            href,
+            escape_html(label)
+        ));
+    }
     for (cat, members) in &groups {
         html.push_str("  <details class=\"side-group\" open>\n");
         html.push_str(&format!(
@@ -1300,16 +1328,23 @@ pub fn generate_index_html(modules: &[DocModule], pkg_name: Option<&str>) -> Str
     html.push_str("<footer class=\"footer\">\n  <div class=\"footer-in\">\n");
     if let Some(pkg) = pkg_name {
         html.push_str(&format!(
-            "  <span>Generated with <code class=\"inline\">alya doc</code> &middot; {} API reference</span>\n  </div>\n",
+            "  <span>Generated with <code class=\"inline\">alya doc</code> &middot; {} API reference</span>\n",
             escape_html(pkg)
         ));
     } else {
         html.push_str(&format!(
-            "  <span>Generated with <code class=\"inline\">alya doc</code> &middot; Alya Standard Library v{}</span>\n  </div>\n",
+            "  <span>Generated with <code class=\"inline\">alya doc</code> &middot; Alya Standard Library v{}</span>\n",
             env!("CARGO_PKG_VERSION")
         ));
     }
-    html.push_str("</footer>\n\n");
+    if let Some((label, href)) = up_link {
+        html.push_str(&format!(
+            "  <span><a href=\"{}\">\u{2191} {}</a></span>\n",
+            href,
+            escape_html(label)
+        ));
+    }
+    html.push_str("  </div>\n</footer>\n\n");
 
     // Client-side scripts: theme, ⌘K focus, live card filter, scroll-spy.
     html.push_str(

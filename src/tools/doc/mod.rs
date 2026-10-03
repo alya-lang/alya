@@ -13,7 +13,8 @@ pub fn run_doc(
     output_dir: Option<&str>,
     gen_html: bool,
     gen_markdown: bool,
-) -> Result<(), String> {
+    up_link: Option<(String, String)>,
+) -> Result<Vec<extractor::DocModule>, String> {
     let input_path = Path::new(input);
     if !input_path.exists() {
         return Err(format!("Input path does not exist: {}", input));
@@ -31,13 +32,12 @@ pub fn run_doc(
 
     if input_path.is_file() {
         process_single_file(input_path, out_path, do_html, do_md)?;
+        Ok(Vec::new())
     } else if input_path.is_dir() {
-        process_directory(input_path, out_path, do_html, do_md)?;
+        process_directory(input_path, out_path, do_html, do_md, up_link)
     } else {
-        return Err(format!("Invalid input path: {}", input));
+        Err(format!("Invalid input path: {}", input))
     }
-
-    Ok(())
 }
 
 /// Documents every workspace member into `<out>/<member>/` plus a root
@@ -60,6 +60,9 @@ pub fn run_doc_workspace(
     let out_path = Path::new(out_root);
     fs::create_dir_all(out_path)
         .map_err(|e| format!("Failed to create output directory '{}': {}", out_root, e))?;
+    // Per-member extracted modules: merged into hub cards below so the
+    // root index badges carry real symbol totals.
+    let mut hub_modules: Vec<Vec<extractor::DocModule>> = Vec::new();
 
     for member in members {
         println!("\n--- workspace member: {} ---", member.name);
@@ -72,12 +75,19 @@ pub fn run_doc_workspace(
             member.dir.to_string_lossy().replace('\\', "/")
         };
         let member_out = out_path.join(&member.name);
-        run_doc(
+        let member_modules = run_doc(
             &input,
             Some(&member_out.to_string_lossy().replace('\\', "/")),
             do_html,
             do_md,
+            Some(("Workspace".to_string(), "../index.html".to_string())),
         )?;
+        hub_modules.push(member_modules);
+        // Markdown trees have no sidebar: every member page gets a footer
+        // link back to the workspace root index. Idempotent across re-runs.
+        if do_md {
+            append_workspace_md_footer(&member_out)?;
+        }
     }
 
     // Root index linking the per-member trees.
@@ -102,20 +112,70 @@ pub fn run_doc_workspace(
         println!("  ✓ Generated Index: {}", index_file.display());
     }
     if do_html {
-        let mut index_html = String::from(
-            "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\">\n<title>Workspace API Documentation</title>\n</head>\n<body>\n<h1>Workspace API Documentation</h1>\n<ul>\n",
-        );
-        for name in &names {
-            index_html.push_str(&format!(
-                "<li><a href=\"{}/index.html\">{}</a></li>\n",
-                name, name
-            ));
+        // One synthetic module per member so the root index renders with
+        // the standard design (same chrome, sidebar, and search as member
+        // pages). Member item vectors merge in, so badges carry real symbol
+        // totals instead of zeros. Generated links (`<member>.html`) are
+        // rewritten to the per-member trees (`<member>/index.html`).
+        let mut hub: Vec<extractor::DocModule> = Vec::new();
+        for (member, mods) in members.iter().zip(hub_modules.iter()) {
+            let mut module = extractor::DocModule::new(&member.name, &member.name);
+            let manifest_path = member.dir.join("alya.toml");
+            if let Ok(src) = fs::read_to_string(&manifest_path) {
+                if let Ok(manifest) = crate::tools::pkg::manifest::parse_manifest(&src) {
+                    module.description = manifest.package.description.unwrap_or_default();
+                }
+            }
+            for m in mods {
+                module.functions.extend(m.functions.iter().cloned());
+                module.structs.extend(m.structs.iter().cloned());
+                module.enums.extend(m.enums.iter().cloned());
+                module.interfaces.extend(m.interfaces.iter().cloned());
+                module.constants.extend(m.constants.iter().cloned());
+            }
+            hub.push(module);
         }
-        index_html.push_str("</ul>\n</body>\n</html>\n");
+        let mut index_html =
+            crate::tools::doc::html::generate_index_html(&hub, Some("workspace"), None);
+        for member in members {
+            let from = format!("\"{}.html\"", member.name);
+            let to = format!("\"{}/index.html\"", member.name);
+            index_html = index_html.replace(&from, &to);
+        }
         let index_file = out_path.join("index.html");
         fs::write(&index_file, index_html)
             .map_err(|e| format!("Failed to write index '{}': {}", index_file.display(), e))?;
         println!("  ✓ Generated HTML Index: {}", index_file.display());
+    }
+    Ok(())
+}
+
+/// Appends navigation footers to every markdown page of one member
+/// tree. Module pages link to the member index (`All modules`) and the
+/// workspace root (`Workspace`); the member index itself links only to the
+/// workspace root (an All-modules link there would be self-referential —
+/// same single-link rule as the HTML footer).
+fn append_workspace_md_footer(member_out: &Path) -> Result<(), String> {
+    const WS_FOOTER: &str = "\n---\n\n[\u{2191} Workspace](../index.md)\n";
+    const MOD_FOOTER: &str =
+        "\n---\n\n[\u{2190} All modules](index.md) \u{00b7} [\u{2191} Workspace](../index.md)\n";
+    let entries = fs::read_dir(member_out)
+        .map_err(|e| format!("Failed to read '{}': {}", member_out.display(), e))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let is_md = path.is_file() && path.extension().is_some_and(|e| e == "md");
+        if !is_md {
+            continue;
+        }
+        let is_index = path.file_name().is_some_and(|n| n == "index.md");
+        let footer = if is_index { WS_FOOTER } else { MOD_FOOTER };
+        let content = fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read '{}': {}", path.display(), e))?;
+        if content.ends_with(WS_FOOTER) || content.ends_with(MOD_FOOTER) {
+            continue;
+        }
+        fs::write(&path, format!("{}{}", content.trim_end(), footer))
+            .map_err(|e| format!("Failed to write '{}': {}", path.display(), e))?;
     }
     Ok(())
 }
@@ -159,13 +219,14 @@ fn process_directory(
     out_dir: &Path,
     gen_html: bool,
     gen_markdown: bool,
-) -> Result<(), String> {
+    up_link: Option<(String, String)>,
+) -> Result<Vec<extractor::DocModule>, String> {
     let mut alya_files = Vec::new();
     collect_alya_files(dir_path, &mut alya_files)?;
 
     if alya_files.is_empty() {
         println!("No .alya files found in {}", dir_path.display());
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     let mut modules = Vec::new();
@@ -207,7 +268,13 @@ fn process_directory(
     // HTML rendering runs after collection so sibling navigation is complete.
     if gen_html {
         for (module, target_file) in &html_jobs {
-            let html_content = generate_html_with_nav(module, &modules);
+            let html_content = generate_html_with_nav(
+                module,
+                &modules,
+                up_link
+                    .as_ref()
+                    .map(|(label, href)| (label.as_str(), href.as_str())),
+            );
             fs::write(target_file, html_content)
                 .map_err(|e| format!("Failed to write HTML doc '{}': {}", target_file, e))?;
             println!("  ✓ Generated HTML doc: {}", target_file);
@@ -280,14 +347,19 @@ fn process_directory(
     }
 
     if gen_html {
-        let index_html =
-            crate::tools::doc::html::generate_index_html(&modules, pkg_name.as_deref());
+        let index_html = crate::tools::doc::html::generate_index_html(
+            &modules,
+            pkg_name.as_deref(),
+            up_link
+                .as_ref()
+                .map(|(label, href)| (label.as_str(), href.as_str())),
+        );
         let index_file = out_dir.join("index.html");
         let _ = fs::write(&index_file, index_html);
         println!("  ✓ Generated HTML Index: {}", index_file.display());
     }
 
-    Ok(())
+    Ok(modules)
 }
 
 fn collect_alya_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
