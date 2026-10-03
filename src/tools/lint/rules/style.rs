@@ -665,9 +665,206 @@ pub fn check_idiomatic_style(
     let mut diags = Vec::new();
     check_token_if_chains(tokens, file_path, &mut diags);
     check_redundant_return_var(tokens, file_path, &mut diags);
+    check_null_equality(tokens, file_path, &mut diags);
+    check_compound_assign(tokens, file_path, &mut diags);
+    check_float_equality(tokens, file_path, &mut diags);
     for s in &program.statements {
         check_boolean_returns(s, file_path, &mut diags);
         check_stmt_boolean_comparisons(s, file_path, &mut diags);
     }
     diags
+}
+
+/// `x == null` / `x != null` (`null-equality`, informational): `is null`
+/// and `is not null` spell the same check idiomatically.
+fn check_null_equality(tokens: &[Token], file_path: &Path, diags: &mut Vec<LintDiagnostic>) {
+    for (i, tok) in tokens.iter().enumerate() {
+        let replacement: &str = match tok.token_type {
+            TokenType::Equal => "is null",
+            TokenType::NotEqual => "is not null",
+            _ => continue,
+        };
+        let null_tok = match tokens.get(i + 1) {
+            Some(t) => t,
+            None => continue,
+        };
+        if !matches!(null_tok.token_type, TokenType::Null) {
+            continue;
+        }
+        if null_tok.line != tok.line {
+            continue;
+        }
+        let word = if replacement == "is null" { "==" } else { "!=" };
+        diags.push(LintDiagnostic {
+            rule: "null-equality".to_string(),
+            severity: LintSeverity::Info,
+            message: format!(
+                "use `is{}` instead of `{word} null`",
+                if word == "==" { "" } else { " not" }
+            ),
+            file_path: file_path.to_path_buf(),
+            line: tok.line,
+            col: tok.column,
+            end_line: null_tok.line,
+            end_col: null_tok.column + 4,
+            help: Some(format!("replace with `{replacement}`")),
+            fix: Some(crate::tools::lint::types::LintFix {
+                description: format!("replace with `{replacement}`"),
+                replacement: replacement.to_string(),
+                start_line: tok.line,
+                start_col: tok.column,
+                end_line: null_tok.line,
+                end_col: null_tok.column + 4,
+            }),
+        });
+    }
+}
+
+/// `x = x + 1` (`compound-assign`, informational): use `x += 1`.
+/// Only fires for plain-identifier (or dotted-field) targets outside any
+/// bracket, so call arguments, indexes, and struct literals are untouched.
+fn check_compound_assign(tokens: &[Token], file_path: &Path, diags: &mut Vec<LintDiagnostic>) {
+    // Dotted target text ending at token `end` (inclusive).
+    // Returns (text, start_index) or None.
+    fn target_ending_at(tokens: &[Token], end: usize) -> Option<(String, usize)> {
+        let mut segs: Vec<&str> = Vec::new();
+        let mut idx = end;
+        loop {
+            match tokens.get(idx).map(|t| &t.token_type) {
+                Some(TokenType::Identifier(s)) => segs.push(s.as_str()),
+                _ => return None,
+            }
+            if idx < 2 {
+                break;
+            }
+            match tokens.get(idx - 1).map(|t| &t.token_type) {
+                Some(TokenType::Dot) => {
+                    idx -= 2;
+                    continue;
+                }
+                _ => break,
+            }
+        }
+        segs.reverse();
+        // `segs.len()` identifiers joined by `segs.len() - 1` dots occupy
+        // `2 * len - 1` tokens ending at `end`.
+        let start = end + 1 - (segs.len() * 2 - 1);
+        Some((segs.join("."), start))
+    }
+
+    let mut paren = 0usize;
+    let mut bracket = 0usize;
+    let mut brace = 0usize;
+    let mut i = 0;
+    while i < tokens.len() {
+        match &tokens[i].token_type {
+            TokenType::LeftParen => paren += 1,
+            TokenType::RightParen => paren = paren.saturating_sub(1),
+            TokenType::LeftBracket => bracket += 1,
+            TokenType::RightBracket => bracket = bracket.saturating_sub(1),
+            TokenType::LeftBrace => brace += 1,
+            TokenType::RightBrace => brace = brace.saturating_sub(1),
+            TokenType::Assign => {
+                // Skip `let x = ...` declarations (compound assignment
+                // targets an existing binding).
+                let top_level = paren == 0 && bracket == 0 && brace == 0 && i > 0;
+                let is_let = i >= 2 && matches!(tokens[i - 2].token_type, TokenType::Let);
+                if top_level && !is_let {
+                    if let Some((target, start_idx)) = target_ending_at(tokens, i - 1) {
+                        // RHS must start with the same target.
+                        let mut fwd: Vec<&str> = Vec::new();
+                        let mut k = i + 1;
+                        while let Some(TokenType::Identifier(s)) =
+                            tokens.get(k).map(|t| &t.token_type)
+                        {
+                            fwd.push(s.as_str());
+                            k += 1;
+                            if !matches!(tokens.get(k).map(|t| &t.token_type), Some(TokenType::Dot))
+                            {
+                                break;
+                            }
+                            k += 1;
+                        }
+                        if fwd.join(".") == target {
+                            let op_word: Option<&str> = match tokens.get(k).map(|t| &t.token_type) {
+                                Some(TokenType::Plus) => Some("+="),
+                                Some(TokenType::Minus) => Some("-="),
+                                Some(TokenType::Multiply) => Some("*="),
+                                Some(TokenType::Divide) => Some("/="),
+                                Some(TokenType::Modulo) => Some("%="),
+                                _ => None,
+                            };
+                            if let Some(op) = op_word {
+                                let op_tok = &tokens[k];
+                                let start_tok = &tokens[start_idx];
+                                if start_tok.line == op_tok.line {
+                                    diags.push(LintDiagnostic {
+                                        rule: "compound-assign".to_string(),
+                                        severity: LintSeverity::Info,
+                                        message: format!(
+                                            "use compound assignment `{target} {op} ...`"
+                                        ),
+                                        file_path: file_path.to_path_buf(),
+                                        line: start_tok.line,
+                                        col: start_tok.column,
+                                        end_line: op_tok.line,
+                                        end_col: op_tok.column + 1,
+                                        help: Some(format!("replace with `{target} {op} ...`")),
+                                        fix: Some(crate::tools::lint::types::LintFix {
+                                            description: format!(
+                                                "replace with `{target} {op} ...`"
+                                            ),
+                                            replacement: format!("{target} {op}"),
+                                            start_line: start_tok.line,
+                                            start_col: start_tok.column,
+                                            end_line: op_tok.line,
+                                            end_col: op_tok.column + 1,
+                                        }),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+}
+
+/// Exact `==` / `!=` against a float literal (`float-equality`,
+/// informational): exact float equality is fragile; an epsilon comparison
+/// is usually intended. No auto-fix (the right epsilon is contextual).
+fn check_float_equality(tokens: &[Token], file_path: &Path, diags: &mut Vec<LintDiagnostic>) {
+    for (i, tok) in tokens.iter().enumerate() {
+        let op = match tok.token_type {
+            TokenType::Equal => "==",
+            TokenType::NotEqual => "!=",
+            _ => continue,
+        };
+        let lit = match (tokens.get(i.wrapping_sub(1)), tokens.get(i + 1)) {
+            (Some(l), _) if matches!(l.token_type, TokenType::Float(_)) => l,
+            (_, Some(r)) if matches!(r.token_type, TokenType::Float(_)) => r,
+            _ => continue,
+        };
+        let val = match lit.token_type {
+            TokenType::Float(f) => format!("{f:?}"),
+            _ => continue,
+        };
+        diags.push(LintDiagnostic {
+            rule: "float-equality".to_string(),
+            severity: LintSeverity::Info,
+            message: format!("exact comparison `{op}` against float literal `{val}` is fragile; consider an epsilon comparison"),
+            file_path: file_path.to_path_buf(),
+            line: tok.line,
+            col: tok.column,
+            end_line: tok.line,
+            end_col: tok.column + 2,
+            help: Some(
+                "compare with an epsilon tolerance instead of exact equality".to_string(),
+            ),
+            fix: None,
+        });
+    }
 }

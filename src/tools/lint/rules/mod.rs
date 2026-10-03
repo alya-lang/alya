@@ -35,6 +35,14 @@ pub fn run_all_rules(program: &Program, tokens: &[Token], file_path: &Path) -> V
     // 6. Suspicious bugs (self-comparison, constant-condition, useless-expression)
     diagnostics.extend(bugs::check_suspicious_bugs(program, tokens, file_path));
 
+    // 6b. Bare same-name calls resolving back into the enclosing method
+    diagnostics.extend(bugs::check_method_self_recursion(
+        program, tokens, file_path,
+    ));
+
+    // 6c. Duplicate literal keys in map literals
+    diagnostics.extend(bugs::check_duplicate_map_keys(tokens, file_path));
+
     // 7. Naming conventions
     diagnostics.extend(naming::check_naming_conventions(program, tokens, file_path));
 

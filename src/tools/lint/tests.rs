@@ -1107,3 +1107,244 @@ end
         hits.iter().map(|d| &d.message).collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn test_lint_method_self_recursion_fires() {
+    // No same-file free `is_positive`: guaranteed infinite loop -> Warning.
+    let source = r#"
+struct Box
+    val: int
+end
+function Box.is_positive(self: Box) -> int
+    return is_positive(self)
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "method-self-recursion")
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    assert!(hits[0].message.contains("never terminates"));
+    assert_eq!(
+        hits[0].severity,
+        crate::tools::lint::types::LintSeverity::Warning
+    );
+}
+
+#[test]
+fn test_lint_method_self_recursion_delegation_is_info() {
+    // Same-file free `is_positive` exists: the call delegates via the
+    // compiler guard, so this is informational fragility, not a hang.
+    let source = r#"
+struct Box
+    val: int
+end
+function is_positive(b: Box) -> int
+    if b.val > 0
+        return 1
+    end
+    return 0
+end
+function Box.is_positive(self: Box) -> int
+    return is_positive(self)
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "method-self-recursion")
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    assert!(hits[0].message.contains("delegates"));
+    assert_eq!(
+        hits[0].severity,
+        crate::tools::lint::types::LintSeverity::Info
+    );
+}
+
+#[test]
+fn test_lint_method_self_recursion_genuine_recursion_silent() {
+    let source = r#"
+function count_down(n: int) -> int
+    if n <= 0
+        return 0
+    end
+    return count_down(n - 1) + 1
+end
+struct Box
+    val: int
+end
+function Box.step(self: Box, n: int) -> int
+    if n <= 0
+        return self.val
+    end
+    return self.step(n - 1)
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "method-self-recursion")
+        .collect();
+    assert!(
+        hits.is_empty(),
+        "got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_lint_duplicate_map_key_fires_and_fixes() {
+    let source = r#"
+function main()
+    let m = { "a": 1, "a": 2 }
+    say m["a"]
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "duplicate-map-key")
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    assert!(hits[0].fix.is_some());
+}
+
+#[test]
+fn test_lint_duplicate_map_key_ternary_silent() {
+    let source = r#"
+function pick(c)
+    let m = { "k": c ? "a" : "b" }
+    return m["k"]
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "duplicate-map-key")
+        .collect();
+    assert!(
+        hits.is_empty(),
+        "got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_lint_null_equality_fires_and_fixes() {
+    let source = r#"
+function check(x)
+    if x == null
+        say "nil"
+    end
+    if x != null
+        say "set"
+    end
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags.iter().filter(|d| d.rule == "null-equality").collect();
+    assert_eq!(
+        hits.len(),
+        2,
+        "got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let reps: Vec<_> = hits
+        .iter()
+        .map(|d| d.fix.as_ref().unwrap().replacement.clone())
+        .collect();
+    assert!(reps.contains(&"is null".to_string()));
+    assert!(reps.contains(&"is not null".to_string()));
+}
+
+#[test]
+fn test_lint_compound_assign_fires_and_fixes() {
+    let source = r#"
+function bump()
+    let i = 0
+    i = i + 1
+    s.count = s.count + 2
+    return i
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "compound-assign")
+        .collect();
+    assert_eq!(
+        hits.len(),
+        2,
+        "got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let reps: Vec<_> = hits
+        .iter()
+        .map(|d| d.fix.as_ref().unwrap().replacement.clone())
+        .collect();
+    assert!(reps.contains(&"i +=".to_string()));
+    assert!(reps.contains(&"s.count +=".to_string()));
+}
+
+#[test]
+fn test_lint_compound_assign_call_arg_silent() {
+    let source = r#"
+function draw(w, h)
+    box(w, h + 1)
+    let t = total(count, count + 1)
+    arr[i] = arr[i] + 1
+    say t
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "compound-assign")
+        .collect();
+    assert!(
+        hits.is_empty(),
+        "got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_lint_float_equality_fires() {
+    let source = r#"
+function check(f: float) -> int
+    if f == 0.0
+        return 1
+    end
+    return 0
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "float-equality")
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    assert!(hits[0].fix.is_none());
+}

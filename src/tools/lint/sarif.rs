@@ -30,6 +30,31 @@ fn rule_metadata(rule: &str) -> (&'static str, &'static str, &'static [&'static 
             "note",
             &["maintainability"],
         ),
+        "method-self-recursion" => (
+            "Bare call resolving back into the enclosing method",
+            "warning",
+            &["correctness"],
+        ),
+        "duplicate-map-key" => (
+            "Duplicate literal key in map literal",
+            "warning",
+            &["correctness"],
+        ),
+        "null-equality" => (
+            "Null comparison spelled with == instead of is",
+            "note",
+            &["maintainability"],
+        ),
+        "compound-assign" => (
+            "Assignment that could use a compound operator",
+            "note",
+            &["maintainability"],
+        ),
+        "float-equality" => (
+            "Exact comparison against a float literal",
+            "note",
+            &["correctness"],
+        ),
         _ => ("Alya lint finding", "warning", &["maintainability"]),
     }
 }
@@ -71,6 +96,21 @@ fn rule_help(rule: &str) -> &'static str {
         }
         "boolean-literals" => {
             "A `1`/`0` used where a boolean belongs (`return`, predicate comparison, `-> int` on an all-boolean function). Prefer `true`/`false` and `-> bool`; the encoding is identical."
+        }
+        "method-self-recursion" => {
+            "A bare call inside a same-named method that resolves back into that same method instead of a same-named free function. With identical arguments it never terminates; a same-file free function turns it into fragile (but working) delegation that should be qualified explicitly."
+        }
+        "duplicate-map-key" => {
+            "A map literal repeats a literal key. The last value wins at runtime, so earlier entries are dead weight and usually a copy-paste bug. Remove the earlier entry."
+        }
+        "null-equality" => {
+            "A null check spelled `== null` or `!= null`. Prefer `is null` / `is not null`, which spell the same check idiomatically."
+        }
+        "compound-assign" => {
+            "An assignment of the form `x = x + 1` that reads better as `x += 1`. Applies to `+`, `-`, `*`, `/`, `%`."
+        }
+        "float-equality" => {
+            "An exact `==`/`!=` comparison against a float literal. Exact float equality is fragile; an epsilon comparison is usually intended."
         }
         _ => "See the Alya lint rule catalog via the rule help link.",
     }
