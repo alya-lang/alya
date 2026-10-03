@@ -777,3 +777,26 @@ main()
         assert_eq!(lines[2], "0123456789abcdef", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_null_string_ops_no_crash() {
+    // Regression: lower/upper/trim/substring on null segfaulted (0xC0000005).
+    // Seen via App/vpn test_config run from the wrong directory, where
+    // missing-file toml values flow null into lower(). Must return "".
+    let code = r#"
+let n = null
+say "[" + lower(n) + "]"
+say "[" + upper(n) + "]"
+say "[" + trim(n) + "]"
+say "[" + n.substring(1, 2) + "]"
+say len(n)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "[]\n[]\n[]\n[]\n0\n", "Got: {}", output);
+    }
+}

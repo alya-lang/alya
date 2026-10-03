@@ -228,6 +228,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov %rcx, %rdi\n");
     }
+    // Null input (Alya `null` is 0) has no bytes to case-fold: return
+    // the shared empty string instead of dereferencing address 0.
+    out.push_str("    test %rdi, %rdi\n");
+    out.push_str("    jz .L_x64_upper_null\n");
     super::emit_str_buf_ctx(out, os);
     out.push_str("    mov (%r9), %rbx\n");
     out.push_str("    cmp $950000, %rbx\n");
@@ -258,6 +262,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add $7, %r13\n");
     out.push_str("    and $-8, %r13\n");
     out.push_str("    mov %r13, (%r9)\n");
+    out.push_str("    jmp .L_x64_upper_ret\n");
+    out.push_str(".L_x64_upper_null:\n");
+    out.push_str("    lea alya_str_empty(%rip), %rax\n");
+    out.push_str(".L_x64_upper_ret:\n");
     out.push_str("    pop %r13\n");
     out.push_str("    pop %r12\n");
     out.push_str("    pop %rbx\n");
@@ -279,6 +287,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov %rcx, %rdi\n");
     }
+    // Null input (Alya `null` is 0) has no bytes to case-fold: return
+    // the shared empty string instead of dereferencing address 0.
+    out.push_str("    test %rdi, %rdi\n");
+    out.push_str("    jz .L_x64_lower_null\n");
     super::emit_str_buf_ctx(out, os);
     out.push_str("    mov (%r9), %rbx\n");
     out.push_str("    cmp $950000, %rbx\n");
@@ -309,6 +321,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add $7, %r13\n");
     out.push_str("    and $-8, %r13\n");
     out.push_str("    mov %r13, (%r9)\n");
+    out.push_str("    jmp .L_x64_lower_ret\n");
+    out.push_str(".L_x64_lower_null:\n");
+    out.push_str("    lea alya_str_empty(%rip), %rax\n");
+    out.push_str(".L_x64_lower_ret:\n");
     out.push_str("    pop %r13\n");
     out.push_str("    pop %r12\n");
     out.push_str("    pop %rbx\n");
@@ -331,6 +347,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    mov %rcx, %rdi\n");
     }
+    // Null input trims to empty; skip the byte scans that would fault on 0.
+    out.push_str("    test %rdi, %rdi\n");
+    out.push_str("    jz .L_x64_trim_null\n");
     out.push_str(".L_x64_trim_lws:\n");
     out.push_str("    movb (%rdi), %al\n");
     out.push_str("    cmpb $32, %al\n");
@@ -394,6 +413,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add $7, %r14\n");
     out.push_str("    and $-8, %r14\n");
     out.push_str("    mov %r14, (%r9)\n");
+    out.push_str("    jmp .L_x64_trim_ret\n");
+    out.push_str(".L_x64_trim_null:\n");
+    out.push_str("    lea alya_str_empty(%rip), %rax\n");
+    out.push_str(".L_x64_trim_ret:\n");
     out.push_str("    pop %r14\n");
     out.push_str("    pop %r13\n");
     out.push_str("    pop %r12\n");
@@ -419,6 +442,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    mov %rdx, %rsi\n");
         out.push_str("    mov %r8, %rdx\n");
     }
+    // Null input slices to empty; the advance loop below would fault on 0.
+    out.push_str("    test %rdi, %rdi\n");
+    out.push_str("    jz .L_x64_sub_null\n");
     out.push_str("    cmp $0, %rsi\n");
     out.push_str("    jge .L_x64_sub_adv\n");
     out.push_str("    xor %rsi, %rsi\n");
@@ -460,6 +486,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add $7, %r13\n");
     out.push_str("    and $-8, %r13\n");
     out.push_str("    mov %r13, (%r9)\n");
+    out.push_str("    jmp .L_x64_sub_ret\n");
+    out.push_str(".L_x64_sub_null:\n");
+    out.push_str("    lea alya_str_empty(%rip), %rax\n");
+    out.push_str(".L_x64_sub_ret:\n");
     out.push_str("    pop %r13\n");
     out.push_str("    pop %r12\n");
     out.push_str("    pop %rbx\n");

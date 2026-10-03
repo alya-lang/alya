@@ -164,6 +164,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    stp x19, x20, [sp, #16]\n");
     out.push_str("    stp x21, x22, [sp, #32]\n");
     out.push_str("    mov x19, x0\n");
+    // Null input (Alya `null` is 0) has no bytes to case-fold.
+    out.push_str("    cbz x19, .L_arm64_upper_null\n");
     emit_str_buf_ctx(out, "x20", "x21", "x9", os);
     out.push_str("    ldr x22, [x21]\n");
     out.push_str("    movz x9, #16960\n");
@@ -191,6 +193,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x11, x11, #7\n");
     out.push_str("    and x11, x11, #~7\n");
     out.push_str("    str x11, [x21]\n");
+    out.push_str("    b .L_arm64_upper_ret\n");
+    out.push_str(".L_arm64_upper_null:\n");
+    emit_adrp_add(out, "x0", "alya_str_empty", os);
+    out.push_str(".L_arm64_upper_ret:\n");
     out.push_str("    ldp x21, x22, [sp, #32]\n");
     out.push_str("    ldp x19, x20, [sp, #16]\n");
     out.push_str("    ldp x29, x30, [sp], #48\n");
@@ -204,6 +210,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    stp x19, x20, [sp, #16]\n");
     out.push_str("    stp x21, x22, [sp, #32]\n");
     out.push_str("    mov x19, x0\n");
+    // Null input (Alya `null` is 0) has no bytes to case-fold.
+    out.push_str("    cbz x19, .L_arm64_lower_null\n");
     emit_str_buf_ctx(out, "x20", "x21", "x9", os);
     out.push_str("    ldr x22, [x21]\n");
     out.push_str("    movz x9, #16960\n");
@@ -231,6 +239,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x11, x11, #7\n");
     out.push_str("    and x11, x11, #~7\n");
     out.push_str("    str x11, [x21]\n");
+    out.push_str("    b .L_arm64_lower_ret\n");
+    out.push_str(".L_arm64_lower_null:\n");
+    emit_adrp_add(out, "x0", "alya_str_empty", os);
+    out.push_str(".L_arm64_lower_ret:\n");
     out.push_str("    ldp x21, x22, [sp, #32]\n");
     out.push_str("    ldp x19, x20, [sp, #16]\n");
     out.push_str("    ldp x29, x30, [sp], #48\n");
@@ -244,6 +256,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    stp x19, x20, [sp, #16]\n");
     out.push_str("    stp x21, x22, [sp, #32]\n");
     out.push_str("    mov x19, x0\n");
+    // Null input trims to empty; skip the byte scans that would fault on 0.
+    out.push_str("    cbz x19, .L_arm64_trim_null\n");
     out.push_str(".L_arm64_trim_lws:\n");
     out.push_str("    ldrb w11, [x19]\n");
     out.push_str("    cmp w11, #32\n");
@@ -306,6 +320,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x11, x11, #7\n");
     out.push_str("    and x11, x11, #~7\n");
     out.push_str("    str x11, [x21]\n");
+    out.push_str("    b .L_arm64_trim_ret\n");
+    out.push_str(".L_arm64_trim_null:\n");
+    emit_adrp_add(out, "x0", "alya_str_empty", os);
+    out.push_str(".L_arm64_trim_ret:\n");
     out.push_str("    ldp x21, x22, [sp, #32]\n");
     out.push_str("    ldp x19, x20, [sp, #16]\n");
     out.push_str("    ldp x29, x30, [sp], #48\n");
@@ -321,6 +339,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    stp x19, x20, [sp, #16]\n");
     out.push_str("    stp x21, x22, [sp, #32]\n");
     out.push_str("    mov x19, x0\n");
+    // Null input slices to empty; the advance loop below would fault on 0.
+    out.push_str("    cbz x19, .L_arm64_sub_null\n");
     out.push_str("    cmp x1, #0\n");
     out.push_str("    b.ge .L_arm64_sub_adv\n");
     out.push_str("    mov x1, #0\n");
@@ -358,6 +378,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x11, x11, #7\n");
     out.push_str("    and x11, x11, #~7\n");
     out.push_str("    str x11, [x21]\n");
+    out.push_str("    b .L_arm64_sub_ret\n");
+    out.push_str(".L_arm64_sub_null:\n");
+    emit_adrp_add(out, "x0", "alya_str_empty", os);
+    out.push_str(".L_arm64_sub_ret:\n");
     out.push_str("    ldp x21, x22, [sp, #32]\n");
     out.push_str("    ldp x19, x20, [sp, #16]\n");
     out.push_str("    ldp x29, x30, [sp], #48\n");

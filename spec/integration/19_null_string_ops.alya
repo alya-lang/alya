@@ -1,0 +1,28 @@
+# ==============================================================================
+# Alya Integration Fixture 19 (entry): null-tolerant string builtins
+# Distilled from: App/vpn/tests/test_config.alya run from the wrong directory
+# Guards: `lower`, `upper`, `trim`, and `substring` called on `null`
+#         (Alya `null` is address 0) must return "" instead of faulting on
+#         a null-pointer dereference. `len(null)` already returns 0.
+#         Missing config files surface null values through `toml_get`,
+#         and the suite must fail fast with asserts, never segfault.
+# ==============================================================================
+
+function main()
+    let n = null
+    assert lower(n) == ""
+    assert upper(n) == ""
+    assert trim(n) == ""
+    assert n.substring(1, 2) == ""
+    assert len(n) == 0
+
+    # Normal inputs keep working exactly as before.
+    assert lower("ALYA") == "alya"
+    assert upper("alya") == "ALYA"
+    assert trim("  hi  ") == "hi"
+    assert "hello".substring(1, 3) == "ell"
+
+    say f"integration 19_null_string_ops: OK"
+end
+
+main()
