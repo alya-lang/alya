@@ -1,9 +1,10 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
-    escape_string, is_array_expr, is_float_array, is_float_expr, is_map_expr, is_null_expr,
-    is_number_expr, is_string_array, is_string_expr, is_tag_carrying_read, is_unsigned_expr,
-    string_store_needs_dup, struct_field_markers_mixed_vars, value_kind_tag,
+    escape_string, is_array_expr, is_definitely_not_numeric, is_float_array, is_float_expr,
+    is_map_expr, is_null_expr, is_number_expr, is_string_array, is_string_expr,
+    is_tag_carrying_read, is_unsigned_expr, string_store_needs_dup,
+    struct_field_markers_mixed_vars, value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -597,6 +598,13 @@ impl CodeGen {
                 } else {
                     self.generate_expression(value);
                 }
+                // Implicit `: float` conversion for unknown-kind values
+                // (#83): the slot below is tracked Float, but an int
+                // arriving here keeps int bits and reads back as a
+                // denormal. Proven-float values no-op inside.
+                if is_explicit_flt {
+                    self.emit_implicit_float_convert(value);
+                }
                 // B1: named stores outlive the wrapping ring buffer.
                 if string_store_needs_dup(value, &self.ctx.variables) {
                     arch::emit_str_store(
@@ -1086,7 +1094,12 @@ impl CodeGen {
 
     pub(super) fn generate_assign(&mut self, name: &str, value: &Expr) {
         let name = name.to_string();
-        let is_flt = is_float_expr(value, &self.ctx.variables);
+        // Target-aware floatness (#83): assigning an unknown-kind value
+        // into an existing float slot must convert AND track float, or
+        // the slot keeps int bits while every later read treats them as
+        // a double. Value-proven floats behave as before.
+        let target_is_flt = matches!(self.ctx.variables.get(&name), Some(VarType::Float(_)));
+        let is_flt = target_is_flt || is_float_expr(value, &self.ctx.variables);
         let is_str = is_string_expr(value, &self.ctx.variables);
         let is_arr = is_array_expr(value, &self.ctx.variables);
         let is_map = is_map_expr(value, &self.ctx.variables);
@@ -1141,6 +1154,27 @@ impl CodeGen {
         }
         if !generated {
             self.generate_expression(value);
+        }
+        // Implicit conversion into an existing float slot (#83): the
+        // slot reads back as float, but an unknown-kind int value keeps
+        // int bits (later read as a denormal). Proven-float values no-op
+        // inside the converter. The rax->xmm0/d0 sync follows for
+        // index/ternary/call values, which live rax-only (the float
+        // store below reads the float register): without it a
+        // statically-float index stores stale xmm0 contents.
+        if target_is_flt
+            && !is_float_expr(value, &self.ctx.variables)
+            && !is_definitely_not_numeric(value, &self.ctx.variables)
+        {
+            self.emit_implicit_float_convert(value);
+        }
+        if target_is_flt
+            && matches!(
+                value,
+                Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+            )
+        {
+            self.emit_sync_float_reg();
         }
         // B1: named stores outlive the wrapping ring buffer.
         if string_store_needs_dup(value, &self.ctx.variables) {

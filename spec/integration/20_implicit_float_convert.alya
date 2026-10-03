@@ -1,0 +1,68 @@
+# ==============================================================================
+# Alya Integration Fixture 20 (entry): implicit int->float conversion
+# Distilled from: std/math dot_product([1, 2], [3, 4]) returning 0
+# Guards: unknown-kind int values flowing into explicit float positions
+#         (`let : float`, float-param call args, `-> float` returns,
+#         float struct fields, assignment into float slots) must convert
+#         instead of leaving int bits to be read as a double
+#         (e.g. `4.94066e-324`). Explicit `float(x)` already converts;
+#         these positions share its tag-guarded emission. Untyped arrays
+#         arrive via parameters because literal int arrays are proven int
+#         and rejected by the checker before codegen.
+# ==============================================================================
+
+function idf(x: float) -> float
+    return x
+end
+
+function letf(a, i)
+    let v: float = a[i]
+    return v
+end
+
+function setf(v: float, a, i)
+    v = a[i]
+    return v
+end
+
+function getf(a, i) -> float
+    return a[i]
+end
+
+function wrap(a, i)
+    return idf(a[i])
+end
+
+struct FBox
+    value: float
+end
+
+function mkbox(a, i)
+    return FBox { value: a[i] }
+end
+
+function main()
+    # let : float
+    assert letf([1, 2], 0) == 1.0
+    assert letf([1.5, 2.5], 1) == 2.5
+
+    # assignment into a float slot
+    assert setf(0.0, [7, 8], 1) == 8.0
+    assert setf(0.0, [7.5, 8.5], 1) == 8.5
+
+    # -> float return of an unknown index
+    assert getf([1, 2], 0) == 1.0
+    assert getf([1.5, 2.5], 1) == 2.5
+
+    # call arg to a float param
+    assert wrap([1, 2], 1) == 2.0
+    assert wrap([1.5, 2.5], 1) == 2.5
+
+    # float struct field
+    assert mkbox([1, 2], 1).value == 2.0
+    assert mkbox([1.5, 2.5], 0).value == 1.5
+
+    say f"integration 20_implicit_float_convert: OK"
+end
+
+main()

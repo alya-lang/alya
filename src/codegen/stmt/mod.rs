@@ -149,6 +149,21 @@ impl CodeGen {
                         }
                     }
                     self.generate_expression(expr);
+                    // Implicit int->float for the `-> float` promise (#83),
+                    // limited to array-index reads: `return a[i]` with an
+                    // unknown-kind int element means the numeric value.
+                    // Call returns keep legacy bit-passthrough (`read_float`
+                    // reinterprets `peek_int` bits via `-> float`), and
+                    // statically-float values no-op below.
+                    // The tag is refreshed after conversion below (before
+                    // the retain spill) so tag readers see FLOAT, matching
+                    // the converted value.
+                    let needs_float_convert = is_flt
+                        && matches!(expr, Expr::Index { .. })
+                        && !crate::codegen::analysis::is_float_expr(expr, &self.ctx.variables);
+                    if needs_float_convert {
+                        self.emit_implicit_float_convert(expr);
+                    }
                     // Return-tag protocol (Phase 2b, alya-lang/alya#39):
                     // qualifying functions leave (value, tag) for callers.
                     // Computed before the retain below: the retain runtime
@@ -164,6 +179,12 @@ impl CodeGen {
                             .ctx
                             .variables
                             .contains_key(&format!("fn_ret_tagged:{}", bare));
+                    // The conversion above leaves the value float while the
+                    // tag still describes the pre-conversion int: refresh
+                    // it before the retain spill below reads it.
+                    if needs_float_convert && ret_tagged {
+                        self.emit_materialize_float_tag();
+                    }
                     // Borrowed heap returns (indexing, field access) must be
                     // retained before scope cleanup releases the container, preventing use-after-free.
                     let is_borrowed_container_access =

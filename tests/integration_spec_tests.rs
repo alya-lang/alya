@@ -43,6 +43,7 @@ fn entry_files() -> Vec<String> {
         "17_return_null_index_tag.alya".to_string(),
         "18_dynamic_parse_shapes.alya".to_string(),
         "19_null_string_ops.alya".to_string(),
+        "20_implicit_float_convert.alya".to_string(),
     ]
 }
 

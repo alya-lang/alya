@@ -2641,6 +2641,84 @@ impl CodeGen {
     /// kinds and unknown keep the retain so aliases survive container
     /// drops. Call only when `is_tag_carrying_read(value)` holds (the tag
     /// is fresh); otherwise retain unconditionally.
+    /// Implicit `: float` conversion for unknown-kind values (#83).
+    /// Explicit float positions (let/assign/return/call-arg/struct-field)
+    /// mark the slot Float, but an unknown-kind int value arrives
+    /// unconverted and its bits are later read as a double (e.g.
+    /// `4.94066e-324`). Mirrors the `float(x)` builtin exactly:
+    /// statically-float and definitely-non-numeric values are untouched;
+    /// tag-carrying reads (index/ternary/call) convert only when the
+    /// runtime tag is not already FLOAT, everything else converts
+    /// unconditionally. Value stays in rax, tag register untouched.
+    pub(crate) fn emit_implicit_float_convert(&mut self, value: &crate::ast::Expr) {
+        use crate::codegen::analysis::{
+            is_definitely_not_numeric, is_float_expr, is_tag_carrying_read,
+        };
+        if is_float_expr(value, &self.ctx.variables)
+            || is_definitely_not_numeric(value, &self.ctx.variables)
+        {
+            return;
+        }
+        let tag_guarded = matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+            && matches!(
+                value,
+                crate::ast::Expr::Index { .. }
+                    | crate::ast::Expr::Ternary { .. }
+                    | crate::ast::Expr::Call { .. }
+            )
+            && is_tag_carrying_read(value, &self.ctx.variables);
+        if tag_guarded {
+            let skip = self.ctx.next_label();
+            match self.arch {
+                Architecture::X64 => {
+                    self.output
+                        .push_str(&format!("    cmpl ${}, %edx\n", kinds::KIND_FLOAT));
+                    self.output.push_str(&format!("    je {}\n", skip));
+                }
+                Architecture::ARM64 => {
+                    self.output
+                        .push_str(&format!("    cmp w1, #{}\n", kinds::KIND_FLOAT));
+                    self.output.push_str(&format!("    b.eq {}\n", skip));
+                }
+            }
+            arch::emit_int_to_float(&mut self.output, self.arch);
+            self.output.push_str(&format!("{}:\n", skip));
+        } else {
+            arch::emit_int_to_float(&mut self.output, self.arch);
+        }
+    }
+
+    /// marks the value in rax as FLOAT in the tag register. Used after an
+    /// implicit conversion on tag-protocol positions (`return`), where the
+    /// tag still describes the pre-conversion int.
+    pub(crate) fn emit_materialize_float_tag(&mut self) {
+        match self.arch {
+            Architecture::X64 => {
+                self.output
+                    .push_str(&format!("    movl ${}, %edx\n", kinds::KIND_FLOAT));
+            }
+            Architecture::ARM64 => {
+                self.output
+                    .push_str(&format!("    mov w1, #{}\n", kinds::KIND_FLOAT));
+            }
+        }
+    }
+
+    /// Syncs rax into the float register (xmm0/d0). Implicit conversions
+    /// leave the value in rax, but float stores (`movsd %xmm0`) and float
+    /// expression users read xmm0/d0: without the sync the skip-branch
+    /// (already-float value) stores stale register contents.
+    pub(crate) fn emit_sync_float_reg(&mut self) {
+        match self.arch {
+            Architecture::X64 => {
+                self.output.push_str("    movq %rax, %xmm0\n");
+            }
+            Architecture::ARM64 => {
+                self.output.push_str("    fmov d0, x0\n");
+            }
+        }
+    }
+
     pub(crate) fn emit_tag_guarded_retain(&mut self) {
         let skip = self.ctx.next_label();
         match self.arch {

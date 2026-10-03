@@ -1076,6 +1076,17 @@ impl CodeGen {
                             .and_then(|t| t.as_deref())
                             .is_some_and(|t| t.starts_with("weak ") || t == "weak");
                         self.generate_expression(arg);
+                        // Implicit int->float for float-typed fields (#83):
+                        // the field reads back as float, but an unknown-kind
+                        // int arg arrives unconverted. Proven floats no-op.
+                        let field_wants_flt = sdef
+                            .field_types
+                            .get(i)
+                            .and_then(|t| t.as_deref())
+                            .is_some_and(|t| t == "float" || t == "f64" || t == "f32");
+                        if field_wants_flt {
+                            self.emit_implicit_float_convert(arg);
+                        }
                         if !is_weak && self.is_heap_expression(arg) {
                             arch::emit_rc_retain(
                                 &mut self.output,
@@ -2193,6 +2204,25 @@ impl CodeGen {
 
                     self.ctx.stack_offset = initial_stack_offset + (param_idx as i32 * word_size);
                     self.generate_expression(arg);
+                    // Implicit int->float for float params (#83): the
+                    // callee loads the slot as float, but an unknown-kind
+                    // int arg arrives unconverted (int bits read as double).
+                    // Proven-float args no-op inside.
+                    let param_bare = {
+                        let b = call_name.rsplit("::").next().unwrap_or(call_name);
+                        b.rsplit("__").next().unwrap_or(b)
+                    };
+                    if self
+                        .ctx
+                        .variables
+                        .contains_key(&format!("fn_param_flt:{}:{}", call_name, param_idx))
+                        || self
+                            .ctx
+                            .variables
+                            .contains_key(&format!("fn_param_flt:{}:{}", param_bare, param_idx))
+                    {
+                        self.emit_implicit_float_convert(arg);
+                    }
                     if let Some(vtable_label) = coerce_vtable {
                         arch::emit_fat_ptr_new(
                             &mut self.output,
@@ -2469,6 +2499,17 @@ impl CodeGen {
                             .and_then(|t| t.as_deref())
                             .is_some_and(|t| t.starts_with("weak ") || t == "weak");
                         self.generate_expression(arg_expr);
+                        // Implicit int->float for float-typed fields (#83):
+                        // the field reads back as float, but an unknown-kind
+                        // int arg arrives unconverted. Proven floats no-op.
+                        let field_wants_flt = sdef
+                            .field_types
+                            .get(i)
+                            .and_then(|t| t.as_deref())
+                            .is_some_and(|t| t == "float" || t == "f64" || t == "f32");
+                        if field_wants_flt {
+                            self.emit_implicit_float_convert(arg_expr);
+                        }
                         if !is_weak && self.is_heap_expression(arg_expr) {
                             arch::emit_rc_retain(
                                 &mut self.output,
