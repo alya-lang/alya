@@ -1,0 +1,37 @@
+import "std/test"
+import "std/console"
+
+test_suite("Alya std/console Test Suite")
+
+# 1. Raw ANSI codes are exact
+assert_str_eq(ansi_bold(), "\e[1m", "ansi bold")
+assert_str_eq(ansi_dim(), "\e[2m", "ansi dim")
+assert_str_eq(ansi_italic(), "\e[3m", "ansi italic")
+assert_str_eq(ansi_reset(), "\e[0m", "ansi reset")
+assert_str_eq(ansi_underline(), "\e[4m", "ansi underline")
+
+# 2. Wrapping keeps the payload and strips back to it
+assert_str_eq(ansi_strip(color_red("hi")), "hi", "strip red")
+assert_str_eq(ansi_strip(style_bold("hi")), "hi", "strip bold")
+assert_str_eq(ansi_strip(color_rgb("hi", 255, 0, 0)), "hi", "strip rgb")
+assert_str_eq(ansi_strip(bg_rgb("hi", 0, 0, 255)), "hi", "strip bg rgb")
+assert_str_eq(ansi_strip(color_256("hi", 200)), "hi", "strip 256")
+assert_str_eq(ansi_strip("plain"), "plain", "strip plain passthrough")
+
+# 3. Wrapped output is longer than the payload (codes present)
+assert_true(len(color_green("hi")) > 2, "green wraps")
+assert_true(len(bg_blue("hi")) > 2, "bg wraps")
+
+# 4. Aliases agree with their canonical forms
+assert_str_eq(console_red("hi"), color_red("hi"), "console_red alias")
+assert_str_eq(console_green("hi"), green("hi"), "green alias")
+assert_str_eq(bold("hi"), style_bold("hi"), "bold alias")
+assert_str_eq(blue("hi"), color_blue("hi"), "blue alias")
+assert_str_eq(color_bold("hi"), style_bold("hi"), "color_bold alias")
+assert_str_eq(console__blue("hi"), color_blue("hi"), "console__blue alias")
+
+# 5. UTF-8 probe returns a boolean shape
+let u = console_utf8()
+assert_true(u == 0 or u == 1, "utf8 boolean shape")
+
+say "All std/console tests passed successfully!"

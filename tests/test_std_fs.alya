@@ -1,0 +1,60 @@
+import "std/test"
+import "std/fs"
+import "std/os"
+import "std/path"
+
+test_suite("Alya std/fs Test Suite")
+
+# Hermetic scratch file inside the OS temp dir; always cleaned up.
+let f = path_join(temp_dir(), "alya_std_fs_test.txt")
+let f2 = path_join(temp_dir(), "alya_std_fs_test_moved.txt")
+if exists(f)
+    fs_remove(f)
+end
+if exists(f2)
+    fs_remove(f2)
+end
+
+# 1. Missing files fail soft
+assert_eq(exists(f), 0, "missing file absent")
+assert_str_eq(read_file_or(f, "dflt"), "dflt", "read_file_or default")
+assert_eq(fs_exists(f), 0, "fs_exists missing")
+
+# 2. Write / read round-trip
+assert_eq(write_string(f, "hello"), 1, "write_string")
+assert_str_eq(read_string(f), "hello", "read_string")
+assert_str_eq(fs_read(f), "hello", "fs_read alias")
+assert_true(fs_size(f) >= 5, "fs_size")
+assert_false(is_empty_file(f), "not empty")
+
+# 3. Append and lines
+assert_eq(append_string(f, " world"), 1, "append_string")
+assert_str_eq(read_string(f), "hello world", "appended content")
+assert_eq(write_lines(f, ["a", "b", "c"]), 1, "write_lines")
+assert_eq(len(read_lines(f)), 3, "read_lines count")
+assert_str_eq(read_lines(f)[0], "a", "read_lines first")
+assert_eq(file_lines_count(f), 3, "lines count")
+assert_eq(append_line(f, "d"), 1, "append_line")
+assert_eq(file_lines_count(f), 4, "lines count after append")
+
+# 4. Pure path helpers on the scratch name
+assert_str_eq(file_extension(f), "txt", "file_extension")
+assert_str_eq(file_basename(f), "alya_std_fs_test.txt", "file_basename")
+assert_str_eq(file_parent(f), temp_dir(), "file_parent")
+
+# 5. Copy, move, remove
+assert_eq(copy_file(f, f2), 1, "copy_file")
+assert_eq(exists(f2), 1, "copy target exists")
+assert_eq(move_file(f2, f), 1, "move_file")
+assert_eq(exists(f2), 0, "move source gone")
+assert_eq(touch(f), 1, "touch existing")
+assert_eq(clear_file(f), 1, "clear_file")
+assert_true(is_empty_file(f), "empty after clear")
+assert_eq(fs_remove(f), 1, "fs_remove")
+assert_eq(exists(f), 0, "removed file absent")
+
+# 6. Directory helpers on the temp dir itself
+assert_eq(fs_is_dir(temp_dir()), 1, "temp is dir")
+assert_true(len(fs_list_dir(temp_dir())) > 0, "list dir non-empty")
+
+say "All std/fs tests passed successfully!"

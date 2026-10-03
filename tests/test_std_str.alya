@@ -1,0 +1,73 @@
+import "std/test"
+import "std/str"
+
+test_suite("Alya std/str Test Suite")
+
+# 1. Inspection
+assert_true(contains_str("hello world", "world"), "contains found")
+assert_false(contains_str("hello", "xyz"), "contains missing")
+assert_eq(count_matches("aaa", "aa"), 1, "count non-overlapping")
+assert_eq(count_matches("hello", ""), 0, "count empty sub")
+assert_true(starts_with("hello", "he"), "starts_with")
+assert_false(starts_with("hello", "lo"), "starts_with negative")
+assert_true(ends_with("hello", "lo"), "ends_with")
+assert_false(ends_with("hello", "he"), "ends_with negative")
+assert_eq(index_of("hello", "l"), 2, "index_of first")
+assert_eq(index_of("hello", "z"), -1, "index_of missing")
+assert_eq(last_index_of("hello", "l"), 3, "last_index_of")
+assert_true(is_empty(""), "is_empty")
+assert_false(is_empty("x"), "is_empty negative")
+assert_true(is_blank("   "), "is_blank spaces")
+assert_false(is_blank(" x "), "is_blank negative")
+assert_true(is_numeric("123"), "is_numeric")
+assert_false(is_numeric("12a"), "is_numeric negative")
+assert_true(is_alphabetic("abc"), "is_alphabetic")
+assert_false(is_alphabetic("ab1"), "is_alphabetic negative")
+assert_true(is_alphanumeric("ab1"), "is_alphanumeric")
+assert_true(is_lower("abc"), "is_lower")
+assert_false(is_lower("aBc"), "is_lower negative")
+assert_true(is_upper("ABC"), "is_upper")
+assert_false(is_upper("ABc"), "is_upper negative")
+
+# 2. Case transformation
+assert_str_eq(capitalize("hello"), "Hello", "capitalize")
+assert_str_eq(capitalize("hELLO"), "Hello", "capitalize lowers rest")
+assert_str_eq(capitalize(""), "", "capitalize empty")
+assert_str_eq(title_case("hello world"), "Hello World", "title_case")
+assert_str_eq(title_case(""), "", "title_case empty")
+
+# 3. Trimming and padding
+assert_str_eq(trim_start("  hi  "), "hi  ", "trim_start")
+assert_str_eq(trim_end("  hi  "), "  hi", "trim_end")
+assert_str_eq(trim_char("xxhiixx", "x"), "hii", "trim_char")
+assert_str_eq(ltrim("  hi"), "hi", "ltrim alias")
+assert_str_eq(rtrim("hi  "), "hi", "rtrim alias")
+assert_str_eq(pad_left("7", 3, "0"), "007", "pad_left")
+assert_str_eq(pad_right("7", 3, "0"), "700", "pad_right")
+assert_str_eq(center("hi", 5, "-"), "-hi--", "center")
+assert_str_eq(str_repeat("ab", 3), "ababab", "str_repeat")
+assert_str_eq(truncate("hello world", 8, "..."), "hello...", "truncate")
+assert_str_eq(truncate("hi", 8, "..."), "hi", "truncate short passthrough")
+
+# 4. Replace, reverse, slug, lines
+assert_str_eq(replace("aaa", "aa", "b"), "ba", "replace non-overlapping")
+assert_str_eq(replace("hello", "", "x"), "hello", "replace empty old")
+assert_str_eq(reverse_str("abc"), "cba", "reverse_str")
+assert_str_eq(slugify("Hello World!"), "hello-world", "slugify")
+assert_eq(len(lines("a\nb\nc")), 3, "lines count")
+assert_str_eq(lines("a\r\nb")[1], "b", "lines crlf")
+
+# 5. Hex and base64 round-trips
+assert_str_eq(hex_encode("AB"), "4142", "hex_encode")
+assert_str_eq(hex_decode("4142"), "AB", "hex_decode round-trip")
+assert_str_eq(to_hex("AB"), "4142", "to_hex alias")
+assert_str_eq(from_hex("4142"), "AB", "from_hex alias")
+assert_true(is_hex("4142"), "is_hex")
+assert_false(is_hex("xyz"), "is_hex negative")
+assert_str_eq(base64_encode("Man"), "TWFu", "base64_encode")
+assert_str_eq(base64_decode("TWFu"), "Man", "base64_decode round-trip")
+assert_str_eq(to_base64("Man"), "TWFu", "to_base64 alias")
+assert_str_eq(from_base64("TWFu"), "Man", "from_base64 alias")
+assert_true(is_base64("TWFu"), "is_base64")
+
+say "All std/str tests passed successfully!"

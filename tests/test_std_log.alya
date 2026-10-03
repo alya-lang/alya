@@ -1,0 +1,36 @@
+import "std/test"
+import "std/log"
+
+test_suite("Alya std/log Test Suite")
+
+# 1. Level mapping round-trips
+assert_eq(log_level_from_str("debug"), 1, "level debug")
+assert_eq(log_level_from_str("INFO"), 2, "level info case-insensitive")
+assert_eq(log_level_from_str("warn"), 3, "level warn")
+assert_eq(log_level_from_str("warning"), 3, "level warning alias")
+assert_eq(log_level_from_str("error"), 4, "level error")
+assert_eq(log_level_from_str("fatal"), 5, "level fatal")
+assert_eq(log_level_from_str("off"), 6, "level off")
+assert_eq(log_level_from_str("nonsense"), 2, "level unknown falls back info")
+assert_str_eq(log_level_name(1), "DEBUG", "name debug")
+assert_str_eq(log_level_name(2), "INFO", "name info")
+assert_str_eq(log_level_name(3), "WARN", "name warn")
+assert_str_eq(log_level_name(4), "ERROR", "name error")
+assert_str_eq(log_level_name(5), "FATAL", "name fatal")
+assert_str_eq(log_level_name(6), "OFF", "name off")
+
+# 2. Level filtering is silent (returns 0, prints nothing)
+let l = logger_new("testlog", 4)
+assert_eq(logger_debug(l, "invisible"), 0, "debug filtered at error")
+assert_eq(logger_info(l, "invisible"), 0, "info filtered at error")
+assert_eq(logger_warn(l, "invisible"), 0, "warn filtered at error")
+logger_set_level(l, 1)
+assert_eq(l.log_level, 1, "set_level applies")
+let l2 = logger_new("quiet", 6)
+assert_eq(l2.debug("invisible"), 0, "method debug filtered at off")
+assert_eq(l2.info("invisible"), 0, "method info filtered at off")
+assert_eq(l2.warn("invisible"), 0, "method warn filtered at off")
+assert_eq(l2.error("invisible"), 0, "method error filtered at off")
+assert_eq(l2.fatal("invisible"), 0, "method fatal filtered at off")
+
+say "All std/log tests passed successfully!"

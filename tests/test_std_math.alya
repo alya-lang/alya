@@ -1,0 +1,70 @@
+import "std/test"
+import "std/math"
+
+test_suite("Alya std/math Test Suite")
+# Epsilon comparison: exact == on floats is fragile, compare with tolerance.
+function _close(a: float, b: float) -> bool
+    let d = a - b
+    if d < 0.0
+        d = -d
+    end
+    return d < 0.000001
+end
+
+# 1. Integer arithmetic helpers
+assert_eq(factorial(0), 1, "factorial 0")
+assert_eq(factorial(5), 120, "factorial 5")
+assert_eq(gcd(12, 18), 6, "gcd")
+assert_eq(gcd(-12, 18), 6, "gcd abs")
+assert_eq(lcm(4, 6), 12, "lcm")
+assert_eq(lcm(0, 5), 0, "lcm zero")
+assert_true(is_prime(2), "prime 2")
+assert_true(is_prime(13), "prime 13")
+assert_false(is_prime(1), "non-prime 1")
+assert_false(is_prime(15), "non-prime 15")
+assert_true(is_even(4), "is_even")
+assert_false(is_even(3), "is_even negative")
+assert_true(is_odd(3), "is_odd")
+assert_eq(sign(10), 1, "sign positive")
+assert_eq(sign(-10), -1, "sign negative")
+assert_eq(sign(0), 0, "sign zero")
+assert_eq(clamp(5, 0, 10), 5, "clamp inside")
+assert_eq(clamp(-5, 0, 10), 0, "clamp low")
+assert_eq(clamp(15, 0, 10), 10, "clamp high")
+
+# 2. Rounding (int results, exact)
+assert_eq(floor(2.7), 2, "floor")
+assert_eq(ceil(2.2), 3, "ceil")
+assert_eq(round(2.5), 3, "round half up")
+assert_eq(trunc(-2.7), -2, "trunc negative")
+
+# 3. Float helpers (exact or ranged)
+assert_eq(hypot(3, 4), 5.0, "hypot 3-4-5")
+assert_eq(lerp(0.0, 10.0, 0.5), 5.0, "lerp midpoint")
+assert_eq(rad_to_deg(3.141592653589793), 180.0, "rad_to_deg pi")
+assert_true(_close(sin(0.0), 0.0), "sin zero")
+assert_true(_close(cos(0.0), 1.0), "cos zero")
+assert_true(_close(sqrt_f(9.0), 3.0), "sqrt_f")
+assert_true(_close(exp_f(0.0), 1.0), "exp_f zero")
+assert_true(_close(log_n(1.0), 0.0), "log_n one")
+
+# 4. Statistics (population variance)
+assert_eq(mean([1, 2, 3]), 2.0, "mean")
+assert_eq(mean([]), 0.0, "mean empty")
+assert_eq(median([3, 1, 2]), 2, "median odd")
+assert_eq(median([1, 2, 3, 4]), 2, "median even")
+assert_eq(median([]), 0, "median empty")
+assert_eq(sum([1, 2, 3]), 6, "sum")
+assert_eq(variance([2, 4, 4, 4, 5, 5, 7, 9]), 4.0, "variance classic")
+assert_eq(dot_product([1.0, 2.0], [3.0, 4.0]), 11.0, "dot_product")
+assert_eq(vector_norm([3.0, 4.0]), 5.0, "vector_norm 3-4-5")
+
+# 5. Seeded PRNG is deterministic
+rand_seed_state(12345)
+let a = rand_next()
+rand_seed_state(12345)
+let b = rand_next()
+assert_eq(a, b, "prng reseed deterministic")
+assert_true(rand_int(1, 10) >= 1 and rand_int(1, 10) <= 10, "rand_int bounds")
+
+say "All std/math tests passed successfully!"

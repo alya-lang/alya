@@ -1,0 +1,56 @@
+import "std/test"
+import "std/path"
+
+test_suite("Alya std/path Test Suite")
+
+# 1. Joining (always forward slashes, no doubles)
+assert_str_eq(path_join("a", "b"), "a/b", "join plain")
+assert_str_eq(path_join("a/", "b"), "a/b", "join trailing slash")
+assert_str_eq(path_join("a", "/b"), "a/b", "join leading slash")
+assert_str_eq(path_join("a/", "/b"), "a/b", "join both slashes")
+assert_str_eq(path_join("", "b"), "b", "join empty left")
+assert_str_eq(path_join("a", ""), "a", "join empty right")
+assert_str_eq(path_join3("a", "b", "c"), "a/b/c", "join3")
+assert_str_eq(path_join_all(["a", "b", "c"]), "a/b/c", "join_all")
+
+# 2. Components
+assert_str_eq(file_name("a/b/c.txt"), "c.txt", "file_name")
+assert_str_eq(file_name("a/b/"), "b", "file_name trims slash")
+assert_str_eq(basename("a/b/c.txt"), "c.txt", "basename alias")
+assert_str_eq(file_ext("c.txt"), ".txt", "file_ext")
+assert_str_eq(ext("c.txt"), ".txt", "ext alias")
+assert_str_eq(extname("c.txt"), ".txt", "extname alias")
+assert_str_eq(file_ext("noext"), "", "file_ext none")
+assert_str_eq(file_stem("c.txt"), "c", "file_stem")
+assert_str_eq(stem("c.txt"), "c", "stem alias")
+assert_true(has_extension("c.txt"), "has_extension")
+assert_false(has_extension("noext"), "has_extension negative")
+assert_str_eq(parent_dir("a/b/c"), "a/b", "parent_dir")
+assert_str_eq(dirname("a/b/c"), "a/b", "dirname alias")
+assert_str_eq(parent_dir(""), ".", "parent_dir empty")
+
+# 3. Absolute vs relative
+assert_true(is_absolute("/x/y"), "absolute slash")
+assert_true(is_absolute("C:/x"), "absolute drive")
+assert_false(is_absolute("rel/path"), "relative")
+assert_true(is_relative("rel/path"), "is_relative")
+assert_false(is_relative("/x"), "is_relative negative")
+assert_false(is_absolute(""), "absolute empty")
+
+# 4. Separators and extension rewrite
+assert_str_eq(to_slash("a\\b\\c"), "a/b/c", "to_slash")
+assert_str_eq(normalize_slashes("a\\b"), "a/b", "normalize alias")
+assert_str_eq(with_extension("a.txt", "md"), "a.md", "with_extension")
+assert_str_eq(with_extension("a.txt", ".md"), "a.md", "with_extension dotted")
+
+# 5. Glob matching
+assert_eq(glob_match("*.txt", "notes.txt"), 1, "glob star")
+assert_eq(glob_match("*.txt", "notes.md"), 0, "glob star negative")
+assert_eq(glob_match_simple("*.txt", "notes.txt"), 1, "glob simple")
+assert_eq(fnmatch("*.txt", "notes.txt"), 1, "fnmatch alias")
+assert_true(glob_is_pattern("*.txt"), "is_pattern")
+assert_false(glob_is_pattern("plain"), "is_pattern negative")
+assert_eq(len(glob_filter("*.txt", ["a.txt", "b.md"])), 1, "glob filter")
+assert_str_eq(glob_escape("a*b"), "a\\*b", "glob escape")
+
+say "All std/path tests passed successfully!"

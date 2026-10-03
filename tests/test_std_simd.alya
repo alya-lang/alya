@@ -1,0 +1,45 @@
+import "std/test"
+import "std/simd"
+
+test_suite("Alya std/simd Test Suite")
+# Epsilon comparison: exact == on floats is fragile, compare with tolerance.
+function _close(a: float, b: float) -> bool
+    let d = a - b
+    if d < 0.0
+        d = -d
+    end
+    return d < 0.000001
+end
+
+# 1. f32x8 splat arithmetic and lane access
+let a = f32x8_splat(10.0)
+assert_true(_close(a.get(0), 10.0), "f32 splat lane")
+assert_true(_close((a - f32x8_splat(4.0)).sum_horizontal(), 48.0), "f32 sub sum")
+assert_true(_close(f32x8_new(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0).sum_horizontal(), 36.0), "f32 ctor sum")
+assert_true(_close(a.min(), 10.0), "f32 min")
+assert_true(_close(a.max(), 10.0), "f32 max")
+
+# 2. f64x4 ops and FMA
+let v1 = f64x4_new(1.0, 2.0, 3.0, 4.0)
+let v2 = f64x4_new(1.0, 2.0, 3.0, 4.0)
+assert_true(_close((v1 + v2).get(0), 2.0), "f64 add lane")
+assert_true(_close((v1 * v2).sum_horizontal(), 30.0), "f64 mul sum")
+assert_true(_close(v1.fma(v2, v2).get(3), 20.0), "f64 fma lane")
+assert_true(_close(v1.min(), 1.0), "f64 min")
+assert_true(_close(v1.max(), 4.0), "f64 max")
+
+# 3. Integer vectors stay exact
+let e = i32x8_splat(20)
+let f = i32x8_splat(6)
+assert_eq((e - f).sum_horizontal(), 112, "i32 sub sum")
+assert_eq((e * f).sum_horizontal(), 960, "i32 mul sum")
+assert_eq(e.min(), 20, "i32 min")
+assert_eq(e.max(), 20, "i32 max")
+let h = i64x4_splat(100)
+let k = i64x4_splat(30)
+assert_eq((h - k).sum_horizontal(), 280, "i64 sub sum")
+assert_eq(h.sum_horizontal(), 400, "i64 splat sum")
+assert_eq(h.min(), 100, "i64 min")
+assert_eq(h.max(), 100, "i64 max")
+
+say "All std/simd tests passed successfully!"

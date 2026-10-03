@@ -1,0 +1,9 @@
+import "std/test"
+import "std/process"
+
+test_suite("Alya std/process Test Suite")
+
+# Only side-effect-free probes: no processes are spawned here.
+assert_true(process_pid() > 0, "process pid positive")
+
+say "All std/process tests passed successfully!"

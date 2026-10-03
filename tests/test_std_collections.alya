@@ -1,0 +1,78 @@
+import "std/test"
+import "std/collections"
+
+test_suite("Alya std/collections Test Suite")
+
+# 1. Stack (LIFO)
+let s = stack_new()
+assert_true(stack_is_empty(s), "stack starts empty")
+stack_push(s, 1)
+stack_push(s, 2)
+assert_eq(stack_size(s), 2, "stack size")
+assert_eq(stack_peek(s), 2, "stack peek")
+assert_eq(stack_pop(s), 2, "stack pop")
+assert_eq(stack_pop(s), 1, "stack pop order")
+assert_true(stack_is_empty(s), "stack empty after pops")
+
+# 2. Queue (FIFO)
+let q = queue_new()
+assert_true(queue_is_empty(q), "queue starts empty")
+queue_push(q, "a")
+queue_push(q, "b")
+assert_eq(queue_size(q), 2, "queue size")
+assert_str_eq(queue_peek(q), "a", "queue peek")
+assert_str_eq(queue_pop(q), "a", "queue pop order")
+assert_str_eq(queue_pop(q), "b", "queue pop second")
+assert_true(queue_is_empty(q), "queue empty after pops")
+queue_push(q, "x")
+queue_clear(q)
+assert_true(queue_is_empty(q), "queue clear")
+queue_push(q, 1)
+queue_push(q, 2)
+assert_eq(len(queue_to_array(q)), 2, "queue to array")
+
+# 3. Set algebra
+let a = set_from_array([1, 2, 3])
+let b = set_from_array([2, 3, 4])
+assert_eq(set_size(a), 3, "set size")
+assert_true(set_has(a, 2), "set has")
+assert_false(set_has(a, 9), "set missing")
+assert_eq(set_size(set_union(a, b)), 4, "set union")
+assert_eq(set_size(set_intersection(a, b)), 2, "set intersection")
+assert_eq(set_size(set_difference(a, b)), 1, "set difference")
+assert_true(set_is_subset(set_from_array([1, 2]), a), "set subset")
+assert_false(set_is_subset(a, set_from_array([1, 2])), "set not subset")
+let s2 = set_from_array(["x"])
+set_add(s2, "y")
+assert_true(set_has(s2, "y"), "set add")
+set_remove(s2, "y")
+assert_false(set_has(s2, "y"), "set remove")
+set_clear(a)
+assert_eq(set_size(a), 0, "set clear")
+
+# 4. Array helpers
+assert_eq(len(array_chunk([1, 2, 3, 4, 5], 2)), 3, "array chunk")
+assert_eq(len(array_clone([1, 2])), 2, "array clone")
+assert_eq(len(array_concat([1], [2, 3])), 3, "array concat")
+assert_true(array_contains([1, 2, 3], 2), "array contains")
+assert_eq(array_index_of([1, 2, 3, 2], 2), 1, "index_of first")
+assert_eq(array_last_index_of([1, 2, 3, 2], 2), 3, "last_index_of")
+assert_eq(array_max([1, 9, 3]), 9, "array max")
+assert_eq(array_min([1, 9, 3]), 1, "array min")
+assert_eq(array_reverse([1, 2, 3])[0], 3, "array reverse")
+assert_eq(len(array_slice([1, 2, 3, 4], 1, 3)), 2, "array slice")
+assert_eq(array_sort([3, 1, 2])[0], 1, "array sort")
+assert_eq(len(array_unique([1, 1, 2, 2, 3])), 3, "array unique")
+assert_eq(len(array_fill("x", 4)), 4, "array fill")
+
+# 5. Map helpers
+let m = { "a": 1 }
+let merged = map_merge(m, { "b": 2 })
+assert_eq(merged["b"], 2, "map merge")
+assert_eq(m["a"], 1, "map merge keeps dest")
+assert_false(map_is_empty(m), "map not empty")
+assert_true(map_is_empty(map_clone({})), "map clone empty")
+assert_eq(len(map_entries(merged)), 2, "map entries")
+assert_eq(map_from_entries([["k", 7]])["k"], 7, "map from entries")
+
+say "All std/collections tests passed successfully!"

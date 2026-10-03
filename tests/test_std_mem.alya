@@ -1,0 +1,86 @@
+import "std/test"
+import "std/mem"
+
+test_suite("Alya std/mem Test Suite")
+# Epsilon comparison: exact == on floats is fragile, compare with tolerance.
+function _close(a: float, b: float) -> bool
+    let d = a - b
+    if d < 0.0
+        d = -d
+    end
+    return d < 0.000001
+end
+
+# 1. Size units are exact
+assert_eq(kb(1), 1024, "kb")
+assert_eq(mb(1), 1048576, "mb")
+assert_eq(gb(1), 1073741824, "gb")
+
+# 2. Raw alloc / write / read / free round-trip
+let p = alloc_mem(16)
+assert_true(is_valid(p), "alloc valid")
+assert_false(is_null(p), "alloc not null")
+write_int(p, 0, 123456)
+assert_eq(read_int(p, 0), 123456, "int round-trip")
+write_byte(p, 8, 65)
+assert_eq(read_byte(p, 8), 65, "byte round-trip")
+write_float(p, 0, 2.5)
+assert_true(_close(read_float(p, 0), 2.5), "float round-trip")
+fill_mem(p, 0, 16)
+assert_eq(read_int(p, 0), 0, "fill zero")
+assert_eq(read_byte(p, 8), 0, "fill byte zero")
+free_mem(p)
+
+# 3. Zeroed alloc starts clean
+let z = alloc_zeroed(16)
+assert_eq(read_int(z, 0), 0, "zeroed int")
+assert_eq(read_byte(z, 15), 0, "zeroed byte")
+free_mem(z)
+
+# 4. Copy and compare
+let a = alloc_mem(8)
+let b = alloc_mem(8)
+fill_mem(a, 7, 8)
+copy_memory(b, a, 8)
+assert_eq(mem_equal(a, b, 8), 1, "copy equal")
+fill_mem(b, 8, 8)
+assert_eq(mem_equal(a, b, 8), 0, "copy differs")
+free_mem(a)
+free_mem(b)
+
+# 5. Arena strings outlive the call
+let ar = arena_new(4096)
+assert_true(arena_is_valid(ar), "arena valid")
+let s1 = arena_alloc_string(ar, "hello")
+assert_str_eq(to_string(s1), "hello", "arena string")
+assert_true(arena_total_allocated(ar) > 0, "arena tracks bytes")
+arena_clear(ar)
+assert_eq(arena_total_allocated(ar), 0, "arena clear resets")
+arena_free(ar)
+
+# 6. Byte buffer append and read
+let buf = buffer_new(32)
+assert_true(buffer_is_empty(buf), "buffer starts empty")
+buffer_write_string(buf, "hi")
+buffer_write_byte(buf, 33)
+assert_eq(buffer_len(buf), 3, "buffer len")
+assert_str_eq(buffer_to_string(buf), "hi!", "buffer content")
+assert_eq(buffer_read_byte(buf, 2), 33, "buffer read byte")
+buffer_clear(buf)
+assert_true(buffer_is_empty(buf), "buffer clear")
+buffer_free(buf)
+
+# 7. Fixed pool alloc / free cycle
+let pool = pool_new(16, 4)
+assert_eq(pool_available(pool), 4, "pool capacity")
+let cell = pool_alloc(pool)
+assert_eq(pool_available(pool), 3, "pool alloc consumes")
+pool_free(pool, cell)
+assert_eq(pool_available(pool), 4, "pool free restores")
+pool_destroy(pool)
+
+# 8. Null shape
+assert_true(is_null(null), "null is null")
+assert_false(is_valid(null), "null not valid")
+
+say "All std/mem tests passed successfully!"

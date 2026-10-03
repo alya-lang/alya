@@ -1,0 +1,16 @@
+import "std/test"
+import "std/cli"
+
+test_suite("Alya std/cli Test Suite")
+
+# Missing options/flags/positionals fall back to defaults, never crash.
+assert_str_eq(cli_get_opt("definitely-missing-opt-xyz", "dflt"), "dflt", "opt default")
+assert_str_eq(cli_get_opt("--definitely-missing-opt-xyz", "dflt"), "dflt", "opt default dashed")
+assert_false(cli_has_flag("definitely-missing-flag-xyz"), "flag missing")
+assert_false(cli_has_flag("--definitely-missing-flag-xyz"), "flag missing dashed")
+assert_str_eq(cli_get_positional(999999, "d"), "d", "positional default")
+assert_str_eq(cli_arg_at(999999, "d"), "d", "arg_at default")
+assert_true(cli_arg_count() >= 0, "arg_count non-negative")
+assert_true(len(cli_raw_args()) >= 0, "raw args len")
+
+say "All std/cli tests passed successfully!"

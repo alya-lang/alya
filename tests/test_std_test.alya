@@ -1,0 +1,31 @@
+import "std/test"
+
+test_suite("Alya std/test Test Suite")
+
+# The framework testing itself: global asserts pass on true shapes.
+assert_true(1, "literal true")
+assert_false(0, "literal false")
+assert_eq(1 + 1, 2, "eq ints")
+assert_ne(1, 2, "ne ints")
+assert_gt(2, 1, "gt")
+assert_gte(2, 2, "gte")
+assert_lt(1, 2, "lt")
+assert_lte(2, 2, "lte")
+assert_str_eq("a", "a", "str eq")
+assert_str_ne("a", "b", "str ne")
+assert_null(null, "null")
+assert_not_null("x", "not null")
+
+# Runner-scoped asserts accumulate on the runner and report zero failures.
+let r = runner_new()
+runner_assert(r, 1, "runner assert")
+runner_assert_eq(r, 2, 2, "runner eq")
+runner_assert_ne(r, 1, 2, "runner ne")
+runner_assert_true(r, 1, "runner true")
+runner_assert_false(r, 0, "runner false")
+runner_assert_str_eq(r, "a", "a", "runner str eq")
+runner_assert_str_ne(r, "a", "b", "runner str ne")
+assert_eq(runner_summary(r), 0, "runner summary clean")
+assert_eq(r.summary(), 0, "method summary clean")
+
+say "All std/test tests passed successfully!"

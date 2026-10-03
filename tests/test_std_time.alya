@@ -1,0 +1,62 @@
+import "std/test"
+import "std/time"
+
+test_suite("Alya std/time Test Suite")
+
+# 1. Duration unit multipliers
+assert_eq(seconds(5), 5, "seconds")
+assert_eq(minutes(2), 120, "minutes")
+assert_eq(hours(2), 7200, "hours")
+assert_eq(days(2), 172800, "days")
+assert_eq(duration_from_seconds(3), 3000, "from seconds")
+assert_eq(duration_from_minutes(2), 120000, "from minutes")
+assert_eq(duration_from_hours(1), 3600000, "from hours")
+assert_eq(duration_from_days(1), 86400000, "from days")
+assert_eq(duration_to_seconds(5000), 5, "to seconds")
+assert_eq(duration_to_minutes(120000), 2, "to minutes")
+assert_eq(duration_to_hours(3600000), 1, "to hours")
+assert_eq(duration_to_days(86400000), 1, "to days")
+assert_str_eq(format_duration(3661), "1h 1m 1s", "format duration hms")
+assert_str_eq(format_duration(61), "1m 1s", "format duration ms")
+assert_str_eq(format_duration(5), "5s", "format duration s")
+assert_str_eq(duration_str(90000), "1:30.000", "duration str")
+
+# 2. Calendar facts
+assert_true(is_leap_year(2000), "leap 2000")
+assert_false(is_leap_year(1900), "non-leap 1900")
+assert_true(is_leap_year(2024), "leap 2024")
+assert_false(is_leap_year(2025), "non-leap 2025")
+assert_eq(days_in_month(2, 2024), 29, "feb leap")
+assert_eq(days_in_month(2, 2025), 28, "feb common")
+assert_eq(days_in_month(4, 2025), 30, "april")
+assert_eq(days_in_month(1, 2025), 31, "january")
+assert_eq(days_in_month(13, 2025), 0, "month invalid")
+assert_str_eq(month_name(1), "January", "month name")
+assert_str_eq(month_name(12), "December", "month name dec")
+assert_str_eq(month_name(0), "Unknown", "month name invalid")
+assert_str_eq(month_short_name(1), "Jan", "month short")
+assert_str_eq(weekday_name(1), "Monday", "weekday name")
+assert_str_eq(weekday_short_name(1), "Mon", "weekday short")
+
+# 3. Epoch round-trips (deterministic, no wall clock)
+assert_eq(date_ymd_to_epoch(1970, 1, 1), 0, "epoch origin")
+assert_str_eq(format_date(date_ymd_to_epoch(2026, 9, 16)), "2026-09-16", "date round-trip")
+assert_str_eq(format_iso(date_ymd_to_epoch(2026, 9, 16)), "2026-09-16T00:00:00Z", "iso round-trip")
+assert_eq(parse_iso8601("2026-09-16T00:00:00Z"), date_ymd_to_epoch(2026, 9, 16), "parse iso")
+assert_eq(parse_rfc3339("2026-09-16T00:00:00Z"), parse_iso8601("2026-09-16T00:00:00Z"), "rfc3339 agrees")
+assert_str_eq(format_rfc3339(date_ymd_to_epoch(2026, 9, 16)), "2026-09-16T00:00:00Z", "rfc3339 format")
+assert_str_eq(format_time_hhmmss(3661), "01:01:01", "hhmmss")
+let d = epoch_to_date(date_ymd_to_epoch(2026, 9, 16))
+assert_eq(d["year"], 2026, "epoch_to_date year")
+assert_eq(d["month"], 9, "epoch_to_date month")
+assert_eq(d["day"], 16, "epoch_to_date day")
+assert_eq(date_to_epoch(d), date_ymd_to_epoch(2026, 9, 16), "date_to_epoch round-trip")
+
+# 4. Monotonic clock sanity (no sleeps, no wall clock)
+assert_true(now_ms() >= 0, "now_ms non-negative")
+assert_true(now_ms() <= now_ms(), "now_ms monotonic")
+let sw = stopwatch_new()
+assert_true(sw.elapsed() >= 0, "stopwatch non-negative")
+sw.restart()
+
+say "All std/time tests passed successfully!"

@@ -1,0 +1,27 @@
+import "std/test"
+import "std/io"
+
+function fixed_source() -> string
+    return "hello"
+end
+
+function blackhole(_data: string)
+end
+
+test_suite("Alya std/io Test Suite")
+
+# In-memory Reader/Writer: no real stdin/stdout traffic.
+let r = Reader { source: fixed_source }
+assert_str_eq(io_read_all(r), "hello", "read_all custom source")
+assert_str_eq(r.read_all(), "hello", "method read_all")
+
+let w = Writer { destination: blackhole }
+assert_eq(io_copy(r, w), 5, "copy byte count")
+w.write("ignored")
+write(w, "ignored")
+
+# Null-shaped handles degrade to empty/zero instead of crashing.
+let empty_r = Reader { source: null }
+assert_str_eq(io_read_all(empty_r), "", "read_all null source")
+
+say "All std/io tests passed successfully!"

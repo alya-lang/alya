@@ -1,0 +1,15 @@
+import "std/test"
+import "std/net"
+
+test_suite("Alya std/net Test Suite")
+
+# Pure helpers only: no sockets are opened here.
+assert_str_eq(http_status_text(200), "OK", "status 200")
+assert_str_eq(http_status_text(201), "Created", "status 201")
+assert_str_eq(http_status_text(404), "Not Found", "status 404")
+assert_str_eq(http_status_text(500), "Internal Server Error", "status 500")
+assert_str_eq(http_status_text(999), "Unknown Status", "status unknown")
+assert_str_eq(basic_auth("aladdin", "opensesame"), "Basic YWxhZGRpbjpvcGVuc2VzYW1l", "basic auth vector")
+assert_true(len(basic_auth("u", "p")) > 6, "basic auth prefix")
+
+say "All std/net tests passed successfully!"

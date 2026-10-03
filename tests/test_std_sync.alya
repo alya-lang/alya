@@ -1,0 +1,49 @@
+import "std/test"
+import "std/sync"
+
+test_suite("Alya std/sync Test Suite")
+
+# 1. Mutex lock/unlock cycle
+let m = mutex_new()
+assert_eq(mutex_lock(m), 0, "mutex lock")
+assert_eq(mutex_unlock(m), 0, "mutex unlock")
+assert_eq(mutex_free(m), 0, "mutex free")
+
+# 2. Buffered channel send/recv round-trip (no threads)
+let ch = channel_new(4)
+assert_eq(channel_size(ch), 0, "channel starts empty")
+assert_true(channel_send(ch, "ping"), "channel send")
+assert_eq(channel_size(ch), 1, "channel size after send")
+assert_str_eq(channel_recv(ch), "ping", "channel recv")
+assert_eq(channel_size(ch), 0, "channel empty after recv")
+assert_true(channel_try_send(ch, 42), "try_send")
+assert_eq(channel_try_recv(ch), 42, "try_recv")
+assert_eq(channel_capacity(ch), 4, "channel capacity")
+assert_false(channel_is_closed(ch), "channel open")
+assert_true(channel_close(ch), "channel close")
+channel_free(ch)
+
+# 3. Once fires exactly once
+let o = once_new()
+assert_true(once_check(o), "once first")
+assert_false(once_check(o), "once second")
+once_free(o)
+
+# 4. RwLock write cycle
+let rw = rwlock_new()
+assert_true(rwlock_write_lock(rw), "rw write lock")
+rwlock_write_unlock(rw)
+assert_true(rwlock_read_lock(rw), "rw read lock")
+rwlock_read_unlock(rw)
+rwlock_free(rw)
+
+# 5. WaitGroup add/done/wait with zero balance
+let wg = wait_group_new()
+wait_group_add(wg, 1)
+wait_group_done(wg)
+assert_true(wait_group_wait(wg, 100), "waitgroup balanced")
+
+# 6. Thread identity is sane on the main thread
+assert_true(thread_id() >= 0, "thread id non-negative")
+
+say "All std/sync tests passed successfully!"

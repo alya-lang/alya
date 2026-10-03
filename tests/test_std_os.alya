@@ -1,0 +1,45 @@
+import "std/test"
+import "std/os"
+
+test_suite("Alya std/os Test Suite")
+
+# 1. Platform detection is consistent (exactly one OS flag)
+let wins = 0
+if is_windows()
+    wins += 1
+end
+if is_linux()
+    wins += 1
+end
+if is_macos()
+    wins += 1
+end
+assert_eq(wins, 1, "exactly one OS flag")
+assert_eq(is_posix(), is_linux() or is_macos(), "posix means linux or macos")
+assert_true(len(os_name()) > 0, "os_name non-empty")
+assert_true(len(arch_name()) > 0, "arch_name non-empty")
+assert_true(len(platform()) > 0, "platform non-empty")
+assert_true(len(arch()) > 0, "arch non-empty")
+
+# 2. Environment lookup with defaults
+assert_str_eq(env_or("ALYA_DEFINITELY_MISSING_VAR_XYZ", "dflt"), "dflt", "env_or default")
+assert_false(has_env("ALYA_DEFINITELY_MISSING_VAR_XYZ"), "has_env missing")
+assert_not_null(get_cwd(), "get_cwd non-null")
+assert_true(len(cwd()) > 0, "cwd non-empty")
+assert_true(len(home_dir()) > 0, "home_dir non-empty")
+assert_true(get_pid() > 0, "pid positive")
+assert_eq(pid(), get_pid(), "pid alias agrees")
+
+# 3. Platform-shaped constants
+let sep = path_list_separator()
+assert_true(sep == ";" or sep == ":", "path separator is ; or :")
+assert_not_null(null_device(), "null_device non-null")
+assert_not_null(hostname(), "hostname non-null")
+
+# 4. Arg helpers never crash out of range
+assert_true(arg_count() >= 0, "arg_count non-negative")
+assert_str_eq(arg_at(999999, "d"), "d", "arg_at default")
+assert_eq(has_arg("--definitely-missing-flag-xyz"), 0, "has_arg missing")
+assert_true(len(cli_args()) >= 0, "cli_args len")
+
+say "All std/os tests passed successfully!"

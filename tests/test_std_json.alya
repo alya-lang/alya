@@ -1,0 +1,45 @@
+import "std/test"
+import "std/json"
+
+test_suite("Alya std/json Test Suite")
+
+# 1. Encoding primitives
+assert_str_eq(json_string("hi"), "\"hi\"", "json_string")
+assert_str_eq(json_int(42), "42", "json_int")
+assert_str_eq(json_bool(1), "true", "json_bool true")
+assert_str_eq(json_bool(0), "false", "json_bool false")
+assert_str_eq(json_null(), "null", "json_null")
+assert_str_eq(json_float(2.0), "2.0", "json_float whole")
+assert_str_eq(json_escape("a\"b\\c"), "a\\\"b\\\\c", "json_escape quotes")
+assert_str_eq(json_array([]), "[]", "json_array empty")
+assert_str_eq(json_array([json_int(1), json_int(2)]), "[1, 2]", "json_array")
+assert_str_eq(json_kv("k", json_int(1)), "\"k\": 1", "json_kv")
+assert_str_eq(json_object({}), "{}", "json_object empty")
+
+# 2. Validity
+assert_true(json_is_valid("{\"a\": 1}"), "valid object")
+assert_true(json_is_valid("[1, 2]"), "valid array")
+assert_true(json_is_valid("true"), "valid literal")
+assert_false(json_is_valid(""), "empty invalid")
+assert_false(json_is_valid("{oops"), "broken invalid")
+
+# 3. Parsing round-trips
+assert_eq(json_parse("42"), 42, "parse int")
+assert_str_eq(json_parse("\"hi\""), "hi", "parse string")
+assert_eq(json_parse("true"), 1, "parse true")
+assert_eq(json_parse("false"), 0, "parse false")
+assert_null(json_parse("null"), "parse null")
+assert_null(json_parse(""), "parse empty")
+let arr = json_parse("[1, 2, 3]")
+assert_eq(len(arr), 3, "parse array len")
+assert_eq(arr[1], 2, "parse array item")
+let obj = json_parse("{\"a\": 1}")
+assert_eq(obj["a"], 1, "parse object field")
+assert_str_eq(json_parse("\"caf\\u00e9\""), "café", "parse unicode escape")
+
+# 4. Legacy aliases agree
+assert_str_eq(json_map({}), "{}", "json_map alias")
+assert_eq(len(json_parse_array("[1]")), 1, "json_parse_array alias")
+assert_eq(json_parse_object("{\"a\": 1}")["a"], 1, "json_parse_object alias")
+
+say "All std/json tests passed successfully!"
