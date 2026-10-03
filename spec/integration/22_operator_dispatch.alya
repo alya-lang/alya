@@ -1,0 +1,44 @@
+# ==============================================================================
+# Alya Integration Fixture 22 (entry): struct operator overload resolution
+# Distilled from: `Plain == null` calling `Box__operator==` (issue #85)
+# Guards: `a == b` / `a != b` on a struct WITHOUT its own overload must
+#         use identity comparison, never an unrelated type's overload.
+#         The mere presence of another type's overload (plus a constructed
+#         value of that type) flipped the codegen. Own-type overloads keep
+#         dispatching via the exact cand1/cand2 match.
+# ==============================================================================
+
+struct Box
+    val: int
+end
+
+function Box.operator==(self: Box, other) -> bool
+    return true
+end
+
+function Box.operator!=(self: Box, other) -> bool
+    return false
+end
+
+struct Plain
+    val: int
+end
+
+function main()
+    let b = Box { val: 1 }
+    let p = Plain { val: 1 }
+
+    # No overload on Plain: identity, regardless of Box's overload.
+    assert p == null == false
+    assert p != null == true
+    assert (p is null) == false
+    assert (p is not null) == true
+
+    # Own-type overloads still dispatch.
+    assert b == null == true
+    assert b != null == false
+
+    say f"integration 22_operator_dispatch: OK"
+end
+
+main()

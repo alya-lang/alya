@@ -270,28 +270,28 @@ impl CodeGen {
                             // Struct-qualified fallback first: aliased imports
                             // duplicate operator overloads under a namespace
                             // prefix that may use either separator
-                            // (`tensor__f64x4__...` or `tensor::f64x4__...`),
-                            // so a bare `__operator*` suffix match would
-                            // lottery-pick across vector types. Normalize
-                            // separators before comparing, then prefer the
-                            // receiver's own overload; keep the unqualified
-                            // search only for structs without a visible
-                            // overload.
+                            // (`tensor__f64x4__...` or `tensor::f64x4__...`).
+                            // Matching is separator-normalized but otherwise
+                            // EXACT: a bare suffix search would lottery-pick
+                            // another type's overload for this receiver.
                             let want1 = format!("__{}__{}{}", sname, "operator", op_sym);
                             let want2 = format!("__{}__{}{}", bare_sname, "operator", op_sym);
-                            self.ctx
-                                .functions
-                                .iter()
-                                .find(|f| {
-                                    let n = f.replace("::", "__");
-                                    n.ends_with(&want1) || n.ends_with(&want2)
-                                })
-                                .or_else(|| {
-                                    self.ctx.functions.iter().find(|f| {
-                                        f.ends_with(&format!("__{}{}", "operator", op_sym))
-                                    })
-                                })
-                                .cloned()
+                            // Normalized exact match only (alya-lang/alya#85):
+                            // a bare `__operator*` suffix search lottery-picks
+                            // ANOTHER type's overload for this receiver (e.g.
+                            // `Plain == null` calling `Box__operator==`),
+                            // and whether it fires depends on unrelated
+                            // code. Separator normalization (`::` vs `__`)
+                            // keeps the legitimate namespaced shapes working
+                            // without ever matching a foreign type.
+                            let norm_eq = |f: &String| {
+                                let n = f.replace("::", "__");
+                                n == want1.replace("::", "__")
+                                    || n == want2.replace("::", "__")
+                                    || n == cand1.replace("::", "__")
+                                    || n == cand2.replace("::", "__")
+                            };
+                            self.ctx.functions.iter().find(|f| norm_eq(f)).cloned()
                         };
                         if let Some(call_name) = matched {
                             self.generate_expression(&Expr::Call {
@@ -719,10 +719,18 @@ impl CodeGen {
                         } else if self.ctx.functions.contains(&cand2) {
                             Some(cand2)
                         } else {
+                            // Normalized exact match only (#85): a bare
+                            // suffix search would call another type's
+                            // overload for this receiver.
+                            let cand1n = cand1.replace("::", "__");
+                            let cand2n = cand2.replace("::", "__");
                             self.ctx
                                 .functions
                                 .iter()
-                                .find(|f| f.ends_with("__operator-neg"))
+                                .find(|f| {
+                                    let n = f.replace("::", "__");
+                                    n == cand1n || n == cand2n
+                                })
                                 .cloned()
                         };
                         if let Some(call_name) = matched {
@@ -2850,10 +2858,17 @@ impl CodeGen {
                     } else if self.ctx.functions.contains(&cand2) {
                         Some(cand2)
                     } else {
+                        // Normalized exact match only (#85): a bare suffix
+                        // search would call another type's overload here.
+                        let cand1n = cand1.replace("::", "__");
+                        let cand2n = cand2.replace("::", "__");
                         self.ctx
                             .functions
                             .iter()
-                            .find(|f| f.ends_with("__operator[]"))
+                            .find(|f| {
+                                let n = f.replace("::", "__");
+                                n == cand1n || n == cand2n
+                            })
                             .cloned()
                     };
                     if let Some(call_name) = matched {

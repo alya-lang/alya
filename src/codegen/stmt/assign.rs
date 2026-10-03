@@ -1547,10 +1547,17 @@ impl CodeGen {
             } else if self.ctx.functions.contains(&cand2) {
                 Some(cand2)
             } else {
+                // Normalized exact match only (#85): a bare suffix search
+                // would call another type's overload for this receiver.
+                let cand1n = cand1.replace("::", "__");
+                let cand2n = cand2.replace("::", "__");
                 self.ctx
                     .functions
                     .iter()
-                    .find(|f| f.ends_with("__operator[]="))
+                    .find(|f| {
+                        let n = f.replace("::", "__");
+                        n == cand1n || n == cand2n
+                    })
                     .cloned()
             };
             if let Some(call_name) = matched {
