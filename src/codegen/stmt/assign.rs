@@ -1,8 +1,8 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
-    escape_string, is_array_expr, is_definitely_not_numeric, is_float_array, is_float_expr,
-    is_map_expr, is_null_expr, is_number_expr, is_string_array, is_string_expr,
+    escape_string, is_array_expr, is_array_fold_true, is_definitely_not_numeric, is_float_array,
+    is_float_expr, is_map_expr, is_null_expr, is_number_expr, is_string_array, is_string_expr,
     is_tag_carrying_read, is_unsigned_expr, string_store_needs_dup,
     struct_field_markers_mixed_vars, value_kind_tag,
 };
@@ -1703,6 +1703,52 @@ impl CodeGen {
                     }
                 }
             }
+        } else if !is_array_fold_true(array, &self.ctx.variables) {
+            // Dynamically-unknown container with a non-string index
+            // (alya-lang/alya#84): it may be a map (e.g. an untyped param
+            // holding one) or an array. Usage-based array markings
+            // (`s[k] = v` marks `s` array) are may-facts, so only exact
+            // evidence (`is_array_fold_true`) earns the static fast path;
+            // everything else dispatches on the container header at
+            // runtime (map tag -> `set`, anything else -> the exact
+            // array-store sequence, preserving its OOB fault).
+            // The value retain mirrors the map path (tag-guarded for
+            // unknown kinds: safe for heap, skips faulting int retains).
+            let kind_expr = Expr::Number(value_kind_tag(value, &self.ctx.variables) as i128);
+            let actual_args = [array, index, value, &kind_expr];
+            for arg in actual_args.iter() {
+                self.generate_expression(arg);
+                if std::ptr::eq(*arg, value) && self.store_value_needs_retain(value) {
+                    if is_tag_carrying_read(value, &self.ctx.variables) {
+                        self.emit_tag_guarded_retain();
+                    } else {
+                        arch::emit_rc_retain(
+                            &mut self.output,
+                            self.arch,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    }
+                }
+                // B1: named stores outlive the wrapping ring buffer.
+                if std::ptr::eq(*arg, value) && string_store_needs_dup(value, &self.ctx.variables) {
+                    arch::emit_str_store(
+                        &mut self.output,
+                        self.arch,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                }
+                arch::emit_push_temp(&mut self.output, self.arch);
+            }
+            arch::emit_function_call(
+                &mut self.output,
+                self.arch,
+                "dyn_index_assign",
+                4,
+                self.ctx.stack_offset,
+                self.os,
+            );
         } else {
             let temp_offset = self.temp_offset();
             self.generate_expression(array);

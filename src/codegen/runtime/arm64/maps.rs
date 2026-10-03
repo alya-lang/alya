@@ -749,4 +749,69 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldp x19, x20, [sp, #16]\n");
     out.push_str("    ldp x29, x30, [sp], #48\n");
     out.push_str("    ret\n\n");
+
+    // fn_dyn_index_assign(container, key, value, kind): statically-unknown
+    // container with a non-string index (alya-lang/alya#84). The container
+    // may be a map (e.g. an untyped param) or an array; picking the array
+    // fast path statically faults on maps with `index out of bounds`.
+    // Mirrors fn_in's container discrimination: map tag -> fn_set, anything
+    // else -> the exact port of the inline array-store sequence (including
+    // its OOB fault, so non-map behavior matches the static array path).
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_dyn_index_assign\n");
+    out.push_str("fn_dyn_index_assign:\n");
+    out.push_str("    stp x29, x30, [sp, #-48]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    stp x19, x20, [sp, #16]\n");
+    out.push_str("    stp x21, x22, [sp, #32]\n");
+    out.push_str("    mov x19, x0\n");
+    out.push_str("    cbz x19, .L_arm64_dyn_arr\n");
+    out.push_str("    tst x19, #7\n");
+    out.push_str("    b.ne .L_arm64_dyn_arr\n");
+    out.push_str("    mov x9, #65536\n");
+    out.push_str("    cmp x19, x9\n");
+    out.push_str("    b.lo .L_arm64_dyn_arr\n");
+    emit_adrp_add(out, "x9", "alya_rodata_start", os);
+    out.push_str("    cmp x19, x9\n");
+    out.push_str("    b.lo .L_arm64_dyn_chk_str_buf\n");
+    emit_adrp_add(out, "x10", "alya_rodata_end", os);
+    out.push_str("    cmp x19, x10\n");
+    out.push_str("    b.lo .L_arm64_dyn_arr\n");
+    out.push_str(".L_arm64_dyn_chk_str_buf:\n");
+    emit_adrp_add(out, "x9", "alya_str_buf", os);
+    out.push_str("    cmp x19, x9\n");
+    out.push_str("    b.lo .L_arm64_dyn_chk_tag\n");
+    out.push_str("    movz x10, #1024, lsl #16\n");
+    out.push_str("    add x10, x9, x10\n");
+    out.push_str("    cmp x19, x10\n");
+    out.push_str("    b.lo .L_arm64_dyn_arr\n");
+    out.push_str(".L_arm64_dyn_chk_tag:\n");
+    out.push_str("    ldur w9, [x19, #-16]\n");
+    out.push_str("    movz w10, #0x0002\n");
+    out.push_str("    movk w10, #0x5A11, lsl #16\n");
+    out.push_str("    cmp w9, w10\n");
+    out.push_str("    b.ne .L_arm64_dyn_arr\n");
+    // Map leg: args still sit in x0-x2, tail into fn_set.
+    out.push_str("    mov x0, x19\n");
+    out.push_str("    bl fn_set\n");
+    out.push_str("    b .L_arm64_dyn_done\n");
+    out.push_str(".L_arm64_dyn_arr:\n");
+    // Array leg: exact port of the inline array-store sequence.
+    out.push_str("    mov x0, x19\n");
+    out.push_str("    ldr x4, [x0]\n");
+    out.push_str("    cmp x1, #0\n");
+    out.push_str("    b.ge 1f\n");
+    out.push_str("    add x1, x1, x4\n");
+    out.push_str("1:\n");
+    out.push_str("    cmp x1, x4\n");
+    out.push_str("    b.hs alya_error_index_out_of_bounds\n");
+    out.push_str("    ldr x4, [x0, #24]\n");
+    out.push_str("    strb w3, [x4, x1]\n");
+    out.push_str("    ldr x0, [x0, #16]\n");
+    out.push_str("    str x2, [x0, x1, lsl #3]\n");
+    out.push_str(".L_arm64_dyn_done:\n");
+    out.push_str("    ldp x21, x22, [sp, #32]\n");
+    out.push_str("    ldp x19, x20, [sp, #16]\n");
+    out.push_str("    ldp x29, x30, [sp], #48\n");
+    out.push_str("    ret\n\n");
 }

@@ -1,0 +1,50 @@
+# ==============================================================================
+# Alya Integration Fixture 21 (entry): dynamic index-assign dispatch
+# Distilled from: std/collections set_add on an int set through a call
+# Guards: `s[k] = v` where the container is statically unknown (e.g. an
+#         untyped param) must dispatch on the container header at runtime.
+#         Usage-based array markings (`s[k] = v` marks `s` array) are
+#         may-facts, so only exact evidence (`is_array_fold_true`) earns
+#         the static array fast path; everything else routes through
+#         `fn_dyn_index_assign` (map tag -> `set`, anything else -> the
+#         exact array-store sequence, preserving its OOB fault).
+# ==============================================================================
+
+function map_add(s, item)
+    s[item] = 1
+end
+
+function map_make()
+    let s = {}
+    s[1] = 10
+    return s
+end
+
+function arr_write(a, i, v)
+    a[i] = v
+    return a[i]
+end
+
+function main()
+    # Int-key map write through a call (was: index out of bounds).
+    let m = map_make()
+    assert len(m) == 1
+    map_add(m, 9)
+    assert len(m) == 2
+    assert m[9] == 1
+    assert m[1] == 10
+
+    # String-key map write through a call keeps working.
+    let s = {}
+    map_add(s, "k")
+    assert s["k"] == 1
+
+    # True arrays through calls keep the exact array semantics,
+    # including negative wrap and the OOB fault contract.
+    assert arr_write([1, 2, 3], 1, 99) == 99
+    assert arr_write([1, 2, 3], -1, 7) == 7
+
+    say f"integration 21_dynamic_index_assign: OK"
+end
+
+main()

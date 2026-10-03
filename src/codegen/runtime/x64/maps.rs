@@ -1100,4 +1100,102 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov %rbp, %rsp\n");
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
+
+    // fn_dyn_index_assign(container, key, value, kind): statically-unknown
+    // container with a non-string index (alya-lang/alya#84). The container
+    // may be a map (e.g. an untyped param) or an array; picking the array
+    // fast path statically faults on maps with `index out of bounds`.
+    // Mirrors fn_in's container discrimination: map tag -> fn_set, anything
+    // else -> the exact inline array-store sequence (including its OOB fault,
+    // so non-map behavior is bit-identical to the static array path).
+    out.push_str(".global fn_dyn_index_assign\n");
+    out.push_str("fn_dyn_index_assign:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    out.push_str("    push %r14\n");
+    if is_win {
+        out.push_str("    mov %rcx, %r12\n");
+        out.push_str("    mov %rdx, %r13\n");
+        out.push_str("    mov %r8, %r14\n");
+    } else {
+        out.push_str("    mov %rdi, %r12\n");
+        out.push_str("    mov %rsi, %r13\n");
+        out.push_str("    mov %rdx, %r14\n");
+    }
+    out.push_str("    test %r12, %r12\n");
+    out.push_str("    jz .L_x64_dyn_arr\n");
+    out.push_str("    test $7, %r12\n");
+    out.push_str("    jnz .L_x64_dyn_arr\n");
+    out.push_str("    cmp $65536, %r12\n");
+    out.push_str("    jb .L_x64_dyn_arr\n");
+    out.push_str("    mov $0x00007fffffffffff, %rax\n");
+    out.push_str("    cmp %rax, %r12\n");
+    out.push_str("    ja .L_x64_dyn_arr\n");
+    out.push_str("    lea alya_rodata_start(%rip), %r11\n");
+    out.push_str("    cmp %r11, %r12\n");
+    out.push_str("    jb .L_x64_dyn_chk_str_buf\n");
+    out.push_str("    lea alya_rodata_end(%rip), %r10\n");
+    out.push_str("    cmp %r10, %r12\n");
+    out.push_str("    jb .L_x64_dyn_arr\n");
+    out.push_str(".L_x64_dyn_chk_str_buf:\n");
+    out.push_str("    lea alya_str_buf(%rip), %r11\n");
+    out.push_str("    cmp %r11, %r12\n");
+    out.push_str("    jb .L_x64_dyn_chk_tag\n");
+    out.push_str("    lea 67108864(%r11), %r10\n");
+    out.push_str("    cmp %r10, %r12\n");
+    out.push_str("    jb .L_x64_dyn_arr\n");
+    out.push_str(".L_x64_dyn_chk_tag:\n");
+    out.push_str("    movl -16(%r12), %eax\n");
+    out.push_str("    cmp $0x5A110002, %eax\n");
+    out.push_str("    jne .L_x64_dyn_arr\n");
+    // Map leg: args already sit in the call registers, just call fn_set.
+    if is_win {
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    mov %r13, %rdx\n");
+        out.push_str("    mov %r14, %r8\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call fn_set\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str("    mov %r13, %rsi\n");
+        out.push_str("    mov %r14, %rdx\n");
+        out.push_str("    call fn_set\n");
+    }
+    out.push_str("    pop %r14\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n");
+    out.push_str(".L_x64_dyn_arr:\n");
+    // Array leg: exact port of the inline array-store sequence, reading the
+    // saved registers instead of the stack.
+    out.push_str("    mov %r13, %rax\n");
+    out.push_str("    mov %r12, %rdx\n");
+    out.push_str("    mov %r14, %r8\n");
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jns 1f\n");
+    out.push_str("    add (%rdx), %rax\n");
+    out.push_str("1:\n");
+    out.push_str("    cmpq (%rdx), %rax\n");
+    out.push_str("    jae alya_error_index_out_of_bounds\n");
+    out.push_str("    push %r11\n");
+    out.push_str("    mov 24(%rdx), %r11\n");
+    if is_win {
+        out.push_str("    movb %r9b, (%r11, %rax)\n");
+    } else {
+        out.push_str("    movb %cl, (%r11, %rax)\n");
+    }
+    out.push_str("    pop %r11\n");
+    out.push_str("    mov 16(%rdx), %rdx\n");
+    out.push_str("    movq %r8, (%rdx, %rax, 8)\n");
+    out.push_str("    pop %r14\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
 }
