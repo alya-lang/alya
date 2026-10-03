@@ -986,3 +986,124 @@ end
         .collect();
     assert_eq!(hits.len(), 1);
 }
+
+#[test]
+fn test_lint_boolean_literals_return_in_predicate() {
+    let source = r#"
+function is_valid(x) -> int
+    if x == 0
+        return 0
+    end
+    return 1
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "boolean-literals")
+        .collect();
+    // 2 literal returns + 1 annotation = 3 findings, all informational.
+    assert_eq!(
+        hits.len(),
+        3,
+        "got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    for d in &hits {
+        assert_eq!(d.severity, crate::tools::lint::types::LintSeverity::Info);
+        assert!(d.fix.is_some());
+    }
+    let lits: Vec<_> = hits
+        .iter()
+        .filter(|d| d.message.contains("boolean return value"))
+        .collect();
+    assert_eq!(lits.len(), 2);
+    assert!(lits.iter().all(|d| {
+        let r = &d.fix.as_ref().unwrap().replacement;
+        r == "true" || r == "false"
+    }));
+    let ann: Vec<_> = hits
+        .iter()
+        .filter(|d| d.message.contains("-> bool"))
+        .collect();
+    assert_eq!(ann.len(), 1);
+    assert_eq!(ann[0].fix.as_ref().unwrap().replacement, "bool");
+}
+
+#[test]
+fn test_lint_boolean_literals_non_predicate_silent() {
+    let source = r#"
+function count_matches(s, sub) -> int
+    if len(s) == 0
+        return 0
+    end
+    return 1
+end
+function mode_all() -> int
+    return 0
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "boolean-literals")
+        .collect();
+    assert!(
+        hits.is_empty(),
+        "expected silence, got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_lint_boolean_literals_predicate_comparison() {
+    let source = r#"
+function check(x)
+    if is_valid(x) == 1
+        say "yes"
+    end
+    if len(x) == 0
+        say "empty"
+    end
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "boolean-literals")
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    assert_eq!(hits[0].fix.as_ref().unwrap().replacement, "true");
+}
+
+#[test]
+fn test_lint_boolean_literals_tuple_and_loop_idiom_silent() {
+    let source = r#"
+function get_move(dx) -> int
+    if dx != 1
+        return 0, -1
+    end
+    return 1, 0
+end
+function spin()
+    while 1 == 1
+        break
+    end
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "boolean-literals")
+        .collect();
+    assert!(
+        hits.is_empty(),
+        "expected silence, got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}

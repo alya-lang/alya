@@ -430,7 +430,7 @@ end
 ## ### Returns
 ## 1 when no action is needed, else the status code returned by `make_dir`.
 pub function ensure_dir(path: string) -> int
-    if len(path) == 0 or is_dir(path) == 1
+    if len(path) == 0 or is_dir(path) == true
         return true
     end
     let parent: string = file_parent(path)

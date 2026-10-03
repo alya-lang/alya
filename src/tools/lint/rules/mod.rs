@@ -1,3 +1,4 @@
+pub mod bool_literals;
 pub mod bugs;
 pub mod cfg;
 pub mod dead_code;
@@ -42,6 +43,9 @@ pub fn run_all_rules(program: &Program, tokens: &[Token], file_path: &Path) -> V
 
     // 9. `is float` on dynamically-typed values (best-effort at runtime)
     diagnostics.extend(dynamic::check_dynamic_is_float(program, tokens, file_path));
+
+    // 10. Boolean literals and predicate return types
+    diagnostics.extend(bool_literals::check_boolean_literals(tokens, file_path));
 
     // Sort diagnostics by line and column
     diagnostics.sort_by(|a, b| a.line.cmp(&b.line).then_with(|| a.col.cmp(&b.col)));

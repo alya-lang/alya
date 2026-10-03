@@ -60,3 +60,12 @@ read `not float` for a real float. Annotate the source with
 `-> float` or check a literal or statically-proven value instead.
 Float literals and same-file `-> float` calls are exact and stay
 silent. Severity: `warning`.
+
+## boolean-literals
+
+Flags `1`/`0` used where a boolean belongs: `return 0`/`1` inside
+predicate-named functions (or `-> bool` ones), `pred(...) == 1`
+comparisons, and `-> int` on functions whose every return is
+boolean-shaped. All findings are auto-fixable (`alya lint --fix`)
+to `true`/`false` and `-> bool`; the encoding is identical, so
+behavior never changes. Severity: `note` (never fails `--check`).

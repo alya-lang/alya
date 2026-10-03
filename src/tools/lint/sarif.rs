@@ -25,6 +25,11 @@ fn rule_metadata(rule: &str) -> (&'static str, &'static str, &'static [&'static 
             "warning",
             &["correctness"],
         ),
+        "boolean-literals" => (
+            "Boolean spelled as 1/0, or predicate returning int",
+            "note",
+            &["maintainability"],
+        ),
         _ => ("Alya lint finding", "warning", &["maintainability"]),
     }
 }
@@ -63,6 +68,9 @@ fn rule_help(rule: &str) -> &'static str {
         }
         "dynamic-is-float" => {
             "`is float` on a value whose kind is not statically provable is best-effort and may misread a real float. Annotate the source with `-> float` or check a literal instead."
+        }
+        "boolean-literals" => {
+            "A `1`/`0` used where a boolean belongs (`return`, predicate comparison, `-> int` on an all-boolean function). Prefer `true`/`false` and `-> bool`; the encoding is identical."
         }
         _ => "See the Alya lint rule catalog via the rule help link.",
     }
