@@ -8,16 +8,16 @@
 
 function mini_is_space(ch)
     if ch == " " or ch == "\t"
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 function mini_is_blank(ch)
     if ch == " " or ch == "\t" or ch == "\r" or ch == "\n"
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 function mini_map_has(m, key)
@@ -103,7 +103,7 @@ end
 function skip_spaces(text, pos, text_len)
     while pos < text_len
         let ch = char_at(text, pos)
-        if mini_is_space(ch) == 1
+        if mini_is_space(ch) == true
             pos += 1
         else
             break
@@ -128,7 +128,7 @@ function parse_value(text, pos, text_len)
         pos += 1
         let arr = []
         while pos < text_len
-            while pos < text_len and mini_is_blank(char_at(text, pos)) == 1
+            while pos < text_len and mini_is_blank(char_at(text, pos)) == true
                 pos += 1
             end
             if pos >= text_len or char_at(text, pos) == "]"
@@ -137,7 +137,7 @@ function parse_value(text, pos, text_len)
             let elem, new_pos = parse_value(text, pos, text_len)
             arr.push(elem)
             pos = new_pos
-            while pos < text_len and mini_is_blank(char_at(text, pos)) == 1
+            while pos < text_len and mini_is_blank(char_at(text, pos)) == true
                 pos += 1
             end
             if pos < text_len and char_at(text, pos) == ","

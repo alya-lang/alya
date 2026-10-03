@@ -91,7 +91,7 @@ function int_to_dec(v: int) -> string
         x = x / 10
     end
     let s = ""
-    if neg == 1
+    if neg == true
         s = "-"
     end
     let i = len(digs) - 1
@@ -113,7 +113,7 @@ end
 function Lexer.fail(self, line: int, col: int)
     self.err_line = line
     self.err_col = col
-    self.failed = 1
+    self.failed = true
 end
 
 # Width of the UTF-8 sequence starting at a lead byte.
@@ -366,35 +366,35 @@ end
 
 function lx_is_alpha(b: int) -> int
     if b >= 97 and b <= 122
-        return 1
+        return true
     end
     if b >= 65 and b <= 90
-        return 1
+        return true
     end
     if b == 95
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 function lx_is_alnum(b: int) -> int
-    if lx_is_digit(b) == 1
-        return 1
+    if lx_is_digit(b) == true
+        return true
     end
     return lx_is_alpha(b)
 end
 
 function lx_is_hexdigit(b: int) -> int
-    if lx_is_digit(b) == 1
-        return 1
+    if lx_is_digit(b) == true
+        return true
     end
     if b >= 97 and b <= 102
-        return 1
+        return true
     end
     if b >= 65 and b <= 70
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 # Float-lexeme validator matching Rust f64::parse acceptance on
@@ -408,7 +408,7 @@ function valid_float(s: string) -> int
         let c = char_at(s, i)
         if c == "e" or c == "E"
             if ei != -1
-                return 0
+                return false
             end
             ei = i
         end
@@ -419,7 +419,7 @@ function valid_float(s: string) -> int
         mend = ei
     end
     if mend == 0
-        return 0
+        return false
     end
     let digits = 0
     let dots = 0
@@ -429,20 +429,20 @@ function valid_float(s: string) -> int
         if c == "."
             dots += 1
             if dots > 1
-                return 0
+                return false
             end
         elif c >= "0" and c <= "9"
             digits += 1
         else
-            return 0
+            return false
         end
         i += 1
     end
-    if digits == 0
-        return 0
+    if digits == false
+        return false
     end
     if ei == -1
-        return 1
+        return true
     end
     let j = ei + 1
     if j < n
@@ -452,16 +452,16 @@ function valid_float(s: string) -> int
         end
     end
     if j >= n
-        return 0
+        return false
     end
     while j < n
         let c = char_at(s, j)
         if c < "0" or c > "9"
-            return 0
+            return false
         end
         j += 1
     end
-    return 1
+    return true
 end
 
 # --- number reader: decimal value text (floats prefixed), "" on error ---
@@ -487,7 +487,7 @@ function Lexer.read_number(self) -> string
                 let c = self.cur()
                 if c == 95
                     self.advance()
-                elif base == 16 and lx_is_hexdigit(c) == 1
+                elif base == 16 and lx_is_hexdigit(c) == true
                     if u64_gt(val, 1152921504606846975) == 1
                         self.fail(sl, sc)
                         return ""
@@ -519,33 +519,33 @@ function Lexer.read_number(self) -> string
                 self.fail(sl, sc)
                 return ""
             end
-            if lx_is_alnum(self.cur()) == 1
+            if lx_is_alnum(self.cur()) == true
                 self.fail(sl, sc)
                 return ""
             end
             return u64_to_dec(val)
         end
     end
-    let has_dot = 0
+    let has_dot = false
     let lex = ""
     if self.cur() == 46
-        has_dot = 1
+        has_dot = true
         lex = lex + "."
         self.advance()
     end
     while 1 == 1
         let c = self.cur()
-        if lx_is_digit(c) == 1
+        if lx_is_digit(c) == true
             lex = lex + chr(c)
             self.advance()
         elif c == 95
             self.advance()
-        elif c == 46 and has_dot == 0 and lx_is_digit(self.peek()) == 1
-            has_dot = 1
+        elif c == 46 and has_dot == false and lx_is_digit(self.peek()) == true
+            has_dot = true
             lex = lex + "."
             self.advance()
         elif (c == 101 or c == 69) and len(lex) > 0
-            has_dot = 1
+            has_dot = true
             lex = lex + chr(c)
             self.advance()
             let sgn = self.cur()
@@ -557,8 +557,8 @@ function Lexer.read_number(self) -> string
             break
         end
     end
-    if has_dot == 1
-        if valid_float(lex) == 0
+    if has_dot == true
+        if valid_float(lex) == false
             self.fail(sl, sc)
             return ""
         end
@@ -692,13 +692,13 @@ function Lexer.read_escape(self, esc: string, triple: int, esl: int, ecol: int) 
         return esc
     end
     if c < 128
-        if triple == 1
+        if triple == true
             return esc + escape_cp(92) + escape_cp(c)
         end
         return esc + escape_cp(c)
     end
     let cp = self.decode_cp()
-    if triple == 1
+    if triple == true
         return esc + escape_cp(92) + escape_cp(cp)
     end
     return esc + escape_cp(cp)
@@ -771,7 +771,7 @@ function Lexer.read_string(self, triple: int) -> string
         end
         if c == 92
             esc = self.read_escape(esc, triple, sl, sc)
-            if self.failed == 1
+            if self.failed == true
                 return ""
             end
             self.advance()
@@ -827,7 +827,7 @@ function Lexer.read_triple(self) -> string
             esc = esc + escape_cp(10)
         elif c == 92
             esc = self.read_escape(esc, 1, tsl, tsc)
-            if self.failed == 1
+            if self.failed == true
                 return ""
             end
             self.advance()
@@ -930,7 +930,7 @@ function Lexer.read_format_string(self) -> string
             end
         elif c == 92
             esc = self.read_escape(esc, 0, sl, sc)
-            if self.failed == 1
+            if self.failed == true
                 return ""
             end
             self.advance()
@@ -1124,7 +1124,7 @@ function Lexer.read_identifier(self) -> string
     let s = ""
     while 1 == 1
         let c = self.cur()
-        if lx_is_alpha(c) == 1 or lx_is_digit(c) == 1
+        if lx_is_alpha(c) == true or lx_is_digit(c) == true
             s = s + chr(c)
             self.advance()
         else
@@ -1224,21 +1224,21 @@ function Lexer.tokenize(self)
                 else
                     s = self.read_string(0)
                 end
-                if self.failed == 1
+                if self.failed == true
                     break
                 end
                 self.emit_at(line, col, "string", s)
                 self.last_kind = "other"
             elif c == 96
                 let s = self.read_raw()
-                if self.failed == 1
+                if self.failed == true
                     break
                 end
                 self.emit_at(line, col, "string", s)
                 self.last_kind = "other"
             elif c == 39
                 let cp = self.read_rune_cp()
-                if self.failed == 1
+                if self.failed == true
                     break
                 end
                 self.emit_at(line, col, "rune", escape_cp(cp))
@@ -1285,7 +1285,7 @@ function Lexer.tokenize(self)
                 elif self.cur() == 42
                     self.advance()
                     self.skip_multiline()
-                    if self.failed == 1
+                    if self.failed == true
                         break
                     end
                     self.had_ws = 1
@@ -1372,9 +1372,9 @@ function Lexer.tokenize(self)
                         self.emit_at(line, col, "delim", "..")
                     end
                     self.last_kind = "other"
-                elif lx_is_digit(self.peek()) == 1 and (prev_ws == 1 or self.last_kind == "none" or (self.last_kind != "ident" and self.last_kind != "rparen" and self.last_kind != "rbrack" and self.last_kind != "rbrace"))
+                elif lx_is_digit(self.peek()) == true and (prev_ws == true or self.last_kind == "none" or (self.last_kind != "ident" and self.last_kind != "rparen" and self.last_kind != "rbrack" and self.last_kind != "rbrace"))
                     self.emit_number_at(line, col)
-                    if self.failed == 1
+                    if self.failed == true
                         break
                     end
                 else
@@ -1474,9 +1474,9 @@ function Lexer.tokenize(self)
                     self.emit_at(line, col, "op", ">")
                 end
                 self.last_kind = "other"
-            elif lx_is_digit(c) == 1
+            elif lx_is_digit(c) == true
                 self.emit_number_at(line, col)
-                if self.failed == 1
+                if self.failed == true
                     break
                 end
             elif c == 102 and self.peek() == 34
@@ -1487,7 +1487,7 @@ function Lexer.tokenize(self)
                 else
                     s = self.read_format_string()
                 end
-                if self.failed == 1
+                if self.failed == true
                     break
                 end
                 self.emit_at(line, col, "string", s)
@@ -1495,7 +1495,7 @@ function Lexer.tokenize(self)
             elif c == 114 and self.peek() == 34
                 self.advance()
                 let s = self.read_raw_quoted()
-                if self.failed == 1
+                if self.failed == true
                     break
                 end
                 self.emit_at(line, col, "string", s)
@@ -1503,7 +1503,7 @@ function Lexer.tokenize(self)
             elif c == 98 and self.peek() == 34
                 self.advance()
                 let s = self.read_string(0)
-                if self.failed == 1
+                if self.failed == true
                     break
                 end
                 self.emit_at(line, col, "string", s)
@@ -1511,12 +1511,12 @@ function Lexer.tokenize(self)
             elif c == 98 and self.peek() == 39
                 self.advance()
                 let cp = self.read_rune_cp()
-                if self.failed == 1
+                if self.failed == true
                     break
                 end
                 self.emit_at(line, col, "number", int_to_dec(cp % 256))
                 self.last_kind = "other"
-            elif lx_is_alpha(c) == 1
+            elif lx_is_alpha(c) == true
                 let w = self.read_identifier()
                 let canon = canonical_word(w)
                 if canon == ""
@@ -1539,7 +1539,7 @@ end
 # Shared number-token emission (dot-led and digit-led agree here).
 function Lexer.emit_number_at(self, line: int, col: int)
     let v = self.read_number()
-    if self.failed == 1
+    if self.failed == true
         return
     end
     if len(v) >= 9 and v[0..9] == "@@FLOAT@@"
@@ -1566,7 +1566,7 @@ function main()
     let t0 = time.now_ms()
     lx.tokenize()
     let ms = time.now_ms() - t0
-    if lx.failed == 1
+    if lx.failed == true
         lx.out.push("0|0|error|" + int_to_dec(lx.err_line) + ":" + int_to_dec(lx.err_col))
         say lx.out.join("\n")
         os.exit_process(1)

@@ -290,9 +290,9 @@ end
 ## 1 when the year is a leap year, else 0.
 pub function is_leap_year(year: int) -> int
     if year % 400 == 0
-        return 1
+        return true
     elif year % 100 == 0
-        return 0
+        return false
     end
     return year % 4 == 0
 end
@@ -707,17 +707,17 @@ end
 
 function _time_is_digits(s: string) -> int
     if len(s) == 0
-        return 0
+        return false
     end
     let i: int = 0
     while i < len(s)
         let c: int = ord(char_at(s, i))
         if c < 48 or c > 57
-            return 0
+            return false
         end
         i += 1
     end
-    return 1
+    return true
 end
 
 function _time_num(s: string, pos: int, count: int) -> int
@@ -725,7 +725,7 @@ function _time_num(s: string, pos: int, count: int) -> int
         return -1
     end
     let part: string = substring(s, pos, count)
-    if _time_is_digits(part) == 0
+    if _time_is_digits(part) == false
         return -1
     end
     return to_int(part)
@@ -749,7 +749,7 @@ function _time_parse_datetime(s: string, allow_bare: int) -> int
         throw TimeParseError { message: f"Invalid calendar date: {s}" }
     end
     if n == 10
-        if allow_bare == 0
+        if allow_bare == false
             throw TimeParseError { message: f"Missing time and zone (RFC 3339 requires full timestamp): {s}" }
         end
         return date_ymd_to_epoch(year, month, day)
@@ -777,7 +777,7 @@ function _time_parse_datetime(s: string, allow_bare: int) -> int
     if pos < n and char_at(s, pos) == "."
         pos += 1
         let frac_start: int = pos
-        while pos < n and _time_is_digits(char_at(s, pos)) == 1
+        while pos < n and _time_is_digits(char_at(s, pos)) == true
             pos += 1
         end
         if pos == frac_start
@@ -786,7 +786,7 @@ function _time_parse_datetime(s: string, allow_bare: int) -> int
     end
     let offset_sec: int = 0
     if pos >= n
-        if allow_bare == 0
+        if allow_bare == false
             throw TimeParseError { message: f"Missing zone (RFC 3339 requires Z or offset): {s}" }
         end
     else

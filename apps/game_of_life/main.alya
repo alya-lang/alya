@@ -82,7 +82,7 @@ function Board.init_random(self, pct)
     while y < self.h
         let x = 0
         while x < self.w
-            if r::chance(pct) == 1
+            if r::chance(pct) == true
                 self.place(x, y)
             end
             x += 1
@@ -210,7 +210,7 @@ function main()
     let pattern_name = "glider"
     let max_gens = 60
     let delay_ms = 90
-    let is_test = 0
+    let is_test = false
 
     let i = 0
     while i < arr_len(cli_args)
@@ -227,7 +227,7 @@ function main()
             if d >= 0 delay_ms = d end
             i += 1
         elif a in ["--test", "--simulate"]
-            is_test = 1
+            is_test = true
         end
         i += 1
     end
@@ -243,7 +243,7 @@ function main()
         else b.init_glider(2, 2)
     end
 
-    if is_test == 1
+    if is_test == true
         say color_yellow("[LIFE]") + " Running automated simulation test..."
         let gen = 0
         while gen < 15

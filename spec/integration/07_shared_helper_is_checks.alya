@@ -9,16 +9,16 @@
 
 function is_list(v) -> int
     if v is array
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 function is_map_obj(v) -> int
     if v is map
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 function helper(v, level: int, indent_size: int) -> string
@@ -29,9 +29,9 @@ function disp(val, level: int, indent_size: int) -> string
     if val is null
         return "null"
     end
-    if is_list(val) == 1
+    if is_list(val) == true
         return helper(val, level, indent_size)
-    elif is_map_obj(val) == 1
+    elif is_map_obj(val) == true
         return "MAP"
     else
         return "OTHER"

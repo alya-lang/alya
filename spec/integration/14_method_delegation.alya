@@ -15,9 +15,9 @@ end
 
 function is_positive(b: Box) -> int
     if b.val > 0
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 function Box.is_positive(self: Box) -> int
@@ -41,10 +41,10 @@ end
 
 function main()
     let b = Box { val: 7 }
-    assert b.is_positive() == 1
+    assert b.is_positive() == true
     assert b.add_to(3) == 10
     let z = Box { val: 0 }
-    assert z.is_positive() == 0
+    assert z.is_positive() == false
     assert count_down(5) == 5
     say f"integration 14_method_delegation: OK"
 end

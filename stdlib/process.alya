@@ -51,13 +51,13 @@ pub function process_run(program: string, args: string[] = []) -> ProcessOutput
     let exit_code: int = system_exec(cmd)
 
     let out_content: string = ""
-    if file_exists(out_file) == 1
+    if file_exists(out_file) == true
         out_content = read_file(out_file)
         remove_file(out_file)
     end
 
     let err_content: string = ""
-    if file_exists(err_file) == 1
+    if file_exists(err_file) == true
         err_content = read_file(err_file)
         remove_file(err_file)
     end

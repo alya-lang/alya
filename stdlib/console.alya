@@ -182,7 +182,7 @@ pub function console_utf8() -> int
     set_console_output_cp(65001)
     set_console_input_cp(65001)
     enable_virtual_terminal()
-    return 1
+    return true
 end
 
 ## Returns a display name for the console input code page.
@@ -337,7 +337,7 @@ end
 ## 1 for a yes answer (`y`, `yes`, `1`, `e`, `evet`, case-insensitive) or an empty answer resolving to a nonzero default; else 0.
 pub function console_confirm(prompt_text: string, default_yes: int = 1) -> int
     let suffix: string = " (Y/n): "
-    if default_yes == 0
+    if default_yes == false
         suffix = " (y/N): "
     end
     let resp: string = lower(trim(ask(prompt_text + suffix)))
@@ -347,7 +347,7 @@ pub function console_confirm(prompt_text: string, default_yes: int = 1) -> int
     when resp
         is "y", "yes", "1", "e", "evet" then return 1
     end
-    return 0
+    return false
 end
 
 ## Prompts the user and reads a full line of text from stdin.

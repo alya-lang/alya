@@ -57,7 +57,7 @@ function BenchConfig.show_banner(self)
     say color_cyan("║") + "  Target URL   : " + color_white(self.url)
     say color_cyan("║") + "  Total Reqs   : " + color_green(str(self.total_reqs)) + " requests"
     say color_cyan("║") + "  Concurrency  : " + color_magenta(str(self.concurrency)) + " worker threads"
-    if self.keep_alive == 1
+    if self.keep_alive == true
         say color_cyan("║") + "  Keep-Alive   : " + color_green("enabled (persistent TCP)")
     else
         say color_cyan("║") + "  Keep-Alive   : " + color_yellow("disabled (close per req)")
@@ -296,14 +296,14 @@ function main()
 
     # Check for smoke test mode
     let cli_args = args()
-    let is_test = 0
+    let is_test = false
     for a in cli_args
         if a in ["--test", "--once"]
-            is_test = 1
+            is_test = true
         end
     end
 
-    if is_test == 1
+    if is_test == true
         say color_yellow("[BENCH]") + " Running simulated smoke benchmark..."
         let stats = BenchStats(10, 0, 25, 2, 4, 2, 2000, 0, 0, 0, 0)
         stats.show_results(cfg)
@@ -314,7 +314,7 @@ function main()
     # Pre-flight connectivity check: verify target server is reachable
     say "Connecting to " + color_white(cfg.url) + "..."
     let probe_ok, probe_lat, probe_body = run_single_probe(cfg.url)
-    if probe_ok == 0
+    if probe_ok == false
         say ""
         say color_red("✗ Error:") + " Could not connect to target server at " + style_bold(cfg.url)
         say color_yellow("  Hint:") + " Make sure the HTTP server is running first in another terminal:"

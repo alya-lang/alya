@@ -43,7 +43,7 @@ end
 
 function load_tasks(db_path)
     let tasks = []
-    if fs_exists(db_path) == 0
+    if fs_exists(db_path) == false
         return tasks
     end
 
@@ -152,7 +152,7 @@ function cmd_list(db_path, filter_status, filter_tag)
     let total_count = arr_len(tasks)
 
     for t in tasks
-        if t.done == 1
+        if t.done == true
             done_count += 1
         end
 
@@ -185,7 +185,7 @@ function cmd_list(db_path, filter_status, filter_tag)
             if len(title_disp) > 31
                 title_disp = substring(title_disp, 0, 28) + "..."
             end
-            if t.done == 1
+            if t.done == true
                 title_disp = style_dim(title_disp)
             end
             let tag_badge = ui::badge("#" + t.tag, "magenta")
@@ -202,12 +202,12 @@ end
 
 function cmd_set_done(db_path, task_id, is_done)
     let tasks = load_tasks(db_path)
-    let found = 0
+    let found = false
     for t in tasks
         if t.id == task_id
             t.done = is_done
-            found = 1
-            if is_done == 1
+            found = true
+            if is_done == true
                 say color_green("✓ Marked task #") + str(task_id) + " as completed: " + t.title
             else
                 say color_yellow("↺ Reopened task #") + str(task_id) + ": " + t.title
@@ -226,10 +226,10 @@ end
 function cmd_delete(db_path, task_id)
     let tasks = load_tasks(db_path)
     let new_tasks = []
-    let found = 0
+    let found = false
     for t in tasks
         if t.id == task_id
-            found = 1
+            found = true
             say color_green("✓ Removed task #") + str(task_id) + ": " + t.title
         else
             new_tasks.push(t)
@@ -248,7 +248,7 @@ function cmd_clear(db_path)
     let active_tasks = []
     let cleared = 0
     for t in tasks
-        if t.done == 1
+        if t.done == true
             cleared += 1
         else
             active_tasks.push(t)
@@ -262,13 +262,13 @@ end
 function cmd_stats(db_path)
     let tasks = load_tasks(db_path)
     let total = arr_len(tasks)
-    let done = 0
+    let done = false
     let high = 0
     let med = 0
     let low = 0
 
     for t in tasks
-        if t.done == 1
+        if t.done == true
             done += 1
         end
         when t.priority
@@ -411,7 +411,7 @@ function tokenize_command(line)
 
     while i < slen
         let ch = char_at(line, i)
-        if in_quote == 1
+        if in_quote == true
             if ch == quote_char
                 in_quote = 0
                 tokens.push(cur)

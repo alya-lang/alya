@@ -98,9 +98,9 @@ end
 ## 1 when the stack holds no items, 0 otherwise.
 pub function stack_is_empty(s) -> int
     if len(s) == 0
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Returns the top item without removing it, or 0 if empty.
@@ -177,9 +177,9 @@ end
 ## 1 when the queue holds no pending items, 0 otherwise.
 pub function queue_is_empty(q) -> int
     if q[0] >= len(q)
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Returns the front item without removing it, or 0 if empty.
@@ -378,10 +378,10 @@ end
 pub function set_is_subset(a, b) -> int
     for k in keys(a)
         if k not in b
-            return 0
+            return false
         end
     end
-    return 1
+    return true
 end
 
 ## Removes an item from the set.
@@ -502,9 +502,9 @@ end
 ## 1 when `val` is in the array, 0 otherwise.
 pub function array_contains(arr, val) -> int
     if val in arr
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Builds an array with count copies of a value.
@@ -785,9 +785,9 @@ end
 ## 1 when the map holds no keys, 0 otherwise.
 pub function map_is_empty(m) -> int
     if len(m) == 0
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Merges src into a copy of dest and returns it.

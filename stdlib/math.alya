@@ -601,22 +601,22 @@ end
 ## 1 when `n` is prime, 0 otherwise; values of 1 or less yield 0.
 pub function is_prime(n: int) -> int
     if n <= 1
-        return 0
+        return false
     end
     if n <= 3
-        return 1
+        return true
     end
     if n % 2 == 0 or n % 3 == 0
-        return 0
+        return false
     end
     let i: int = 5
     while i * i <= n
         if n % i == 0 or n % (i + 2) == 0
-            return 0
+            return false
         end
         i += 6
     end
-    return 1
+    return true
 end
 
 ## Returns the least common multiple of two integers.
@@ -671,10 +671,10 @@ end
 ## 1 when the random draw falls below `pct`, else 0.
 pub function rand_chance(pct: int) -> int
     if pct <= 0
-        return 0
+        return false
     end
     if pct >= 100
-        return 1
+        return true
     end
     return (rand_next() % 100) < pct
 end

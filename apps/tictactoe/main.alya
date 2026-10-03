@@ -150,10 +150,10 @@ end
 function is_board_full(board)
     for i in 0..8
         if board[i] == Mark.Empty
-            return 0
+            return false
         end
     end
-    return 1
+    return true
 end
 
 # ─── AI Engine (Minimax Algorithm) ───────────────────────────
@@ -298,11 +298,11 @@ function main()
     let mode_raw = ask "  Choose mode (1/2): "
     let mode = trim(mode_raw)
 
-    let is_ai = 0
+    let is_ai = false
     let name2 = "Player 2"
 
     if mode == "2"
-        is_ai = 1
+        is_ai = true
         name2 = "Alya AI"
         say ""
         say ui::color_bright_magenta("  You will face the unbeatable Alya AI! Good luck!")
@@ -321,19 +321,19 @@ function main()
     let scores = Scores(0, 0, 0, 0)
     let playing = 1
 
-    while playing == 1
+    while playing == true
         scores.next_round()
         let board = [Mark.Empty, Mark.Empty, Mark.Empty, Mark.Empty, Mark.Empty, Mark.Empty, Mark.Empty, Mark.Empty, Mark.Empty]
         let current = Mark.X
         let game_over = 0
 
-        while game_over == 0
+        while game_over == false
             clear_screen()
             show_banner()
             show_scores(name1, name2, scores)
             draw_board(board)
 
-            if current == Mark.O and is_ai == 1
+            if current == Mark.O and is_ai == true
                 say ui::color_bright_magenta("    Alya AI is thinking...")
                 sleep(700)
                 let ai_pos = ai_best_move(board)
@@ -350,7 +350,7 @@ function main()
             let winner = check_winner(board)
             if winner != Mark.Empty
                 game_over = 1
-            elif is_board_full(board) == 1
+            elif is_board_full(board) == true
                 game_over = 1
             else
                 if current == Mark.X

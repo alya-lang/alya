@@ -41,19 +41,19 @@ end
 pub function is_absolute(path: string) -> int
     let plen: int = len(path)
     if plen == 0
-        return 0
+        return false
     end
     let c0: string = char_at(path, 0)
     if c0 == "/" or c0 == "\\"
-        return 1
+        return true
     end
     if plen >= 3 and char_at(path, 1) == ":"
         let c2: string = char_at(path, 2)
         if c2 == "/" or c2 == "\\"
-            return 1
+            return true
         end
     end
-    return 0
+    return false
 end
 
 ## Returns 1 when the path is not absolute.
@@ -65,9 +65,9 @@ end
 ## 1 when `is_absolute` reports 0, otherwise 0.
 pub function is_relative(path: string) -> int
     if is_absolute(path)
-        return 0
+        return false
     end
-    return 1
+    return true
 end
 
 ## Returns 1 when the path is a filesystem root.
@@ -82,19 +82,19 @@ pub function is_root(path: string) -> int
     if plen == 1
         let c0: string = char_at(path, 0)
         if c0 == "/" or c0 == "\\"
-            return 1
+            return true
         end
     end
     if plen == 2 and char_at(path, 1) == ":"
-        return 1
+        return true
     end
     if plen == 3 and char_at(path, 1) == ":"
         let c2: string = char_at(path, 2)
         if c2 == "/" or c2 == "\\"
-            return 1
+            return true
         end
     end
-    return 0
+    return false
 end
 
 # --- Components ---
@@ -176,9 +176,9 @@ end
 ## 1 when `file_ext` is non-empty, otherwise 0.
 pub function has_extension(path: string) -> int
     if len(file_ext(path)) > 0
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Returns the directory portion of the path.
@@ -292,11 +292,11 @@ pub function with_extension(path: string, new_ext: string) -> string
         while i < plen
             ch = char_at(path, i)
             if ch == "/" or ch == "\\"
-                has_slash = 1
+                has_slash = true
             end
             i += 1
         end
-        if has_slash == 0
+        if has_slash == false
             return new_file
         end
     end
@@ -321,11 +321,11 @@ pub function with_file_name(path: string, new_name: string) -> string
         while i < plen
             ch = char_at(path, i)
             if ch == "/" or ch == "\\"
-                has_slash = 1
+                has_slash = true
             end
             i += 1
         end
-        if has_slash == 0
+        if has_slash == false
             return new_name
         end
     end
@@ -433,21 +433,21 @@ function _glob_match_class(content: string, ch: string) -> int
             let r_start: int = ord(char_at(content, i))
             let r_end: int = ord(char_at(content, i + 2))
             if ch_code >= r_start and ch_code <= r_end
-                matched = 1
+                matched = true
                 break
             end
             i += 3
         else
             if char_at(content, i) == ch
-                matched = 1
+                matched = true
                 break
             end
             i += 1
         end
     end
 
-    if negated == 1
-        if matched == 1 return 0 else return 1 end
+    if negated == true
+        if matched == true return false else return true end
     end
     return matched
 end
@@ -468,12 +468,12 @@ function _glob_match_path_rec(p: string, p_idx: int, s: string, s_idx: int) -> i
 
             let try_s: int = s_idx
             while try_s <= slen
-                if _glob_match_path_rec(p, next_p, s, try_s) == 1
-                    return 1
+                if _glob_match_path_rec(p, next_p, s, try_s) == true
+                    return true
                 end
                 try_s += 1
             end
-            return 0
+            return false
         end
 
         # Check for * (single star - does NOT cross /)
@@ -482,22 +482,22 @@ function _glob_match_path_rec(p: string, p_idx: int, s: string, s_idx: int) -> i
             let try_s: int = s_idx
             while try_s <= slen
                 let res: int = _glob_match_path_rec(p, next_p, s, try_s)
-                if res == 1
-                    return 1
+                if res == true
+                    return true
                 end
                 if try_s < slen
                     let cur_ch: string = char_at(s, try_s)
                     if cur_ch == "/"
-                        return 0
+                        return false
                     end
                 end
                 try_s += 1
             end
-            return 0
+            return false
         end
 
         if s_idx >= slen
-            return 0
+            return false
         end
 
         let sch: string = char_at(s, s_idx)
@@ -505,7 +505,7 @@ function _glob_match_path_rec(p: string, p_idx: int, s: string, s_idx: int) -> i
         when pch
             is "?"
                 if sch == "/"
-                    return 0
+                    return false
                 end
                 p_idx += 1
                 s_idx += 1
@@ -518,8 +518,8 @@ function _glob_match_path_rec(p: string, p_idx: int, s: string, s_idx: int) -> i
                 else
                     let class_content: string = substring(p, p_idx + 1, close_bracket - (p_idx + 1))
                     let matched_class: int = _glob_match_class(class_content, sch)
-                    if matched_class == 0
-                        return 0
+                    if matched_class == false
+                        return false
                     end
                     p_idx = close_bracket + 1
                     s_idx += 1
@@ -533,7 +533,7 @@ function _glob_match_path_rec(p: string, p_idx: int, s: string, s_idx: int) -> i
                 s_idx += 1
             else
                 if pch != sch
-                    return 0
+                    return false
                 end
                 p_idx += 1
                 s_idx += 1
@@ -541,9 +541,9 @@ function _glob_match_path_rec(p: string, p_idx: int, s: string, s_idx: int) -> i
     end
 
     if s_idx == slen
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 function _glob_match_simple_rec(p: string, p_idx: int, s: string, s_idx: int) -> int
@@ -557,16 +557,16 @@ function _glob_match_simple_rec(p: string, p_idx: int, s: string, s_idx: int) ->
             let next_p: int = p_idx + 1
             let try_s: int = s_idx
             while try_s <= slen
-                if _glob_match_simple_rec(p, next_p, s, try_s) == 1
-                    return 1
+                if _glob_match_simple_rec(p, next_p, s, try_s) == true
+                    return true
                 end
                 try_s += 1
             end
-            return 0
+            return false
         end
 
         if s_idx >= slen
-            return 0
+            return false
         end
 
         let sch: string = char_at(s, s_idx)
@@ -584,8 +584,8 @@ function _glob_match_simple_rec(p: string, p_idx: int, s: string, s_idx: int) ->
                 else
                     let class_content: string = substring(p, p_idx + 1, close_bracket - (p_idx + 1))
                     let matched_class: int = _glob_match_class(class_content, sch)
-                    if matched_class == 0
-                        return 0
+                    if matched_class == false
+                        return false
                     end
                     p_idx = close_bracket + 1
                     s_idx += 1
@@ -599,7 +599,7 @@ function _glob_match_simple_rec(p: string, p_idx: int, s: string, s_idx: int) ->
                 s_idx += 1
             else
                 if pch != sch
-                    return 0
+                    return false
                 end
                 p_idx += 1
                 s_idx += 1
@@ -607,9 +607,9 @@ function _glob_match_simple_rec(p: string, p_idx: int, s: string, s_idx: int) ->
     end
 
     if s_idx == slen
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Lists the current directory filtered by a glob pattern.
@@ -674,7 +674,7 @@ pub function glob_filter(pattern: string, list: string[]) -> string[]
     let i: int = 0
     while i < total
         let item: string = str_from_ptr(list[i])
-        if glob_match(pattern, item) == 1
+        if glob_match(pattern, item) == true
             res.push(item)
         end
         i += 1
@@ -700,7 +700,7 @@ pub function glob_is_pattern(pattern: string) -> int
         end
         i += 1
     end
-    return 0
+    return false
 end
 
 ## Matches text against a path-aware glob pattern.

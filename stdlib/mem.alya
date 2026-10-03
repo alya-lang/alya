@@ -179,9 +179,9 @@ end
 ## 1 when `ptr` equals 0, else 0.
 pub function is_null(ptr)
     if ptr == 0
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Returns 1 if the pointer is not null, 0 otherwise.
@@ -193,9 +193,9 @@ end
 ## 1 when `ptr` differs from 0, else 0.
 pub function is_valid(ptr)
     if ptr != 0
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Adds a byte offset to a pointer.
@@ -354,19 +354,19 @@ end
 ## 1 when both blocks hold identical bytes (including when both pointers are equal), else 0. Null pointers compare as unequal.
 pub function mem_equal(ptr_a, ptr_b, size)
     if ptr_a == ptr_b
-        return 1
+        return true
     end
     if ptr_a == 0 or ptr_b == 0
-        return 0
+        return false
     end
     let i = 0
     while i < size
         if peek_byte(ptr_a, i) != peek_byte(ptr_b, i)
-            return 0
+            return false
         end
         i += 1
     end
-    return 1
+    return true
 end
 
 ## Resizes an existing heap allocation.
@@ -687,9 +687,9 @@ end
 ## 1 when the arena handle is non-zero, else 0.
 pub function arena_is_valid(arena: Arena)
     if arena.handle != 0
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Returns the total number of bytes currently allocated through this arena.
@@ -761,9 +761,9 @@ end
 ## 1 when `buf.size` equals 0, else 0.
 pub function buffer_is_empty(buf: ByteBuffer)
     if buf.size == 0
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Returns the number of bytes currently stored in the buffer.
@@ -1064,7 +1064,7 @@ end
 ## 1 when the free list was rebuilt, or 0 when the pool has no buffer or capacity.
 pub function pool_clear(pool: Pool)
     if pool.buffer == 0 or pool.capacity <= 0
-        return 0
+        return false
     end
     let i = 0
     while i < pool.capacity - 1
@@ -1077,7 +1077,7 @@ pub function pool_clear(pool: Pool)
     poke_int(last_ptr, 0, 0)
     pool.free_head = pool.buffer
     pool.allocated_count = 0
-    return 1
+    return true
 end
 
 ## Destroys the pool and frees underlying memory back to the system heap.
@@ -1107,12 +1107,12 @@ end
 ## 1 when the block was linked back, or 0 for a null pointer.
 pub function pool_free(pool: Pool, ptr)
     if ptr == 0
-        return 0
+        return false
     end
     poke_int(ptr, 0, pool.free_head)
     pool.free_head = ptr
     pool.allocated_count = pool.allocated_count - 1
-    return 1
+    return true
 end
 
 # --- Reference Counting ---

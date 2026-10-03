@@ -116,7 +116,7 @@ end
 ## ### Returns
 ## The file contents as a string, or `default_val` when the file is missing.
 pub function read_file_or(path: string, default_val: string) -> string
-    if file_exists(path) == 0
+    if file_exists(path) == false
         return default_val
     end
     return read_file(path)
@@ -131,7 +131,7 @@ end
 ## The file lines as a string array; empty when the file is missing or empty. A trailing newline does not produce an extra entry.
 pub function read_lines(path: string) -> string[]
     let res: string[] = []
-    if file_exists(path) == 0
+    if file_exists(path) == false
         return res
     end
     let content: string = read_file(path)
@@ -184,8 +184,8 @@ end
 ## ### Returns
 ## 1 when the file already exists, else the status code returned by `write_file`.
 pub function touch(path: string) -> int
-    if file_exists(path) == 1
-        return 1
+    if file_exists(path) == true
+        return true
     end
     return write_file(path, "")
 end
@@ -366,13 +366,13 @@ end
 ## ### Returns
 ## 1 when the file exists with zero size, else 0 (missing files return 0).
 pub function is_empty_file(path: string) -> int
-    if file_exists(path) == 0
-        return 0
+    if file_exists(path) == false
+        return false
     end
     if file_size(path) == 0
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 # --- Directory Operations ---
@@ -386,8 +386,8 @@ end
 ## ### Returns
 ## 1 when `src` is a directory, or 0 otherwise. Per-entry copy results are ignored.
 pub function copy_dir_recursive(src: string, dst: string) -> int
-    if is_dir(src) == 0
-        return 0
+    if is_dir(src) == false
+        return false
     end
     ensure_dir(dst)
     let entries: string[] = list_dir(src)
@@ -396,14 +396,14 @@ pub function copy_dir_recursive(src: string, dst: string) -> int
         let entry: string = entries[i]
         let s: string = src + "/" + entry
         let d: string = dst + "/" + entry
-        if is_dir(s) == 1
+        if is_dir(s) == true
             copy_dir_recursive(s, d)
         else
             copy_file(s, d)
         end
         i += 1
     end
-    return 1
+    return true
 end
 
 ## Copies a file by reading its content and writing it to dst.
@@ -415,8 +415,8 @@ end
 ## ### Returns
 ## 0 when the source is missing, else the status code returned by `write_file`.
 pub function copy_file(src: string, dst: string) -> int
-    if file_exists(src) == 0
-        return 0
+    if file_exists(src) == false
+        return false
     end
     let content: string = read_file(src)
     return write_file(dst, content)
@@ -431,7 +431,7 @@ end
 ## 1 when no action is needed, else the status code returned by `make_dir`.
 pub function ensure_dir(path: string) -> int
     if len(path) == 0 or is_dir(path) == 1
-        return 1
+        return true
     end
     let parent: string = file_parent(path)
     if parent != "." and parent != "/" and parent != path and len(parent) > 0
@@ -488,7 +488,7 @@ pub function list_dir_recursive(path: string) -> string[]
         let entry: string = entries[i]
         let full_path: string = path + "/" + entry
         res.push(full_path)
-        if is_dir(full_path) == 1
+        if is_dir(full_path) == true
             let sub: string[] = list_dir_recursive(full_path)
             let j: int = 0
             while j < len(sub)
@@ -510,10 +510,10 @@ end
 ## ### Returns
 ## 0 when the copy fails, else the status code returned by `remove_file`.
 pub function move_file(src: string, dst: string) -> int
-    if copy_file(src, dst) == 1
+    if copy_file(src, dst) == true
         return remove_file(src)
     end
-    return 0
+    return false
 end
 
 ## Recursively removes a directory tree.
@@ -524,15 +524,15 @@ end
 ## ### Returns
 ## 0 when `path` is not a directory, else the status code returned by `rmdir`.
 pub function remove_dir_recursive(path: string) -> int
-    if is_dir(path) == 0
-        return 0
+    if is_dir(path) == false
+        return false
     end
     let entries: string[] = list_dir(path)
     let i: int = 0
     while i < len(entries)
         let entry: string = entries[i]
         let full_path: string = path + "/" + entry
-        if is_dir(full_path) == 1
+        if is_dir(full_path) == true
             remove_dir_recursive(full_path)
         else
             remove_file(full_path)

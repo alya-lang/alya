@@ -149,9 +149,9 @@ pub function cli_has_flag(flag_name: string) -> int
     while i < count
         let arg: string = str_from_ptr(raw[i])
         if arg == target_long or arg == target_short
-            return 1
+            return true
         end
         i += 1
     end
-    return 0
+    return false
 end

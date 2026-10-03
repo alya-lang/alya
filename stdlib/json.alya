@@ -251,14 +251,14 @@ function _json_parse_number(s: string, pos: int[], slen: int)
         if (c >= 48 and c <= 57) or ch == "-" or ch == "+"
             pos[0] = pos[0] + 1
         elif ch == "." or ch == "e" or ch == "E"
-            is_flt = 1
+            is_flt = true
             pos[0] = pos[0] + 1
         else
             break
         end
     end
     let num_str: string = substring(s, start, pos[0] - start)
-    if is_flt == 1
+    if is_flt == true
         return float(num_str)
     else
         return int(num_str)
@@ -375,10 +375,10 @@ function _json_parse_val(s: string, pos: int[], slen: int)
             return _json_parse_string(s, pos, slen)
         is "t"
             pos[0] = pos[0] + 4
-            return 1
+            return true
         is "f"
             pos[0] = pos[0] + 5
-            return 0
+            return false
         is "n"
             pos[0] = pos[0] + 4
             return null
@@ -409,15 +409,15 @@ pub function json_is_valid(text: string) -> int
     let s: string = str_from_ptr(text)
     let slen: int = len(s)
     if slen == 0
-        return 0
+        return false
     end
     let pos: int[] = [0]
     let res = _json_parse_val(s, pos, slen)
     _json_skip_ws(s, pos, slen)
     if pos[0] == slen and res != null
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Parses a JSON document into Alya values.

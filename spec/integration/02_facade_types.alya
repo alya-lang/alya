@@ -78,15 +78,15 @@ end
 ## Config validation method.
 pub function FacadeConfig.is_valid(self: FacadeConfig) -> int
     if self.name == "" or self.count < 0
-        return 0
+        return false
     end
-    return 1
+    return true
 end
 
 ## Result status check method.
 pub function FacadeResult.is_ok(self: FacadeResult) -> int
     if self.status == 0
-        return 1
+        return true
     end
-    return 0
+    return false
 end

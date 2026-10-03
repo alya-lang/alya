@@ -93,10 +93,10 @@ end
 pub function assert(cond: int, msg: string) -> int
     if cond
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         say "  [FAIL] {msg}"
-        return 0
+        return false
     end
 end
 
@@ -112,10 +112,10 @@ end
 pub function assert_eq(actual, expected, msg: string) -> int
     if actual == expected
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         say "  [FAIL] {msg} (expected: {expected}, got: {actual})"
-        return 0
+        return false
     end
 end
 
@@ -130,10 +130,10 @@ end
 pub function assert_false(cond: int, msg: string) -> int
     if cond == 0
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         say "  [FAIL] {msg}"
-        return 0
+        return false
     end
 end
 
@@ -149,10 +149,10 @@ end
 pub function assert_gt(actual, expected, msg: string) -> int
     if actual > expected
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         say f"  [FAIL] {msg} ({actual} not > {expected})"
-        return 0
+        return false
     end
 end
 
@@ -168,10 +168,10 @@ end
 pub function assert_gte(actual, expected, msg: string) -> int
     if actual >= expected
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         say f"  [FAIL] {msg} ({actual} not >= {expected})"
-        return 0
+        return false
     end
 end
 
@@ -187,10 +187,10 @@ end
 pub function assert_lt(actual, expected, msg: string) -> int
     if actual < expected
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         say f"  [FAIL] {msg} ({actual} not < {expected})"
-        return 0
+        return false
     end
 end
 
@@ -206,10 +206,10 @@ end
 pub function assert_lte(actual, expected, msg: string) -> int
     if actual <= expected
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         say f"  [FAIL] {msg} ({actual} not <= {expected})"
-        return 0
+        return false
     end
 end
 
@@ -225,10 +225,10 @@ end
 pub function assert_ne(actual, expected, msg: string) -> int
     if actual != expected
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         say "  [FAIL] {msg} (expected not: {expected})"
-        return 0
+        return false
     end
 end
 
@@ -243,10 +243,10 @@ end
 pub function assert_not_null(val, msg: string) -> int
     if val is not null and val != 0
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         say "  [FAIL] {msg} (expected not null)"
-        return 0
+        return false
     end
 end
 
@@ -261,10 +261,10 @@ end
 pub function assert_null(val, msg: string) -> int
     if val is null or val == 0
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         say "  [FAIL] {msg} (expected null)"
-        return 0
+        return false
     end
 end
 
@@ -280,10 +280,10 @@ end
 pub function assert_str_eq(actual: string, expected: string, msg: string) -> int
     if streq(actual, expected)
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         say f"  [FAIL] {msg} (expected: \"{expected}\", got: \"{actual}\")"
-        return 0
+        return false
     end
 end
 
@@ -297,12 +297,12 @@ end
 ## ### Returns
 ## 1 when the strings differ, otherwise 0.
 pub function assert_str_ne(actual: string, expected: string, msg: string) -> int
-    if streq(actual, expected) == 0
+    if streq(actual, expected) == false
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         say f"  [FAIL] {msg} (expected not: \"{expected}\")"
-        return 0
+        return false
     end
 end
 
@@ -317,10 +317,10 @@ end
 pub function assert_true(cond: int, msg: string) -> int
     if cond
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         say "  [FAIL] {msg}"
-        return 0
+        return false
     end
 end
 
@@ -387,11 +387,11 @@ pub function runner_assert(r: TestRunner, cond: int, msg: string) -> int
     if cond
         r.passed += 1
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         r.failed += 1
         say "  [FAIL] {msg}"
-        return 0
+        return false
     end
 end
 
@@ -410,11 +410,11 @@ pub function runner_assert_eq(r: TestRunner, actual, expected, msg: string) -> i
     if actual == expected
         r.passed += 1
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         r.failed += 1
         say "  [FAIL] {msg} (expected: {expected}, got: {actual})"
-        return 0
+        return false
     end
 end
 
@@ -430,7 +430,7 @@ end
 pub function runner_assert_false(r: TestRunner, cond: int, msg: string) -> int
     let is_zero: int = 0
     if cond == 0
-        is_zero = 1
+        is_zero = true
     end
     return runner_assert(r, is_zero, msg)
 end
@@ -450,11 +450,11 @@ pub function runner_assert_ne(r: TestRunner, actual, expected, msg: string) -> i
     if actual != expected
         r.passed += 1
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         r.failed += 1
         say "  [FAIL] {msg} (expected not: {expected})"
-        return 0
+        return false
     end
 end
 
@@ -473,11 +473,11 @@ pub function runner_assert_str_eq(r: TestRunner, actual: string, expected: strin
     if streq(actual, expected)
         r.passed += 1
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         r.failed += 1
         say f"  [FAIL] {msg} (expected: \"{expected}\", got: \"{actual}\")"
-        return 0
+        return false
     end
 end
 
@@ -493,14 +493,14 @@ end
 ## 1 when the strings differ, otherwise 0.
 pub function runner_assert_str_ne(r: TestRunner, actual: string, expected: string, msg: string) -> int
     r.total += 1
-    if streq(actual, expected) == 0
+    if streq(actual, expected) == false
         r.passed += 1
         say "  [PASS] {msg}"
-        return 1
+        return true
     else
         r.failed += 1
         say f"  [FAIL] {msg} (expected not: \"{expected}\")"
-        return 0
+        return false
     end
 end
 

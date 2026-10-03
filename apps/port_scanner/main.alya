@@ -146,9 +146,9 @@ end
 function append_port(out, p)
     if p >= 1 and p <= 65535 and (p in out) == 0
         out.push(p)
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 function parse_port_spec(spec, out)
@@ -174,7 +174,7 @@ function parse_port_spec(spec, out)
                     end
                 end
             else
-                if is_numeric(tok) == 1
+                if is_numeric(tok) == true
                     added += append_port(out, int(tok))
                 end
             end
@@ -227,7 +227,7 @@ function main()
     let target = "127.0.0.1"
     let ports_arg = ""
     let range_arg = ""
-    let is_test = 0
+    let is_test = false
 
     let i = 0
     while i < arr_len(cli_args)
@@ -242,7 +242,7 @@ function main()
             range_arg = cli_args[i + 1]
             i += 1
         elif a in ["--test", "--simulate"]
-            is_test = 1
+            is_test = true
         elif a in ["-h", "--help"]
             show_usage()
             return
@@ -271,7 +271,7 @@ function main()
     end
     show_banner(target, arr_len(ports))
 
-    if is_test == 1
+    if is_test == true
         say color_yellow("[SCANNER]") + " Running simulated scan (smoke test mode)..."
         let mock_results = []
         mock_results.push(ScanResult(80, PortState.Open, 1, get_service_name(80)))

@@ -83,9 +83,9 @@ end
 ## 1 when running on Linux, else 0.
 pub function is_linux() -> int
     if target_os() == "linux"
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Returns 1 when running on macOS, else 0.
@@ -97,9 +97,9 @@ end
 ## 1 when running on macOS, else 0.
 pub function is_macos() -> int
     if target_os() == "macos"
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Returns 1 when running on a POSIX system (non-Windows), else 0.
@@ -111,9 +111,9 @@ end
 ## 1 when running on a POSIX system (non-Windows), else 0.
 pub function is_posix() -> int
     if target_os() != "windows"
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Returns 1 when running on Windows, else 0.
@@ -125,9 +125,9 @@ end
 ## 1 when running on Windows, else 0.
 pub function is_windows() -> int
     if target_os() == "windows"
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Returns the target OS name.
@@ -194,9 +194,9 @@ end
 ## 1 when the variable is set and non-empty, else 0.
 pub function has_env(key: string) -> int
     if len(get_env(key)) > 0
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 # --- Process & Execution ---
@@ -308,10 +308,10 @@ pub function has_arg(flag: string) -> int
     let a: string[] = args()
     for arg in a
         if arg == flag
-            return 1
+            return true
         end
     end
-    return 0
+    return false
 end
 
 # --- Filesystem & Platform Helpers ---

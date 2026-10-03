@@ -37,7 +37,7 @@ end
 function SafeBuffer.allocate(self: SafeBuffer, bytes: usize) -> int
     let raw_p = malloc(bytes)
     if raw_p == null
-        return 0
+        return false
     end
     self.desc = NativeBufferDesc {
         buffer_ptr: raw_p,
@@ -45,7 +45,7 @@ function SafeBuffer.allocate(self: SafeBuffer, bytes: usize) -> int
         flags: 0
     }
     self.owned = 1
-    return 1
+    return true
 end
 
 function SafeBuffer.release(self: SafeBuffer)

@@ -49,10 +49,10 @@ end
 function is_body_collision(x, y, body)
     for b in body
         if b.x == x and b.y == y
-            return 1
+            return true
         end
     end
-    return 0
+    return false
 end
 
 function spawn_food(width, height, body)
@@ -60,7 +60,7 @@ function spawn_food(width, height, body)
     while tries < 100
         let fx = r::int(1, width - 2)
         let fy = r::int(1, height - 2)
-        if is_body_collision(fx, fy, body) == 0
+        if is_body_collision(fx, fy, body) == false
             return Point(fx, fy)
         end
         tries += 1
@@ -70,7 +70,7 @@ end
 
 function show_header(score, moves, is_ai)
     let mode_str = ui::color_green("MANUAL")
-    if is_ai == 1
+    if is_ai == true
         mode_str = ui::color_yellow("AI AUTO")
     end
 
@@ -102,7 +102,7 @@ function draw_board(width, height, body, food, head_dx, head_dy)
                 row = row + ui::color_bright_red("★ ")
             elif x == head.x and y == head.y
                 row = row + ui::color_bright_yellow("● ")
-            elif is_body_collision(x, y, body) == 1
+            elif is_body_collision(x, y, body) == true
                 row = row + ui::color_bright_green("■ ")
             else
                 row = row + "  "
@@ -151,7 +151,7 @@ function count_free_neighbors(body, x, y)
         let tx = x + int(td.x)
         let ty = y + int(td.y)
         if tx >= 1 and ty >= 1
-            if is_body_collision(tx, ty, body) == 0
+            if is_body_collision(tx, ty, body) == false
                 count += 1
             end
         end
@@ -171,7 +171,7 @@ function choose_ai_move(width, height, body, food, cur_dx, cur_dy)
     let best_score = 999999
     let best_dx = cur_dx
     let best_dy = cur_dy
-    let found = 0
+    let found = false
 
     for d in dirs
         # Avoid reversing immediately
@@ -181,7 +181,7 @@ function choose_ai_move(width, height, body, food, cur_dx, cur_dy)
             # Check bounds
             if nx >= 1 and nx < width - 1 and ny >= 1 and ny < height - 1
                 # Check body collision
-                if is_body_collision(nx, ny, body) == 0
+                if is_body_collision(nx, ny, body) == false
                     let neighbors = count_free_neighbors(body, nx, ny)
                     let penalty = 0
                     if neighbors == 0 and arr_len(body) > 3
@@ -192,14 +192,14 @@ function choose_ai_move(width, height, body, food, cur_dx, cur_dy)
                         best_score = score
                         best_dx = d.x
                         best_dy = d.y
-                        found = 1
+                        found = true
                     end
                 end
             end
         end
     end
 
-    if found == 1
+    if found == true
         return best_dx, best_dy
     end
     # Fallback to current direction if no safe move found
@@ -209,7 +209,7 @@ end
 function advance_snake(body, new_head, grow)
     let new_body = [new_head]
     let limit = arr_len(body)
-    if grow == 0
+    if grow == false
         limit = limit - 1
     end
     let i = 0
@@ -223,15 +223,15 @@ end
 function main()
     console_utf8()
     let cli_args = args()
-    let is_ai = 0
-    let is_test = 0
+    let is_ai = false
+    let is_test = false
 
     for a in cli_args
         if a in ["--demo", "--ai"]
-            is_ai = 1
+            is_ai = true
         elif a in ["--test", "--simulate"]
-            is_test = 1
-            is_ai = 1
+            is_test = true
+            is_ai = true
         end
     end
 
@@ -249,7 +249,7 @@ function main()
     let score = 0
     let moves = 0
 
-    if is_test == 1
+    if is_test == true
         say ui::color_yellow("[SNAKE]") + " Running automated simulation test..."
         # Simulate 25 game loop steps
         let step = 0
@@ -281,14 +281,14 @@ function main()
     say ui::color_bright_green("Welcome to Alya Snake!")
     say ""
 
-    let is_ai_completed = 0
+    let is_ai_completed = false
     let running = 1
-    while running == 1
+    while running == true
         console_clear()
         show_header(score, moves, is_ai)
         draw_board(width, height, body, food, dx, dy)
 
-        if is_ai == 1
+        if is_ai == true
             sleep(140)
             let next_dx, next_dy = choose_ai_move(width, height, body, food, dx, dy)
             dx = next_dx
@@ -312,7 +312,7 @@ function main()
         end
 
         # Check self collision
-        if is_body_collision(new_head.x, new_head.y, body) == 1
+        if is_body_collision(new_head.x, new_head.y, body) == true
             running = 0
             break
         end
@@ -329,8 +329,8 @@ function main()
         body = advance_snake(body, new_head, grow)
         moves += 1
 
-        if is_ai == 1 and moves >= 100
-            is_ai_completed = 1
+        if is_ai == true and moves >= 100
+            is_ai_completed = true
             break
         end
     end
@@ -339,7 +339,7 @@ function main()
     show_header(score, moves, is_ai)
     draw_board(width, height, body, food, dx, dy)
     say ""
-    if is_ai_completed == 1
+    if is_ai_completed == true
         say ui::color_bright_green("  ✨ AI DEMONSTRATION COMPLETED! ✨")
         say ui::color_yellow("  AI demonstration completed 100 moves successfully!")
     else

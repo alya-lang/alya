@@ -108,7 +108,7 @@ function build_response(status_code, content_type_str, body, keep_alive)
     resp = resp + "Content-Type: " + content_type_str + "\r\n"
     resp = resp + "Content-Length: " + str(blen) + "\r\n"
     resp = resp + "Server: Alya-Native-Server/0.1.0\r\n"
-    if keep_alive == 1
+    if keep_alive == true
         resp = resp + "Connection: keep-alive\r\n"
         resp = resp + "Keep-Alive: timeout=5, max=1000\r\n\r\n"
     else
@@ -175,10 +175,10 @@ function handle_client(client_sock, start_time, quiet, html_content)
                     # Check for static file in public directory
                     let pub_path = "public" + req_path
                     let app_pub_path = "apps/http_server/public" + req_path
-                    if file_exists(pub_path) == 1
+                    if file_exists(pub_path) == true
                         ctype = m::content_type(req_path, "application/octet-stream")
                         body = read_file(pub_path)
-                    elif file_exists(app_pub_path) == 1
+                    elif file_exists(app_pub_path) == true
                         ctype = m::content_type(req_path, "application/octet-stream")
                         body = read_file(app_pub_path)
                     else
@@ -192,7 +192,7 @@ function handle_client(client_sock, start_time, quiet, html_content)
         let resp = build_response(status, ctype, body, keep_alive)
         tcp_send(client_sock, resp)
 
-        if quiet == 0
+        if quiet == false
             let stat_color = ui::color_green(str(status))
             if status >= 400
                 stat_color = ui::color_red(str(status))
@@ -200,7 +200,7 @@ function handle_client(client_sock, start_time, quiet, html_content)
             say ui::color_cyan("[HTTP]") + " " + ui::style_bold(req_method) + " " + req_path + " -> " + stat_color + " (" + str(len(body)) + " bytes)"
         end
 
-        if keep_alive == 0
+        if keep_alive == false
             break
         end
     end
@@ -235,9 +235,9 @@ function main()
     # Preload public/index.html in memory for maximum performance
     let default_html = "<!DOCTYPE html><html><head><title>Alya HTTP Server</title></head><body><h1>⚡ Alya HTTP Server</h1><p>Server running with Keep-Alive & Worker Pool!</p></body></html>"
     let file_path = "apps/http_server/public/index.html"
-    if file_exists(file_path) == 1
+    if file_exists(file_path) == true
         default_html = read_file(file_path)
-    elif file_exists("public/index.html") == 1
+    elif file_exists("public/index.html") == true
         default_html = read_file("public/index.html")
     end
 
@@ -246,7 +246,7 @@ function main()
     say ui::box_render(ui::box_new(banner_info, "⚡ ALYA NATIVE HTTP SERVER ⚡", "rounded"))
     say ""
 
-    if cfg.smoke_test == 1
+    if cfg.smoke_test == true
         say ui::color_yellow("[SERVER]") + " Single-run test mode active. Port verified."
         tcp_close(server)
         say ui::color_green("[SERVER]") + " Server shutdown cleanly."

@@ -367,7 +367,7 @@ pub function channel_close(ch: Channel) -> int
     mutex_lock(ch.lock)
     ch.closed = 1
     mutex_unlock(ch.lock)
-    return 1
+    return true
 end
 
 ## Closes the channel and releases its mutex resources.
@@ -448,7 +448,7 @@ pub function channel_recv(ch: Channel, timeout_ms: int = 5000)
             return val
         end
         mutex_unlock(ch.lock)
-        if is_closed == 1
+        if is_closed == true
             return null
         end
         if timeout_ms > 0 and (clock_ms() - start) >= timeout_ms
@@ -470,12 +470,12 @@ end
 ## ### Returns
 ## 1 on success, 0 when the channel is closed.
 pub function channel_send(ch: Channel, val) -> int
-    if ch.rendezvous == 1
+    if ch.rendezvous == true
         while 1
             mutex_lock(ch.lock)
-            if ch.closed == 1
+            if ch.closed == true
                 mutex_unlock(ch.lock)
-                return 0
+                return false
             end
             let head: int = ch.q[0]
             let total: int = arr_len(ch.q)
@@ -500,9 +500,9 @@ pub function channel_send(ch: Channel, val) -> int
                 let rem: int = final_total - final_head
                 mutex_unlock(ch.lock)
                 if was_closed == 1 and rem > 0
-                    return 0
+                    return false
                 end
-                return 1
+                return true
             end
             mutex_unlock(ch.lock)
             __native_fiber_yield()
@@ -512,9 +512,9 @@ pub function channel_send(ch: Channel, val) -> int
 
     while 1
         mutex_lock(ch.lock)
-        if ch.closed == 1
+        if ch.closed == true
             mutex_unlock(ch.lock)
-            return 0
+            return false
         end
         let head: int = ch.q[0]
         let total: int = arr_len(ch.q)
@@ -529,10 +529,10 @@ pub function channel_send(ch: Channel, val) -> int
         else
             ch.q.push(val)
             mutex_unlock(ch.lock)
-            return 1
+            return true
         end
     end
-    return 0
+    return false
 end
 
 ## Returns the number of items currently waiting in the channel.
@@ -600,13 +600,13 @@ end
 ## 1 on success, 0 when full, rendezvous, or closed.
 pub function channel_try_send(ch: Channel, val) -> int
     mutex_lock(ch.lock)
-    if ch.closed == 1
+    if ch.closed == true
         mutex_unlock(ch.lock)
-        return 0
+        return false
     end
-    if ch.rendezvous == 1
+    if ch.rendezvous == true
         mutex_unlock(ch.lock)
-        return 0
+        return false
     end
     let head: int = ch.q[0]
     let total: int = arr_len(ch.q)
@@ -616,11 +616,11 @@ pub function channel_try_send(ch: Channel, val) -> int
     end
     if ch.capacity > 0 and sz >= ch.capacity
         mutex_unlock(ch.lock)
-        return 0
+        return false
     end
     ch.q.push(val)
     mutex_unlock(ch.lock)
-    return 1
+    return true
 end
 
 # --- WaitGroup ---
@@ -681,14 +681,14 @@ pub function wait_group_wait(wg: WaitGroup, timeout_ms: int = 0) -> int
         let cur: int = wg.count
         mutex_unlock(wg.lock)
         if cur <= 0
-            return 1
+            return true
         end
         if timeout_ms > 0 and (clock_ms() - start) >= timeout_ms
-            return 0
+            return false
         end
         sleep(2)
     end
-    return 1
+    return true
 end
 
 ## Increments the WaitGroup counter by delta (default: 1).
@@ -771,13 +771,13 @@ end
 ## 1 on the first call, 0 on later calls.
 pub function once_check(o: Once) -> int
     mutex_lock(o.lock)
-    if o.done == 0
-        o.done = 1
+    if o.done == false
+        o.done = true
         mutex_unlock(o.lock)
-        return 1
+        return true
     end
     mutex_unlock(o.lock)
-    return 0
+    return false
 end
 
 ## Frees the Once primitive mutex resources.
@@ -873,18 +873,18 @@ pub function rwlock_read_lock(rw: RwLock, timeout_ms: int = 5000) -> int
     let start: int = clock_ms()
     while 1
         mutex_lock(rw.lock)
-        if rw.writing == 0
+        if rw.writing == false
             rw.readers += 1
             mutex_unlock(rw.lock)
-            return 1
+            return true
         end
         mutex_unlock(rw.lock)
         if timeout_ms > 0 and (clock_ms() - start) >= timeout_ms
-            return 0
+            return false
         end
         sleep(1)
     end
-    return 0
+    return false
 end
 
 ## Releases a shared read lock, flooring the reader count at zero.
@@ -914,18 +914,18 @@ pub function rwlock_write_lock(rw: RwLock, timeout_ms: int = 5000) -> int
     let start: int = clock_ms()
     while 1
         mutex_lock(rw.lock)
-        if rw.writing == 0 and rw.readers == 0
+        if rw.writing == false and rw.readers == false
             rw.writing = 1
             mutex_unlock(rw.lock)
-            return 1
+            return true
         end
         mutex_unlock(rw.lock)
         if timeout_ms > 0 and (clock_ms() - start) >= timeout_ms
-            return 0
+            return false
         end
         sleep(1)
     end
-    return 0
+    return false
 end
 
 ## Releases an exclusive write lock.

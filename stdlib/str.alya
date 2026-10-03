@@ -15,9 +15,9 @@
 ## 1 when `sub` is found in `s`, otherwise 0.
 pub function contains_str(s: string, sub: string) -> int
     if sub in s
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Counts non-overlapping occurrences of a substring.
@@ -59,15 +59,15 @@ pub function ends_with(s: string, suffix: string) -> int
     let slen: int = len(s)
     let suflen: int = len(suffix)
     if suflen > slen
-        return 0
+        return false
     end
     if suflen == 0
-        return 1
+        return true
     end
     if substring(s, slen - suflen, suflen) == suffix
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Returns the first index of a substring, or -1 when absent.
@@ -108,7 +108,7 @@ end
 pub function is_alphabetic(s: string) -> int
     let slen: int = len(s)
     if slen == 0
-        return 0
+        return false
     end
     let i: int = 0
     let c: int = 0
@@ -119,11 +119,11 @@ pub function is_alphabetic(s: string) -> int
         is_lower_c = (c >= 97 and c <= 122)
         is_upper_c = (c >= 65 and c <= 90)
         if not is_lower_c and not is_upper_c
-            return 0
+            return false
         end
         i += 1
     end
-    return 1
+    return true
 end
 
 ## Returns 1 when the string holds only ASCII letters or digits.
@@ -136,7 +136,7 @@ end
 pub function is_alphanumeric(s: string) -> int
     let slen: int = len(s)
     if slen == 0
-        return 0
+        return false
     end
     let i: int = 0
     let c: int = 0
@@ -149,11 +149,11 @@ pub function is_alphanumeric(s: string) -> int
         is_lower_c = (c >= 97 and c <= 122)
         is_upper_c = (c >= 65 and c <= 90)
         if not is_digit_c and not is_lower_c and not is_upper_c
-            return 0
+            return false
         end
         i += 1
     end
-    return 1
+    return true
 end
 
 ## Returns 1 when the string is empty or holds only whitespace.
@@ -166,18 +166,18 @@ end
 pub function is_blank(s: string) -> int
     let slen: int = len(s)
     if slen == 0
-        return 1
+        return true
     end
     let i: int = 0
     let ch: string = ""
     while i < slen
         ch = char_at(s, i)
         if ch != " " and ch != "\t" and ch != "\r" and ch != "\n"
-            return 0
+            return false
         end
         i += 1
     end
-    return 1
+    return true
 end
 
 ## Returns 1 when the string is null or has zero length.
@@ -189,9 +189,9 @@ end
 ## 1 when null or zero-length, otherwise 0.
 pub function is_empty(s: string) -> int
     if s is null or len(s) == 0
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Returns 1 when the string holds only lowercase ASCII letters.
@@ -204,18 +204,18 @@ end
 pub function is_lower(s: string) -> int
     let slen: int = len(s)
     if slen == 0
-        return 0
+        return false
     end
     let i: int = 0
     let c: int = 0
     while i < slen
         c = ord(char_at(s, i))
         if c < 97 or c > 122
-            return 0
+            return false
         end
         i += 1
     end
-    return 1
+    return true
 end
 
 ## Returns 1 when the string holds only ASCII digits.
@@ -228,18 +228,18 @@ end
 pub function is_numeric(s: string) -> int
     let slen: int = len(s)
     if slen == 0
-        return 0
+        return false
     end
     let i: int = 0
     let c: int = 0
     while i < slen
         c = ord(char_at(s, i))
         if c < 48 or c > 57
-            return 0
+            return false
         end
         i += 1
     end
-    return 1
+    return true
 end
 
 ## Returns 1 when the string holds only uppercase ASCII letters.
@@ -252,18 +252,18 @@ end
 pub function is_upper(s: string) -> int
     let slen: int = len(s)
     if slen == 0
-        return 0
+        return false
     end
     let i: int = 0
     let c: int = 0
     while i < slen
         c = ord(char_at(s, i))
         if c < 65 or c > 90
-            return 0
+            return false
         end
         i += 1
     end
-    return 1
+    return true
 end
 
 ## Returns the last index of a substring, or -1 when absent.
@@ -305,15 +305,15 @@ pub function starts_with(s: string, prefix: string) -> int
     let plen: int = len(prefix)
     let slen: int = len(s)
     if plen > slen
-        return 0
+        return false
     end
     if plen == 0
-        return 1
+        return true
     end
     if substring(s, 0, plen) == prefix
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 # --- Case Conversion ---
@@ -363,11 +363,11 @@ pub function title_case(s: string) -> string
             is 32, 9, 10, 13 then is_space = 1
             else is_space = 0
         end
-        if is_space == 1
+        if is_space == true
             res += ch
             capitalize_next = 1
         else
-            if capitalize_next == 1
+            if capitalize_next == true
                 res += upper(ch)
                 capitalize_next = 0
             else
@@ -633,11 +633,11 @@ pub function slugify(s: string) -> string
             else is_sep = 0
         end
 
-        if is_upper_c == 1
+        if is_upper_c == true
             res += lower(ch)
             last_was_dash = 0
         else
-            if is_lower_c == 1 or is_digit_c == 1
+            if is_lower_c == true or is_digit_c == true
                 res += ch
                 last_was_dash = 0
             else
@@ -766,7 +766,7 @@ end
 pub function is_hex(s: string) -> int
     let slen: int = len(s)
     if slen == 0 or slen % 2 != 0
-        return 0
+        return false
     end
     let i: int = 0
     let c: int = 0
@@ -779,11 +779,11 @@ pub function is_hex(s: string) -> int
         is_l = (c >= 97 and c <= 102)
         is_u = (c >= 65 and c <= 70)
         if not is_d and not is_l and not is_u
-            return 0
+            return false
         end
         i += 1
     end
-    return 1
+    return true
 end
 
 # --- Byte Arrays (binary-safe integer arrays) ---
@@ -869,16 +869,16 @@ end
 pub function bytes_equal(a, b) -> int
     let n: int = len(a)
     if n != len(b)
-        return 0
+        return false
     end
     let i: int = 0
     while i < n
         if bit_and(a[i], 255) != bit_and(b[i], 255)
-            return 0
+            return false
         end
         i += 1
     end
-    return 1
+    return true
 end
 
 # --- Base64 Encoding ---
@@ -1006,15 +1006,15 @@ pub function base64_encode_bytes(bytes: int[]) -> string
         b0 = bytes[i]
         b1 = 0
         b2 = 0
-        has_b1 = 0
-        has_b2 = 0
+        has_b1 = false
+        has_b2 = false
         if i + 1 < blen
             b1 = bytes[i + 1]
-            has_b1 = 1
+            has_b1 = true
         end
         if i + 2 < blen
             b2 = bytes[i + 2]
-            has_b2 = 1
+            has_b2 = true
         end
 
         idx0 = bit_and(bit_shr(b0, 2), 63)
@@ -1024,12 +1024,12 @@ pub function base64_encode_bytes(bytes: int[]) -> string
 
         res = res + char_at(b64_chars, idx0)
         res = res + char_at(b64_chars, idx1)
-        if has_b1 == 1
+        if has_b1 == true
             res = res + char_at(b64_chars, idx2)
         else
             res = res + "="
         end
-        if has_b2 == 1
+        if has_b2 == true
             res = res + char_at(b64_chars, idx3)
         else
             res = res + "="
@@ -1049,7 +1049,7 @@ end
 pub function is_base64(s: string) -> int
     let slen: int = len(s)
     if slen == 0 or slen % 4 != 0
-        return 0
+        return false
     end
     let i: int = 0
     let c: int = 0
@@ -1066,11 +1066,11 @@ pub function is_base64(s: string) -> int
         is_plus_slash = (c == 43 or c == 47)
         is_pad = (c == 61)
         if not is_u and not is_l and not is_d and not is_plus_slash and not is_pad
-            return 0
+            return false
         end
         i += 1
     end
-    return 1
+    return true
 end
 
 # --- Legacy Aliases ---
