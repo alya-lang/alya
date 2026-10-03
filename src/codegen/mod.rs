@@ -1440,11 +1440,12 @@ impl CodeGen {
 
     /// Return-tag protocol qualification (Phase 2b, alya-lang/alya#39):
     /// a function qualifies when every `return` leaves `(value, tag)` —
-    /// a tag-carrying expression or an int/string/float literal
-    /// (literals materialize at return) — AND every path returns (a
-    /// fallthrough exit would leave a stale tag). Nested function bodies
-    /// own their returns and are skipped. Anything else disqualifies
-    /// (conservative: callers keep legacy behavior).
+    /// a tag-carrying expression or an int/string/float/null literal
+    /// (literals materialize at return; null materializes KIND_UNKNOWN)
+    /// — AND every path returns (a fallthrough exit would leave a
+    /// stale tag). Nested function bodies own their returns and are
+    /// skipped. Anything else disqualifies (conservative: callers keep
+    /// legacy behavior).
     fn fn_returns_all_tagged(
         body: &[Stmt],
         vars: &std::collections::HashMap<String, VarType>,
@@ -1455,7 +1456,10 @@ impl CodeGen {
                     Stmt::Return(None) => return false,
                     Stmt::Return(Some(e)) => {
                         if !(analysis::is_tag_carrying_read(e, vars)
-                            || matches!(e, &Expr::Number(_) | &Expr::String(_) | &Expr::Float(_)))
+                            || matches!(
+                                e,
+                                &Expr::Number(_) | &Expr::String(_) | &Expr::Float(_) | &Expr::Null
+                            ))
                         {
                             return false;
                         }
@@ -2628,6 +2632,39 @@ impl CodeGen {
             }
             _ => false,
         }
+    }
+
+    /// Emits an RC retain guarded by the value-kind tag fresh in the tag
+    /// register (x64 `%edx`, ARM64 `w1`): int/float scalars need no retain,
+    /// and retaining a large 8-aligned int faults inside `fn_rc_retain`
+    /// (it passes the pointer guards and reads `-16(ptr)`), while heap
+    /// kinds and unknown keep the retain so aliases survive container
+    /// drops. Call only when `is_tag_carrying_read(value)` holds (the tag
+    /// is fresh); otherwise retain unconditionally.
+    pub(crate) fn emit_tag_guarded_retain(&mut self) {
+        let skip = self.ctx.next_label();
+        match self.arch {
+            Architecture::X64 => {
+                self.output.push_str(&format!(
+                    "    cmpl ${}, %edx\n    je {}\n    cmpl ${}, %edx\n    je {}\n",
+                    kinds::KIND_INT,
+                    skip,
+                    kinds::KIND_FLOAT,
+                    skip
+                ));
+            }
+            Architecture::ARM64 => {
+                self.output.push_str(&format!(
+                    "    cmp w1, #{}\n    b.eq {}\n    cmp w1, #{}\n    b.eq {}\n",
+                    kinds::KIND_INT,
+                    skip,
+                    kinds::KIND_FLOAT,
+                    skip
+                ));
+            }
+        }
+        arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+        self.output.push_str(&format!("{}:\n", skip));
     }
 
     /// Finds a free (non-method) function with the given bare name.

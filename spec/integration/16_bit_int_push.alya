@@ -1,0 +1,28 @@
+# ==============================================================================
+# Alya Integration Fixture 16 (entry): pushing computed u32 values must not
+# retain them as heap pointers.
+# Distilled from: Lib/crypto SHA-256 (`bit_shl(128, 24)` words pushed into
+# the message schedule faulted with SIGSEGV).
+# Guards: bitwise builtins (`bit_and/or/xor/shl/shr/not`) are int->int
+# word ops, so `let`-bound results earn `var_is_int` and stores skip
+# `rc_retain` (which faults on large 8-aligned ints by reading -16(ptr)).
+# ==============================================================================
+
+function main()
+    let w = []
+    let s = bit_shl(128, 24)
+    assert s == 2147483648
+    w.push(s)
+    assert len(w) == 1
+    assert w[0] == 2147483648
+
+    let a = bit_and(4294967295, 65535)
+    let b = bit_or(a, bit_shl(1, 31))
+    w.push(b)
+    assert len(w) == 2
+    assert w[1] == 2147549183
+
+    say "integration 16_bit_int_push: OK"
+end
+
+main()

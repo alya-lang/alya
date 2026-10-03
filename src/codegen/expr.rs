@@ -1276,13 +1276,45 @@ impl CodeGen {
                     };
                     self.ctx.stack_offset += temp_offset;
                     self.generate_expression(&args[1]);
+                    // Dynamic kind propagation (double-trim crash): when the
+                    // pushed value is a tag-carrying read with a statically
+                    // unknown kind, the runtime tag (x64 %edx, ARM64 w1) is
+                    // exact while the static `value_kind_tag` is UNKNOWN(0).
+                    // Storing 0 poisons downstream readers: they get tag 0,
+                    // the retain guard keeps the retain, and retaining a
+                    // large 8-aligned int faults. Spill the tag across the
+                    // retain/str_store calls (both clobber the tag reg) and
+                    // use it as the push kind so copies preserve exact kinds.
+                    let push_is_dynamic_tag = is_tag_carrying_read(&args[1], &self.ctx.variables)
+                        && value_kind_tag(&args[1], &self.ctx.variables) == KIND_UNKNOWN;
+                    if push_is_dynamic_tag {
+                        match self.arch {
+                            Architecture::X64 => {
+                                // Spill tag (push %rdx preserves full %edx value).
+                                self.output.push_str("    push %rdx\n");
+                                self.ctx.stack_offset += 8;
+                            }
+                            Architecture::ARM64 => {
+                                // Spill full x1 (tag zero-extended in w1).
+                                self.output.push_str("    str x1, [sp, #-16]!\n");
+                                self.ctx.stack_offset += 16;
+                            }
+                        }
+                    }
                     if self.store_value_needs_retain(&args[1]) {
-                        arch::emit_rc_retain(
-                            &mut self.output,
-                            self.arch,
-                            self.ctx.stack_offset,
-                            self.os,
-                        );
+                        if is_tag_carrying_read(&args[1], &self.ctx.variables) {
+                            // The element tag is fresh: skip the retain for
+                            // int/float scalars (retaining a large 8-aligned
+                            // int faults), keep it for heap/unknown kinds.
+                            self.emit_tag_guarded_retain();
+                        } else {
+                            arch::emit_rc_retain(
+                                &mut self.output,
+                                self.arch,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                        }
                     }
                     // B1: named stores outlive the wrapping ring buffer.
                     if string_store_needs_dup(&args[1], &self.ctx.variables) {
@@ -1292,6 +1324,62 @@ impl CodeGen {
                             self.ctx.stack_offset,
                             self.os,
                         );
+                    }
+                    if push_is_dynamic_tag {
+                        // Stack: [array_temp, tag_spill] (top=tag). Pop tag
+                        // to kind reg, array to its reg, value already in
+                        // the return reg (retain/str_store preserve/return it).
+                        match self.arch {
+                            Architecture::X64 => {
+                                if matches!(self.os, OperatingSystem::Windows) {
+                                    self.ctx.stack_offset -= temp_offset + 8;
+                                    let padding = if self.ctx.stack_offset % 16 == 0 {
+                                        32
+                                    } else {
+                                        40
+                                    };
+                                    self.output.push_str("    pop %r8\n");
+                                    self.output.push_str("    pop %rcx\n");
+                                    self.output.push_str("    mov %rax, %rdx\n");
+                                    // Kind tags are 0..6; mask to a byte in case the
+                                    // upper bits of the spilled %rdx were garbage.
+                                    self.output.push_str("    and $255, %r8\n");
+                                    self.output
+                                        .push_str(&format!("    sub ${}, %rsp\n", padding));
+                                    self.output.push_str("    call alya_array_push\n");
+                                    self.output
+                                        .push_str(&format!("    add ${}, %rsp\n", padding));
+                                } else {
+                                    self.ctx.stack_offset -= temp_offset + 8;
+                                    let misaligned = self.ctx.stack_offset % 16 != 0;
+                                    self.output.push_str("    pop %rdx\n");
+                                    self.output.push_str("    pop %rdi\n");
+                                    self.output.push_str("    mov %rax, %rsi\n");
+                                    self.output.push_str("    and $255, %rdx\n");
+                                    if misaligned {
+                                        self.output.push_str("    sub $8, %rsp\n");
+                                    }
+                                    self.output.push_str("    call alya_array_push\n");
+                                    if misaligned {
+                                        self.output.push_str("    add $8, %rsp\n");
+                                    }
+                                }
+                            }
+                            Architecture::ARM64 => {
+                                // x0=value (preserved), stack top=tag, then array.
+                                // Pop tag to x2, array to x9 (x0 holds value
+                                // and must survive), then shuffle to the
+                                // call shape (x0=array, x1=value, x2=kind).
+                                self.ctx.stack_offset -= temp_offset + 16;
+                                self.output.push_str("    ldr x2, [sp], #16\n");
+                                self.output.push_str("    ldr x9, [sp], #16\n");
+                                self.output.push_str("    mov x1, x0\n");
+                                self.output.push_str("    mov x0, x9\n");
+                                self.output.push_str("    and x2, x2, #0xff\n");
+                                self.output.push_str("    bl alya_array_push\n");
+                            }
+                        }
+                        return;
                     }
                     self.ctx.stack_offset -= temp_offset;
                     let push_kind = value_kind_tag(&args[1], &self.ctx.variables);

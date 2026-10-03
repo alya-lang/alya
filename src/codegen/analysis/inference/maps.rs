@@ -23,9 +23,9 @@ fn expr_is_definitely_map(
                     | "set_difference"
                     | "map_clone"
                     | "map_merge"
-                    | "map_from_entries"
-                    | "json_parse"
-                    | "json_decode"
+                    | "map_from_entries" // NOTE: `json_parse` is deliberately absent: it forwards
+                                         // to the dynamic JSON parser (any value kind), so a static
+                                         // map claim miscompiles array/string results.
             ) || known_maps.contains(&format!("fn_ret_map:{}", name))
                 || known_maps.contains(&format!("fn_ret_map:{}", bare))
         }

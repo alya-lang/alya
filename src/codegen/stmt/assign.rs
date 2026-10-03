@@ -2,8 +2,8 @@ use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     escape_string, is_array_expr, is_float_array, is_float_expr, is_map_expr, is_null_expr,
-    is_number_expr, is_string_array, is_string_expr, is_unsigned_expr, string_store_needs_dup,
-    struct_field_markers_mixed_vars, value_kind_tag,
+    is_number_expr, is_string_array, is_string_expr, is_tag_carrying_read, is_unsigned_expr,
+    string_store_needs_dup, struct_field_markers_mixed_vars, value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -739,6 +739,22 @@ impl CodeGen {
                             .variables
                             .insert(format!("var_is_int:{}", name), VarType::Number(0));
                     }
+                    // NOTE: no clearing here (interim): clearing a stale
+                    // int fact makes later `push(name)` retain a dynamic
+                    // int and fault; proper fix is local tag spill so
+                    // dynamic locals guard their retain at runtime.
+                    // Call-bound marker for `say`: `let v = F(...)` with a
+                    // dynamically-typed call result needs guarded print
+                    // (null/map dispatch), while other Number dynamics
+                    // (e.g. int loop vars, where 0 must print as 0 not
+                    // null) keep the string/int path.
+                    if matches!(value, Expr::Call { .. }) {
+                        self.ctx
+                            .variables
+                            .insert(format!("call_bound:{}", name), VarType::Number(0));
+                    } else {
+                        self.ctx.variables.remove(&format!("call_bound:{}", name));
+                    }
                     // Unsigned marker for u64-family annotations (B4).
                     if matches!(
                         type_ann,
@@ -1290,10 +1306,34 @@ impl CodeGen {
                                     offset,
                                 },
                             );
+                            // Struct rebinding voids any stale int fact.
+                            self.ctx.variables.remove(&format!("var_is_int:{}", name));
                         } else {
                             self.ctx
                                 .variables
                                 .insert(name.clone(), VarType::Number(offset));
+                            // Maintain the exact int fact across `x = ...`
+                            // (mirrors `let`): proven-int RHS keeps the
+                            // marker so later `push(x)` skips `rc_retain`
+                            // (which faults on large 8-aligned ints).
+                            // NOTE (interim): no clearing of stale markers;
+                            // clearing makes dynamic rebinds retain and
+                            // fault; proper fix is local tag spill.
+                            if matches!(value, Expr::Number(_))
+                                || is_number_expr(value, &self.ctx.variables)
+                            {
+                                self.ctx
+                                    .variables
+                                    .insert(format!("var_is_int:{}", name), VarType::Number(0));
+                            }
+                            // Call-bound marker for `say` (see `let`).
+                            if matches!(value, Expr::Call { .. }) {
+                                self.ctx
+                                    .variables
+                                    .insert(format!("call_bound:{}", name), VarType::Number(0));
+                            } else {
+                                self.ctx.variables.remove(&format!("call_bound:{}", name));
+                            }
                         }
                     }
                 }
@@ -1496,12 +1536,19 @@ impl CodeGen {
             for arg in actual_args.iter() {
                 self.generate_expression(arg);
                 if std::ptr::eq(*arg, value) && self.store_value_needs_retain(value) {
-                    arch::emit_rc_retain(
-                        &mut self.output,
-                        self.arch,
-                        self.ctx.stack_offset,
-                        self.os,
-                    );
+                    if is_tag_carrying_read(value, &self.ctx.variables) {
+                        // The value tag is fresh: skip the retain for
+                        // int/float scalars (retaining a large 8-aligned
+                        // int faults), keep it for heap/unknown kinds.
+                        self.emit_tag_guarded_retain();
+                    } else {
+                        arch::emit_rc_retain(
+                            &mut self.output,
+                            self.arch,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    }
                 }
                 // B1: named stores outlive the wrapping ring buffer.
                 if std::ptr::eq(*arg, value) && string_store_needs_dup(value, &self.ctx.variables) {

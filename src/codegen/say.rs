@@ -615,9 +615,33 @@ impl CodeGen {
                                 self.output.push('\n');
                                 return;
                             }
-                            // Statically-unknown dynamics (e.g. map reads with
-                            // variable keys) are recorded as Number and would
-                            // print string pointers as integers. Classify at
+                            // Statically-unknown dynamics are recorded as
+                            // Number. Call-bound ones (`let v = F(...)`
+                            // with a dynamically-typed call result, e.g.
+                            // json_parse which returns any JSON type) need
+                            // the same guarded print as Map-typed dynamics
+                            // (null/map/string/small-int dispatch); a
+                            // string-vs-int check alone prints null as 0
+                            // and maps as pointers. Other Number dynamics
+                            // (e.g. int loop vars, where 0 must print as
+                            // 0 not null) keep the string/int path.
+                            if self
+                                .ctx
+                                .variables
+                                .contains_key(&format!("call_bound:{}", name))
+                            {
+                                arch::emit_load_var(
+                                    &mut self.output,
+                                    self.arch,
+                                    offset,
+                                    self.ctx.stack_offset,
+                                );
+                                self.emit_guarded_map_print();
+                                self.output.push('\n');
+                                return;
+                            }
+                            // Map reads with variable keys would print
+                            // string pointers as integers. Classify at
                             // runtime: real integers take the identical %lld
                             // path, so behavior is unchanged for them, except
                             // for integers that numerically fall inside the

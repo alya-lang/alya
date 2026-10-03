@@ -219,6 +219,94 @@ fn collect_tuple_returns_float(
     }
 }
 
+/// Return-position veto: a literal non-float, non-null `return`
+/// (number, string, array, map, struct) proves the function is dynamic
+/// no matter what float paths it also has. Null returns are exempt:
+/// null (0) and 0.0 share the zero bit pattern, so float-typed nulls
+/// behave identically (e.g. cache `store_get_float` stays marked while
+/// json `_parser_parse_val`, which also returns ints, is vetoed).
+/// Without this, an existential `fn_ret_flt` positive folds mixed
+/// functions to constant-float: locals bound from their calls are
+/// recorded `Float`, stores load them with `movsd` and tag them float,
+/// mangling heap/int results (e.g. json arrays read back as zeros).
+/// Mirrors the string `fn_ret_nonstr` vetoes; only adds vetoes.
+fn record_return_nonflt_vetoes(func_name: &str, body: &[Stmt], known_floats: &mut HashSet<String>) {
+    fn returns_non_float_lit(stmts: &[Stmt]) -> bool {
+        for s in stmts {
+            match s {
+                Stmt::Return(Some(e)) => {
+                    if matches!(
+                        e,
+                        Expr::Number(_)
+                            | Expr::String(_)
+                            | Expr::InterpolatedString(_)
+                            | Expr::Array(_)
+                            | Expr::Map(_)
+                            | Expr::StructInit { .. }
+                    ) {
+                        return true;
+                    }
+                }
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    if returns_non_float_lit(then_block) {
+                        return true;
+                    }
+                    if let Some(eb) = else_block {
+                        if returns_non_float_lit(eb) {
+                            return true;
+                        }
+                    }
+                }
+                Stmt::While { body, .. }
+                | Stmt::Repeat { body }
+                | Stmt::For { body, .. }
+                | Stmt::ForEach { body, .. } => {
+                    if returns_non_float_lit(body) {
+                        return true;
+                    }
+                }
+                Stmt::TryCatch {
+                    try_block,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    if returns_non_float_lit(try_block)
+                        || returns_non_float_lit(catch_block)
+                        || finally_block
+                            .as_ref()
+                            .is_some_and(|fb| returns_non_float_lit(fb))
+                    {
+                        return true;
+                    }
+                }
+                Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                    if returns_non_float_lit(std::slice::from_ref(inner)) {
+                        return true;
+                    }
+                }
+                // Nested functions own their returns; do not descend.
+                Stmt::Function { .. } => {}
+                _ => {}
+            }
+        }
+        false
+    }
+    if returns_non_float_lit(body) {
+        let bare = func_name.rsplit("::").next().unwrap_or(func_name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        known_floats.insert(format!("fn_ret_nonflt:{}", func_name));
+        // Methods must not veto bare free-function names (see strings).
+        if !func_name.contains("__") {
+            known_floats.insert(format!("fn_ret_nonflt:{}", bare));
+        }
+    }
+}
+
 fn collect_float_vars_from_stmts(
     stmts: &[Stmt],
     scope: &mut HashSet<String>,
@@ -426,6 +514,9 @@ fn collect_float_vars_from_stmts(
             } => {
                 let bare = name.rsplit("::").next().unwrap_or(name.as_str());
                 let bare = bare.rsplit("__").next().unwrap_or(bare);
+                // Return-position vetoes: a literal non-float return
+                // proves the function dynamic (see above).
+                record_return_nonflt_vetoes(name, body, known_floats);
                 let mut fn_locals = scope.clone();
                 for (idx, param) in params.iter().enumerate() {
                     if known_floats.contains(&format!("fn_param_flt:{}:{}", name, idx))
@@ -467,7 +558,11 @@ fn collect_float_vars_from_stmts(
                             | "bool"
                     )
                 });
-                if !annotated_int && stmts_return_float(body, &fn_locals) {
+                if !annotated_int
+                    && !known_floats.contains(&format!("fn_ret_nonflt:{}", name))
+                    && !known_floats.contains(&format!("fn_ret_nonflt:{}", bare))
+                    && stmts_return_float(body, &fn_locals)
+                {
                     known_floats.insert(format!("fn_ret_flt:{}", name));
                     known_floats.insert(format!("fn_ret_flt:{}", bare));
                 }
@@ -582,6 +677,13 @@ pub fn collect_known_float_vars_with_index(
     }
     let mut funcs = Vec::new();
     collect_function_defs(&program.statements, &mut funcs);
+    // Return vetoes up front (same ordering hole as the string
+    // `fn_param_nonstr` pre-seed): a positive derived early persists
+    // monotonically, so vetoes must precede the fixpoint. Only
+    // `fn_ret_nonflt:*` markers are merged here.
+    for (name, _, _, body) in &funcs {
+        record_return_nonflt_vetoes(name, body, &mut known_floats);
+    }
     for _ in 0..5 {
         let prev_len = known_floats.len();
         let mut scope = known_floats.clone();

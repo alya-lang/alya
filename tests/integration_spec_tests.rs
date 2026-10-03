@@ -38,6 +38,10 @@ fn entry_files() -> Vec<String> {
         "12_tuple_struct_return_alias.alya".to_string(),
         "13_return_index_retain.alya".to_string(),
         "14_method_delegation.alya".to_string(),
+        "15_forwarding_param_veto.alya".to_string(),
+        "16_bit_int_push.alya".to_string(),
+        "17_return_null_index_tag.alya".to_string(),
+        "18_dynamic_parse_shapes.alya".to_string(),
     ]
 }
 
@@ -405,6 +409,62 @@ fn test_integration_13_return_index_retain_output() {
     if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("integration 13_return_index_retain: OK"));
+    }
+}
+
+#[test]
+fn test_integration_15_forwarding_param_veto_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 15_forwarding_param_veto: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("15_forwarding_param_veto.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 15_forwarding_param_veto: OK"));
+    }
+}
+
+#[test]
+fn test_integration_16_bit_int_push_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 16_bit_int_push: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("16_bit_int_push.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 16_bit_int_push: OK"));
+    }
+}
+
+#[test]
+fn test_integration_17_return_null_index_tag_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 17_return_null_index_tag: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("17_return_null_index_tag.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 17_return_null_index_tag: OK"));
+    }
+}
+
+#[test]
+fn test_integration_18_dynamic_parse_shapes_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 18_dynamic_parse_shapes: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("18_dynamic_parse_shapes.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 18_dynamic_parse_shapes: OK"));
     }
 }
 

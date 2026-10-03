@@ -358,6 +358,14 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             ) {
                 return false;
             }
+            // A callee known to return a struct is never a string, so
+            // bare-suffix `fn_ret_str` hits from unrelated same-named
+            // methods (e.g. `CliContext.command` vs the `command`
+            // facade) must not apply (the struct would be copied as
+            // string bytes by `str_store`).
+            if call_returns_struct(name, vars) {
+                return false;
+            }
             vars.contains_key(&format!("fn_ret_str:{}", name))
                 || vars.contains_key(&format!("fn_ret_str:{}", bare))
                 || vars.keys().any(|k| {
@@ -544,12 +552,12 @@ pub fn is_array_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "fs_read_dir"
                     | "list_dir_recursive"
                     | "fs_list_dir_recursive"
-                    | "json_parse_array"
-                    | "parse_array"
                     | "tcp_recv_bytes"
                     | "net_recv_bytes"
                     | "udp_recv_bytes"
-                    | "net_udp_recv_bytes"
+                    | "net_udp_recv_bytes" // NOTE: `json_parse_array`, `parse_array` are deliberately
+                                           // absent: they forward to the dynamic JSON parser (any
+                                           // value kind), so a static array claim miscompiles.
             ) || (bare == "slice" && !args.is_empty() && is_array_expr(&args[0], vars))
                 || vars.contains_key(&format!("fn_ret_arr:{}", name))
                 || vars.contains_key(&format!("fn_ret_arr:{}", bare))
@@ -642,10 +650,10 @@ pub fn is_map_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "map_clone"
                     | "map_merge"
                     | "map_from_entries"
-                    | "url_parse_query"
-                    | "json_parse"
-                    | "json_parse_object"
-                    | "parse_object"
+                    | "url_parse_query" // NOTE: `json_parse`, `json_parse_object`, `parse_object`
+                                        // are deliberately absent: they forward to the dynamic
+                                        // JSON parser (any value kind), so a static map claim
+                                        // miscompiles array/string results (for-loop vars, `+=`).
             ) || vars.contains_key(&format!("fn_ret_map:{}", name))
                 || vars.contains_key(&format!("fn_ret_map:{}", bare))
         }
@@ -1015,8 +1023,10 @@ pub fn is_string_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             matches!(
                 bare,
-                "split"
-                    | "args"
+                // NOTE: `split` is deliberately absent: `Tensor.split`
+                // (and any user `split`) returns non-string arrays, so a
+                // static string-element claim miscompiles reads/stores.
+                "args"
                     | "cli_args"
                     | "lines"
                     | "read_lines"
@@ -1357,7 +1367,24 @@ pub fn is_number_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             matches!(
                 bare,
                 "len" | "arr_len" | "ord" | "time" | "clock_ms" | "rand" | "rand_int" | "int"
+                    | "to_int"
+                    | "parse_int"
+                    // File/FS status builtins return int flags (0/1), never
+                    // heap pointers.
+                    | "file_exists"
+                    | "write_file"
+                    | "delete_file"
+                    | "remove_file"
+                // Bitwise builtins are int->int word ops (logical shifts);
+                // results are machine words, never heap pointers, so stores
+                // must skip rc_retain (it faults on large 8-aligned ints).
+                | "bit_and" | "bit_or" | "bit_xor" | "bit_shl" | "bit_shr" | "bit_not"
             )
+            // Functions with explicit `-> int` annotations are recorded as
+            // `fn_ret_int:` (enforced by the type checker), so their results
+            // are exact int facts too (e.g. crypto `_u32_le` words pushed
+            // into state arrays must not retain).
+            || call_returns_known_int(name, vars)
         }
         Expr::ForceUnwrap(inner) => is_number_expr(inner, vars),
         Expr::Ternary {
@@ -1452,7 +1479,17 @@ pub fn value_kind_tag(expr: &Expr, vars: &HashMap<String, VarType>) -> i64 {
     if is_map_expr(expr, vars) {
         return KIND_MAP;
     }
-    if is_number_expr(expr, vars) {
+    // NOTE: `is_number_expr` is true for ANY Number-typed local, including
+    // dynamic values (e.g. `let doc = yaml_parse(part)` holding a map at
+    // runtime). Storing KIND_INT for those corrupts readers (map dispatched
+    // as int faults). Only a proven-int identifier (`var_is_int`) is an
+    // exact INT fact; other shapes keep the sound `is_number_expr` rule
+    // (literals, arithmetic, bit/int builtins).
+    let is_exact_int = match expr {
+        Expr::Identifier(name) => vars.contains_key(&format!("var_is_int:{}", name)),
+        _ => is_number_expr(expr, vars),
+    };
+    if is_exact_int {
         return KIND_INT;
     }
     if let Expr::Identifier(name) = expr {
@@ -1712,6 +1749,14 @@ pub fn call_returns_known_int(name: &str, vars: &HashMap<String, VarType>) -> bo
             | "rand_int"
             | "abs"
             | "abs_val"
+            // Bitwise builtins are int->int word ops (logical shifts):
+            // results are machine words, never heap pointers.
+            | "bit_and"
+            | "bit_or"
+            | "bit_xor"
+            | "bit_shl"
+            | "bit_shr"
+            | "bit_not"
     ) {
         return true;
     }

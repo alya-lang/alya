@@ -1,0 +1,50 @@
+# ==============================================================================
+# Alya Integration Fixture 15 (entry): forwarding a dynamic param must veto
+# string inference on the shared helper.
+# Distilled from: Lib/cache (store_set's `value` folded to constant-string
+# via set_str's `: string` forward while dynamic values arrived through the
+# untyped `set` wrapper; map stores then skipped the retain and heap values
+# corrupted: `len` read 1, element reads faulted).
+# Guards: a same-arg forward of a proven-dynamic (vetoed) parameter records
+# a transitive `fn_param_nonstr` veto on the callee, so the helper keeps
+# the retain for dynamic values.
+# ==============================================================================
+
+function inner_put(store: map, key, value) -> int
+    store[key] = value
+    return 1
+end
+
+function put(store: map, key, value) -> int
+    return inner_put(store, key, value)
+end
+
+function put_str(store: map, key, value: string) -> int
+    return inner_put(store, key, value)
+end
+
+function main()
+    let m = {}
+    put(m, "n", 42)
+    put(m, "arr", [1, 2, 3])
+
+    # Allocation churn: overwrite any freed heap block if the retained
+    # share was skipped (use-after-free).
+    let dummy: int[] = []
+    let i = 0
+    while i < 100
+        dummy.push(i)
+        i += 1
+    end
+
+    let back = m["arr"]
+    assert len(back) == 3
+    assert back[0] == 1
+    assert back[1] == 2
+    assert back[2] == 3
+    assert m["n"] == 42
+
+    say "integration 15_forwarding_param_veto: OK"
+end
+
+main()

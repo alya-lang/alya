@@ -149,29 +149,10 @@ impl CodeGen {
                         }
                     }
                     self.generate_expression(expr);
-                    // Borrowed heap returns (indexing, field access) must be
-                    // retained before scope cleanup releases the container, preventing use-after-free.
-                    let is_borrowed_container_access =
-                        matches!(expr, Expr::Index { .. } | Expr::FieldAccess { .. });
-                    let needs_return_retain = is_borrowed_container_access
-                        && (self.is_heap_expression(expr) || self.store_value_needs_retain(expr));
-                    if needs_return_retain {
-                        arch::emit_rc_retain(
-                            &mut self.output,
-                            self.arch,
-                            self.ctx.stack_offset,
-                            self.os,
-                        );
-                    }
-                    let word_size: i32 = match self.arch {
-                        Architecture::ARM64 => 16,
-                        _ => 8,
-                    };
                     // Return-tag protocol (Phase 2b, alya-lang/alya#39):
                     // qualifying functions leave (value, tag) for callers.
-                    // Literal returns materialize their static kind now
-                    // (reads already carry theirs); float literals also
-                    // move the value into the int register.
+                    // Computed before the retain below: the retain runtime
+                    // is a call and clobbers the tag register.
                     let cur = self.ctx.current_fn_name.clone();
                     let bare = cur.rsplit("::").next().unwrap_or(&cur);
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -183,6 +164,70 @@ impl CodeGen {
                             .ctx
                             .variables
                             .contains_key(&format!("fn_ret_tagged:{}", bare));
+                    // Borrowed heap returns (indexing, field access) must be
+                    // retained before scope cleanup releases the container, preventing use-after-free.
+                    let is_borrowed_container_access =
+                        matches!(expr, Expr::Index { .. } | Expr::FieldAccess { .. });
+                    let needs_return_retain = is_borrowed_container_access
+                        && (self.is_heap_expression(expr) || self.store_value_needs_retain(expr));
+                    if needs_return_retain {
+                        // The retain call clobbers the tag register (rdx on
+                        // x64, w1 on ARM64) while it still holds the dynamic
+                        // kind of `return m[k]`. Spill it first or callers
+                        // mistag the value (wrong prints, len() == 1, and
+                        // SIGSEGV downstream on real use). When the tag is
+                        // fresh, skip the call entirely for int/float tags
+                        // (retaining a large 8-aligned int faults).
+                        let tag_fresh = ret_tagged
+                            && crate::codegen::analysis::is_tag_carrying_read(
+                                expr,
+                                &self.ctx.variables,
+                            );
+                        if ret_tagged {
+                            match self.arch {
+                                Architecture::X64 => {
+                                    self.output.push_str("    push %rdx\n");
+                                    self.ctx.stack_offset += 8;
+                                }
+                                Architecture::ARM64 => {
+                                    self.output.push_str("    str w1, [sp, #-16]!\n");
+                                    self.ctx.stack_offset += 16;
+                                }
+                            }
+                        }
+                        if tag_fresh {
+                            self.emit_tag_guarded_retain();
+                        } else {
+                            arch::emit_rc_retain(
+                                &mut self.output,
+                                self.arch,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                        }
+                        if ret_tagged {
+                            match self.arch {
+                                Architecture::X64 => {
+                                    self.output.push_str("    pop %rdx\n");
+                                    self.ctx.stack_offset -= 8;
+                                }
+                                Architecture::ARM64 => {
+                                    self.output.push_str("    ldr w1, [sp], #16\n");
+                                    self.ctx.stack_offset -= 16;
+                                }
+                            }
+                        }
+                    }
+                    let word_size: i32 = match self.arch {
+                        Architecture::ARM64 => 16,
+                        _ => 8,
+                    };
+                    // Return-tag protocol (Phase 2b, alya-lang/alya#39):
+                    // qualifying functions leave (value, tag) for callers
+                    // (`ret_tagged` was computed above, before the retain).
+                    // Literal returns materialize their static kind now
+                    // (reads already carry theirs); float literals also
+                    // move the value into the int register.
                     if ret_tagged {
                         if let Expr::Float(_) = expr {
                             match self.arch {
@@ -198,6 +243,10 @@ impl CodeGen {
                             Expr::Number(_) => Some(1),
                             Expr::String(_) => Some(3),
                             Expr::Float(_) => Some(2),
+                            // Null materializes KIND_UNKNOWN (0) so mixed
+                            // `return m[k]` / `return null` bodies qualify
+                            // without leaving a stale tag behind.
+                            Expr::Null => Some(0),
                             _ => None,
                         };
                         if let Some(kind) = lit_kind {

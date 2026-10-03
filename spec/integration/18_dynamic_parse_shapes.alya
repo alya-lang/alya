@@ -1,0 +1,42 @@
+# ==============================================================================
+# Alya Integration Fixture 18 (entry): dynamically-typed parser results
+# must not be folded to constant-string.
+# Distilled from: Lib/json `_parser_parse_val` (returns maps, arrays,
+# strings, numbers, bools, null) planted an existential `fn_ret_str`
+# positive, so `string_store_needs_dup` emitted `str_store` for heap
+# results and copied map memory as string bytes (nested reads crashed).
+# Guards: a literal non-string `return` records an `fn_ret_nonstr` veto
+# that gates `fn_ret_str` creation, keeping mixed functions dynamic.
+# ==============================================================================
+
+function parseval(kind: int)
+    if kind == 0
+        return {"name": "Ada"}
+    end
+    if kind == 1
+        return "hi"
+    end
+    return null
+end
+
+function main()
+    let obj = {}
+    obj["user"] = parseval(0)
+    obj["greet"] = parseval(1)
+    assert obj["user"]["name"] == "Ada"
+    assert obj["greet"] == "hi"
+    assert obj["missing"] is null
+
+    let arr = []
+    arr.push(parseval(1))
+    arr.push(parseval(1))
+    let total = ""
+    for s in arr
+        total += s
+    end
+    assert total == "hihi"
+
+    say "integration 18_dynamic_parse_shapes: OK"
+end
+
+main()

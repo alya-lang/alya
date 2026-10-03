@@ -217,10 +217,11 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
                 Expr::Call { name, .. } => {
                     let bare = name.rsplit("::").next().unwrap_or(name.as_str());
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
-                    matches!(
-                        bare,
-                        "split" | "args" | "cli_args" | "lines" | "read_lines" | "keys"
-                    ) || known_strings.contains(&format!("fn_ret_str_arr:{}", name))
+                    // NOTE: `split` is deliberately absent: `Tensor.split`
+                    // (and any user `split`) returns non-string arrays, so a
+                    // static string-element claim miscompiles reads/stores.
+                    matches!(bare, "args" | "cli_args" | "lines" | "read_lines" | "keys")
+                        || known_strings.contains(&format!("fn_ret_str_arr:{}", name))
                         || known_strings.contains(&format!("fn_ret_str_arr:{}", bare))
                 }
                 _ => expr_is_definitely_string(array, known_strings),
@@ -246,10 +247,9 @@ fn expr_is_string_array(expr: &Expr, known_strings: &HashSet<String>) -> bool {
         Expr::Call { name, .. } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             let bare = bare.rsplit("__").next().unwrap_or(bare);
-            matches!(
-                bare,
-                "split" | "args" | "cli_args" | "lines" | "read_lines" | "keys"
-            ) || known_strings.contains(&format!("fn_ret_str_arr:{}", name))
+            // NOTE: `split` is deliberately absent (see above).
+            matches!(bare, "args" | "cli_args" | "lines" | "read_lines" | "keys")
+                || known_strings.contains(&format!("fn_ret_str_arr:{}", name))
                 || known_strings.contains(&format!("fn_ret_str_arr:{}", bare))
         }
         Expr::Ternary {
@@ -598,6 +598,261 @@ fn scan_expr_for_strings(
             scan_expr_for_strings(value, struct_defs, known_strings, conflicts);
             scan_expr_for_strings(default, struct_defs, known_strings, conflicts);
         }
+        _ => {}
+    }
+}
+
+/// Return-position veto: a literal non-string, non-null `return`
+/// (number, float, array, map, struct) proves the function is dynamic
+/// no matter what string paths it also has. Null returns are exempt:
+/// null (0) passes `str_store` through unharmed, so string-or-null
+/// functions keep their marker (stable dups for strings) while mixed
+/// functions (e.g. json `_parser_parse_val`, which also returns ints)
+/// stay dynamic. Without this, an existential `fn_ret_str` positive
+/// folds mixed functions to constant-string and
+/// `string_store_needs_dup` emits `str_store` for heap results, copying
+/// map memory as string bytes (silent corruption). Mirrors the
+/// `fn_param_nonstr` argument vetoes; only adds vetoes.
+fn record_return_nonstr_vetoes(
+    func_name: &str,
+    body: &[Stmt],
+    known_strings: &mut HashSet<String>,
+) {
+    fn returns_non_string_lit(stmts: &[Stmt]) -> bool {
+        for s in stmts {
+            match s {
+                Stmt::Return(Some(e)) => {
+                    if matches!(
+                        e,
+                        Expr::Number(_)
+                            | Expr::Float(_)
+                            | Expr::Array(_)
+                            | Expr::Map(_)
+                            | Expr::StructInit { .. }
+                    ) {
+                        return true;
+                    }
+                }
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    if returns_non_string_lit(then_block) {
+                        return true;
+                    }
+                    if let Some(eb) = else_block {
+                        if returns_non_string_lit(eb) {
+                            return true;
+                        }
+                    }
+                }
+                Stmt::While { body, .. }
+                | Stmt::Repeat { body }
+                | Stmt::For { body, .. }
+                | Stmt::ForEach { body, .. } => {
+                    if returns_non_string_lit(body) {
+                        return true;
+                    }
+                }
+                Stmt::TryCatch {
+                    try_block,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    if returns_non_string_lit(try_block)
+                        || returns_non_string_lit(catch_block)
+                        || finally_block
+                            .as_ref()
+                            .is_some_and(|fb| returns_non_string_lit(fb))
+                    {
+                        return true;
+                    }
+                }
+                Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                    if returns_non_string_lit(std::slice::from_ref(inner)) {
+                        return true;
+                    }
+                }
+                // Nested functions own their returns; do not descend.
+                Stmt::Function { .. } => {}
+                _ => {}
+            }
+        }
+        false
+    }
+    if returns_non_string_lit(body) {
+        let bare = func_name.rsplit("::").next().unwrap_or(func_name);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        known_strings.insert(format!("fn_ret_nonstr:{}", func_name));
+        // Methods (`Type__method`) must not veto the bare free-function
+        // name: e.g. `Box.touch` returning ints would otherwise kill the
+        // unrelated bare `touch` string marker (e2e arity collision).
+        if !func_name.contains("__") {
+            known_strings.insert(format!("fn_ret_nonstr:{}", bare));
+        }
+    }
+}
+
+/// Transitive veto through same-arg forwarding: when F forwards its own
+/// proven-dynamic parameter (one with a direct literal non-string call,
+/// i.e. an `fn_param_nonstr` veto) into G, G provably receives non-strings
+/// too. Without this, a typed sibling (e.g. cache `set_str` with a
+/// `: string` value) plants an existential `fn_param_str` positive on the
+/// shared helper (`store_set`) while the dynamic calls arrive through the
+/// untyped wrapper (`set`) and never veto the helper directly — the
+/// helper's parameter folds to constant-string, map stores skip the
+/// retain, and heap values corrupt (use-after-free). Runs inside the
+/// fixpoint so forwarding chains converge; only adds vetoes.
+fn record_forwarding_param_vetoes(
+    func_name: &str,
+    params: &[String],
+    body: &[Stmt],
+    known_strings: &mut HashSet<String>,
+) {
+    let bare_f = func_name.rsplit("::").next().unwrap_or(func_name);
+    let bare_f = bare_f.rsplit("__").next().unwrap_or(bare_f);
+    let mut vetoed_idx: Vec<bool> = vec![false; params.len()];
+    let mut any_vetoed = false;
+    for (j, slot) in vetoed_idx.iter_mut().enumerate() {
+        if known_strings.contains(&format!("fn_param_nonstr:{}:{}", func_name, j))
+            || known_strings.contains(&format!("fn_param_nonstr:{}:{}", bare_f, j))
+        {
+            *slot = true;
+            any_vetoed = true;
+        }
+    }
+    if !any_vetoed {
+        return;
+    }
+    let mut calls: Vec<(&str, String, usize, &Expr)> = Vec::new();
+    collect_body_calls(body, &mut calls);
+    for (callee, bare_callee, k, arg) in calls {
+        if let Expr::Identifier(pname) = arg {
+            if let Some(j) = params.iter().position(|p| p == pname) {
+                if vetoed_idx[j] {
+                    known_strings.insert(format!("fn_param_nonstr:{}:{}", callee, k));
+                    known_strings.insert(format!("fn_param_nonstr:{}:{}", bare_callee, k));
+                }
+            }
+        }
+    }
+}
+
+/// Collects every (callee, callee-bare, arg-position, arg) call in a
+/// function body for forwarding analysis. Does not descend into nested
+/// function definitions (different parameter scope).
+fn collect_body_calls<'a>(stmts: &'a [Stmt], out: &mut Vec<(&'a str, String, usize, &'a Expr)>) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Expr(e) | Stmt::Say(e) => collect_expr_calls(e, out),
+            Stmt::Let { value, .. } | Stmt::Assign { value, .. } | Stmt::Const { value, .. } => {
+                collect_expr_calls(value, out)
+            }
+            Stmt::Return(opt) | Stmt::Throw(opt) => {
+                if let Some(e) = opt {
+                    collect_expr_calls(e, out);
+                }
+            }
+            Stmt::If {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                collect_expr_calls(condition, out);
+                collect_body_calls(then_block, out);
+                if let Some(eb) = else_block {
+                    collect_body_calls(eb, out);
+                }
+            }
+            Stmt::While { condition, body } => {
+                collect_expr_calls(condition, out);
+                collect_body_calls(body, out);
+            }
+            Stmt::Repeat { body } | Stmt::For { body, .. } | Stmt::ForEach { body, .. } => {
+                collect_body_calls(body, out)
+            }
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                collect_body_calls(try_block, out);
+                collect_body_calls(catch_block, out);
+                if let Some(fb) = finally_block {
+                    collect_body_calls(fb, out);
+                }
+            }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                collect_body_calls(std::slice::from_ref(inner), out)
+            }
+            Stmt::Function { .. } => {}
+            _ => {}
+        }
+    }
+}
+
+fn collect_expr_calls<'a>(expr: &'a Expr, out: &mut Vec<(&'a str, String, usize, &'a Expr)>) {
+    match expr {
+        Expr::Call { name, args } | Expr::OptionalCall { callee: name, args } => {
+            let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            for (k, arg) in args.iter().enumerate() {
+                out.push((name.as_str(), bare.to_string(), k, arg));
+            }
+            for arg in args {
+                collect_expr_calls(arg, out);
+            }
+        }
+        Expr::Binary { left, right, .. } => {
+            collect_expr_calls(left, out);
+            collect_expr_calls(right, out);
+        }
+        Expr::Unary { expr, .. } | Expr::ForceUnwrap(expr) => collect_expr_calls(expr, out),
+        Expr::Array(elems) => {
+            for elem in elems {
+                collect_expr_calls(elem, out);
+            }
+        }
+        Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+            collect_expr_calls(array, out);
+            collect_expr_calls(index, out);
+        }
+        Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+            collect_expr_calls(object, out)
+        }
+        Expr::StructInit { fields, .. } => {
+            for (_, val) in fields {
+                collect_expr_calls(val, out);
+            }
+        }
+        Expr::Map(entries) => {
+            for (k, v) in entries {
+                collect_expr_calls(k, out);
+                collect_expr_calls(v, out);
+            }
+        }
+        Expr::InterpolatedString(parts) => {
+            for part in parts {
+                collect_expr_calls(part, out);
+            }
+        }
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            collect_expr_calls(condition, out);
+            collect_expr_calls(then_branch, out);
+            collect_expr_calls(else_branch, out);
+        }
+        Expr::NullCoalesce { value, default } => {
+            collect_expr_calls(value, out);
+            collect_expr_calls(default, out);
+        }
+        Expr::Cast { expr: inner, .. } => collect_expr_calls(inner, out),
         _ => {}
     }
 }
@@ -954,6 +1209,12 @@ fn collect_string_vars_from_stmts(
             } => {
                 let bare = name.rsplit("::").next().unwrap_or(name.as_str());
                 let bare = bare.rsplit("__").next().unwrap_or(bare);
+                // Transitive vetoes first: forwarding a proven-dynamic
+                // param into a helper vetoes the helper (see above).
+                record_forwarding_param_vetoes(name, params, body, known_strings);
+                // Return-position vetoes: a literal non-string return
+                // proves the function dynamic (see above).
+                record_return_nonstr_vetoes(name, body, known_strings);
                 let mut fn_locals = known_strings.clone();
                 for (idx, param) in params.iter().enumerate() {
                     // Same veto as infer_param_is_string_with: a literal
@@ -983,7 +1244,14 @@ fn collect_string_vars_from_stmts(
                     }
                 }
                 collect_string_vars_from_stmts(body, struct_defs, &mut fn_locals, conflicts);
-                if stmts_return_string(body, &fn_locals)
+                // Existential `fn_ret_str` positives must be gated by return
+                // vetoes: one literal non-string return proves the function
+                // dynamic, so trusting the positive would fold `is string`
+                // to constant-true and corrupt heap results (`str_store`).
+                let ret_vetoed = known_strings.contains(&format!("fn_ret_nonstr:{}", name))
+                    || known_strings.contains(&format!("fn_ret_nonstr:{}", bare));
+                if !ret_vetoed
+                    && stmts_return_string(body, &fn_locals)
                     && !matches!(
                         bare,
                         "int"
@@ -1033,6 +1301,7 @@ fn collect_string_vars_from_stmts(
                         || item.starts_with("struct_field_str:")
                         || item.starts_with("fn_param_str:")
                         || item.starts_with("fn_param_nonstr:")
+                        || item.starts_with("fn_ret_nonstr:")
                         || item.starts_with("fn_param_str_arr:")
                     {
                         known_strings.insert(item.clone());
@@ -1518,12 +1787,13 @@ pub fn collect_known_string_vars_with_index(
     // name at consumption. Veto insertion is purely syntactic, hence
     // order-independent, so seeding all vetoes up front is semantics-
     // preserving and closes the ordering hole. Only `fn_param_nonstr:*`
-    // markers are merged; positives from the pre-scan are discarded.
+    // and `fn_ret_nonstr:*` markers are merged; positives from the
+    // pre-scan are discarded.
     {
         let mut pre = HashSet::new();
         collect_string_vars_from_stmts(&program.statements, &struct_defs, &mut pre, &conflicts);
         for m in pre {
-            if m.starts_with("fn_param_nonstr:") {
+            if m.starts_with("fn_param_nonstr:") || m.starts_with("fn_ret_nonstr:") {
                 known_strings.insert(m);
             }
         }

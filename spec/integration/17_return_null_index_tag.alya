@@ -1,0 +1,30 @@
+# ==============================================================================
+# Alya Integration Fixture 17 (entry): returning a borrowed container read
+# keeps its dynamic tag across the return-retain.
+# Distilled from: Lib/cache `store_get` (`return c.store[key]` alongside
+# `return null`).
+# Guards: (a) `return null` materializes KIND_UNKNOWN so mixed
+# null/index bodies qualify for the return-tag protocol, and (b) the
+# return retain spills the tag across the `rc_retain` call (which
+# clobbers rdx/w1), so callers dispatch on the true kind.
+# ==============================================================================
+
+function find_in(m: map, key)
+    if key in m
+        return m[key]
+    end
+    return null
+end
+
+function main()
+    let m = {}
+    m["arr"] = [10, 20, 30]
+    m["n"] = 42
+    assert len(find_in(m, "arr")) == 3
+    assert find_in(m, "n") == 42
+    assert find_in(m, "missing") is null
+
+    say "integration 17_return_null_index_tag: OK"
+end
+
+main()
