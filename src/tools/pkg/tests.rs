@@ -332,6 +332,60 @@ fn test_install_unifies_transitive_features() {
 }
 
 #[test]
+fn test_install_rejects_unknown_dep_feature() {
+    let _env_guard = crate::tools::pkg::lock_registry_env();
+    let base = std::env::temp_dir().join(format!(
+        "alya_pkg_badfeat_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let mid_dir = base.join("mid");
+    let app_dir = base.join("app");
+    for d in [&mid_dir, &app_dir] {
+        fs::create_dir_all(d.join("src")).unwrap();
+    }
+    fs::write(
+        mid_dir.join("alya.toml"),
+        "[package]\nname = \"mid\"\nversion = \"0.1.0\"\nentry = \"src/lib.alya\"\n",
+    )
+    .unwrap();
+    fs::write(
+        mid_dir.join("src").join("lib.alya"),
+        "pub function mid() -> bool\nreturn true\nend\n",
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("alya.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nentry = \"src/main.alya\"\n[dependencies]\nmid = { path = \"../mid\" }\n[features]\nfull = [\"mid/ghost\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("src").join("main.alya"),
+        "function main()\nend\n",
+    )
+    .unwrap();
+
+    let err = run_install_in(
+        &app_dir,
+        false,
+        &["full".to_string()],
+        false,
+        &[],
+        false,
+        &[],
+    )
+    .expect_err("unknown dep feature must fail install");
+    assert!(err.contains("unknown feature 'ghost'"), "got: {}", err);
+    assert!(err.contains("'app'"), "got: {}", err);
+    assert!(err.contains("'mid'"), "got: {}", err);
+
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
 fn test_manifest_same_name_feature_and_dep() {
     // Idiomatic `uv = ["uv"]`: the member enables the dependency; the
     // self-edge is a harmless no-op, not a cycle.

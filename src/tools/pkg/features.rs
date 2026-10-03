@@ -65,10 +65,12 @@ pub fn resolve_active_features(
 /// implicit-features parity: an enabled optional dependency is itself a
 /// member of the active set, so `@cfg(feature = "<dep>")` sees it).
 /// `dep:` / `dep/feat` members contribute cross-package requests, never
-/// local names. Unknown seeds are dropped: a foreign request for a feature
-/// this package does not declare is ignored (mirroring `@cfg(feature)`
-/// evaluating unknown names to false), while the targeted dependency itself
-/// still activates via [`enabled_dependencies`].
+/// local names. Unknown seeds are dropped here: `install` already rejects
+/// unknown foreign names against the target manifest, so anything reaching
+/// this pure layer comes from the lenient compile-time path (uninstalled
+/// leaves), where ignoring mirrors `@cfg(feature)` evaluating unknown names
+/// to false — while the targeted dependency itself still activates via
+/// [`enabled_dependencies`].
 pub fn close_features(manifest: &PackageManifest, seeds: &BTreeSet<String>) -> BTreeSet<String> {
     let mut active = BTreeSet::new();
     let mut stack: Vec<String> = Vec::new();

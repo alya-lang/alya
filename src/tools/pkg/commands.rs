@@ -913,6 +913,30 @@ fn install_resolved(
             }
             let keep = dep_source.edge().default_features;
             let edge_feats = dep_source.edge().features.clone();
+            // Strict target validation: every requested feature must exist
+            // in the child's manifest (feature or optional dependency).
+            // Typos fail here with a named edge; the compiler stays lenient
+            // (uninstalled leaves fall back to defaults).
+            if let Some(child) = nodes.get(&child_id) {
+                if let Some(child_manifest) = child.manifest.as_ref() {
+                    let parent_name = nodes
+                        .get(&id)
+                        .and_then(|n| n.manifest.as_ref())
+                        .map(|m| m.package.name.clone())
+                        .unwrap_or_else(|| id.clone());
+                    for feat in &feats {
+                        if !child_manifest.features.contains_key(feat)
+                            && !child_manifest.dependencies.contains_key(feat)
+                        {
+                            return Err(format!(
+                                "Package '{}' requests unknown feature '{}' on dependency '{}' (no such feature or optional dependency in '{}'; check `dep/feat` members and edge `features`)",
+                                parent_name, feat, dep_name,
+                                child_manifest.package.name,
+                            ));
+                        }
+                    }
+                }
+            }
             let mut child_grew = false;
             if let Some(child) = nodes.get_mut(&child_id) {
                 if !child.incoming.iter().any(|(p, _, _)| p == &id) {

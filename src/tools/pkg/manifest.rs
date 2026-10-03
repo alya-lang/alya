@@ -147,9 +147,9 @@ fn validate_feature_graph(
                 Some(FeatureMember::DepFeature { dep, feature: _ })
                     if is_valid_feature_name(&dep) && dependencies.contains_key(&dep) =>
                 {
-                    // Right side names a foreign feature: validated at
-                    // resolution time (unknown foreign names are ignored,
-                    // mirroring `@cfg(feature)`).
+                    // Right side names a foreign feature: `install` rejects
+                    // unknown names against the target manifest; the compiler
+                    // stays lenient (uninstalled leaves fall back).
                 }
                 _ => {
                     return Err(format!(
