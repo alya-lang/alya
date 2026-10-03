@@ -1,0 +1,52 @@
+# ==============================================================================
+# Alya Integration Fixture 14 (entry): method delegating to same-named free fn
+# Distilled from: Lib/regex/src/lib.alya `Regex.is_match` -> `is_match`
+# Guards: a bare `name(self, ...)` call inside the same-named method, with
+#         all-identifier args, must resolve to the FREE function (delegation),
+#         not back to the method itself. Resolving to the method re-enters the
+#         same body with identical values and overflows the stack at runtime.
+#         Genuine recursion (changed/non-identifier args) and explicitly
+#         qualified calls are unaffected.
+# ==============================================================================
+
+struct Box
+    val: int
+end
+
+function is_positive(b: Box) -> int
+    if b.val > 0
+        return 1
+    end
+    return 0
+end
+
+function Box.is_positive(self: Box) -> int
+    return is_positive(self)
+end
+
+function add_to(b: Box, n: int) -> int
+    return b.val + n
+end
+
+function Box.add_to(self: Box, n: int) -> int
+    return add_to(self, n)
+end
+
+function count_down(n: int) -> int
+    if n <= 0
+        return 0
+    end
+    return count_down(n - 1) + 1
+end
+
+function main()
+    let b = Box { val: 7 }
+    assert b.is_positive() == 1
+    assert b.add_to(3) == 10
+    let z = Box { val: 0 }
+    assert z.is_positive() == 0
+    assert count_down(5) == 5
+    say f"integration 14_method_delegation: OK"
+end
+
+main()

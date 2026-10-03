@@ -1857,6 +1857,46 @@ impl CodeGen {
                     }
                 }
 
+                // 2b. Self-delegation guard: a bare `name(self, ...)` call
+                // inside the resolved method itself, with all-identifier
+                // args, re-enters this same body with identical values and
+                // never terminates. When a same-named free function with
+                // compatible arity exists, the author meant delegation
+                // (e.g. `Regex.is_match` delegating to the free
+                // `is_match`): prefer it. Genuine recursion (changed args,
+                // non-identifier args, or no free target) is untouched, as
+                // are explicitly qualified calls (`Type.method(...)`),
+                // which never reach this branch with a bare name.
+                if !self.ctx.current_fn_name.is_empty()
+                    && !name.contains("::")
+                    && !name.contains("__")
+                    && !name.contains('.')
+                    && actual_args.iter().all(|a| matches!(a, Expr::Identifier(_)))
+                {
+                    let norm = |s: &str| s.replace("::", "__");
+                    let cur = norm(&self.ctx.current_fn_name);
+                    let tgt = norm(&resolved_name);
+                    let same_target = tgt == cur
+                        || tgt.ends_with(&format!("__{}", cur))
+                        || cur.ends_with(&format!("__{}", tgt));
+                    if same_target {
+                        let arity_ok =
+                            self.ctx
+                                .fn_arities
+                                .get(name.as_str())
+                                .is_some_and(|(req, total)| {
+                                    actual_args.len() >= *req && actual_args.len() <= *total
+                                });
+                        if arity_ok {
+                            if let Some(free_fn) =
+                                Self::find_free_function(&self.ctx.functions, name, &cur)
+                            {
+                                resolved_name = free_fn;
+                            }
+                        }
+                    }
+                }
+
                 // 3. Direct namespace / mangled name: Point::create -> Point__create
                 if resolved_name.contains("::") {
                     let mangled = if resolved_name.starts_with("_Alya_") {

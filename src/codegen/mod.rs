@@ -2557,14 +2557,10 @@ impl CodeGen {
                 {
                     return false;
                 }
-                if matches!(self.ctx.variables.get(name), Some(VarType::Number(_)))
-                    && !self
-                        .ctx
-                        .variables
-                        .contains_key(&format!("param_is_untyped:{}", name))
-                {
-                    return false;
-                }
+                // NOTE: a bare `Number` tracking type is NOT proof of an
+                // int (e.g. tuple-destructured heap values are recorded
+                // as Number): unknowns keep the retain. Only the
+                // `var_is_int` marker above is an exact int fact.
                 true
             }
             Expr::Index { array, .. } => {
@@ -2574,13 +2570,31 @@ impl CodeGen {
                 if crate::codegen::analysis::is_map_expr(array, &self.ctx.variables) {
                     return true;
                 }
-                // For array element reads (arr[i]), elements are scalars (integers,
-                // floats, bytes) unless the array is known to hold heap objects
-                // (structs, nested arrays, maps).
-                if self.is_heap_expression(expr) {
-                    return true;
+                // Proven-scalar element reads are never heap pointers:
+                // retaining a large 8-aligned int faults in rc_retain.
+                if let Expr::Identifier(base) = array.as_ref() {
+                    if self
+                        .ctx
+                        .variables
+                        .contains_key(&format!("arr_is_int:{}", base))
+                        || self
+                            .ctx
+                            .variables
+                            .contains_key(&format!("arr_is_flt:{}", base))
+                    {
+                        return false;
+                    }
                 }
-                false
+                if crate::codegen::analysis::is_float_expr(expr, &self.ctx.variables) {
+                    return false;
+                }
+                // Anything else keeps the retain. In particular arrays of
+                // statically-unknown element kind may hold heap objects
+                // (e.g. parser piece lists of AstNode structs): skipping
+                // the retain is a deterministic use-after-free once the
+                // container drops, while retaining a small int is harmless
+                // (rc_retain's pointer guards skip it).
+                true
             }
             Expr::FieldAccess { object, field } => {
                 if let Expr::Identifier(obj_name) = object.as_ref() {
@@ -2608,6 +2622,49 @@ impl CodeGen {
             }
             _ => false,
         }
+    }
+
+    /// Finds a free (non-method) function with the given bare name.
+    /// Methods carry a `Type__` segment before the bare name
+    /// (`Regex__is_match`, `re::Regex__is_match`); namespace-qualified
+    /// globals (`re::is_match`) qualify. Prefers the current module,
+    /// then the fewest qualifier segments for determinism.
+    pub(crate) fn find_free_function(
+        functions: &std::collections::HashSet<String>,
+        bare_name: &str,
+        current_fn_norm: &str,
+    ) -> Option<String> {
+        let cur_mod = current_fn_norm
+            .split("__")
+            .next()
+            .unwrap_or("")
+            .replace("::", "__");
+        let mut best: Option<(bool, usize, String)> = None;
+        for f in functions.iter() {
+            let tail = f.rsplit("::").next().unwrap_or(f);
+            if tail.contains("__") {
+                continue;
+            }
+            if tail != bare_name {
+                continue;
+            }
+            let norm = f.replace("::", "__");
+            let same_mod = norm == *bare_name
+                || norm.starts_with(&format!("{}__", cur_mod))
+                || norm.starts_with(&format!("{}::", cur_mod));
+            let segs = norm.split("__").count();
+            // `same_mod` first (false sorts before true, so invert),
+            // then fewest segments.
+            let key = (!same_mod, segs);
+            let take = match &best {
+                Some((bsm, bs, _)) => key < (*bsm, *bs),
+                None => true,
+            };
+            if take {
+                best = Some((!same_mod, segs, f.clone()));
+            }
+        }
+        best.map(|(_, _, f)| f)
     }
 
     pub(crate) fn emit_rodata_section(&mut self) {
