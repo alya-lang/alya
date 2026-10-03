@@ -178,7 +178,7 @@ end
 ##
 ## ### Returns
 ## 1 after setting both code pages to 65001 and enabling virtual-terminal processing.
-pub function console_utf8() -> int
+pub function console_utf8() -> bool
     set_console_output_cp(65001)
     set_console_input_cp(65001)
     enable_virtual_terminal()

@@ -7,14 +7,14 @@
 #         proof may fold it.
 # ==============================================================================
 
-function is_list(v) -> int
+function is_list(v) -> bool
     if v is array
         return true
     end
     return false
 end
 
-function is_map_obj(v) -> int
+function is_map_obj(v) -> bool
     if v is map
         return true
     end

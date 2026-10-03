@@ -13,7 +13,7 @@
 ##
 ## ### Returns
 ## 1 when `sub` is found in `s`, otherwise 0.
-pub function contains_str(s: string, sub: string) -> int
+pub function contains_str(s: string, sub: string) -> bool
     if sub in s
         return true
     end
@@ -55,7 +55,7 @@ end
 ##
 ## ### Returns
 ## 1 when `s` ends with `suffix` (empty suffix yields 1), otherwise 0.
-pub function ends_with(s: string, suffix: string) -> int
+pub function ends_with(s: string, suffix: string) -> bool
     let slen: int = len(s)
     let suflen: int = len(suffix)
     if suflen > slen
@@ -105,7 +105,7 @@ end
 ##
 ## ### Returns
 ## 1 for a non-empty string of A-Z and a-z only, otherwise 0.
-pub function is_alphabetic(s: string) -> int
+pub function is_alphabetic(s: string) -> bool
     let slen: int = len(s)
     if slen == 0
         return false
@@ -133,7 +133,7 @@ end
 ##
 ## ### Returns
 ## 1 for a non-empty string of A-Z, a-z, and 0-9 only, otherwise 0.
-pub function is_alphanumeric(s: string) -> int
+pub function is_alphanumeric(s: string) -> bool
     let slen: int = len(s)
     if slen == 0
         return false
@@ -163,7 +163,7 @@ end
 ##
 ## ### Returns
 ## 1 when empty or holding only spaces, tabs, and line breaks, otherwise 0.
-pub function is_blank(s: string) -> int
+pub function is_blank(s: string) -> bool
     let slen: int = len(s)
     if slen == 0
         return true
@@ -187,7 +187,7 @@ end
 ##
 ## ### Returns
 ## 1 when null or zero-length, otherwise 0.
-pub function is_empty(s: string) -> int
+pub function is_empty(s: string) -> bool
     if s is null or len(s) == 0
         return true
     end
@@ -201,7 +201,7 @@ end
 ##
 ## ### Returns
 ## 1 for a non-empty string of a-z only, otherwise 0.
-pub function is_lower(s: string) -> int
+pub function is_lower(s: string) -> bool
     let slen: int = len(s)
     if slen == 0
         return false
@@ -225,7 +225,7 @@ end
 ##
 ## ### Returns
 ## 1 for a non-empty string of 0-9 only, otherwise 0.
-pub function is_numeric(s: string) -> int
+pub function is_numeric(s: string) -> bool
     let slen: int = len(s)
     if slen == 0
         return false
@@ -249,7 +249,7 @@ end
 ##
 ## ### Returns
 ## 1 for a non-empty string of A-Z only, otherwise 0.
-pub function is_upper(s: string) -> int
+pub function is_upper(s: string) -> bool
     let slen: int = len(s)
     if slen == 0
         return false
@@ -301,7 +301,7 @@ end
 ##
 ## ### Returns
 ## 1 when `s` starts with `prefix` (empty prefix yields 1), otherwise 0.
-pub function starts_with(s: string, prefix: string) -> int
+pub function starts_with(s: string, prefix: string) -> bool
     let plen: int = len(prefix)
     let slen: int = len(s)
     if plen > slen
@@ -763,7 +763,7 @@ end
 ##
 ## ### Returns
 ## 1 for a non-empty even-length string of hex digits only, otherwise 0.
-pub function is_hex(s: string) -> int
+pub function is_hex(s: string) -> bool
     let slen: int = len(s)
     if slen == 0 or slen % 2 != 0
         return false
@@ -866,7 +866,7 @@ end
 ##
 ## ### Returns
 ## 1 when lengths and all elements match, otherwise 0.
-pub function bytes_equal(a, b) -> int
+pub function bytes_equal(a, b) -> bool
     let n: int = len(a)
     if n != len(b)
         return false
@@ -1046,7 +1046,7 @@ end
 ##
 ## ### Returns
 ## 1 for a non-empty alphabet-only string whose length is a multiple of 4, otherwise 0.
-pub function is_base64(s: string) -> int
+pub function is_base64(s: string) -> bool
     let slen: int = len(s)
     if slen == 0 or slen % 4 != 0
         return false

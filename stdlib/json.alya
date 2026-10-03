@@ -405,7 +405,7 @@ end
 ##
 ## ### Returns
 ## 1 when the whole text is one complete non-null JSON value, 0 otherwise.
-pub function json_is_valid(text: string) -> int
+pub function json_is_valid(text: string) -> bool
     let s: string = str_from_ptr(text)
     let slen: int = len(s)
     if slen == 0

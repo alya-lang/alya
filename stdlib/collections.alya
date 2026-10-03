@@ -96,7 +96,7 @@ end
 ##
 ## ### Returns
 ## 1 when the stack holds no items, 0 otherwise.
-pub function stack_is_empty(s) -> int
+pub function stack_is_empty(s) -> bool
     if len(s) == 0
         return true
     end
@@ -175,7 +175,7 @@ end
 ##
 ## ### Returns
 ## 1 when the queue holds no pending items, 0 otherwise.
-pub function queue_is_empty(q) -> int
+pub function queue_is_empty(q) -> bool
     if q[0] >= len(q)
         return true
     end
@@ -375,7 +375,7 @@ end
 ##
 ## ### Returns
 ## 1 when every item of `a` is in `b` (an empty `a` yields 1), 0 otherwise.
-pub function set_is_subset(a, b) -> int
+pub function set_is_subset(a, b) -> bool
     for k in keys(a)
         if k not in b
             return false
@@ -500,7 +500,7 @@ end
 ##
 ## ### Returns
 ## 1 when `val` is in the array, 0 otherwise.
-pub function array_contains(arr, val) -> int
+pub function array_contains(arr, val) -> bool
     if val in arr
         return true
     end
@@ -783,7 +783,7 @@ end
 ##
 ## ### Returns
 ## 1 when the map holds no keys, 0 otherwise.
-pub function map_is_empty(m) -> int
+pub function map_is_empty(m) -> bool
     if len(m) == 0
         return true
     end

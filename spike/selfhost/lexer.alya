@@ -249,7 +249,7 @@ end
 # i64::MAX needs these exact helpers (verified against the develop backend).
 
 # Unsigned a < b via high-bit split (equal high bits -> signed order is exact).
-function u64_lt(a: u64, b: u64) -> int
+function u64_lt(a: u64, b: u64) -> bool
     let zero: u64 = 0
     let ha = 0
     let hb = 0
@@ -360,11 +360,11 @@ function canonical_word(w: string) -> string
     return ""
 end
 
-function lx_is_digit(b: int) -> int
+function lx_is_digit(b: int) -> bool
     return b >= 48 and b <= 57
 end
 
-function lx_is_alpha(b: int) -> int
+function lx_is_alpha(b: int) -> bool
     if b >= 97 and b <= 122
         return true
     end
@@ -384,7 +384,7 @@ function lx_is_alnum(b: int) -> int
     return lx_is_alpha(b)
 end
 
-function lx_is_hexdigit(b: int) -> int
+function lx_is_hexdigit(b: int) -> bool
     if lx_is_digit(b) == true
         return true
     end
@@ -400,7 +400,7 @@ end
 # Float-lexeme validator matching Rust f64::parse acceptance on
 # scanner-produced shapes: mantissa with >=1 digit and <=1 dot,
 # optional single exponent with optional sign and >=1 digit.
-function valid_float(s: string) -> int
+function valid_float(s: string) -> bool
     let n = len(s)
     let ei = -1
     let i = 0

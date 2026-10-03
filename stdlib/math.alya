@@ -101,7 +101,7 @@ end
 ##
 ## ### Returns
 ## 1 when `n` is even, 0 otherwise.
-pub function is_even(n: int) -> int
+pub function is_even(n: int) -> bool
     return n % 2 == 0
 end
 
@@ -112,7 +112,7 @@ end
 ##
 ## ### Returns
 ## 1 when `n` is odd, 0 otherwise.
-pub function is_odd(n: int) -> int
+pub function is_odd(n: int) -> bool
     return n % 2 != 0
 end
 
@@ -599,7 +599,7 @@ end
 ##
 ## ### Returns
 ## 1 when `n` is prime, 0 otherwise; values of 1 or less yield 0.
-pub function is_prime(n: int) -> int
+pub function is_prime(n: int) -> bool
     if n <= 1
         return false
     end
@@ -669,7 +669,7 @@ end
 ##
 ## ### Returns
 ## 1 when the random draw falls below `pct`, else 0.
-pub function rand_chance(pct: int) -> int
+pub function rand_chance(pct: int) -> bool
     if pct <= 0
         return false
     end

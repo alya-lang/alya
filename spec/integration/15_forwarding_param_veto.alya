@@ -10,7 +10,7 @@
 # the retain for dynamic values.
 # ==============================================================================
 
-function inner_put(store: map, key, value) -> int
+function inner_put(store: map, key, value) -> bool
     store[key] = value
     return true
 end

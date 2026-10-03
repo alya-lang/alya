@@ -34,7 +34,7 @@ function safe_trig_calc(degrees: float) -> (float, float)
     return cos_val as float, sin_val as float
 end
 
-function SafeBuffer.allocate(self: SafeBuffer, bytes: usize) -> int
+function SafeBuffer.allocate(self: SafeBuffer, bytes: usize) -> bool
     let raw_p = malloc(bytes)
     if raw_p == null
         return false

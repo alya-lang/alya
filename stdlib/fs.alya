@@ -365,7 +365,7 @@ end
 ##
 ## ### Returns
 ## 1 when the file exists with zero size, else 0 (missing files return 0).
-pub function is_empty_file(path: string) -> int
+pub function is_empty_file(path: string) -> bool
     if file_exists(path) == false
         return false
     end
@@ -385,7 +385,7 @@ end
 ##
 ## ### Returns
 ## 1 when `src` is a directory, or 0 otherwise. Per-entry copy results are ignored.
-pub function copy_dir_recursive(src: string, dst: string) -> int
+pub function copy_dir_recursive(src: string, dst: string) -> bool
     if is_dir(src) == false
         return false
     end

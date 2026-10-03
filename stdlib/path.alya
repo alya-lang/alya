@@ -38,7 +38,7 @@ end
 ##
 ## ### Returns
 ## 1 when the path starts with a slash or a drive-letter slash, otherwise 0.
-pub function is_absolute(path: string) -> int
+pub function is_absolute(path: string) -> bool
     let plen: int = len(path)
     if plen == 0
         return false
@@ -63,7 +63,7 @@ end
 ##
 ## ### Returns
 ## 1 when `is_absolute` reports 0, otherwise 0.
-pub function is_relative(path: string) -> int
+pub function is_relative(path: string) -> bool
     if is_absolute(path)
         return false
     end
@@ -77,7 +77,7 @@ end
 ##
 ## ### Returns
 ## 1 for a lone slash, a drive name, or a drive-letter slash, otherwise 0.
-pub function is_root(path: string) -> int
+pub function is_root(path: string) -> bool
     let plen: int = len(path)
     if plen == 1
         let c0: string = char_at(path, 0)
@@ -174,7 +174,7 @@ end
 ##
 ## ### Returns
 ## 1 when `file_ext` is non-empty, otherwise 0.
-pub function has_extension(path: string) -> int
+pub function has_extension(path: string) -> bool
     if len(file_ext(path)) > 0
         return true
     end
@@ -452,7 +452,7 @@ function _glob_match_class(content: string, ch: string) -> int
     return matched
 end
 
-function _glob_match_path_rec(p: string, p_idx: int, s: string, s_idx: int) -> int
+function _glob_match_path_rec(p: string, p_idx: int, s: string, s_idx: int) -> bool
     let plen: int = len(p)
     let slen: int = len(s)
 
@@ -546,7 +546,7 @@ function _glob_match_path_rec(p: string, p_idx: int, s: string, s_idx: int) -> i
     return false
 end
 
-function _glob_match_simple_rec(p: string, p_idx: int, s: string, s_idx: int) -> int
+function _glob_match_simple_rec(p: string, p_idx: int, s: string, s_idx: int) -> bool
     let plen: int = len(p)
     let slen: int = len(s)
 
@@ -689,7 +689,7 @@ end
 ##
 ## ### Returns
 ## 1 when the string contains a glob metacharacter, otherwise 0.
-pub function glob_is_pattern(pattern: string) -> int
+pub function glob_is_pattern(pattern: string) -> bool
     let s: string = str_from_ptr(pattern)
     let slen: int = len(s)
     let i: int = 0

@@ -363,7 +363,7 @@ end
 ##
 ## ### Returns
 ## 1 once the channel is marked closed.
-pub function channel_close(ch: Channel) -> int
+pub function channel_close(ch: Channel) -> bool
     mutex_lock(ch.lock)
     ch.closed = 1
     mutex_unlock(ch.lock)
@@ -469,7 +469,7 @@ end
 ##
 ## ### Returns
 ## 1 on success, 0 when the channel is closed.
-pub function channel_send(ch: Channel, val) -> int
+pub function channel_send(ch: Channel, val) -> bool
     if ch.rendezvous == true
         while 1
             mutex_lock(ch.lock)
@@ -598,7 +598,7 @@ end
 ##
 ## ### Returns
 ## 1 on success, 0 when full, rendezvous, or closed.
-pub function channel_try_send(ch: Channel, val) -> int
+pub function channel_try_send(ch: Channel, val) -> bool
     mutex_lock(ch.lock)
     if ch.closed == true
         mutex_unlock(ch.lock)
@@ -674,7 +674,7 @@ end
 ##
 ## ### Returns
 ## 1 when the counter reached zero, 0 on timeout.
-pub function wait_group_wait(wg: WaitGroup, timeout_ms: int = 0) -> int
+pub function wait_group_wait(wg: WaitGroup, timeout_ms: int = 0) -> bool
     let start: int = clock_ms()
     while 1
         mutex_lock(wg.lock)
@@ -769,7 +769,7 @@ end
 ##
 ## ### Returns
 ## 1 on the first call, 0 on later calls.
-pub function once_check(o: Once) -> int
+pub function once_check(o: Once) -> bool
     mutex_lock(o.lock)
     if o.done == false
         o.done = true
@@ -869,7 +869,7 @@ end
 ##
 ## ### Returns
 ## 1 when the read lock is acquired, 0 on timeout.
-pub function rwlock_read_lock(rw: RwLock, timeout_ms: int = 5000) -> int
+pub function rwlock_read_lock(rw: RwLock, timeout_ms: int = 5000) -> bool
     let start: int = clock_ms()
     while 1
         mutex_lock(rw.lock)
@@ -910,7 +910,7 @@ end
 ##
 ## ### Returns
 ## 1 when the write lock is acquired, 0 on timeout.
-pub function rwlock_write_lock(rw: RwLock, timeout_ms: int = 5000) -> int
+pub function rwlock_write_lock(rw: RwLock, timeout_ms: int = 5000) -> bool
     let start: int = clock_ms()
     while 1
         mutex_lock(rw.lock)

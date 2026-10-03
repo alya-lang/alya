@@ -139,7 +139,7 @@ end
 ##
 ## ### Returns
 ## 1 when the flag is present, otherwise 0.
-pub function cli_has_flag(flag_name: string) -> int
+pub function cli_has_flag(flag_name: string) -> bool
     let raw: string[] = args()
     let clean: string = _cli_strip_dashes(flag_name)
     let target_long: string = "--" + clean

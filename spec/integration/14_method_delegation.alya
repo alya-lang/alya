@@ -13,7 +13,7 @@ struct Box
     val: int
 end
 
-function is_positive(b: Box) -> int
+function is_positive(b: Box) -> bool
     if b.val > 0
         return true
     end

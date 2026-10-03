@@ -81,7 +81,7 @@ end
 ##
 ## ### Returns
 ## 1 when running on Linux, else 0.
-pub function is_linux() -> int
+pub function is_linux() -> bool
     if target_os() == "linux"
         return true
     end
@@ -95,7 +95,7 @@ end
 ##
 ## ### Returns
 ## 1 when running on macOS, else 0.
-pub function is_macos() -> int
+pub function is_macos() -> bool
     if target_os() == "macos"
         return true
     end
@@ -109,7 +109,7 @@ end
 ##
 ## ### Returns
 ## 1 when running on a POSIX system (non-Windows), else 0.
-pub function is_posix() -> int
+pub function is_posix() -> bool
     if target_os() != "windows"
         return true
     end
@@ -123,7 +123,7 @@ end
 ##
 ## ### Returns
 ## 1 when running on Windows, else 0.
-pub function is_windows() -> int
+pub function is_windows() -> bool
     if target_os() == "windows"
         return true
     end
@@ -192,7 +192,7 @@ end
 ##
 ## ### Returns
 ## 1 when the variable is set and non-empty, else 0.
-pub function has_env(key: string) -> int
+pub function has_env(key: string) -> bool
     if len(get_env(key)) > 0
         return true
     end
@@ -304,7 +304,7 @@ end
 ##
 ## ### Returns
 ## 1 when the flag is present, else 0.
-pub function has_arg(flag: string) -> int
+pub function has_arg(flag: string) -> bool
     let a: string[] = args()
     for arg in a
         if arg == flag

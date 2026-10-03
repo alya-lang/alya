@@ -288,7 +288,7 @@ end
 ##
 ## ### Returns
 ## 1 when the year is a leap year, else 0.
-pub function is_leap_year(year: int) -> int
+pub function is_leap_year(year: int) -> bool
     if year % 400 == 0
         return true
     elif year % 100 == 0
@@ -705,7 +705,7 @@ pub struct TimeParseError
     message: string
 end
 
-function _time_is_digits(s: string) -> int
+function _time_is_digits(s: string) -> bool
     if len(s) == 0
         return false
     end
