@@ -34,10 +34,10 @@ fn entry_files() -> Vec<String> {
         "08_struct_float_call_arg.alya".to_string(),
         "09_private_float_param.alya".to_string(),
         "10_int_store_no_retain.alya".to_string(),
-        "14_method_delegation.alya".to_string(),
         "11_map_index_literal_retain.alya".to_string(),
         "12_tuple_struct_return_alias.alya".to_string(),
         "13_return_index_retain.alya".to_string(),
+        "14_method_delegation.alya".to_string(),
     ]
 }
 
