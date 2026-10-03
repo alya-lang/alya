@@ -1224,10 +1224,10 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
             })?;
 
             let mut parser = Parser::new(tokens);
-            // Imported files evaluate `@cfg` under their OWN manifest's
-            // defaults when they belong to a different package than the
-            // entry (cargo parity: dependencies keep their defaults, no
-            // unification). Same-package files inherit the top context.
+            // Imported files evaluate `@cfg` under their OWN package's unified
+            // feature set (entry defaults + CLI, plus every `dep/feat`
+            // request from active parents). Same-package files inherit the
+            // top context.
             parser.set_cfg_context(crate::tools::pkg::features::imported_file_cfg(
                 &canonical,
                 top_manifest_dir,

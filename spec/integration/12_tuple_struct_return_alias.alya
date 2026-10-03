@@ -1,0 +1,67 @@
+# ==============================================================================
+# Alya Integration Fixture 12 (entry): tuple struct return & non-fresh call retain
+# Distilled from: Lib/xml/src/parser.alya and Lib/xml/src/lib.alya
+# Guards:
+#   1. Functions returning a tuple with struct elements (return Node {...}, pos)
+#      must correctly infer struct type for destructured variables (let node, pos = ...).
+#   2. Calling a function returning a borrowed struct into a reassigned variable
+#      must retain the borrow so subsequent drops do not cause use-after-free.
+# ==============================================================================
+
+struct Item
+    id: int,
+    name: string
+end
+
+struct Container
+    items: Item[]
+end
+
+function parse_item(raw_id: int)
+    let it = Item { id: raw_id, name: "parsed" }
+    return it, 42
+end
+
+function find_item(c: Container, target_id: int)
+    let found = null
+    for it in c.items
+        if it.id == target_id
+            found = it
+            break
+        end
+    end
+    return found
+end
+
+function traverse_and_lookup(c: Container) -> int
+    let cur = find_item(c, 1)
+    if cur is not null
+        # Reassignment must retain new value and release old without premature free
+        cur = find_item(c, 2)
+    end
+    if cur is not null
+        return cur.id
+    end
+    return 0
+end
+
+function main()
+    # 1. Test tuple struct return destructuring
+    let it, pos = parse_item(99)
+    assert it.id == 99
+    assert it.name == "parsed"
+    assert pos == 42
+
+    # 2. Test borrowed struct reassignment and lifetime
+    let c = Container { items: [Item { id: 1, name: "one" }, Item { id: 2, name: "two" }] }
+    let res = traverse_and_lookup(c)
+    assert res == 2
+    # Verify original container items are still intact
+    assert len(c.items) == 2
+    assert c.items[0].id == 1
+    assert c.items[1].id == 2
+
+    say "integration 12_tuple_struct_return_alias: OK"
+end
+
+main()

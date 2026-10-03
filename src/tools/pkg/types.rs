@@ -62,33 +62,110 @@ pub struct PackageInfo {
     pub extra: BTreeMap<String, String>,
 }
 
+/// Edge-controlled feature requests on one dependency: `features` names
+/// features of the dependency enabled whenever this edge is active, and
+/// `default_features = false` opts that dependency out of its `default`
+/// feature unless another active edge (or entry CLI) keeps it (additive:
+/// one keeper wins). See spec Chapter 24 §1.5.1 and §1.7.5.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DependencyEdge {
+    pub optional: bool,
+    pub default_features: bool,
+    pub features: Vec<String>,
+}
+
+impl DependencyEdge {
+    pub fn plain() -> Self {
+        Self {
+            optional: false,
+            default_features: true,
+            features: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DependencySource {
     Version {
         version: String,
-        optional: bool,
+        edge: DependencyEdge,
     },
     Path {
         path: String,
-        optional: bool,
+        edge: DependencyEdge,
     },
     Git {
         url: String,
         tag: Option<String>,
         branch: Option<String>,
         rev: Option<String>,
-        optional: bool,
+        edge: DependencyEdge,
     },
+}
+
+/// One entry of a `[features]` member list (spec Chapter 24 §1.5.1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FeatureMember {
+    /// `name`: same-package feature and/or optional dependency.
+    Local(String),
+    /// `dep:name`: optional dependency, without touching same-named features.
+    ExplicitDep(String),
+    /// `name/feat`: feature `feat` of dependency `name` (enables `name`).
+    DepFeature { dep: String, feature: String },
+}
+
+/// Structural split of a feature member. Returns `None` for empty parts or
+/// more than one separator (`a/b/c`, `dep:`, …); character validation is the
+/// manifest parser's job.
+pub fn parse_feature_member(member: &str) -> Option<FeatureMember> {
+    if member.is_empty() {
+        return None;
+    }
+    if let Some(rest) = member.strip_prefix("dep:") {
+        if rest.is_empty() || rest.contains([':', '/']) {
+            return None;
+        }
+        return Some(FeatureMember::ExplicitDep(rest.to_string()));
+    }
+    if let Some((dep, feat)) = member.split_once('/') {
+        if dep.is_empty() || feat.is_empty() || feat.contains([':', '/']) || dep.contains(':') {
+            return None;
+        }
+        return Some(FeatureMember::DepFeature {
+            dep: dep.to_string(),
+            feature: feat.to_string(),
+        });
+    }
+    if member.contains(':') {
+        return None;
+    }
+    Some(FeatureMember::Local(member.to_string()))
 }
 
 impl DependencySource {
     /// Whether this dependency is opt-in via `[features]` (skipped by
     /// `install` unless an active feature enables it).
     pub fn is_optional(&self) -> bool {
+        self.edge().optional
+    }
+
+    /// Shared edge view: optional flag, `default-features` opt-out, and
+    /// the edge `features` request list.
+    pub fn edge(&self) -> &DependencyEdge {
         match self {
-            DependencySource::Version { optional, .. } => *optional,
-            DependencySource::Path { optional, .. } => *optional,
-            DependencySource::Git { optional, .. } => *optional,
+            DependencySource::Version { edge, .. } => edge,
+            DependencySource::Path { edge, .. } => edge,
+            DependencySource::Git { edge, .. } => edge,
+        }
+    }
+
+    /// Mutable edge view (resolution coalescing never touches the edge;
+    /// `update` carries it over verbatim).
+    pub fn edge_mut(&mut self) -> &mut DependencyEdge {
+        match self {
+            DependencySource::Version { edge, .. } => edge,
+            DependencySource::Path { edge, .. } => edge,
+            DependencySource::Git { edge, .. } => edge,
         }
     }
 }
@@ -164,9 +241,11 @@ pub struct PackageManifest {
     /// `[workspace]`: present on the workspace root. Virtual roots (no
     /// `[package]`) get a synthesized private package; member lists only.
     pub workspace: Option<WorkspaceConfig>,
-    /// `[features]`: name -> member list. Members name another feature or a
-    /// (usually optional) dependency. No language-level `cfg(feature)` exists
-    /// yet: features gate optional dependencies only.
+    /// `[features]`: name -> member list. Members name a local feature, a
+    /// (usually optional) dependency, `dep:name`, or `name/feat` (feature
+    /// `feat` of dependency `name`, enabling it). Unified across the
+    /// dependency graph (Chapter 24 §1.7.5); `@cfg(feature)` evaluates
+    /// against each package's unified set (Chapter 18 §1.3).
     pub features: BTreeMap<String, Vec<String>>,
     /// `[profile.<name>]`: `dev`/`release` built in (defaults apply when the
     /// table is absent); any other name defines a custom profile selectable

@@ -958,6 +958,29 @@ impl CodeGen {
             }
         }
 
+        for ((fname, idx), sname) in &inference.struct_inf.fn_tuple_returns {
+            let colon_name = fname.replace("__", "::");
+            let mangled_name = fname.replace("::", "__");
+            let bare = crate::codegen::analysis::inference::structs::resolve_func_bare(
+                fname,
+                &inference.struct_inf.struct_names,
+            );
+            for key in [
+                format!("fn_ret_tuple_struct:{}:{}", fname, idx),
+                format!("fn_ret_tuple_struct:{}:{}", bare, idx),
+                format!("fn_ret_tuple_struct:{}:{}", colon_name, idx),
+                format!("fn_ret_tuple_struct:{}:{}", mangled_name, idx),
+            ] {
+                self.ctx.variables.insert(
+                    key,
+                    VarType::Struct {
+                        struct_name: sname.clone(),
+                        offset: 0,
+                    },
+                );
+            }
+        }
+
         // Compute virtual method tables (VTables) for structs implicitly satisfying interfaces
         for (sname, sdef) in &self.ctx.structs {
             let bare_sdef = sdef.name.rsplit("::").next().unwrap_or(&sdef.name);
@@ -2408,7 +2431,14 @@ impl CodeGen {
                 }
                 None
             }
-            Expr::Index { array, .. } => {
+            Expr::Index { array, index } => {
+                if let (Expr::Identifier(arr_name), Expr::Number(idx)) = (&**array, &**index) {
+                    let key = format!("tuple_elem_struct:{}:{}", arr_name, idx);
+                    if let Some(VarType::Struct { struct_name, .. }) = self.ctx.variables.get(&key)
+                    {
+                        return Some(struct_name.clone());
+                    }
+                }
                 if let Some(sname) = self.get_expr_struct_name(array) {
                     let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
                     let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);

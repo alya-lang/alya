@@ -257,7 +257,18 @@ pub fn resolve_package_import(
                 let providers: Vec<&str> = manifest
                     .features
                     .iter()
-                    .filter(|(_, members)| members.iter().any(|m| m == pkg_name))
+                    .filter(|(_, members)| {
+                        members
+                            .iter()
+                            .any(|m| match super::types::parse_feature_member(m) {
+                                Some(super::types::FeatureMember::Local(n)) => n == pkg_name,
+                                Some(super::types::FeatureMember::ExplicitDep(d)) => d == pkg_name,
+                                Some(super::types::FeatureMember::DepFeature { dep, .. }) => {
+                                    dep == *pkg_name
+                                }
+                                None => false,
+                            })
+                    })
                     .map(|(name, _)| name.as_str())
                     .collect();
                 return Err(format!(

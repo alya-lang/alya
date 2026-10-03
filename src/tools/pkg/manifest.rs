@@ -1,5 +1,8 @@
 use super::toml::{parse_inline_table, parse_string_array, strip_toml_comment, unquote};
-use super::types::{BuildConfig, BuildProfile, DependencySource, PackageInfo, PackageManifest};
+use super::types::{
+    BuildConfig, BuildProfile, DependencyEdge, DependencySource, FeatureMember, PackageInfo,
+    PackageManifest,
+};
 use std::collections::BTreeMap;
 
 fn is_valid_feature_name(name: &str) -> bool {
@@ -73,8 +76,61 @@ fn parse_optional_flag(
     }
 }
 
-/// Every feature member must name another feature or a declared
-/// dependency, and the feature graph must be acyclic. Pure over parsed
+/// Parses the edge-control keys of one inline dependency table:
+/// `optional` (default false), `default-features`/`default_features`
+/// (default true), and `features` (a string array of dependency feature
+/// names, default empty).
+fn parse_dependency_edge(
+    table: &BTreeMap<String, String>,
+    key: &str,
+    line_no: usize,
+) -> Result<DependencyEdge, String> {
+    let optional = parse_optional_flag(table, key, line_no)?;
+    let default_features = match table
+        .get("default-features")
+        .or_else(|| table.get("default_features"))
+    {
+        None => true,
+        Some(v) if v == "true" => true,
+        Some(v) if v == "false" => false,
+        Some(v) => {
+            return Err(format!(
+                "Invalid dependency entry '{}' in alya.toml at line {}: 'default-features' must be 'true' or 'false', got '{}'",
+                key, line_no, v
+            ));
+        }
+    };
+    let features = match table.get("features") {
+        None => Vec::new(),
+        Some(raw) => {
+            if !(raw.starts_with('[') && raw.ends_with(']')) {
+                return Err(format!(
+                    "Invalid dependency entry '{}' in alya.toml at line {}: 'features' must be a string array like '[\"tls\"]'",
+                    key, line_no
+                ));
+            }
+            let names = parse_string_array(raw);
+            for name in &names {
+                if !is_valid_feature_name(name) {
+                    return Err(format!(
+                        "Invalid feature '{}' in dependency entry '{}' in alya.toml at line {}",
+                        name, key, line_no
+                    ));
+                }
+            }
+            names
+        }
+    };
+    Ok(DependencyEdge {
+        optional,
+        default_features,
+        features,
+    })
+}
+
+/// Every feature member must name a local feature, a declared dependency,
+/// `dep:name`, or `name/feat` (left side a declared dependency), and the
+/// local feature-to-feature graph must be acyclic. Pure over parsed
 /// tables so it stays unit-testable.
 fn validate_feature_graph(
     features: &BTreeMap<String, Vec<String>>,
@@ -82,11 +138,25 @@ fn validate_feature_graph(
 ) -> Result<(), String> {
     for (feature, members) in features {
         for member in members {
-            if !features.contains_key(member) && !dependencies.contains_key(member) {
-                return Err(format!(
-                    "Feature '{}' in alya.toml references unknown feature or dependency '{}'",
-                    feature, member
-                ));
+            match super::types::parse_feature_member(member) {
+                Some(FeatureMember::Local(name))
+                    if is_valid_feature_name(&name)
+                        && (features.contains_key(&name) || dependencies.contains_key(&name)) => {}
+                Some(FeatureMember::ExplicitDep(dep))
+                    if is_valid_feature_name(&dep) && dependencies.contains_key(&dep) => {}
+                Some(FeatureMember::DepFeature { dep, feature: _ })
+                    if is_valid_feature_name(&dep) && dependencies.contains_key(&dep) =>
+                {
+                    // Right side names a foreign feature: validated at
+                    // resolution time (unknown foreign names are ignored,
+                    // mirroring `@cfg(feature)`).
+                }
+                _ => {
+                    return Err(format!(
+                        "Feature '{}' in alya.toml references unknown feature or dependency '{}'",
+                        feature, member
+                    ));
+                }
             }
         }
     }
@@ -112,8 +182,12 @@ fn validate_feature_graph(
             stack.push((node.clone(), true));
             if let Some(members) = features.get(&node) {
                 for member in members {
-                    if member != &node && features.contains_key(member) {
-                        stack.push((member.clone(), false));
+                    if let Some(FeatureMember::Local(name)) =
+                        super::types::parse_feature_member(member)
+                    {
+                        if name != *node && features.contains_key(&name) {
+                            stack.push((name, false));
+                        }
                     }
                 }
             }
@@ -303,13 +377,13 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                 "dependencies" => {
                     if val.starts_with('{') {
                         let table = parse_inline_table(val);
-                        let optional = parse_optional_flag(&table, key, line_no)?;
+                        let edge = parse_dependency_edge(&table, key, line_no)?;
                         if let Some(p) = table.get("path") {
                             dependencies.insert(
                                 key.to_string(),
                                 DependencySource::Path {
                                     path: p.clone(),
-                                    optional,
+                                    edge,
                                 },
                             );
                         } else if let Some(g) = table.get("git") {
@@ -320,7 +394,7 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                                     tag: table.get("tag").cloned(),
                                     branch: table.get("branch").cloned(),
                                     rev: table.get("rev").cloned(),
-                                    optional,
+                                    edge,
                                 },
                             );
                         } else if let Some(v_inner) = table.get("version") {
@@ -328,7 +402,7 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                                 key.to_string(),
                                 DependencySource::Version {
                                     version: v_inner.clone(),
-                                    optional,
+                                    edge,
                                 },
                             );
                         } else {
@@ -342,7 +416,7 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                             key.to_string(),
                             DependencySource::Version {
                                 version: unquote(val),
-                                optional: false,
+                                edge: DependencyEdge::plain(),
                             },
                         );
                     }
@@ -362,9 +436,17 @@ pub fn parse_manifest(content: &str) -> Result<PackageManifest, String> {
                     }
                     let members = parse_string_array(val);
                     for member in &members {
-                        if !is_valid_feature_name(member) {
+                        let ok = match super::types::parse_feature_member(member) {
+                            Some(FeatureMember::Local(name)) => is_valid_feature_name(&name),
+                            Some(FeatureMember::ExplicitDep(dep)) => is_valid_feature_name(&dep),
+                            Some(FeatureMember::DepFeature { dep, feature }) => {
+                                is_valid_feature_name(&dep) && is_valid_feature_name(&feature)
+                            }
+                            None => false,
+                        };
+                        if !ok {
                             return Err(format!(
-                                "Invalid feature member '{}' in feature '{}' in alya.toml at line {}",
+                                "Invalid feature member '{}' in feature '{}' in alya.toml at line {}: expected 'name', 'dep:name', or 'name/feat'",
                                 member, key, line_no
                             ));
                         }
@@ -626,24 +708,45 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
 
     out.push_str("\n[dependencies]\n");
     for (name, dep) in &manifest.dependencies {
+        // Edge-control suffix shared by every source kind: empty for plain
+        // edges so round-trips of legacy manifests stay byte-stable.
+        let edge_suffix = |edge: &DependencyEdge| -> String {
+            let mut s = String::new();
+            if edge.optional {
+                s.push_str(", optional = true");
+            }
+            if !edge.default_features {
+                s.push_str(", default-features = false");
+            }
+            if !edge.features.is_empty() {
+                let list = edge
+                    .features
+                    .iter()
+                    .map(|f| format!("\"{}\"", f))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                s.push_str(&format!(", features = [{}]", list));
+            }
+            s
+        };
         match dep {
-            DependencySource::Version { version, optional } => {
-                if *optional {
-                    out.push_str(&format!(
-                        "{} = {{ version = \"{}\", optional = true }}\n",
-                        name, version
-                    ));
-                } else {
+            DependencySource::Version { version, edge } => {
+                let suffix = edge_suffix(edge);
+                if suffix.is_empty() {
                     out.push_str(&format!("{} = \"{}\"\n", name, version));
+                } else {
+                    out.push_str(&format!(
+                        "{} = {{ version = \"{}\"{} }}\n",
+                        name, version, suffix
+                    ));
                 }
             }
-            DependencySource::Path { path, optional } => {
-                let opt = if *optional { ", optional = true" } else { "" };
+            DependencySource::Path { path, edge } => {
                 out.push_str(&format!(
                     "{} = {{ path = \"{}\"{} }}\n",
                     name,
                     path.replace('\\', "/"),
-                    opt
+                    edge_suffix(edge)
                 ));
             }
             DependencySource::Git {
@@ -651,7 +754,7 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
                 tag,
                 branch,
                 rev,
-                optional,
+                edge,
             } => {
                 let mut parts = vec![format!("git = \"{}\"", url)];
                 if let Some(t) = tag {
@@ -663,8 +766,9 @@ pub fn serialize_manifest(manifest: &PackageManifest) -> String {
                 if let Some(r) = rev {
                     parts.push(format!("rev = \"{}\"", r));
                 }
-                if *optional {
-                    parts.push("optional = true".to_string());
+                let suffix = edge_suffix(edge);
+                if !suffix.is_empty() {
+                    parts.push(suffix.trim_start_matches(", ").to_string());
                 }
                 out.push_str(&format!("{} = {{ {} }}\n", name, parts.join(", ")));
             }

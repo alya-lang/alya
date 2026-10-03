@@ -14,6 +14,9 @@ pub struct StructInference {
     /// Tracks (function_name, param_idx) that received multiple conflicting struct types (polymorphic)
     pub conflicted_params: HashSet<(String, usize)>,
     pub conflicted_returns: HashSet<String>,
+    pub fn_tuple_returns: HashMap<(String, usize), String>,
+    pub tuple_var_types: HashMap<(String, usize), String>,
+    pub fn_param_names: HashSet<(String, String)>,
     pub struct_names: HashSet<String>,
     pub fn_names: HashSet<String>,
 }
@@ -83,12 +86,16 @@ impl StructInference {
             let prev_len = inf.fn_returns.len()
                 + inf.fn_params.len()
                 + inf.var_types.len()
-                + inf.field_types.len();
+                + inf.field_types.len()
+                + inf.fn_tuple_returns.len()
+                + inf.tuple_var_types.len();
             inf.scan_stmts(&program.statements, None, &struct_names, &fn_names);
             if inf.fn_returns.len()
                 + inf.fn_params.len()
                 + inf.var_types.len()
                 + inf.field_types.len()
+                + inf.fn_tuple_returns.len()
+                + inf.tuple_var_types.len()
                 == prev_len
             {
                 break;
@@ -149,12 +156,41 @@ impl StructInference {
                     if let Some(st) = self.var_types.get(&format!("{}::{}", bare_fn, vname)) {
                         return Some(st.clone());
                     }
+                    if self
+                        .fn_param_names
+                        .contains(&(fn_name.to_string(), vname.clone()))
+                        || self
+                            .fn_param_names
+                            .contains(&(bare_fn.to_string(), vname.clone()))
+                    {
+                        return None;
+                    }
                 }
                 self.var_types.get(vname).cloned()
             }
-            Expr::Array(elems) => elems
-                .first()
-                .and_then(|e| self.expr_struct_type(e, current_fn, struct_names)),
+            Expr::Array(_) => None,
+            Expr::Index { array, index } => {
+                if let Expr::Number(idx) = index.as_ref() {
+                    if let Expr::Identifier(arr_name) = array.as_ref() {
+                        let i = *idx as usize;
+                        if let Some(fn_name) = current_fn {
+                            let scoped_key = format!("{}::{}", fn_name, arr_name);
+                            if let Some(st) = self.tuple_var_types.get(&(scoped_key, i)) {
+                                return Some(st.clone());
+                            }
+                            let bare_fn = resolve_func_bare(fn_name, struct_names);
+                            let bare_scoped_key = format!("{}::{}", bare_fn, arr_name);
+                            if let Some(st) = self.tuple_var_types.get(&(bare_scoped_key, i)) {
+                                return Some(st.clone());
+                            }
+                        }
+                        if let Some(st) = self.tuple_var_types.get(&(arr_name.clone(), i)) {
+                            return Some(st.clone());
+                        }
+                    }
+                }
+                None
+            }
             Expr::FieldAccess { object, field } => {
                 if let Some(parent_st) = self.expr_struct_type(object, current_fn, struct_names) {
                     let bare = resolve_func_bare(&parent_st, struct_names);
@@ -189,6 +225,13 @@ impl StructInference {
                     ..
                 } => {
                     let bare = resolve_func_bare(name, struct_names);
+
+                    for p in params {
+                        self.fn_param_names.insert((name.clone(), p.clone()));
+                        if bare != name {
+                            self.fn_param_names.insert((bare.to_string(), p.clone()));
+                        }
+                    }
 
                     if let Some(ref rt) = return_type {
                         let rt_bare = resolve_func_bare(rt, struct_names);
@@ -272,7 +315,20 @@ impl StructInference {
                 Stmt::Return(Some(expr)) => {
                     self.scan_expr(expr, current_fn, struct_names, fn_names);
                     if let Some(fn_name) = current_fn {
-                        if !self.conflicted_returns.contains(fn_name) {
+                        if let Expr::Array(elements) = expr {
+                            let bare = resolve_func_bare(fn_name, struct_names);
+                            for (i, elem) in elements.iter().enumerate() {
+                                if let Some(st) =
+                                    self.expr_struct_type(elem, current_fn, struct_names)
+                                {
+                                    self.fn_tuple_returns
+                                        .insert((fn_name.to_string(), i), st.clone());
+                                    if bare != fn_name {
+                                        self.fn_tuple_returns.insert((bare.to_string(), i), st);
+                                    }
+                                }
+                            }
+                        } else if !self.conflicted_returns.contains(fn_name) {
                             if let Some(st) = self.expr_struct_type(expr, current_fn, struct_names)
                             {
                                 let bare = resolve_func_bare(fn_name, struct_names);
@@ -331,6 +387,47 @@ impl StructInference {
                             self.var_types.insert(name.clone(), st);
                         }
                     }
+                    if let Expr::Call { name: cname, .. } = value {
+                        let bare_call = resolve_func_bare(cname, struct_names);
+                        let tuple_matches: Vec<(usize, String)> = self
+                            .fn_tuple_returns
+                            .iter()
+                            .filter(|((fn_n, _), _)| fn_n == cname || fn_n == bare_call)
+                            .map(|((_, idx), st)| (*idx, st.clone()))
+                            .collect();
+                        for (idx, st) in tuple_matches {
+                            if let Some(fn_name) = current_fn {
+                                self.tuple_var_types
+                                    .insert((format!("{}::{}", fn_name, name), idx), st.clone());
+                                let bare_fn = resolve_func_bare(fn_name, struct_names);
+                                if bare_fn != fn_name {
+                                    self.tuple_var_types.insert(
+                                        (format!("{}::{}", bare_fn, name), idx),
+                                        st.clone(),
+                                    );
+                                }
+                            }
+                            self.tuple_var_types.insert((name.clone(), idx), st);
+                        }
+                    } else if let Expr::Array(elements) = value {
+                        for (i, elem) in elements.iter().enumerate() {
+                            if let Some(st) = self.expr_struct_type(elem, current_fn, struct_names)
+                            {
+                                if let Some(fn_name) = current_fn {
+                                    self.tuple_var_types
+                                        .insert((format!("{}::{}", fn_name, name), i), st.clone());
+                                    let bare_fn = resolve_func_bare(fn_name, struct_names);
+                                    if bare_fn != fn_name {
+                                        self.tuple_var_types.insert(
+                                            (format!("{}::{}", bare_fn, name), i),
+                                            st.clone(),
+                                        );
+                                    }
+                                }
+                                self.tuple_var_types.insert((name.clone(), i), st);
+                            }
+                        }
+                    }
                 }
                 Stmt::Assign { name, value } => {
                     self.scan_expr(value, current_fn, struct_names, fn_names);
@@ -344,6 +441,47 @@ impl StructInference {
                             }
                         } else {
                             self.var_types.insert(name.clone(), st);
+                        }
+                    }
+                    if let Expr::Call { name: cname, .. } = value {
+                        let bare_call = resolve_func_bare(cname, struct_names);
+                        let tuple_matches: Vec<(usize, String)> = self
+                            .fn_tuple_returns
+                            .iter()
+                            .filter(|((fn_n, _), _)| fn_n == cname || fn_n == bare_call)
+                            .map(|((_, idx), st)| (*idx, st.clone()))
+                            .collect();
+                        for (idx, st) in tuple_matches {
+                            if let Some(fn_name) = current_fn {
+                                self.tuple_var_types
+                                    .insert((format!("{}::{}", fn_name, name), idx), st.clone());
+                                let bare_fn = resolve_func_bare(fn_name, struct_names);
+                                if bare_fn != fn_name {
+                                    self.tuple_var_types.insert(
+                                        (format!("{}::{}", bare_fn, name), idx),
+                                        st.clone(),
+                                    );
+                                }
+                            }
+                            self.tuple_var_types.insert((name.clone(), idx), st);
+                        }
+                    } else if let Expr::Array(elements) = value {
+                        for (i, elem) in elements.iter().enumerate() {
+                            if let Some(st) = self.expr_struct_type(elem, current_fn, struct_names)
+                            {
+                                if let Some(fn_name) = current_fn {
+                                    self.tuple_var_types
+                                        .insert((format!("{}::{}", fn_name, name), i), st.clone());
+                                    let bare_fn = resolve_func_bare(fn_name, struct_names);
+                                    if bare_fn != fn_name {
+                                        self.tuple_var_types.insert(
+                                            (format!("{}::{}", bare_fn, name), i),
+                                            st.clone(),
+                                        );
+                                    }
+                                }
+                                self.tuple_var_types.insert((name.clone(), i), st);
+                            }
                         }
                     }
                 }

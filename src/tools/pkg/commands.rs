@@ -1,10 +1,12 @@
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::cache::{get_global_cache_dir, run_cache, run_clean};
 use super::discovery::{find_manifest_dir, find_package_entry};
-use super::features::{enabled_dependencies, resolve_active_features};
+use super::features::{
+    close_features, dep_feature_requests, enabled_dependencies, resolve_active_features,
+};
 use super::hash::{
     compute_cache_key, compute_cache_key_rev, compute_package_checksum, verify_package_checksum,
     ChecksumVerdict,
@@ -17,7 +19,8 @@ use super::resolver::{
     resolve_package_spec, resolve_registry_url, semver_major,
 };
 use super::types::{
-    DependencySource, LockedPackage, PackageInfo, PackageLock, PackageManifest, PkgCommand,
+    DependencyEdge, DependencySource, LockedPackage, PackageInfo, PackageLock, PackageManifest,
+    PkgCommand,
 };
 
 pub fn run_pkg(cmd: &PkgCommand) -> Result<(), String> {
@@ -214,7 +217,10 @@ pub fn run_add(
         (
             DependencySource::Path {
                 path: p.to_string(),
-                optional,
+                edge: DependencyEdge {
+                    optional,
+                    ..DependencyEdge::plain()
+                },
             },
             None,
         )
@@ -225,7 +231,10 @@ pub fn run_add(
                 tag: tag.map(|s| s.to_string()),
                 branch: branch.map(|s| s.to_string()),
                 rev: None,
-                optional,
+                edge: DependencyEdge {
+                    optional,
+                    ..DependencyEdge::plain()
+                },
             },
             tag.or(branch).map(|s| s.to_string()),
         )
@@ -236,7 +245,10 @@ pub fn run_add(
                 tag: tag.map(|s| s.to_string()),
                 branch: branch.map(|s| s.to_string()),
                 rev: None,
-                optional,
+                edge: DependencyEdge {
+                    optional,
+                    ..DependencyEdge::plain()
+                },
             },
             tag.or(branch).map(|s| s.to_string()),
         )
@@ -283,7 +295,10 @@ pub fn run_add(
         (
             DependencySource::Version {
                 version: ver,
-                optional,
+                edge: DependencyEdge {
+                    optional,
+                    ..DependencyEdge::plain()
+                },
             },
             Some(v_disp),
         )
@@ -657,9 +672,10 @@ fn run_install_workspace(
         if members.len() == 1 { "" } else { "s" },
         names.join(", ")
     );
-    // Gather (name, dep, owner-dir) triples across all members; the
-    // shared stages below coalesce, segregate, and lock them together.
-    let mut requests: Vec<(String, DependencySource, PathBuf)> = Vec::new();
+    // Gather per-member (manifest, dir, closed active set) entries; the
+    // shared stage below unifies features across the graph, then coalesces,
+    // segregates, and locks everything together.
+    let mut entries: Vec<(PackageManifest, PathBuf, BTreeSet<String>)> = Vec::new();
     for member in &members {
         let content = fs::read_to_string(member.dir.join("alya.toml"))
             .map_err(|e| format!("Failed to read alya.toml: {}", e))?;
@@ -668,16 +684,15 @@ fn run_install_workspace(
         let active = resolve_active_features(&manifest, features, no_default_features)
             .map_err(|e| format!("Member '{}': {}", member.name, e))?;
         let enabled = enabled_dependencies(&manifest, &active);
-        for (name, dep) in &manifest.dependencies {
+        for name in manifest.dependencies.keys() {
             if !enabled.contains(name) {
                 println!(
                     "  Skipping optional dependency '{}' of member '{}' (no active feature enables it)",
                     name, member.name
                 );
-                continue;
             }
-            requests.push((name.clone(), dep.clone(), member.dir.clone()));
         }
+        entries.push((manifest, member.dir.clone(), active));
     }
     if !features.is_empty() || no_default_features {
         let mut names: Vec<&str> = features.iter().map(|s| s.as_str()).collect();
@@ -691,7 +706,7 @@ fn run_install_workspace(
             }
         );
     }
-    install_resolved(root, requests, strict)
+    install_resolved(root, entries, strict)
 }
 
 /// Legacy single-package install: lockfile and packages beside the package.
@@ -721,26 +736,48 @@ fn run_install_single(
         );
     }
 
-    let mut requests: Vec<(String, DependencySource, PathBuf)> = Vec::new();
-    for (name, dep) in &manifest.dependencies {
+    for name in manifest.dependencies.keys() {
         if !enabled.contains(name) {
             println!(
                 "  Skipping optional dependency '{}' (no active feature enables it)",
                 name
             );
-            continue;
         }
-        requests.push((name.clone(), dep.clone(), manifest_dir.to_path_buf()));
     }
-    install_resolved(manifest_dir, requests, strict)
+    install_resolved(
+        manifest_dir,
+        vec![(manifest, manifest_dir.to_path_buf(), active)],
+        strict,
+    )
 }
 
-/// Shared install stages: graph discovery + coalescing, major
-/// segregation, then installation under `lock_dir/.alya/packages` with the
-/// lockfile at `lock_dir/alya.lock`.
+/// One node of the install-time feature graph: an entry (workspace
+/// member or single package root, never installed) or a resolved package.
+struct InstallNode {
+    /// Entry roots have no install source; packages carry the coalesced one.
+    source: Option<DependencySource>,
+    /// First requester's dir (package fetch base) / entry member dir.
+    base_dir: PathBuf,
+    /// Packages without (or with unreadable) manifests still install;
+    /// they just contribute no further edges.
+    manifest: Option<PackageManifest>,
+    /// Canonicalized id: `entry:{i}` or `pkg:{name}:{major:?}`.
+    pkg_name: Option<String>,
+    pkg_major: Option<u64>,
+    seeds: BTreeSet<String>,
+    closed: BTreeSet<String>,
+    propagated: bool,
+    is_entry: bool,
+    /// (parent id, edge keeps defaults, edge features) per active edge.
+    incoming: Vec<(String, bool, Vec<String>)>,
+}
+
+/// Shared install stages: graph discovery + feature-unification fixpoint +
+/// SemVer coalescing, then major segregation and installation under
+/// `lock_dir/.alya/packages` with the lockfile at `lock_dir/alya.lock`.
 fn install_resolved(
     lock_dir: &Path,
-    requests: Vec<(String, DependencySource, PathBuf)>,
+    entries: Vec<(PackageManifest, PathBuf, BTreeSet<String>)>,
     strict: bool,
 ) -> Result<(), String> {
     let packages_dir = lock_dir.join(".alya").join("packages");
@@ -757,71 +794,149 @@ fn install_resolved(
         None
     };
 
-    // Stage 1: Dependency Graph Discovery & SemVer Coalescing
-    let mut resolved_requests: BTreeMap<(String, Option<u64>), (DependencySource, PathBuf)> =
-        BTreeMap::new();
-    let mut to_scan: VecDeque<(String, DependencySource, PathBuf)> = VecDeque::new();
+    // Stage 1: Dependency Graph Discovery + feature-unification fixpoint
+    // + SemVer Coalescing. Seeds and incoming edges only grow, and nodes
+    // propagate only on growth, so the worklist terminates.
+    let mut nodes: BTreeMap<String, InstallNode> = BTreeMap::new();
+    let mut queue: VecDeque<String> = VecDeque::new();
     let mut reported: HashSet<String> = HashSet::new();
-
-    for (name, dep, owner) in requests {
-        to_scan.push_back((name, dep, owner));
+    for (i, (manifest, dir, active)) in entries.into_iter().enumerate() {
+        let id = format!("entry:{i}");
+        nodes.insert(
+            id.clone(),
+            InstallNode {
+                source: None,
+                base_dir: dir,
+                manifest: Some(manifest),
+                pkg_name: None,
+                pkg_major: None,
+                seeds: active,
+                closed: BTreeSet::new(),
+                propagated: false,
+                is_entry: true,
+                incoming: Vec::new(),
+            },
+        );
+        queue.push_back(id);
     }
 
-    while let Some((name, dep, from_manifest_dir)) = to_scan.pop_front() {
-        let maj = get_dep_major(&dep, &from_manifest_dir);
-        let key = (name.clone(), maj);
-
-        if let Some((existing_dep, _)) = resolved_requests.get_mut(&key) {
-            let coalesced: Option<String> = match (&*existing_dep, &dep) {
-                (
-                    DependencySource::Version { version: v1, .. },
-                    DependencySource::Version { version: v2, .. },
-                ) => {
-                    let merged = coalesce_semver_versions(v1, v2)?;
-                    if merged != v1.as_str() {
-                        Some(merged.to_string())
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
+    while let Some(id) = queue.pop_front() {
+        // Closed set under the currently recorded incoming edges, plus the
+        // outgoing requests (dep source + feats) for every enabled dep.
+        type InstallRequests = Vec<(String, DependencySource, Vec<String>)>;
+        let (closed_new, base_dir, requests): (BTreeSet<String>, PathBuf, InstallRequests) = {
+            let node = match nodes.get(&id) {
+                Some(n) => n,
+                None => continue,
             };
-            if let Some(coalesced) = coalesced {
-                if let DependencySource::Version { version: cur, .. } = existing_dep {
-                    *cur = coalesced;
+            let Some(manifest) = node.manifest.as_ref() else {
+                continue;
+            };
+            let mut seeds = node.seeds.clone();
+            if !node.is_entry
+                && manifest.features.contains_key("default")
+                && (node.incoming.is_empty() || node.incoming.iter().any(|(_, keep, _)| *keep))
+            {
+                seeds.insert("default".to_string());
+            }
+            let closed = close_features(manifest, &seeds);
+            let enabled = enabled_dependencies(manifest, &closed);
+            let mut slash: BTreeMap<String, Vec<String>> = BTreeMap::new();
+            for (dep, feat) in dep_feature_requests(manifest, &closed) {
+                slash.entry(dep).or_default().push(feat);
+            }
+            let mut reqs = Vec::new();
+            for dep_name in &enabled {
+                if let Some(dep) = manifest.dependencies.get(dep_name) {
+                    let mut feats = slash.remove(dep_name).unwrap_or_default();
+                    feats.extend(dep.edge().features.iter().cloned());
+                    reqs.push((dep_name.clone(), dep.clone(), feats));
                 }
             }
+            (closed, node.base_dir.clone(), reqs)
+        };
+        let should_propagate = match nodes.get(&id) {
+            Some(n) => !n.propagated || closed_new != n.closed,
+            None => false,
+        };
+        if should_propagate {
+            if let Some(n) = nodes.get_mut(&id) {
+                n.closed = closed_new;
+                n.propagated = true;
+            }
+        } else {
             continue;
         }
-
-        resolved_requests.insert(key, (dep.clone(), from_manifest_dir.clone()));
-
-        // Inspect sub-dependencies
-        if let Ok(source_dir) = ensure_dep_cached(
-            &name,
-            &dep,
-            &from_manifest_dir,
-            existing_lock.as_ref(),
-            &mut reported,
-            strict,
-        ) {
-            let sub_manifest_path = source_dir.join("alya.toml");
-            if sub_manifest_path.exists() {
-                if let Ok(sub_content) = fs::read_to_string(&sub_manifest_path) {
-                    if let Ok(sub_manifest) = parse_manifest(&sub_content) {
-                        // Transitive packages resolve with their own defaults:
-                        // no feature unification across the graph (documented).
-                        let sub_active =
-                            resolve_active_features(&sub_manifest, &[], false).unwrap_or_default();
-                        let sub_enabled = enabled_dependencies(&sub_manifest, &sub_active);
-                        for (sub_name, sub_dep) in sub_manifest.dependencies {
-                            if sub_enabled.contains(&sub_name) {
-                                to_scan.push_back((sub_name, sub_dep, source_dir.clone()));
-                            }
-                        }
+        for (dep_name, dep_source, feats) in requests {
+            let maj = get_dep_major(&dep_source, &base_dir);
+            let child_id = format!("pkg:{}:{maj:?}", dep_name);
+            if !nodes.contains_key(&child_id) {
+                let source_dir = ensure_dep_cached(
+                    &dep_name,
+                    &dep_source,
+                    &base_dir,
+                    existing_lock.as_ref(),
+                    &mut reported,
+                    strict,
+                )?;
+                let manifest = fs::read_to_string(source_dir.join("alya.toml"))
+                    .ok()
+                    .and_then(|c| parse_manifest(&c).ok());
+                nodes.insert(
+                    child_id.clone(),
+                    InstallNode {
+                        source: Some(dep_source.clone()),
+                        base_dir: source_dir,
+                        manifest,
+                        pkg_name: Some(dep_name.clone()),
+                        pkg_major: maj,
+                        seeds: BTreeSet::new(),
+                        closed: BTreeSet::new(),
+                        propagated: false,
+                        is_entry: false,
+                        incoming: Vec::new(),
+                    },
+                );
+            } else if let Some(node) = nodes.get_mut(&child_id) {
+                // SemVer coalescing on repeat requests (install source
+                // only; feature edges merge below regardless).
+                if let (
+                    Some(DependencySource::Version { version: cur, .. }),
+                    DependencySource::Version { version: v2, .. },
+                ) = (node.source.as_mut(), &dep_source)
+                {
+                    let merged = coalesce_semver_versions(cur, v2)?;
+                    if merged != cur.as_str() {
+                        *cur = merged.to_string();
                     }
                 }
             }
+            let keep = dep_source.edge().default_features;
+            let edge_feats = dep_source.edge().features.clone();
+            let mut child_grew = false;
+            if let Some(child) = nodes.get_mut(&child_id) {
+                if !child.incoming.iter().any(|(p, _, _)| p == &id) {
+                    child.incoming.push((id.clone(), keep, edge_feats));
+                    child_grew = true;
+                }
+                for feat in feats {
+                    if child.seeds.insert(feat) {
+                        child_grew = true;
+                    }
+                }
+            }
+            if child_grew && !queue.contains(&child_id) {
+                queue.push_back(child_id);
+            }
+        }
+    }
+
+    // Legacy shape for stages 2-3: one install source + owner per package.
+    let mut resolved_requests: BTreeMap<(String, Option<u64>), (DependencySource, PathBuf)> =
+        BTreeMap::new();
+    for node in nodes.values() {
+        if let (Some(name), Some(source)) = (node.pkg_name.clone(), node.source.clone()) {
+            resolved_requests.insert((name, node.pkg_major), (source, node.base_dir.clone()));
         }
     }
 
@@ -1128,16 +1243,12 @@ pub fn run_list() -> Result<(), String> {
             .as_ref()
             .and_then(|l| l.packages.iter().find(|p| &p.name == name));
         let dep_desc = match dep {
-            DependencySource::Path { path, optional } => {
-                let opt = if *optional { " (optional)" } else { "" };
+            DependencySource::Path { path, .. } => {
+                let opt = if dep.is_optional() { " (optional)" } else { "" };
                 format!("path: {}{}", path, opt)
             }
             DependencySource::Git {
-                url,
-                tag,
-                branch,
-                optional,
-                ..
+                url, tag, branch, ..
             } => {
                 let mut s = format!("git: {}", url);
                 if let Some(t) = tag {
@@ -1145,16 +1256,13 @@ pub fn run_list() -> Result<(), String> {
                 } else if let Some(b) = branch {
                     s.push_str(&format!(" (branch: {})", b));
                 }
-                if *optional {
+                if dep.is_optional() {
                     s.push_str(" (optional)");
                 }
                 s
             }
-            DependencySource::Version {
-                version: v,
-                optional,
-            } => {
-                let opt = if *optional { " (optional)" } else { "" };
+            DependencySource::Version { version: v, .. } => {
+                let opt = if dep.is_optional() { " (optional)" } else { "" };
                 format!("version: {}{}", v, opt)
             }
         };
@@ -1472,7 +1580,7 @@ fn collect_update_rows(
         match dep {
             DependencySource::Version {
                 version: cur_ver,
-                optional,
+                edge,
             } => {
                 let url = resolve_registry_url(name);
                 let tags = query_remote_tags(&url);
@@ -1489,7 +1597,7 @@ fn collect_update_rows(
                             can_upgrade: true,
                             new_source: Some(DependencySource::Version {
                                 version: latest_clean.to_string(),
-                                optional: *optional,
+                                edge: edge.clone(),
                             }),
                             clear_cache_key: None,
                         });
@@ -1521,7 +1629,7 @@ fn collect_update_rows(
                 tag,
                 branch,
                 rev,
-                optional,
+                edge,
             } => {
                 if let Some(cur_tag) = tag {
                     let tags = query_remote_tags(url);
@@ -1549,7 +1657,7 @@ fn collect_update_rows(
                                     tag: Some(new_tag_str),
                                     branch: None,
                                     rev: None,
-                                    optional: *optional,
+                                    edge: edge.clone(),
                                 }),
                                 clear_cache_key: None,
                             });

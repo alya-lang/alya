@@ -87,6 +87,11 @@ pub struct FingerprintInputs {
     /// Effective flags actually passed (profile already composed).
     pub c_flags: Vec<String>,
     pub link_flags: Vec<String>,
+    /// Entry feature set (sorted) plus the unified per-node feature digest
+    /// (spec Chapter 24 §1.7): feature flips change `@cfg` evaluation
+    /// without touching any source byte, so both feed the fingerprint.
+    pub features: Vec<String>,
+    pub features_digest: String,
     /// Codegen toggles.
     pub no_std: bool,
     pub mem_trace: bool,
@@ -112,6 +117,10 @@ pub struct RawQueryInputs {
     pub link_flags: Vec<String>,
     pub profile_name: String,
     pub features: Vec<String>,
+    /// Precomputed [`crate::tools::pkg::features::unified_features_digest`]
+    /// for the entry (callers own the manifest context; the cache layer
+    /// stays I/O-free over raw inputs).
+    pub features_digest: String,
     pub no_std: bool,
     pub mem_trace: bool,
     pub arch: String,
@@ -188,6 +197,12 @@ pub fn build_query_raw(raw: RawQueryInputs) -> Result<BuildQuery, String> {
         aux_files,
         c_flags: raw.c_flags,
         link_flags: raw.link_flags,
+        features: {
+            let mut f = raw.features.clone();
+            f.sort();
+            f
+        },
+        features_digest: raw.features_digest,
         no_std: raw.no_std,
         mem_trace: raw.mem_trace,
         arch: raw.arch,
@@ -259,6 +274,10 @@ pub fn fingerprint_hex(inputs: &FingerprintInputs) -> String {
     for f in &inputs.link_flags {
         feed(&mut out, "lflag", f);
     }
+    for f in &inputs.features {
+        feed(&mut out, "feature", f);
+    }
+    feed(&mut out, "features_digest", &inputs.features_digest);
     feed(&mut out, "no_std", if inputs.no_std { "1" } else { "0" });
     feed(
         &mut out,
@@ -723,6 +742,8 @@ mod tests {
             aux_files: Vec::new(),
             c_flags: vec!["-O2".to_string()],
             link_flags: Vec::new(),
+            features: Vec::new(),
+            features_digest: "unified:".to_string(),
             no_std: false,
             mem_trace: false,
             arch: "x64".to_string(),
@@ -750,6 +771,8 @@ mod tests {
             |i: &mut FingerprintInputs| i.mem_trace = true,
             |i: &mut FingerprintInputs| i.c_flags.push("-g".to_string()),
             |i: &mut FingerprintInputs| i.manifest_bytes = Some(b"[package]".to_vec()),
+            |i: &mut FingerprintInputs| i.features = vec!["tls".to_string()],
+            |i: &mut FingerprintInputs| i.features_digest = "unified:x=tls;".to_string(),
         ] {
             let mut other = sample_inputs();
             mutate(&mut other);
@@ -809,6 +832,8 @@ mod tests {
             aux_files: Vec::new(),
             c_flags: Vec::new(),
             link_flags: Vec::new(),
+            features: Vec::new(),
+            features_digest: "unified:".to_string(),
             no_std: false,
             mem_trace: false,
             arch: "x64".to_string(),

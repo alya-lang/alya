@@ -44,6 +44,10 @@ pub fn build_query(
         link_flags,
         profile_name: build_cfg.profile_name.clone(),
         features: build_cfg.active_features.iter().cloned().collect(),
+        features_digest: crate::tools::pkg::features::unified_features_digest(
+            std::path::Path::new(&args.input_file),
+            &build_cfg.active_features,
+        ),
         no_std: args.no_std,
         mem_trace: args.mem_trace,
         arch: crate::tools::pkg::features::target_arch_name(args.arch).to_string(),

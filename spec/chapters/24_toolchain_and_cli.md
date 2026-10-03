@@ -67,7 +67,20 @@ utils = { path = "../shared/utils" }
 
 # Semver registry package
 crypto = "^0.2.1"
+
+# Optional dependency with edge-controlled features
+tls = { version = "^0.4.0", optional = true, default-features = false, features = ["rustls"] }
 ```
+
+#### 1.5.1 Feature tables (`[features]`) and edge control
+- `[features]` maps a feature name to a member list. Each member is one of:
+  - `name` — enables the same-named feature or optional dependency `name` in the *same* package (whichever exists; both when both exist);
+  - `dep:name` — enables optional dependency `name` explicitly, without touching any same-named feature;
+  - `name/feat` — enables feature `feat` on dependency `name`, and implicitly enables `name` itself.
+- No weak (`name?/feat`) syntax in v1: `name/feat` always enables `name`.
+- Every member must name a known local feature, a declared dependency, or a `dep:…` / `…/…` target whose left side is a declared dependency; anything else is a manifest error. The feature-to-feature graph must be acyclic (self-edges like `feat = ["feat"]` name the same-name optional dependency idiom and are exempt from the cycle check).
+- Dependency edges accept three keys: `optional = true|false` (default `false`), `default-features = true|false` (default `true`), and `features = ["f", …]` (features enabled on the dependency whenever this edge is active; each must be a valid feature name).
+- CLI parity: `--features` / `--no-default-features` apply to the entry package only (workspace roots fan out per member: each member acts as its own entry; unknown names are errors per member). There is no `package:feature` selector in v1.
 
 ---
 
@@ -158,6 +171,14 @@ When a package wraps a native C library (such as SQLite, OpenSSL, or libuv), glo
 - **Safety Invariant**: The Alya resolver strictly prohibits having multiple major versions of packages that declare the same `links` key in a single dependency graph.
 - If a conflict occurs, the toolchain halts at resolution time with a clear diagnostic:
   `Error: Duplicate native C library link 'sqlite3' required by both 'z-v1' and 'z-v2'. Align dependency versions to resolve.`
+
+#### 5. Feature unification (`dep:feature` propagation)
+- Features are additive and converge to a fixpoint: the resolver walks the dependency graph from the entry, and each node accumulates the union of every request aimed at it. Enabling the same feature twice is idempotent; cycles terminate because the active set only grows.
+- A node's unified set is: its `default` feature (unless disabled — see below), closed transitively over its own `[features]` table, plus every `dep/feat` and edge-`features` request from any active parent, plus CLI `--features` on the entry node.
+- Defaults rule: a dependency's `default` feature stays enabled unless *every* incoming active edge sets `default-features = false` (entry `--no-default-features` disables the entry default only). One edge keeping defaults is enough to keep them.
+- Optional dependencies stay out unless switched on: by a local active feature naming them (`name` / `dep:name`), by any `name/feat` request, or by being non-optional. A `name/feat` request targeting an inactive optional dependency activates it.
+- Unification is per resolved node: major-segregated copies (`z-v1`, `z-v2`) unify independently; each evaluates its own `@cfg(feature = …)` against its own unified set. Unknown feature names in `@cfg` stay false and never break foreign packages.
+- The lockfile records versions/sources only — unified features are a resolution-time view, not locked state. The incremental build-cache key must cover the unified per-node set (a feature flip rebuilds affected nodes).
 
 ---
 

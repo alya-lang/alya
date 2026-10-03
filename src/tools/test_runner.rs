@@ -513,6 +513,7 @@ fn test_cache_query(
         link_flags,
         profile_name: build.profile_name.clone(),
         features: build.active_features.iter().cloned().collect(),
+        features_digest: pf::unified_features_digest(path, &build.active_features),
         no_std: false,
         mem_trace: false,
         arch: pf::target_arch_name(arch).to_string(),

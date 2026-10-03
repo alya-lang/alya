@@ -37,11 +37,11 @@ Supported configurations include:
 - `os = "windows"` | `"linux"` | `"macos"` (evaluated against the `--os` build target, not the host)
 - `arch = "x64"` | `"arm64"` (evaluated against the `--arch` build target; `x86_64`/`aarch64` aliases accepted)
 - `debug = true` | `false` (the active `[profile.*]` debug flag; `true` outside packages)
-- `feature = "<name>"` (a manifest `[features]` member active via `--features`; unknown names are false)
+- `feature = "<name>"` (a member of the package's *unified* feature set — see Chapter 24 §1.7; unknown names are false)
 - `not(<condition>)` negation; stack multiple `@cfg` lines for conjunction.
 - A failing branch is still parsed (syntax errors surface) but dropped before name resolution: references to dropped symbols fail as undefined, exactly like missing declarations. A bare `@cfg` (no parens) keeps the item.
 - Unknown keys (anything but `os`, `arch`, `debug`, `feature`) are compile-time errors. Unknown *feature names* are false at compile time (multi-manifest graphs never break on foreign names); `alya lint` flags names absent from the package `[features]` table.
-- Multi-manifest rule: each package's sources evaluate under that package's own defaults (dependencies keep their defaults — no unification, Cargo parity); only the entry package additionally honors `--features`/`--no-default-features`. A consumer therefore cannot disable a dependency's defaults, and a dependency never inherits the consumer's features.
+- Multi-manifest rule: each package's sources evaluate under that package's *unified* feature set (Chapter 24 §1.7): its own defaults (unless every incoming edge sets `default-features = false`, or the entry `--no-default-features` applies), plus CLI `--features` (entry package only), plus every `dep/feat` request from any active parent. A consumer enables dependency features only through `dep/feat` (or the edge `features` list); unrelated parent features never leak across the edge.
 - `alya lint` analyzes each file under its own package defaults (host os/arch), so gated code that is live in a default build never warns as unused; `--features`/`--no-default-features` select another view explicitly.
 
 ### 1.4 Test & Benchmark Integration (`@test`, `@bench`)

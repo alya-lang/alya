@@ -194,6 +194,144 @@ opt-level = 1
 }
 
 #[test]
+fn test_manifest_feature_propagation_syntax() {
+    // Edge keys + `dep:` / `dep/feat` members parse.
+    let toml = "[package]\nname = \"x\"\n[dependencies]\nmid = { path = \"../mid\", default-features = false, features = [\"tls\"] }\nleaf = { version = \"0.1.0\", optional = true }\n[features]\nfull = [\"mid/tls\", \"dep:leaf\"]\n";
+    let manifest = parse_manifest(toml).expect("propagation syntax must parse");
+    let edge = manifest.dependencies["mid"].edge();
+    assert!(!edge.default_features);
+    assert_eq!(edge.features, vec!["tls".to_string()]);
+    assert!(manifest.dependencies["leaf"].is_optional());
+
+    // Round-trip keeps the edge keys byte-stable through serialize.
+    let serialized = serialize_manifest(&manifest);
+    assert!(serialized.contains("default-features = false"));
+    assert!(serialized.contains("features = [\"tls\"]"));
+    let manifest2 = parse_manifest(&serialized).expect("roundtrip parse failed");
+    assert_eq!(manifest, manifest2);
+
+    // Underscore alias for the edge flag.
+    let alias = "[package]\nname = \"x\"\n[dependencies]\nmid = { path = \"../mid\", default_features = false }\n";
+    let parsed = parse_manifest(alias).expect("underscore alias must parse");
+    assert!(!parsed.dependencies["mid"].edge().default_features);
+
+    // Unknown left side rejected; malformed members rejected.
+    let bad_left = "[package]\nname = \"x\"\n[features]\nfull = [\"ghost/tls\"]\n";
+    assert!(parse_manifest(bad_left).is_err());
+    let bad_shape = "[package]\nname = \"x\"\n[dependencies]\nmid = { path = \"../mid\" }\n[features]\nfull = [\"a/b/c\"]\n";
+    assert!(parse_manifest(bad_shape).is_err());
+    let bad_flag = "[package]\nname = \"x\"\n[dependencies]\nmid = { path = \"../mid\", default-features = \"yes\" }\n";
+    assert!(parse_manifest(bad_flag).is_err());
+}
+
+#[test]
+fn test_install_unifies_transitive_features() {
+    // app --full--> mid --tls--> leaf(optional): `leaf` installs only
+    // because the `mid/tls` request propagates through the fixpoint.
+    let _env_guard = crate::tools::pkg::lock_registry_env();
+    let base = std::env::temp_dir().join(format!(
+        "alya_pkg_unify_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let leaf_dir = base.join("leaf");
+    let mid_dir = base.join("mid");
+    let app_dir = base.join("app");
+    for d in [&leaf_dir, &mid_dir, &app_dir] {
+        fs::create_dir_all(d.join("src")).unwrap();
+    }
+    fs::write(
+        leaf_dir.join("alya.toml"),
+        "[package]\nname = \"leaf\"\nversion = \"0.1.0\"\nentry = \"src/lib.alya\"\n[features]\nsimd = []\n",
+    )
+    .unwrap();
+    fs::write(
+        leaf_dir.join("src").join("lib.alya"),
+        "pub function leaf() -> bool\nreturn true\nend\n",
+    )
+    .unwrap();
+    fs::write(
+        mid_dir.join("alya.toml"),
+        "[package]\nname = \"mid\"\nversion = \"0.1.0\"\nentry = \"src/lib.alya\"\n[dependencies]\nleaf = { path = \"../leaf\", optional = true }\n[features]\ntls = [\"leaf\", \"leaf/simd\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        mid_dir.join("src").join("lib.alya"),
+        "import \"leaf\"\npub function mid() -> bool\nreturn true\nend\n",
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("alya.toml"),
+        "[package]\nname = \"app\"\nversion = \"0.1.0\"\nentry = \"src/main.alya\"\n[dependencies]\nmid = { path = \"../mid\" }\n[features]\nfull = [\"mid/tls\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("src").join("main.alya"),
+        "import \"mid\"\nfunction main()\nend\n",
+    )
+    .unwrap();
+
+    // Without the feature, the optional transitive dep stays out.
+    run_install_in(&app_dir, false, &[], false, &[], false, &[]).unwrap();
+    let lock_plain =
+        parse_lockfile(&fs::read_to_string(app_dir.join("alya.lock")).unwrap()).unwrap();
+    assert_eq!(lock_plain.packages.len(), 1);
+    assert_eq!(lock_plain.packages[0].name, "mid");
+
+    // With `--features full`, unification pulls `leaf` in.
+    run_install_in(
+        &app_dir,
+        false,
+        &["full".to_string()],
+        false,
+        &[],
+        false,
+        &[],
+    )
+    .unwrap();
+    let lock_full =
+        parse_lockfile(&fs::read_to_string(app_dir.join("alya.lock")).unwrap()).unwrap();
+    let names: Vec<&str> = lock_full.packages.iter().map(|p| p.name.as_str()).collect();
+    assert!(names.contains(&"mid"), "mid missing: {:?}", names);
+    assert!(names.contains(&"leaf"), "leaf missing: {:?}", names);
+
+    // And the compile-time view agrees: `mid` sources evaluate with `tls`,
+    // and the propagated `leaf/simd` request lands on `leaf`.
+    let inherit = crate::parser::CfgContext::for_target("linux", "x64", true, &{
+        let m = parse_manifest(&fs::read_to_string(app_dir.join("alya.toml")).unwrap()).unwrap();
+        crate::tools::pkg::features::resolve_active_features(&m, &["full".to_string()], false)
+            .unwrap()
+    });
+    let mid_cfg = crate::tools::pkg::features::imported_file_cfg(
+        &mid_dir.join("src").join("lib.alya"),
+        &Some(app_dir.clone()),
+        &inherit,
+    )
+    .unwrap();
+    assert!(
+        mid_cfg.features.contains("tls"),
+        "mid cfg: {:?}",
+        mid_cfg.features
+    );
+    let leaf_cfg = crate::tools::pkg::features::imported_file_cfg(
+        &leaf_dir.join("src").join("lib.alya"),
+        &Some(app_dir.clone()),
+        &inherit,
+    )
+    .unwrap();
+    assert!(
+        leaf_cfg.features.contains("simd"),
+        "leaf cfg: {:?}",
+        leaf_cfg.features
+    );
+
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
 fn test_manifest_same_name_feature_and_dep() {
     // Idiomatic `uv = ["uv"]`: the member enables the dependency; the
     // self-edge is a harmless no-op, not a cycle.
@@ -650,7 +788,7 @@ fn test_pkg_add_and_install_path_dependency() {
         "math_lib".to_string(),
         DependencySource::Path {
             path: "../math_lib".to_string(),
-            optional: false,
+            edge: crate::tools::pkg::types::DependencyEdge::plain(),
         },
     );
     fs::write(app_dir.join("alya.toml"), serialize_manifest(&app_manifest)).unwrap();

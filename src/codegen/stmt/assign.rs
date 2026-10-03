@@ -829,6 +829,35 @@ impl CodeGen {
                             VarType::Float(0),
                         );
                     }
+                    let prefix_struct1 = format!("fn_ret_tuple_struct:{}:", cname);
+                    let prefix_struct2 = format!("fn_ret_tuple_struct:{}:", bare);
+                    let matching_struct: Vec<(String, String, String)> = self
+                        .ctx
+                        .variables
+                        .iter()
+                        .filter(|(k, _)| {
+                            k.starts_with(&prefix_struct1) || k.starts_with(&prefix_struct2)
+                        })
+                        .filter_map(|(k, v)| {
+                            let idx = k
+                                .strip_prefix(&prefix_struct1)
+                                .or_else(|| k.strip_prefix(&prefix_struct2))?;
+                            if let VarType::Struct { struct_name, .. } = v {
+                                Some((name.clone(), idx.to_string(), struct_name.clone()))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    for (arr_name, idx_str, st) in matching_struct {
+                        self.ctx.variables.insert(
+                            format!("tuple_elem_struct:{}:{}", arr_name, idx_str),
+                            VarType::Struct {
+                                struct_name: st,
+                                offset: 0,
+                            },
+                        );
+                    }
                 } else if let Expr::Array(elems) = value {
                     for (i, elem) in elems.iter().enumerate() {
                         if is_string_expr(elem, &self.ctx.variables) {
@@ -841,6 +870,15 @@ impl CodeGen {
                             self.ctx.variables.insert(
                                 format!("tuple_elem_flt:{}:{}", name, i),
                                 VarType::Float(0),
+                            );
+                        }
+                        if let Some(st) = self.get_expr_struct_name(elem) {
+                            self.ctx.variables.insert(
+                                format!("tuple_elem_struct:{}:{}", name, i),
+                                VarType::Struct {
+                                    struct_name: st,
+                                    offset: 0,
+                                },
                             );
                         }
                     }
@@ -859,6 +897,14 @@ impl CodeGen {
                                 self.ctx.variables.insert(
                                     format!("tuple_elem_flt:{}:{}", name, i),
                                     VarType::Float(0),
+                                );
+                            } else if self.ctx.structs.contains_key(ty) {
+                                self.ctx.variables.insert(
+                                    format!("tuple_elem_struct:{}:{}", name, i),
+                                    VarType::Struct {
+                                        struct_name: ty.to_string(),
+                                        offset: 0,
+                                    },
                                 );
                             }
                         }
@@ -1005,6 +1051,13 @@ impl CodeGen {
             ),
             Expr::Index { .. } | Expr::FieldAccess { .. } => {
                 old_heap_offset.is_some() || is_arr || is_map
+            }
+            Expr::Call { name, .. } => {
+                old_heap_offset.is_some()
+                    && !crate::codegen::analysis::call_returns_fresh_value(
+                        name,
+                        &self.ctx.variables,
+                    )
             }
             _ => false,
         };
@@ -1242,12 +1295,53 @@ impl CodeGen {
                     VarType::Float(0),
                 );
             }
+            let prefix_struct1 = format!("fn_ret_tuple_struct:{}:", cname);
+            let prefix_struct2 = format!("fn_ret_tuple_struct:{}:", bare);
+            let matching_struct: Vec<(String, String, String)> = self
+                .ctx
+                .variables
+                .iter()
+                .filter(|(k, _)| k.starts_with(&prefix_struct1) || k.starts_with(&prefix_struct2))
+                .filter_map(|(k, v)| {
+                    let idx = k
+                        .strip_prefix(&prefix_struct1)
+                        .or_else(|| k.strip_prefix(&prefix_struct2))?;
+                    if let VarType::Struct { struct_name, .. } = v {
+                        Some((name.clone(), idx.to_string(), struct_name.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            for (arr_name, idx_str, st) in matching_struct {
+                self.ctx.variables.insert(
+                    format!("tuple_elem_struct:{}:{}", arr_name, idx_str),
+                    VarType::Struct {
+                        struct_name: st,
+                        offset: 0,
+                    },
+                );
+            }
         } else if let Expr::Array(elems) = value {
             for (i, elem) in elems.iter().enumerate() {
                 if is_string_expr(elem, &self.ctx.variables) {
                     self.ctx.variables.insert(
                         format!("tuple_elem_str:{}:{}", name, i),
                         VarType::StringOffset(0),
+                    );
+                }
+                if is_float_expr(elem, &self.ctx.variables) {
+                    self.ctx
+                        .variables
+                        .insert(format!("tuple_elem_flt:{}:{}", name, i), VarType::Float(0));
+                }
+                if let Some(st) = self.get_expr_struct_name(elem) {
+                    self.ctx.variables.insert(
+                        format!("tuple_elem_struct:{}:{}", name, i),
+                        VarType::Struct {
+                            struct_name: st,
+                            offset: 0,
+                        },
                     );
                 }
             }
