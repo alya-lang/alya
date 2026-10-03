@@ -23,6 +23,14 @@ pub fn emit_data_sections(
     out.push_str("    .space 64\n");
     out.push_str("alya_str_buf:\n");
     out.push_str("    .space 67108864\n");
+    // Stable string store (B1): immortal bump-allocated copies for named
+    // stores, never overwritten (unlike the wrapping ring above). Single
+    // global bump cursor (atomic under threads); exhaustion is a clean
+    // catchable error, never silent corruption.
+    out.push_str("alya_str_stable:\n");
+    out.push_str("    .space 67108864\n");
+    out.push_str("alya_str_stable_idx:\n");
+    out.push_str("    .quad 0\n");
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("alya_wsa_data:\n");
         out.push_str("    .space 512\n");
@@ -185,6 +193,11 @@ pub fn emit_data_sections(
     out.push_str(&format!("    {} \"force unwrap of null\"\n", str_directive));
     out.push_str("alya_str_null_field:\n");
     out.push_str(&format!("    {} \"field access on null\"\n", str_directive));
+    out.push_str("alya_str_stable_oom:\n");
+    out.push_str(&format!(
+        "    {} \"string memory exhausted (stable store overflow)\"\n",
+        str_directive
+    ));
     out.push_str("alya_str_mixed_float:\n");
     out.push_str(&format!(
         "    {} \"mixed int/float arithmetic (convert explicitly)\"\n",

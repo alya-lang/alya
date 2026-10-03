@@ -2,7 +2,7 @@ use super::CodeGen;
 use crate::ast::{BinaryOp, Expr, Stmt};
 use crate::codegen::analysis::{
     is_array_expr, is_definitely_not_numeric, is_float_array, is_float_expr, is_map_expr,
-    is_string_array, is_string_expr, is_tag_carrying_read,
+    is_string_array, is_string_expr, is_tag_carrying_read, is_unsigned_expr,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -164,7 +164,16 @@ impl CodeGen {
                         arch::emit_mixed_float_check(&mut self.output, self.arch);
                     }
                     arch::emit_cmp_imm(&mut self.output, self.arch, *n as i64);
-                    arch::emit_cond_jump(&mut self.output, self.arch, *op, true, target_label);
+                    let unsigned = is_unsigned_expr(left, &self.ctx.variables)
+                        || is_unsigned_expr(right, &self.ctx.variables);
+                    arch::emit_cond_jump(
+                        &mut self.output,
+                        self.arch,
+                        *op,
+                        true,
+                        target_label,
+                        unsigned,
+                    );
                     return;
                 }
                 if let Expr::Identifier(var_name) = &**right {
@@ -178,7 +187,16 @@ impl CodeGen {
                         }
                         arch::emit_load_var_to_scratch(&mut self.output, self.arch, offset, false);
                         arch::emit_cmp_reg(&mut self.output, self.arch);
-                        arch::emit_cond_jump(&mut self.output, self.arch, *op, true, target_label);
+                        let unsigned = is_unsigned_expr(left, &self.ctx.variables)
+                            || is_unsigned_expr(right, &self.ctx.variables);
+                        arch::emit_cond_jump(
+                            &mut self.output,
+                            self.arch,
+                            *op,
+                            true,
+                            target_label,
+                            unsigned,
+                        );
                         return;
                     }
                 }
@@ -198,12 +216,15 @@ impl CodeGen {
                         BinaryOp::GreaterEqual => BinaryOp::LessEqual,
                         other => *other,
                     };
+                    let unsigned = is_unsigned_expr(left, &self.ctx.variables)
+                        || is_unsigned_expr(right, &self.ctx.variables);
                     arch::emit_cond_jump(
                         &mut self.output,
                         self.arch,
                         swapped_op,
                         true,
                         target_label,
+                        unsigned,
                     );
                     return;
                 }
@@ -225,12 +246,15 @@ impl CodeGen {
                             BinaryOp::GreaterEqual => BinaryOp::LessEqual,
                             other => *other,
                         };
+                        let unsigned = is_unsigned_expr(left, &self.ctx.variables)
+                            || is_unsigned_expr(right, &self.ctx.variables);
                         arch::emit_cond_jump(
                             &mut self.output,
                             self.arch,
                             swapped_op,
                             true,
                             target_label,
+                            unsigned,
                         );
                         return;
                     }
@@ -392,7 +416,16 @@ impl CodeGen {
                         arch::emit_mixed_float_check(&mut self.output, self.arch);
                     }
                     arch::emit_cmp_imm(&mut self.output, self.arch, *n as i64);
-                    arch::emit_cond_jump(&mut self.output, self.arch, *op, false, target_label);
+                    let unsigned = is_unsigned_expr(left, &self.ctx.variables)
+                        || is_unsigned_expr(right, &self.ctx.variables);
+                    arch::emit_cond_jump(
+                        &mut self.output,
+                        self.arch,
+                        *op,
+                        false,
+                        target_label,
+                        unsigned,
+                    );
                     return;
                 }
                 if let Expr::Identifier(var_name) = &**right {
@@ -406,7 +439,16 @@ impl CodeGen {
                         }
                         arch::emit_load_var_to_scratch(&mut self.output, self.arch, offset, false);
                         arch::emit_cmp_reg(&mut self.output, self.arch);
-                        arch::emit_cond_jump(&mut self.output, self.arch, *op, false, target_label);
+                        let unsigned = is_unsigned_expr(left, &self.ctx.variables)
+                            || is_unsigned_expr(right, &self.ctx.variables);
+                        arch::emit_cond_jump(
+                            &mut self.output,
+                            self.arch,
+                            *op,
+                            false,
+                            target_label,
+                            unsigned,
+                        );
                         return;
                     }
                 }
@@ -426,12 +468,15 @@ impl CodeGen {
                         BinaryOp::GreaterEqual => BinaryOp::LessEqual,
                         other => *other,
                     };
+                    let unsigned = is_unsigned_expr(left, &self.ctx.variables)
+                        || is_unsigned_expr(right, &self.ctx.variables);
                     arch::emit_cond_jump(
                         &mut self.output,
                         self.arch,
                         swapped_op,
                         false,
                         target_label,
+                        unsigned,
                     );
                     return;
                 }
@@ -453,12 +498,15 @@ impl CodeGen {
                             BinaryOp::GreaterEqual => BinaryOp::LessEqual,
                             other => *other,
                         };
+                        let unsigned = is_unsigned_expr(left, &self.ctx.variables)
+                            || is_unsigned_expr(right, &self.ctx.variables);
                         arch::emit_cond_jump(
                             &mut self.output,
                             self.arch,
                             swapped_op,
                             false,
                             target_label,
+                            unsigned,
                         );
                         return;
                     }
@@ -834,13 +882,22 @@ impl CodeGen {
         self.generate_expression(end);
         // Half-open `..` exits when var reaches end (`>=`); inclusive `..=`
         // exits past it (`>`). Chapter 06 §1.3.
+        // B4: u64 bounds compare unsigned.
+        let bound_unsigned = is_unsigned_expr(start, &self.ctx.variables)
+            || is_unsigned_expr(end, &self.ctx.variables);
         if inclusive {
-            arch::emit_compare_and_jump_if_greater(&mut self.output, self.arch, &end_label);
+            arch::emit_compare_and_jump_if_greater(
+                &mut self.output,
+                self.arch,
+                &end_label,
+                bound_unsigned,
+            );
         } else {
             arch::emit_compare_and_jump_if_greater_or_equal(
                 &mut self.output,
                 self.arch,
                 &end_label,
+                bound_unsigned,
             );
         }
         self.track_loop_vars(&prenulled);
@@ -1028,6 +1085,7 @@ impl CodeGen {
                 BinaryOp::Equal,
                 false,
                 &end_label,
+                false,
             );
 
             arch::emit_store_var(

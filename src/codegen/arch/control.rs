@@ -35,28 +35,37 @@ pub fn emit_cond_jump(
     op: BinaryOp,
     invert: bool,
     target: &str,
+    unsigned: bool,
 ) {
     match arch {
         Architecture::ARM64 => {
-            let cond = match (op, invert) {
-                (BinaryOp::Less, false) | (BinaryOp::GreaterEqual, true) => "b.lt",
-                (BinaryOp::Less, true) | (BinaryOp::GreaterEqual, false) => "b.ge",
-                (BinaryOp::LessEqual, false) | (BinaryOp::Greater, true) => "b.le",
-                (BinaryOp::LessEqual, true) | (BinaryOp::Greater, false) => "b.gt",
-                (BinaryOp::Equal, false) | (BinaryOp::NotEqual, true) => "b.eq",
-                (BinaryOp::Equal, true) | (BinaryOp::NotEqual, false) => "b.ne",
+            let cond = match (op, invert, unsigned) {
+                (BinaryOp::Less, false, false) | (BinaryOp::GreaterEqual, true, false) => "b.lt",
+                (BinaryOp::Less, true, false) | (BinaryOp::GreaterEqual, false, false) => "b.ge",
+                (BinaryOp::LessEqual, false, false) | (BinaryOp::Greater, true, false) => "b.le",
+                (BinaryOp::LessEqual, true, false) | (BinaryOp::Greater, false, false) => "b.gt",
+                (BinaryOp::Less, false, true) | (BinaryOp::GreaterEqual, true, true) => "b.lo",
+                (BinaryOp::Less, true, true) | (BinaryOp::GreaterEqual, false, true) => "b.hs",
+                (BinaryOp::LessEqual, false, true) | (BinaryOp::Greater, true, true) => "b.ls",
+                (BinaryOp::LessEqual, true, true) | (BinaryOp::Greater, false, true) => "b.hi",
+                (BinaryOp::Equal, false, _) | (BinaryOp::NotEqual, true, _) => "b.eq",
+                (BinaryOp::Equal, true, _) | (BinaryOp::NotEqual, false, _) => "b.ne",
                 _ => "b.ne",
             };
             out.push_str(&format!("    {} {}\n", cond, target));
         }
         Architecture::X64 => {
-            let jmp = match (op, invert) {
-                (BinaryOp::Less, false) | (BinaryOp::GreaterEqual, true) => "jl",
-                (BinaryOp::Less, true) | (BinaryOp::GreaterEqual, false) => "jge",
-                (BinaryOp::LessEqual, false) | (BinaryOp::Greater, true) => "jle",
-                (BinaryOp::LessEqual, true) | (BinaryOp::Greater, false) => "jg",
-                (BinaryOp::Equal, false) | (BinaryOp::NotEqual, true) => "je",
-                (BinaryOp::Equal, true) | (BinaryOp::NotEqual, false) => "jne",
+            let jmp = match (op, invert, unsigned) {
+                (BinaryOp::Less, false, false) | (BinaryOp::GreaterEqual, true, false) => "jl",
+                (BinaryOp::Less, true, false) | (BinaryOp::GreaterEqual, false, false) => "jge",
+                (BinaryOp::LessEqual, false, false) | (BinaryOp::Greater, true, false) => "jle",
+                (BinaryOp::LessEqual, true, false) | (BinaryOp::Greater, false, false) => "jg",
+                (BinaryOp::Less, false, true) | (BinaryOp::GreaterEqual, true, true) => "jb",
+                (BinaryOp::Less, true, true) | (BinaryOp::GreaterEqual, false, true) => "jae",
+                (BinaryOp::LessEqual, false, true) | (BinaryOp::Greater, true, true) => "jbe",
+                (BinaryOp::LessEqual, true, true) | (BinaryOp::Greater, false, true) => "ja",
+                (BinaryOp::Equal, false, _) | (BinaryOp::NotEqual, true, _) => "je",
+                (BinaryOp::Equal, true, _) | (BinaryOp::NotEqual, false, _) => "jne",
                 _ => "jne",
             };
             out.push_str(&format!("    {} {}\n", jmp, target));
@@ -136,10 +145,15 @@ pub fn emit_jump(out: &mut String, arch: Architecture, label: &str) {
     }
 }
 
-pub fn emit_compare_and_jump_if_greater(out: &mut String, arch: Architecture, label: &str) {
+pub fn emit_compare_and_jump_if_greater(
+    out: &mut String,
+    arch: Architecture,
+    label: &str,
+    unsigned: bool,
+) {
     match arch {
-        Architecture::ARM64 => arm64::emit_compare_and_jump_if_greater(out, label),
-        Architecture::X64 => x64::emit_compare_and_jump_if_greater(out, label),
+        Architecture::ARM64 => arm64::emit_compare_and_jump_if_greater(out, label, unsigned),
+        Architecture::X64 => x64::emit_compare_and_jump_if_greater(out, label, unsigned),
     }
 }
 
@@ -147,10 +161,13 @@ pub fn emit_compare_and_jump_if_greater_or_equal(
     out: &mut String,
     arch: Architecture,
     label: &str,
+    unsigned: bool,
 ) {
     match arch {
-        Architecture::ARM64 => arm64::emit_compare_and_jump_if_greater_or_equal(out, label),
-        Architecture::X64 => x64::emit_compare_and_jump_if_greater_or_equal(out, label),
+        Architecture::ARM64 => {
+            arm64::emit_compare_and_jump_if_greater_or_equal(out, label, unsigned)
+        }
+        Architecture::X64 => x64::emit_compare_and_jump_if_greater_or_equal(out, label, unsigned),
     }
 }
 

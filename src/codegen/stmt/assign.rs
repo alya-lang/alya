@@ -2,8 +2,8 @@ use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     escape_string, is_array_expr, is_float_array, is_float_expr, is_map_expr, is_null_expr,
-    is_number_expr, is_string_array, is_string_expr, struct_field_markers_mixed_vars,
-    value_kind_tag,
+    is_number_expr, is_string_array, is_string_expr, is_unsigned_expr, string_store_needs_dup,
+    struct_field_markers_mixed_vars, value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -15,6 +15,15 @@ impl CodeGen {
         if self.ctx.current_fn_name.is_empty() {
             if let Some((symbol, sname)) = self.ctx.globals.get(&name).cloned() {
                 self.generate_expression(value);
+                // B1: named stores outlive the wrapping ring buffer.
+                if string_store_needs_dup(value, &self.ctx.variables) {
+                    arch::emit_str_store(
+                        &mut self.output,
+                        self.arch,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                }
                 if self.is_heap_expression(value) {
                     arch::emit_rc_retain(
                         &mut self.output,
@@ -57,6 +66,21 @@ impl CodeGen {
                         self.ctx
                             .variables
                             .insert(format!("var_is_int:{}", name), VarType::Number(0));
+                    }
+                    // Unsigned marker for u64-family annotations (B4):
+                    // drives unsigned div/mod/cmp/display. Kept alongside
+                    // var_is_int (which means "integer-like" for existing
+                    // optimizations); unsigned wins where they differ.
+                    // Propagates through unsigned values (let y = x) so
+                    // annotation need not repeat on every derived local.
+                    if matches!(
+                        type_ann,
+                        Some("u64") | Some("u32") | Some("uint") | Some("usize")
+                    ) || is_unsigned_expr(value, &self.ctx.variables)
+                    {
+                        self.ctx
+                            .variables
+                            .insert(format!("var_is_uint:{}", name), VarType::Number(0));
                     }
                 }
                 if let Some(t) = type_ann {
@@ -573,6 +597,15 @@ impl CodeGen {
                 } else {
                     self.generate_expression(value);
                 }
+                // B1: named stores outlive the wrapping ring buffer.
+                if string_store_needs_dup(value, &self.ctx.variables) {
+                    arch::emit_str_store(
+                        &mut self.output,
+                        self.arch,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                }
 
                 if is_alias_heap {
                     arch::emit_rc_retain(
@@ -705,6 +738,16 @@ impl CodeGen {
                         self.ctx
                             .variables
                             .insert(format!("var_is_int:{}", name), VarType::Number(0));
+                    }
+                    // Unsigned marker for u64-family annotations (B4).
+                    if matches!(
+                        type_ann,
+                        Some("u64") | Some("u32") | Some("uint") | Some("usize")
+                    ) || is_unsigned_expr(value, &self.ctx.variables)
+                    {
+                        self.ctx
+                            .variables
+                            .insert(format!("var_is_uint:{}", name), VarType::Number(0));
                     }
                 }
 
@@ -1083,6 +1126,10 @@ impl CodeGen {
         if !generated {
             self.generate_expression(value);
         }
+        // B1: named stores outlive the wrapping ring buffer.
+        if string_store_needs_dup(value, &self.ctx.variables) {
+            arch::emit_str_store(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+        }
 
         if is_alias_heap {
             arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
@@ -1393,6 +1440,7 @@ impl CodeGen {
                 BinaryOp::Equal,
                 false,
                 "alya_error_null_field",
+                false,
             );
         }
         arch::emit_push_temp(&mut self.output, self.arch);
@@ -1401,6 +1449,10 @@ impl CodeGen {
         self.generate_expression(value);
         if !is_weak && self.is_heap_expression(value) {
             arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+        }
+        // B1: named stores outlive the wrapping ring buffer.
+        if string_store_needs_dup(value, &self.ctx.variables) {
+            arch::emit_str_store(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
         }
         self.ctx.stack_offset -= temp_offset;
         let field_idx = self
@@ -1445,6 +1497,15 @@ impl CodeGen {
                 self.generate_expression(arg);
                 if std::ptr::eq(*arg, value) && self.store_value_needs_retain(value) {
                     arch::emit_rc_retain(
+                        &mut self.output,
+                        self.arch,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                }
+                // B1: named stores outlive the wrapping ring buffer.
+                if std::ptr::eq(*arg, value) && string_store_needs_dup(value, &self.ctx.variables) {
+                    arch::emit_str_store(
                         &mut self.output,
                         self.arch,
                         self.ctx.stack_offset,
@@ -1574,6 +1635,10 @@ impl CodeGen {
             self.generate_expression(value);
             if self.store_value_needs_retain(value) {
                 arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+            }
+            // B1: named stores outlive the wrapping ring buffer.
+            if string_store_needs_dup(value, &self.ctx.variables) {
+                arch::emit_str_store(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
             }
             self.ctx.stack_offset -= temp_offset * 2;
             let set_kind = value_kind_tag(value, &self.ctx.variables);

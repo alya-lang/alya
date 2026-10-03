@@ -98,13 +98,19 @@ pub fn emit_say_num_const(
     stack_offset: i32,
     os: OperatingSystem,
 ) {
+    // B4: large bit patterns need movabs (see emit_load_num).
+    let mov_mnemonic = if (i32::MIN as i64..=i32::MAX as i64).contains(&val) {
+        "mov"
+    } else {
+        "movabs"
+    };
     if matches!(os, OperatingSystem::Windows) {
         out.push_str(&format!("    lea {}(%rip), %rcx\n", fmt_label));
-        out.push_str(&format!("    mov ${}, %rdx\n", val));
+        out.push_str(&format!("    {} ${}, %rdx\n", mov_mnemonic, val));
         out.push_str("    xor %rax, %rax\n");
         emit_call_printf(out, stack_offset, os);
     } else {
-        out.push_str(&format!("    mov ${}, %rsi\n", val));
+        out.push_str(&format!("    {} ${}, %rsi\n", mov_mnemonic, val));
         out.push_str(&format!("    lea {}(%rip), %rdi\n", fmt_label));
         out.push_str("    xor %rax, %rax\n");
         emit_call_printf(out, stack_offset, os);

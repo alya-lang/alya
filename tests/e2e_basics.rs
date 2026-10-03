@@ -1448,10 +1448,7 @@ say get_val()
 #[test]
 fn test_e2e_integer_literal_precision() {
     // Regression test for alya-lang/alya#49: integer literals above 2^53
-    // must print exactly.
-    // Note: u64-range literals keep exact bits (lexer-tested) but print
-    // through the signed `%lld` say path; unsigned say formatting is
-    // separate scope.
+    // must print exactly (B4: u64 max prints unsigned via %llu).
     let code = r#"
 say 2305843009213693951
 say 4611686018427387903
@@ -1463,6 +1460,44 @@ say 1_000_000
         assert_eq!(
             output,
             "2305843009213693951\n4611686018427387903\n9223372036854775807\n255\n1000000\n"
+        );
+    }
+}
+
+#[test]
+fn test_e2e_u64_unsigned_display_and_arith() {
+    // B4: u64-annotated values compare/divide/modulo unsigned and print
+    // with %llu; arithmetic still wraps mod 2^64.
+    let code = r#"
+let m: u64 = 18446744073709551615
+say m
+say str(m)
+let a: u64 = 18446744073709551610
+let b: u64 = 10
+say a + b
+say a < b
+say b < a
+say a / 10
+say a % 10
+say "val={m}"
+say 9223372036854775808
+say 18446744073709551615
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            concat!(
+                "18446744073709551615\n",
+                "18446744073709551615\n",
+                "4\n",
+                "0\n",
+                "1\n",
+                "1844674407370955161\n",
+                "0\n",
+                "val=18446744073709551615\n",
+                "9223372036854775808\n",
+                "18446744073709551615\n",
+            )
         );
     }
 }
@@ -1483,5 +1518,34 @@ main()
 "#;
     if let Some(output) = run_alya_code(code) {
         assert_eq!(output, "99\n100\n");
+    }
+}
+
+#[test]
+fn test_e2e_module_global_read_write_in_functions() {
+    // B3: functions generate before top-level lets (#55-C), so kind
+    // markers are absent when `say <global>` compiles inside a function.
+    // The fallthrough used to emit a bare rodata label with no directive
+    // and no .text switch, landing the epilogue in .rodata (segfault).
+    // Now: runtime-classified say; writes always worked via symbols.
+    let code = r#"
+let counter = 0
+let greeting = "hi"
+
+function bump()
+    counter = counter + 1
+end
+
+function main()
+    bump()
+    bump()
+    say counter
+    say greeting
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "2\nhi\n");
     }
 }

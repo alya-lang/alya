@@ -1866,6 +1866,12 @@ impl CodeGen {
                             .variables
                             .insert(format!("var_is_int:{}", param), VarType::Number(0));
                     }
+                    // Unsigned marker for u64-family annotations (B4).
+                    if matches!(t.as_str(), "u64" | "u32" | "uint" | "usize") {
+                        self.ctx
+                            .variables
+                            .insert(format!("var_is_uint:{}", param), VarType::Number(0));
+                    }
                 }
                 self.ctx
                     .variables
