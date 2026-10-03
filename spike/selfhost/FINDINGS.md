@@ -11,8 +11,9 @@ JSON-decoded unicode); error files compare failure position.
 
 ## Result: fidelity proven where the runtime holds
 
-- 43/44 corpus files token-identical (59,738 tokens, zero diffs). The single
-  failure is B1 crashing on `stdlib/test.alya` — no fidelity signal.
+- 44/44 corpus files token-identical (63,970 tokens, zero diffs; was 43/44
+  with B1 crashing on `stdlib/test.alya` — fixed with the stable string
+  store plus B2–B4 runtime fixes, now on develop).
 - 6/6 negative lex cases agree on exact error position.
 - Matched subtleties: `f/r/b` prefixes, triple quotes, brace-depth format
   strings, `.5` leading-dot rule with prev-token condition, `&&/||/!` →
