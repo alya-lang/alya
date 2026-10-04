@@ -5,6 +5,7 @@ use crate::parser::Parser;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
+pub mod ast_sexpr;
 pub mod build_cache;
 pub mod c_builder;
 pub mod console;
@@ -535,10 +536,18 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     let mut parser = Parser::new(tokens);
     parser.set_cfg_context(cfg_ctx.clone());
     let mut ast = parser
-        .parse()
+        .parse_raw()
         .map_err(|e| crate::diagnostics::render_error(&args.input_file, &source, &e))?;
     let d_parse = t_parse.elapsed();
     let stmt_count = ast.statements.len();
+
+    if args.command == CommandKind::EmitAst {
+        // Differential-testing dump: RAW parse output, before import
+        // resolution and default-arg/enum/const expansion rewrite the tree
+        // (the Alya self-host parser replicates the raw stage only).
+        println!("{}", ast_sexpr::program_to_sexpr(&ast));
+        return Ok(());
+    }
 
     // 3. Module Resolution
     let t_import = Instant::now();
@@ -560,11 +569,6 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         0..0,
         crate::tools::pkg::features::profile_c_flags(&build_cfg.profile, &c_plan.flags),
     );
-
-    if args.command == CommandKind::EmitAst {
-        println!("{:#?}", ast);
-        return Ok(());
-    }
 
     // 3.5 Static Type Checking (Gradual Typing)
     let t_typecheck = Instant::now();

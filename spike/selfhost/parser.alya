@@ -1,0 +1,6131 @@
+# Alya self-hosting spike slice 2: parser written in Alya.
+#
+# Input: token dump from spike/selfhost/lexer.alya (`line|col|kind|norm`,
+# one token per line). Output: canonical S-expression parse tree, one
+# statement per line (same contract as `src/driver/ast_sexpr.rs`, i.e.
+# what `alya ast` prints). Error files print `0|0|error|LINE:COL`
+# and exit 1: only the failure POSITION is compared, never the message.
+#
+# Scope slice 1: full expression Pratt (L1-L16) with parse-time desugars,
+# statements (let/say/if/while/for/foreach/function/return/break/continue,
+# assign forms, const, struct/enum/interface/extern/import/try/throw/defer,
+# test/assert/spawn), type annotations, f-string holes. DEFERRED (SKIP-gated
+# in diff_parse.py): closures (`|x|`/`fn(`/`||` bodies), comprehensions,
+# `when`, `comptime` const-eval. The deferred forms need spill/desugar
+# templates that ride on this same skeleton.
+#
+# Design notes (all verified against the develop compiler):
+# - S-expr text is built directly (no node structs): every parse function
+#   returns its S-expr string, "" on failure with the failed flag set.
+# - Parser state lives in a struct: module globals are not writable from
+#   functions at runtime (same constraint as the lexer spike).
+# - f-strings are never fed runtime text: concatenation only.
+# - Number/float norms pass through as TEXT (never parsed to int: u64-max
+#   literals do not fit i64, and the dump contract is textual anyway).
+
+import "std/fs" as fs
+import "std/os" as os
+# NOTE: aliased `as str` is load-bearing. Bare `import "std/str"` +
+# temporary argument (literal, concat, call result) returns garbage
+# (empty array) while variables work; the alias form is correct for all
+# shapes. Compiler bug filed separately; do not "simplify" this import.
+import "std/str" as str
+
+struct Parser
+    line: array
+    col: array
+    kind: array
+    norm: array
+    n: int
+    pos: int
+    out: string[]
+    spill: string[]
+    lam: int
+    failed: int
+    err_line: int
+    err_col: int
+    fn_depth: int
+    pending_attrs: array
+end
+
+# Homogeneous-shape results only: mixed-type arrays ([bool, string],
+# [array, int, int]) corrupt tag dispatch on read (say/index paths).
+# Structs carry the same payloads safely.
+struct HoleRes
+    ok: int
+    s: string
+end
+
+struct ScanRes
+    parts: array
+    interp: int
+    esc: int
+end
+
+struct DumpRes
+    line: array
+    col: array
+    kind: array
+    norm: array
+    err: string
+end
+
+struct HoleTok
+    kind: string
+    norm: string
+    width: int
+end
+
+struct WhenArm
+    pats: array
+    g: string
+    v: string
+end
+
+function hole_tok_fail() -> HoleTok
+    return HoleTok { kind: "", norm: "", width: -1 }
+end
+
+function Parser.cur_kind(self) -> string
+    if self.pos >= self.n
+        return "eof"
+    end
+    return self.kind[self.pos]
+end
+
+function Parser.cur_norm(self) -> string
+    if self.pos >= self.n
+        return ""
+    end
+    return self.norm[self.pos]
+end
+
+function Parser.peek_kind(self) -> string
+    if self.pos + 1 >= self.n
+        return "eof"
+    end
+    return self.kind[self.pos + 1]
+end
+
+function Parser.peek_norm(self) -> string
+    if self.pos + 1 >= self.n
+        return ""
+    end
+    return self.norm[self.pos + 1]
+end
+
+function Parser.cur_line(self) -> int
+    if self.pos >= self.n
+        return self.err_line
+    end
+    return self.line[self.pos]
+end
+
+function Parser.cur_col(self) -> int
+    if self.pos >= self.n
+        return self.err_col
+    end
+    return self.col[self.pos]
+end
+
+function Parser.advance(self)
+    if self.pos < self.n
+        self.pos += 1
+    end
+end
+
+function Parser.fail_at(self, line: int, col: int)
+    if self.failed == false
+        self.err_line = line
+        self.err_col = col
+        self.failed = true
+    end
+end
+
+function Parser.fail_here(self)
+    self.fail_at(self.cur_line(), self.cur_col())
+end
+
+# Discriminant-only match (payload ignored), like Rust expect().
+# kind_want is "keyword:and", "op:+", "delim:(", or a bare kind
+# ("newline", "eof", "ident", ...). Returns 1 on match (consumes).
+function Parser.at(self, want: string) -> int
+    let k = self.cur_kind()
+    if len(want) > 8 and want[0..8] == "keyword:"
+        if k != "keyword"
+            return false
+        end
+        return self.cur_norm() == want[8..len(want)]
+    end
+    if len(want) > 3 and want[0..3] == "op:"
+        if k != "op"
+            return false
+        end
+        return self.cur_norm() == want[3..len(want)]
+    end
+    if len(want) > 6 and want[0..6] == "delim:"
+        if k != "delim"
+            return false
+        end
+        return self.cur_norm() == want[6..len(want)]
+    end
+    return k == want
+end
+
+function Parser.eat(self, want: string) -> int
+    if self.at(want) == true
+        self.advance()
+        return true
+    end
+    return false
+end
+
+function Parser.skip_nl(self)
+    while self.cur_kind() == "newline"
+        self.advance()
+    end
+end
+
+# --- JSON codec (mirrors ast_sexpr.rs qs/escape_cp) ---
+# Decode one JSON escape unit starting at s[i] (s[i] == backslash):
+# returns [codepoint, next_i]. Caller handles \u surrogate pairs.
+
+function hex_val_of(cp: int) -> int
+    if cp >= 48 and cp <= 57
+        return cp - 48
+    end
+    if cp >= 97 and cp <= 102
+        return cp - 87
+    end
+    if cp >= 65 and cp <= 70
+        return cp - 55
+    end
+    return -1
+end
+
+function utf8_width(b: int) -> int
+    if b < 128
+        return 1
+    end
+    if b >= 240 and b < 248
+        return 4
+    end
+    if b >= 224 and b < 240
+        return 3
+    end
+    if b >= 192 and b < 224
+        return 2
+    end
+    return 1
+end
+
+function hex4(v: int) -> string
+    let digits = "0123456789abcdef"
+    let s = ""
+    s = s + char_at(digits, bit_and(bit_shr(v, 12), 15))
+    s = s + char_at(digits, bit_and(bit_shr(v, 8), 15))
+    s = s + char_at(digits, bit_and(bit_shr(v, 4), 15))
+    s = s + char_at(digits, bit_and(v, 15))
+    return s
+end
+
+function escape_cp(cp: int) -> string
+    if cp == 34
+        return "\\" + chr(34)
+    end
+    if cp == 92
+        return "\\\\"
+    end
+    if cp == 10
+        return "\\" + "n"
+    end
+    if cp == 9
+        return "\\" + "t"
+    end
+    if cp == 13
+        return "\\" + "r"
+    end
+    if cp == 8
+        return "\\" + "b"
+    end
+    if cp == 12
+        return "\\" + "f"
+    end
+    if cp < 32 or cp == 127
+        return "\\" + "u" + hex4(cp)
+    end
+    if cp < 128
+        return chr(cp)
+    end
+    if cp < 65536
+        return "\\" + "u" + hex4(cp)
+    end
+    let v = cp - 65536
+    let hi = 55296 + bit_shr(v, 10)
+    let lo = 56320 + bit_and(v, 1023)
+    return "\\" + "u" + hex4(hi) + "\\" + "u" + hex4(lo)
+end
+
+function qs(s: string) -> string
+    let out = chr(34)
+    let bs = str.bytes_from_string(s)
+    let n = len(bs)
+    let i = 0
+    while i < n
+        let b = bs[i]
+        if b == 0
+            break
+        end
+        if b < 128
+            if b == 34 or b == 92 or b < 32
+                out = out + escape_cp(b)
+            else
+                out = out + chr(b)
+            end
+            i += 1
+        else
+            let w = utf8_width(b)
+            let cp = 0
+            if w == 4
+                cp = bit_and(b, 7)
+            elif w == 3
+                cp = bit_and(b, 15)
+            else
+                cp = bit_and(b, 31)
+            end
+            let k = 1
+            while k < w and i + k < n
+                cp = cp * 64 + bit_and(bs[i + k], 63)
+                k += 1
+            end
+            out = out + escape_cp(cp)
+            i += w
+        end
+    end
+    return out + chr(34)
+end
+
+# Decode a JSON-escaped dump norm into the live value (escapes decoded,
+# other bytes incl. multibyte UTF-8 passed through raw).
+function json_decode(s: string) -> string
+    let out = ""
+    let bs = str.bytes_from_string(s)
+    let n = len(bs)
+    let i = 0
+    while i < n
+        let b = bs[i]
+        if b == 92 and i + 1 < n
+            let e = bs[i + 1]
+            if e == 110
+                out = out + chr(10)
+            elif e == 116
+                out = out + chr(9)
+            elif e == 114
+                out = out + chr(13)
+            elif e == 98
+                out = out + chr(8)
+            elif e == 102
+                out = out + chr(12)
+            elif e == 92
+                out = out + chr(92)
+            elif e == 34
+                out = out + chr(34)
+            elif e == 47
+                out = out + chr(47)
+            elif e == 117
+                let cp = 0
+                let k = 0
+                while k < 4 and i + 2 + k < n
+                    cp = cp * 16 + hex_val_of(bs[i + 2 + k])
+                    k += 1
+                end
+                i += 4
+                if cp >= 55296 and cp <= 56319 and i + 6 < n and bs[i + 2] == 92 and bs[i + 3] == 117
+                    let lo = 0
+                    let q = 0
+                    while q < 4
+                        lo = lo * 16 + hex_val_of(bs[i + 4 + q])
+                        q += 1
+                    end
+                    cp = 65536 + (cp - 55296) * 1024 + (lo - 56320)
+                    i += 6
+                end
+                out = out + chr_from_cp(cp)
+            else
+                out = out + chr(e)
+            end
+            i += 2
+        else
+            out = out + chr(b)
+            i += 1
+        end
+    end
+    return out
+end
+
+# Encode a codepoint as UTF-8 bytes (chr() is ASCII-only on develop).
+function chr_from_cp(cp: int) -> string
+    if cp < 128
+        return chr(cp)
+    end
+    if cp < 2048
+        return chr(192 + bit_shr(cp, 6)) + chr(128 + bit_and(cp, 63))
+    end
+    if cp < 65536
+        return chr(224 + bit_shr(cp, 12)) + chr(128 + bit_and(bit_shr(cp, 6), 63)) + chr(128 + bit_and(cp, 63))
+    end
+    let v = cp - 65536
+    let w = bit_shr(v, 10) + 55296
+    let l = bit_and(v, 1023) + 56320
+    return chr(240 + bit_shr(cp, 18)) + chr(128 + bit_and(bit_shr(cp, 12), 63)) + chr(128 + bit_and(bit_shr(cp, 6), 63)) + chr(128 + bit_and(cp, 63))
+end
+
+function int_to_dec(v: int) -> string
+    if v == 0
+        return "0"
+    end
+    let neg = 0
+    let x = v
+    if x < 0
+        neg = 1
+        x = 0 - x
+    end
+    let digs = []
+    while x > 0
+        digs.push(x % 10)
+        x = x / 10
+    end
+    let s = ""
+    if neg == true
+        s = "-"
+    end
+    let i = len(digs) - 1
+    while i >= 0
+        s = s + chr(48 + digs[i])
+        i -= 1
+    end
+    return s
+end
+
+# Decode a rune dump norm (escape_cp form) to its codepoint.
+function rune_to_cp(norm: string) -> int
+    if norm == ""
+        return 0
+    end
+    let bs = str.bytes_from_string(norm)
+    if bs[0] == 92
+        let e = bs[1]
+        if e == 110
+            return 10
+        end
+        if e == 116
+            return 9
+        end
+        if e == 114
+            return 13
+        end
+        if e == 98
+            return 8
+        end
+        if e == 102
+            return 12
+        end
+        if e == 92
+            return 92
+        end
+        if e == 34
+            return 34
+        end
+        if e == 39
+            return 39
+        end
+        if e == 48
+            return 0
+        end
+        if e == 117
+            let cp = 0
+            let k = 0
+            while k < 4
+                cp = cp * 16 + hex_val_of(bs[2 + k])
+                k += 1
+            end
+            if cp >= 55296 and cp <= 56319 and len(norm) >= 12 and bs[6] == 92 and bs[7] == 117
+                let lo = 0
+                let q = 0
+                while q < 4
+                    lo = lo * 16 + hex_val_of(bs[8 + q])
+                    q += 1
+                end
+                if lo >= 56320 and lo <= 57343
+                    return 65536 + (cp - 55296) * 1024 + (lo - 56320)
+                end
+            end
+            return cp
+        end
+        return e
+    end
+    if bs[0] < 128
+        return bs[0]
+    end
+    let w = utf8_width(bs[0])
+    let cp = 0
+    if w == 4
+        cp = bit_and(bs[0], 7)
+    elif w == 3
+        cp = bit_and(bs[0], 15)
+    else
+        cp = bit_and(bs[0], 31)
+    end
+    let k = 1
+    while k < w
+        cp = cp * 64 + bit_and(bs[k], 63)
+        k += 1
+    end
+    return cp
+end
+
+function str_trim(s: string) -> string
+    let bs = str.bytes_from_string(s)
+    let a = 0
+    let b = len(bs)
+    while a < b and (bs[a] == 32 or bs[a] == 9 or bs[a] == 13 or bs[a] == 10)
+        a += 1
+    end
+    while b > a and (bs[b - 1] == 32 or bs[b - 1] == 9 or bs[b - 1] == 13 or bs[b - 1] == 10)
+        b -= 1
+    end
+    let out = ""
+    let i = a
+    while i < b
+        out = out + chr(bs[i])
+        i += 1
+    end
+    return out
+end
+
+# Parse one hole's text with a swapped token stream.
+# Hole failure never poisons the outer parse (flags saved/restored).
+function Parser.parse_hole_expr(self, text: string) -> HoleRes
+    if str_trim(text) == ""
+        return HoleRes { ok: 0, s: "" }
+    end
+    let ht = hole_tokenize(text)
+    if len(ht) == 0
+        return HoleRes { ok: 0, s: "" }
+    end
+    let sline = self.line
+    let scol = self.col
+    let skind = self.kind
+    let snorm = self.norm
+    let sn = self.n
+    let spos = self.pos
+    let sfailed = self.failed
+    let serrl = self.err_line
+    let serrc = self.err_col
+    self.line = ht[0]
+    self.col = ht[1]
+    self.kind = ht[2]
+    self.norm = ht[3]
+    self.n = len(ht[0])
+    self.pos = 0
+    self.failed = 0
+    let e = self.parse_expression()
+    let ok = 0
+    if self.failed == false and self.cur_kind() == "eof"
+        ok = 1
+    end
+    self.line = sline
+    self.col = scol
+    self.kind = skind
+    self.norm = snorm
+    self.n = sn
+    self.pos = spos
+    self.failed = sfailed
+    self.err_line = serrl
+    self.err_col = serrc
+    if ok == false
+        return HoleRes { ok: 0, s: "" }
+    end
+    return HoleRes { ok: 1, s: e }
+end
+
+# Format-spec validation (exact mirror of the Rust rules).
+function hole_valid_spec(spec: string) -> int
+    let n = len(spec)
+    if n > 2 and char_at(spec, 0) == "." and char_at(spec, n - 1) == "f"
+        let mid = spec[1..n - 1]
+        if hole_all_digits(mid) == true
+            return true
+        end
+    end
+    if n > 1 and char_at(spec, 0) == "0"
+        if hole_all_digits(spec[1..n]) == true
+            return true
+        end
+    end
+    if spec == "x" or spec == "#x" or spec == "X" or spec == "#X" or spec == "b" or spec == "#b" or spec == "d" or spec == "s"
+        return true
+    end
+    if n > 1
+        let c0 = char_at(spec, 0)
+        if c0 == ">" or c0 == "<" or c0 == "^"
+            if hole_all_digits(spec[1..n]) == true
+                return true
+            end
+        end
+    end
+    return false
+end
+
+function hole_all_digits(s: string) -> int
+    if s == ""
+        return false
+    end
+    let i = 0
+    while i < len(s)
+        let c = char_at(s, i)
+        if c < "0" or c > "9"
+            return false
+        end
+        i += 1
+    end
+    return true
+end
+
+function Parser.try_parse_hole(self, htext: string) -> HoleRes
+    let r = self.parse_hole_expr(htext)
+    if r.ok == true
+        return r
+    end
+    if str_trim(htext) == ""
+        return HoleRes { ok: 0, s: "" }
+    end
+    # rfind(':') on bytes with :: guard.
+    let bs = str.bytes_from_string(htext)
+    let n = len(bs)
+    let ci = -1
+    let i = n - 1
+    while i >= 0
+        if bs[i] == 58
+            ci = i
+            break
+        end
+        i -= 1
+    end
+    if ci > 0 and ci < n - 1 and bs[ci - 1] != 58 and bs[ci + 1] != 58
+        let raw = ""
+        let k = 0
+        while k < ci
+            raw = raw + chr(bs[k])
+            k += 1
+        end
+        let sp = ""
+        k = ci + 1
+        while k < n
+            sp = sp + chr(bs[k])
+            k += 1
+        end
+        sp = str_trim(sp)
+        if hole_valid_spec(sp) == true
+            let r2 = self.parse_hole_expr(raw)
+            if r2.ok == true
+                return HoleRes { ok: 1, s: "(call " + qs("__alya_format:" + sp) + " (" + r2.s + "))" }
+            end
+        end
+    end
+    return HoleRes { ok: 0, s: "" }
+end
+
+# scan_parts over the VALUE bytes.
+function Parser.scan_parts(self, val: string) -> ScanRes
+    let parts = []
+    let lit = ""
+    let interp = 0
+    let esc = 0
+    let bs = str.bytes_from_string(val)
+    let n = len(bs)
+    let i = 0
+    while i < n
+        let b = bs[i]
+        if b == 123
+            if i + 1 < n and bs[i + 1] == 123
+                i += 2
+                lit = lit + "{"
+                esc = 1
+            else
+                let depth = 1
+                let instr = 0
+                let inesc = 0
+                let j = i + 1
+                let found = 0
+                while j < n
+                    let c = bs[j]
+                    if inesc == true
+                        inesc = 0
+                    elif c == 92 and instr == true
+                        inesc = 1
+                    elif c == 34
+                        if instr == true
+                            instr = 0
+                        else
+                            instr = 1
+                        end
+                    elif instr == false and c == 123
+                        depth += 1
+                    elif instr == false and c == 125
+                        depth -= 1
+                        if depth == 0
+                            found = 1
+                            break
+                        end
+                    end
+                    j += 1
+                end
+                let hole = ""
+                if found == true
+                    let k = i + 1
+                    while k < j
+                        hole = hole + chr(bs[k])
+                        k += 1
+                    end
+                end
+                let pr = HoleRes { ok: 0, s: "" }
+                if found == true
+                    pr = self.try_parse_hole(hole)
+                end
+                if pr.ok == true
+                    interp = 1
+                    if lit != ""
+                        parts.push("(str " + qs(lit) + ")")
+                        lit = ""
+                    end
+                    parts.push(pr.s)
+                    i = j + 1
+                elif found == true
+                    lit = lit + "{"
+                    let sub = self.scan_parts(hole)
+                    if lit != ""
+                        parts.push("(str " + qs(lit) + ")")
+                        lit = ""
+                    end
+                    let sp = sub.parts
+                    let q = 0
+                    while q < len(sp)
+                        parts.push(sp[q])
+                        q += 1
+                    end
+                    if sub.interp == true
+                        interp = 1
+                    end
+                    if sub.esc == true
+                        esc = 1
+                    end
+                    lit = lit + "}"
+                    i = j + 1
+                else
+                    lit = lit + "{"
+                    i += 1
+                end
+            end
+        elif b == 125 and i + 1 < n and bs[i + 1] == 125
+            i += 2
+            lit = lit + "}"
+            esc = 1
+        else
+            lit = lit + chr(b)
+            i += 1
+        end
+    end
+    if lit != ""
+        parts.push("(str " + qs(lit) + ")")
+    end
+    return ScanRes { parts: parts, interp: interp, esc: esc }
+end
+
+function Parser.parse_string_value(self, norm: string) -> string
+    # NUL truncates: runtime strings are null-terminated (spec ch.21
+    # S1.9); the reference dump carries the truncated value. Cut at the
+    # JSON level (pure ASCII): a `\u0000` unit ends the value, `\\u0000`
+    # (escaped backslash + text) does not.
+    let bs0 = str.bytes_from_string(norm)
+    let cut = len(bs0)
+    let ci = 0
+    while ci + 1 < len(bs0)
+        if bs0[ci] == 92 and bs0[ci + 1] == 92
+            ci += 2
+        elif bs0[ci] == 92 and bs0[ci + 1] == 117 and ci + 5 < len(bs0) and bs0[ci + 2] == 48 and bs0[ci + 3] == 48 and bs0[ci + 4] == 48 and bs0[ci + 5] == 48
+            cut = ci
+            break
+        else
+            ci += 1
+        end
+    end
+    let val = json_decode(norm[0..cut])
+    let has_open = 0
+    let has_close = 0
+    let bs = str.bytes_from_string(val)
+    let i = 0
+    while i < len(bs)
+        if bs[i] == 123
+            has_open = 1
+        end
+        if bs[i] == 125
+            has_close = 1
+        end
+        i += 1
+    end
+    if has_open == false or has_close == false
+        return "(str " + qs(val) + ")"
+    end
+    let r = self.scan_parts(val)
+    if r.interp == false and r.esc == false
+        return "(str " + qs(val) + ")"
+    end
+    let sp = r.parts
+    let items = ""
+    let q = 0
+    while q < len(sp)
+        if items == ""
+            items = sp[q]
+        else
+            items = items + " " + sp[q]
+        end
+        q += 1
+    end
+    return "(interp (" + items + "))"
+end
+
+function load_dump(path: string) -> DumpRes
+    let src = fs.read_string(path)
+    let line = []
+    let col = []
+    let kind = []
+    let norm = []
+    let err = ""
+    let cur = ""
+    let i = 0
+    let n = len(src)
+    while i <= n
+        let c = ""
+        if i < n
+            c = char_at(src, i)
+        end
+        if c == "" or c == "\n"
+            # Tolerate CRLF dumps (console/pipeline redirection): a
+            # trailing \r is transport, never token content.
+            if cur != "" and char_at(cur, len(cur) - 1) == "\r"
+                cur = cur[0..len(cur) - 1]
+            end
+            if cur != ""
+                if cur == "\r"
+                    cur = ""
+                else
+                    let f = split3(cur)
+                    if len(f) == 4
+                        if f[2] == "stats"
+                            cur = ""
+                        elif f[2] == "error"
+                            err = cur
+                            cur = ""
+                        else
+                            line.push(int(f[0]))
+                            col.push(int(f[1]))
+                            kind.push(f[2])
+                            norm.push(f[3])
+                            cur = ""
+                        end
+                    else
+                        cur = ""
+                    end
+                end
+            else
+                cur = cur + c
+            end
+        else
+            cur = cur + c
+        end
+        i += 1
+    end
+    return DumpRes { line: line, col: col, kind: kind, norm: norm, err: err }
+end
+
+# Split one dump line at the first 3 '|' (norm may contain '|').
+function split3(line: string) -> array
+    let p1 = -1
+    let p2 = -1
+    let p3 = -1
+    let i = 0
+    while i < len(line)
+        if char_at(line, i) == "|"
+            if p1 == -1
+                p1 = i
+            elif p2 == -1
+                p2 = i
+            else
+                p3 = i
+                break
+            end
+        end
+        i += 1
+    end
+    if p1 == -1 or p2 == -1 or p3 == -1
+        return []
+    end
+    return [line[0..p1], line[p1 + 1..p2], line[p2 + 1..p3], line[p3 + 1..len(line)]]
+end
+
+function main()
+    let args = os.cli_args()
+    if len(args) == 0
+        say "usage: parser <dump>"
+        os.exit_process(2)
+    end
+    let path = args[len(args) - 1]
+    let d = load_dump(path)
+    if d.err != ""
+        say d.err
+        os.exit_process(1)
+    end
+    let toks_n = len(d.line)
+    let p = Parser { line: d.line, col: d.col, kind: d.kind, norm: d.norm, n: toks_n, pos: 0, out: [], spill: [], lam: 0, failed: 0, err_line: 1, err_col: 1, fn_depth: 0, pending_attrs: [] }
+    p.parse_program()
+    if p.failed == true
+        p.out.push("0|0|error|" + int_to_dec(p.err_line) + ":" + int_to_dec(p.err_col))
+        say p.out.join("\n")
+        os.exit_process(1)
+    end
+    say p.out.join("\n")
+end
+
+main()
+
+# --- Expressions L1-L9 (parse_expression .. parse_comparison) ---
+# Faithful port of src/parser/expr.rs L1-L9: same levels, same
+# associativity (loops = left, ternary branches = full expression).
+
+function Parser.parse_expression(self) -> string
+    return self.parse_ternary()
+end
+
+function Parser.parse_ternary(self) -> string
+    if self.at("keyword:if") == true
+        self.advance()
+        let cond = self.parse_expression()
+        if self.failed == true
+            return ""
+        end
+        if self.at("keyword:then") == true
+            self.advance()
+            let a = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+            if self.eat("keyword:else") == false
+                self.fail_here()
+                return ""
+            end
+            let b = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+            if self.at("keyword:end") == true
+                self.advance()
+            end
+            return "(ternary " + cond + " " + a + " " + b + ")"
+        else
+            self.skip_nl()
+            let a = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+            self.skip_nl()
+            if self.eat("keyword:else") == false
+                self.fail_here()
+                return ""
+            end
+            self.skip_nl()
+            let b = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+            self.skip_nl()
+            if self.eat("keyword:end") == false
+                self.fail_here()
+                return ""
+            end
+            return "(ternary " + cond + " " + a + " " + b + ")"
+        end
+    end
+    let e = self.parse_null_coalesce()
+    if self.failed == true
+        return ""
+    end
+    if self.at("delim:?") == true
+        self.advance()
+        let a = self.parse_expression()
+        if self.failed == true
+            return ""
+        end
+        if self.eat("delim::") == false
+            self.fail_here()
+            return ""
+        end
+        let b = self.parse_expression()
+        if self.failed == true
+            return ""
+        end
+        return "(ternary " + e + " " + a + " " + b + ")"
+    end
+    return e
+end
+
+function Parser.parse_null_coalesce(self) -> string
+    let left = self.parse_or()
+    if self.failed == true
+        return ""
+    end
+    while self.at("delim:??") == true
+        self.advance()
+        let right = self.parse_or()
+        if self.failed == true
+            return ""
+        end
+        left = "(coalesce " + left + " " + right + ")"
+    end
+    return left
+end
+
+function Parser.parse_or(self) -> string
+    let left = self.parse_and()
+    if self.failed == true
+        return ""
+    end
+    while self.at("keyword:or") == true
+        self.advance()
+        let right = self.parse_and()
+        if self.failed == true
+            return ""
+        end
+        left = "(binop or " + left + " " + right + ")"
+    end
+    return left
+end
+
+function Parser.parse_and(self) -> string
+    let left = self.parse_bitor()
+    if self.failed == true
+        return ""
+    end
+    while self.at("keyword:and") == true
+        self.advance()
+        let right = self.parse_bitor()
+        if self.failed == true
+            return ""
+        end
+        left = "(binop and " + left + " " + right + ")"
+    end
+    return left
+end
+
+function Parser.parse_bitor(self) -> string
+    let left = self.parse_bitxor()
+    if self.failed == true
+        return ""
+    end
+    while self.at("op:|") == true
+        self.advance()
+        let right = self.parse_bitxor()
+        if self.failed == true
+            return ""
+        end
+        left = "(binop | " + left + " " + right + ")"
+    end
+    return left
+end
+
+function Parser.parse_bitxor(self) -> string
+    let left = self.parse_bitand()
+    if self.failed == true
+        return ""
+    end
+    while self.at("op:^") == true
+        self.advance()
+        let right = self.parse_bitand()
+        if self.failed == true
+            return ""
+        end
+        left = "(binop ^ " + left + " " + right + ")"
+    end
+    return left
+end
+
+function Parser.parse_bitand(self) -> string
+    let left = self.parse_comparison()
+    if self.failed == true
+        return ""
+    end
+    while self.at("op:&") == true
+        self.advance()
+        let right = self.parse_comparison()
+        if self.failed == true
+            return ""
+        end
+        left = "(binop & " + left + " " + right + ")"
+    end
+    return left
+end
+
+function Parser.parse_comparison(self) -> string
+    let left = self.parse_range()
+    if self.failed == true
+        return ""
+    end
+    while 1 == 1
+        if self.at("keyword:in") == true
+            self.advance()
+            let right = self.parse_range()
+            if self.failed == true
+                return ""
+            end
+            left = "(binop in " + left + " " + right + ")"
+        elif self.at("keyword:not") == true and self.peek_kind() == "keyword" and self.peek_norm() == "in"
+            self.advance()
+            self.advance()
+            let right = self.parse_range()
+            if self.failed == true
+                return ""
+            end
+            left = "(unop not (binop in " + left + " " + right + "))"
+        elif self.at("keyword:not") == true and self.peek_kind() == "keyword" and self.peek_norm() == "is"
+            self.advance()
+            self.advance()
+            let t = self.parse_is_target()
+            if self.failed == true
+                return ""
+            end
+            left = "(is " + left + " " + qtype(t) + " true)"
+        elif self.at("keyword:is") == true
+            self.advance()
+            let neg = "false"
+            if self.at("keyword:not") == true
+                self.advance()
+                neg = "true"
+            end
+            let t = self.parse_is_target()
+            if self.failed == true
+                return ""
+            end
+            left = "(is " + left + " " + qtype(t) + " " + neg + ")"
+        else
+            let op = ""
+            if self.at("op:==") == true
+                op = "=="
+            elif self.at("op:!=") == true
+                op = "!="
+            elif self.at("op:<=") == true
+                op = "<="
+            elif self.at("op:>=") == true
+                op = ">="
+            elif self.at("op:<") == true
+                op = "<"
+            elif self.at("op:>") == true
+                op = ">"
+            end
+            if op == ""
+                break
+            end
+            self.advance()
+            let right = self.parse_range()
+            if self.failed == true
+                return ""
+            end
+            left = "(binop " + op + " " + left + " " + right + ")"
+        end
+    end
+    return left
+end
+
+# `is [not] T` target: raw `null` or type annotation (quoted at emit).
+function Parser.parse_is_target(self) -> string
+    if self.at("keyword:null") == true
+        self.advance()
+        return "null"
+    end
+    return self.parse_type_ann()
+end
+
+function Parser.parse_range(self) -> string
+    let left = self.parse_shift()
+    if self.failed == true
+        return ""
+    end
+    if self.at("delim:..") == true or self.at("delim:..=") == true
+        let op = ".."
+        if self.at("delim:..=") == true
+            op = "..="
+        end
+        self.advance()
+        let right = ""
+        if self.at("delim:]") == true or self.at("delim:,") == true or self.cur_kind() == "newline" or self.at("delim:)") == true or self.at("delim:}") == true or self.cur_kind() == "eof"
+            right = "(num -1)"
+        else
+            right = self.parse_shift()
+            if self.failed == true
+                return ""
+            end
+        end
+        return "(binop " + op + " " + left + " " + right + ")"
+    end
+    return left
+end
+
+function Parser.parse_shift(self) -> string
+    let left = self.parse_term()
+    if self.failed == true
+        return ""
+    end
+    while self.at("op:<<") == true or self.at("op:>>") == true
+        let op = "<<"
+        if self.at("op:>>") == true
+            op = ">>"
+        end
+        self.advance()
+        let right = self.parse_term()
+        if self.failed == true
+            return ""
+        end
+        left = "(binop " + op + " " + left + " " + right + ")"
+    end
+    return left
+end
+
+function Parser.parse_term(self) -> string
+    let left = self.parse_factor()
+    if self.failed == true
+        return ""
+    end
+    while self.at("op:+") == true or self.at("op:-") == true
+        let op = "+"
+        if self.at("op:-") == true
+            op = "-"
+        end
+        self.advance()
+        let right = self.parse_factor()
+        if self.failed == true
+            return ""
+        end
+        left = "(binop " + op + " " + left + " " + right + ")"
+    end
+    return left
+end
+
+function Parser.parse_factor(self) -> string
+    let left = self.parse_unary()
+    if self.failed == true
+        return ""
+    end
+    while self.at("op:*") == true or self.at("op:/") == true or self.at("op:%") == true
+        let op = "*"
+        if self.at("op:/") == true
+            op = "/"
+        elif self.at("op:%") == true
+            op = "%"
+        end
+        self.advance()
+        let right = self.parse_unary()
+        if self.failed == true
+            return ""
+        end
+        left = "(binop " + op + " " + left + " " + right + ")"
+    end
+    return left
+end
+
+function Parser.parse_unary(self) -> string
+    if self.at("op:+") == true
+        self.advance()
+        return self.parse_unary()
+    end
+    if self.at("op:-") == true
+        self.advance()
+        let e = self.parse_unary()
+        if self.failed == true
+            return ""
+        end
+        return "(unop - " + e + ")"
+    end
+    if self.at("keyword:not") == true
+        self.advance()
+        let e = self.parse_unary()
+        if self.failed == true
+            return ""
+        end
+        return "(unop not " + e + ")"
+    end
+    if self.at("op:~") == true
+        self.advance()
+        let e = self.parse_unary()
+        if self.failed == true
+            return ""
+        end
+        return "(unop ~ " + e + ")"
+    end
+    return self.parse_postfix()
+end
+
+# Split "(binop OP L R)" into [L, R] via balanced scan. Returns [] when
+# the shape does not match.
+function sexpr_binop_parts(s: string, op: string) -> array
+    let pre = "(binop " + op + " "
+    if len(s) < len(pre) + 2 or s[0..len(pre)] != pre
+        return []
+    end
+    if s[len(s) - 1..len(s)] != ")"
+        return []
+    end
+    let inner = s[len(pre)..len(s) - 1]
+    let depth = 0
+    let instr = 0
+    let i = 0
+    let n = len(inner)
+    while i < n
+        let c = char_at(inner, i)
+        if instr == true
+            if c == "\\"
+                i += 2
+            elif c == chr(34)
+                instr = 0
+                i += 1
+            else
+                i += 1
+            end
+        elif c == chr(34)
+            instr = 1
+            i += 1
+        elif c == "("
+            depth += 1
+            i += 1
+        elif c == ")"
+            depth -= 1
+            i += 1
+        elif c == " " and depth == 0
+            return [inner[0..i], inner[i + 1..n]]
+        else
+            i += 1
+        end
+    end
+    return []
+end
+
+function Parser.parse_postfix(self) -> string
+    let e = self.parse_primary()
+    if self.failed == true
+        return ""
+    end
+    while 1 == 1
+        # Newline-tolerant `.` / `?.` only: jump over newlines when a
+        # Dot or QuestionDot follows (other postfix forms break).
+        let j = self.pos
+        while j < self.n and self.kind[j] == "newline"
+            j += 1
+        end
+        if j > self.pos and j < self.n and self.kind[j] == "delim" and (self.norm[j] == "." or self.norm[j] == "?.")
+            self.pos = j
+        end
+        if self.at("delim:[") == true
+            self.advance()
+            if self.at("delim:..") == true or self.at("delim::") == true or self.at("delim:..=") == true
+                self.advance()
+                let fin = ""
+                if self.at("delim:]") == true
+                    fin = "(num -1)"
+                else
+                    fin = self.parse_expression()
+                    if self.failed == true
+                        return ""
+                    end
+                end
+                if self.eat("delim:]") == false
+                    self.fail_here()
+                    return ""
+                end
+                e = "(call " + qs("slice") + " (" + e + " (num 0) " + fin + "))"
+            else
+                let first = self.parse_expression()
+                if self.failed == true
+                    return ""
+                end
+                let rp = sexpr_binop_parts(first, "..=")
+                if len(rp) == 0
+                    rp = sexpr_binop_parts(first, "..")
+                end
+                if len(rp) == 2
+                    if self.eat("delim:]") == false
+                        self.fail_here()
+                        return ""
+                    end
+                    e = "(call " + qs("slice") + " (" + e + " " + rp[0] + " " + rp[1] + "))"
+                elif self.at("delim:..") == true or self.at("delim::") == true or self.at("delim:..=") == true
+                    self.advance()
+                    let fin = ""
+                    if self.at("delim:]") == true
+                        fin = "(num -1)"
+                    else
+                        fin = self.parse_expression()
+                        if self.failed == true
+                            return ""
+                        end
+                    end
+                    if self.eat("delim:]") == false
+                        self.fail_here()
+                        return ""
+                    end
+                    e = "(call " + qs("slice") + " (" + e + " " + first + " " + fin + "))"
+                elif self.at("delim:,") == true
+                    let items = first
+                    while self.at("delim:,") == true
+                        self.advance()
+                        let nx = self.parse_expression()
+                        if self.failed == true
+                            return ""
+                        end
+                        items = items + " " + nx
+                    end
+                    if self.eat("delim:]") == false
+                        self.fail_here()
+                        return ""
+                    end
+                    e = "(index " + e + " (array (" + items + ")))"
+                else
+                    if self.eat("delim:]") == false
+                        self.fail_here()
+                        return ""
+                    end
+                    e = "(index " + e + " " + first + ")"
+                end
+            end
+        elif self.at("delim:.") == true
+            self.advance()
+            e = self.parse_dot_tail(e)
+            if self.failed == true
+                return ""
+            end
+        elif self.at("delim:?.") == true or (self.at("delim:?") == true and self.peek_kind() == "delim" and self.peek_norm() == "[")
+            e = self.parse_qdot_tail(e)
+            if self.failed == true
+                return ""
+            end
+        elif self.at("delim:(") == true
+            let r = self.parse_call_tail(e)
+            if self.failed == true
+                return ""
+            end
+            if r == "@@BREAK@@"
+                break
+            end
+            e = r
+        elif self.at("delim:{") == true
+            let r = self.parse_brace_tail(e)
+            if self.failed == true
+                return ""
+            end
+            if r == "@@BREAK@@"
+                break
+            end
+            e = r
+        elif self.at("keyword:not") == true
+            if self.peek_kind() == "keyword" and (self.peek_norm() == "in" or self.peek_norm() == "is")
+                break
+            end
+            self.advance()
+            e = "(unwrap " + e + ")"
+        elif self.at("keyword:as") == true
+            self.advance()
+            let t = self.parse_type_ann()
+            if self.failed == true
+                return ""
+            end
+            e = "(as " + e + " " + qtype(t) + ")"
+        else
+            break
+        end
+    end
+    return e
+end
+
+# `.` tail: numeric `.0` -> index; `field` or `field(args)` (UFCS).
+function Parser.parse_dot_tail(self, base: string) -> string
+    if self.cur_kind() == "number"
+        let idx = "(num " + self.cur_norm() + ")"
+        self.advance()
+        return "(index " + base + " " + idx + ")"
+    end
+    let field = ""
+    if self.cur_kind() == "ident"
+        field = self.cur_norm()
+    elif self.cur_kind() == "keyword"
+        field = self.cur_norm()
+    else
+        self.fail_here()
+        return ""
+    end
+    self.advance()
+    if self.at("delim:(") == true
+        self.advance()
+        let args = base
+        if self.at("delim:)") == false
+            while 1 == 1
+                let a = self.parse_call_argument()
+                if self.failed == true
+                    return ""
+                end
+                args = args + " " + a
+                if self.at("delim:,") == true
+                    self.advance()
+                else
+                    break
+                end
+            end
+        end
+        if self.eat("delim:)") == false
+            self.fail_here()
+            return ""
+        end
+        return "(call " + qs(field) + " (" + args + "))"
+    end
+    return "(field " + base + " " + qs(field) + ")"
+end
+
+# `?.` / `?[` tail. Returns the new expression.
+function Parser.parse_qdot_tail(self, base: string) -> string
+    let is_qdot = 0
+    if self.at("delim:?.") == true
+        is_qdot = 1
+    end
+    self.advance()
+    if is_qdot == false or self.at("delim:[") == true
+        self.advance()
+        if self.at("delim:..") == true or self.at("delim::") == true or self.at("delim:..=") == true
+            self.advance()
+            let fin = ""
+            if self.at("delim:]") == true
+                fin = "(num -1)"
+            else
+                fin = self.parse_expression()
+                if self.failed == true
+                    return ""
+                end
+            end
+            if self.eat("delim:]") == false
+                self.fail_here()
+                return ""
+            end
+            return "(opt-call " + qs("slice") + " (" + base + " (num 0) " + fin + "))"
+        end
+        let first = self.parse_expression()
+        if self.failed == true
+            return ""
+        end
+        let rp = sexpr_binop_parts(first, "..=")
+        if len(rp) == 0
+            rp = sexpr_binop_parts(first, "..")
+        end
+        if len(rp) == 2
+            if self.eat("delim:]") == false
+                self.fail_here()
+                return ""
+            end
+            return "(opt-call " + qs("slice") + " (" + base + " " + rp[0] + " " + rp[1] + "))"
+        elif self.at("delim:..") == true or self.at("delim::") == true or self.at("delim:..=") == true
+            self.advance()
+            let fin = ""
+            if self.at("delim:]") == true
+                fin = "(num -1)"
+            else
+                fin = self.parse_expression()
+                if self.failed == true
+                    return ""
+                end
+            end
+            if self.eat("delim:]") == false
+                self.fail_here()
+                return ""
+            end
+            return "(opt-call " + qs("slice") + " (" + base + " " + first + " " + fin + "))"
+        end
+        if self.eat("delim:]") == false
+            self.fail_here()
+            return ""
+        end
+        return "(opt-index " + base + " " + first + ")"
+    elif self.at("delim:(") == true
+        self.advance()
+        let args = ""
+        if self.at("delim:)") == false
+            while 1 == 1
+                let a = self.parse_call_argument()
+                if self.failed == true
+                    return ""
+                end
+                if args == ""
+                    args = a
+                else
+                    args = args + " " + a
+                end
+                if self.at("delim:,") == true
+                    self.advance()
+                else
+                    break
+                end
+            end
+        end
+        if self.eat("delim:)") == false
+            self.fail_here()
+            return ""
+        end
+        # Callee is the receiver name only for a bare identifier base.
+        let callee = ""
+        if len(base) > 8 and base[0..8] == "(ident \""
+            callee = base[8..len(base) - 2]
+        end
+        return "(opt-call " + qs(callee) + " (" + args + "))"
+    end
+    let field = ""
+    if self.cur_kind() == "ident"
+        field = self.cur_norm()
+    else
+        self.fail_here()
+        return ""
+    end
+    self.advance()
+    if self.at("delim:(") == true
+        self.advance()
+        let args = base
+        if self.at("delim:)") == false
+            while 1 == 1
+                let a = self.parse_call_argument()
+                if self.failed == true
+                    return ""
+                end
+                args = args + " " + a
+                if self.at("delim:,") == true
+                    self.advance()
+                else
+                    break
+                end
+            end
+        end
+        if self.eat("delim:)") == false
+            self.fail_here()
+            return ""
+        end
+        return "(opt-call " + qs(field) + " (" + args + "))"
+    end
+    return "(opt-field " + base + " " + qs(field) + ")"
+end
+
+# `(` tail: plain call, generic `f[T](args)`, else "@@BREAK@@".
+function Parser.parse_call_tail(self, base: string) -> string
+    if len(base) > 8 and base[0..8] == "(ident \""
+        self.advance()
+        let args = ""
+        if self.at("delim:)") == false
+            while 1 == 1
+                let a = self.parse_call_argument()
+                if self.failed == true
+                    return ""
+                end
+                if args == ""
+                    args = a
+                else
+                    args = args + " " + a
+                end
+                if self.at("delim:,") == true
+                    self.advance()
+                else
+                    break
+                end
+            end
+        end
+        if self.eat("delim:)") == false
+            self.fail_here()
+            return ""
+        end
+        let name = base[8..len(base) - 2]
+        return "(call " + qs(name) + " (" + args + "))"
+    end
+    # Generic instantiation: Index(ident, ident|array-of-ident) + `(`.
+    if len(base) > 8 and base[0..7] == "(index "
+        let inner = base[7..len(base) - 1]
+        let parts = sexpr_split_top(inner)
+        if len(parts) == 2
+            let arr = parts[0]
+            let idx = parts[1]
+            if len(arr) > 8 and arr[0..8] == "(ident \""
+                let tname = sexpr_ident_list(idx)
+                if tname != ""
+                    self.advance()
+                    let args = ""
+                    if self.at("delim:)") == false
+                        while 1 == 1
+                            let a = self.parse_call_argument()
+                            if self.failed == true
+                                return ""
+                            end
+                            if args == ""
+                                args = a
+                            else
+                                args = args + " " + a
+                            end
+                            if self.at("delim:,") == true
+                                self.advance()
+                            else
+                                break
+                            end
+                        end
+                    end
+                    if self.eat("delim:)") == false
+                        self.fail_here()
+                        return ""
+                    end
+                    let cname = arr[8..len(arr) - 2] + "__" + tname
+                    return "(call " + qs(cname) + " (" + args + "))"
+                end
+            end
+        end
+    end
+    return "@@BREAK@@"
+end
+
+# Split a balanced "(A B ...)" inner into top-level items.
+function sexpr_split_top(s: string) -> array
+    let items = []
+    let depth = 0
+    let instr = 0
+    let i = 0
+    let n = len(s)
+    let start = 0
+    while i < n
+        let c = char_at(s, i)
+        if instr == true
+            if c == "\\"
+                i += 2
+            elif c == chr(34)
+                instr = 0
+                i += 1
+            else
+                i += 1
+            end
+        elif c == chr(34)
+            instr = 1
+            i += 1
+        elif c == "("
+            depth += 1
+            i += 1
+        elif c == ")"
+            depth -= 1
+            i += 1
+        elif c == " " and depth == 0
+            items.push(s[start..i])
+            start = i + 1
+            i += 1
+        else
+            i += 1
+        end
+    end
+    if start < n
+        items.push(s[start..n])
+    end
+    return items
+end
+
+# If s is `(ident "x")` return x; if `(array (...idents))` return
+# underscore-joined names; else "".
+function sexpr_ident_list(s: string) -> string
+    if len(s) > 8 and s[0..8] == "(ident \"" and s[len(s) - 2..len(s)] == "\")"
+        return s[8..len(s) - 2]
+    end
+    if len(s) > 8 and s[0..8] == "(array ("
+        let inner = s[8..len(s) - 2]
+        let parts = sexpr_split_top(inner)
+        if len(parts) == 0
+            return ""
+        end
+        let names = ""
+        let i = 0
+        while i < len(parts)
+            let p = parts[i]
+            if len(p) < 10 or p[0..8] != "(ident \"" or p[len(p) - 2..len(p)] != "\")"
+                return ""
+            end
+            if names == ""
+                names = p[8..len(p) - 2]
+            else
+                names = names + "_" + p[8..len(p) - 2]
+            end
+            i += 1
+        end
+        return names
+    end
+    return ""
+end
+
+# `{` tail: `Name{...}` or `Name[T]{...}` struct init, else "@@BREAK@@".
+function Parser.parse_brace_tail(self, base: string) -> string
+    let sname = ""
+    if len(base) > 8 and base[0..8] == "(ident \""
+        sname = base[8..len(base) - 2]
+    elif len(base) > 8 and base[0..7] == "(index "
+        let inner = base[7..len(base) - 1]
+        let parts = sexpr_split_top(inner)
+        if len(parts) == 2
+            let arr = parts[0]
+            if len(arr) > 8 and arr[0..8] == "(ident \""
+                sname = arr[8..len(arr) - 2]
+            end
+        end
+    end
+    if sname == ""
+        return "@@BREAK@@"
+    end
+    self.advance()
+    return self.parse_struct_init(sname)
+end
+
+# Named-arg strip: `name: expr` drops the name.
+function Parser.parse_call_argument(self) -> string
+    if self.cur_kind() == "ident" and self.peek_kind() == "delim" and self.peek_norm() == ":"
+        self.advance()
+        self.advance()
+    end
+    return self.parse_expression()
+end
+
+function Parser.parse_struct_init(self, sname: string) -> string
+    self.skip_nl()
+    let fields = ""
+    while self.cur_kind() != "delim" or self.cur_norm() != "}"
+        if self.cur_kind() == "eof"
+            break
+        end
+        if self.cur_kind() != "ident"
+            self.fail_here()
+            return ""
+        end
+        let fname = self.cur_norm()
+        self.advance()
+        let val = "(ident " + qs(fname) + ")"
+        if self.at("delim::") == true or self.at("op:=") == true
+            self.advance()
+            val = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+        end
+        let f = "(" + qs(fname) + " " + val + ")"
+        if fields == ""
+            fields = f
+        else
+            fields = fields + " " + f
+        end
+        if self.at("delim:,") == true
+            self.advance()
+        end
+        self.skip_nl()
+    end
+    if self.cur_kind() == "eof"
+        self.fail_here()
+        return ""
+    end
+    self.advance()
+    return "(struct-init " + qs(sname) + " (" + fields + "))"
+end
+
+function Parser.parse_primary(self) -> string
+    let k = self.cur_kind()
+    let nm = self.cur_norm()
+    if k == "number"
+        self.advance()
+        return "(num " + nm + ")"
+    end
+    if k == "float"
+        self.advance()
+        return "(float " + nm + ")"
+    end
+    if k == "string"
+        self.advance()
+        return self.parse_string_value(nm)
+    end
+    if k == "keyword" and nm == "true"
+        self.advance()
+        return "(num 1)"
+    end
+    if k == "keyword" and nm == "false"
+        self.advance()
+        return "(num 0)"
+    end
+    if k == "keyword" and nm == "null"
+        self.advance()
+        return "(null)"
+    end
+    if k == "rune"
+        self.advance()
+        return "(num " + int_to_dec(rune_to_cp(nm)) + ")"
+    end
+    if k == "keyword" and nm == "self"
+        self.advance()
+        return "(ident " + qs("self") + ")"
+    end
+    if k == "keyword" and (nm == "test" or nm == "assert" or nm == "bench")
+        self.advance()
+        return "(ident " + qs(nm) + ")"
+    end
+    if k == "keyword" and nm == "comptime"
+        # Deferred: needs parse-time const evaluation (slice 2).
+        self.fail_here()
+        return ""
+    end
+    if k == "keyword" and (nm == "sizeof" or nm == "alignof" or nm == "typeof")
+        self.advance()
+        if self.eat("delim:(") == false
+            self.fail_here()
+            return ""
+        end
+        let a = self.parse_expression()
+        if self.failed == true
+            return ""
+        end
+        if self.eat("delim:)") == false
+            self.fail_here()
+            return ""
+        end
+        return "(call " + qs(nm) + " (" + a + "))"
+    end
+    if k == "keyword" and nm == "or"
+        # `||` empty-param closure: deferred (spill template, slice 2).
+        self.fail_here()
+        return ""
+    end
+    if k == "op" and nm == "|"
+        # `|params|` closure: deferred (spill template, slice 2).
+        self.fail_here()
+        return ""
+    end
+    if k == "keyword" and nm == "function"
+        # Anonymous `fn (...)`: deferred (spill template, slice 2).
+        self.fail_here()
+        return ""
+    end
+    if k == "keyword" and nm == "ask"
+        self.advance()
+        if self.at("delim:(") == true
+            self.advance()
+            if self.at("delim:)") == true
+                self.advance()
+                return "(call " + qs("ask") + " ())"
+            end
+            let a = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+            if self.eat("delim:)") == false
+                self.fail_here()
+                return ""
+            end
+            return "(call " + qs("ask") + " (" + a + "))"
+        end
+        if self.cur_kind() == "newline" or self.cur_kind() == "eof" or self.at("delim:)") == true or self.at("delim:]") == true or self.at("delim:}") == true or self.at("delim:,") == true
+            return "(call " + qs("ask") + " ())"
+        end
+        let a = self.parse_expression()
+        if self.failed == true
+            return ""
+        end
+        return "(call " + qs("ask") + " (" + a + "))"
+    end
+    if k == "ident"
+        return self.parse_ident_primary()
+    end
+    if k == "delim" and nm == "("
+        self.advance()
+        self.skip_nl()
+        if self.at("delim:)") == true
+            self.advance()
+            return "(array ())"
+        end
+        let first = self.parse_expression()
+        if self.failed == true
+            return ""
+        end
+        self.skip_nl()
+        if self.at("delim:,") == true
+            let items = first
+            while self.at("delim:,") == true
+                self.advance()
+                self.skip_nl()
+                if self.at("delim:)") == true
+                    break
+                end
+                let nx = self.parse_expression()
+                if self.failed == true
+                    return ""
+                end
+                self.skip_nl()
+                items = items + " " + nx
+            end
+            if self.eat("delim:)") == false
+                self.fail_here()
+                return ""
+            end
+            return "(array (" + items + "))"
+        end
+        if self.eat("delim:)") == false
+            self.fail_here()
+            return ""
+        end
+        return first
+    end
+    if k == "delim" and nm == "{"
+        return self.parse_map_literal()
+    end
+    if k == "delim" and nm == "["
+        return self.parse_array_literal()
+    end
+    if k == "keyword" and nm == "when"
+        return self.parse_when_expr()
+    end
+    self.fail_here()
+    return ""
+end
+
+function Parser.parse_array_literal(self) -> string
+    self.advance()
+    self.skip_nl()
+    let items = ""
+    let count = 0
+    while self.at("delim:]") == false
+        if self.cur_kind() == "eof"
+            self.fail_here()
+            return ""
+        end
+        if self.at("delim:...") == true or self.at("delim:..") == true
+            # Spread: deferred (spill template, slice 2).
+            self.fail_here()
+            return ""
+        end
+        let e = self.parse_expression()
+        if self.failed == true
+            return ""
+        end
+        if self.at("keyword:for") == true
+            # Comprehension: deferred (spill template, slice 2).
+            self.fail_here()
+            return ""
+        end
+        if items == ""
+            items = e
+        else
+            items = items + " " + e
+        end
+        count += 1
+        self.skip_nl()
+        if self.at("delim:,") == true
+            self.advance()
+            self.skip_nl()
+        elif self.at("delim:]") == false
+            self.fail_here()
+            return ""
+        end
+    end
+    self.advance()
+    return "(array (" + items + "))"
+end
+
+function Parser.parse_map_literal(self) -> string
+    self.advance()
+    self.skip_nl()
+    let items = ""
+    while self.at("delim:}") == false
+        self.skip_nl()
+        if self.at("delim:}") == true
+            break
+        end
+        if self.cur_kind() == "eof"
+            self.fail_here()
+            return ""
+        end
+        if self.at("delim:...") == true or self.at("delim:..") == true
+            # Spread: deferred (spill template, slice 2).
+            self.fail_here()
+            return ""
+        end
+        let key = ""
+        if self.cur_kind() == "ident"
+            key = "(str " + qs(self.cur_norm()) + ")"
+            self.advance()
+        else
+            key = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+        end
+        self.skip_nl()
+        if self.at("delim::") == true or self.at("op:=") == true
+            self.advance()
+        else
+            self.fail_here()
+            return ""
+        end
+        self.skip_nl()
+        let val = self.parse_expression()
+        if self.failed == true
+            return ""
+        end
+        if self.at("keyword:for") == true
+            # Comprehension: deferred (spill template, slice 2).
+            self.fail_here()
+            return ""
+        end
+        let ent = "(" + key + " " + val + ")"
+        if items == ""
+            items = ent
+        else
+            items = items + " " + ent
+        end
+        self.skip_nl()
+        if self.at("delim:,") == true
+            self.advance()
+            self.skip_nl()
+        elif self.at("delim:}") == false
+            self.fail_here()
+            return ""
+        end
+    end
+    self.advance()
+    return "(map (" + items + "))"
+end
+
+function Parser.peek_kind_at(self, k: int) -> string
+    if self.pos + k >= self.n
+        return "eof"
+    end
+    return self.kind[self.pos + k]
+end
+
+function Parser.peek_norm_at(self, k: int) -> string
+    if self.pos + k >= self.n
+        return ""
+    end
+    return self.norm[self.pos + k]
+end
+
+# Structural identifier scan over an S-expr (mirrors
+# expr_references_name: only Identifier/Binary/Unary/unwrap/call-args/
+# array/index/field-object/struct-values/ternary count).
+function expr_refs_name(s: string, name: string) -> int
+    let want = "(ident " + qs(name) + ")"
+    let i = 0
+    let n = len(s)
+    let wn = len(want)
+    while i + wn <= n
+        if s[i..i + wn] == want
+            return true
+        end
+        i += 1
+    end
+    return false
+end
+
+function Parser.parse_program(self)
+    self.skip_nl()
+    while self.cur_kind() != "eof"
+        if self.failed == true
+            return
+        end
+        self.parse_statement()
+        self.skip_nl()
+    end
+    let i = 0
+    while i < len(self.spill)
+        self.out.push(self.spill[i])
+        i += 1
+    end
+end
+
+function Parser.emit_stmt(self, s: string)
+    self.out.push(s)
+end
+
+function Parser.parse_statement(self)
+    self.skip_nl()
+    if self.cur_kind() == "eof"
+        return
+    end
+    if self.check_multi_assign() == true
+        self.parse_multi_assign()
+        return
+    end
+    let k = self.cur_kind()
+    let nm = self.cur_norm()
+    if k == "keyword" and nm == "pub"
+        self.parse_pub()
+    elif k == "keyword" and nm == "import"
+        self.parse_import()
+    elif k == "keyword" and nm == "from"
+        self.parse_from_import()
+    elif k == "keyword" and nm == "extern"
+        self.parse_extern()
+    elif k == "keyword" and nm == "struct"
+        self.parse_struct()
+    elif k == "keyword" and nm == "enum"
+        self.parse_enum()
+    elif k == "keyword" and nm == "const"
+        self.parse_const()
+    elif k == "keyword" and nm == "say"
+        self.advance()
+        let e = self.parse_expression()
+        if self.failed == true
+            return
+        end
+        self.emit_stmt("(say " + e + ")")
+    elif k == "keyword" and nm == "let"
+        self.parse_let()
+    elif k == "keyword" and nm == "if"
+        self.parse_if()
+    elif k == "keyword" and nm == "while"
+        self.parse_while()
+    elif k == "keyword" and nm == "repeat"
+        self.parse_repeat()
+    elif k == "keyword" and nm == "for"
+        self.parse_for()
+    elif k == "keyword" and nm == "function"
+        self.parse_function(false)
+    elif k == "keyword" and nm == "return"
+        self.parse_return()
+    elif k == "keyword" and nm == "break"
+        self.advance()
+        self.emit_stmt("(break)")
+    elif k == "keyword" and nm == "continue"
+        self.advance()
+        self.emit_stmt("(continue)")
+    elif k == "keyword" and nm == "when"
+        self.parse_when_stmt()
+    elif k == "keyword" and nm == "try"
+        self.parse_try()
+    elif k == "keyword" and nm == "throw"
+        self.parse_throw()
+    elif k == "keyword" and nm == "defer"
+        self.advance()
+        let n0 = len(self.out)
+        self.parse_statement()
+        if self.failed == true
+            return
+        end
+        if len(self.out) == n0
+            self.fail_here()
+            return
+        end
+        # Rust keeps only the FIRST statement, discarding the rest.
+        let inner = self.out[n0]
+        while len(self.out) > n0
+            self.out.pop()
+        end
+        self.emit_stmt("(defer " + inner + ")")
+    elif k == "keyword" and nm == "assert"
+        self.parse_assert()
+    elif k == "keyword" and nm == "test"
+        if self.fn_depth == 0 and (self.peek_kind() != "delim" or self.peek_norm() != ".")
+            self.parse_test_bench(false)
+        else
+            self.parse_expr_statement()
+        end
+    elif k == "keyword" and nm == "bench"
+        if self.fn_depth == 0 and (self.peek_kind() != "delim" or self.peek_norm() != ".")
+            self.parse_test_bench(true)
+        else
+            self.parse_expr_statement()
+        end
+    elif k == "op" and nm == "@"
+        self.parse_attribute()
+    elif k == "keyword" and nm == "interface"
+        self.parse_interface()
+    elif k == "keyword" and nm == "spawn"
+        self.parse_spawn()
+    elif k == "keyword" and nm == "select"
+        self.fail_here()
+    elif (k == "ident" or k == "keyword") and nm == "guard"
+        if self.peek_kind() == "op" and (self.peek_norm() == "=" or self.peek_norm() == "+=" or self.peek_norm() == "-=" or self.peek_norm() == "*=" or self.peek_norm() == "/=" or self.peek_norm() == "%=" or self.peek_norm() == "&=" or self.peek_norm() == "|=" or self.peek_norm() == "^=" or self.peek_norm() == "<<=" or self.peek_norm() == ">>=")
+            self.parse_ident_statement()
+        else
+            self.parse_guard()
+        end
+    elif k == "ident" or k == "keyword"
+        if self.check_multi_assign() == true
+            self.parse_multi_assign()
+        else
+            self.parse_ident_statement()
+        end
+    else
+        let e = self.parse_expression()
+        if self.failed == true
+            return
+        end
+        self.emit_stmt("(expr " + e + ")")
+    end
+end
+
+# Multi-assign lookahead: [ident (, ident)* [, ...]] = (position scan).
+function Parser.check_multi_assign(self) -> int
+    let idx = self.pos
+    let in_parens = 0
+    if idx < self.n and self.kind[idx] == "delim" and self.norm[idx] == "("
+        in_parens = 1
+        idx += 1
+    end
+    if idx >= self.n or self.kind[idx] != "ident"
+        return false
+    end
+    idx += 1
+    if idx >= self.n or self.kind[idx] != "delim" or self.norm[idx] != ","
+        return false
+    end
+    while idx < self.n and self.kind[idx] == "delim" and self.norm[idx] == ","
+        idx += 1
+        if idx >= self.n or self.kind[idx] != "ident"
+            return false
+        end
+        idx += 1
+    end
+    if in_parens == true
+        if idx >= self.n or self.kind[idx] != "delim" or self.norm[idx] != ")"
+            return false
+        end
+        idx += 1
+    end
+    if idx < self.n and self.kind[idx] == "op" and self.norm[idx] == "="
+        return true
+    end
+    return false
+end
+
+function Parser.parse_multi_assign(self)
+    let fl = self.cur_line()
+    let fc = self.cur_col()
+    let has_parens = 0
+    if self.at("delim:(") == true
+        self.advance()
+        has_parens = 1
+    end
+    let names = []
+    while 1 == 1
+        names.push(self.cur_norm())
+        self.advance()
+        if self.at("delim:,") == true
+            self.advance()
+        else
+            break
+        end
+    end
+    if has_parens == true
+        if self.eat("delim:)") == false
+            self.fail_here()
+            return
+        end
+    end
+    if self.eat("op:=") == false
+        self.fail_here()
+        return
+    end
+    let values = []
+    while 1 == 1
+        let v = self.parse_expression()
+        if self.failed == true
+            return
+        end
+        values.push(v)
+        if self.at("delim:,") == true
+            self.advance()
+        else
+            break
+        end
+    end
+    if len(values) == 1
+        let tmp = "__tuple_assign_" + int_to_dec(fl) + "_" + int_to_dec(fc)
+        self.emit_stmt("(let " + qs(tmp) + " _ " + values[0] + ")")
+        let i = 0
+        while i < len(names)
+            self.emit_stmt("(assign " + qs(names[i]) + " (index (ident " + qs(tmp) + ") (num " + int_to_dec(i) + ")))")
+            i += 1
+        end
+    elif len(values) == len(names)
+        let tmps = []
+        let i = 0
+        while i < len(values)
+            let t = "__assign_tmp_" + int_to_dec(fl) + "_" + int_to_dec(fc) + "_" + int_to_dec(i)
+            tmps.push(t)
+            self.emit_stmt("(let " + qs(t) + " _ " + values[i] + ")")
+            i += 1
+        end
+        let j = 0
+        while j < len(names)
+            self.emit_stmt("(assign " + qs(names[j]) + " (ident " + qs(tmps[j]) + "))")
+            j += 1
+        end
+    else
+        self.fail_at(fl, fc)
+    end
+end
+
+# Quote a type annotation for the dump (`_` stays bare).
+function qtype(t: string) -> string
+    if t == "_"
+        return "_"
+    end
+    return qs(t)
+end
+
+function Parser.parse_const(self)
+    self.advance()
+    while 1 == 1
+        if self.cur_kind() != "ident"
+            self.fail_here()
+            return
+        end
+        let name = self.cur_norm()
+        self.advance()
+        if self.at("delim::") == true
+            self.advance()
+            let t = self.parse_type_ann()
+            if self.failed == true
+                return
+            end
+        end
+        if self.eat("op:=") == false
+            self.fail_here()
+            return
+        end
+        let v = self.parse_expression()
+        if self.failed == true
+            return
+        end
+        self.emit_stmt("(const " + qs(name) + " " + v + ")")
+        if self.at("delim:,") == true
+            self.advance()
+        else
+            break
+        end
+    end
+end
+
+function Parser.parse_let(self)
+    self.advance()
+    let fl = self.cur_line()
+    let fc = self.cur_col()
+    if self.at("delim:[") == true or self.at("delim:{") == true or self.at("delim:(") == true
+        let pat = self.parse_destructure_pattern()
+        if self.failed == true
+            return
+        end
+        if self.eat("op:=") == false
+            self.fail_here()
+            return
+        end
+        let rhs = self.parse_expression()
+        if self.failed == true
+            return
+        end
+        let tmp = "__destruct_" + int_to_dec(fl) + "_" + int_to_dec(fc)
+        self.emit_stmt("(let " + qs(tmp) + " _ " + rhs + ")")
+        self.emit_destructure_bindings(pat, "(ident " + qs(tmp) + ")")
+        return
+    end
+    let names = []
+    let types = []
+    while 1 == 1
+        if self.cur_kind() != "ident"
+            self.fail_here()
+            return
+        end
+        names.push(self.cur_norm())
+        self.advance()
+        if self.at("delim::") == true
+            self.advance()
+            types.push(self.parse_type_ann())
+            if self.failed == true
+                return
+            end
+        else
+            types.push("_")
+        end
+        if self.at("delim:,") == true
+            self.advance()
+        else
+            break
+        end
+    end
+    if self.at("op:=") == false
+        let i = 0
+        while i < len(names)
+            self.emit_stmt("(let " + qs(names[i]) + " " + qtype(types[i]) + " (null))")
+            i += 1
+        end
+        return
+    end
+    self.advance()
+    let first_val = self.parse_expression()
+    if self.failed == true
+        return
+    end
+    # Chained singles: `let a = 1, b = 2` (name,type,value, comma...).
+    if len(names) == 1 and self.at("delim:,") == true and self.pos + 2 < self.n and self.kind[self.pos + 1] == "ident" and self.kind[self.pos + 2] == "op" and self.norm[self.pos + 2] == "="
+        self.emit_stmt("(let " + qs(names[0]) + " " + qtype(types[0]) + " " + first_val + ")")
+        while self.at("delim:,") == true
+            self.advance()
+            if self.cur_kind() != "ident"
+                break
+            end
+            let nn = self.cur_norm()
+            self.advance()
+            let tt = "_"
+            if self.at("delim::") == true
+                self.advance()
+                tt = self.parse_type_ann()
+                if self.failed == true
+                    return
+                end
+            end
+            if self.eat("op:=") == false
+                self.fail_here()
+                return
+            end
+            let nv = self.parse_expression()
+            if self.failed == true
+                return
+            end
+            self.emit_stmt("(let " + qs(nn) + " " + qtype(tt) + " " + nv + ")")
+        end
+        return
+    end
+    let values = [first_val]
+    if self.at("delim:,") == true
+        self.advance()
+        while 1 == 1
+            let v = self.parse_expression()
+            if self.failed == true
+                return
+            end
+            values.push(v)
+            if self.at("delim:,") == true
+                self.advance()
+            else
+                break
+            end
+        end
+    end
+    if len(values) == 1
+        if len(names) == 1
+            self.emit_stmt("(let " + qs(names[0]) + " " + qtype(types[0]) + " " + values[0] + ")")
+            return
+        end
+        if sexpr_is_scalar(values[0]) == true
+            let i = 0
+            while i < len(names)
+                self.emit_stmt("(let " + qs(names[i]) + " " + qtype(types[i]) + " " + values[0] + ")")
+                i += 1
+            end
+            return
+        end
+        let tmp = "__tuple_" + int_to_dec(fl) + "_" + int_to_dec(fc)
+        self.emit_stmt("(let " + qs(tmp) + " _ " + values[0] + ")")
+        let i = 0
+        while i < len(names)
+            self.emit_stmt("(let " + qs(names[i]) + " " + types[i] + " (index (ident " + qs(tmp) + ") (num " + int_to_dec(i) + ")))")
+            i += 1
+        end
+        return
+    end
+    if len(values) == len(names)
+        let swap = 0
+        let i = 0
+        while i < len(names)
+            let j = 0
+            while j < len(values)
+                if expr_refs_name(values[j], names[i]) == true
+                    swap = 1
+                end
+                j += 1
+            end
+            i += 1
+        end
+        if swap == false
+            let i = 0
+            while i < len(names)
+                self.emit_stmt("(let " + qs(names[i]) + " " + qtype(types[i]) + " " + values[i] + ")")
+                i += 1
+            end
+            return
+        end
+        let tmps = []
+        let i = 0
+        while i < len(values)
+            let t = "__let_tmp_" + int_to_dec(fl) + "_" + int_to_dec(fc) + "_" + int_to_dec(i)
+            tmps.push(t)
+            self.emit_stmt("(let " + qs(t) + " _ " + values[i] + ")")
+            i += 1
+        end
+        let j = 0
+        while j < len(names)
+            self.emit_stmt("(let " + qs(names[j]) + " " + qtype(types[j]) + " (ident " + qs(tmps[j]) + "))")
+            j += 1
+        end
+        return
+    end
+    self.fail_at(fl, fc)
+end
+
+# Scalar broadcast check: Number/Float/String/Null nodes.
+function sexpr_is_scalar(s: string) -> int
+    if len(s) >= 5 and s[0..5] == "(num "
+        return true
+    end
+    if len(s) >= 7 and s[0..7] == "(float "
+        return true
+    end
+    if len(s) >= 5 and s[0..5] == "(str "
+        return true
+    end
+    if s == "(null)"
+        return true
+    end
+    return false
+end
+
+# Destructure patterns as S-expr: (var x) (wild) (rest r)
+# (tuple p...) (array p...) (map (k p)...).
+function Parser.parse_destructure_pattern(self) -> string
+    self.skip_nl()
+    if self.at("delim:(") == true
+        self.advance()
+        self.skip_nl()
+        let items = ""
+        while self.at("delim:)") == false
+            if self.cur_kind() == "eof"
+                self.fail_here()
+                return ""
+            end
+            let p = self.parse_destructure_pattern()
+            if self.failed == true
+                return ""
+            end
+            if items == ""
+                items = p
+            else
+                items = items + " " + p
+            end
+            self.skip_nl()
+            if self.at("delim:,") == true
+                self.advance()
+                self.skip_nl()
+            else
+                break
+            end
+        end
+        if self.eat("delim:)") == false
+            self.fail_here()
+            return ""
+        end
+        return "(tuple " + items + ")"
+    end
+    if self.at("delim:[") == true
+        self.advance()
+        self.skip_nl()
+        let items = ""
+        while self.at("delim:]") == false
+            if self.cur_kind() == "eof"
+                self.fail_here()
+                return ""
+            end
+            if self.at("delim:...") == true or self.at("delim:..") == true
+                self.advance()
+                if self.cur_kind() != "ident"
+                    self.fail_here()
+                    return ""
+                end
+                let r = "(rest " + qs(self.cur_norm()) + ")"
+                self.advance()
+                if items == ""
+                    items = r
+                else
+                    items = items + " " + r
+                end
+                break
+            end
+            let p = self.parse_destructure_pattern()
+            if self.failed == true
+                return ""
+            end
+            if items == ""
+                items = p
+            else
+                items = items + " " + p
+            end
+            self.skip_nl()
+            if self.at("delim:,") == true
+                self.advance()
+                self.skip_nl()
+            else
+                break
+            end
+        end
+        if self.eat("delim:]") == false
+            self.fail_here()
+            return ""
+        end
+        return "(array " + items + ")"
+    end
+    if self.at("delim:{") == true
+        self.advance()
+        self.skip_nl()
+        let items = ""
+        while self.at("delim:}") == false
+            if self.cur_kind() == "eof"
+                self.fail_here()
+                return ""
+            end
+            let key = ""
+            if self.cur_kind() == "ident"
+                key = self.cur_norm()
+                self.advance()
+            elif self.cur_kind() == "string"
+                key = json_decode(self.cur_norm())
+                self.advance()
+            else
+                self.fail_here()
+                return ""
+            end
+            let pat = "(var " + qs(key) + ")"
+            if self.at("delim::") == true
+                self.advance()
+                pat = self.parse_destructure_pattern()
+                if self.failed == true
+                    return ""
+                end
+            end
+            let ent = "(" + qs(key) + " " + pat + ")"
+            if items == ""
+                items = ent
+            else
+                items = items + " " + ent
+            end
+            self.skip_nl()
+            if self.at("delim:,") == true
+                self.advance()
+                self.skip_nl()
+            else
+                break
+            end
+        end
+        if self.eat("delim:}") == false
+            self.fail_here()
+            return ""
+        end
+        return "(map " + items + ")"
+    end
+    if self.cur_kind() == "ident" and self.cur_norm() == "_"
+        self.advance()
+        return "(wild)"
+    end
+    if self.cur_kind() == "ident"
+        let nm = self.cur_norm()
+        self.advance()
+        return "(var " + qs(nm) + ")"
+    end
+    self.fail_here()
+    return ""
+end
+
+function Parser.emit_destructure_bindings(self, pat: string, target: string)
+    if len(pat) >= 6 and pat[0..6] == "(wild)"
+        return
+    end
+    if len(pat) >= 5 and pat[0..5] == "(var "
+        self.emit_stmt("(let " + pat[5..len(pat) - 1] + " _ " + target + ")")
+        return
+    end
+    if len(pat) >= 6 and pat[0..6] == "(rest "
+        self.emit_stmt("(let " + pat[6..len(pat) - 1] + " _ " + target + ")")
+        return
+    end
+    if (len(pat) >= 7 and pat[0..7] == "(tuple ") or (len(pat) >= 7 and pat[0..7] == "(array ")
+        let inner = pat[7..len(pat) - 1]
+        let items = sexpr_split_top(inner)
+        let i = 0
+        while i < len(items)
+            let it = items[i]
+            if len(it) >= 6 and it[0..6] == "(rest "
+                let sub = "(call " + qs("slice") + " (" + target + " (num " + int_to_dec(i) + ") (call " + qs("len") + " (" + target + "))))"
+                self.emit_stmt("(let " + it[6..len(it) - 1] + " _ " + sub + ")")
+                break
+            end
+            let sub = "(index " + target + " (num " + int_to_dec(i) + "))"
+            self.emit_destructure_bindings(it, sub)
+            if self.failed == true
+                return
+            end
+            i += 1
+        end
+        return
+    end
+    if len(pat) >= 5 and pat[0..5] == "(map "
+        let inner = pat[5..len(pat) - 1]
+        let items = sexpr_split_top(inner)
+        let i = 0
+        while i < len(items)
+            # Entries are ("key" PATTERN): split after the key's closing
+            # quote (keys may contain spaces, so no blank split).
+            let ent = items[i]
+            let kk = 2
+            while kk < len(ent)
+                if char_at(ent, kk) == "\\"
+                    kk += 2
+                elif char_at(ent, kk) == chr(34)
+                    break
+                else
+                    kk += 1
+                end
+            end
+            if kk < len(ent)
+                let key = ent[1..kk + 1]
+                let rest = ent[kk + 2..len(ent) - 1]
+                let sub = "(index " + target + " (str " + key + "))"
+                self.emit_destructure_bindings(rest, sub)
+                if self.failed == true
+                    return
+                end
+            end
+            i += 1
+        end
+        return
+    end
+    self.fail_here()
+end
+
+# Identifier-led statement: assigns, index/field assigns, or expression.
+function Parser.parse_ident_statement(self)
+    let name = ""
+    if self.cur_kind() == "ident"
+        name = self.cur_norm()
+    elif self.cur_kind() == "keyword" and (self.cur_norm() == "self" or self.cur_norm() == "test" or self.cur_norm() == "bench")
+        name = self.cur_norm()
+    else
+        self.fail_here()
+        return
+    end
+    let start = self.pos
+    self.advance()
+    if self.at("delim:[") == true or self.at("delim:.") == true
+        let target = "(ident " + qs(name) + ")"
+        while self.at("delim:[") == true or self.at("delim:.") == true
+            if self.at("delim:[") == true
+                self.advance()
+                let ix = self.parse_expression()
+                if self.failed == true
+                    return
+                end
+                if self.eat("delim:]") == false
+                    self.fail_here()
+                    return
+                end
+                target = "(index " + target + " " + ix + ")"
+            else
+                self.advance()
+                let field = ""
+                if self.cur_kind() == "ident" or self.cur_kind() == "keyword"
+                    field = self.cur_norm()
+                else
+                    self.fail_here()
+                    return
+                end
+                self.advance()
+                if self.at("delim:(") == true
+                    self.advance()
+                    let args = target
+                    if self.at("delim:)") == false
+                        while 1 == 1
+                            let a = self.parse_call_argument()
+                            if self.failed == true
+                                return ""
+                            end
+                            args = args + " " + a
+                            if self.at("delim:,") == true
+                                self.advance()
+                            else
+                                break
+                            end
+                        end
+                    end
+                    if self.eat("delim:)") == false
+                        self.fail_here()
+                        return ""
+                    end
+                    target = "(call " + qs(field) + " (" + args + "))"
+                else
+                    target = "(field " + target + " " + qs(field) + ")"
+                end
+            end
+        end
+        if self.at("op:=") == true
+            self.advance()
+            let v = self.parse_expression()
+            if self.failed == true
+                return
+            end
+            self.emit_index_field_assign(target, "(assign-op =)", v)
+            return
+        end
+        let aop = self.assign_op_kind()
+        if aop != ""
+            self.advance()
+            let v = self.parse_expression()
+            if self.failed == true
+                return
+            end
+            self.emit_index_field_assign(target, aop, v)
+            return
+        end
+        self.pos = start
+        let e = self.parse_expression()
+        if self.failed == true
+            return
+        end
+        self.emit_stmt("(expr " + e + ")")
+        return
+    end
+    if self.at("op:=") == true
+        self.advance()
+        let v = self.parse_expression()
+        if self.failed == true
+            return
+        end
+        self.emit_stmt("(assign " + qs(name) + " " + v + ")")
+        return
+    end
+    let aop = self.assign_op_kind()
+    if aop != ""
+        self.advance()
+        let v = self.parse_expression()
+        if self.failed == true
+            return
+        end
+        self.emit_stmt("(assign " + qs(name) + " (binop " + aop + " (ident " + qs(name) + ") " + v + "))")
+        return
+    end
+    self.pos = start
+    let e = self.parse_expression()
+    if self.failed == true
+        return
+    end
+    self.emit_stmt("(expr " + e + ")")
+end
+
+# Returns the BinaryOp atom for compound assign ops, else "".
+function Parser.assign_op_kind(self) -> string
+    if self.cur_kind() != "op"
+        return ""
+    end
+    let nm = self.cur_norm()
+    if nm == "+="
+        return "+"
+    end
+    if nm == "-="
+        return "-"
+    end
+    if nm == "*="
+        return "*"
+    end
+    if nm == "/="
+        return "/"
+    end
+    if nm == "%="
+        return "%"
+    end
+    if nm == "&="
+        return "&"
+    end
+    if nm == "|="
+        return "|"
+    end
+    if nm == "^="
+        return "^"
+    end
+    if nm == "<<="
+        return "<<"
+    end
+    if nm == ">>="
+        return ">>"
+    end
+    return ""
+end
+
+# Emit (index-assign A I V) / (field-assign O F V) for a target string.
+function Parser.emit_index_field_assign(self, target: string, aop: string, v: string)
+    if len(target) > 7 and target[0..7] == "(index "
+        let parts = sexpr_split_top(target[7..len(target) - 1])
+        if len(parts) == 2
+            let val = v
+            if aop != "(assign-op =)"
+                val = "(binop " + aop + " " + target + " " + v + ")"
+            end
+            self.emit_stmt("(index-assign " + parts[0] + " " + parts[1] + " " + val + ")")
+            return
+        end
+    end
+    if len(target) > 7 and target[0..7] == "(field "
+        let parts = sexpr_split_top(target[7..len(target) - 1])
+        if len(parts) == 2
+            let val = v
+            if aop != "(assign-op =)"
+                val = "(binop " + aop + " " + target + " " + v + ")"
+            end
+            self.emit_stmt("(field-assign " + parts[0] + " " + parts[1] + " " + val + ")")
+            return
+        end
+    end
+    # Call targets (or anything else) with `=` cannot assign: mirror the
+    # Rust unreachable!() as a hard failure at the current position.
+    self.fail_here()
+end
+
+function Parser.parse_expr_statement(self)
+    let e = self.parse_expression()
+    if self.failed == true
+        return
+    end
+    self.emit_stmt("(expr " + e + ")")
+end
+
+function Parser.parse_type_ann(self) -> string
+    let t = ""
+    if self.at("keyword:weak") == true
+        self.advance()
+        t = "weak "
+    end
+    if self.at("delim:...") == true or self.at("delim:..") == true
+        self.advance()
+        t = t + "..."
+    end
+    if self.at("delim:[") == true
+        self.advance()
+        self.skip_nl()
+        let k = self.parse_type_ann()
+        if self.failed == true
+            return ""
+        end
+        self.skip_nl()
+        if self.at("delim::") == true
+            self.advance()
+            self.skip_nl()
+            let v = self.parse_type_ann()
+            if self.failed == true
+                return ""
+            end
+            self.skip_nl()
+            if self.eat("delim:]") == false
+                self.fail_here()
+                return ""
+            end
+            t = t + "[" + k + ": " + v + "]"
+        else
+            if self.eat("delim:]") == false
+                self.fail_here()
+                return ""
+            end
+            t = t + "[" + k + "]"
+        end
+    elif self.at("delim:(") == true
+        self.advance()
+        self.skip_nl()
+        let parts = ""
+        while self.at("delim:)") == false
+            if self.cur_kind() == "eof"
+                self.fail_here()
+                return ""
+            end
+            let p = self.parse_type_ann()
+            if self.failed == true
+                return ""
+            end
+            if parts == ""
+                parts = p
+            else
+                parts = parts + ", " + p
+            end
+            self.skip_nl()
+            if self.at("delim:,") == true
+                self.advance()
+                self.skip_nl()
+            else
+                break
+            end
+        end
+        if self.eat("delim:)") == false
+            self.fail_here()
+            return ""
+        end
+        t = t + "(" + parts + ")"
+    elif self.at("op:|") == true or self.at("keyword:or") == true
+        let empty = 0
+        if self.at("keyword:or") == true
+            empty = 1
+        end
+        self.advance()
+        let ps = ""
+        if empty == false
+            while self.at("op:|") == false
+                if self.cur_kind() == "eof"
+                    self.fail_here()
+                    return ""
+                end
+                let p = self.parse_type_ann()
+                if self.failed == true
+                    return ""
+                end
+                if ps == ""
+                    ps = p
+                else
+                    ps = ps + ", " + p
+                end
+                self.skip_nl()
+                if self.at("delim:,") == true
+                    self.advance()
+                    self.skip_nl()
+                else
+                    break
+                end
+            end
+            if self.eat("op:|") == false
+                self.fail_here()
+                return ""
+            end
+        end
+        let ret = ""
+        if self.at("op:->") == true
+            self.advance()
+            self.skip_nl()
+            ret = " -> " + self.parse_type_ann()
+            if self.failed == true
+                return ""
+            end
+        end
+        t = t + "|" + ps + "|" + ret
+    elif self.cur_kind() == "ident"
+        let name = self.cur_norm()
+        self.advance()
+        while self.at("delim:::") == true or self.at("delim:.") == true
+            self.advance()
+            if self.cur_kind() == "ident"
+                name = name + "::" + self.cur_norm()
+                self.advance()
+            else
+                break
+            end
+        end
+        if self.at("delim:[") == true
+            if self.peek_kind_at(1) == "delim" and self.peek_norm_at(1) == "]"
+                # Array suffix: leave for the suffix loop.
+            else
+                self.advance()
+                self.skip_nl()
+                let gs = ""
+                while self.at("delim:]") == false
+                    if self.cur_kind() == "eof"
+                        self.fail_here()
+                        return ""
+                    end
+                    let g = self.parse_type_ann()
+                    if self.failed == true
+                        return ""
+                    end
+                    if gs == ""
+                        gs = g
+                    else
+                        gs = gs + ", " + g
+                    end
+                    self.skip_nl()
+                    if self.at("delim:,") == true
+                        self.advance()
+                        self.skip_nl()
+                    else
+                        break
+                    end
+                end
+                if self.eat("delim:]") == false
+                    self.fail_here()
+                    return ""
+                end
+                name = name + "[" + gs + "]"
+            end
+        end
+        t = t + name
+    elif self.at("keyword:self") == true
+        self.advance()
+        t = t + "Self"
+    elif self.at("keyword:function") == true
+        self.advance()
+        let fsig = "fn"
+        if self.at("delim:(") == true
+            self.advance()
+            let ps = ""
+            while self.at("delim:)") == false
+                if self.cur_kind() == "eof"
+                    self.fail_here()
+                    return ""
+                end
+                let p = self.parse_type_ann()
+                if self.failed == true
+                    return ""
+                end
+                if ps == ""
+                    ps = p
+                else
+                    ps = ps + ", " + p
+                end
+                if self.at("delim:,") == true
+                    self.advance()
+                else
+                    break
+                end
+            end
+            if self.eat("delim:)") == false
+                self.fail_here()
+                return ""
+            end
+            fsig = fsig + "(" + ps + ")"
+        end
+        if self.at("op:->") == true
+            self.advance()
+            fsig = fsig + " -> " + self.parse_type_ann()
+            if self.failed == true
+                return ""
+            end
+        end
+        t = t + fsig
+    else
+        self.fail_here()
+        return ""
+    end
+    while 1 == 1
+        if self.at("delim:?") == true
+            self.advance()
+            t = t + "?"
+        elif self.at("delim:[") == true and self.peek_kind_at(1) == "delim" and self.peek_norm_at(1) == "]"
+            self.advance()
+            self.advance()
+            t = t + "[]"
+        else
+            break
+        end
+    end
+    return t
+end
+
+function Parser.parse_block_end(self) -> int
+    while self.cur_kind() != "keyword" or self.cur_norm() != "end"
+        if self.cur_kind() == "eof"
+            self.fail_here()
+            return false
+        end
+        self.parse_statement()
+        if self.failed == true
+            return false
+        end
+        self.skip_nl()
+    end
+    self.advance()
+    return true
+end
+
+# Parse statements until one of the `|`-separated stop keywords (or
+# eof). Returns the "(block ...)" string WITHOUT emitting: out[] is
+# truncated back, so callers compose parent nodes from pieces.
+function Parser.parse_block_until(self, stops: string) -> string
+    let n0 = len(self.out)
+    while self.cur_kind() != "eof"
+        if self.cur_kind() == "keyword" and stops_contains(stops, self.cur_norm()) == true
+            break
+        end
+        self.parse_statement()
+        if self.failed == true
+            return ""
+        end
+        self.skip_nl()
+    end
+    let b = block_of_range(self, n0)
+    while len(self.out) > n0
+        self.out.pop()
+    end
+    return b
+end
+
+function stops_contains(stops: string, w: string) -> int
+    let cur = ""
+    let i = 0
+    while i <= len(stops)
+        let c = ""
+        if i < len(stops)
+            c = char_at(stops, i)
+        else
+            c = "|"
+        end
+        if c == "|"
+            if cur == w
+                return true
+            end
+            cur = ""
+        else
+            cur = cur + c
+        end
+        i += 1
+    end
+    return false
+end
+
+function Parser.parse_if(self)
+    self.advance()
+    let cond = self.parse_expression()
+    if self.failed == true
+        return
+    end
+    if self.at("keyword:then") == true
+        # Single-line form: exactly one statement per branch, no `end`.
+        self.advance()
+        let n0 = len(self.out)
+        self.parse_statement()
+        if self.failed == true
+            return
+        end
+        let thn = block_of_range(self, n0)
+        let els = "_"
+        if self.at("keyword:else") == true
+            self.advance()
+            let n1 = len(self.out)
+            self.parse_statement()
+            if self.failed == true
+                return
+            end
+            els = block_of_range(self, n1)
+        end
+        while len(self.out) > n0
+            self.out.pop()
+        end
+        self.emit_stmt("(if " + cond + " " + thn + " " + els + ")")
+        return
+    end
+    self.skip_nl()
+    let n0 = len(self.out)
+    let thn = self.parse_block_until("else|elif|end")
+    if self.failed == true
+        return
+    end
+    let els = "_"
+    if self.at("keyword:elif") == true
+        # parse_if's own advance consumes the `elif` itself.
+        let n1 = len(self.out)
+        self.parse_if()
+        if self.failed == true
+            return
+        end
+        els = block_of_range(self, n1)
+        while len(self.out) > n0
+            self.out.pop()
+        end
+        self.emit_stmt("(if " + cond + " " + thn + " " + els + ")")
+        return
+    end
+    if self.at("keyword:else") == true
+        self.advance()
+        if self.at("keyword:if") == true
+            let n1 = len(self.out)
+            self.parse_if()
+            if self.failed == true
+                return
+            end
+            els = block_of_range(self, n1)
+            while len(self.out) > n0
+                self.out.pop()
+            end
+            self.emit_stmt("(if " + cond + " " + thn + " " + els + ")")
+            return
+        end
+        self.skip_nl()
+        els = self.parse_block_until("end")
+        if self.failed == true
+            return
+        end
+        while len(self.out) > n0
+            self.out.pop()
+        end
+    else
+        while len(self.out) > n0
+            self.out.pop()
+        end
+    end
+    # Chained elif/else-if consumed their own `end`; plain blocks need it.
+    if self.at("keyword:end") == true
+        self.advance()
+    elif els == "_"
+        self.fail_here()
+        return
+    end
+    self.emit_stmt("(if " + cond + " " + thn + " " + els + ")")
+end
+
+# Build "(block ...)" from out[n0..], WITHOUT truncating. Empty blocks
+# render "(block )" with the space (mirrors the reference printer).
+function block_of_range(self: Parser, n0: int) -> string
+    let items = ""
+    let i = n0
+    while i < len(self.out)
+        if items == ""
+            items = self.out[i]
+        else
+            items = items + " " + self.out[i]
+        end
+        i += 1
+    end
+    return "(block " + items + ")"
+end
+
+function Parser.parse_while(self)
+    self.advance()
+    let cond = self.parse_expression()
+    if self.failed == true
+        return
+    end
+    self.skip_nl()
+    let n0 = len(self.out)
+    let body = self.parse_block_until("end")
+    if self.failed == true
+        return
+    end
+    if self.eat("keyword:end") == false
+        self.fail_here()
+        return
+    end
+    self.emit_stmt("(while " + cond + " " + body + ")")
+end
+
+function Parser.parse_repeat(self)
+    self.advance()
+    self.skip_nl()
+    let body = self.parse_block_until("end")
+    if self.failed == true
+        return
+    end
+    if self.eat("keyword:end") == false
+        self.fail_here()
+        return
+    end
+    self.emit_stmt("(repeat " + body + ")")
+end
+
+function Parser.parse_for(self)
+    self.advance()
+    if self.cur_kind() != "ident"
+        self.fail_here()
+        return
+    end
+    let var = self.cur_norm()
+    self.advance()
+    let vvar = "_"
+    if self.at("delim:,") == true
+        self.advance()
+        if self.cur_kind() != "ident"
+            self.fail_here()
+            return
+        end
+        vvar = qs(self.cur_norm())
+        self.advance()
+    end
+    if self.eat("keyword:in") == false
+        self.fail_here()
+        return
+    end
+    let it = self.parse_expression()
+    if self.failed == true
+        return
+    end
+    let rp = sexpr_binop_parts(it, "..=")
+    let rop = "..="
+    if len(rp) == 0
+        rp = sexpr_binop_parts(it, "..")
+        rop = ".."
+    end
+    if len(rp) == 2
+        if vvar != "_"
+            self.fail_here()
+            return
+        end
+        self.skip_nl()
+        let body = self.parse_block_until("end")
+        if self.failed == true
+            return
+        end
+        if self.eat("keyword:end") == false
+            self.fail_here()
+            return
+        end
+        let inc = "false"
+        if rop == "..="
+            inc = "true"
+        end
+        self.emit_stmt("(for " + qs(var) + " " + rp[0] + " " + rp[1] + " " + inc + " " + body + ")")
+        return
+    end
+    if self.at("delim:..") == true or self.at("delim:..=") == true
+        let inc = "false"
+        if self.at("delim:..=") == true
+            inc = "true"
+        end
+        self.advance()
+        let fin = self.parse_expression()
+        if self.failed == true
+            return
+        end
+        if vvar != "_"
+            self.fail_here()
+            return
+        end
+        self.skip_nl()
+        let body = self.parse_block_until("end")
+        if self.failed == true
+            return
+        end
+        if self.eat("keyword:end") == false
+            self.fail_here()
+            return
+        end
+        self.emit_stmt("(for " + qs(var) + " " + it + " " + fin + " " + inc + " " + body + ")")
+        return
+    end
+    self.skip_nl()
+    let body = self.parse_block_until("end")
+    if self.failed == true
+        return
+    end
+    if self.eat("keyword:end") == false
+        self.fail_here()
+        return
+    end
+    self.emit_stmt("(foreach " + qs(var) + " " + vvar + " " + it + " " + body + ")")
+end
+
+function Parser.parse_return(self)
+    self.advance()
+    if self.cur_kind() == "newline" or self.cur_kind() == "eof"
+        self.emit_stmt("(return _)")
+        return
+    end
+    let e = self.parse_expression()
+    if self.failed == true
+        return
+    end
+    if self.at("delim:,") == true
+        let items = e
+        while self.at("delim:,") == true
+            self.advance()
+            self.skip_nl()
+            let nx = self.parse_expression()
+            if self.failed == true
+                return
+            end
+            items = items + " " + nx
+        end
+        self.emit_stmt("(return (array (" + items + ")))")
+        return
+    end
+    self.emit_stmt("(return " + e + ")")
+end
+
+function Parser.parse_function(self, is_pub: int)
+    self.advance()
+    let name = ""
+    if self.cur_kind() == "ident"
+        name = self.cur_norm()
+    elif self.cur_kind() == "keyword" and (self.cur_norm() == "assert" or self.cur_norm() == "test" or self.cur_norm() == "bench" or self.cur_norm() == "comptime" or self.cur_norm() == "spawn" or self.cur_norm() == "select")
+        name = self.cur_norm()
+    else
+        self.fail_here()
+        return
+    end
+    self.advance()
+    # Base generics [T] / [T: B1 + B2] (bounds recorded for substitution).
+    let bound_names = []
+    let bound_lists = []
+    let base_tparams = ""
+    if self.at("delim:[") == true
+        self.advance()
+        while self.at("delim:]") == false
+            if self.cur_kind() == "eof"
+                self.fail_here()
+                return
+            end
+            if self.cur_kind() == "ident"
+                let tp = self.cur_norm()
+                self.advance()
+                if self.at("delim::") == true
+                    self.advance()
+                    let bs = ""
+                    while self.cur_kind() == "ident"
+                        if bs == ""
+                            bs = self.cur_norm()
+                        else
+                            bs = bs + "+" + self.cur_norm()
+                        end
+                        self.advance()
+                        if self.at("op:+") == true
+                            self.advance()
+                        else
+                            break
+                        end
+                    end
+                    bound_names.push(tp)
+                    bound_lists.push(bs)
+                else
+                    if base_tparams == ""
+                        base_tparams = qs(tp)
+                    else
+                        base_tparams = base_tparams + " " + qs(tp)
+                    end
+                end
+            else
+                self.advance()
+            end
+        end
+        if self.eat("delim:]") == false
+            self.fail_here()
+            return
+        end
+    end
+    let has_member = 0
+    while self.at("delim:::") == true or self.at("delim:.") == true
+        has_member = 1
+        self.advance()
+        if self.cur_kind() == "ident"
+            let m = self.cur_norm()
+            self.advance()
+            name = name + "__" + m
+            if m == "operator"
+                let suf = self.parse_operator_suffix()
+                if self.failed == true
+                    return
+                end
+                name = name + suf
+            end
+        elif self.cur_kind() == "keyword" and (self.cur_norm() == "assert" or self.cur_norm() == "test")
+            name = name + "__" + self.cur_norm()
+            self.advance()
+        else
+            self.fail_here()
+            return
+        end
+    end
+    # Fn generics [T...] (multi-bound params stay generic).
+    let tparams = ""
+    if self.at("delim:[") == true
+        self.advance()
+        while self.at("delim:]") == false
+            if self.cur_kind() == "eof"
+                self.fail_here()
+                return
+            end
+            if self.cur_kind() == "ident"
+                let tp = self.cur_norm()
+                self.advance()
+                if self.at("delim::") == true
+                    self.advance()
+                    let bs = ""
+                    while self.cur_kind() == "ident"
+                        if bs == ""
+                            bs = self.cur_norm()
+                        else
+                            bs = bs + "+" + self.cur_norm()
+                        end
+                        self.advance()
+                        if self.at("op:+") == true
+                            self.advance()
+                        else
+                            break
+                        end
+                    end
+                    bound_names.push(tp)
+                    bound_lists.push(bs)
+                    if type_bound_count(bs) > 1
+                        if tparams == ""
+                            tparams = qs(tp)
+                        else
+                            tparams = tparams + " " + qs(tp)
+                        end
+                    end
+                else
+                    if tparams == ""
+                        tparams = qs(tp)
+                    else
+                        tparams = tparams + " " + qs(tp)
+                    end
+                end
+            else
+                self.advance()
+            end
+        end
+        if self.eat("delim:]") == false
+            self.fail_here()
+            return
+        end
+    end
+    if self.eat("delim:(") == false
+        self.fail_here()
+        return
+    end
+    let params = ""
+    let ptypes = ""
+    let defaults = ""
+    while self.at("delim:)") == false
+        if self.cur_kind() == "eof"
+            self.fail_here()
+            return
+        end
+        let is_rest = 0
+        if self.at("delim:...") == true or self.at("delim:..") == true
+            self.advance()
+            is_rest = 1
+        end
+        let pname = ""
+        if self.cur_kind() == "ident"
+            pname = self.cur_norm()
+            self.advance()
+        elif self.at("keyword:self") == true
+            pname = "self"
+            self.advance()
+        else
+            self.fail_here()
+            return
+        end
+        let ptype = "_"
+        if self.at("delim::") == true
+            self.advance()
+            let ty = self.parse_type_ann()
+            if self.failed == true
+                return
+            end
+            ptype = apply_bound_subst(ty, bound_names, bound_lists)
+            if is_rest == true
+                ptype = "..." + ptype
+            end
+        elif is_rest == true
+            ptype = "..."
+        end
+        let dflt = "_"
+        if is_rest == true
+            dflt = "(array ())"
+        elif self.at("op:=") == true
+            self.advance()
+            dflt = self.parse_expression()
+            if self.failed == true
+                return
+            end
+        end
+        if params == ""
+            params = qs(pname)
+            ptypes = qtype(ptype)
+            defaults = dflt
+        else
+            params = params + " " + qs(pname)
+            ptypes = ptypes + " " + qtype(ptype)
+            defaults = defaults + " " + dflt
+        end
+        if self.at("delim:,") == true
+            self.advance()
+        end
+    end
+    self.advance()
+    let ret = "_"
+    if self.at("op:->") == true
+        self.advance()
+        ret = self.parse_type_ann()
+        if self.failed == true
+            return
+        end
+    end
+    self.skip_nl()
+    self.fn_depth += 1
+    let body = self.parse_block_until("end")
+    self.fn_depth -= 1
+    if self.failed == true
+        return
+    end
+    if self.eat("keyword:end") == false
+        self.fail_here()
+        return
+    end
+    let tpq = tparams
+    if has_member == false and base_tparams != ""
+        if tpq == ""
+            tpq = base_tparams
+        else
+            tpq = base_tparams + " " + tpq
+        end
+    end
+    let fnline = "(function " + qs(name) + " (" + params + ") (" + ptypes + ") " + qtype(ret) + " (" + defaults + ") (" + tpq + ") () " + body + ")"
+    if is_pub == true
+        fnline = "(pub " + fnline + ")"
+    end
+    self.emit_stmt(fnline)
+end
+
+function type_bound_count(bs: string) -> int
+    if bs == ""
+        return 0
+    end
+    let n = 1
+    let i = 0
+    while i < len(bs)
+        if char_at(bs, i) == "+"
+            n += 1
+        end
+        i += 1
+    end
+    return n
+end
+
+# Single-bound legacy substitution: if ty names a bound type with exactly
+# one bound, replace it with the bound.
+function apply_bound_subst(ty: string, names: array, lists: array) -> string
+    let i = 0
+    while i < len(names)
+        if ty == names[i] and type_bound_count(lists[i]) == 1
+            return lists[i]
+        end
+        i += 1
+    end
+    return ty
+end
+
+function Parser.parse_operator_suffix(self) -> string
+    if self.at("op:+") == true
+        self.advance()
+        return "+"
+    end
+    if self.at("op:-") == true
+        self.advance()
+        if self.cur_kind() == "ident" and self.cur_norm() == "neg"
+            self.advance()
+            return "-neg"
+        end
+        return "-"
+    end
+    if self.at("op:*") == true
+        self.advance()
+        return "*"
+    end
+    if self.at("op:/") == true
+        self.advance()
+        return "/"
+    end
+    if self.at("op:%") == true
+        self.advance()
+        return "%"
+    end
+    if self.at("op:==") == true
+        self.advance()
+        return "=="
+    end
+    if self.at("op:!=") == true
+        self.advance()
+        return "!="
+    end
+    if self.at("op:<=") == true
+        self.advance()
+        return "<="
+    end
+    if self.at("op:>=") == true
+        self.advance()
+        return ">="
+    end
+    if self.at("op:<") == true
+        self.advance()
+        return "<"
+    end
+    if self.at("op:>") == true
+        self.advance()
+        return ">"
+    end
+    if self.at("delim:[") == true
+        self.advance()
+        if self.eat("delim:]") == false
+            self.fail_here()
+            return ""
+        end
+        if self.at("op:=") == true
+            self.advance()
+            return "[]="
+        end
+        return "[]"
+    end
+    return ""
+end
+
+function Parser.parse_struct(self, is_pub: int)
+    self.advance()
+    if self.cur_kind() != "ident"
+        self.fail_here()
+        return
+    end
+    let name = self.cur_norm()
+    self.advance()
+    if self.at("delim:[") == true
+        self.advance()
+        while self.at("delim:]") == false
+            if self.cur_kind() == "eof"
+                self.fail_here()
+                return
+            end
+            self.advance()
+        end
+        self.advance()
+    end
+    self.skip_nl()
+    let fields = ""
+    let ftypes = ""
+    let dflts = ""
+    while self.cur_kind() != "eof"
+        if self.cur_kind() == "keyword" and self.cur_norm() == "end"
+            break
+        end
+        self.skip_nl()
+        if self.cur_kind() == "keyword" and self.cur_norm() == "end"
+            break
+        end
+        if self.cur_kind() == "eof"
+            break
+        end
+        if self.cur_kind() != "ident"
+            self.fail_here()
+            return
+        end
+        let fnm = self.cur_norm()
+        self.advance()
+        let fty = "_"
+        if self.at("delim::") == true
+            self.advance()
+            fty = self.parse_type_ann()
+            if self.failed == true
+                return
+            end
+        end
+        let df = "_"
+        if self.at("op:=") == true
+            self.advance()
+            df = self.parse_expression()
+            if self.failed == true
+                return
+            end
+        end
+        if fields == ""
+            fields = qs(fnm)
+            ftypes = qtype(fty)
+            dflts = df
+        else
+            fields = fields + " " + qs(fnm)
+            ftypes = ftypes + " " + qtype(fty)
+            dflts = dflts + " " + df
+        end
+        if self.at("delim:,") == true
+            self.advance()
+        end
+        self.skip_nl()
+    end
+    if self.eat("keyword:end") == false
+        self.fail_here()
+        return
+    end
+    let s = "(struct " + qs(name) + " (" + fields + ") (" + ftypes + ") (" + dflts + ") ())"
+    if is_pub == true
+        s = "(pub " + s + ")"
+    end
+    self.emit_stmt(s)
+end
+
+function Parser.parse_enum(self, is_pub: int)
+    self.advance()
+    self.skip_nl()
+    if self.cur_kind() != "ident"
+        self.fail_here()
+        return
+    end
+    let name = self.cur_norm()
+    self.advance()
+    self.skip_nl()
+    let variants = ""
+    while self.cur_kind() != "eof"
+        if self.cur_kind() == "keyword" and self.cur_norm() == "end"
+            break
+        end
+        self.skip_nl()
+        if self.cur_kind() == "keyword" and self.cur_norm() == "end"
+            break
+        end
+        if self.cur_kind() == "eof"
+            break
+        end
+        if self.cur_kind() != "ident"
+            self.fail_here()
+            return
+        end
+        let vn = self.cur_norm()
+        self.advance()
+        let vv = "_"
+        if self.at("op:=") == true
+            self.advance()
+            vv = self.parse_expression()
+            if self.failed == true
+                return
+            end
+        end
+        let ent = "(" + qs(vn) + " " + vv + ")"
+        if variants == ""
+            variants = ent
+        else
+            variants = variants + " " + ent
+        end
+        if self.at("delim:,") == true
+            self.advance()
+        end
+        self.skip_nl()
+    end
+    if self.eat("keyword:end") == false
+        self.fail_here()
+        return
+    end
+    let s = "(enum " + qs(name) + " (" + variants + "))"
+    if is_pub == true
+        s = "(pub " + s + ")"
+    end
+    self.emit_stmt(s)
+end
+
+function Parser.parse_import(self)
+    self.advance()
+    if self.cur_kind() != "string"
+        self.fail_here()
+        return
+    end
+    let path = json_decode(self.cur_norm())
+    self.advance()
+    let alias = "_"
+    if self.at("keyword:as") == true
+        self.advance()
+        if self.cur_kind() != "ident"
+            self.fail_here()
+            return
+        end
+        alias = qs(self.cur_norm())
+        self.advance()
+    end
+    self.emit_stmt("(import " + qs(path) + " " + alias + " (_))")
+end
+
+function Parser.parse_from_import(self)
+    self.advance()
+    let path = ""
+    if self.cur_kind() == "string"
+        path = json_decode(self.cur_norm())
+        self.advance()
+    elif self.cur_kind() == "ident"
+        path = self.cur_norm()
+        self.advance()
+        while self.at("delim:::") == true or self.at("op:/") == true
+            if self.at("delim:::") == true
+                path = path + "::"
+            else
+                path = path + "/"
+            end
+            self.advance()
+            if self.cur_kind() != "ident"
+                self.fail_here()
+                return
+            end
+            path = path + self.cur_norm()
+            self.advance()
+        end
+    else
+        self.fail_here()
+        return
+    end
+    if self.eat("keyword:import") == false
+        self.fail_here()
+        return
+    end
+    let syms = ""
+    while 1 == 1
+        if self.cur_kind() == "eof"
+            self.fail_here()
+            return
+        end
+        let nm = ""
+        if self.cur_kind() == "ident"
+            nm = self.cur_norm()
+            self.advance()
+        elif self.at("op:*") == true
+            nm = "*"
+            self.advance()
+        else
+            self.fail_here()
+            return
+        end
+        let al = "_"
+        if self.at("keyword:as") == true
+            self.advance()
+            if self.cur_kind() != "ident"
+                self.fail_here()
+                return
+            end
+            al = qs(self.cur_norm())
+            self.advance()
+        end
+        let ent = "(" + qs(nm) + " " + al + ")"
+        if syms == ""
+            syms = ent
+        else
+            syms = syms + " " + ent
+        end
+        if self.at("delim:,") == true
+            self.advance()
+        else
+            break
+        end
+    end
+    self.emit_stmt("(import " + qs(path) + " _ (" + syms + "))")
+end
+
+function Parser.parse_extern(self)
+    self.advance()
+    if self.cur_kind() != "string"
+        self.fail_here()
+        return
+    end
+    let abi = json_decode(self.cur_norm())
+    self.advance()
+    let lib = "_"
+    if self.at("keyword:from") == true
+        self.advance()
+        if self.cur_kind() != "string"
+            self.fail_here()
+            return
+        end
+        lib = qs(json_decode(self.cur_norm()))
+        self.advance()
+    end
+    self.skip_nl()
+    let fns = ""
+    while self.cur_kind() != "eof"
+        if self.cur_kind() == "keyword" and self.cur_norm() == "end"
+            break
+        end
+        self.skip_nl()
+        if self.cur_kind() == "keyword" and self.cur_norm() == "end"
+            break
+        end
+        if self.cur_kind() == "eof"
+            break
+        end
+        if self.at("keyword:function") == false
+            self.fail_here()
+            return
+        end
+        self.advance()
+        if self.cur_kind() != "ident"
+            self.fail_here()
+            return
+        end
+        let fnm = self.cur_norm()
+        self.advance()
+        if self.eat("delim:(") == false
+            self.fail_here()
+            return
+        end
+        let ps = ""
+        while self.at("delim:)") == false
+            if self.cur_kind() == "eof"
+                self.fail_here()
+                return
+            end
+            if self.cur_kind() != "ident"
+                self.fail_here()
+                return
+            end
+            let pn = self.cur_norm()
+            self.advance()
+            let pt = "_"
+            if self.at("delim::") == true
+                self.advance()
+                if self.cur_kind() != "ident"
+                    self.fail_here()
+                    return
+                end
+                pt = qs(self.cur_norm())
+                self.advance()
+            end
+            let ent = "(" + qs(pn) + " " + pt + ")"
+            if ps == ""
+                ps = ent
+            else
+                ps = ps + " " + ent
+            end
+            if self.at("delim:,") == true
+                self.advance()
+            else
+                break
+            end
+        end
+        if self.eat("delim:)") == false
+            self.fail_here()
+            return
+        end
+        let rt = "_"
+        if self.at("op:->") == true
+            self.advance()
+            if self.cur_kind() != "ident"
+                self.fail_here()
+                return
+            end
+            rt = qs(self.cur_norm())
+            self.advance()
+        end
+        let fent = "(" + qs(fnm) + " (" + ps + ") " + rt + ")"
+        if fns == ""
+            fns = fent
+        else
+            fns = fns + " " + fent
+        end
+        self.skip_nl()
+    end
+    if self.eat("keyword:end") == false
+        self.fail_here()
+        return
+    end
+    self.emit_stmt("(extern " + qs(abi) + " " + lib + " (" + fns + "))")
+end
+
+function Parser.parse_pub(self)
+    self.advance()
+    self.skip_nl()
+    if self.at("keyword:function") == true or (self.cur_kind() == "ident" and self.cur_norm() == "fn")
+        self.parse_function(true)
+    elif self.at("keyword:struct") == true
+        self.parse_struct(true)
+    elif self.at("keyword:enum") == true
+        self.parse_enum(true)
+    elif self.at("keyword:const") == true
+        let n0 = len(self.out)
+        self.parse_const()
+        if self.failed == true
+            return
+        end
+        self.wrap_pub_range(n0)
+    elif self.at("keyword:let") == true
+        let n0 = len(self.out)
+        self.parse_let()
+        if self.failed == true
+            return
+        end
+        self.wrap_pub_range(n0)
+    elif self.at("keyword:interface") == true
+        let n0 = len(self.out)
+        self.parse_interface()
+        if self.failed == true
+            return
+        end
+        self.wrap_pub_range(n0)
+    else
+        self.fail_here()
+    end
+end
+
+function Parser.wrap_pub_range(self, n0: int)
+    let i = n0
+    while i < len(self.out)
+        self.out[i] = "(pub " + self.out[i] + ")"
+        i += 1
+    end
+end
+
+function Parser.parse_interface(self)
+    self.advance()
+    if self.cur_kind() != "ident"
+        self.fail_here()
+        return
+    end
+    let name = self.cur_norm()
+    self.advance()
+    if self.at("delim:[") == true
+        self.advance()
+        while self.at("delim:]") == false
+            if self.cur_kind() == "eof"
+                self.fail_here()
+                return
+            end
+            self.advance()
+        end
+        self.advance()
+    end
+    self.skip_nl()
+    let methods = ""
+    let embedded = ""
+    while self.cur_kind() != "eof"
+        if self.cur_kind() == "keyword" and self.cur_norm() == "end"
+            break
+        end
+        if self.at("keyword:function") == true
+            self.advance()
+            if self.cur_kind() != "ident"
+                self.fail_here()
+                return
+            end
+            let fnm = self.cur_norm()
+            self.advance()
+            let ps = ""
+            let pts = ""
+            if self.at("delim:(") == true
+                self.advance()
+                while self.at("delim:)") == false
+                    if self.cur_kind() == "eof"
+                        self.fail_here()
+                        return
+                    end
+                    self.skip_nl()
+                    if self.cur_kind() != "ident" and self.at("keyword:self") == false
+                        self.fail_here()
+                        return
+                    end
+                    let pn = self.cur_norm()
+                    if self.cur_kind() == "keyword"
+                        pn = "self"
+                    end
+                    self.advance()
+                    let pt = "_"
+                    if self.at("delim::") == true
+                        self.advance()
+                        pt = self.parse_type_ann()
+                        if self.failed == true
+                            return
+                        end
+                    end
+                    if ps == ""
+                        ps = qs(pn)
+                        pts = qtype(pt)
+                    else
+                        ps = ps + " " + qs(pn)
+                        pts = pts + " " + qtype(pt)
+                    end
+                    if self.at("delim:,") == true
+                        self.advance()
+                    end
+                end
+                self.advance()
+            end
+            let rt = "_"
+            if self.at("op:->") == true
+                self.advance()
+                rt = self.parse_type_ann()
+                if self.failed == true
+                    return
+                end
+            end
+            let ment = "(" + qs(fnm) + " (" + ps + ") (" + pts + ") " + qtype(rt) + ")"
+            if methods == ""
+                methods = ment
+            else
+                methods = methods + " " + ment
+            end
+        elif self.cur_kind() == "ident"
+            if embedded == ""
+                embedded = qs(self.cur_norm())
+            else
+                embedded = embedded + " " + qs(self.cur_norm())
+            end
+            self.advance()
+        else
+            self.fail_here()
+            return
+        end
+        self.skip_nl()
+    end
+    if self.eat("keyword:end") == false
+        self.fail_here()
+        return
+    end
+    self.emit_stmt("(interface " + qs(name) + " (" + methods + ") (" + embedded + "))")
+end
+
+function Parser.parse_try(self)
+    self.advance()
+    self.skip_nl()
+    let tbl = self.parse_block_until("catch|finally|end")
+    if self.failed == true
+        return
+    end
+    let cvar = "_"
+    let cbl = "(block )"
+    let has_catch = 0
+    if self.at("keyword:catch") == true
+        has_catch = 1
+        self.advance()
+        if self.at("delim:(") == true
+            self.advance()
+            if self.cur_kind() == "ident"
+                cvar = qs(self.cur_norm())
+                self.advance()
+            elif self.at("delim:)") == false
+                self.fail_here()
+                return
+            end
+            if self.eat("delim:)") == false
+                self.fail_here()
+                return
+            end
+        elif self.cur_kind() == "ident"
+            cvar = qs(self.cur_norm())
+            self.advance()
+        end
+        self.skip_nl()
+        cbl = self.parse_block_until("finally|end")
+        if self.failed == true
+            return
+        end
+    end
+    let fbl = "_"
+    if self.at("keyword:finally") == true
+        self.advance()
+        self.skip_nl()
+        fbl = self.parse_block_until("end")
+        if self.failed == true
+            return
+        end
+    end
+    if has_catch == false and fbl == "_"
+        self.fail_here()
+        return
+    end
+    if self.eat("keyword:end") == false
+        self.fail_here()
+        return
+    end
+    self.emit_stmt("(try " + tbl + " " + cvar + " " + cbl + " " + fbl + ")")
+end
+
+function Parser.parse_throw(self)
+    self.advance()
+    if self.cur_kind() == "newline" or self.cur_kind() == "eof" or self.at("keyword:end") == true or self.at("keyword:catch") == true or self.at("keyword:finally") == true
+        self.emit_stmt("(throw _)")
+        return
+    end
+    let e = self.parse_expression()
+    if self.failed == true
+        return
+    end
+    self.emit_stmt("(throw " + e + ")")
+end
+
+function Parser.parse_assert(self)
+    self.advance()
+    let cond = self.parse_expression()
+    if self.failed == true
+        return
+    end
+    let msg = "(str " + qs("Assertion failed") + ")"
+    if self.at("delim:,") == true
+        self.advance()
+        msg = self.parse_expression()
+        if self.failed == true
+            return
+        end
+    end
+    self.emit_stmt("(if (unop not " + cond + ") (block (throw " + msg + ")) _)")
+end
+
+function Parser.parse_test_bench(self, is_bench: int)
+    self.advance()
+    let nm = self.parse_expression()
+    if self.failed == true
+        return
+    end
+    self.skip_nl()
+    let body = self.parse_block_until("end")
+    if self.failed == true
+        return
+    end
+    if self.eat("keyword:end") == false
+        self.fail_here()
+        return
+    end
+    let prefix = "__test_"
+    if is_bench == true
+        prefix = "__bench_"
+    end
+    let clean = ""
+    if len(nm) >= 9 and nm[0..5] == "(str " and nm[len(nm) - 1..len(nm)] == ")"
+        clean = sanitize_test_name(json_decode(nm[6..len(nm) - 2]))
+    else
+        clean = int_to_dec(self.cur_line()) + "_" + int_to_dec(self.cur_col())
+    end
+    self.emit_stmt("(function " + qs(prefix + clean) + " () () _ () () () " + body + ")")
+end
+
+function sanitize_test_name(s: string) -> string
+    let out = ""
+    let bs = str.bytes_from_string(s)
+    let i = 0
+    while i < len(bs)
+        let b = bs[i]
+        if (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122)
+            out = out + chr(b)
+        else
+            out = out + "_"
+        end
+        i += 1
+    end
+    return out
+end
+
+function Parser.parse_spawn(self)
+    self.advance()
+    let e = self.parse_expression()
+    if self.failed == true
+        return
+    end
+    if len(e) > 7 and e[0..6] == "(call "
+        let inner = e[6..len(e) - 1]
+        let parts = sexpr_split_top(inner)
+        if len(parts) == 2
+            let args = sexpr_split_top(parts[1])
+            # parts[0] is the quoted callee name: rewrap as identifier.
+            let recv = "(ident " + parts[0] + ")"
+            if len(args) == 0
+                self.emit_stmt("(expr (call " + qs("spawn") + " (" + recv + " (null))))")
+                return
+            end
+            if len(args) == 1
+                self.emit_stmt("(expr (call " + qs("spawn") + " (" + recv + " " + args[0] + ")))")
+                return
+            end
+            # Multi-arg spawn needs a thunk spill: deferred (slice 2).
+            self.fail_here()
+            return
+        end
+    end
+    self.emit_stmt("(expr (call " + qs("spawn") + " (" + e + " (null))))")
+end
+
+function Parser.parse_guard(self)
+    self.advance()
+    if self.at("keyword:let") == true
+        self.advance()
+        if self.cur_kind() != "ident"
+            self.fail_here()
+            return
+        end
+        let vn = self.cur_norm()
+        self.advance()
+        if self.eat("op:=") == false
+            self.fail_here()
+            return
+        end
+        let e = self.parse_expression()
+        if self.failed == true
+            return
+        end
+        if self.eat("keyword:else") == false
+            self.fail_here()
+            return
+        end
+        self.skip_nl()
+        let els = self.parse_block_until("end")
+        if self.failed == true
+            return
+        end
+        if self.eat("keyword:end") == false
+            self.fail_here()
+            return
+        end
+        self.emit_stmt("(let " + qs(vn) + " _ " + e + ")")
+        self.emit_stmt("(if (binop == (ident " + qs(vn) + ") (null)) " + els + " _)")
+        return
+    end
+    let cond = self.parse_expression()
+    if self.failed == true
+        return
+    end
+    if self.eat("keyword:else") == false
+        self.fail_here()
+        return
+    end
+    self.skip_nl()
+    let els = self.parse_block_until("end")
+    if self.failed == true
+        return
+    end
+    if self.eat("keyword:end") == false
+        self.fail_here()
+        return
+    end
+    self.emit_stmt("(if (unop not " + cond + ") " + els + " _)")
+end
+
+# --- Hole tokenizer (f-string holes only) ---
+# try_parse_hole re-lexes hole text with the FULL lexer on the Rust side.
+# Here a scoped mini-lexer covers the hole grammar (identifiers, numbers,
+# strings, runes, operators, delimiters, keywords, newlines). Anything
+# exotic fails the hole (not the file): the hole stays literal, exactly
+# like a Rust sub-lex error. Norms are dump-shaped (JSON-escaped content,
+# canonical keywords, decimal number values).
+
+function hole_tokenize(text: string) -> array
+    let line = []
+    let col = []
+    let kind = []
+    let norm = []
+    let failed = 0
+    let bs = str.bytes_from_string(text)
+    let n = len(bs)
+    let i = 0
+    let c = 1
+    # Leading-dot rule (mirrors the main lexer): `.5` lexes as a number
+    # only after whitespace/start or a non-closing token; after an
+    # identifier or `)`, `]`, `}` it is Dot (field/index access).
+    let had_ws = 1
+    let last_kind = "none"
+    let last_norm = ""
+    while i < n
+        let b = bs[i]
+        if b == 32 or b == 9 or b == 13
+            i += 1
+            c += 1
+            had_ws = 1
+        elif b == 10
+            line.push(1)
+            col.push(c)
+            kind.push("newline")
+            norm.push("")
+            last_kind = "newline"
+            last_norm = ""
+            i += 1
+            c += 1
+            had_ws = 1
+        elif b == 35
+            while i < n and bs[i] != 10
+                i += 1
+            end
+            had_ws = 1
+        elif (b >= 48 and b <= 57) or (b == 46 and i + 1 < n and bs[i + 1] >= 48 and bs[i + 1] <= 57 and (had_ws == true or len(kind) == 0 or (last_kind != "ident" and last_norm != ")" and last_norm != "]" and last_norm != "}")))
+            let r = hole_read_number(bs, n, i)
+            if r.width == -1
+                failed = 1
+                break
+            end
+            line.push(1)
+            col.push(c)
+            kind.push(r.kind)
+            norm.push(r.norm)
+            last_kind = r.kind
+            last_norm = r.norm
+            c = c + r.width
+            i = i + r.width
+            had_ws = 0
+        elif b == 102 and i + 1 < n and bs[i + 1] == 34
+            # f-prefix: skip it, the string reader handles the rest.
+            i += 1
+            c += 1
+        elif b == 114 and i + 1 < n and bs[i + 1] == 34
+            i += 1
+            c += 1
+        elif b == 98 and i + 1 < n and (bs[i + 1] == 34 or bs[i + 1] == 39)
+            i += 1
+            c += 1
+        elif (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or b == 95
+            let j = i
+            while j < n and ((bs[j] >= 65 and bs[j] <= 90) or (bs[j] >= 97 and bs[j] <= 122) or (bs[j] >= 48 and bs[j] <= 57) or bs[j] == 95)
+                j += 1
+            end
+            let w = text[i..j]
+            let cw = hole_canonical_word(w)
+            line.push(1)
+            col.push(c)
+            if cw == ""
+                kind.push("ident")
+                norm.push(w)
+                last_kind = "ident"
+                last_norm = w
+            else
+                kind.push("keyword")
+                norm.push(cw)
+                last_kind = "keyword"
+                last_norm = cw
+            end
+            c = c + (j - i)
+            i = j
+            had_ws = 0
+        elif b == 34 or b == 96 or b == 39
+            let r = hole_read_string(bs, n, i)
+            if r.width == -1
+                failed = 1
+                break
+            end
+            line.push(1)
+            col.push(c)
+            kind.push(r.kind)
+            norm.push(r.norm)
+            last_kind = r.kind
+            last_norm = r.norm
+            c = c + r.width
+            i = i + r.width
+            had_ws = 0
+        else
+            let r = hole_read_op(bs, n, i)
+            if r.width == -1
+                failed = 1
+                break
+            end
+            line.push(1)
+            col.push(c)
+            kind.push(r.kind)
+            norm.push(r.norm)
+            last_kind = r.kind
+            last_norm = r.norm
+            c = c + r.width
+            i = i + r.width
+            had_ws = 0
+        end
+    end
+    line.push(1)
+    col.push(c)
+    kind.push("eof")
+    norm.push("")
+    if failed == true
+        return []
+    end
+    return [line, col, kind, norm]
+end
+
+# Canonical keyword name or "" (same table as the main lexer dump).
+function hole_canonical_word(w: string) -> string
+    if w == "say" or w == "let" or w == "if" or w == "else" or w == "elif"
+        return w
+    end
+    if w == "while" or w == "for" or w == "in" or w == "end" or w == "return"
+        return w
+    end
+    if w == "when" or w == "is" or w == "then" or w == "repeat" or w == "break"
+        return w
+    end
+    if w == "continue" or w == "ask" or w == "try" or w == "catch" or w == "finally"
+        return w
+    end
+    if w == "throw" or w == "import" or w == "as" or w == "struct" or w == "enum"
+        return w
+    end
+    if w == "const" or w == "extern" or w == "from" or w == "defer" or w == "pub"
+        return w
+    end
+    if w == "interface" or w == "spawn" or w == "select" or w == "assert"
+        return w
+    end
+    if w == "test" or w == "bench" or w == "self" or w == "weak" or w == "comptime"
+        return w
+    end
+    if w == "sizeof" or w == "alignof" or w == "typeof"
+        return w
+    end
+    if w == "true" or w == "false" or w == "null"
+        return w
+    end
+    if w == "and" or w == "or" or w == "not"
+        return w
+    end
+    if w == "function" or w == "fn"
+        return "function"
+    end
+    if w == "nil"
+        return "null"
+    end
+    return ""
+end
+
+# Read a number at bs[i]: returns [kind, norm, rawtext] or [] on failure.
+function hole_read_number(bs: array, n: int, i: int) -> HoleTok
+    if bs[i] == 48 and i + 1 < n and (bs[i + 1] == 120 or bs[i + 1] == 88 or bs[i + 1] == 98 or bs[i + 1] == 66 or bs[i + 1] == 111 or bs[i + 1] == 79)
+        let base = 16
+        if bs[i + 1] == 98 or bs[i + 1] == 66
+            base = 2
+        elif bs[i + 1] == 111 or bs[i + 1] == 79
+            base = 8
+        end
+        let j = i + 2
+        let val = "0"
+        let count = 0
+        while j < n
+            let d = bs[j]
+            if d == 95
+                j += 1
+            elif base == 16 and hole_is_hex(d) == true
+                val = dec_mul_add(val, 16, hex_val_of(d))
+                if hole_dec_overflow(val) == true
+                    return hole_tok_fail()
+                end
+                count += 1
+                j += 1
+            elif base == 2 and (d == 48 or d == 49)
+                val = dec_mul_add(val, 2, d - 48)
+                if hole_dec_overflow(val) == true
+                    return hole_tok_fail()
+                end
+                count += 1
+                j += 1
+            elif base == 8 and d >= 48 and d <= 55
+                val = dec_mul_add(val, 8, d - 48)
+                if hole_dec_overflow(val) == true
+                    return hole_tok_fail()
+                end
+                count += 1
+                j += 1
+            else
+                break
+            end
+        end
+        if count == 0
+            return hole_tok_fail()
+        end
+        if j < n and ((bs[j] >= 48 and bs[j] <= 57) or (bs[j] >= 65 and bs[j] <= 90) or (bs[j] >= 97 and bs[j] <= 122) or bs[j] == 95)
+            return hole_tok_fail()
+        end
+        return HoleTok { kind: "number", norm: val, width: j - i }
+    end
+    # Decimal / float: gather raw, validate, value = raw minus underscores.
+    let j = i
+    let has_dot = 0
+    if bs[j] == 46
+        has_dot = 1
+        j += 1
+    end
+    while j < n
+        let d = bs[j]
+        if d >= 48 and d <= 57
+            j += 1
+        elif d == 95
+            j += 1
+        elif d == 46 and has_dot == false and j + 1 < n and bs[j + 1] >= 48 and bs[j + 1] <= 57
+            has_dot = 1
+            j += 1
+        elif (d == 101 or d == 69)
+            has_dot = 1
+            j += 1
+            if j < n and (bs[j] == 43 or bs[j] == 45)
+                j += 1
+            end
+        else
+            break
+        end
+    end
+    let raw = text_range(bs, i, j)
+    if has_dot == true
+        if hole_valid_float(raw) == false
+            return hole_tok_fail()
+        end
+        return HoleTok { kind: "float", norm: raw, width: j - i }
+    end
+    let digits = ""
+    let k = 0
+    while k < len(raw)
+        if char_at(raw, k) != "_"
+            digits = digits + char_at(raw, k)
+        end
+        k += 1
+    end
+    if hole_dec_overflow(digits) == true
+        return hole_tok_fail()
+    end
+    return HoleTok { kind: "number", norm: digits, width: j - i }
+end
+
+function hole_is_hex(d: int) -> int
+    if d >= 48 and d <= 57
+        return true
+    end
+    if d >= 97 and d <= 102
+        return true
+    end
+    if d >= 65 and d <= 70
+        return true
+    end
+    return false
+end
+
+function text_range(bs: array, i: int, j: int) -> string
+    let s = ""
+    while i < j
+        s = s + chr(bs[i])
+        i += 1
+    end
+    return s
+end
+
+function hole_valid_float(raw: string) -> int
+    let s = ""
+    let k = 0
+    while k < len(raw)
+        if char_at(raw, k) != "_"
+            s = s + char_at(raw, k)
+        end
+        k += 1
+    end
+    let n = len(s)
+    let ei = -1
+    let i = 0
+    while i < n
+        let c = char_at(s, i)
+        if c == "e" or c == "E"
+            if ei != -1
+                return false
+            end
+            ei = i
+        end
+        i += 1
+    end
+    let mend = n
+    if ei != -1
+        mend = ei
+    end
+    if mend == 0
+        return false
+    end
+    let digits = 0
+    let dots = 0
+    i = 0
+    while i < mend
+        let c = char_at(s, i)
+        if c == "."
+            dots += 1
+            if dots > 1
+                return false
+            end
+        elif c >= "0" and c <= "9"
+            digits += 1
+        else
+            return false
+        end
+        i += 1
+    end
+    if digits == 0
+        return false
+    end
+    if ei == -1
+        return true
+    end
+    let j = ei + 1
+    if j < n
+        let sg = char_at(s, j)
+        if sg == "+" or sg == "-"
+            j += 1
+        end
+    end
+    if j >= n
+        return false
+    end
+    while j < n
+        let c = char_at(s, j)
+        if c < "0" or c > "9"
+            return false
+        end
+        j += 1
+    end
+    return true
+end
+
+# u64-max overflow check on a decimal digit string (no underscores).
+function hole_dec_overflow(digits: string) -> int
+    let d = digits
+    while len(d) > 1 and d[0..1] == "0"
+        d = d[1..len(d)]
+    end
+    if len(d) > 20
+        return true
+    end
+    if len(d) < 20
+        return false
+    end
+    return d > "18446744073709551615"
+end
+
+# Read a string/rune at bs[i]: returns [kind, norm, charcount].
+function hole_read_string(bs: array, n: int, i: int) -> HoleTok
+    let q = bs[i]
+    if q == 96
+        let j = i + 1
+        let val = ""
+        while j < n and bs[j] != 96
+            val = val + chr(bs[j])
+            j += 1
+        end
+        if j >= n
+            return hole_tok_fail()
+        end
+        let e = qs(val)
+        return HoleTok { kind: "string", norm: e[1..len(e) - 1], width: j + 1 - i }
+    end
+    if q == 39
+        let j = i + 1
+        if j >= n
+            return hole_tok_fail()
+        end
+        let cp = 0
+        if bs[j] == 92
+            j += 1
+            if j >= n
+                return hole_tok_fail()
+            end
+            let e2 = bs[j]
+            if e2 == 110
+                cp = 10
+            elif e2 == 116
+                cp = 9
+            elif e2 == 114
+                cp = 13
+            elif e2 == 48
+                cp = 0
+            elif e2 == 92
+                cp = 92
+            elif e2 == 39
+                cp = 39
+            elif e2 == 34
+                cp = 34
+            elif e2 == 101
+                cp = 27
+            elif e2 == 117
+                j += 1
+                if j >= n or bs[j] != 123
+                    return hole_tok_fail()
+                end
+                j += 1
+                cp = 0
+                let nd = 0
+                while j < n and bs[j] != 125
+                    let v = hex_val_of(bs[j])
+                    if v < 0
+                        return hole_tok_fail()
+                    end
+                    cp = cp * 16 + v
+                    nd += 1
+                    j += 1
+                end
+                if j >= n or nd == 0 or cp > 1114111 or (cp >= 55296 and cp <= 57343)
+                    return hole_tok_fail()
+                end
+            else
+                cp = e2
+            end
+            j += 1
+        else
+            if bs[j] < 128
+                cp = bs[j]
+                j += 1
+            else
+                let w = utf8_width(bs[j])
+                if w == 4
+                    cp = bit_and(bs[j], 7)
+                elif w == 3
+                    cp = bit_and(bs[j], 15)
+                else
+                    cp = bit_and(bs[j], 31)
+                end
+                j += 1
+                let kk = 1
+                while kk < w and j < n
+                    cp = cp * 64 + bit_and(bs[j], 63)
+                    j += 1
+                    kk += 1
+                end
+            end
+        end
+        if j >= n or bs[j] != 39
+            return hole_tok_fail()
+        end
+        return HoleTok { kind: "rune", norm: rune_norm_of(cp), width: j + 1 - i }
+    end
+    # Plain "...": escapes decoded, value re-encoded dump-shaped.
+    let j = i + 1
+    let val = ""
+    while j < n and bs[j] != 34
+        if bs[j] == 92
+            j += 1
+            if j >= n
+                return hole_tok_fail()
+            end
+            let e2 = bs[j]
+            if e2 == 110
+                val = val + chr(10)
+            elif e2 == 116
+                val = val + chr(9)
+            elif e2 == 114
+                val = val + chr(13)
+            elif e2 == 101
+                val = val + chr(27)
+            elif e2 == 97
+                val = val + chr(7)
+            elif e2 == 98
+                val = val + chr(8)
+            elif e2 == 102
+                val = val + chr(12)
+            elif e2 == 118
+                val = val + chr(11)
+            elif e2 == 48
+                val = val + chr(0)
+            elif e2 == 92
+                val = val + chr(92)
+            elif e2 == 34
+                val = val + chr(34)
+            elif e2 == 123
+                val = val + "{"
+            elif e2 == 125
+                val = val + "}"
+            elif e2 == 117
+                j += 1
+                if j >= n or bs[j] != 123
+                    return hole_tok_fail()
+                end
+                j += 1
+                let cp = 0
+                let nd = 0
+                while j < n and bs[j] != 125
+                    let v = hex_val_of(bs[j])
+                    if v < 0
+                        return hole_tok_fail()
+                    end
+                    cp = cp * 16 + v
+                    nd += 1
+                    j += 1
+                end
+                if j >= n or nd == 0 or cp > 1114111 or (cp >= 55296 and cp <= 57343)
+                    return hole_tok_fail()
+                end
+                val = val + chr_from_cp(cp)
+            else
+                if e2 < 128
+                    val = val + chr(e2)
+                else
+                    let w = utf8_width(e2)
+                    let q = 0
+                    while q < w and j < n
+                        val = val + chr(bs[j])
+                        j += 1
+                        q += 1
+                    end
+                    j -= 1
+                end
+            end
+            j += 1
+        else
+            val = val + chr(bs[j])
+            j += 1
+        end
+    end
+    if j >= n
+        return hole_tok_fail()
+    end
+    let e = qs(val)
+    return HoleTok { kind: "string", norm: e[1..len(e) - 1], width: j + 1 - i }
+end
+
+# Dump-shaped rune norm for a codepoint (escape_cp form, unquoted).
+function rune_norm_of(cp: int) -> string
+    let e = escape_cp(cp)
+    return e
+end
+
+# Read an operator/delimiter at bs[i]: returns [kind, norm, width].
+function hole_read_op(bs: array, n: int, i: int) -> HoleTok
+    let b = bs[i]
+    let nx = -1
+    if i + 1 < n
+        nx = bs[i + 1]
+    end
+    let n2 = -1
+    if i + 2 < n
+        n2 = bs[i + 2]
+    end
+    if b == 46 and nx == 46 and n2 == 46
+        return HoleTok { kind: "delim", norm: "...", width: 3 }
+    end
+    if b == 46 and nx == 46 and n2 == 61
+        return HoleTok { kind: "delim", norm: "..=", width: 3 }
+    end
+    if b == 46 and nx == 46
+        return HoleTok { kind: "delim", norm: "..", width: 2 }
+    end
+    if b == 60 and nx == 60 and n2 == 61
+        return HoleTok { kind: "op", norm: "<<=", width: 3 }
+    end
+    if b == 62 and nx == 62 and n2 == 61
+        return HoleTok { kind: "op", norm: ">>=", width: 3 }
+    end
+    if b == 60 and nx == 60
+        return HoleTok { kind: "op", norm: "<<", width: 2 }
+    end
+    if b == 62 and nx == 62
+        return HoleTok { kind: "op", norm: ">>", width: 2 }
+    end
+    if b == 61 and nx == 61
+        return HoleTok { kind: "op", norm: "==", width: 2 }
+    end
+    if b == 33 and nx == 61
+        return HoleTok { kind: "op", norm: "!=", width: 2 }
+    end
+    if b == 60 and nx == 61
+        return HoleTok { kind: "op", norm: "<=", width: 2 }
+    end
+    if b == 62 and nx == 61
+        return HoleTok { kind: "op", norm: ">=", width: 2 }
+    end
+    if b == 38 and nx == 38
+        return HoleTok { kind: "keyword", norm: "and", width: 2 }
+    end
+    if b == 124 and nx == 124
+        return HoleTok { kind: "keyword", norm: "or", width: 2 }
+    end
+    if b == 45 and nx == 62
+        return HoleTok { kind: "op", norm: "->", width: 2 }
+    end
+    if b == 61 and nx == 62
+        return HoleTok { kind: "op", norm: "=>", width: 2 }
+    end
+    if b == 63 and nx == 63
+        return HoleTok { kind: "delim", norm: "??", width: 2 }
+    end
+    if b == 63 and nx == 46
+        return HoleTok { kind: "delim", norm: "?.", width: 2 }
+    end
+    if b == 58 and nx == 58
+        return HoleTok { kind: "delim", norm: "::", width: 2 }
+    end
+    if b == 43 and nx == 61
+        return HoleTok { kind: "op", norm: "+=", width: 2 }
+    end
+    if b == 45 and nx == 61
+        return HoleTok { kind: "op", norm: "-=", width: 2 }
+    end
+    if b == 42 and nx == 61
+        return HoleTok { kind: "op", norm: "*=", width: 2 }
+    end
+    if b == 47 and nx == 61
+        return HoleTok { kind: "op", norm: "/=", width: 2 }
+    end
+    if b == 37 and nx == 61
+        return HoleTok { kind: "op", norm: "%=", width: 2 }
+    end
+    if b == 38 and nx == 61
+        return HoleTok { kind: "op", norm: "&=", width: 2 }
+    end
+    if b == 124 and nx == 61
+        return HoleTok { kind: "op", norm: "|=", width: 2 }
+    end
+    if b == 94 and nx == 61
+        return HoleTok { kind: "op", norm: "^=", width: 2 }
+    end
+    if b == 33
+        return HoleTok { kind: "keyword", norm: "not", width: 1 }
+    end
+    if b == 38
+        return HoleTok { kind: "op", norm: "&", width: 1 }
+    end
+    if b == 124
+        return HoleTok { kind: "op", norm: "|", width: 1 }
+    end
+    if b == 94
+        return HoleTok { kind: "op", norm: "^", width: 1 }
+    end
+    if b == 126
+        return HoleTok { kind: "op", norm: "~", width: 1 }
+    end
+    if b == 43
+        return HoleTok { kind: "op", norm: "+", width: 1 }
+    end
+    if b == 45
+        return HoleTok { kind: "op", norm: "-", width: 1 }
+    end
+    if b == 42
+        return HoleTok { kind: "op", norm: "*", width: 1 }
+    end
+    if b == 47
+        return HoleTok { kind: "op", norm: "/", width: 1 }
+    end
+    if b == 37
+        return HoleTok { kind: "op", norm: "%", width: 1 }
+    end
+    if b == 61
+        return HoleTok { kind: "op", norm: "=", width: 1 }
+    end
+    if b == 60
+        return HoleTok { kind: "op", norm: "<", width: 1 }
+    end
+    if b == 62
+        return HoleTok { kind: "op", norm: ">", width: 1 }
+    end
+    if b == 40
+        return HoleTok { kind: "delim", norm: "(", width: 1 }
+    end
+    if b == 41
+        return HoleTok { kind: "delim", norm: ")", width: 1 }
+    end
+    if b == 91
+        return HoleTok { kind: "delim", norm: "[", width: 1 }
+    end
+    if b == 93
+        return HoleTok { kind: "delim", norm: "]", width: 1 }
+    end
+    if b == 123
+        return HoleTok { kind: "delim", norm: "{", width: 1 }
+    end
+    if b == 125
+        return HoleTok { kind: "delim", norm: "}", width: 1 }
+    end
+    if b == 44
+        return HoleTok { kind: "delim", norm: ",", width: 1 }
+    end
+    if b == 58
+        return HoleTok { kind: "delim", norm: ":", width: 1 }
+    end
+    if b == 63
+        return HoleTok { kind: "delim", norm: "?", width: 1 }
+    end
+    if b == 46
+        return HoleTok { kind: "delim", norm: ".", width: 1 }
+    end
+    if b == 64
+        return HoleTok { kind: "op", norm: "@", width: 1 }
+    end
+    return hole_tok_fail()
+end
+
+# Decimal string multiply-add (exact radix conversion without u64).
+function dec_mul_add(s: string, mul: int, add: int) -> string
+    let carry = add
+    let out = ""
+    let i = len(s) - 1
+    while i >= 0
+        let d = 0
+        let c = char_at(s, i)
+        if c == "1"
+            d = 1
+        elif c == "2"
+            d = 2
+        elif c == "3"
+            d = 3
+        elif c == "4"
+            d = 4
+        elif c == "5"
+            d = 5
+        elif c == "6"
+            d = 6
+        elif c == "7"
+            d = 7
+        elif c == "8"
+            d = 8
+        elif c == "9"
+            d = 9
+        end
+        let t = d * mul + carry
+        out = chr(48 + t % 10) + out
+        carry = t / 10
+        i -= 1
+    end
+    while carry > 0
+        out = chr(48 + carry % 10) + out
+        carry = carry / 10
+    end
+    let k = 0
+    while k + 1 < len(out) and char_at(out, k) == "0"
+        k += 1
+    end
+    return out[k..len(out)]
+end
+
+# Attach an attrs list "(...)" into a function/struct node, looking
+# through (pub ...). Non-matching nodes pass through (Rust drops the
+# pending attributes for them all the same).
+function attach_attrs(line: string, attrs: string) -> string
+    if len(line) > 5 and line[0..5] == "(pub "
+        let inner = attach_attrs(line[5..len(line) - 1], attrs)
+        return "(pub " + inner + ")"
+    end
+    if len(line) > 10 and line[0..10] == "(function "
+        let parts = sexpr_split_top(line[10..len(line) - 1])
+        if len(parts) == 8
+            return "(function " + parts[0] + " " + parts[1] + " " + parts[2] + " " + parts[3] + " " + parts[4] + " " + parts[5] + " " + attrs + " " + parts[7] + ")"
+        end
+        return line
+    end
+    if len(line) > 8 and line[0..8] == "(struct "
+        let parts = sexpr_split_top(line[8..len(line) - 1])
+        if len(parts) == 5
+            return "(struct " + parts[0] + " " + parts[1] + " " + parts[2] + " " + parts[3] + " " + attrs + ")"
+        end
+        return line
+    end
+    return line
+end
+
+function Parser.parse_attribute(self)
+    self.advance()
+    let aname = ""
+    if self.cur_kind() == "ident"
+        aname = self.cur_norm()
+    elif self.cur_kind() == "keyword"
+        aname = self.cur_norm()
+    else
+        self.fail_here()
+        return
+    end
+    self.advance()
+    let saw_parens = 0
+    if self.at("delim:(") == true
+        saw_parens = 1
+        self.advance()
+        let depth = 1
+        let ptoks = []
+        while depth > 0
+            if self.cur_kind() == "eof"
+                self.fail_here()
+                return
+            end
+            if self.at("delim:(") == true
+                depth += 1
+            end
+            if self.at("delim:)") == true
+                depth -= 1
+                if depth == 0
+                    self.advance()
+                    break
+                end
+            end
+            ptoks.push(self.cur_kind() + chr(1) + self.cur_norm())
+            self.advance()
+        end
+        if aname == "cfg"
+            # Deferred: cfg evaluation (slice 3). Fail so the file lands
+            # on the SKIP list instead of silently diverging.
+            self.fail_here()
+            return
+        end
+        self.pending_attrs.push("(" + qs(aname) + " (" + attr_args_from_toks(ptoks) + "))")
+    end
+    if saw_parens == false and aname != "cfg"
+        self.pending_attrs.push("(" + qs(aname) + " ())")
+    end
+    if aname == "cfg" and saw_parens == false
+        self.fail_here()
+        return
+    end
+    self.skip_nl()
+    let n0 = len(self.out)
+    self.parse_statement()
+    if self.failed == true
+        return
+    end
+    # Drain ALL pending (outer attributes included) and attach; anything
+    # left over drops, mirroring mem::take + attach-then-clear.
+    let alist = ""
+    let i = 0
+    while i < len(self.pending_attrs)
+        if alist == ""
+            alist = self.pending_attrs[i]
+        else
+            alist = alist + " " + self.pending_attrs[i]
+        end
+        i += 1
+    end
+    self.pending_attrs = []
+    let j = n0
+    while j < len(self.out)
+        self.out[j] = attach_attrs(self.out[j], "(" + alist + ")")
+        j += 1
+    end
+end
+
+# Token-level attribute args: top-level commas split; `k = v` named,
+# lone value positional; only scalar tokens kept.
+function attr_args_from_toks(ptoks: array) -> string
+    let args = ""
+    let depth = 0
+    let cur = []
+    let i = 0
+    while i <= len(ptoks)
+        let tk = ""
+        if i < len(ptoks)
+            tk = ptoks[i]
+        end
+        if i == len(ptoks)
+            let g = attr_group_args(cur)
+            if g != ""
+                if args == ""
+                    args = g
+                else
+                    args = args + " " + g
+                end
+            end
+            break
+        end
+        let sep = bar_split(tk)
+        if sep[0] == "delim" and sep[1] == "("
+            depth += 1
+            cur.push(tk)
+        elif sep[0] == "delim" and sep[1] == ")"
+            depth -= 1
+            cur.push(tk)
+        elif sep[0] == "delim" and sep[1] == "," and depth == 0
+            let g = attr_group_args(cur)
+            if g != ""
+                if args == ""
+                    args = g
+                else
+                    args = args + " " + g
+                end
+            end
+            cur = []
+        else
+            cur.push(tk)
+        end
+        i += 1
+    end
+    return args
+end
+
+function bar_split(tk: string) -> array
+    let i = 0
+    while i < len(tk)
+        if char_at(tk, i) == chr(1)
+            return [tk[0..i], tk[i + 1..len(tk)]]
+        end
+        i += 1
+    end
+    return [tk, ""]
+end
+
+function attr_group_args(cur: array) -> string
+    let key = ""
+    let val = ""
+    let seen_assign = 0
+    let i = 0
+    while i < len(cur)
+        let sep = bar_split(cur[i])
+        if sep[0] == "op" and sep[1] == "="
+            seen_assign = 1
+        else
+            let t = attr_scalar_text(sep[0], sep[1])
+            if t != ""
+                if seen_assign == true and val == ""
+                    val = t
+                elif key == ""
+                    key = t
+                end
+            end
+        end
+        i += 1
+    end
+    if key != "" and val != ""
+        return "(" + qs(key) + " " + qs(val) + ")"
+    end
+    if key != "" and seen_assign == true
+        return "(" + qs(key) + " " + qs("") + ")"
+    end
+    if key != "" and val == ""
+        return "(_ " + qs(key) + ")"
+    end
+    return ""
+end
+
+function attr_scalar_text(kind: string, norm: string) -> string
+    if kind == "string" or kind == "ident"
+        return json_decode(norm)
+    end
+    if kind == "number" or kind == "float"
+        return norm
+    end
+    if kind == "keyword" and (norm == "true" or norm == "false")
+        return norm
+    end
+    if kind == "rune"
+        return int_to_dec(rune_to_cp(norm))
+    end
+    return ""
+end
+
+# Identifier primary: `::` chains, calls, `map{...}`, `Name{...}`.
+function Parser.parse_ident_primary(self) -> string
+    let name = self.cur_norm()
+    self.advance()
+    while self.at("delim:::") == true
+        self.advance()
+        if self.cur_kind() == "ident" or self.cur_kind() == "keyword"
+            name = name + "::" + self.cur_norm()
+            self.advance()
+        else
+            self.fail_here()
+            return ""
+        end
+    end
+    if name == "fn" and self.at("delim:(") == true
+        # Anonymous function: deferred (spill template, slice 2).
+        self.fail_here()
+        return ""
+    end
+    if self.at("delim:(") == true
+        self.advance()
+        let args = ""
+        while self.at("delim:)") == false
+            if self.cur_kind() == "eof"
+                self.fail_here()
+                return ""
+            end
+            let a = self.parse_call_argument()
+            if self.failed == true
+                return ""
+            end
+            if args == ""
+                args = a
+            else
+                args = args + " " + a
+            end
+            if self.at("delim:,") == true
+                self.advance()
+            end
+        end
+        self.advance()
+        return "(call " + qs(name) + " (" + args + "))"
+    elif name == "map" and self.at("delim:{") == true
+        return self.parse_map_literal()
+    elif self.at("delim:{") == true
+        self.advance()
+        return self.parse_struct_init(name)
+    end
+    return "(ident " + qs(name) + ")"
+end
+
+# --- when (subset: Exact/Relational/Range/Type patterns) ---
+# Tuple/variant destructuring needs binding substitution: deferred
+# (slice 2, SKIP-gated). Everything else desugars to nested ternary/if
+# with closed-interval ranges (`is a..b` includes b on both ends).
+
+# Classify one parsed arm pattern into a (wkind ...) descriptor.
+# Returns "" for deferred (destructuring) shapes.
+function when_classify(ps: string) -> string
+    if len(ps) > 7 and ps[0..7] == "(array "
+        return ""
+    end
+    if len(ps) > 7 and ps[0..7] == "(call "
+        let inner = ps[6..len(ps) - 1]
+        let parts = sexpr_split_top(inner)
+        if len(parts) == 2
+            let nm = parts[0]
+            if len(nm) >= 2 and nm[0..1] == chr(34)
+                let bare = nm[1..len(nm) - 1]
+                let c0 = ""
+                if len(bare) > 0
+                    c0 = char_at(bare, 0)
+                end
+                if (c0 >= "A" and c0 <= "Z") or when_has_dot(bare) == true
+                    return ""
+                end
+            end
+        end
+        return "(wexact " + ps + ")"
+    end
+    if len(ps) > 13 and ps[0..13] == "(struct-init "
+        return ""
+    end
+    if len(ps) > 8 and ps[0..8] == "(ident \""
+        let nm = ps[8..len(ps) - 2]
+        let c0 = ""
+        if len(nm) > 0
+            c0 = char_at(nm, 0)
+        end
+        if (c0 >= "A" and c0 <= "Z") or nm == "int" or nm == "float" or nm == "string" or nm == "str" or nm == "bool" or nm == "array" or nm == "map"
+            return "(wtype " + qs(nm) + ")"
+        end
+        return "(wexact " + ps + ")"
+    end
+    let rp = sexpr_binop_parts(ps, "..=")
+    if len(rp) == 0
+        rp = sexpr_binop_parts(ps, "..")
+    end
+    if len(rp) == 2
+        return "(wrange " + rp[0] + " " + rp[1] + ")"
+    end
+    return "(wexact " + ps + ")"
+end
+
+function when_has_dot(s: string) -> int
+    let i = 0
+    while i < len(s)
+        if char_at(s, i) == "."
+            return true
+        end
+        i += 1
+    end
+    return false
+end
+
+# Build one pattern's condition over a subject S-expr.
+function when_pat_cond(subj: string, pat: string) -> string
+    if len(pat) > 8 and pat[0..8] == "(wexact "
+        return "(binop == " + subj + " " + pat[8..len(pat) - 1] + ")"
+    end
+    if len(pat) > 6 and pat[0..6] == "(wrel "
+        let inner = pat[6..len(pat) - 1]
+        let parts = sexpr_split_top(inner)
+        return "(binop " + parts[0] + " " + subj + " " + parts[1] + ")"
+    end
+    if len(pat) > 8 and pat[0..8] == "(wrange "
+        let inner = pat[8..len(pat) - 1]
+        let parts = sexpr_split_top(inner)
+        return "(binop and (binop >= " + subj + " " + parts[0] + ") (binop <= " + subj + " " + parts[1] + "))"
+    end
+    if len(pat) > 7 and pat[0..7] == "(wtype "
+        return "(is " + subj + " " + pat[7..len(pat) - 1] + " false)"
+    end
+    return ""
+end
+
+function Parser.parse_when_patterns(self) -> array
+    # Array of pattern descriptors; "@@DEFER@@" marks deferred shapes
+    # (the folder fails the file for SKIP triage on those).
+    let pats = []
+    while 1 == 1
+        let rel = ""
+        if self.at("op:>") == true
+            rel = ">"
+        elif self.at("op:<") == true
+            rel = "<"
+        elif self.at("op:>=") == true
+            rel = ">="
+        elif self.at("op:<=") == true
+            rel = "<="
+        elif self.at("op:!=") == true
+            rel = "!="
+        elif self.at("op:==") == true
+            rel = "=="
+        end
+        if rel != ""
+            self.advance()
+            let e = self.parse_expression()
+            if self.failed == true
+                return []
+            end
+            pats.push("(wrel " + rel + " " + e + ")")
+        else
+            let ps = self.parse_expression()
+            if self.failed == true
+                return []
+            end
+            let rp = sexpr_binop_parts(ps, "..=")
+            if len(rp) == 0
+                rp = sexpr_binop_parts(ps, "..")
+            end
+            if len(rp) == 2
+                pats.push("(wrange " + rp[0] + " " + rp[1] + ")")
+            elif self.at("delim:..") == true or self.at("delim:..=") == true
+                self.advance()
+                let pe = self.parse_expression()
+                if self.failed == true
+                    return []
+                end
+                pats.push("(wrange " + ps + " " + pe + ")")
+            else
+                let wc = when_classify(ps)
+                if wc == ""
+                    pats.push("@@DEFER@@")
+                else
+                    pats.push(wc)
+                end
+            end
+        end
+        if self.at("delim:,") == true
+            self.advance()
+            self.skip_nl()
+        else
+            break
+        end
+    end
+    return pats
+end
+
+function Parser.parse_when_expr(self) -> string
+    let wl = self.cur_line()
+    let wc = self.cur_col()
+    self.advance()
+    if self.cur_kind() == "newline"
+        self.skip_nl()
+        let arms = ""
+        let els = "(null)"
+        while self.cur_kind() != "keyword" or self.cur_norm() != "end"
+            if self.cur_kind() == "eof"
+                self.fail_here()
+                return ""
+            end
+            self.skip_nl()
+            if self.cur_kind() == "keyword" and self.cur_norm() == "end"
+                break
+            end
+            if self.cur_kind() == "eof"
+                break
+            end
+            if self.at("keyword:else") == true
+                self.advance()
+                if self.at("op:=>") == true or self.at("keyword:then") == true
+                    self.advance()
+                end
+                self.skip_nl()
+                els = self.parse_expression()
+                if self.failed == true
+                    return ""
+                end
+                self.skip_nl()
+                break
+            end
+            let cond = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+            if self.at("op:=>") == true or self.at("keyword:then") == true
+                self.advance()
+            end
+            self.skip_nl()
+            let val = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+            if arms == ""
+                arms = cond + " " + val
+            else
+                arms = arms + " " + cond + " " + val
+            end
+            self.skip_nl()
+        end
+        if self.eat("keyword:end") == false
+            self.fail_here()
+            return ""
+        end
+        let items = sexpr_split_pairs(arms)
+        let res = els
+        let i = len(items) - 1
+        while i >= 0
+            res = "(ternary " + items[i] + " " + res + ")"
+            i -= 1
+        end
+        return res
+    end
+    self.skip_nl()
+    let subj = self.parse_expression()
+    if self.failed == true
+        return ""
+    end
+    self.skip_nl()
+    let arm_list = []
+    let els = "(null)"
+    let has_arm = 0
+    while self.cur_kind() != "keyword" or self.cur_norm() != "end"
+        if self.cur_kind() == "eof"
+            self.fail_here()
+            return ""
+        end
+        self.skip_nl()
+        if self.cur_kind() == "keyword" and self.cur_norm() == "end"
+            break
+        end
+        if self.cur_kind() == "eof"
+            break
+        end
+        if self.at("keyword:is") == true
+            self.advance()
+            self.skip_nl()
+            let pats = self.parse_when_patterns()
+            if self.failed == true
+                return ""
+            end
+            let g = ""
+            if self.at("keyword:if") == true
+                self.advance()
+                g = self.parse_expression()
+                if self.failed == true
+                    return ""
+                end
+            end
+            if self.at("op:=>") == true or self.at("keyword:then") == true
+                self.advance()
+            end
+            self.skip_nl()
+            let val = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+            if self.at("delim:,") == true
+                self.advance()
+            end
+            self.skip_nl()
+            arm_list.push(WhenArm { pats: pats, g: g, v: val })
+            has_arm = 1
+        elif self.at("keyword:else") == true
+            self.advance()
+            if self.at("op:=>") == true or self.at("keyword:then") == true
+                self.advance()
+            end
+            self.skip_nl()
+            els = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+            if self.at("delim:,") == true
+                self.advance()
+            end
+            self.skip_nl()
+            break
+        else
+            self.fail_here()
+            return ""
+        end
+    end
+    if self.eat("keyword:end") == false
+        self.fail_here()
+        return ""
+    end
+    if has_arm == false
+        self.fail_at(wl, wc)
+        return ""
+    end
+    return self.fold_when_arms(subj, arm_list, els)
+end
+
+# Split flat "C1 V1 C2 V2 ..." into ["C1 V1", ...] via balanced scan.
+function sexpr_split_pairs(s: string) -> array
+    let items = sexpr_split_top(s)
+    let out = []
+    let i = 0
+    while i + 1 < len(items)
+        out.push(items[i] + " " + items[i + 1])
+        i += 2
+    end
+    return out
+end
+
+# Fold arms (each WhenArm) right into nested ternary.
+function Parser.fold_when_arms(self, subj: string, arms: array, els: string) -> string
+    let res = els
+    let i = len(arms) - 1
+    while i >= 0
+        let a = arms[i]
+        let pats = a.pats
+        let g = a.g
+        let val = a.v
+        let j = 0
+        while j < len(pats)
+            if pats[j] == "@@DEFER@@"
+                self.fail_here()
+                return ""
+            end
+            j += 1
+        end
+        let cond = ""
+        let k = 0
+        while k < len(pats)
+            let pc = when_pat_cond(subj, pats[k])
+            if cond == ""
+                cond = pc
+            else
+                cond = "(binop or " + cond + " " + pc + ")"
+            end
+            k += 1
+        end
+        if g != ""
+            cond = "(binop and " + cond + " " + g + ")"
+        end
+        res = "(ternary " + cond + " " + val + " " + res + ")"
+        i -= 1
+    end
+    return res
+end
+
+function Parser.parse_when_stmt(self)
+    let wl = self.cur_line()
+    let wc = self.cur_col()
+    self.advance()
+    let raw = self.parse_expression()
+    if self.failed == true
+        return
+    end
+    self.skip_nl()
+    # Non-identifier subjects spill to __when_subj_{pos}, read AFTER the
+    # newline skip like the reference (position then matches exactly).
+    let subj = raw
+    let pre = ""
+    if len(raw) < 8 or raw[0..8] != "(ident \""
+        let tmp = "__when_subj_" + int_to_dec(self.pos)
+        pre = "(let " + qs(tmp) + " _ " + raw + ")"
+        subj = "(ident " + qs(tmp) + ")"
+    end
+    let arm_list = []
+    let els = ""
+    let has_else = 0
+    let has_arm = 0
+    while self.cur_kind() != "keyword" or self.cur_norm() != "end"
+        if self.cur_kind() == "eof"
+            self.fail_here()
+            return
+        end
+        self.skip_nl()
+        if self.cur_kind() == "keyword" and self.cur_norm() == "end"
+            break
+        end
+        if self.cur_kind() == "eof"
+            break
+        end
+        if self.at("keyword:is") == true
+            self.advance()
+            self.skip_nl()
+            let pats = self.parse_when_patterns()
+            if self.failed == true
+                return
+            end
+            let g = ""
+            if self.at("keyword:if") == true
+                self.advance()
+                g = self.parse_expression()
+                if self.failed == true
+                    return
+                end
+            end
+            if self.at("op:=>") == true or self.at("keyword:then") == true
+                self.advance()
+            end
+            self.skip_nl()
+            let n0 = len(self.out)
+            while self.cur_kind() != "eof"
+                if self.cur_kind() == "keyword" and (self.cur_norm() == "is" or self.cur_norm() == "else" or self.cur_norm() == "end")
+                    break
+                end
+                self.parse_statement()
+                if self.failed == true
+                    return
+                end
+                self.skip_nl()
+            end
+            let body = block_of_range(self, n0)
+            while len(self.out) > n0
+                self.out.pop()
+            end
+            if self.at("delim:,") == true
+                self.advance()
+            end
+            self.skip_nl()
+            arm_list.push(WhenArm { pats: pats, g: g, v: body })
+            has_arm = 1
+        elif self.at("keyword:else") == true
+            self.advance()
+            if self.at("op:=>") == true or self.at("keyword:then") == true
+                self.advance()
+            end
+            self.skip_nl()
+            els = self.parse_block_stmts()
+            has_else = 1
+            break
+        else
+            self.fail_here()
+            return
+        end
+    end
+    if self.eat("keyword:end") == false
+        self.fail_here()
+        return
+    end
+    if has_arm == false and has_else == false
+        self.fail_at(wl, wc)
+        return ""
+    end
+    # Fold reversed: nested ifs, bindings prepended (none in subset).
+    # The innermost arm takes the else block (or _) directly; outer arms
+    # wrap the previous if in (block ...), mirroring else_block nesting.
+    let cur = ""
+    if has_else == true
+        cur = els
+    else
+        cur = "_"
+    end
+    let first = 1
+    let i = len(arm_list) - 1
+    while i >= 0
+        let a = arm_list[i]
+        let pats = a.pats
+        let g = a.g
+        let body = a.v
+        let j = 0
+        while j < len(pats)
+            if pats[j] == "@@DEFER@@"
+                self.fail_here()
+                return
+            end
+            j += 1
+        end
+        let cond = ""
+        let k = 0
+        while k < len(pats)
+            let pc = when_pat_cond(subj, pats[k])
+            if cond == ""
+                cond = pc
+            else
+                cond = "(binop or " + cond + " " + pc + ")"
+            end
+            k += 1
+        end
+        if g != ""
+            cond = "(binop and " + cond + " " + g + ")"
+        end
+        if first == true
+            cur = "(if " + cond + " " + body + " " + cur + ")"
+            first = 0
+        else
+            cur = "(if " + cond + " " + body + " (block " + cur + "))"
+        end
+        i -= 1
+    end
+    if pre != ""
+        self.emit_stmt(pre)
+    end
+    self.emit_stmt(cur)
+end
+
+# Parse a statement block for when-else (emits nothing, returns block).
+function Parser.parse_block_stmts(self) -> string
+    let n0 = len(self.out)
+    while self.cur_kind() != "eof"
+        if self.cur_kind() == "keyword" and self.cur_norm() == "end"
+            break
+        end
+        self.parse_statement()
+        if self.failed == true
+            return ""
+        end
+        self.skip_nl()
+    end
+    let b = block_of_range(self, n0)
+    while len(self.out) > n0
+        self.out.pop()
+    end
+    return b
+end

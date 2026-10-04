@@ -102,8 +102,9 @@ explicit `{c_val:.6f}` (exact doubles vary 1 ulp across libms).
 ## Other verified language facts (useful for the parser step)
 - Struct methods mutate state reliably; `u64` arithmetic wraps mod 2^64;
   `int(str)` parses; `os.cli_args`/`exit_process`/`fs.read_string`/
-  `bytes_from_string` all solid; map `in` + index works; string `+` concat,
-  slicing, `len` (bytes) all as spec'd.
+  `bytes_from_string` solid ONLY via aliased imports with variables
+  (bare-import + temporary args corrupt — see below); map `in` + index
+  works; string `+` concat, slicing, `len` (bytes) all as spec'd.
 - Plain `"..."` literals interpolate `{holes}` AND decode `{{`/`}}` — spike
   source must avoid runtime text in f-strings and literal `{{`.
 - `chr()` works past ASCII (B2 fixed); `char_at` is codepoint-indexed
@@ -119,5 +120,30 @@ explicit `{c_val:.6f}` (exact doubles vary 1 ulp across libms).
    per-arch handlers, exit 134; `test_e2e_crash_diagnostic_segfault`).
 4. ~~Round-trip float printing~~ DONE (shortest-round-trip in
    `fn_str_from_float`; `test_e2e_float_shortest_round_trip`).
-5. Next: parser slice (recursive descent for expressions?) reusing this
-   harness pattern with AST dumps.
+5. Parser slice (IN PROGRESS, 2026-10-04): `spike/selfhost/parser.alya`
+   (~6000 lines, stdlib-only) + `diff_parse.py` over `alya ast`
+   (new `src/driver/ast_sexpr.rs` canonical dump; `parse_raw()` split
+   so the dump is pre-expansion). Result: 37/44 corpus files
+   token-identical S-expr (0 diffs), 7 SKIP (slice-2/3 scope), 0 fail;
+   3/4 parse-negative files agree (4th is @cfg, slice 3).
+   Scope: full Pratt L1–L16, all statements, when-subset
+   (Exact/Relational/Range/Type; destructure deferred), f-string holes
+   with hole mini-lexer. Deferred: closures, comprehensions,
+   when-destructuring, comptime const-eval, @cfg eval, select.
+6. Next: slice 2 (spill templates + when-destructuring), then codegen
+   port investigation.
+
+## Parser-slice runtime facts (compiler bugs filed separately)
+- Bare `import "std/str"` + temporary argument (literal/concat/call
+  result) returns garbage; `as str` alias is correct for all shapes.
+  The spike uses the alias (see header note); variables are unaffected.
+- Mixed-type arrays (`[bool, string]`, `[array, int, int]`) corrupt tag
+  dispatch on read (`say arr[i]` segfaults while `let x = arr[i]`
+  works). The spike uses structs (HoleRes/ScanRes/DumpRes/HoleTok/
+  WhenArm) for all heterogeneous results.
+- Struct literals silently ignore unknown fields (`WhenArm { ..., val: }`
+  with field `v` compiled and ran with `v == ""`). Cost real debugging
+  time here; a compile-time error would be strictly better.
+- `say arr[i]` on tag-carrying dynamic reads vs plain loads behave
+  differently (see above); loop-var and temp-array handling is sound
+  otherwise (B1-era fixes hold).

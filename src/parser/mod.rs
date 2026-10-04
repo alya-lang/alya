@@ -194,6 +194,18 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> Result<Program, String> {
+        let mut program = self.parse_raw()?;
+        expand_default_args(&mut program);
+        enums::resolve_enums(&mut program);
+        constants::resolve_and_validate_constants(&mut program)?;
+        Ok(program)
+    }
+
+    /// Raw statement parse without post-pass expansion (default-arg
+    /// filling, enum resolution, const folding/validation). The
+    /// `alya ast` differential dump uses this stage so the self-host
+    /// parser replicates syntax only, not post-pass rewrites.
+    pub fn parse_raw(&mut self) -> Result<Program, String> {
         let mut statements = Vec::new();
         self.skip_newlines();
 
@@ -204,11 +216,7 @@ impl Parser {
 
         statements.append(&mut self.lambda_functions);
 
-        let mut program = Program { statements };
-        expand_default_args(&mut program);
-        enums::resolve_enums(&mut program);
-        constants::resolve_and_validate_constants(&mut program)?;
-        Ok(program)
+        Ok(Program { statements })
     }
 
     pub(super) fn current_token(&self) -> &Token {
