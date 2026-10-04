@@ -1,0 +1,11 @@
+# EXPECT-FAIL: check: Unknown field
+# Chapter 08: struct literals cannot add undeclared fields; a misspelled
+# field name is a compile-time error, not a silent default.
+struct R
+    v: string
+end
+function main()
+    let r = R { val: "oops" }
+    say r.v
+end
+main()

@@ -1666,6 +1666,22 @@ impl TypeChecker {
                                     name, fname, expected_ft, actual_vt
                                 ));
                             }
+                        } else {
+                            // Unknown field names are typos, not dynamic
+                            // extension: struct literals cannot add fields
+                            // (alya-lang/alya#87). List the known fields so
+                            // the fix is obvious. Sorted for determinism.
+                            let mut known: Vec<&String> = sdef.fields.keys().collect();
+                            known.sort();
+                            let known_list = known
+                                .iter()
+                                .map(|s| s.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            return Err(format!(
+                                "TypeError: Unknown field '{}' in initialization of struct '{}' (expected one of: {})",
+                                fname, name, known_list
+                            ));
                         }
                     }
                 }
