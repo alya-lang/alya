@@ -46,6 +46,8 @@ struct Parser
     err_col: int
     fn_depth: int
     pending_attrs: array
+    sd_names: array
+    sd_fields: array
 end
 
 # Homogeneous-shape results only: mixed-type arrays ([bool, string],
@@ -887,7 +889,7 @@ function main()
         os.exit_process(1)
     end
     let toks_n = len(d.line)
-    let p = Parser { line: d.line, col: d.col, kind: d.kind, norm: d.norm, n: toks_n, pos: 0, out: [], spill: [], lam: 0, failed: 0, err_line: 1, err_col: 1, fn_depth: 0, pending_attrs: [] }
+    let p = Parser { line: d.line, col: d.col, kind: d.kind, norm: d.norm, n: toks_n, pos: 0, out: [], spill: [], lam: 0, failed: 0, err_line: 1, err_col: 1, fn_depth: 0, pending_attrs: [], sd_names: [], sd_fields: [] }
     p.parse_program()
     if p.failed == true
         p.out.push("0|0|error|" + int_to_dec(p.err_line) + ":" + int_to_dec(p.err_col))
@@ -3898,6 +3900,7 @@ function Parser.parse_struct(self, is_pub: int)
     let fields = ""
     let ftypes = ""
     let dflts = ""
+    let fnames = []
     while self.cur_kind() != "eof"
         if self.cur_kind() == "keyword" and self.cur_norm() == "end"
             break
@@ -3915,6 +3918,7 @@ function Parser.parse_struct(self, is_pub: int)
         end
         let fnm = self.cur_norm()
         self.advance()
+        fnames.push(fnm)
         let fty = "_"
         if self.at("delim::") == true
             self.advance()
@@ -3953,6 +3957,9 @@ function Parser.parse_struct(self, is_pub: int)
     if is_pub == true
         s = "(pub " + s + ")"
     end
+    # Recorded for when-variant field mapping (mirrors struct_defs).
+    self.sd_names.push(name)
+    self.sd_fields.push(fnames)
     self.emit_stmt(s)
 end
 
@@ -5628,9 +5635,9 @@ end
 # Returns "" for deferred (destructuring) shapes.
 function when_classify(ps: string) -> string
     if len(ps) > 7 and ps[0..7] == "(array "
-        return ""
+        return when_classify_destructure(ps)
     end
-    if len(ps) > 7 and ps[0..7] == "(call "
+    if len(ps) > 7 and ps[0..6] == "(call "
         let inner = ps[6..len(ps) - 1]
         let parts = sexpr_split_top(inner)
         if len(parts) == 2
@@ -5642,14 +5649,14 @@ function when_classify(ps: string) -> string
                     c0 = char_at(bare, 0)
                 end
                 if (c0 >= "A" and c0 <= "Z") or when_has_dot(bare) == true
-                    return ""
+                    return when_classify_destructure(ps)
                 end
             end
         end
         return "(wexact " + ps + ")"
     end
     if len(ps) > 13 and ps[0..13] == "(struct-init "
-        return ""
+        return when_classify_destructure(ps)
     end
     if len(ps) > 8 and ps[0..8] == "(ident \""
         let nm = ps[8..len(ps) - 2]
@@ -5701,7 +5708,223 @@ function when_pat_cond(subj: string, pat: string) -> string
     if len(pat) > 7 and pat[0..7] == "(wtype "
         return "(is " + subj + " " + pat[7..len(pat) - 1] + " false)"
     end
+    if len(pat) > 8 and pat[0..8] == "(wtuple "
+        return when_tuple_chain(subj, pat)
+    end
+    if len(pat) > 16 and pat[0..15] == "(wvariant-call "
+        let inner = pat[15..len(pat) - 1]
+        let parts = sexpr_split_top(inner)
+        return "(is " + subj + " " + parts[0] + " false)"
+    end
+    if len(pat) > 18 and pat[0..17] == "(wvariant-struct "
+        let inner = pat[17..len(pat) - 1]
+        let parts = sexpr_split_top(inner)
+        return "(is " + subj + " " + parts[0] + " false)"
+    end
     return ""
+end
+
+# Binding pairs for a pattern: array of [name, replacement-sexpr].
+# Exact/Relational/Range/Type bind nothing.
+function Parser.when_bindings(self, subj: string, pat: string) -> array
+    let out = []
+    if len(pat) > 8 and pat[0..8] == "(wtuple "
+        let inner = pat[8..len(pat) - 1]
+        let parts = sexpr_split_top(inner)
+        if len(parts) > 2 and parts[2] != "()"
+            let binds = sexpr_split_top(parts[2][1..len(parts[2]) - 1])
+            let i = 0
+            while i < len(binds)
+                let kv = sexpr_split_top(binds[i][1..len(binds[i]) - 1])
+                let nm = kv[0]
+                out.push([nm[1..len(nm) - 1], "(index " + subj + " (num " + kv[1] + "))"])
+                i += 1
+            end
+        end
+        return out
+    end
+    if len(pat) > 16 and pat[0..15] == "(wvariant-call "
+        let inner = pat[15..len(pat) - 1]
+        let parts = sexpr_split_top(inner)
+        let tname = parts[0][1..len(parts[0]) - 1]
+        let argstr = parts[1][1..len(parts[1]) - 1]
+        let args = sexpr_split_top(argstr)
+        let fields = self.struct_fields_of(tname)
+        let i = 0
+        while i < len(args)
+            let a = args[i]
+            if len(a) > 8 and a[0..8] == "(ident \""
+                let vn = a[8..len(a) - 2]
+                if vn != "_"
+                    let fnm = ""
+                    if i < len(fields)
+                        fnm = fields[i]
+                    else
+                        fnm = variant_default_field(tname, i)
+                    end
+                    out.push([vn, "(field " + subj + " " + qs(fnm) + ")"])
+                end
+            end
+            i += 1
+        end
+        return out
+    end
+    if len(pat) > 18 and pat[0..17] == "(wvariant-struct "
+        let inner = pat[17..len(pat) - 1]
+        let parts = sexpr_split_top(inner)
+        let tname = parts[0][1..len(parts[0]) - 1]
+        let fieldstr = parts[1][1..len(parts[1]) - 1]
+        let flds = sexpr_split_top(fieldstr)
+        let i = 0
+        while i < len(flds)
+            let kv = sexpr_split_top(flds[i][1..len(flds[i]) - 1])
+            let fnm = kv[0][1..len(kv[0]) - 1]
+            let vv = kv[1]
+            if len(vv) > 8 and vv[0..8] == "(ident \""
+                let vn = vv[8..len(vv) - 2]
+                if vn != "_"
+                    out.push([vn, "(field " + subj + " " + qs(fnm) + ")"])
+                end
+            else
+                out.push([fnm, "(field " + subj + " " + qs(fnm) + ")"])
+            end
+            i += 1
+        end
+        return out
+    end
+    return out
+end
+
+# Structural identifier substitution over S-expr (mirrors
+# substitute_bindings: only Identifier/Binary/Unary/unwrap/call-args/
+# array/index/field-object/opt-field-object/ternary/struct-values
+# descend; everything else passes through verbatim).
+function when_subst(s: string, bnames: array, brepls: array) -> string
+    if len(s) > 8 and s[0..8] == "(ident \""
+        let nm = s[8..len(s) - 2]
+        let i = 0
+        while i < len(bnames)
+            if bnames[i] == nm
+                return brepls[i]
+            end
+            i += 1
+        end
+        return s
+    end
+    if len(s) > 7 and s[0..7] == "(binop "
+        let parts = sexpr_split_top(s[7..len(s) - 1])
+        return "(binop " + parts[0] + " " + when_subst(parts[1], bnames, brepls) + " " + when_subst(parts[2], bnames, brepls) + ")"
+    end
+    if len(s) > 6 and s[0..6] == "(unop "
+        let parts = sexpr_split_top(s[6..len(s) - 1])
+        return "(unop " + parts[0] + " " + when_subst(parts[1], bnames, brepls) + ")"
+    end
+    if len(s) > 8 and s[0..8] == "(unwrap "
+        return "(unwrap " + when_subst(s[8..len(s) - 1], bnames, brepls) + ")"
+    end
+    if len(s) > 6 and s[0..6] == "(call "
+        let inner = s[6..len(s) - 1]
+        let parts = sexpr_split_top(inner)
+        let argstr = parts[1][1..len(parts[1]) - 1]
+        let args = sexpr_split_top(argstr)
+        let res = ""
+        let i = 0
+        while i < len(args)
+            let m = when_subst(args[i], bnames, brepls)
+            if res == ""
+                res = m
+            else
+                res = res + " " + m
+            end
+            i += 1
+        end
+        return "(call " + parts[0] + " (" + res + "))"
+    end
+    if len(s) > 8 and s[0..8] == "(interp "
+        let inner = s[8..len(s) - 1]
+        let plist = sexpr_split_top(inner[1..len(inner) - 1])
+        let res = ""
+        let i = 0
+        while i < len(plist)
+            let m = when_subst(plist[i], bnames, brepls)
+            if res == ""
+                res = m
+            else
+                res = res + " " + m
+            end
+            i += 1
+        end
+        return "(interp (" + res + "))"
+    end
+    if len(s) > 7 and s[0..7] == "(array "
+        let inner = s[7..len(s) - 1]
+        let items = sexpr_split_top(inner[1..len(inner) - 1])
+        let res = ""
+        let i = 0
+        while i < len(items)
+            let m = when_subst(items[i], bnames, brepls)
+            if res == ""
+                res = m
+            else
+                res = res + " " + m
+            end
+            i += 1
+        end
+        return "(array (" + res + "))"
+    end
+    if len(s) > 7 and s[0..7] == "(index "
+        let parts = sexpr_split_top(s[7..len(s) - 1])
+        return "(index " + when_subst(parts[0], bnames, brepls) + " " + when_subst(parts[1], bnames, brepls) + ")"
+    end
+    if len(s) > 7 and s[0..7] == "(field "
+        let parts = sexpr_split_top(s[7..len(s) - 1])
+        return "(field " + when_subst(parts[0], bnames, brepls) + " " + parts[1] + ")"
+    end
+    if len(s) > 11 and s[0..11] == "(opt-field "
+        let parts = sexpr_split_top(s[11..len(s) - 1])
+        return "(opt-field " + when_subst(parts[0], bnames, brepls) + " " + parts[1] + ")"
+    end
+    if len(s) > 9 and s[0..9] == "(ternary "
+        let parts = sexpr_split_top(s[9..len(s) - 1])
+        return "(ternary " + when_subst(parts[0], bnames, brepls) + " " + when_subst(parts[1], bnames, brepls) + " " + when_subst(parts[2], bnames, brepls) + ")"
+    end
+    if len(s) > 13 and s[0..13] == "(struct-init "
+        let inner = s[13..len(s) - 1]
+        let parts = sexpr_split_top(inner)
+        let fstr = parts[1][1..len(parts[1]) - 1]
+        let flds = sexpr_split_top(fstr)
+        let res = ""
+        let i = 0
+        while i < len(flds)
+            let kv = sexpr_split_top(flds[i])
+            let mm = "(" + kv[0] + " " + when_subst(kv[1], bnames, brepls) + ")"
+            if res == ""
+                res = mm
+            else
+                res = res + " " + mm
+            end
+            i += 1
+        end
+        return "(struct-init " + parts[0] + " (" + res + "))"
+    end
+    return s
+end
+
+function when_tuple_chain(subj: string, pat: string) -> string
+    let inner = pat[8..len(pat) - 1]
+    let parts = sexpr_split_top(inner)
+    let minlen = parts[0]
+    let cond = "(binop == (call " + qs("arr_len") + " (" + subj + ")) (num " + minlen + "))"
+    if len(parts) > 1 and parts[1] != "()"
+        let checks = sexpr_split_top(parts[1][1..len(parts[1]) - 1])
+        let i = 0
+        while i < len(checks)
+            let kv = sexpr_split_top(checks[i][1..len(checks[i]) - 1])
+            cond = "(binop and " + cond + " (binop == (index " + subj + " (num " + kv[0] + ")) " + kv[1] + "))"
+            i += 1
+        end
+    end
+    return cond
 end
 
 function Parser.parse_when_patterns(self) -> array
@@ -5925,7 +6148,8 @@ function sexpr_split_pairs(s: string) -> array
     return out
 end
 
-# Fold arms (each WhenArm) right into nested ternary.
+# Fold arms (each WhenArm) right into nested ternary, substituting
+# destructure bindings into values and guards.
 function Parser.fold_when_arms(self, subj: string, arms: array, els: string) -> string
     let res = els
     let i = len(arms) - 1
@@ -5941,6 +6165,23 @@ function Parser.fold_when_arms(self, subj: string, arms: array, els: string) -> 
                 return ""
             end
             j += 1
+        end
+        let bnames = []
+        let brepls = []
+        let b = 0
+        while b < len(pats)
+            let bp = self.when_bindings(subj, pats[b])
+            let q = 0
+            while q < len(bp)
+                bnames.push(bp[q][0])
+                brepls.push(bp[q][1])
+                q += 1
+            end
+            b += 1
+        end
+        val = when_subst(val, bnames, brepls)
+        if g != ""
+            g = when_subst(g, bnames, brepls)
         end
         let cond = ""
         let k = 0
@@ -6082,6 +6323,41 @@ function Parser.parse_when_stmt(self)
             end
             j += 1
         end
+        let bnames = []
+        let brepls = []
+        let b = 0
+        while b < len(pats)
+            let bp = self.when_bindings(subj, pats[b])
+            let q = 0
+            while q < len(bp)
+                bnames.push(bp[q][0])
+                brepls.push(bp[q][1])
+                q += 1
+            end
+            b += 1
+        end
+        if g != ""
+            g = when_subst(g, bnames, brepls)
+        end
+        # Prepend binding lets (statement form does not substitute bodies).
+        let lets = ""
+        let q = 0
+        while q < len(bnames)
+            let ls = "(let " + qs(bnames[q]) + " _ " + brepls[q] + ")"
+            if lets == ""
+                lets = ls
+            else
+                lets = lets + " " + ls
+            end
+            q += 1
+        end
+        if lets != ""
+            if body == "(block )"
+                body = "(block " + lets + ")"
+            else
+                body = "(block " + lets + " " + body[7..len(body) - 1] + ")"
+            end
+        end
         let cond = ""
         let k = 0
         while k < len(pats)
@@ -6128,4 +6404,126 @@ function Parser.parse_block_stmts(self) -> string
         self.out.pop()
     end
     return b
+end
+
+# --- when-destructuring (slice 2) ---
+# Tuple patterns [x, _, lit] and variant patterns Name(v)/Name{f: v}
+# with binding substitution. Field mapping mirrors struct_defs with the
+# same bare-name fallbacks and default rules (value/f{i}/message).
+
+# Last segment after :: or __ (Rust bare-name fallback).
+function bare_name(nm: string) -> string
+    let cut = -1
+    let i = 0
+    while i + 1 < len(nm)
+        if char_at(nm, i) == ":" and char_at(nm, i + 1) == ":"
+            cut = i + 2
+            i += 2
+        elif char_at(nm, i) == "_" and char_at(nm, i + 1) == "_"
+            cut = i + 2
+            i += 2
+        else
+            i += 1
+        end
+    end
+    if cut == -1
+        return nm
+    end
+    return nm[cut..len(nm)]
+end
+
+# Struct field list or [] (full name, then ::-bare, then __-bare).
+function Parser.struct_fields_of(self, name: string) -> array
+    let i = 0
+    while i < len(self.sd_names)
+        if self.sd_names[i] == name
+            return self.sd_fields[i]
+        end
+        i += 1
+    end
+    let bare = bare_name(name)
+    if bare != name
+        i = 0
+        while i < len(self.sd_names)
+            if self.sd_names[i] == bare
+                return self.sd_fields[i]
+            end
+            i += 1
+        end
+    end
+    return []
+end
+
+# Default field for variant binding i (Rust fallback rules).
+function variant_default_field(tname: string, i: int) -> string
+    let bare = bare_name(tname)
+    if bare == "Err" or bare == "Error"
+        return "message"
+    end
+    if bare == "Ok" or bare == "Some" or i == 0
+        return "value"
+    end
+    return "f" + int_to_dec(i)
+end
+
+# Classify tuple/variant shapes. Returns descriptor or "" (not such shape).
+function when_classify_destructure(ps: string) -> string
+    if len(ps) > 7 and ps[0..7] == "(array "
+        let inner = ps[7..len(ps) - 1]
+        # Array payloads nest once more: (array (ITEMS)).
+        let items = sexpr_split_top(inner[1..len(inner) - 1])
+        let checks = ""
+        let binds = ""
+        let i = 0
+        while i < len(items)
+            let e = items[i]
+            if len(e) > 8 and e[0..8] == "(ident \""
+                let nm = e[8..len(e) - 2]
+                if nm != "_"
+                    let b1 = "(" + qs(nm) + " " + int_to_dec(i) + ")"
+                    if binds == ""
+                        binds = b1
+                    else
+                        binds = binds + " " + b1
+                    end
+                end
+            else
+                let c1 = "(" + int_to_dec(i) + " " + e + ")"
+                if checks == ""
+                    checks = c1
+                else
+                    checks = checks + " " + c1
+                end
+            end
+            i += 1
+        end
+        return "(wtuple " + int_to_dec(len(items)) + " (" + checks + ") (" + binds + "))"
+    end
+    if len(ps) > 7 and ps[0..6] == "(call "
+        let inner = ps[6..len(ps) - 1]
+        let parts = sexpr_split_top(inner)
+        if len(parts) == 2
+            let nm = parts[0]
+            if len(nm) >= 2 and nm[0..1] == chr(34)
+                let bare = nm[1..len(nm) - 1]
+                let c0 = ""
+                if len(bare) > 0
+                    c0 = char_at(bare, 0)
+                end
+                if (c0 >= "A" and c0 <= "Z") or when_has_dot(bare) == true
+                    return "(wvariant-call " + nm + " " + parts[1] + ")"
+                end
+            end
+        end
+        return ""
+    end
+    if len(ps) > 13 and ps[0..13] == "(struct-init "
+        let inner = ps[13..len(ps) - 1]
+        let parts = sexpr_split_top(inner)
+        if len(parts) == 2
+            return "(wvariant-struct " + parts[0] + " " + parts[1] + ")"
+        end
+        return ""
+    end
+    return ""
 end

@@ -34,14 +34,10 @@ PARSER = str(ROOT / "spike" / "selfhost" / "parser.alya")
 # Files whose Rust parse SUCCEEDS but needs slice-2 constructs.
 # Format: substring -> reason. Revisit as the Alya parser grows.
 SKIP_SUBSTR = {
-    "when.alya": "when-desugar (slice 2)",
     "collections.alya": "comprehensions (slice 2)",
     "functions.alya": "closures (slice 2)",
     "concurrency.alya": "closures/spawn (slice 2)",
     "attributes.alya": "comptime/@cfg (slice 2/3)",
-    "enums.alya": "when (slice 2)",
-    "error_handling.alya": "when (slice 2)",
-    "interfaces.alya": "when (slice 2)",
     "stdlib_contracts.alya": "closures/spawn (slice 2)",
     "18_cfg_unknown_key.alya": "@cfg eval (slice 3)",
 }
