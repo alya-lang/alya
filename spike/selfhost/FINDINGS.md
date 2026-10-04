@@ -132,17 +132,15 @@ explicit `{c_val:.6f}` (exact doubles vary 1 ulp across libms).
    spawn-thunk/select spill templates.
 6. Next: codegen port investigation (Alya backend emitting assembly).
 
-## Parser-slice runtime facts (compiler bugs filed separately)
+## Parser-slice runtime facts (2026-10-04; #86/#87 FIXED since)
 - Bare `import "std/str"` + temporary argument (literal/concat/call
-  result) returns garbage; `as str` alias is correct for all shapes.
-  The spike uses the alias (see header note); variables are unaffected.
+  result) returned garbage; `as str` alias was correct (FIXED on
+  develop, d5c7147 — alias kept in the spike, harmless either way).
 - Mixed-type arrays (`[bool, string]`, `[array, int, int]`) corrupt tag
   dispatch on read (`say arr[i]` segfaults while `let x = arr[i]`
-  works). The spike uses structs (HoleRes/ScanRes/DumpRes/HoleTok/
-  WhenArm) for all heterogeneous results.
-- Struct literals silently ignore unknown fields (`WhenArm { ..., val: }`
-  with field `v` compiled and ran with `v == ""`). Cost real debugging
-  time here; a compile-time error would be strictly better.
+  works) — STILL OPEN, keep structs for heterogeneous results.
+- Struct literals silently ignored unknown fields (FIXED on develop,
+  46efe70 — now a compile error naming the field).
 - `say arr[i]` on tag-carrying dynamic reads vs plain loads behave
   differently (see above); loop-var and temp-array handling is sound
   otherwise (B1-era fixes hold).
