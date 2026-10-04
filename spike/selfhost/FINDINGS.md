@@ -121,18 +121,18 @@ explicit `{c_val:.6f}` (exact doubles vary 1 ulp across libms).
 4. ~~Round-trip float printing~~ DONE (shortest-round-trip in
    `fn_str_from_float`; `test_e2e_float_shortest_round_trip`).
 5. Parser slice (IN PROGRESS, 2026-10-04): `spike/selfhost/parser.alya`
-   (~6100 lines, stdlib-only) + `diff_parse.py` over `alya ast`
+   (~6300 lines, stdlib-only) + `diff_parse.py` over `alya ast`
    (new `src/driver/ast_sexpr.rs` canonical dump; `parse_raw()` split
-   so the dump is pre-expansion). Result: 38/44 corpus files
-   token-identical S-expr (0 diffs), 6 SKIP (slice-3 scope), 0 fail;
-   3/4 parse-negative files agree (4th is @cfg, slice 3).
+   so the dump is pre-expansion). Result: 39/44 corpus files
+   token-identical S-expr (0 diffs), 5 SKIP (closures/comprehensions),
+   0 fail; 4/4 parse-negative files agree.
    Scope: full Pratt L1–L16, all statements, when-subset
    (Exact/Relational/Range/Type) + when-destructuring (tuple/variant
-   with bindings/substitution), f-string holes with hole mini-lexer.
-   Deferred: closures, comprehensions, comptime const-eval, @cfg eval,
-   select.
-6. Next: slice 3 (spill templates + comptime/@cfg), then codegen
-   port investigation.
+   with bindings/substitution), f-string holes with hole mini-lexer,
+   comptime const-folding, @cfg eval (host os/arch, dev debug=true).
+   Deferred: closures, comprehensions, select.
+6. Next: slice 3 (spill templates for closures/comprehensions), then
+   codegen port investigation.
 
 ## Parser-slice runtime facts (compiler bugs filed separately)
 - Bare `import "std/str"` + temporary argument (literal/concat/call

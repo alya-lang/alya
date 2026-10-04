@@ -34,12 +34,10 @@ PARSER = str(ROOT / "spike" / "selfhost" / "parser.alya")
 # Files whose Rust parse SUCCEEDS but needs slice-2 constructs.
 # Format: substring -> reason. Revisit as the Alya parser grows.
 SKIP_SUBSTR = {
-    "collections.alya": "comprehensions (slice 2)",
-    "functions.alya": "closures (slice 2)",
-    "concurrency.alya": "closures/spawn (slice 2)",
-    "attributes.alya": "comptime/@cfg (slice 2/3)",
-    "stdlib_contracts.alya": "closures/spawn (slice 2)",
-    "18_cfg_unknown_key.alya": "@cfg eval (slice 3)",
+    "collections.alya": "comprehensions (slice 3)",
+    "functions.alya": "closures (slice 3)",
+    "concurrency.alya": "closures/spawn (slice 3)",
+    "stdlib_contracts.alya": "closures/spawn (slice 3)",
 }
 
 FLOAT_RE = re.compile(r"\(float ([^()]+)\)")
@@ -54,10 +52,19 @@ def rust_ast(alya_bin, path):
     p = run_utf8(alya_bin, "ast", str(path))
     if p.returncode != 0:
         text = p.stdout + p.stderr
+        pos = None
         m = re.search(r"\.alya:(\d+):(\d+)", text)
-        if not m:
+        if m:
+            pos = (int(m.group(1)), int(m.group(2)))
+        else:
             m = re.search(r"line (\d+), column (\d+)", text)
-        pos = (int(m.group(1)), int(m.group(2))) if m else (None, None)
+            if m:
+                pos = (int(m.group(1)), int(m.group(2)))
+            else:
+                # Line-only diagnostics (e.g. @cfg key errors: `file:2`).
+                m = re.search(r"\.alya:(\d+)", text)
+                if m:
+                    pos = (int(m.group(1)), 0)
         return (False, pos, [])
     lines = [l for l in p.stdout.splitlines() if l.strip()]
     return (True, None, lines)

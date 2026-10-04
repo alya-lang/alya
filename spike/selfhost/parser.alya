@@ -1883,9 +1883,48 @@ function Parser.parse_primary(self) -> string
         return "(ident " + qs(nm) + ")"
     end
     if k == "keyword" and nm == "comptime"
-        # Deferred: needs parse-time const evaluation (slice 2).
-        self.fail_here()
-        return ""
+        self.advance()
+        self.skip_nl()
+        if self.at("delim:{") == true
+            self.advance()
+            self.skip_nl()
+            let last = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+            self.skip_nl()
+            while self.at("delim:}") == false
+                if self.cur_kind() == "eof"
+                    self.fail_here()
+                    return ""
+                end
+                last = self.parse_expression()
+                if self.failed == true
+                    return ""
+                end
+                self.skip_nl()
+            end
+            self.advance()
+            return comptime_fold(last)
+        elif self.at("delim:(") == true
+            self.advance()
+            self.skip_nl()
+            let e = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+            self.skip_nl()
+            if self.eat("delim:)") == false
+                self.fail_here()
+                return ""
+            end
+            return comptime_fold(e)
+        end
+        let e = self.parse_primary()
+        if self.failed == true
+            return ""
+        end
+        return comptime_fold(e)
     end
     if k == "keyword" and (nm == "sizeof" or nm == "alignof" or nm == "typeof")
         self.advance()
@@ -1904,21 +1943,62 @@ function Parser.parse_primary(self) -> string
         return "(call " + qs(nm) + " (" + a + "))"
     end
     if k == "keyword" and nm == "or"
-        # `||` empty-param closure: deferred (spill template, slice 2).
-        self.fail_here()
-        return ""
+        # `||` empty-param closure.
+        self.advance()
+        return self.parse_closure_body("", "")
     end
     if k == "op" and nm == "|"
-        # `|params|` closure: deferred (spill template, slice 2).
-        self.fail_here()
-        return ""
+        # `|params|` closure.
+        self.advance()
+        let ps = ""
+        let ts = ""
+        while self.at("op:|") == false
+            if self.cur_kind() == "eof"
+                self.fail_here()
+                return ""
+            end
+            let pn = ""
+            if self.cur_kind() == "ident"
+                pn = self.cur_norm()
+            elif self.at("keyword:self") == true
+                pn = "self"
+            else
+                self.fail_here()
+                return ""
+            end
+            self.advance()
+            let pt = "_"
+            if self.at("delim::") == true
+                self.advance()
+                pt = self.parse_type_ann()
+                if self.failed == true
+                    return ""
+                end
+                pt = qtype(pt)
+            end
+            if ps == ""
+                ps = qs(pn)
+                ts = pt
+            else
+                ps = ps + " " + qs(pn)
+                ts = ts + " " + pt
+            end
+            if self.at("delim:,") == true
+                self.advance()
+            end
+        end
+        if self.eat("op:|") == false
+            self.fail_here()
+            return ""
+        end
+        return self.parse_closure_body(ps, ts)
     end
     if k == "keyword" and nm == "function"
-        # Anonymous `fn (...)`: deferred (spill template, slice 2).
-        self.fail_here()
-        return ""
+        self.advance()
+        return self.parse_anonymous_function()
     end
     if k == "keyword" and nm == "ask"
+        self.advance()
         self.advance()
         if self.at("delim:(") == true
             self.advance()
@@ -1998,6 +2078,177 @@ function Parser.parse_primary(self) -> string
     end
     self.fail_here()
     return ""
+end
+
+# --- comptime const folding (mirrors eval_comptime_expr) ---
+# Integer arithmetic is i64: values past 18 digits stay unfolded (the
+# reference folds i128-exactly; the corpus never approaches the range).
+function comptime_fold(s: string) -> string
+    if len(s) > 7 and s[0..7] == "(binop "
+        let parts = sexpr_split_top(s[7..len(s) - 1])
+        let op = parts[0]
+        let l = comptime_fold(parts[1])
+        let r = comptime_fold(parts[2])
+        return comptime_binop(op, l, r)
+    end
+    if len(s) > 6 and s[0..6] == "(unop "
+        let parts = sexpr_split_top(s[6..len(s) - 1])
+        let inner = comptime_fold(parts[1])
+        if parts[0] == "-" and len(inner) > 5 and inner[0..5] == "(num "
+            return "(num " + int_to_dec(0 - comptime_int(inner)) + ")"
+        end
+        if parts[0] == "-" and len(inner) > 7 and inner[0..7] == "(float "
+            return "(float " + comptime_fstr(0.0 - float(inner[7..len(inner) - 1])) + ")"
+        end
+        if parts[0] == "not" and len(inner) > 5 and inner[0..5] == "(num "
+            if comptime_int(inner) == 0
+                return "(num 1)"
+            end
+            return "(num 0)"
+        end
+        if parts[0] == "~" and len(inner) > 5 and inner[0..5] == "(num "
+            return "(num " + int_to_dec(0 - comptime_int(inner) - 1) + ")"
+        end
+        return "(unop " + parts[0] + " " + inner + ")"
+    end
+    if len(s) > 7 and s[0..7] == "(array "
+        let inner = s[7..len(s) - 1]
+        let items = sexpr_split_top(inner[1..len(inner) - 1])
+        let res = ""
+        let i = 0
+        while i < len(items)
+            let m = comptime_fold(items[i])
+            if res == ""
+                res = m
+            else
+                res = res + " " + m
+            end
+            i += 1
+        end
+        return "(array (" + res + "))"
+    end
+    return s
+end
+
+function comptime_int(s: string) -> int
+    return int(s[5..len(s) - 1])
+end
+
+# Magnitude guard: past 18 digits the reference folds i128-exactly while
+# Alya ints are i64 — keep it unfolded (corpus never approaches this).
+function comptime_big(s: string) -> int
+    let d = s[5..len(s) - 1]
+    if len(d) > 0 and char_at(d, 0) == "-"
+        d = d[1..len(d)]
+    end
+    while len(d) > 1 and char_at(d, 0) == "0"
+        d = d[1..len(d)]
+    end
+    return len(d) > 18
+end
+
+# Fold one binary op over already-folded children (S-expr in/out).
+function comptime_binop(op: string, l: string, r: string) -> string
+    if len(l) > 5 and l[0..5] == "(num " and len(r) > 5 and r[0..5] == "(num "
+        if comptime_big(l) == true or comptime_big(r) == true
+            return "(binop " + op + " " + l + " " + r + ")"
+        end
+        let a = comptime_int(l)
+        let b = comptime_int(r)
+        if op == "+" or op == "-" or op == "*"
+            if op == "+"
+                return "(num " + int_to_dec(a + b) + ")"
+            end
+            if op == "-"
+                return "(num " + int_to_dec(a - b) + ")"
+            end
+            return "(num " + int_to_dec(a * b) + ")"
+        end
+        if op == "/" or op == "%"
+            if b == 0
+                return "(binop " + op + " " + l + " " + r + ")"
+            end
+            if op == "/"
+                return "(num " + int_to_dec(a / b) + ")"
+            end
+            return "(num " + int_to_dec(a % b) + ")"
+        end
+        if op == "&"
+            return "(num " + int_to_dec(bit_and(a, b)) + ")"
+        end
+        if op == "|"
+            return "(num " + int_to_dec(bit_or(a, b)) + ")"
+        end
+        if op == "^"
+            return "(num " + int_to_dec(bit_xor(a, b)) + ")"
+        end
+        if op == "<<" or op == ">>"
+            if b < 0 or b > 63
+                return "(binop " + op + " " + l + " " + r + ")"
+            end
+            if op == "<<"
+                return "(num " + int_to_dec(bit_shl(a, b)) + ")"
+            end
+            return "(num " + int_to_dec(bit_shr(a, b)) + ")"
+        end
+        if op == "==" or op == "!=" or op == "<" or op == "<=" or op == ">" or op == ">="
+            let t = 0
+            if op == "==" and a == b
+                t = 1
+            elif op == "!=" and a != b
+                t = 1
+            elif op == "<" and a < b
+                t = 1
+            elif op == "<=" and a <= b
+                t = 1
+            elif op == ">" and a > b
+                t = 1
+            elif op == ">=" and a >= b
+                t = 1
+            end
+            return "(num " + int_to_dec(t) + ")"
+        end
+        if op == "and" or op == "or"
+            let t = 0
+            if op == "and" and a != 0 and b != 0
+                t = 1
+            elif op == "or" and (a != 0 or b != 0)
+                t = 1
+            end
+            return "(num " + int_to_dec(t) + ")"
+        end
+        return "(binop " + op + " " + l + " " + r + ")"
+    end
+    if len(l) > 7 and l[0..7] == "(float " and len(r) > 7 and r[0..7] == "(float "
+        let a = float(l[7..len(l) - 1])
+        let b = float(r[7..len(r) - 1])
+        if op == "+"
+            return "(float " + comptime_fstr(a + b) + ")"
+        end
+        if op == "-"
+            return "(float " + comptime_fstr(a - b) + ")"
+        end
+        if op == "*"
+            return "(float " + comptime_fstr(a * b) + ")"
+        end
+        if op == "/"
+            if b != 0.0
+                return "(float " + comptime_fstr(a / b) + ")"
+            end
+        end
+        return "(binop " + op + " " + l + " " + r + ")"
+    end
+    if len(l) > 5 and l[0..5] == "(str " and len(r) > 5 and r[0..5] == "(str " and op == "+"
+        let a = json_decode(l[6..len(l) - 2])
+        let b = json_decode(r[6..len(r) - 2])
+        return "(str " + qs(a + b) + ")"
+    end
+    return "(binop " + op + " " + l + " " + r + ")"
+end
+
+# Shortest float rendering (B4 str() round-trips, matching Rust {:?}).
+function comptime_fstr(v: float) -> string
+    return str(v)
 end
 
 function Parser.parse_array_literal(self) -> string
@@ -5403,11 +5654,12 @@ function Parser.parse_attribute(self)
     end
     self.advance()
     let saw_parens = 0
+    let ptoks = []
+    let plines = []
     if self.at("delim:(") == true
         saw_parens = 1
         self.advance()
         let depth = 1
-        let ptoks = []
         while depth > 0
             if self.cur_kind() == "eof"
                 self.fail_here()
@@ -5424,21 +5676,58 @@ function Parser.parse_attribute(self)
                 end
             end
             ptoks.push(self.cur_kind() + chr(1) + self.cur_norm())
+            plines.push(self.cur_line())
             self.advance()
         end
-        if aname == "cfg"
-            # Deferred: cfg evaluation (slice 3). Fail so the file lands
-            # on the SKIP list instead of silently diverging.
-            self.fail_here()
-            return
+        if aname != "cfg"
+            self.pending_attrs.push("(" + qs(aname) + " (" + attr_args_from_toks(ptoks) + "))")
         end
-        self.pending_attrs.push("(" + qs(aname) + " (" + attr_args_from_toks(ptoks) + "))")
     end
     if saw_parens == false and aname != "cfg"
         self.pending_attrs.push("(" + qs(aname) + " ())")
     end
     if aname == "cfg" and saw_parens == false
-        self.fail_here()
+        self.skip_nl()
+        let n0 = len(self.out)
+        self.parse_statement()
+        if self.failed == true
+            return
+        end
+        while len(self.out) > n0
+            self.out.pop()
+        end
+        return
+    end
+    if aname == "cfg"
+        let cr = self.cfg_eval(ptoks, plines)
+        if self.failed == true
+            return
+        end
+        if cr.ok == false
+            self.fail_at(cr.line, 0)
+            return
+        end
+        if cr.keep == false
+            # Gated out: still parsed (errors surface) but dropped.
+            self.skip_nl()
+            let n0 = len(self.out)
+            self.parse_statement()
+            if self.failed == true
+                return
+            end
+            while len(self.out) > n0
+                self.out.pop()
+            end
+            self.pending_attrs = []
+            return
+        end
+        self.skip_nl()
+        let n0 = len(self.out)
+        self.parse_statement()
+        if self.failed == true
+            return
+        end
+        self.attach_drained(n0)
         return
     end
     self.skip_nl()
@@ -5449,6 +5738,10 @@ function Parser.parse_attribute(self)
     end
     # Drain ALL pending (outer attributes included) and attach; anything
     # left over drops, mirroring mem::take + attach-then-clear.
+    self.attach_drained(n0)
+end
+
+function Parser.attach_drained(self, n0: int)
     let alist = ""
     let i = 0
     while i < len(self.pending_attrs)
@@ -5465,6 +5758,122 @@ function Parser.parse_attribute(self)
         self.out[j] = attach_attrs(self.out[j], "(" + alist + ")")
         j += 1
     end
+end
+
+struct CfgRes
+    ok: int
+    keep: int
+    line: int
+end
+
+struct CfgTok
+    kind: string
+    norm: string
+    line: int
+end
+
+# Evaluate @cfg paren tokens with the host context (os/arch from stdlib,
+# dev-profile debug=true, no features — matching `alya ast` on bare files).
+# Returns ok=0 + line on unknown keys / bad debug values (line-only error,
+# mirroring the reference diagnostic shape).
+function Parser.cfg_eval(self, ptoks: array, plines: array) -> CfgRes
+    let n = len(ptoks)
+    if n == 0
+        return CfgRes { ok: 1, keep: 1, line: 0 }
+    end
+    let first = self.cfg_tok(ptoks, plines, 0)
+    if (first.kind == "ident" and first.norm == "not") or (first.kind == "keyword" and first.norm == "not")
+        if n >= 3 and self.cfg_tok_kind(ptoks, plines, 1) == "delim:("
+            let sub = []
+            let sublines = []
+            let i = 2
+            while i < n - 1
+                sub.push(ptoks[i])
+                sublines.push(plines[i])
+                i += 1
+            end
+            let r = self.cfg_eval(sub, sublines)
+            if r.ok == false
+                return r
+            end
+            if r.keep == true
+                return CfgRes { ok: 1, keep: 0, line: 0 }
+            end
+            return CfgRes { ok: 1, keep: 1, line: 0 }
+        end
+    end
+    let key = ""
+    let val = ""
+    let inval = 0
+    let vline = 0
+    let i = 0
+    while i < n
+        let t = self.cfg_tok(ptoks, plines, i)
+        if t.kind == "ident"
+            if inval == true
+                val = t.norm
+            else
+                key = t.norm
+            end
+        elif t.kind == "string"
+            if inval == true
+                val = json_decode(t.norm)
+            end
+        elif t.kind == "keyword" and (t.norm == "true" or t.norm == "false")
+            if inval == true
+                val = t.norm
+            end
+        elif t.kind == "op" and t.norm == "="
+            inval = 1
+        end
+        if vline == 0
+            vline = t.line
+        end
+        i += 1
+    end
+    if key == "os" or key == "target_os"
+        if val == os.os_name()
+            return CfgRes { ok: 1, keep: 1, line: 0 }
+        end
+        return CfgRes { ok: 1, keep: 0, line: 0 }
+    end
+    if key == "arch" or key == "target_arch"
+        let a = os.arch_name()
+        if val == a or (val == "x64" and a == "x86_64") or (val == "x86_64" and a == "x86_64") or (val == "arm64" and a == "aarch64") or (val == "aarch64" and a == "aarch64")
+            return CfgRes { ok: 1, keep: 1, line: 0 }
+        end
+        return CfgRes { ok: 1, keep: 0, line: 0 }
+    end
+    if key == "debug"
+        if val == "true"
+            return CfgRes { ok: 1, keep: 1, line: 0 }
+        end
+        if val == "false"
+            return CfgRes { ok: 1, keep: 0, line: 0 }
+        end
+        return CfgRes { ok: 0, keep: 0, line: vline }
+    end
+    if key == "feature"
+        return CfgRes { ok: 1, keep: 0, line: 0 }
+    end
+    if key == ""
+        return CfgRes { ok: 1, keep: 1, line: 0 }
+    end
+    return CfgRes { ok: 0, keep: 0, line: vline }
+end
+
+# One paren token kind+norm plus its line, as a CfgTok.
+function Parser.cfg_tok(self, ptoks: array, plines: array, i: int) -> CfgTok
+    let parts = bar_split(ptoks[i])
+    return CfgTok { kind: parts[0], norm: parts[1], line: plines[i] }
+end
+
+function Parser.cfg_tok_kind(self, ptoks: array, plines: array, i: int) -> string
+    let parts = bar_split(ptoks[i])
+    if parts[0] == "delim" and parts[1] == "("
+        return "delim:("
+    end
+    return parts[0]
 end
 
 # Token-level attribute args: top-level commas split; `k = v` named,
