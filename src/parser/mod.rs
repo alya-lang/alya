@@ -477,12 +477,28 @@ pub fn resolve_imports_with_sources_ext(
     let mut visited = std::collections::HashSet::new();
     let mut resolved_stmts = Vec::new();
     let mut root_rewrites = std::collections::HashMap::new();
+    let mut bare_modules: std::collections::HashMap<String, std::collections::HashSet<String>> =
+        std::collections::HashMap::new();
+    let mut bare_seen_path: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let mut bare_poisoned: std::collections::HashSet<String> = std::collections::HashSet::new();
     let top_manifest_dir: Option<std::path::PathBuf> =
         crate::tools::pkg::discovery::find_manifest_dir_from(base_dir)
             .map(|d| std::fs::canonicalize(&d).unwrap_or(d));
 
     for stmt in std::mem::take(&mut program.statements) {
-        let (_, rewrites) = resolve_stmt_imports_ext_with_rewrites(
+        // Direct bare imports (`import "x"` with no alias/symbols) namespace
+        // the module under its basename (spec Chapter 11 §1.3), so track
+        // them for the bare-module call rewrite below.
+        let bare_stem: Option<(String, String)> = match &stmt {
+            Stmt::Import {
+                path,
+                alias: None,
+                symbols: None,
+            } => import_path_stem(path).map(|stem| (stem, path.clone())),
+            _ => None,
+        };
+        let (exposed, rewrites) = resolve_stmt_imports_ext_with_rewrites(
             stmt,
             base_dir,
             &mut visited,
@@ -492,11 +508,28 @@ pub fn resolve_imports_with_sources_ext(
             &top_manifest_dir,
         )?;
         root_rewrites.extend(rewrites);
+        if let Some((stem, written)) = bare_stem {
+            match bare_seen_path.get(&stem) {
+                Some(prev) if prev != &written => {
+                    // Same basename, different module: ambiguous qualifier.
+                    bare_poisoned.insert(stem.clone());
+                    bare_modules.remove(&stem);
+                }
+                _ => {
+                    bare_seen_path.insert(stem.clone(), written);
+                    if !bare_poisoned.contains(&stem) {
+                        bare_modules.entry(stem).or_default().extend(exposed);
+                    }
+                }
+            }
+        }
     }
 
     if !root_rewrites.is_empty() {
         rewrite_calls_in_stmts(&mut resolved_stmts, &root_rewrites);
     }
+
+    rewrite_bare_module_calls(&mut resolved_stmts, &bare_modules);
 
     // Deduplicate private module functions (__priv_*) that were imported via multiple paths
     let mut seen_privates = std::collections::HashSet::new();
@@ -812,6 +845,361 @@ pub fn rewrite_calls_in_expr(
         Expr::NullCoalesce { value, default } => {
             rewrite_calls_in_expr(value, rewrites);
             rewrite_calls_in_expr(default, rewrites);
+        }
+        _ => {}
+    }
+}
+
+/// Basename stem of an import path for module-qualifier matching
+/// (`"std/str"` -> `Some("str")`). Returns None when the stem cannot be
+/// an identifier (so it can never match a call receiver).
+fn import_path_stem(path: &str) -> Option<String> {
+    let norm = path.replace('\\', "/");
+    let last = norm.rsplit('/').next().unwrap_or(&norm);
+    let stem = last.strip_suffix(".alya").unwrap_or(last);
+    if stem.is_empty() {
+        return None;
+    }
+    let mut chars = stem.chars();
+    match chars.next() {
+        Some(c) if c.is_alphabetic() || c == '_' => {}
+        _ => return None,
+    }
+    if !stem.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return None;
+    }
+    Some(stem.to_string())
+}
+
+/// Collects value/type names bound by statements for the bare-module
+/// shadowing guard. Conservative: block-scoped bindings count for the
+/// whole enclosing function (skipping a rewrite is always safe).
+fn collect_bound_names_stmts(stmts: &[Stmt], bound: &mut std::collections::HashSet<String>) {
+    for s in stmts {
+        match s.inner_stmt() {
+            Stmt::Function {
+                name, params, body, ..
+            } => {
+                bound.insert(name.clone());
+                for p in params {
+                    bound.insert(p.clone());
+                }
+                collect_bound_names_stmts(body, bound);
+            }
+            Stmt::StructDef { name, .. }
+            | Stmt::EnumDef { name, .. }
+            | Stmt::InterfaceDef { name, .. } => {
+                bound.insert(name.clone());
+            }
+            Stmt::Const { name, .. } | Stmt::Let { name, .. } => {
+                bound.insert(name.clone());
+            }
+            Stmt::Import { alias: Some(a), .. } => {
+                bound.insert(a.clone());
+            }
+            Stmt::For { var, body, .. } => {
+                bound.insert(var.clone());
+                collect_bound_names_stmts(body, bound);
+            }
+            Stmt::ForEach {
+                var,
+                value_var,
+                body,
+                ..
+            } => {
+                bound.insert(var.clone());
+                if let Some(vv) = value_var {
+                    bound.insert(vv.clone());
+                }
+                collect_bound_names_stmts(body, bound);
+            }
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                collect_bound_names_stmts(then_block, bound);
+                if let Some(eb) = else_block {
+                    collect_bound_names_stmts(eb, bound);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body } => {
+                collect_bound_names_stmts(body, bound);
+            }
+            Stmt::TryCatch {
+                catch_var,
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                if let Some(cv) = catch_var {
+                    bound.insert(cv.clone());
+                }
+                collect_bound_names_stmts(try_block, bound);
+                collect_bound_names_stmts(catch_block, bound);
+                if let Some(fb) = finally_block {
+                    collect_bound_names_stmts(fb, bound);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Bare-import module calls (alya-lang/alya#86): `import "std/str"` (no
+/// alias) namespaces the module under its basename (spec Chapter 11
+/// §1.3), so `str.f(x)` must resolve like the aliased form. The parser
+/// shapes it as UFCS `Call { f, [str, x] }`; without a rewrite codegen
+/// emits no code for the unknown `str` receiver and pushes stale rax,
+/// returning garbage for temporary arguments (and accidentally-correct
+/// results when stale rax happens to hold the intended value).
+/// Rewrites to bare `f(x)` when all hold: `M` names a directly
+/// bare-imported module, `f` is one of its functions, the call is not
+/// already qualified, and `M` is not bound as a value in scope (bound
+/// receivers stay UFCS calls: locals win over the module qualifier).
+pub fn rewrite_bare_module_calls(
+    stmts: &mut [Stmt],
+    bare: &std::collections::HashMap<String, std::collections::HashSet<String>>,
+) {
+    if bare.is_empty() {
+        return;
+    }
+    // Root scope: top-level names only. Function bodies get their own
+    // scope below; a local inside one function must not poison the
+    // rewrite in unrelated functions.
+    let mut root_bound = std::collections::HashSet::new();
+    for s in stmts.iter() {
+        match s.inner_stmt() {
+            Stmt::Function { name, .. }
+            | Stmt::StructDef { name, .. }
+            | Stmt::EnumDef { name, .. }
+            | Stmt::InterfaceDef { name, .. }
+            | Stmt::Const { name, .. }
+            | Stmt::Let { name, .. } => {
+                root_bound.insert(name.clone());
+            }
+            Stmt::Import { alias: Some(a), .. } => {
+                root_bound.insert(a.clone());
+            }
+            _ => {}
+        }
+    }
+    for stmt in stmts {
+        rewrite_bare_module_stmt(stmt, bare, &root_bound);
+    }
+}
+
+fn rewrite_bare_module_stmt(
+    stmt: &mut Stmt,
+    bare: &std::collections::HashMap<String, std::collections::HashSet<String>>,
+    bound: &std::collections::HashSet<String>,
+) {
+    match stmt {
+        Stmt::Function { params, body, .. } => {
+            let mut scope = bound.clone();
+            for p in params {
+                scope.insert(p.clone());
+            }
+            collect_bound_names_stmts(body, &mut scope);
+            for s in body.iter_mut() {
+                rewrite_bare_module_stmt(s, bare, &scope);
+            }
+        }
+        Stmt::Say(expr) | Stmt::Expr(expr) => rewrite_bare_module_expr(expr, bare, bound),
+        Stmt::Let { value, .. } | Stmt::Const { value, .. } | Stmt::Assign { value, .. } => {
+            rewrite_bare_module_expr(value, bare, bound)
+        }
+        Stmt::If {
+            condition,
+            then_block,
+            else_block,
+        } => {
+            rewrite_bare_module_expr(condition, bare, bound);
+            for s in then_block.iter_mut() {
+                rewrite_bare_module_stmt(s, bare, bound);
+            }
+            if let Some(eb) = else_block {
+                for s in eb.iter_mut() {
+                    rewrite_bare_module_stmt(s, bare, bound);
+                }
+            }
+        }
+        Stmt::While { condition, body } => {
+            rewrite_bare_module_expr(condition, bare, bound);
+            for s in body.iter_mut() {
+                rewrite_bare_module_stmt(s, bare, bound);
+            }
+        }
+        Stmt::Repeat { body } => {
+            for s in body.iter_mut() {
+                rewrite_bare_module_stmt(s, bare, bound);
+            }
+        }
+        Stmt::For {
+            start, end, body, ..
+        } => {
+            rewrite_bare_module_expr(start, bare, bound);
+            rewrite_bare_module_expr(end, bare, bound);
+            for s in body.iter_mut() {
+                rewrite_bare_module_stmt(s, bare, bound);
+            }
+        }
+        Stmt::ForEach { iterable, body, .. } => {
+            rewrite_bare_module_expr(iterable, bare, bound);
+            for s in body.iter_mut() {
+                rewrite_bare_module_stmt(s, bare, bound);
+            }
+        }
+        Stmt::Return(Some(e)) | Stmt::Throw(Some(e)) => rewrite_bare_module_expr(e, bare, bound),
+        Stmt::IndexAssign {
+            array,
+            index,
+            value,
+        } => {
+            rewrite_bare_module_expr(array, bare, bound);
+            rewrite_bare_module_expr(index, bare, bound);
+            rewrite_bare_module_expr(value, bare, bound);
+        }
+        Stmt::FieldAssign { object, value, .. } => {
+            rewrite_bare_module_expr(object, bare, bound);
+            rewrite_bare_module_expr(value, bare, bound);
+        }
+        Stmt::TryCatch {
+            try_block,
+            catch_block,
+            finally_block,
+            ..
+        } => {
+            for s in try_block.iter_mut() {
+                rewrite_bare_module_stmt(s, bare, bound);
+            }
+            for s in catch_block.iter_mut() {
+                rewrite_bare_module_stmt(s, bare, bound);
+            }
+            if let Some(fb) = finally_block {
+                for s in fb.iter_mut() {
+                    rewrite_bare_module_stmt(s, bare, bound);
+                }
+            }
+        }
+        Stmt::Defer(inner) => rewrite_bare_module_stmt(inner, bare, bound),
+        Stmt::Pub(inner) => rewrite_bare_module_stmt(inner, bare, bound),
+        Stmt::StructDef { defaults, .. } => {
+            for d in defaults.iter_mut().flatten() {
+                rewrite_bare_module_expr(d, bare, bound);
+            }
+        }
+        Stmt::EnumDef { variants, .. } => {
+            for (_, v) in variants.iter_mut() {
+                if let Some(e) = v {
+                    rewrite_bare_module_expr(e, bare, bound);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn rewrite_bare_module_expr(
+    expr: &mut Expr,
+    bare: &std::collections::HashMap<String, std::collections::HashSet<String>>,
+    bound: &std::collections::HashSet<String>,
+) {
+    match expr {
+        Expr::Call { name, args } => {
+            maybe_drop_module_receiver(name, args, bare, bound);
+            for arg in args.iter_mut() {
+                rewrite_bare_module_expr(arg, bare, bound);
+            }
+        }
+        Expr::OptionalCall { callee, args } => {
+            maybe_drop_module_receiver(callee, args, bare, bound);
+            for arg in args.iter_mut() {
+                rewrite_bare_module_expr(arg, bare, bound);
+            }
+        }
+        Expr::Binary { left, right, .. } => {
+            rewrite_bare_module_expr(left, bare, bound);
+            rewrite_bare_module_expr(right, bare, bound);
+        }
+        Expr::Unary { expr, .. } => rewrite_bare_module_expr(expr, bare, bound),
+        Expr::ForceUnwrap(inner) => rewrite_bare_module_expr(inner, bare, bound),
+        Expr::Array(items) => {
+            for item in items.iter_mut() {
+                rewrite_bare_module_expr(item, bare, bound);
+            }
+        }
+        Expr::Index { array, index } => {
+            rewrite_bare_module_expr(array, bare, bound);
+            rewrite_bare_module_expr(index, bare, bound);
+        }
+        Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+            rewrite_bare_module_expr(object, bare, bound);
+        }
+        Expr::OptionalIndex { array, index } => {
+            rewrite_bare_module_expr(array, bare, bound);
+            rewrite_bare_module_expr(index, bare, bound);
+        }
+        Expr::StructInit { fields, .. } => {
+            for (_, f_expr) in fields.iter_mut() {
+                rewrite_bare_module_expr(f_expr, bare, bound);
+            }
+        }
+        Expr::Map(entries) => {
+            for (k, v) in entries.iter_mut() {
+                rewrite_bare_module_expr(k, bare, bound);
+                rewrite_bare_module_expr(v, bare, bound);
+            }
+        }
+        Expr::InterpolatedString(parts) => {
+            for part in parts.iter_mut() {
+                rewrite_bare_module_expr(part, bare, bound);
+            }
+        }
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            rewrite_bare_module_expr(condition, bare, bound);
+            rewrite_bare_module_expr(then_branch, bare, bound);
+            rewrite_bare_module_expr(else_branch, bare, bound);
+        }
+        Expr::NullCoalesce { value, default } => {
+            rewrite_bare_module_expr(value, bare, bound);
+            rewrite_bare_module_expr(default, bare, bound);
+        }
+        Expr::TypeCheck { expr, .. } | Expr::Cast { expr, .. } => {
+            rewrite_bare_module_expr(expr, bare, bound);
+        }
+        _ => {}
+    }
+}
+
+/// Drops a bare-import module qualifier from a UFCS-shaped call:
+/// `M.f(x)` -> `f(x)` when `M` is an unbound basename of a directly
+/// bare-imported module exporting `f`. Already-qualified names and
+/// bound receivers are left untouched.
+fn maybe_drop_module_receiver(
+    name: &mut String,
+    args: &mut Vec<Expr>,
+    bare: &std::collections::HashMap<String, std::collections::HashSet<String>>,
+    bound: &std::collections::HashSet<String>,
+) {
+    if name.contains("::") || name.contains('.') || name.contains("__") {
+        return;
+    }
+    let receiver = match args.first() {
+        Some(Expr::Identifier(recv)) => recv.clone(),
+        _ => return,
+    };
+    if bound.contains(&receiver) {
+        return;
+    }
+    match bare.get(&receiver) {
+        Some(exports) if exports.contains(name) => {
+            args.remove(0);
         }
         _ => {}
     }

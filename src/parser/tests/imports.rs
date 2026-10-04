@@ -797,3 +797,91 @@ fn test_aliased_pub_let_renamed() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_bare_module_call_rewrite() {
+    // Bare `import "helper"` namespaces under its basename: `helper.greet`
+    // must drop the module receiver for every argument shape, while a
+    // locally-bound `helper` keeps UFCS dispatch and unknown methods are
+    // left untouched.
+    use std::fs;
+    let temp_dir = std::env::temp_dir().join(format!("alya_import_baremod_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    let _ = fs::create_dir_all(&temp_dir);
+    fs::write(
+        temp_dir.join("helper.alya"),
+        "pub function greet(name: string) -> string\n    return name\nend\n",
+    )
+    .unwrap();
+
+    let main_source = "import \"helper.alya\"\nfunction main()\n    say helper.greet(\"x\")\n    say helper.greet(\"a\" + \"b\")\nend\nmain()";
+    let mut lexer = crate::lexer::Lexer::new(main_source);
+    let tokens = lexer.tokenize().expect("Failed to tokenize");
+    let mut parser = Parser::new(tokens);
+    let mut program = parser.parse().expect("Failed to parse");
+    resolve_imports(&mut program, &temp_dir, &CfgContext::host())
+        .expect("Failed to resolve imports");
+
+    let mut greet_calls = 0;
+    for s in &program.statements {
+        if let Stmt::Function { body, .. } = s.inner_stmt() {
+            for b in body {
+                let e = match b.inner_stmt() {
+                    Stmt::Say(e) => e,
+                    _ => continue,
+                };
+                if let crate::ast::Expr::Call { name, args } = e {
+                    assert_eq!(name, "greet");
+                    // Receiver dropped: single user argument remains.
+                    assert_eq!(args.len(), 1);
+                    greet_calls += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(greet_calls, 2);
+    let _ = fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_bare_module_call_shadowed_local_kept() {
+    // A locally-bound `helper` wins over the module qualifier: the UFCS
+    // receiver must survive.
+    use std::fs;
+    let temp_dir =
+        std::env::temp_dir().join(format!("alya_import_bareshadow_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    let _ = fs::create_dir_all(&temp_dir);
+    fs::write(
+        temp_dir.join("helper.alya"),
+        "pub function greet(name: string) -> string\n    return name\nend\n",
+    )
+    .unwrap();
+
+    let main_source = "import \"helper.alya\"\nfunction main()\n    let helper = \"v\"\n    say helper.greet(\"x\")\nend\nmain()";
+    let mut lexer = crate::lexer::Lexer::new(main_source);
+    let tokens = lexer.tokenize().expect("Failed to tokenize");
+    let mut parser = Parser::new(tokens);
+    let mut program = parser.parse().expect("Failed to parse");
+    resolve_imports(&mut program, &temp_dir, &CfgContext::host())
+        .expect("Failed to resolve imports");
+
+    let mut kept = false;
+    for s in &program.statements {
+        if let Stmt::Function { body, .. } = s.inner_stmt() {
+            for b in body {
+                let e = match b.inner_stmt() {
+                    Stmt::Say(e) => e,
+                    _ => continue,
+                };
+                if let crate::ast::Expr::Call { name, args } = e {
+                    assert_eq!(name, "greet");
+                    assert_eq!(args.len(), 2);
+                    kept = true;
+                }
+            }
+        }
+    }
+    assert!(kept);
+    let _ = fs::remove_dir_all(&temp_dir);
+}

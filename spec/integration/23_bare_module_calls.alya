@@ -1,0 +1,44 @@
+# ==============================================================================
+# Alya Integration Fixture 23 (entry): bare-import module calls
+# Distilled from: str.bytes_from_string("ab") returning empty via bare
+#         `import "std/str"` while the aliased form worked (issue #86).
+# Guards: `import "std/str"` (no alias) namespaces the module under its
+#         basename (spec Chapter 11 §1.3), so `str.f(x)` must resolve like
+#         the aliased form for ALL argument shapes (variables, literals,
+#         concatenations, call results). Without the rewrite the unknown
+#         `str` receiver emits no code and pushes stale rax (silent garbage
+#         for temporaries, accidentally-correct results for variables).
+#         A locally-bound `str` keeps UFCS method dispatch (locals win).
+# ==============================================================================
+
+import "std/str"
+
+function make_xy() -> string
+    return "xy"
+end
+
+function shadow_str() -> string
+    # A locally-bound `str` keeps UFCS method dispatch (no hijack).
+    let str = "a-b-c"
+    return str.replace("-", "_")
+end
+
+function main()
+    let s = make_xy()
+
+    # Qualified calls through the bare import, every argument shape.
+    assert len(str.bytes_from_string(s)) == 2
+    assert len(str.bytes_from_string("ab")) == 2
+    assert len(str.bytes_from_string("a" + "b")) == 2
+    assert len(str.bytes_from_string(make_xy())) == 2
+    assert str.hex_encode("AB") == "4142"
+
+    # Unqualified calls keep working.
+    assert len(bytes_from_string("ab")) == 2
+
+    assert shadow_str() == "a_b_c"
+
+    say f"integration 23_bare_module_calls: OK"
+end
+
+main()
