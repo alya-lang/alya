@@ -1999,7 +1999,6 @@ function Parser.parse_primary(self) -> string
     end
     if k == "keyword" and nm == "ask"
         self.advance()
-        self.advance()
         if self.at("delim:(") == true
             self.advance()
             if self.at("delim:)") == true
@@ -2255,6 +2254,7 @@ function Parser.parse_array_literal(self) -> string
     self.advance()
     self.skip_nl()
     let items = ""
+    let kinds = ""
     let count = 0
     while self.at("delim:]") == false
         if self.cur_kind() == "eof"
@@ -2262,25 +2262,36 @@ function Parser.parse_array_literal(self) -> string
             return ""
         end
         if self.at("delim:...") == true or self.at("delim:..") == true
-            # Spread: deferred (spill template, slice 2).
-            self.fail_here()
-            return ""
-        end
-        let e = self.parse_expression()
-        if self.failed == true
-            return ""
-        end
-        if self.at("keyword:for") == true
-            # Comprehension: deferred (spill template, slice 2).
-            self.fail_here()
-            return ""
-        end
-        if items == ""
-            items = e
+            self.advance()
+            let e = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+            if items == ""
+                items = e
+                kinds = "s"
+            else
+                items = items + " " + e
+                kinds = kinds + "s"
+            end
+            count += 1
         else
-            items = items + " " + e
+            let e = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+            if self.at("keyword:for") == true
+                return self.parse_array_comprehension(e)
+            end
+            if items == ""
+                items = e
+                kinds = "n"
+            else
+                items = items + " " + e
+                kinds = kinds + "n"
+            end
+            count += 1
         end
-        count += 1
         self.skip_nl()
         if self.at("delim:,") == true
             self.advance()
@@ -2291,13 +2302,122 @@ function Parser.parse_array_literal(self) -> string
         end
     end
     self.advance()
-    return "(array (" + items + "))"
+    if kinds == ""
+        return "(array ())"
+    end
+    let has_spread = 0
+    let i = 0
+    while i < len(kinds)
+        if char_at(kinds, i) == "s"
+            has_spread = 1
+        end
+        i += 1
+    end
+    if has_spread == false
+        return "(array (" + items + "))"
+    end
+    # Spread desugar: __alya_spread_arr_N(__arg_0, ...) with per-item
+    # push/foreach bodies over params.
+    let nm = "__alya_spread_arr_" + int_to_dec(self.lam)
+    let elems = sexpr_split_top(items)
+    let params = ""
+    let args = ""
+    let body = "(block (let \"__arr_res\" _ (array ()))"
+    let k = 0
+    while k < len(elems)
+        let pn = "__arg_" + int_to_dec(k)
+        if params == ""
+            params = qs(pn)
+            args = elems[k]
+        else
+            params = params + " " + qs(pn)
+            args = args + " " + elems[k]
+        end
+        if char_at(kinds, k) == "s"
+            let iv = "__item_" + int_to_dec(k)
+            body = body + " (foreach " + qs(iv) + " _ (ident " + qs(pn) + ") (block (expr (call " + qs("push") + " ((ident \"__arr_res\") (ident " + qs(iv) + "))))))"
+        else
+            body = body + " (expr (call " + qs("push") + " ((ident \"__arr_res\") (ident " + qs(pn) + "))))"
+        end
+        k += 1
+    end
+    body = body + " (return (ident \"__arr_res\")))"
+    let ptypes = self.spread_types(len(elems))
+    self.spill.push("(function " + qs(nm) + " (" + params + ") (" + ptypes + ") _ (" + ptypes + ") () () " + body + ")")
+    self.lam += 1
+    return "(call " + qs(nm) + " (" + args + "))"
+end
+
+function Parser.spread_types(self, n: int) -> string
+    let t = ""
+    let i = 0
+    while i < n
+        if t == ""
+            t = "_"
+        else
+            t = t + " _"
+        end
+        i += 1
+    end
+    return t
+end
+
+# [body for x[, y] in iter (if cond)?] — caller already parsed body,
+# positioned at `for`.
+function Parser.parse_array_comprehension(self, body: string) -> string
+    self.advance()
+    if self.cur_kind() != "ident"
+        self.fail_here()
+        return ""
+    end
+    let var = self.cur_norm()
+    self.advance()
+    let vvar = "_"
+    if self.at("delim:,") == true
+        self.advance()
+        if self.cur_kind() != "ident"
+            self.fail_here()
+            return ""
+        end
+        vvar = qs(self.cur_norm())
+        self.advance()
+    end
+    if self.eat("keyword:in") == false
+        self.fail_here()
+        return ""
+    end
+    let it = self.parse_expression()
+    if self.failed == true
+        return ""
+    end
+    let filt = ""
+    if self.at("keyword:if") == true
+        self.advance()
+        filt = self.parse_expression()
+        if self.failed == true
+            return ""
+        end
+    end
+    if self.eat("delim:]") == false
+        self.fail_here()
+        return ""
+    end
+    let nm = "__alya_comp_arr_" + int_to_dec(self.lam)
+    let push = "(expr (call " + qs("push") + " ((ident \"__comp_res\") " + body + ")))"
+    if filt != ""
+        push = "(if " + filt + " (block " + push + ") _)"
+    end
+    let fnbody = "(block (let \"__comp_res\" _ (array ())) (foreach " + qs(var) + " " + vvar + " " + it + " (block " + push + ")) (return (ident \"__comp_res\")))"
+    self.spill.push("(function " + qs(nm) + " () () _ () () () " + fnbody + ")")
+    self.lam += 1
+    return "(call " + qs(nm) + " ())"
 end
 
 function Parser.parse_map_literal(self) -> string
     self.advance()
     self.skip_nl()
     let items = ""
+    let kinds = ""
     while self.at("delim:}") == false
         self.skip_nl()
         if self.at("delim:}") == true
@@ -2308,42 +2428,52 @@ function Parser.parse_map_literal(self) -> string
             return ""
         end
         if self.at("delim:...") == true or self.at("delim:..") == true
-            # Spread: deferred (spill template, slice 2).
-            self.fail_here()
-            return ""
-        end
-        let key = ""
-        if self.cur_kind() == "ident"
-            key = "(str " + qs(self.cur_norm()) + ")"
             self.advance()
-        else
-            key = self.parse_expression()
+            let e = self.parse_expression()
             if self.failed == true
                 return ""
             end
-        end
-        self.skip_nl()
-        if self.at("delim::") == true or self.at("op:=") == true
-            self.advance()
+            if items == ""
+                items = e
+                kinds = "s"
+            else
+                items = items + " " + e
+                kinds = kinds + "s"
+            end
         else
-            self.fail_here()
-            return ""
-        end
-        self.skip_nl()
-        let val = self.parse_expression()
-        if self.failed == true
-            return ""
-        end
-        if self.at("keyword:for") == true
-            # Comprehension: deferred (spill template, slice 2).
-            self.fail_here()
-            return ""
-        end
-        let ent = "(" + key + " " + val + ")"
-        if items == ""
-            items = ent
-        else
-            items = items + " " + ent
+            let key = ""
+            if self.cur_kind() == "ident"
+                key = "(str " + qs(self.cur_norm()) + ")"
+                self.advance()
+            else
+                key = self.parse_expression()
+                if self.failed == true
+                    return ""
+                end
+            end
+            self.skip_nl()
+            if self.at("delim::") == true or self.at("op:=") == true
+                self.advance()
+            else
+                self.fail_here()
+                return ""
+            end
+            self.skip_nl()
+            let val = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+            if self.at("keyword:for") == true
+                return self.parse_map_comprehension(key, val)
+            end
+            let ent = "(" + key + " " + val + ")"
+            if items == ""
+                items = ent
+                kinds = "n"
+            else
+                items = items + " " + ent
+                kinds = kinds + "n"
+            end
         end
         self.skip_nl()
         if self.at("delim:,") == true
@@ -2355,7 +2485,126 @@ function Parser.parse_map_literal(self) -> string
         end
     end
     self.advance()
-    return "(map (" + items + "))"
+    if kinds == ""
+        return "(map ())"
+    end
+    let has_spread = 0
+    let i = 0
+    while i < len(kinds)
+        if char_at(kinds, i) == "s"
+            has_spread = 1
+        end
+        i += 1
+    end
+    if has_spread == false
+        return "(map (" + items + "))"
+    end
+    # Spread desugar: __alya_spread_map_N(__k_0, __v_0, ...).
+    let nm = "__alya_spread_map_" + int_to_dec(self.lam)
+    let elems = sexpr_split_top(items)
+    let params = ""
+    let args = ""
+    let body = "(block (let \"__map_res\" _ (call " + qs("map") + " ())))"
+    let k = 0
+    while k < len(elems)
+        if char_at(kinds, k) == "s"
+            let ma = "__m_" + int_to_dec(k)
+            let ka = "__k_it_" + int_to_dec(k)
+            let va = "__v_it_" + int_to_dec(k)
+            if params == ""
+                params = qs(ma)
+                args = elems[k]
+            else
+                params = params + " " + qs(ma)
+                args = args + " " + elems[k]
+            end
+            body = body + " (foreach " + qs(ka) + " " + qs(va) + " (ident " + qs(ma) + ") (block (index-assign (ident \"__map_res\") (ident " + qs(ka) + ") (ident " + qs(va) + "))))"
+        else
+            let kv = sexpr_split_top(elems[k][1..len(elems[k]) - 1])
+            let ka = "__k_" + int_to_dec(k)
+            let va = "__v_" + int_to_dec(k)
+            if params == ""
+                params = qs(ka) + " " + qs(va)
+                args = kv[0] + " " + kv[1]
+            else
+                params = params + " " + qs(ka) + " " + qs(va)
+                args = args + " " + kv[0] + " " + kv[1]
+            end
+            body = body + " (index-assign (ident \"__map_res\") (ident " + qs(ka) + ") (ident " + qs(va) + "))"
+        end
+        k += 1
+    end
+    body = body + " (return (ident \"__map_res\")))"
+    # params/ptypes/defaults parallel: one "_" per param.
+    let np = len(sexpr_split_top(params))
+    let td = ""
+    let q = 0
+    while q < np
+        if td == ""
+            td = "_"
+        else
+            td = td + " _"
+        end
+        q += 1
+    end
+    self.spill.push("(function " + qs(nm) + " (" + params + ") (" + td + ") _ (" + td + ") () () " + body + ")")
+    self.lam += 1
+    return "(call " + qs(nm) + " (" + args + "))"
+end
+
+# {k: v for x[, y] in iter (if cond)?} — key/val already parsed.
+function Parser.parse_map_comprehension(self, key: string, val: string) -> string
+    self.advance()
+    if self.cur_kind() != "ident"
+        self.fail_here()
+        return ""
+    end
+    let var = self.cur_norm()
+    self.advance()
+    let vvar = "_"
+    if self.at("delim:,") == true
+        self.advance()
+        if self.cur_kind() != "ident"
+            self.fail_here()
+            return ""
+        end
+        vvar = qs(self.cur_norm())
+        self.advance()
+    end
+    if self.eat("keyword:in") == false
+        self.fail_here()
+        return ""
+    end
+    let it = self.parse_expression()
+    if self.failed == true
+        return ""
+    end
+    let filt = ""
+    if self.at("keyword:if") == true
+        self.advance()
+        filt = self.parse_expression()
+        if self.failed == true
+            return ""
+        end
+    end
+    if self.eat("delim:}") == false
+        self.fail_here()
+        return ""
+    end
+    let nm = "__alya_comp_map_" + int_to_dec(self.lam)
+    # Map-comprehension key quirk: String keys become Identifiers.
+    let kk = key
+    if len(key) > 6 and key[0..5] == "(str "
+        kk = "(ident " + key[5..len(key) - 1] + ")"
+    end
+    let assign = "(index-assign (ident \"__comp_map_res\") " + kk + " " + val + ")"
+    if filt != ""
+        assign = "(if " + filt + " (block " + assign + ") _)"
+    end
+    let fnbody = "(block (let \"__comp_map_res\" _ (call " + qs("map") + " ())) (foreach " + qs(var) + " " + vvar + " " + it + " (block " + assign + ")) (return (ident \"__comp_map_res\")))"
+    self.spill.push("(function " + qs(nm) + " () () _ () () () " + fnbody + ")")
+    self.lam += 1
+    return "(call " + qs(nm) + " ())"
 end
 
 function Parser.peek_kind_at(self, k: int) -> string
@@ -2505,7 +2754,7 @@ function Parser.parse_statement(self)
     elif k == "keyword" and nm == "spawn"
         self.parse_spawn()
     elif k == "keyword" and nm == "select"
-        self.fail_here()
+        self.parse_select()
     elif (k == "ident" or k == "keyword") and nm == "guard"
         if self.peek_kind() == "op" and (self.peek_norm() == "=" or self.peek_norm() == "+=" or self.peek_norm() == "-=" or self.peek_norm() == "*=" or self.peek_norm() == "/=" or self.peek_norm() == "%=" or self.peek_norm() == "&=" or self.peek_norm() == "|=" or self.peek_norm() == "^=" or self.peek_norm() == "<<=" or self.peek_norm() == ">>=")
             self.parse_ident_statement()
@@ -3505,6 +3754,10 @@ function Parser.parse_block_until(self, stops: string) -> string
     let n0 = len(self.out)
     while self.cur_kind() != "eof"
         if self.cur_kind() == "keyword" and stops_contains(stops, self.cur_norm()) == true
+            break
+        end
+        # Companion stop for closure bodies inside call parens.
+        if stops_contains(stops, "delim_paren") == true and self.at("delim:)") == true
             break
         end
         self.parse_statement()
@@ -4766,7 +5019,7 @@ function Parser.parse_spawn(self)
         let inner = e[6..len(e) - 1]
         let parts = sexpr_split_top(inner)
         if len(parts) == 2
-            let args = sexpr_split_top(parts[1])
+            let args = sexpr_split_top(parts[1][1..len(parts[1]) - 1])
             # parts[0] is the quoted callee name: rewrap as identifier.
             let recv = "(ident " + parts[0] + ")"
             if len(args) == 0
@@ -4777,8 +5030,22 @@ function Parser.parse_spawn(self)
                 self.emit_stmt("(expr (call " + qs("spawn") + " (" + recv + " " + args[0] + ")))")
                 return
             end
-            # Multi-arg spawn needs a thunk spill: deferred (slice 2).
-            self.fail_here()
+            # Multi-arg spawn packs args into __pack via a thunk.
+            let nm = "__alya_spawn_thunk_" + int_to_dec(self.lam)
+            let idxs = ""
+            let i = 0
+            while i < len(args)
+                let ix = "(index (ident \"__pack\") (num " + int_to_dec(i) + "))"
+                if idxs == ""
+                    idxs = ix
+                else
+                    idxs = idxs + " " + ix
+                end
+                i += 1
+            end
+            self.spill.push("(function " + qs(nm) + " (" + qs("__pack") + ") (_) _ (_) () () (block (expr (call " + parts[0] + " (" + idxs + ")))))")
+            self.lam += 1
+            self.emit_stmt("(expr (call " + qs("spawn") + " ((ident " + qs(nm) + ") (array " + parts[1] + "))))")
             return
         end
     end
@@ -6935,4 +7202,368 @@ function when_classify_destructure(ps: string) -> string
         return ""
     end
     return ""
+end
+
+# --- Spill templates: closures, anonymous functions, comprehensions ---
+# Synthetic `__alya_*` functions append to spill[] (emitted after the
+# program, mirroring lambda_functions drain). Counter is self.lam.
+
+function Parser.parse_closure_body(self, ps: string, ts: string) -> string
+    let ret = "_"
+    if self.at("op:->") == true
+        self.advance()
+        ret = self.parse_type_ann()
+        if self.failed == true
+            return ""
+        end
+        ret = qtype(ret)
+    end
+    if self.at("op:=>") == true
+        self.advance()
+        if self.cur_kind() == "newline"
+            self.skip_nl()
+            let body = self.parse_block_until("end|delim_paren|eof")
+            if self.failed == true
+                return ""
+            end
+            if self.at("keyword:end") == true
+                self.advance()
+            end
+            let nm = "__alya_lambda_" + int_to_dec(self.lam)
+            let dd = self.closure_defaults(ps)
+            self.spill.push("(function " + qs(nm) + " (" + ps + ") (" + ts + ") " + ret + " (" + dd + ") () () " + body + ")")
+            self.lam += 1
+            return "(ident " + qs(nm) + ")"
+        end
+        let e = self.parse_expression()
+        if self.failed == true
+            return ""
+        end
+        let nm = "__alya_lambda_" + int_to_dec(self.lam)
+        let dd = self.closure_defaults(ps)
+        self.spill.push("(function " + qs(nm) + " (" + ps + ") (" + ts + ") " + ret + " (" + dd + ") () () (block (return " + e + ")))")
+        self.lam += 1
+        return "(ident " + qs(nm) + ")"
+    end
+    self.skip_nl()
+    let body = self.parse_block_until("end|delim_paren|eof")
+    if self.failed == true
+        return ""
+    end
+    if self.at("keyword:end") == true
+        self.advance()
+    end
+    let nm = "__alya_lambda_" + int_to_dec(self.lam)
+    let dd = self.closure_defaults(ps)
+    self.spill.push("(function " + qs(nm) + " (" + ps + ") (" + ts + ") " + ret + " (" + dd + ") () () " + body + ")")
+    self.lam += 1
+    return "(ident " + qs(nm) + ")"
+end
+
+# N "_" defaults for the joined params string.
+function Parser.closure_defaults(self, ps: string) -> string
+    if ps == ""
+        return ""
+    end
+    let items = sexpr_split_top(ps)
+    let dd = ""
+    let i = 0
+    while i < len(items)
+        if dd == ""
+            dd = "_"
+        else
+            dd = dd + " _"
+        end
+        i += 1
+    end
+    return dd
+end
+
+function Parser.parse_anonymous_function(self) -> string
+    if self.eat("delim:(") == false
+        self.fail_here()
+        return ""
+    end
+    let params = ""
+    let ptypes = ""
+    let defaults = ""
+    while self.at("delim:)") == false
+        if self.cur_kind() == "eof"
+            self.fail_here()
+            return ""
+        end
+        let is_rest = 0
+        if self.at("delim:...") == true or self.at("delim:..") == true
+            self.advance()
+            is_rest = 1
+        end
+        let pn = ""
+        if self.cur_kind() == "ident"
+            pn = self.cur_norm()
+            self.advance()
+        elif self.at("keyword:self") == true
+            pn = "self"
+            self.advance()
+        else
+            self.fail_here()
+            return ""
+        end
+        let pt = "_"
+        if self.at("delim::") == true
+            self.advance()
+            pt = self.parse_type_ann()
+            if self.failed == true
+                return ""
+            end
+            if is_rest == true
+                pt = "..." + pt
+            end
+        elif is_rest == true
+            pt = "..."
+        end
+        let df = "_"
+        if is_rest == true
+            df = "(array ())"
+        elif self.at("op:=") == true
+            self.advance()
+            df = self.parse_expression()
+            if self.failed == true
+                return ""
+            end
+        end
+        if params == ""
+            params = qs(pn)
+            ptypes = qtype(pt)
+            defaults = df
+        else
+            params = params + " " + qs(pn)
+            ptypes = ptypes + " " + qtype(pt)
+            defaults = defaults + " " + df
+        end
+        if self.at("delim:,") == true
+            self.advance()
+        end
+    end
+    self.advance()
+    let ret = "_"
+    if self.at("op:->") == true
+        self.advance()
+        ret = self.parse_type_ann()
+        if self.failed == true
+            return ""
+        end
+        ret = qtype(ret)
+    end
+    self.skip_nl()
+    let nm = "__alya_lambda_" + int_to_dec(self.lam)
+    if self.at("op:=>") == true
+        self.advance()
+        if self.cur_kind() == "newline"
+            self.skip_nl()
+            let body = self.parse_block_until("end|delim_paren|eof")
+            if self.failed == true
+                return ""
+            end
+            if self.at("keyword:end") == true
+                self.advance()
+            end
+            self.spill.push("(function " + qs(nm) + " (" + params + ") (" + ptypes + ") " + ret + " (" + defaults + ") () () " + body + ")")
+            self.lam += 1
+            return "(ident " + qs(nm) + ")"
+        end
+        let e = self.parse_expression()
+        if self.failed == true
+            return ""
+        end
+        self.spill.push("(function " + qs(nm) + " (" + params + ") (" + ptypes + ") " + ret + " (" + defaults + ") () () (block (return " + e + ")))")
+        self.lam += 1
+        return "(ident " + qs(nm) + ")"
+    end
+    let body = self.parse_block_until("end|delim_paren|eof")
+    if self.failed == true
+        return ""
+    end
+    if self.eat("keyword:end") == false
+        self.fail_here()
+        return ""
+    end
+    self.spill.push("(function " + qs(nm) + " (" + params + ") (" + ptypes + ") " + ret + " (" + defaults + ") () () " + body + ")")
+    self.lam += 1
+    return "(ident " + qs(nm) + ")"
+end
+
+# select desugar: polled loop over try_recv cases with optional
+# timeout/else (mirrors the Rust template statement for statement).
+function Parser.parse_select(self)
+    self.advance()
+    self.skip_nl()
+    let ncases = 0
+    let case_ops = []
+    let case_vars = []
+    let case_bodies = []
+    let has_timeout = 0
+    let timeout_expr = ""
+    let timeout_body = ""
+    let has_else = 0
+    let else_body = ""
+    while self.cur_kind() != "keyword" or self.cur_norm() != "end"
+        if self.cur_kind() == "eof"
+            self.fail_here()
+            return
+        end
+        self.skip_nl()
+        if self.cur_kind() == "keyword" and self.cur_norm() == "end"
+            break
+        end
+        if self.cur_kind() == "eof"
+            break
+        end
+        if self.cur_kind() == "ident" and self.cur_norm() == "case"
+            self.advance()
+            let vn = "_"
+            if self.cur_kind() == "ident" and self.peek_kind() == "op" and self.peek_norm() == "="
+                vn = qs(self.cur_norm())
+                self.advance()
+                self.advance()
+            end
+            let cop = self.parse_expression()
+            if self.failed == true
+                return
+            end
+            if len(cop) > 13 and cop[0..13] == "(call \"recv\" "
+                cop = "(call " + qs("try_recv") + " " + cop[13..len(cop)]
+            end
+            self.skip_nl()
+            let n0 = len(self.out)
+            while self.cur_kind() != "eof"
+                if self.cur_kind() == "keyword" and (self.cur_norm() == "end" or self.cur_norm() == "else")
+                    break
+                end
+                if self.cur_kind() == "ident" and (self.cur_norm() == "case" or self.cur_norm() == "timeout")
+                    break
+                end
+                self.parse_statement()
+                if self.failed == true
+                    return
+                end
+                self.skip_nl()
+            end
+            let cb = block_of_range(self, n0)
+            while len(self.out) > n0
+                self.out.pop()
+            end
+            case_ops.push(cop)
+            case_vars.push(vn)
+            case_bodies.push(cb)
+            ncases += 1
+        elif self.cur_kind() == "ident" and self.cur_norm() == "timeout"
+            self.advance()
+            timeout_expr = self.parse_expression()
+            if self.failed == true
+                return
+            end
+            self.skip_nl()
+            let n0 = len(self.out)
+            while self.cur_kind() != "eof"
+                if self.cur_kind() == "keyword" and (self.cur_norm() == "end" or self.cur_norm() == "else")
+                    break
+                end
+                if self.cur_kind() == "ident" and (self.cur_norm() == "case" or self.cur_norm() == "timeout")
+                    break
+                end
+                self.parse_statement()
+                if self.failed == true
+                    return
+                end
+                self.skip_nl()
+            end
+            timeout_body = block_of_range(self, n0)
+            while len(self.out) > n0
+                self.out.pop()
+            end
+            has_timeout = 1
+        elif self.at("keyword:else") == true
+            self.advance()
+            self.skip_nl()
+            let n0 = len(self.out)
+            while self.cur_kind() != "eof"
+                if self.cur_kind() == "keyword" and self.cur_norm() == "end"
+                    break
+                end
+                self.parse_statement()
+                if self.failed == true
+                    return
+                end
+                self.skip_nl()
+            end
+            else_body = block_of_range(self, n0)
+            while len(self.out) > n0
+                self.out.pop()
+            end
+            has_else = 1
+        else
+            self.fail_here()
+            return
+        end
+    end
+    if self.eat("keyword:end") == false
+        self.fail_here()
+        return
+    end
+    let sid = int_to_dec(self.lam)
+    self.lam += 1
+    let mv = "__sel_matched_" + sid
+    let sv = "__sel_start_" + sid
+    let tv = "__sel_timeout_" + sid
+    self.emit_stmt("(let " + qs(mv) + " \"int\" (num 0))")
+    if has_timeout == true
+        self.emit_stmt("(let " + qs(sv) + " \"int\" (call " + qs("clock_ms") + " ()))")
+        self.emit_stmt("(let " + qs(tv) + " \"int\" " + timeout_expr + ")")
+    end
+    let loopbody = ""
+    let i = 0
+    while i < ncases
+        let vv = "__sel_val_" + sid + "_" + int_to_dec(i)
+        let pre = "(let " + qs(vv) + " _ " + case_ops[i] + ")"
+        let inner = ""
+        if case_vars[i] != "_"
+            inner = "(let " + case_vars[i] + " _ (ident " + qs(vv) + "))"
+        end
+        let bi = case_bodies[i]
+        if bi != "(block )"
+            if inner == ""
+                inner = bi[7..len(bi) - 1]
+            else
+                inner = inner + " " + bi[7..len(bi) - 1]
+            end
+        end
+        inner = inner + " (assign " + qs(mv) + " (num 1))"
+        let cif = "(if (binop != (ident " + qs(vv) + ") (null)) (block " + inner + ") _)"
+        loopbody = loopbody + " (if (binop == (ident " + qs(mv) + ") (num 0)) (block " + pre + " " + cif + ") _)"
+        i += 1
+    end
+    let after = ""
+    if has_timeout == true
+        let elapsed = "(binop - (call " + qs("clock_ms") + " ()) (ident " + qs(sv) + "))"
+        let tcond = "(binop >= " + elapsed + " (ident " + qs(tv) + "))"
+        let tb = timeout_body
+        if tb == "(block )"
+            tb = ""
+        else
+            tb = tb[7..len(tb) - 1] + " "
+        end
+        after = "(if " + tcond + " (block " + tb + "(assign " + qs(mv) + " (num 1))) (block (expr (call " + qs("sleep") + " ((num 1))))))"
+    elif has_else == true
+        let eb = else_body
+        if eb == "(block )"
+            eb = ""
+        else
+            eb = eb[7..len(eb) - 1] + " "
+        end
+        after = eb + "(assign " + qs(mv) + " (num 1))"
+    else
+        after = "(expr (call " + qs("sleep") + " ((num 1))))"
+    end
+    loopbody = loopbody + " (if (binop == (ident " + qs(mv) + ") (num 0)) (block " + after + ") _)"
+    self.emit_stmt("(while (binop == (ident " + qs(mv) + ") (num 0)) (block" + loopbody + "))")
 end

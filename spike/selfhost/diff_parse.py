@@ -34,10 +34,6 @@ PARSER = str(ROOT / "spike" / "selfhost" / "parser.alya")
 # Files whose Rust parse SUCCEEDS but needs slice-2 constructs.
 # Format: substring -> reason. Revisit as the Alya parser grows.
 SKIP_SUBSTR = {
-    "collections.alya": "comprehensions (slice 3)",
-    "functions.alya": "closures (slice 3)",
-    "concurrency.alya": "closures/spawn (slice 3)",
-    "stdlib_contracts.alya": "closures/spawn (slice 3)",
 }
 
 FLOAT_RE = re.compile(r"\(float ([^()]+)\)")
