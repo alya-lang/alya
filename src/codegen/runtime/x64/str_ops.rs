@@ -49,12 +49,22 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    inc %rdi\n");
     out.push_str("    jmp .L_x64_copy2\n");
     out.push_str(".L_x64_concat_end:\n");
+    // Zero-byte results canonicalize to the rodata empty (#92): a NUL
+    // first byte in a heap region is ambiguous to the runtime
+    // classifier, but the rodata empty is unambiguous. rax still
+    // holds the buffer start here; skip the cursor commit.
+    out.push_str("    cmp %rax, %rdi\n");
+    out.push_str("    je .L_x64_concat_empty\n");
     out.push_str("    movb $0, (%rdi)\n");
     out.push_str("    inc %rdi\n");
     out.push_str("    sub %r8, %rdi\n");
     out.push_str("    add $7, %rdi\n");
     out.push_str("    and $-8, %rdi\n");
     out.push_str("    mov %rdi, (%r9)\n");
+    out.push_str("    jmp .L_x64_concat_ret\n");
+    out.push_str(".L_x64_concat_empty:\n");
+    out.push_str("    lea alya_str_empty(%rip), %rax\n");
+    out.push_str(".L_x64_concat_ret:\n");
     out.push_str("    pop %rbx\n");
     out.push_str("    pop %rdi\n");
     out.push_str("    pop %rsi\n");
@@ -92,6 +102,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    inc %r13\n");
     out.push_str("    jmp .L_x64_str_store_len\n");
     out.push_str(".L_x64_str_store_bump:\n");
+    // Zero-length inputs canonicalize to the rodata empty (#92),
+    // same rule as the other producers; also saves stable space.
+    out.push_str("    test %r13, %r13\n");
+    out.push_str("    jz .L_x64_str_store_empty\n");
     out.push_str("    lea 1(%r13), %rax\n");
     out.push_str("    add $7, %rax\n");
     out.push_str("    and $-8, %rax\n");
@@ -108,6 +122,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    cld\n");
     out.push_str("    rep movsb\n");
     out.push_str("    mov %rbx, %rax\n");
+    out.push_str("    jmp .L_x64_str_store_ret\n");
+    out.push_str(".L_x64_str_store_empty:\n");
+    out.push_str("    lea alya_str_empty(%rip), %rax\n");
     out.push_str("    jmp .L_x64_str_store_ret\n");
     out.push_str(".L_x64_str_store_oom:\n");
     if matches!(os, OperatingSystem::Windows) {

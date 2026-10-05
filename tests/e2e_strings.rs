@@ -818,6 +818,9 @@ fn test_e2e_dynamic_empty_string_classification() {
     // worked; only the runtime classifier was wrong.
     let code = r#"
 import "std/str" as str
+function ident(x)
+    return x
+end
 let raw = str.split("1|50|newline|\n", chr(10))
 let e = raw[0][13..13]
 say len(e)
@@ -842,6 +845,11 @@ if trim("   ") == ""
 else
     say "trim-full"
 end
+say (e + "") == ""
+say ("" + e) == ""
+say ident(e + "") == ""
+let r = e + ""
+say ident(r) == ""
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(
@@ -850,7 +858,7 @@ end
             code, output
         );
         assert_eq!(
-            output, "0\neq-empty\n\nx\n\n3\ncell-empty\n[]\ntrim-empty\n",
+            output, "0\neq-empty\n\nx\n\n3\ncell-empty\n[]\ntrim-empty\n1\n1\n1\n1\n",
             "Got: {}",
             output
         );

@@ -39,12 +39,20 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    strb w2, [x22], #1\n");
     out.push_str("    b .L_arm_copy2\n");
     out.push_str(".L_arm_concat_end:\n");
+    // Zero-byte results canonicalize to the rodata empty (#92).
+    out.push_str("    add x2, x19, x21\n");
+    out.push_str("    cmp x2, x22\n");
+    out.push_str("    b.eq .L_arm_concat_empty\n");
     out.push_str("    strb wzr, [x22], #1\n");
     out.push_str("    sub x2, x22, x19\n");
     out.push_str("    add x2, x2, #7\n");
     out.push_str("    and x2, x2, #~7\n");
     out.push_str("    str x2, [x20]\n");
     out.push_str("    add x0, x19, x21\n");
+    out.push_str("    b .L_arm_concat_ret\n");
+    out.push_str(".L_arm_concat_empty:\n");
+    emit_adrp_add(out, "x0", "alya_str_empty", os);
+    out.push_str(".L_arm_concat_ret:\n");
     out.push_str("    ldp x21, x22, [sp], #16\n");
     out.push_str("    ldp x19, x20, [sp], #16\n");
     out.push_str("    ldp x29, x30, [sp], #16\n");
@@ -77,6 +85,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x20, x20, #1\n");
     out.push_str("    b .L_arm64_str_store_len\n");
     out.push_str(".L_arm64_str_store_bump:\n");
+    // Zero-length inputs canonicalize to the rodata empty (#92),
+    // same rule as the other producers; also saves stable space.
+    out.push_str("    cbz x20, .L_arm64_str_store_empty\n");
     out.push_str("    add x0, x20, #1\n");
     out.push_str("    add x0, x0, #7\n");
     out.push_str("    and x0, x0, #-8\n");
@@ -100,6 +111,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    b.ne .L_arm64_str_store_copy\n");
     out.push_str("    sub x0, x6, x20\n");
     out.push_str("    sub x0, x0, #1\n");
+    out.push_str("    b .L_arm64_str_store_ret\n");
+    out.push_str(".L_arm64_str_store_empty:\n");
+    emit_adrp_add(out, "x0", "alya_str_empty", os);
     out.push_str("    b .L_arm64_str_store_ret\n");
     out.push_str(".L_arm64_str_store_oom:\n");
     emit_adrp_add(out, "x0", "alya_str_stable_oom", os);
