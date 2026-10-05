@@ -11,6 +11,6 @@ checksum = "sha256:c23f3833714350d491d820399f2b1fc1d01ae3b6954aa45d7435fe4513c03
 [[package]]
 name = "url"
 version = "0.1.0"
-source = "git:https://github.com/alya-lang/url?branch=main#0a3e95cd4ee1fae368de3b79262aa56c826769c7"
+source = "git:https://github.com/alya-lang/url?branch=main#8eb7f528114ff4e77082342a77a06abbb7208648"
 entry = ".alya/packages/url/src/lib.alya"
-checksum = "sha256:43ebdb4cb130f58ac1b0486322f8c15af3635d05f1f10899b559b5c57049274b"
+checksum = "sha256:1c3d5a5676cb364af76c05f482b9fbe25977605c7ce818e90c96a707e4ff7ee2"
