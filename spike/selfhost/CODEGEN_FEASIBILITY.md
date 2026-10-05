@@ -183,6 +183,72 @@ after `push %rbp` (every backend exe died `0xC0000005`; fixed to
 vars, fault cases (no crash-handler runtime in this slice).
 Step 2 (thin end-to-end slice, x64) is DONE as scoped.
 
+## Step 3 decision analysis (2026-10-05): full port vs hybrid vs stop
+
+Measured inputs (2026-10-05, `alya 0.0.20`, Windows x64):
+
+| Area | Rust LOC | Alya status |
+|---|---|---|
+| lexer + parser + ast | ~15.3k (5+15+3 files) | DONE, ~7.9k lines, 44/44 + 44/44 differential |
+| codegen (analysis+emission+runtime+arch) | ~53.5k (81 files) | thin slice only (say/int/let/fn, 19/19) |
+| driver (cli/build/toolchain/run) | ~3.9k | untouched |
+| tools (fmt/lint/lsp/pkg/repl/...) | ~33.1k | untouched |
+| total compiler | ~109k (174 files) | — |
+
+Frontend perf on `stdlib/test.alya` (32 KB, 4208 tokens): Rust
+`alya ast` ~18 ms; prebuilt Alya lexer ~20 ms + prebuilt Alya
+parser ~1500 ms (~80x). The parser gap is partly self-inflicted
+(S-expr building uses `+=` concat, proven O(n²) in 1a; join
+discipline would narrow it), but a per-file seconds-scale tax
+remains for any Alya-frontend flow, plus a 2-stage bootstrap build.
+
+### Option A: full port (inference + codegen + driver + tools in Alya)
+
+- Cost: ~90k Rust LOC remaining → est. 40–50k Alya lines at the
+  parser's 0.5x ratio. Multi-month even sliced; the analysis core
+  (~12k: CallIndex/inference/DCE) is emergent — divergence is
+  silent miscompile, fidelity only differential.
+- Benefit: true self-hosting (no Rust to build Alya), maximum
+  dogfooding, language credibility.
+- Risk: dual-arch exactness, permanent two-implementation drift
+  burden, slowest payoff.
+
+### Option B: hybrid (Alya frontend → S-expr → existing Rust pipeline)
+
+- Shape: lower Alya-produced S-expr to Rust AST nodes, then run
+  imports/expansion/CallIndex/typecheck/DCE/inference/codegen
+  UNCHANGED. Bridge is mechanical (~2–4k Rust lines); spans need a
+  dump-format extension (positions already tracked in parser.alya).
+- Cost: weeks (bridge + spans + 2-stage build + Tst/Test wiring),
+  plus permanent 3-place sync discipline (Rust AST change → dump +
+  Alya parser + Rust reader) enforced by the existing differential
+  harnesses, plus the frontend perf tax above.
+- Benefit: Alya frontend in PRODUCTION use (largest real Alya
+  program dogfooded daily); reuses 100% of spike work; reversible
+  (flag-gated); de-risks any later full port.
+- Acceptance before default-flip: diff_lex/diff_parse green over
+  all Lib/* + App/* via the ecosystem runner; span parity on
+  diagnostics; perf within budget after 1a-style parser
+  optimization.
+
+### Option C: stop (spike complete, no production commitment)
+
+- Cost: zero. Artifacts stay as regression guards (wire
+  diff_lex/diff_parse/diff_emit into CI cheaply or leave manual).
+- Benefit: findings already paid for themselves (#91, emission
+  discipline, feasibility data).
+- Cost of stopping: the bootstrap loop and hybrid path stay
+  hypothetical.
+
+### Recommendation: B, staged, with stop criteria
+
+Ship the hybrid behind a flag (default off), promote to default
+only on the acceptance gates above. Revisit A vs C once hybrid is
+green: A only with explicit strategic will + resourcing, C if the
+perf tax or sync burden proves uneconomic. Do NOT start A
+directly — its emergent core is exactly the risk the spikes
+quarantined.
+
 ## Recommendation (staged, no full-port commitment)
 
 1. **Capability spikes in Alya** (days, kill the unknowns first):
