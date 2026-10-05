@@ -375,6 +375,25 @@ impl CodeGen {
                     self.output.push('\n');
                     return;
                 }
+                // #94: arithmetic over maybe-strings dispatches to concat
+                // at runtime (see generate_dynamic_add), but the optimistic
+                // is_number rule still types the result int here. Route
+                // through str() so the value prints, not the pointer.
+                // Ints render byte-identically either way.
+                if matches!(op, BinaryOp::Add)
+                    && Self::add_may_hold_string(left, &self.ctx.variables)
+                    && Self::add_may_hold_string(right, &self.ctx.variables)
+                {
+                    self.generate_say(&Expr::Call {
+                        name: "str".into(),
+                        args: vec![Expr::Binary {
+                            left: left.clone(),
+                            op: *op,
+                            right: right.clone(),
+                        }],
+                    });
+                    return;
+                }
                 let is_flt = is_float_expr(expr, &self.ctx.variables);
                 self.generate_expression(expr);
 

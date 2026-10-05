@@ -538,26 +538,40 @@ impl CodeGen {
                     }
                     if let Expr::Identifier(name) = &**right {
                         if let Some(&VarType::Number(offset)) = self.ctx.variables.get(name) {
-                            self.generate_expression(left);
-                            if is_strict_dynamic_op(op)
-                                && is_tag_carrying_read(left, &self.ctx.variables)
+                            // #94: a Number-typed local without a var_is_int
+                            // marker is default-typed (unknown calls,
+                            // slices of dynamics) and may hold a string;
+                            // Add on it must reach dynamic dispatch when
+                            // the other side may too. Other ops keep the
+                            // fast path (identical results).
+                            if *op != BinaryOp::Add
+                                || self
+                                    .ctx
+                                    .variables
+                                    .contains_key(&format!("var_is_int:{}", name))
+                                || !Self::add_may_hold_string(left, &self.ctx.variables)
                             {
-                                arch::emit_mixed_float_check(&mut self.output, self.arch);
+                                self.generate_expression(left);
+                                if is_strict_dynamic_op(op)
+                                    && is_tag_carrying_read(left, &self.ctx.variables)
+                                {
+                                    arch::emit_mixed_float_check(&mut self.output, self.arch);
+                                }
+                                arch::emit_load_var_to_scratch(
+                                    &mut self.output,
+                                    self.arch,
+                                    offset,
+                                    false,
+                                );
+                                arch::emit_binary_op_reg(
+                                    &mut self.output,
+                                    self.arch,
+                                    *op,
+                                    is_unsigned_expr(left, &self.ctx.variables)
+                                        || is_unsigned_expr(right, &self.ctx.variables),
+                                );
+                                return;
                             }
-                            arch::emit_load_var_to_scratch(
-                                &mut self.output,
-                                self.arch,
-                                offset,
-                                false,
-                            );
-                            arch::emit_binary_op_reg(
-                                &mut self.output,
-                                self.arch,
-                                *op,
-                                is_unsigned_expr(left, &self.ctx.variables)
-                                    || is_unsigned_expr(right, &self.ctx.variables),
-                            );
-                            return;
                         }
                     }
                     let is_commutative = matches!(
@@ -590,26 +604,36 @@ impl CodeGen {
                         }
                         if let Expr::Identifier(name) = &**left {
                             if let Some(&VarType::Number(offset)) = self.ctx.variables.get(name) {
-                                self.generate_expression(right);
-                                if is_strict_dynamic_op(op)
-                                    && is_tag_carrying_read(right, &self.ctx.variables)
+                                // #94: same default-typing guard as the
+                                // right-Identifier fast path above.
+                                if *op != BinaryOp::Add
+                                    || self
+                                        .ctx
+                                        .variables
+                                        .contains_key(&format!("var_is_int:{}", name))
+                                    || !Self::add_may_hold_string(right, &self.ctx.variables)
                                 {
-                                    arch::emit_mixed_float_check(&mut self.output, self.arch);
+                                    self.generate_expression(right);
+                                    if is_strict_dynamic_op(op)
+                                        && is_tag_carrying_read(right, &self.ctx.variables)
+                                    {
+                                        arch::emit_mixed_float_check(&mut self.output, self.arch);
+                                    }
+                                    arch::emit_load_var_to_scratch(
+                                        &mut self.output,
+                                        self.arch,
+                                        offset,
+                                        false,
+                                    );
+                                    arch::emit_binary_op_reg(
+                                        &mut self.output,
+                                        self.arch,
+                                        *op,
+                                        is_unsigned_expr(left, &self.ctx.variables)
+                                            || is_unsigned_expr(right, &self.ctx.variables),
+                                    );
+                                    return;
                                 }
-                                arch::emit_load_var_to_scratch(
-                                    &mut self.output,
-                                    self.arch,
-                                    offset,
-                                    false,
-                                );
-                                arch::emit_binary_op_reg(
-                                    &mut self.output,
-                                    self.arch,
-                                    *op,
-                                    is_unsigned_expr(left, &self.ctx.variables)
-                                        || is_unsigned_expr(right, &self.ctx.variables),
-                                );
-                                return;
                             }
                         }
                     }
@@ -698,13 +722,28 @@ impl CodeGen {
                         arch::emit_mixed_float_check(&mut self.output, self.arch);
                     }
                     self.ctx.stack_offset -= temp_offset;
-                    arch::emit_binary_op(
-                        &mut self.output,
-                        self.arch,
-                        *op,
-                        is_unsigned_expr(left, &self.ctx.variables)
-                            || is_unsigned_expr(right, &self.ctx.variables),
-                    );
+                    // Dynamic string add (#94): either side may hold a
+                    // string at runtime while neither is proven (literals,
+                    // typed vars and known calls keep their fast paths).
+                    // Blind int-add miscompiles those into pointer
+                    // arithmetic (silent garbage, downstream segfaults).
+                    // Classify both; concat iff both are strings, else the
+                    // historical int-add bit-for-bit. Nested optimistic
+                    // arithmetic dispatches too (it may itself be string).
+                    if *op == BinaryOp::Add
+                        && Self::add_may_hold_string(left, &self.ctx.variables)
+                        && Self::add_may_hold_string(right, &self.ctx.variables)
+                    {
+                        self.generate_dynamic_add();
+                    } else {
+                        arch::emit_binary_op(
+                            &mut self.output,
+                            self.arch,
+                            *op,
+                            is_unsigned_expr(left, &self.ctx.variables)
+                                || is_unsigned_expr(right, &self.ctx.variables),
+                        );
+                    }
                 }
             }
             Expr::Unary { op, expr } => {
@@ -4417,6 +4456,117 @@ impl CodeGen {
             }
         }
         let _ = os;
+    }
+
+    /// May this `+` operand hold a string at runtime (#94)? Proven
+    /// strings/floats answer directly; proven numbers answer through
+    /// the existing predicate — except Number-typed locals WITHOUT a
+    /// `var_is_int` marker, which are default-typed unknowns (unknown
+    /// calls, slices of dynamics). Arithmetic over maybe-strings may
+    /// itself be one (its inner pair already dispatches at runtime).
+    /// Everything else defers to the existing predicates, so typed
+    /// vars, literals and known calls keep their fast paths. Hot loops
+    /// over int-typed array reads pay one redundant classification
+    /// pair; results are bit-identical, only cycles.
+    pub(crate) fn add_may_hold_string(
+        expr: &Expr,
+        vars: &std::collections::HashMap<String, VarType>,
+    ) -> bool {
+        if is_string_expr(expr, vars) {
+            return true;
+        }
+        if is_float_expr(expr, vars) {
+            return false;
+        }
+        match expr {
+            Expr::Identifier(name) => match vars.get(name) {
+                Some(VarType::Number(_)) => !vars.contains_key(&format!("var_is_int:{}", name)),
+                Some(_) => false,
+                None => true,
+            },
+            Expr::Binary {
+                left,
+                op:
+                    BinaryOp::Add
+                    | BinaryOp::Subtract
+                    | BinaryOp::Multiply
+                    | BinaryOp::Divide
+                    | BinaryOp::Modulo,
+                right,
+            } => {
+                Self::add_may_hold_string(left, vars) || Self::add_may_hold_string(right, vars)
+            }
+            _ => !is_number_expr(expr, vars),
+        }
+    }
+
+    /// Dynamic `+` for two statically-unproven sides (#94). Entry state
+    /// mirrors the generic int path (left pushed in the temp slot, right
+    /// in rax/x0); exit state is identical (temp consumed, result in
+    /// rax/x0). Both values are classified; both-strings concatenates,
+    /// anything else takes the historical integer add bit-for-bit
+    /// (floats stay in the int bucket: ambiguous without tags, and
+    /// unchanged from today). Unsigned-ness is irrelevant to add.
+    pub(crate) fn generate_dynamic_add(&mut self) {
+        let l_int = self.ctx.next_label();
+        let l_end = self.ctx.next_label();
+        match self.arch {
+            Architecture::X64 => {
+                self.output.push_str("    push %rax\n");
+                self.emit_runtime_classify(self.os);
+                self.output.push_str("    push %rax\n");
+                self.output.push_str("    mov 16(%rsp), %rax\n");
+                self.emit_runtime_classify(self.os);
+                self.output
+                    .push_str(&format!("    cmp ${}, %rax\n", KIND_STRING));
+                self.output.push_str(&format!("    jne {}\n", l_int));
+                self.output
+                    .push_str(&format!("    cmp ${}, (%rsp)\n", KIND_STRING));
+                self.output.push_str(&format!("    jne {}\n", l_int));
+                self.output.push_str("    add $8, %rsp\n");
+                self.output.push_str("    pop %rax\n");
+                arch::emit_string_concat_call(
+                    &mut self.output,
+                    self.arch,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+                self.output.push_str(&format!("    jmp {}\n", l_end));
+                self.output.push_str(&format!("{}:\n", l_int));
+                self.output.push_str("    add $8, %rsp\n");
+                self.output.push_str("    pop %rax\n");
+                arch::emit_binary_op(&mut self.output, self.arch, BinaryOp::Add, false);
+                self.output.push_str(&format!("{}:\n", l_end));
+            }
+            Architecture::ARM64 => {
+                self.output.push_str("    str x0, [sp, #-16]!\n");
+                self.emit_runtime_classify(self.os);
+                self.output.push_str("    str x0, [sp, #-16]!\n");
+                self.output.push_str("    ldr x0, [sp, #32]\n");
+                self.emit_runtime_classify(self.os);
+                self.output
+                    .push_str(&format!("    cmp x0, #{}\n", KIND_STRING));
+                self.output.push_str(&format!("    b.ne {}\n", l_int));
+                self.output.push_str("    ldr x0, [sp]\n");
+                self.output
+                    .push_str(&format!("    cmp x0, #{}\n", KIND_STRING));
+                self.output.push_str(&format!("    b.ne {}\n", l_int));
+                self.output.push_str("    add sp, sp, #16\n");
+                self.output.push_str("    ldr x0, [sp], #16\n");
+                arch::emit_string_concat_call(
+                    &mut self.output,
+                    self.arch,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+                self.output.push_str(&format!("    b {}\n", l_end));
+                self.output.push_str(&format!("{}:\n", l_int));
+                self.output.push_str("    add sp, sp, #16\n");
+                self.output.push_str("    ldr x0, [sp], #16\n");
+                arch::emit_binary_op(&mut self.output, self.arch, BinaryOp::Add, false);
+                self.output.push_str(&format!("{}:\n", l_end));
+            }
+        }
     }
 
     pub(crate) fn generate_string_concat(&mut self, left: &Expr, right: &Expr) {

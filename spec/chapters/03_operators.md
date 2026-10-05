@@ -6,6 +6,7 @@
 - `+` (Addition), `-` (Subtraction / Negation), `*` (Multiplication), `/` (Division), `%` (Modulo).
 - Division by zero and modulo by zero trigger a deterministic runtime exception (`DivideByZeroError`), protected at the assembly level by hardware traps or conditional branch checks.
 - Mixed int/float element reads (Chapter 13 §1.2) in arithmetic are a compile-time error: the operation cannot apply to a provably-mixed array (alya-lang/alya#39). Convert explicitly (`float(m[0]) + m[1]`, `int(m[1]) + m[0]`); float- or string-routed operations are exempt.
+- Dynamic `+` dispatch: when neither operand of `+` has a proven static type (literals, typed variables and known calls keep their paths), both values are classified at runtime; two strings concatenate, anything else takes the historical integer addition. In particular `+` never performs pointer arithmetic on strings, nested or otherwise.
 
 ### 1.2 Comparison / Relational Operators
 - `==` (Equality), `!=` (Inequality).

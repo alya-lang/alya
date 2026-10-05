@@ -892,3 +892,46 @@ say "[" + s + "]"
         assert_eq!(output, "[aa]\n[42]\n[0]\n[aa]\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_dynamic_add_dispatch() {
+    // #94: `+` with two statically-unknown operands holding strings
+    // compiled to integer add (pointer arithmetic -> garbage, and a
+    // segfault downstream in strcmp). Both-strings now concatenates;
+    // all other combinations keep the historical int-add bit-for-bit
+    // (ints, literals, floats, nulls). Nested optimistic-arithmetic
+    // dispatches too.
+    let code = r#"
+import "std/str" as str
+function ident(x)
+    return x
+end
+function check(name: string, v: string) -> int
+    say v == ""
+    return 0
+end
+let s = str.split("ab", chr(10))[0]
+let e1 = s[2..2]
+let e2 = s[2..2]
+say e1 + e2
+say (e1 + e2) == ""
+check("x", e1 + e2)
+let a = ident("foo")
+let b = ident("bar")
+say a + b
+let m = ident(40)
+let n = ident(2)
+say m + n
+say m + 8
+say 8 + m
+say ((e1 + e2) + e1) == ""
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "\n1\n1\nfoobar\n42\n48\n48\n1\n", "Got: {}", output);
+    }
+}
