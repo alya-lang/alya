@@ -197,10 +197,18 @@ Measured inputs (2026-10-05, `alya 0.0.20`, Windows x64):
 
 Frontend perf on `stdlib/test.alya` (32 KB, 4208 tokens): Rust
 `alya ast` ~18 ms; prebuilt Alya lexer ~20 ms + prebuilt Alya
-parser ~1500 ms (~80x). The parser gap is partly self-inflicted
-(S-expr building uses `+=` concat, proven O(n²) in 1a; join
-discipline would narrow it), but a per-file seconds-scale tax
-remains for any Alya-frontend flow, plus a 2-stage bootstrap build.
+parser ~28 ms (~54x faster than the 1500 ms first measured — the
+gap was self-inflicted `+=`/char_at accumulation in `load_dump`
+plus per-byte string building in `qs`/`json_decode`, fixed with
+native `str.split` + array-join discipline; re-verified 49/49 +
+54/54 + 63/63 differential on str/test/functions). Total Alya
+frontend ~48 ms vs Rust ~18 ms (~2.7x) — no longer a decision
+factor for hybrid. Caution from the work: an `index_of`-based
+`split3` variant produced byte-identical fields in isolation yet
+deterministically corrupted the full parse (see NOTE in
+`parser.alya:split3`, reverted) — smells like a name-resolution
+or heap-interaction compiler quirk, open question, needs a
+minimal repro before filing.
 
 ### Option A: full port (inference + codegen + driver + tools in Alya)
 
@@ -228,8 +236,8 @@ remains for any Alya-frontend flow, plus a 2-stage bootstrap build.
   (flag-gated); de-risks any later full port.
 - Acceptance before default-flip: diff_lex/diff_parse green over
   all Lib/* + App/* via the ecosystem runner; span parity on
-  diagnostics; perf within budget after 1a-style parser
-  optimization.
+  diagnostics; frontend perf already within budget (~2.7x after
+  the parser join-discipline fix).
 
 ### Option C: stop (spike complete, no production commitment)
 

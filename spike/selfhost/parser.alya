@@ -269,7 +269,8 @@ function escape_cp(cp: int) -> string
 end
 
 function qs(s: string) -> string
-    let out = chr(34)
+    let pieces: string[] = []
+    pieces.push(chr(34))
     let bs = str.bytes_from_string(s)
     let n = len(bs)
     let i = 0
@@ -280,9 +281,9 @@ function qs(s: string) -> string
         end
         if b < 128
             if b == 34 or b == 92 or b < 32
-                out = out + escape_cp(b)
+                pieces.push(escape_cp(b))
             else
-                out = out + chr(b)
+                pieces.push(chr(b))
             end
             i += 1
         else
@@ -300,17 +301,18 @@ function qs(s: string) -> string
                 cp = cp * 64 + bit_and(bs[i + k], 63)
                 k += 1
             end
-            out = out + escape_cp(cp)
+            pieces.push(escape_cp(cp))
             i += w
         end
     end
-    return out + chr(34)
+    pieces.push(chr(34))
+    return pieces.join("")
 end
 
 # Decode a JSON-escaped dump norm into the live value (escapes decoded,
 # other bytes incl. multibyte UTF-8 passed through raw).
 function json_decode(s: string) -> string
-    let out = ""
+    let pieces: string[] = []
     let bs = str.bytes_from_string(s)
     let n = len(bs)
     let i = 0
@@ -319,21 +321,21 @@ function json_decode(s: string) -> string
         if b == 92 and i + 1 < n
             let e = bs[i + 1]
             if e == 110
-                out = out + chr(10)
+                pieces.push(chr(10))
             elif e == 116
-                out = out + chr(9)
+                pieces.push(chr(9))
             elif e == 114
-                out = out + chr(13)
+                pieces.push(chr(13))
             elif e == 98
-                out = out + chr(8)
+                pieces.push(chr(8))
             elif e == 102
-                out = out + chr(12)
+                pieces.push(chr(12))
             elif e == 92
-                out = out + chr(92)
+                pieces.push(chr(92))
             elif e == 34
-                out = out + chr(34)
+                pieces.push(chr(34))
             elif e == 47
-                out = out + chr(47)
+                pieces.push(chr(47))
             elif e == 117
                 let cp = 0
                 let k = 0
@@ -352,17 +354,17 @@ function json_decode(s: string) -> string
                     cp = 65536 + (cp - 55296) * 1024 + (lo - 56320)
                     i += 6
                 end
-                out = out + chr_from_cp(cp)
+                pieces.push(chr_from_cp(cp))
             else
-                out = out + chr(e)
+                pieces.push(chr(e))
             end
             i += 2
         else
-            out = out + chr(b)
+            pieces.push(chr(b))
             i += 1
         end
     end
-    return out
+    return pieces.join("")
 end
 
 # Encode a codepoint as UTF-8 bytes (chr() is ASCII-only on develop).
@@ -804,64 +806,58 @@ function load_dump(path: string) -> DumpRes
     let kind = []
     let norm = []
     let err = ""
-    let cur = ""
-    let i = 0
-    let n = len(src)
-    while i <= n
-        let c = ""
-        if i < n
-            c = char_at(src, i)
+    # BISECT-TEMP-2: line-splitting via concat-built strings (original
+    # shape) to test whether native-split strings behave differently
+    # downstream. Slow; diagnosis only.
+    # BISECT-RESULT: still broken -> line-splitting is NOT the trigger.
+    # Reverted to the native split (fast path); see split3 note below.
+    let raw = str.split(src, chr(10))
+    let li = 0
+    while li < len(raw)
+        let cur = raw[li]
+        # Tolerate CRLF dumps (console/pipeline redirection): a
+        # trailing \r is transport, never token content.
+        if cur != "" and char_at(cur, len(cur) - 1) == "\r"
+            cur = cur[0..len(cur) - 1]
         end
-        if c == "" or c == "\n"
-            # Tolerate CRLF dumps (console/pipeline redirection): a
-            # trailing \r is transport, never token content.
-            if cur != "" and char_at(cur, len(cur) - 1) == "\r"
-                cur = cur[0..len(cur) - 1]
-            end
-            if cur != ""
-                if cur == "\r"
-                    cur = ""
+        if cur != "" and cur != "\r"
+            let f = split3(cur)
+            if len(f) == 4
+                if f[2] == "stats"
+                elif f[2] == "error"
+                    err = cur
                 else
-                    let f = split3(cur)
-                    if len(f) == 4
-                        if f[2] == "stats"
-                            cur = ""
-                        elif f[2] == "error"
-                            err = cur
-                            cur = ""
-                        else
-                            line.push(int(f[0]))
-                            col.push(int(f[1]))
-                            kind.push(f[2])
-                            norm.push(f[3])
-                            cur = ""
-                        end
-                    else
-                        cur = ""
-                    end
+                    line.push(int(f[0]))
+                    col.push(int(f[1]))
+                    kind.push(f[2])
+                    norm.push(f[3])
                 end
-            else
-                cur = cur + c
             end
-        else
-            cur = cur + c
         end
-        i += 1
+        li += 1
     end
     return DumpRes { line: line, col: col, kind: kind, norm: norm, err: err }
 end
 
 # Split one dump line at the first 3 '|' (norm may contain '|').
+# NOTE (2026-10-06): an index_of-based version (native, fewer steps)
+# produced IDENTICAL fields on all 5124 dump lines in isolation yet
+# deterministically corrupted the full parse (body statements emitted
+# as top-level + trailing 0|0|error; empty-slice norms read back as
+# junk ints). Suspect: name-resolution picking a different index_of,
+# or heap interaction via index_of's internal substrings. Reverted to
+# the byte-exact char scan (lines are short; this was never the hot
+# path). Repro: .scratch/split_cmp.alya + ps.tok comparison above.
 function split3(line: string) -> array
-    let p1 = -1
-    let p2 = -1
-    let p3 = -1
+    let p1 = 0 - 1
+    let p2 = 0 - 1
+    let p3 = 0 - 1
     let i = 0
     while i < len(line)
         if char_at(line, i) == "|"
-            if p1 == -1
+            if p1 == 0 - 1
                 p1 = i
-            elif p2 == -1
+            elif p2 == 0 - 1
                 p2 = i
             else
                 p3 = i
@@ -870,7 +866,7 @@ function split3(line: string) -> array
         end
         i += 1
     end
-    if p1 == -1 or p2 == -1 or p3 == -1
+    if p1 == 0 - 1 or p2 == 0 - 1 or p3 == 0 - 1
         return []
     end
     return [line[0..p1], line[p1 + 1..p2], line[p2 + 1..p3], line[p3 + 1..len(line)]]
