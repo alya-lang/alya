@@ -103,6 +103,85 @@ say f"{0.1 + 0.2}"
 }
 
 #[test]
+fn test_e2e_float_nan_comparison_ieee() {
+    // #91: every comparison with a NaN operand is false except !=.
+    // Covers value form, fused if/while branches, and reversed operands.
+    // Both while loops are break-bounded so they terminate (failing, not
+    // hanging) on a regression.
+    let code = r#"
+let big = 1e308 * 10.0
+let nanv = big - big
+say nanv == nanv
+say nanv != nanv
+say nanv < 1.0
+say nanv <= nanv
+say nanv > 1.0
+say nanv >= nanv
+say 1.0 < nanv
+say 1.0 != nanv
+say big == big
+say big != big
+if nanv == nanv
+    say "eq-wrong"
+else
+    say "eq-ok"
+end
+if nanv != nanv
+    say "ne-ok"
+else
+    say "ne-wrong"
+end
+if nanv < 1.0
+    say "lt-wrong"
+else
+    say "lt-ok"
+end
+if nanv <= nanv
+    say "le-wrong"
+else
+    say "le-ok"
+end
+if nanv > 1.0
+    say "gt-wrong"
+else
+    say "gt-ok"
+end
+if nanv >= nanv
+    say "ge-wrong"
+else
+    say "ge-ok"
+end
+let guard = 0
+while nanv < 1.0
+    guard += 1
+    if guard > 10
+        break
+    end
+end
+say guard
+let spins = 0
+while nanv != nanv
+    spins += 1
+    if spins >= 3
+        break
+    end
+end
+say spins
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            concat!(
+                "0\n", "1\n", "0\n", "0\n", "0\n", "0\n", "0\n", "1\n", "1\n", "0\n", "eq-ok\n",
+                "ne-ok\n", "lt-ok\n", "le-ok\n", "gt-ok\n", "ge-ok\n", "0\n", "3\n",
+            ),
+            "Got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
 fn test_e2e_crash_diagnostic_segfault() {
     // B3: a true segfault (unchecked null poke) prints a trap message and
     // exits non-zero instead of dying silently. Unix reports SIGSEGV,

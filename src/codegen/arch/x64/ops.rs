@@ -366,18 +366,30 @@ pub fn emit_float_binary_op_reg(out: &mut String, op: BinaryOp) {
             out.push_str("    movq %xmm0, %rax\n");
         }
         BinaryOp::Equal => {
+            // NaN (#91): ucomisd sets ZF=PF=CF=1 when unordered, so a bare
+            // sete is true for NaN. IEEE == needs ZF set AND parity clear.
             out.push_str("    ucomisd %xmm1, %xmm0\n");
+            out.push_str("    setnp %cl\n");
             out.push_str("    sete %al\n");
+            out.push_str("    and %cl, %al\n");
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::NotEqual => {
+            // NaN (#91): unordered must report true; setne alone is false
+            // (ZF=1). Parity set OR not-equal covers it.
             out.push_str("    ucomisd %xmm1, %xmm0\n");
+            out.push_str("    setp %cl\n");
             out.push_str("    setne %al\n");
+            out.push_str("    or %cl, %al\n");
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::Less => {
+            // NaN (#91): CF is set when unordered, so a bare setb is true
+            // for NaN. IEEE < needs below AND parity clear.
             out.push_str("    ucomisd %xmm1, %xmm0\n");
+            out.push_str("    setnp %cl\n");
             out.push_str("    setb %al\n");
+            out.push_str("    and %cl, %al\n");
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::Greater => {
@@ -386,8 +398,12 @@ pub fn emit_float_binary_op_reg(out: &mut String, op: BinaryOp) {
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::LessEqual => {
+            // NaN (#91): CF/ZF are set when unordered, so a bare setbe is
+            // true for NaN. IEEE <= needs below-or-equal AND parity clear.
             out.push_str("    ucomisd %xmm1, %xmm0\n");
+            out.push_str("    setnp %cl\n");
             out.push_str("    setbe %al\n");
+            out.push_str("    and %cl, %al\n");
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::GreaterEqual => {
@@ -440,18 +456,30 @@ pub fn emit_float_binary_op(out: &mut String, op: BinaryOp) {
             out.push_str("    movq %xmm0, %rax\n");
         }
         BinaryOp::Equal => {
+            // NaN (#91): ucomisd sets ZF=PF=CF=1 when unordered, so a bare
+            // sete is true for NaN. IEEE == needs ZF set AND parity clear.
             out.push_str("    ucomisd %xmm1, %xmm0\n");
+            out.push_str("    setnp %cl\n");
             out.push_str("    sete %al\n");
+            out.push_str("    and %cl, %al\n");
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::NotEqual => {
+            // NaN (#91): unordered must report true; setne alone is false
+            // (ZF=1). Parity set OR not-equal covers it.
             out.push_str("    ucomisd %xmm1, %xmm0\n");
+            out.push_str("    setp %cl\n");
             out.push_str("    setne %al\n");
+            out.push_str("    or %cl, %al\n");
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::Less => {
+            // NaN (#91): CF is set when unordered, so a bare setb is true
+            // for NaN. IEEE < needs below AND parity clear.
             out.push_str("    ucomisd %xmm1, %xmm0\n");
+            out.push_str("    setnp %cl\n");
             out.push_str("    setb %al\n");
+            out.push_str("    and %cl, %al\n");
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::Greater => {
@@ -460,8 +488,12 @@ pub fn emit_float_binary_op(out: &mut String, op: BinaryOp) {
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::LessEqual => {
+            // NaN (#91): CF/ZF are set when unordered, so a bare setbe is
+            // true for NaN. IEEE <= needs below-or-equal AND parity clear.
             out.push_str("    ucomisd %xmm1, %xmm0\n");
+            out.push_str("    setnp %cl\n");
             out.push_str("    setbe %al\n");
+            out.push_str("    and %cl, %al\n");
             out.push_str("    movzbq %al, %rax\n");
         }
         BinaryOp::GreaterEqual => {

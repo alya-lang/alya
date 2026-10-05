@@ -95,31 +95,125 @@ pub fn emit_float_cond_jump(
     op: BinaryOp,
     invert: bool,
     target: &str,
+    skip: &str,
 ) {
+    // NaN (#91): ucomisd/fcmp raise the unordered flag (x64 PF, arm64 V)
+    // on NaN operands. Arms whose taken-condition excludes unordered
+    // guard with jp/b.vs over the caller-provided skip label; arms that
+    // take on unordered pair the ordered branch with jp/b.vs. Every other
+    // combination is already IEEE-correct and stays single-branch.
+    // (skip is only emitted by the guard arms; elsewhere it is unused.)
     match arch {
         Architecture::ARM64 => {
-            let cond = match (op, invert) {
-                (BinaryOp::Less, false) | (BinaryOp::GreaterEqual, true) => "b.mi",
-                (BinaryOp::Less, true) | (BinaryOp::GreaterEqual, false) => "b.ge",
-                (BinaryOp::LessEqual, false) | (BinaryOp::Greater, true) => "b.ls",
-                (BinaryOp::LessEqual, true) | (BinaryOp::Greater, false) => "b.gt",
-                (BinaryOp::Equal, false) | (BinaryOp::NotEqual, true) => "b.eq",
-                (BinaryOp::Equal, true) | (BinaryOp::NotEqual, false) => "b.ne",
-                _ => "b.ne",
-            };
-            out.push_str(&format!("    {} {}\n", cond, target));
+            match (op, invert) {
+                // b.mi is N: ordered-less only; unordered (N=0) falls.
+                (BinaryOp::Less, false) => {
+                    out.push_str(&format!("    b.mi {}\n", target));
+                }
+                // !(a<b): N==V ordered, or unordered.
+                (BinaryOp::Less, true) => {
+                    out.push_str(&format!("    b.ge {}\n", target));
+                    out.push_str(&format!("    b.vs {}\n", target));
+                }
+                // a<=b ordered, never unordered.
+                (BinaryOp::LessEqual, false) => {
+                    out.push_str(&format!("    b.vs {}\n", skip));
+                    out.push_str(&format!("    b.le {}\n", target));
+                    out.push_str(&format!("{}:\n", skip));
+                }
+                // !(a<=b): ordered-greater, or unordered.
+                (BinaryOp::LessEqual, true) => {
+                    out.push_str(&format!("    b.gt {}\n", target));
+                    out.push_str(&format!("    b.vs {}\n", target));
+                }
+                // b.le is Z|(N!=V): exact for !(a>b), ordered or not.
+                // (b.ls reads C, whose ordered-less value must not decide
+                // an IEEE result; b.le depends on N/Z/V only.)
+                (BinaryOp::Greater, true) => {
+                    out.push_str(&format!("    b.le {}\n", target));
+                }
+                // b.gt is ~Z&(N==V): ordered-greater only.
+                (BinaryOp::Greater, false) => {
+                    out.push_str(&format!("    b.gt {}\n", target));
+                }
+                // b.ge is N==V: ordered only; unordered (N!=V) falls.
+                (BinaryOp::GreaterEqual, false) => {
+                    out.push_str(&format!("    b.ge {}\n", target));
+                }
+                // !(a>=b): N!=V ordered or not.
+                (BinaryOp::GreaterEqual, true) => {
+                    out.push_str(&format!("    b.lt {}\n", target));
+                }
+                // b.eq/b.ne read Z, which fcmp clears on unordered.
+                (BinaryOp::Equal, false) | (BinaryOp::NotEqual, true) => {
+                    out.push_str(&format!("    b.eq {}\n", target));
+                }
+                (BinaryOp::Equal, true) | (BinaryOp::NotEqual, false) => {
+                    out.push_str(&format!("    b.ne {}\n", target));
+                }
+                _ => {
+                    out.push_str(&format!("    b.ne {}\n", target));
+                }
+            }
         }
         Architecture::X64 => {
-            let jmp = match (op, invert) {
-                (BinaryOp::Less, false) | (BinaryOp::GreaterEqual, true) => "jb",
-                (BinaryOp::Less, true) | (BinaryOp::GreaterEqual, false) => "jae",
-                (BinaryOp::LessEqual, false) | (BinaryOp::Greater, true) => "jbe",
-                (BinaryOp::LessEqual, true) | (BinaryOp::Greater, false) => "ja",
-                (BinaryOp::Equal, false) | (BinaryOp::NotEqual, true) => "je",
-                (BinaryOp::Equal, true) | (BinaryOp::NotEqual, false) => "jne",
-                _ => "jne",
-            };
-            out.push_str(&format!("    {} {}\n", jmp, target));
+            match (op, invert) {
+                // Taken iff below AND ordered.
+                (BinaryOp::Less, false) => {
+                    out.push_str(&format!("    jp {}\n", skip));
+                    out.push_str(&format!("    jb {}\n", target));
+                    out.push_str(&format!("{}:\n", skip));
+                }
+                // Taken iff not-below OR unordered.
+                (BinaryOp::Less, true) => {
+                    out.push_str(&format!("    jae {}\n", target));
+                    out.push_str(&format!("    jp {}\n", target));
+                }
+                // Taken iff below-or-equal AND ordered.
+                (BinaryOp::LessEqual, false) => {
+                    out.push_str(&format!("    jp {}\n", skip));
+                    out.push_str(&format!("    jbe {}\n", target));
+                    out.push_str(&format!("{}:\n", skip));
+                }
+                // Taken iff above OR unordered.
+                (BinaryOp::LessEqual, true) => {
+                    out.push_str(&format!("    ja {}\n", target));
+                    out.push_str(&format!("    jp {}\n", target));
+                }
+                // ja is CF=0&ZF=0: above only (unordered CF=1 falls).
+                (BinaryOp::Greater, false) => {
+                    out.push_str(&format!("    ja {}\n", target));
+                }
+                // Taken iff below-or-equal OR unordered (ZF=1 covers it).
+                (BinaryOp::Greater, true) => {
+                    out.push_str(&format!("    jbe {}\n", target));
+                }
+                // jae is CF=0: above-or-equal only.
+                (BinaryOp::GreaterEqual, false) => {
+                    out.push_str(&format!("    ja {}\n", target));
+                }
+                // Taken iff below AND ordered (ucomisd zeroes SF/OF, so
+                // jl alone falls on unordered; jp covers it).
+                // Note: !(a>=b) is below-OR-unordered, hence jl+jp here.
+                (BinaryOp::GreaterEqual, true) => {
+                    out.push_str(&format!("    jl {}\n", target));
+                    out.push_str(&format!("    jp {}\n", target));
+                }
+                // Taken iff equal AND ordered.
+                (BinaryOp::Equal, false) | (BinaryOp::NotEqual, true) => {
+                    out.push_str(&format!("    jp {}\n", skip));
+                    out.push_str(&format!("    je {}\n", target));
+                    out.push_str(&format!("{}:\n", skip));
+                }
+                // Taken iff not-equal OR unordered.
+                (BinaryOp::Equal, true) | (BinaryOp::NotEqual, false) => {
+                    out.push_str(&format!("    jne {}\n", target));
+                    out.push_str(&format!("    jp {}\n", target));
+                }
+                _ => {
+                    out.push_str(&format!("    jne {}\n", target));
+                }
+            }
         }
     }
 }

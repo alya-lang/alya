@@ -9,11 +9,10 @@
 # with INT64_MAX before shifting, so exp extraction is exact under
 # both arithmetic and logical shr; mantissa masks are positive.
 #
-# Known quirk documented (not asserted away): float ==,<,<= on NaN
-# follow raw setcc on unordered (true),>,>= false — non-IEEE, spec
-# silent (chapters mention NaN only for MathError/NaN-boxing).
-# A codegen port must replicate even this. NaN must be detected via
-# BITS (exp==2047, mant!=0), never via ==/!=.
+# Known quirk, FIXED (#91): float ==,<,<= on NaN used to follow raw
+# setcc on unordered (all true); now IEEE (all false except !=).
+# NaN must still be detected via BITS (exp 2047 + mant != 0), never
+# via ==/!= — and a codegen port must replicate IEEE exactly here.
 #
 # Coding rules from FINDINGS.md: aliased imports, concatenation-only
 # output, no braces in any literal.
@@ -117,11 +116,11 @@ function main()
     passed += check("t_nan_exp", b2i(exp_of(bits(nanv)) == 2047))
     passed += check("t_nan_mant", b2i(mant_of(bits(nanv)) != 0))
     passed += check("t_nan_determ", b2i(bits(nan2) == bits(nanv)))
-    passed += check("t_nan_qeq", b2i((nanv == nanv) == true))
-    passed += check("t_nan_qne", b2i((nanv != nanv) == false))
-    passed += check("t_nan_qlt", b2i((nanv < 1.0) == true))
-    passed += check("t_nan_qlt_rev", b2i((1.0 < nanv) == true))
-    passed += check("t_nan_qle", b2i((nanv <= nanv) == true))
+    passed += check("t_nan_qeq", b2i((nanv == nanv) == false))
+    passed += check("t_nan_qne", b2i((nanv != nanv) == true))
+    passed += check("t_nan_qlt", b2i((nanv < 1.0) == false))
+    passed += check("t_nan_qlt_rev", b2i((1.0 < nanv) == false))
+    passed += check("t_nan_qle", b2i((nanv <= nanv) == false))
     passed += check("t_nan_qgt", b2i((nanv > 1.0) == false))
     passed += check("t_nan_qge", b2i((nanv >= nanv) == false))
     passed += check("t_sub_range", b2i(sub > 0.0 and sub < dblmin))

@@ -114,12 +114,14 @@ impl CodeGen {
                     } {
                         arch::emit_load_var_to_scratch(&mut self.output, self.arch, offset, true);
                         arch::emit_float_cmp_reg(&mut self.output, self.arch);
+                        let skip_label = self.ctx.next_label();
                         arch::emit_float_cond_jump(
                             &mut self.output,
                             self.arch,
                             *op,
                             true,
                             target_label,
+                            &skip_label,
                         );
                         return;
                     } else {
@@ -366,12 +368,14 @@ impl CodeGen {
                     } {
                         arch::emit_load_var_to_scratch(&mut self.output, self.arch, offset, true);
                         arch::emit_float_cmp_reg(&mut self.output, self.arch);
+                        let skip_label = self.ctx.next_label();
                         arch::emit_float_cond_jump(
                             &mut self.output,
                             self.arch,
                             *op,
                             false,
                             target_label,
+                            &skip_label,
                         );
                         return;
                     } else {

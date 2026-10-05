@@ -127,12 +127,10 @@ fmt clean, byte-identical across runs — no timing on any line):
 - Sign-bit-safe helpers only: exp is extracted after masking with
   INT64_MAX, mantissa with `2^52-1` — exact under both arithmetic
   and logical shr, no INT64_MIN negation anywhere.
-- QUIRK (documented, asserted as observed): float `==`, `<`, `<=`
-  on NaN follow raw setcc on unordered — all true (`nan == nan`,
-  `nan < 1.0`, `1.0 < nan`, `nan <= nan` are 1); `>`, `>=` are
-  false. Non-IEEE, spec silent (NaN appears only for MathError /
-  NaN-boxing). NaN must be detected via BITS (exp 2047 + mant != 0),
-  never via `==`/`!=`. A codegen port must replicate even this.
+- QUIRK, FIXED (#91): float ==,<,<= on NaN used to follow raw setcc
+  on unordered (all true); now IEEE (all false except !=). NaN must
+  still be detected via BITS (exp 2047 + mant != 0), never via
+  ==/!= — and a codegen port must replicate IEEE exactly here.
 - Verdict: the `write_float`/`read_int` vehicle carries every f64
   bit pattern exactly. 1c DONE; capability spikes 1a–1c all closed.
 

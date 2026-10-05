@@ -365,8 +365,11 @@ pub fn emit_float_binary_op_reg(out: &mut String, op: BinaryOp) {
             out.push_str("    cset x0, gt\n");
         }
         BinaryOp::LessEqual => {
+            // NaN (#91): fcmp sets V on unordered and le reads Z|N!=V, so
+            // a bare cset is true for NaN. Clear the result when V is set.
             out.push_str("    fcmp d0, d1\n");
             out.push_str("    cset x0, le\n");
+            out.push_str("    csel x0, xzr, x0, vs\n");
         }
         BinaryOp::GreaterEqual => {
             out.push_str("    fcmp d0, d1\n");
@@ -438,8 +441,11 @@ pub fn emit_float_binary_op(out: &mut String, op: BinaryOp) {
             out.push_str("    cset x0, gt\n");
         }
         BinaryOp::LessEqual => {
+            // NaN (#91): fcmp sets V on unordered and le reads Z|N!=V, so
+            // a bare cset is true for NaN. Clear the result when V is set.
             out.push_str("    fcmp d1, d0\n");
             out.push_str("    cset x0, le\n");
+            out.push_str("    csel x0, xzr, x0, vs\n");
         }
         BinaryOp::GreaterEqual => {
             out.push_str("    fcmp d1, d0\n");
