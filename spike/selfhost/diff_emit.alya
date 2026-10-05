@@ -1,0 +1,202 @@
+# Thin slice 2b driver: differential test, Alya backend vs Rust backend.
+#
+# Per corpus program: write .alya -> lexer.alya -> token dump ->
+# parser.alya -> S-expr -> emit_asm.alya -> .s -> gcc -> exe -> output,
+# and reference `alya run` output. PASS only when both exit 0 with
+# byte-identical stdout. Prints progN|ok|ref_len|got_len lines plus a
+# summary emit|pass|fail|total line. All temps (temp_emit_*.*) are
+# gitignored by name and deleted per program.
+#
+# Usage: diff_emit.alya <alya-bin>  (cwd must be the alya crate root so
+# the default spike/ paths resolve; alya-bin is the fresh compiler,
+# e.g. target/debug/alya.exe, NOT the possibly stale installed one).
+
+import "std/os" as os
+import "std/time" as time
+import "std/fs" as fs
+import "std/str" as str
+import "std/process" as proc
+
+function int_to_dec(v: int) -> string
+    if v == 0
+        return "0"
+    end
+    let neg = 0
+    let x = v
+    if x < 0
+        neg = 1
+        x = 0 - x
+    end
+    let digs = []
+    while x > 0
+        digs.push(x % 10)
+        x = x / 10
+    end
+    let s = ""
+    if neg == true
+        s = "-"
+    end
+    let i = len(digs) - 1
+    while i >= 0
+        s = s + chr(48 + digs[i])
+        i -= 1
+    end
+    return s
+end
+
+function to_win_path(s: string) -> string
+    let bs = str.bytes_from_string(s)
+    let out = ""
+    let i = 0
+    while i < len(bs)
+        if bs[i] == 47
+            out = out + chr(92)
+        else
+            out = out + chr(bs[i])
+        end
+        i += 1
+    end
+    return out
+end
+
+function prog_src(k: int) -> string
+    let nl = chr(10)
+    if k == 0
+        return "say 1+2" + nl
+    end
+    if k == 1
+        return "say 10-3-2" + nl
+    end
+    if k == 2
+        return "say 2*3+4" + nl
+    end
+    if k == 3
+        return "say (10-2)*3" + nl
+    end
+    if k == 4
+        return "say 0-7" + nl
+    end
+    if k == 5
+        return "say -5+8" + nl
+    end
+    if k == 6
+        return "say 1000000*1000000" + nl
+    end
+    if k == 7
+        return "say 1+2" + nl + "say 3*4" + nl + "say 10-1" + nl
+    end
+    if k == 8
+        return "say 2*(3+4)-5" + nl
+    end
+    if k == 9
+        return "say 7/2" + nl + "say -7/2" + nl + "say 7/-2" + nl + "say 7%2" + nl + "say -7%2" + nl
+    end
+    if k == 10
+        return "say 1/0" + nl
+    end
+    if k == 11
+        return "say 1%0" + nl
+    end
+    if k == 12
+        return "let x = 10" + nl + "let y = x + 5" + nl + "say x + y" + nl + "say x * y" + nl
+    end
+    if k == 13
+        return "let x = 1" + nl + "let x = x + 1" + nl + "say x" + nl
+    end
+    if k == 14
+        return "function add(a, b)" + nl + "return a + b" + nl + "end" + nl + "say add(2, 3)" + nl
+    end
+    if k == 15
+        return "let base = 100" + nl + "function muladd(a, b, c)" + nl + "let t = a * b" + nl + "return t + c" + nl + "end" + nl + "say muladd(2, 3, 4)" + nl + "say muladd(base, 1, 0)" + nl
+    end
+    if k == 16
+        return "function sq(x)" + nl + "return x * x" + nl + "end" + nl + "say sq(sq(2)+1)" + nl
+    end
+    if k == 17
+        return "function seven()" + nl + "return 7" + nl + "end" + nl + "say seven()" + nl
+    end
+    return "function sub(a, b)" + nl + "return a - b" + nl + "end" + nl + "say sub(10, 4)" + nl + "say sub(0-5, 8)" + nl
+end
+
+function run_one(alya: string, lex: string, par: string, em: string, k: int) -> int
+    let tag = "temp_emit_" + int_to_dec(k)
+    let src_p = tag + ".alya"
+    let tok_p = tag + ".tok"
+    let sex_p = tag + ".sexpr"
+    let asm_p = tag + ".s"
+    let exe_p = tag + ".exe"
+    let ok = 0
+    let ref_len = 0
+    let got_len = 0
+    if fs.write_string(src_p, prog_src(k)) == 1
+        let t = proc.process_run(alya, ["run", lex, "--", src_p])
+        if t.exit_code == 0
+            if fs.write_string(tok_p, t.stdout) == 1
+                let p = proc.process_run(alya, ["run", par, "--", tok_p])
+                if p.exit_code == 0
+                    if fs.write_string(sex_p, p.stdout) == 1
+                        let e = proc.process_run(alya, ["run", em, "--", sex_p, asm_p])
+                        if e.exit_code == 0
+                            let g = proc.process_run("gcc", ["-o", exe_p, asm_p])
+                            if g.exit_code == 0
+                                let b = proc.process_run(exe_p, [])
+                                let r = proc.process_run(alya, ["run", src_p])
+                                ref_len = len(r.stdout)
+                                got_len = len(b.stdout)
+                                if b.exit_code == r.exit_code and b.stdout == r.stdout and b.stderr == r.stderr
+                                    ok = 1
+                                else
+                                    say "mismatch prog" + int_to_dec(k) + ": refexit=" + int_to_dec(r.exit_code) + " gotexit=" + int_to_dec(b.exit_code)
+                                    say "refout=" + r.stdout + "gotout=" + b.stdout
+                                end
+                            else
+                                say "gcc failed prog" + int_to_dec(k) + ": " + g.stderr
+                            end
+                        else
+                            say "emitter failed prog" + int_to_dec(k)
+                        end
+                    end
+                else
+                    say "parser failed prog" + int_to_dec(k)
+                end
+            end
+        else
+            say "lexer failed prog" + int_to_dec(k)
+        end
+    end
+    fs.fs_remove(src_p)
+    fs.fs_remove(tok_p)
+    fs.fs_remove(sex_p)
+    fs.fs_remove(asm_p)
+    fs.fs_remove(exe_p)
+    say "prog" + int_to_dec(k) + "|" + int_to_dec(ok) + "|" + int_to_dec(ref_len) + "|" + int_to_dec(got_len)
+    return ok
+end
+
+function main()
+    let args = os.cli_args()
+    if len(args) < 1
+        say "usage: diff_emit <alya-bin>"
+        os.exit_process(2)
+    end
+    let alya = to_win_path(args[0])
+    let lex = "spike/selfhost/lexer.alya"
+    let par = "spike/selfhost/parser.alya"
+    let em = "spike/selfhost/emit_asm.alya"
+    let total = 19
+    let pass = 0
+    let k = 0
+    let t0 = time.now_ms()
+    while k < total
+        pass += run_one(alya, lex, par, em, k)
+        k += 1
+    end
+    let ms = time.now_ms() - t0
+    let fail = total - pass
+    say "emit" + "|" + int_to_dec(pass) + "|" + int_to_dec(fail) + "|" + int_to_dec(total) + "|" + int_to_dec(ms)
+    if fail != 0
+        os.exit_process(1)
+    end
+end
+
+main()

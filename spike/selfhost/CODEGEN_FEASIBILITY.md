@@ -148,6 +148,41 @@ capture, and the differential-execution loop mechanics all work
 from Alya. Next: 2b, an S-expr → asm emitter slice
 (`say` + int arithmetic, x64).
 
+## Thin slice 2b result (2026-10-05): Alya compiles Alya, differentially
+
+Artifacts: `spike/selfhost/emit_asm.alya` (S-expr → x64 Windows asm;
+`(say INT-EXPR)` with `(num)` / `(binop +|-|*)` / `(unop -)`;
+push/pop eval, always-`movabs`, `printf("%lld\n")` minimal runtime;
+anything else fails loudly) + `spike/selfhost/diff_emit.alya`
+(Alya differential driver: per program `.alya` → lexer → parser →
+emitter → gcc → exe vs `alya run` reference, byte-exact stdout).
+Result: `emit|9|0|9` — 9/9 programs identical (precedence,
+left-assoc, parens, negatives, unary minus, 10^12 `movabs`, multi-say).
+Scope notes: `/`/`%` deferred (div-zero error semantics need their
+own probe); no lets/functions yet; Windows program paths need
+`\` under cmd (driver converts `/` via `to_win_path` — args with
+`/` are fine, only the program token breaks). Temps
+(`temp_emit_*.*`) gitignored + deleted per program, fmt clean.
+
+## Thin slice 2c/2d/2e result (2026-10-05): div, lets, functions
+
+`emit_asm.alya` v2 (fixed 256-byte frames, `push %rbp` form;
+`let` slots with shadowing; `alya_fn_`-prefixed functions, ≤4 args
+via left-to-right push + `mov OFF(%rsp)` + cleanup; `/`/`%` via
+`idiv` with a divisor check replicating the reference div-zero
+exactly — stdout message + exit 1 through C `exit`, so stdio
+flushes; `diff_emit.alya` now triple-compares exit+stdout+stderr).
+Result: `emit|19|0|19` — all 19 differential (old 9 intact, plus
+truncating div/mod with negatives, div-zero + mod-zero error cases,
+lets, shadowing, multi-arg functions, nested calls, zero-arg
+functions, arg order via non-commutative `sub`).
+Two bugs caught by the harness itself: an emitter double-eat of
+`)` (review catch) and a `sub $248` frame breaking 16-alignment
+after `push %rbp` (every backend exe died `0xC0000005`; fixed to
+256). Deferred: strings, assign, nested functions, 5+ args, 29+
+vars, fault cases (no crash-handler runtime in this slice).
+Step 2 (thin end-to-end slice, x64) is DONE as scoped.
+
 ## Recommendation (staged, no full-port commitment)
 
 1. **Capability spikes in Alya** (days, kill the unknowns first):

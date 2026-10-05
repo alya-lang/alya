@@ -1,0 +1,561 @@
+# Thin slice 2b emitter v2: S-expr -> x64 Windows asm.
+#
+# Scope: top-level (say | let | function), function bodies (let | return),
+# exprs (num | binop +|-|*|/|% | unop - | ident | call<=4 args).
+# Fixed 256-byte frames (32 shadow + 28 slots, 256%16==0 so the stack
+# stays 16-aligned after push %rbp); params spilled to slots;
+# Windows x64 call regs rcx,rdx,r8,r9; printing via printf("%lld\n");
+# div-zero replicates the reference exactly (stdout message + exit 1
+# via C exit, so stdio flushes). Anything else fails loudly (exit 1).
+# Deferred: strings, assign, nested functions, 5+ args, 29+ vars,
+# fault cases (no crash-handler runtime in this slice: INT64_MIN/-1
+# division and friends are out of scope).
+#
+# Coding rules from FINDINGS.md: aliased imports, concatenation-only
+# output, homogeneous containers (string[] everywhere).
+
+import "std/os" as os
+import "std/fs" as fs
+import "std/str" as str
+
+struct Reader
+    toks: string[]
+    n: int
+    pos: int
+    vars: string[]
+    lbl: int
+    failed: int
+end
+
+function int_to_dec(v: int) -> string
+    if v == 0
+        return "0"
+    end
+    let neg = 0
+    let x = v
+    if x < 0
+        neg = 1
+        x = 0 - x
+    end
+    let digs = []
+    while x > 0
+        digs.push(x % 10)
+        x = x / 10
+    end
+    let s = ""
+    if neg == true
+        s = "-"
+    end
+    let i = len(digs) - 1
+    while i >= 0
+        s = s + chr(48 + digs[i])
+        i -= 1
+    end
+    return s
+end
+
+function tokenize(line: string) -> string[]
+    let toks: string[] = []
+    let bs = str.bytes_from_string(line)
+    let cur = ""
+    let i = 0
+    while i < len(bs)
+        let b = bs[i]
+        if b == 40
+            if cur != ""
+                toks.push(cur)
+                cur = ""
+            end
+            toks.push("(")
+        elif b == 41
+            if cur != ""
+                toks.push(cur)
+                cur = ""
+            end
+            toks.push(")")
+        elif b == 32 or b == 9 or b == 13 or b == 10
+            if cur != ""
+                toks.push(cur)
+                cur = ""
+            end
+        else
+            cur = cur + chr(b)
+        end
+        i += 1
+    end
+    if cur != ""
+        toks.push(cur)
+    end
+    return toks
+end
+
+function Reader.peek(self) -> string
+    if self.pos >= self.n
+        return ""
+    end
+    return self.toks[self.pos]
+end
+
+function Reader.next(self) -> string
+    let t = self.peek()
+    if self.pos < self.n
+        self.pos += 1
+    end
+    return t
+end
+
+function Reader.eat(self, want: string) -> int
+    if self.peek() == want
+        self.pos += 1
+        return true
+    end
+    return false
+end
+
+# Skip one balanced group; current token must be "(".
+function Reader.skip_balanced(self)
+    if self.eat("(") == false
+        self.failed = 1
+        return
+    end
+    let depth = 1
+    while depth > 0
+        let t = self.next()
+        if t == ""
+            self.failed = 1
+            return
+        end
+        if t == "("
+            depth += 1
+        elif t == ")"
+            depth -= 1
+        end
+    end
+end
+
+# Strip the qs() quotes around one atom; fails loudly when malformed.
+function Reader.unquote(self, t: string) -> string
+    if len(t) < 2 or char_at(t, 0) != chr(34) or char_at(t, len(t) - 1) != chr(34)
+        self.failed = 1
+        return ""
+    end
+    return t[1..len(t) - 1]
+end
+
+# Slot index (1-based, last definition wins) or -1 when unknown.
+function Reader.lookup(self, name: string) -> int
+    let i = len(self.vars) - 1
+    while i >= 0
+        if self.vars[i] == name
+            return i + 1
+        end
+        i -= 1
+    end
+    return 0 - 1
+end
+
+function Reader.slot_off(self, idx: int) -> string
+    return "-" + int_to_dec(8 * idx) + "(%rbp)"
+end
+
+# Emit asm evaluating one S-expr; result lands in %rax.
+function Reader.emit_expr(self, parts: string[])
+    if self.eat("(") == false
+        self.failed = 1
+        return
+    end
+    let head = self.next()
+    if head == "num"
+        let v = self.next()
+        if v == "" or v == "(" or v == ")"
+            self.failed = 1
+            return
+        end
+        parts.push("    movabs $" + v + ", %rax")
+        if self.eat(")") == false
+            self.failed = 1
+        end
+    elif head == "binop"
+        let op = self.next()
+        self.emit_expr(parts)
+        parts.push("    push %rax")
+        self.emit_expr(parts)
+        parts.push("    pop %rcx")
+        if op == "+"
+            parts.push("    add %rcx, %rax")
+        elif op == "-"
+            parts.push("    sub %rax, %rcx")
+            parts.push("    mov %rcx, %rax")
+        elif op == "*"
+            parts.push("    imul %rcx, %rax")
+        elif op == "/" or op == "%"
+            let lab = "div_ok_" + int_to_dec(self.lbl)
+            self.lbl += 1
+            parts.push("    cmp $0, %rax")
+            parts.push("    jne " + lab)
+            parts.push("    lea divmsg(%rip), %rcx")
+            parts.push("    call puts")
+            parts.push("    mov $1, %ecx")
+            parts.push("    call exit")
+            parts.push(lab + ":")
+            parts.push("    mov %rax, %rbx")
+            parts.push("    mov %rcx, %rax")
+            parts.push("    cqo")
+            parts.push("    idiv %rbx")
+            if op == "%"
+                parts.push("    mov %rdx, %rax")
+            end
+        else
+            self.failed = 1
+        end
+        if self.eat(")") == false
+            self.failed = 1
+        end
+    elif head == "unop"
+        let op = self.next()
+        self.emit_expr(parts)
+        if op == "-"
+            parts.push("    neg %rax")
+        else
+            self.failed = 1
+        end
+        if self.eat(")") == false
+            self.failed = 1
+        end
+    elif head == "ident"
+        let name = self.unquote(self.next())
+        let idx = self.lookup(name)
+        if idx < 0
+            self.failed = 1
+            return
+        end
+        parts.push("    mov " + self.slot_off(idx) + ", %rax")
+        if self.eat(")") == false
+            self.failed = 1
+        end
+    elif head == "call"
+        let name = self.unquote(self.next())
+        if name == "main" or name == "printf" or name == "puts" or name == "exit"
+            self.failed = 1
+            return
+        end
+        if self.eat("(") == false
+            self.failed = 1
+            return
+        end
+        let nargs = 0
+        while self.peek() != ")"
+            if self.peek() == ""
+                self.failed = 1
+                return
+            end
+            self.emit_expr(parts)
+            parts.push("    push %rax")
+            nargs += 1
+        end
+        self.eat(")")
+        if nargs > 4
+            self.failed = 1
+            return
+        end
+        let i = 1
+        while i <= nargs
+            let reg = ""
+            if i == 1
+                reg = "%rcx"
+            elif i == 2
+                reg = "%rdx"
+            elif i == 3
+                reg = "%r8"
+            else
+                reg = "%r9"
+            end
+            parts.push("    mov " + int_to_dec(8 * (nargs - i)) + "(%rsp), " + reg)
+            i += 1
+        end
+        if nargs > 0
+            parts.push("    add $" + int_to_dec(8 * nargs) + ", %rsp")
+        end
+        parts.push("    call alya_fn_" + name)
+        if self.eat(")") == false
+            self.failed = 1
+        end
+    else
+        self.failed = 1
+    end
+end
+
+function Reader.emit_say(self, parts: string[])
+    self.emit_expr(parts)
+    if self.failed == true
+        return
+    end
+    parts.push("    lea fmt(%rip), %rcx")
+    parts.push("    mov %rax, %rdx")
+    parts.push("    call printf")
+end
+
+function Reader.emit_let(self, parts: string[])
+    let name = self.unquote(self.next())
+    let ty = self.next()
+    if ty == "" or ty == "(" or ty == ")"
+        self.failed = 1
+        return
+    end
+    self.emit_expr(parts)
+    if self.failed == true
+        return
+    end
+    self.vars.push(name)
+    let idx = len(self.vars)
+    if idx > 28
+        self.failed = 1
+        return
+    end
+    parts.push("    mov %rax, " + self.slot_off(idx))
+end
+
+function Reader.emit_return(self, parts: string[])
+    if self.peek() == "_"
+        self.failed = 1
+        return
+    end
+    self.emit_expr(parts)
+    if self.failed == true
+        return
+    end
+    parts.push("    leave")
+    parts.push("    ret")
+end
+
+# Top-level (function ...) line; body goes to fn_parts.
+function Reader.emit_function(self, fn_parts: string[])
+    let name = self.unquote(self.next())
+    if name == "main"
+        self.failed = 1
+        return
+    end
+    if self.eat("(") == false
+        self.failed = 1
+        return
+    end
+    let params: string[] = []
+    while self.peek() != ")"
+        if self.peek() == ""
+            self.failed = 1
+            return
+        end
+        let p = self.unquote(self.next())
+        let dup = 0
+        let d = 0
+        while d < len(params)
+            if params[d] == p
+                dup = 1
+            end
+            d += 1
+        end
+        if dup == true
+            self.failed = 1
+            return
+        end
+        params.push(p)
+    end
+    self.eat(")")
+    if len(params) > 4
+        self.failed = 1
+        return
+    end
+    if self.eat("(") == false
+        self.failed = 1
+        return
+    end
+    while self.peek() != ")"
+        if self.next() != "_"
+            self.failed = 1
+            return
+        end
+    end
+    self.eat(")")
+    if self.next() != "_"
+        self.failed = 1
+        return
+    end
+    self.skip_balanced()
+    if self.failed == true
+        return
+    end
+    if self.eat("(") == false or self.peek() != ")"
+        self.failed = 1
+        return
+    end
+    self.eat(")")
+    if self.eat("(") == false or self.peek() != ")"
+        self.failed = 1
+        return
+    end
+    self.eat(")")
+    if self.eat("(") == false or self.next() != "block"
+        self.failed = 1
+        return
+    end
+    let keep: string[] = []
+    let k = 0
+    while k < len(self.vars)
+        keep.push(self.vars[k])
+        k += 1
+    end
+    self.vars = []
+    let v = 0
+    while v < len(params)
+        self.vars.push(params[v])
+        v += 1
+    end
+    fn_parts.push("alya_fn_" + name + ":")
+    fn_parts.push("    push %rbp")
+    fn_parts.push("    mov %rsp, %rbp")
+    fn_parts.push("    sub $256, %rsp")
+    if len(params) >= 1
+        fn_parts.push("    mov %rcx, " + self.slot_off(1))
+    end
+    if len(params) >= 2
+        fn_parts.push("    mov %rdx, " + self.slot_off(2))
+    end
+    if len(params) >= 3
+        fn_parts.push("    mov %r8, " + self.slot_off(3))
+    end
+    if len(params) >= 4
+        fn_parts.push("    mov %r9, " + self.slot_off(4))
+    end
+    while self.peek() == "("
+        self.eat("(")
+        let h = self.next()
+        if h == "let"
+            self.emit_let(fn_parts)
+        elif h == "return"
+            self.emit_return(fn_parts)
+        else
+            self.failed = 1
+            return
+        end
+        if self.failed == true
+            return
+        end
+        if self.eat(")") == false
+            self.failed = 1
+            return
+        end
+    end
+    if self.eat(")") == false
+        self.failed = 1
+        return
+    end
+    self.vars = keep
+end
+
+# One S-expr line; say/let go to main_parts, functions to fn_parts.
+function Reader.emit_stmt(self, main_parts: string[], fn_parts: string[], line: string) -> int
+    let toks = tokenize(line)
+    if len(toks) == 0
+        return true
+    end
+    self.toks = toks
+    self.n = len(toks)
+    self.pos = 0
+    if self.eat("(") == false
+        return false
+    end
+    let head = self.next()
+    if head == "say"
+        self.emit_say(main_parts)
+        if self.failed == true
+            return false
+        end
+        if self.eat(")") == false
+            return false
+        end
+    elif head == "let"
+        self.emit_let(main_parts)
+        if self.failed == true
+            return false
+        end
+        if self.eat(")") == false
+            return false
+        end
+    elif head == "function"
+        self.emit_function(fn_parts)
+        if self.failed == true
+            return false
+        end
+        if self.eat(")") == false
+            return false
+        end
+    else
+        return false
+    end
+    if self.pos != self.n
+        return false
+    end
+    return true
+end
+
+function main()
+    let args = os.cli_args()
+    if len(args) < 2
+        say "usage: emit_asm <sexpr> <out.s>"
+        os.exit_process(2)
+    end
+    let sexpr_path = args[0]
+    let out_path = args[1]
+    let src = fs.read_string(sexpr_path)
+    let lines = str.lines(src)
+    let main_parts: string[] = []
+    let fn_parts: string[] = []
+    let r = Reader { toks: [], n: 0, pos: 0, vars: [], lbl: 0, failed: 0 }
+    let i = 0
+    let ok = 1
+    while i < len(lines)
+        if r.emit_stmt(main_parts, fn_parts, lines[i]) == false
+            ok = 0
+        end
+        if r.failed == true
+            ok = 0
+        end
+        r.failed = 0
+        i += 1
+    end
+    let out: string[] = []
+    out.push("    .text")
+    out.push("    .global main")
+    out.push("main:")
+    out.push("    push %rbp")
+    out.push("    mov %rsp, %rbp")
+    out.push("    sub $256, %rsp")
+    let m = 0
+    while m < len(main_parts)
+        out.push(main_parts[m])
+        m += 1
+    end
+    out.push("    xor %eax, %eax")
+    out.push("    leave")
+    out.push("    ret")
+    let f = 0
+    while f < len(fn_parts)
+        out.push(fn_parts[f])
+        f += 1
+    end
+    out.push("    .data")
+    out.push("fmt:")
+    out.push("    .asciz " + chr(34) + "%lld\\n" + chr(34))
+    out.push("divmsg:")
+    out.push("    .asciz " + chr(34) + "Runtime error: division by zero" + chr(34))
+    if ok == 0
+        say "emit_asm: out-of-scope S-expr"
+        os.exit_process(1)
+    end
+    if fs.write_string(out_path, out.join(chr(10)) + chr(10)) != 1
+        say "emit_asm: write failed"
+        os.exit_process(1)
+    end
+end
+
+main()
