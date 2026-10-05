@@ -839,3 +839,31 @@ say "" + e
         assert_eq!(output, "0\neq-empty\n\nx\n\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_dynamic_interpolation_hole_renders_value() {
+    // #93: interpolation holes with statically-unknown values printed
+    // raw pointers for strings (`[{s}]` showed the address while
+    // `say s` showed the value). Unknown holes now render through
+    // str(): strings by value, everything else byte-identical.
+    let code = r#"
+function ident(x)
+    return x
+end
+let s = ident("aa")
+say "[{s}]"
+let i = ident(42)
+say "[{i}]"
+let n = ident(null)
+say "[{n}]"
+say "[" + s + "]"
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "[aa]\n[42]\n[0]\n[aa]\n", "Got: {}", output);
+    }
+}

@@ -305,8 +305,17 @@ impl CodeGen {
                                         exprs.push(part.clone());
                                         is_floats.push(false);
                                     } else {
-                                        format_str.push_str("%lld");
-                                        exprs.push(part.clone());
+                                        // #93: statically-unknown holes render
+                                        // through str() (value, not pointer),
+                                        // mirroring the tag-carrying arm
+                                        // above. Ints/bools/null/floats/maps
+                                        // render byte-identically to %lld;
+                                        // only dynamic strings change.
+                                        format_str.push_str("%s");
+                                        exprs.push(Expr::Call {
+                                            name: "str".into(),
+                                            args: vec![part.clone()],
+                                        });
                                         is_floats.push(false);
                                     }
                                 }

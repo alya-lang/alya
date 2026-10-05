@@ -42,6 +42,12 @@ Alya string interpolation supports formatting specifiers via the `:spec` suffix:
   interpolate: `"{\"level\":\"{lvl}\"}"` with `lvl = "INFO"` renders
   `"{"level":"INFO"}"`. The region terminator is preserved verbatim, so a
   following literal `}` is never merged into an escape pair.
+- Dynamic holes: when a hole's static type is unknown (unannotated
+  bindings, untyped dynamics), it renders through `str()` at runtime,
+  so strings interpolate by value exactly as `say` of the same value
+  prints them; integers render identically either way. Holes without
+  static float information render the raw bit pattern, and `null`
+  holes render `0` — both predate this rule and are unchanged by it.
 
 ### 1.8 Plain vs `f` Strings
 - Plain `"..."`, `f"..."`, and `r"..."` literals all interpolate `{holes}`
