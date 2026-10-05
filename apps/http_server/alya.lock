@@ -4,9 +4,9 @@ version = 2
 [[package]]
 name = "mime"
 version = "0.1.0"
-source = "git:https://github.com/alya-lang/mime?branch=main#04d39f22928315d66e6001c61d7b466e11e0c09c"
+source = "git:https://github.com/alya-lang/mime?branch=main#6d5f85f35314e9389e06e8dc120515f1191a31b6"
 entry = ".alya/packages/mime/src/lib.alya"
-checksum = "sha256:24b71ec8befe5b6b22f188f9500971a88443387a384c90a00e72c7dd5b00ec9a"
+checksum = "sha256:60ad5d94982c046c6210778d9899e88df7ee6cfd36e47731cf2ef8933d8575c9"
 
 [[package]]
 name = "term"
