@@ -188,6 +188,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    strb w3, [x26], #1\n");
     out.push_str("    b .L_arm64_split_tok_copy\n");
     out.push_str(".L_arm64_split_tok_done:\n");
+    // Zero-length tokens canonicalize to the rodata empty (#92).
+    // The cursor commit below still runs (a few idle bytes).
+    out.push_str("    cmp x24, x23\n");
+    out.push_str("    b.ne .L_arm64_split_tok_nonempty\n");
+    emit_adrp_add(out, "x25", "alya_str_empty", os);
+    out.push_str(".L_arm64_split_tok_nonempty:\n");
     out.push_str("    strb wzr, [x26], #1\n");
     out.push_str("    sub x13, x26, x9\n");
     out.push_str("    add x13, x13, #7\n");
@@ -219,6 +225,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    strb w3, [x26], #1\n");
     out.push_str("    b .L_arm64_split_final_copy\n");
     out.push_str(".L_arm64_split_final_done:\n");
+    // Same canonicalization for the trailing piece (#92).
+    out.push_str("    cmp x24, x23\n");
+    out.push_str("    b.ne .L_arm64_split_final_nonempty\n");
+    emit_adrp_add(out, "x25", "alya_str_empty", os);
+    out.push_str(".L_arm64_split_final_nonempty:\n");
     out.push_str("    strb wzr, [x26], #1\n");
     out.push_str("    sub x13, x26, x9\n");
     out.push_str("    add x13, x13, #7\n");

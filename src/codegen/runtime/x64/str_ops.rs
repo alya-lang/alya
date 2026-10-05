@@ -407,12 +407,19 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    inc %r14\n");
     out.push_str("    jmp .L_x64_trim_copy_loop\n");
     out.push_str(".L_x64_trim_done:\n");
+    // Empty results canonicalize to the rodata empty (#92), same
+    // rule as substring/split: skip the cursor commit.
+    out.push_str("    cmp %r13, %r14\n");
+    out.push_str("    je .L_x64_trim_empty\n");
     out.push_str("    movb $0, (%r14)\n");
     out.push_str("    inc %r14\n");
     out.push_str("    sub %r8, %r14\n");
     out.push_str("    add $7, %r14\n");
     out.push_str("    and $-8, %r14\n");
     out.push_str("    mov %r14, (%r9)\n");
+    out.push_str("    jmp .L_x64_trim_ret\n");
+    out.push_str(".L_x64_trim_empty:\n");
+    out.push_str("    lea alya_str_empty(%rip), %rax\n");
     out.push_str("    jmp .L_x64_trim_ret\n");
     out.push_str(".L_x64_trim_null:\n");
     out.push_str("    lea alya_str_empty(%rip), %rax\n");
@@ -480,12 +487,22 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    dec %rdx\n");
     out.push_str("    jmp .L_x64_sub_copy\n");
     out.push_str(".L_x64_sub_done:\n");
+    // Empty results canonicalize to the rodata empty (#92): a NUL
+    // first byte in a heap region is ambiguous to the runtime
+    // classifier (empty string vs aliasing int), but the rodata
+    // empty is unambiguous, so producers must never emit ring
+    // empties. Skip the cursor commit: nothing was written.
+    out.push_str("    cmp %r12, %r13\n");
+    out.push_str("    je .L_x64_sub_empty\n");
     out.push_str("    movb $0, (%r13)\n");
     out.push_str("    inc %r13\n");
     out.push_str("    sub %r8, %r13\n");
     out.push_str("    add $7, %r13\n");
     out.push_str("    and $-8, %r13\n");
     out.push_str("    mov %r13, (%r9)\n");
+    out.push_str("    jmp .L_x64_sub_ret\n");
+    out.push_str(".L_x64_sub_empty:\n");
+    out.push_str("    lea alya_str_empty(%rip), %rax\n");
     out.push_str("    jmp .L_x64_sub_ret\n");
     out.push_str(".L_x64_sub_null:\n");
     out.push_str("    lea alya_str_empty(%rip), %rax\n");

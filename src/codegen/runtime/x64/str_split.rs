@@ -243,6 +243,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    incq %rdi\n");
     out.push_str("    jmp .L_x64_split_tok_copy\n");
     out.push_str(".L_x64_split_tok_done:\n");
+    // Zero-length tokens canonicalize to the rodata empty (#92):
+    // a NUL first byte in a heap region is ambiguous to the runtime
+    // classifier, but the rodata empty is unambiguous. The cursor
+    // commit below still runs (a few idle bytes, same as before).
+    out.push_str("    cmp 48(%rsp), %rdi\n");
+    out.push_str("    jne .L_x64_split_tok_nonempty\n");
+    out.push_str("    lea alya_str_empty(%rip), %rax\n");
+    out.push_str("    movq %rax, 48(%rsp)\n");
+    out.push_str(".L_x64_split_tok_nonempty:\n");
     out.push_str("    movb $0, (%rdi)\n");
     out.push_str("    incq %rdi\n");
     out.push_str("    subq %r8, %rdi\n");
@@ -284,6 +293,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    incq %rdi\n");
     out.push_str("    jmp .L_x64_split_final_copy\n");
     out.push_str(".L_x64_split_final_done:\n");
+    // Same canonicalization for the trailing piece (#92).
+    out.push_str("    movq 40(%rsp), %rax\n");
+    out.push_str("    cmpq 32(%rsp), %rax\n");
+    out.push_str("    jne .L_x64_split_final_nonempty\n");
+    out.push_str("    lea alya_str_empty(%rip), %rax\n");
+    out.push_str("    movq %rax, 48(%rsp)\n");
+    out.push_str(".L_x64_split_final_nonempty:\n");
     out.push_str("    movb $0, (%rdi)\n");
     out.push_str("    incq %rdi\n");
     out.push_str("    subq %r8, %rdi\n");

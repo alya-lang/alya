@@ -315,12 +315,18 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    strb w11, [x10], #1\n");
     out.push_str("    b .L_arm64_trim_copy_loop\n");
     out.push_str(".L_arm64_trim_done:\n");
+    // Empty results canonicalize to the rodata empty (#92), same
+    // rule as substring/split: skip the cursor commit.
+    out.push_str("    cmp x10, x0\n");
+    out.push_str("    b.eq .L_arm64_trim_empty\n");
     out.push_str("    strb wzr, [x10], #1\n");
     out.push_str("    sub x11, x10, x20\n");
     out.push_str("    add x11, x11, #7\n");
     out.push_str("    and x11, x11, #~7\n");
     out.push_str("    str x11, [x21]\n");
     out.push_str("    b .L_arm64_trim_ret\n");
+    out.push_str(".L_arm64_trim_empty:\n");
+    emit_adrp_add(out, "x0", "alya_str_empty", os);
     out.push_str(".L_arm64_trim_null:\n");
     emit_adrp_add(out, "x0", "alya_str_empty", os);
     out.push_str(".L_arm64_trim_ret:\n");
@@ -373,12 +379,21 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    sub x2, x2, #1\n");
     out.push_str("    b .L_arm64_sub_copy\n");
     out.push_str(".L_arm64_sub_done:\n");
+    // Empty results canonicalize to the rodata empty (#92): a NUL
+    // first byte in a heap region is ambiguous to the runtime
+    // classifier (empty string vs aliasing int), but the rodata
+    // empty is unambiguous, so producers must never emit ring
+    // empties. Skip the cursor commit: nothing was written.
+    out.push_str("    cmp x10, x0\n");
+    out.push_str("    b.eq .L_arm64_sub_empty\n");
     out.push_str("    strb wzr, [x10], #1\n");
     out.push_str("    sub x11, x10, x20\n");
     out.push_str("    add x11, x11, #7\n");
     out.push_str("    and x11, x11, #~7\n");
     out.push_str("    str x11, [x21]\n");
     out.push_str("    b .L_arm64_sub_ret\n");
+    out.push_str(".L_arm64_sub_empty:\n");
+    emit_adrp_add(out, "x0", "alya_str_empty", os);
     out.push_str(".L_arm64_sub_null:\n");
     emit_adrp_add(out, "x0", "alya_str_empty", os);
     out.push_str(".L_arm64_sub_ret:\n");

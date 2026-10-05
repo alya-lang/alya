@@ -829,6 +829,19 @@ end
 say e
 say e + "x"
 say "" + e
+let cells = str.split("a,,b", ",")
+say len(cells)
+if cells[1] == ""
+    say "cell-empty"
+else
+    say "cell-full"
+end
+say "[" + cells[1] + "]"
+if trim("   ") == ""
+    say "trim-empty"
+else
+    say "trim-full"
+end
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(
@@ -836,7 +849,11 @@ say "" + e
             "Execution failed with code {} and output:\n{}",
             code, output
         );
-        assert_eq!(output, "0\neq-empty\n\nx\n\n", "Got: {}", output);
+        assert_eq!(
+            output, "0\neq-empty\n\nx\n\n3\ncell-empty\n[]\ntrim-empty\n",
+            "Got: {}",
+            output
+        );
     }
 }
 

@@ -4278,9 +4278,11 @@ impl CodeGen {
     /// integers and everything outside the known string regions
     /// conservatively report int, matching historical behavior. Integer 0
     /// reports int (it shares a representation with null, and `say 0`
-    /// must keep printing `0`). Empty strings report string: a NUL
-    /// first byte inside a string region is exactly an empty string,
-    /// never null (#92). Floats are intentionally NOT detected
+    /// must keep printing `0`). A NUL first byte inside a string region
+    /// is ambiguous (empty string vs small int aliasing the region) and
+    /// reports int: aliasing ints are the common case, while genuine
+    /// empty strings are canonical rodata empties via producer-side
+    /// canonicalization (#92). Floats are intentionally NOT detected
     /// (their bits are ambiguous with ints/pointers without tags) and
     /// land in the int bucket.
     pub(crate) fn emit_runtime_classify(&mut self, os: OperatingSystem) {
@@ -4311,8 +4313,12 @@ impl CodeGen {
                 self.output.push_str("    lea 67108864(%rdx), %rcx\n");
                 self.output.push_str("    cmp %rcx, %rax\n");
                 self.output.push_str(&format!("    jae {}\n", l_stable));
-                // (#92) every in-region pointer is a string, including
-                // empty ones (NUL first byte): no emptiness check.
+                // Ambiguous NUL first byte reports int (historical bias:
+                // small ints aliasing string regions are far more common
+                // than the alternative; real empty strings are canonical
+                // rodata empties via producer canonicalization, #92).
+                self.output.push_str("    cmpb $0, (%rax)\n");
+                self.output.push_str(&format!("    je {}\n", l_int));
                 self.output.push_str(&format!("    jmp {}\n", l_str));
                 // Stable store region (B1): immortal strings live here
                 // whole-program — same string treatment as str_buf above.
@@ -4324,7 +4330,9 @@ impl CodeGen {
                 self.output.push_str("    lea 67108864(%rdx), %rcx\n");
                 self.output.push_str("    cmp %rcx, %rax\n");
                 self.output.push_str(&format!("    jae {}\n", l_int));
-                // (#92) same as above: empty strings classify as string.
+                // Same ambiguity rule as above (#92).
+                self.output.push_str("    cmpb $0, (%rax)\n");
+                self.output.push_str(&format!("    je {}\n", l_int));
                 self.output.push_str(&format!("    jmp {}\n", l_str));
                 self.output.push_str(&format!("{}:\n", l_int));
                 self.output
@@ -4371,8 +4379,9 @@ impl CodeGen {
                 self.output.push_str("    add x2, x1, x2\n");
                 self.output.push_str("    cmp x0, x2\n");
                 self.output.push_str(&format!("    b.hs {}\n", l_stable));
-                // (#92) every in-region pointer is a string, including
-                // empty ones (NUL first byte): no emptiness check.
+                // Ambiguous NUL first byte reports int, same rule as x64 (#92).
+                self.output.push_str("    ldrb w2, [x0]\n");
+                self.output.push_str(&format!("    cbz w2, {}\n", l_int));
                 self.output.push_str(&format!("    b {}\n", l_str));
                 // Stable store region (B1): immortal strings live here
                 // whole-program — same string treatment as str_buf above.
@@ -4392,7 +4401,9 @@ impl CodeGen {
                 self.output.push_str("    add x2, x1, x2\n");
                 self.output.push_str("    cmp x0, x2\n");
                 self.output.push_str(&format!("    b.hs {}\n", l_int));
-                // (#92) same as above: empty strings classify as string.
+                // Same ambiguity rule as above (#92).
+                self.output.push_str("    ldrb w2, [x0]\n");
+                self.output.push_str(&format!("    cbz w2, {}\n", l_int));
                 self.output.push_str(&format!("    b {}\n", l_str));
                 self.output.push_str(&format!("{}:\n", l_int));
                 self.output
