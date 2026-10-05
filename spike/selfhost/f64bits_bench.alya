@@ -1,0 +1,146 @@
+# Spike 1c: f64 bit-pattern helper e2e (0.0/-0.0/inf/NaN/subnormals/1ulp).
+#
+# Vehicle: std/mem Arena write_float (raw 64-bit store) + read_int
+# (raw 64-bit load). Prints one line per check (t_name|0/1) plus a
+# summary line f64|ok|passed|total. Deterministic: re-run must print
+# byte-identical output (no timing on any line).
+#
+# Bit helpers avoid all signed pitfalls: the sign bit is masked off
+# with INT64_MAX before shifting, so exp extraction is exact under
+# both arithmetic and logical shr; mantissa masks are positive.
+#
+# Known quirk documented (not asserted away): float ==,<,<= on NaN
+# follow raw setcc on unordered (true),>,>= false — non-IEEE, spec
+# silent (chapters mention NaN only for MathError/NaN-boxing).
+# A codegen port must replicate even this. NaN must be detected via
+# BITS (exp==2047, mant!=0), never via ==/!=.
+#
+# Coding rules from FINDINGS.md: aliased imports, concatenation-only
+# output, no braces in any literal.
+
+import "std/os" as os
+import "std/mem" as mem
+
+function int_to_dec(v: int) -> string
+    if v == 0
+        return "0"
+    end
+    let neg = 0
+    let x = v
+    if x < 0
+        neg = 1
+        x = 0 - x
+    end
+    let digs = []
+    while x > 0
+        digs.push(x % 10)
+        x = x / 10
+    end
+    let s = ""
+    if neg == true
+        s = "-"
+    end
+    let i = len(digs) - 1
+    while i >= 0
+        s = s + chr(48 + digs[i])
+        i -= 1
+    end
+    return s
+end
+
+function b2i(c: bool) -> int
+    if c
+        return 1
+    end
+    return 0
+end
+
+function bits(x: float) -> int
+    let a = mem.arena_new(1024)
+    let p = a.alloc(8)
+    mem.write_float(p, 0, x)
+    let b = mem.read_int(p, 0)
+    mem.arena_free(a)
+    return b
+end
+
+function roundtrip(x: float) -> float
+    let a = mem.arena_new(1024)
+    let p = a.alloc(8)
+    mem.write_float(p, 0, x)
+    let y = mem.read_float(p, 0)
+    mem.arena_free(a)
+    return y
+end
+
+function exp_of(b: int) -> int
+    return bit_and(bit_shr(bit_and(b, 9223372036854775807), 52), 2047)
+end
+
+function mant_of(b: int) -> int
+    return bit_and(b, 4503599627370495)
+end
+
+function check(name: string, v: int) -> int
+    say name + "|" + int_to_dec(v)
+    return v
+end
+
+function main()
+    let args = os.cli_args()
+    if len(args) > 99
+        say "unreachable"
+        os.exit_process(2)
+    end
+    let z = 0.0
+    let nz = 0.0 * -1.0
+    let big = 1e308 * 10.0
+    let ninf = 0.0 - big
+    let nanv = big - big
+    let nan2 = 0.0 * big
+    let sub = 5e-324
+    let dblmin = 2.2250738585072014e-308
+    let one = 1.0
+    let oneplus = 1.0000000000000002
+    let passed = 0
+    passed += check("t_zero_bits", b2i(bits(z) == 0))
+    passed += check("t_negzero_distinct", b2i(bits(nz) != bits(z)))
+    passed += check("t_negzero_sign", b2i(bits(nz) < 0))
+    passed += check("t_negzero_eq", b2i(nz == z))
+    passed += check("t_inf_gt", b2i(big > 1e308))
+    passed += check("t_inf_exp", b2i(exp_of(bits(big)) == 2047))
+    passed += check("t_inf_mant0", b2i(mant_of(bits(big)) == 0))
+    passed += check("t_ninf_sign", b2i(bits(ninf) < 0))
+    passed += check("t_ninf_exp", b2i(exp_of(bits(ninf)) == 2047))
+    passed += check("t_ninf_mant0", b2i(mant_of(bits(ninf)) == 0))
+    passed += check("t_ninf_lt", b2i(ninf < 0.0 - 1e308))
+    passed += check("t_nan_exp", b2i(exp_of(bits(nanv)) == 2047))
+    passed += check("t_nan_mant", b2i(mant_of(bits(nanv)) != 0))
+    passed += check("t_nan_determ", b2i(bits(nan2) == bits(nanv)))
+    passed += check("t_nan_qeq", b2i((nanv == nanv) == true))
+    passed += check("t_nan_qne", b2i((nanv != nanv) == false))
+    passed += check("t_nan_qlt", b2i((nanv < 1.0) == true))
+    passed += check("t_nan_qlt_rev", b2i((1.0 < nanv) == true))
+    passed += check("t_nan_qle", b2i((nanv <= nanv) == true))
+    passed += check("t_nan_qgt", b2i((nanv > 1.0) == false))
+    passed += check("t_nan_qge", b2i((nanv >= nanv) == false))
+    passed += check("t_sub_range", b2i(sub > 0.0 and sub < dblmin))
+    passed += check("t_sub_bits1", b2i(bits(sub) == 1))
+    passed += check("t_sub_exp0", b2i(exp_of(bits(sub)) == 0))
+    passed += check("t_ulp_diff1", b2i(bits(oneplus) - bits(one) == 1))
+    passed += check("t_ulp_order", b2i(one < oneplus))
+    passed += check("t_rt_norm", b2i(roundtrip(3.14) == 3.14))
+    passed += check("t_rt_inf", b2i(roundtrip(big) == big))
+    passed += check("t_rt_ninf", b2i(roundtrip(ninf) == ninf))
+    passed += check("t_rt_nz", b2i(bits(roundtrip(nz)) == bits(nz)))
+    passed += check("t_rt_sub", b2i(bits(roundtrip(sub)) == 1))
+    passed += check("t_rt_ulp", b2i(bits(roundtrip(oneplus)) - bits(one) == 1))
+    let total = 32
+    let ok = 0
+    if passed == total
+        ok = 1
+    end
+    say "f64" + "|" + int_to_dec(ok) + "|" + int_to_dec(passed) + "|" + int_to_dec(total)
+end
+
+main()

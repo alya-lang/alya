@@ -1,0 +1,101 @@
+# Spike 1b: 10k string->int map insert/lookup timing (CallIndex proxy).
+#
+# Builds N unique CallIndex-like symbol keys, then times three passes:
+# insert, lookup-sum, update-rewrite. Prints one stats line:
+#   map|n|ms_ins|ms_lookup|ms_update|ok|sum
+# ok=1 when len + lookup sum + update sum all match expected values.
+# Key building is untimed (prebuilt string[]); the clock covers pure
+# map ops only.
+#
+# Coding rules from FINDINGS.md: aliased imports, concatenation-only
+# output, homogeneous containers (string[] keys, int map values).
+
+import "std/os" as os
+import "std/time" as time
+
+function int_to_dec(v: int) -> string
+    if v == 0
+        return "0"
+    end
+    let neg = 0
+    let x = v
+    if x < 0
+        neg = 1
+        x = 0 - x
+    end
+    let digs = []
+    while x > 0
+        digs.push(x % 10)
+        x = x / 10
+    end
+    let s = ""
+    if neg == true
+        s = "-"
+    end
+    let i = len(digs) - 1
+    while i >= 0
+        s = s + chr(48 + digs[i])
+        i -= 1
+    end
+    return s
+end
+
+# Unique symbol-like key. No braces anywhere.
+function make_key(i: int) -> string
+    return "pkgmod" + int_to_dec(i % 128) + "::fn" + int_to_dec(i) + "__T" + int_to_dec(i % 16)
+end
+
+function run(n: int)
+    let keys: string[] = []
+    let i = 0
+    while i < n
+        keys.push(make_key(i))
+        i += 1
+    end
+    let m = {}
+    let t0 = time.now_ms()
+    i = 0
+    while i < n
+        m[keys[i]] = i
+        i += 1
+    end
+    let ms_ins = time.now_ms() - t0
+    let t1 = time.now_ms()
+    let sum = 0
+    i = 0
+    while i < n
+        sum += m[keys[i]]
+        i += 1
+    end
+    let ms_lookup = time.now_ms() - t1
+    let t2 = time.now_ms()
+    i = 0
+    while i < n
+        m[keys[i]] = i + 1
+        i += 1
+    end
+    let ms_update = time.now_ms() - t2
+    let sum2 = 0
+    i = 0
+    while i < n
+        sum2 += m[keys[i]]
+        i += 1
+    end
+    let expect = n * (n - 1) / 2
+    let ok = 0
+    if len(m) == n and sum == expect and sum2 == expect + n
+        ok = 1
+    end
+    say "map" + "|" + int_to_dec(n) + "|" + int_to_dec(ms_ins) + "|" + int_to_dec(ms_lookup) + "|" + int_to_dec(ms_update) + "|" + int_to_dec(ok) + "|" + int_to_dec(sum2)
+end
+
+function main()
+    let args = os.cli_args()
+    let n = 10000
+    if len(args) >= 1
+        n = int(args[len(args) - 1])
+    end
+    run(n)
+end
+
+main()

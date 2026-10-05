@@ -1,6 +1,6 @@
 # Spike: codegen port feasibility (self-hosting step 3)
 
-Date: 2026-10-04. Status: INVESTIGATION, no code.
+Date: 2026-10-04. Status: INVESTIGATION, slice 1a DONE (2026-10-05).
 
 ## What codegen is (measured)
 
@@ -65,6 +65,76 @@ Active traps (coding rules from day one): aliased imports, homogeneous
 arrays/structs discipline is now compiler-enforced for struct fields
 (#87 fixed) but NOT for mixed arrays — keep structs; never feed runtime
 text through `"..."/f"..."`.
+
+## 1a result (2026-10-05): emission vehicle decided
+
+`spike/selfhost/emit_bench.alya` (`all|plus|join|buffer`, N lines,
+`mode|len|checksum|ms` stats; internal `now_ms` + byte-exact len+sum):
+
+| N (lines) | Bytes | plus (`+=`) | join | buffer |
+|---|---|---|---|---|
+| 10 | 270 | ok, 0 ms | ok, 0 ms | ok, 0 ms |
+| 2000 | 61017 | ok, 63 ms | ok, 0 ms | ok, 15 ms |
+| 30000 (~1 MB) | 959706 | OOM stable-store | ok, 16 ms | ok, 15 ms |
+| 100000 (~3.2 MB) | 3231424 | — (dead) | ok, 47 ms | ok, 63 ms |
+| 300000 (~10 MB) | 9972049 | — (dead) | ok, 171 ms | ok, 188 ms |
+
+Byte-exact: all modes agree wherever all succeed (e.g. N=2000:
+`61017|4222267`; N=30000 join=buffer `959706|65655231`).
+`+=` dies between N=2000 (61 KB ok) and N=2500: each intermediate
+concat pins stable-store memory, so total is O(n^2) against the 64 MB
+`alya_str_stable` region (`src/codegen/runtime/data.rs`) — a clean
+`stable store overflow` error, not corruption. join/buffer scale
+linearly (~15 ms/MB) with 10x headroom over the 1 MB target.
+
+Verdict: codegen emission MUST use array+join (fastest at every size)
+or ByteBuffer (same complexity, ~same speed); `+=` loops are banned
+for emission. No `alya fmt`/`clippy` fallout (spike-only, fmt clean).
+
+## 1b result (2026-10-05): maps are not the risk
+
+`spike/selfhost/map_bench.alya` (CallIndex proxy: prebuilt unique
+`pkgmodNN::fnI__TM` keys, pure map ops timed, `map|n|ms_ins|ms_lookup|
+ms_update|ok|sum` stats; fmt clean):
+
+| N | insert | lookup | update | ok |
+|---|---|---|---|---|
+| 100 | 0 ms | 0 ms | 0 ms | 1 |
+| 10000 | 0 ms | 0 ms | 0 ms | 1 (`50005000`) |
+| 100000 | 16 ms | 0 ms | 0 ms | 1 |
+| 300000 | 62 ms | 31 ms | 32 ms | 1 |
+
+10k ops are sub-quantum (<15.6 ms) on every pass — the ms clock
+cannot even resolve them. Linear scaling above the quantum (~2 ms
+insert / ~1 ms lookup per 10k) gives 30x headroom over any realistic
+whole-program CallIndex. Rehash is invisible; checksums exact, no
+nondeterminism. Verdict: map throughput is NOT a self-host risk.
+
+## 1c result (2026-10-05): f64 bit-patterns exact, one quirk documented
+
+`spike/selfhost/f64bits_bench.alya` (Arena `write_float` + `read_int`
+round-trip; per-check `t_name|0/1` lines + `f64|ok|passed|total`;
+fmt clean, byte-identical across runs — no timing on any line):
+
+- Result: `f64|1|32|32`. All edge values constructible and
+  bit-exact: `0.0` (bits 0), `-0.0` via `0.0 * -1.0` (bits INT64_MIN,
+  numerically `== 0.0` but bit-distinct), `+inf` via `1e308 * 10.0`
+  (bits `0x7FF0...`, prints `inf`), `-inf` via `0.0 - inf`,
+  NaN via `inf - inf` (bits `0xFFF8...`, two independent sources
+  bit-identical), min subnormal `5e-324` (bits 1, exp field 0),
+  1 ulp (`1.0000000000000002 - 1.0` bits differ by exactly 1).
+  Every value survives a write/read round-trip bit-identically.
+- Sign-bit-safe helpers only: exp is extracted after masking with
+  INT64_MAX, mantissa with `2^52-1` — exact under both arithmetic
+  and logical shr, no INT64_MIN negation anywhere.
+- QUIRK (documented, asserted as observed): float `==`, `<`, `<=`
+  on NaN follow raw setcc on unordered — all true (`nan == nan`,
+  `nan < 1.0`, `1.0 < nan`, `nan <= nan` are 1); `>`, `>=` are
+  false. Non-IEEE, spec silent (NaN appears only for MathError /
+  NaN-boxing). NaN must be detected via BITS (exp 2047 + mant != 0),
+  never via `==`/`!=`. A codegen port must replicate even this.
+- Verdict: the `write_float`/`read_int` vehicle carries every f64
+  bit pattern exactly. 1c DONE; capability spikes 1a–1c all closed.
 
 ## Recommendation (staged, no full-port commitment)
 
