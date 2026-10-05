@@ -4518,8 +4518,10 @@ impl CodeGen {
                 self.output
                     .push_str(&format!("    cmp ${}, %rax\n", KIND_STRING));
                 self.output.push_str(&format!("    jne {}\n", l_int));
+                // NOTE: explicit q suffix: Apple clang-as rejects bare
+                // imm-vs-mem cmp (macOS Intel leg); GAS accepts either.
                 self.output
-                    .push_str(&format!("    cmp ${}, (%rsp)\n", KIND_STRING));
+                    .push_str(&format!("    cmpq ${}, (%rsp)\n", KIND_STRING));
                 self.output.push_str(&format!("    jne {}\n", l_int));
                 self.output.push_str("    add $8, %rsp\n");
                 self.output.push_str("    pop %rax\n");
