@@ -809,3 +809,33 @@ say len(n)
         assert_eq!(output, "[]\n[]\n[]\n[]\n0\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_dynamic_empty_string_classification() {
+    // #92: a dynamic empty string (statically-unknown value whose first
+    // byte is NUL) classified as int: say printed the pointer, == ""
+    // was false, concat took the int path. Static empties always
+    // worked; only the runtime classifier was wrong.
+    let code = r#"
+import "std/str" as str
+let raw = str.split("1|50|newline|\n", chr(10))
+let e = raw[0][13..13]
+say len(e)
+if e == ""
+    say "eq-empty"
+else
+    say "ne-empty"
+end
+say e
+say e + "x"
+say "" + e
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "0\neq-empty\n\nx\n\n", "Got: {}", output);
+    }
+}
