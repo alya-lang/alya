@@ -4493,9 +4493,7 @@ impl CodeGen {
                     | BinaryOp::Divide
                     | BinaryOp::Modulo,
                 right,
-            } => {
-                Self::add_may_hold_string(left, vars) || Self::add_may_hold_string(right, vars)
-            }
+            } => Self::add_may_hold_string(left, vars) || Self::add_may_hold_string(right, vars),
             _ => !is_number_expr(expr, vars),
         }
     }
