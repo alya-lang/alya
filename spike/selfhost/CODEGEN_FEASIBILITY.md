@@ -134,6 +134,20 @@ fmt clean, byte-identical across runs — no timing on any line):
 - Verdict: the `write_float`/`read_int` vehicle carries every f64
   bit pattern exactly. 1c DONE; capability spikes 1a–1c all closed.
 
+## Thin slice 2a result (2026-10-05): tool-run loop proven
+
+`spike/selfhost/link_probe.alya` (fmt clean): writes a minimal x64
+Windows asm (puts-based, `.asciz` so no NUL literal is needed),
+links it with host gcc via `std/process` capture, runs the exe,
+checks exit codes + stdout. Result: `link|1|171|625|20` (stable
+across runs; stdout is the 20-byte `hi from alya-spike\r\n` —
+MSVCRT text mode appends `\r`, both endings accepted).
+`temp_spike_hi.*` temps are gitignored by name and deleted by the
+probe (no strays). Verdict: file writing, gcc invocation, process
+capture, and the differential-execution loop mechanics all work
+from Alya. Next: 2b, an S-expr → asm emitter slice
+(`say` + int arithmetic, x64).
+
 ## Recommendation (staged, no full-port commitment)
 
 1. **Capability spikes in Alya** (days, kill the unknowns first):

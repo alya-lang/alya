@@ -1,0 +1,102 @@
+# Thin slice 2a probe: file write + gcc assemble/link + run + verify.
+#
+# Writes a minimal x64 Windows asm (puts-based, no custom runtime),
+# links it with the host gcc, runs the exe via std/process capture,
+# and checks exit code + stdout. Prints one stats line:
+#   link|ok|gcc_ms|run_ms|out_len
+# ok=1 only when gcc exits 0, the exe exits 0, and stdout matches.
+# Temps (temp_spike_hi.*) are gitignored by name and deleted at the
+# end, success or failure.
+#
+# Coding rules from FINDINGS.md: aliased imports, concatenation-only
+# output, homogeneous containers. No NUL bytes anywhere (the asm
+# uses .asciz so no \0 escape is needed; Alya strings cannot hold NUL).
+
+import "std/os" as os
+import "std/time" as time
+import "std/fs" as fs
+import "std/process" as proc
+
+function int_to_dec(v: int) -> string
+    if v == 0
+        return "0"
+    end
+    let neg = 0
+    let x = v
+    if x < 0
+        neg = 1
+        x = 0 - x
+    end
+    let digs = []
+    while x > 0
+        digs.push(x % 10)
+        x = x / 10
+    end
+    let s = ""
+    if neg == true
+        s = "-"
+    end
+    let i = len(digs) - 1
+    while i >= 0
+        s = s + chr(48 + digs[i])
+        i -= 1
+    end
+    return s
+end
+
+function hello_asm() -> string
+    let q = chr(34)
+    let nl = chr(10)
+    let s = ""
+    s = s + "    .text" + nl
+    s = s + "    .global main" + nl
+    s = s + "main:" + nl
+    s = s + "    sub $40, %rsp" + nl
+    s = s + "    lea msg(%rip), %rcx" + nl
+    s = s + "    call puts" + nl
+    s = s + "    xor %eax, %eax" + nl
+    s = s + "    add $40, %rsp" + nl
+    s = s + "    ret" + nl
+    s = s + "    .data" + nl
+    s = s + "msg:" + nl
+    s = s + "    .asciz " + q + "hi from alya-spike" + q + nl
+    return s
+end
+
+function main()
+    let asm_path = "temp_spike_hi.s"
+    let exe_path = "temp_spike_hi.exe"
+    let ok = 0
+    let gcc_ms = 0
+    let run_ms = 0
+    let out_len = 0
+    let w = fs.write_string(asm_path, hello_asm())
+    if w == 1
+        let t0 = time.now_ms()
+        let g = proc.process_run("gcc", ["-o", exe_path, asm_path])
+        gcc_ms = time.now_ms() - t0
+        if g.exit_code == 0
+            let t1 = time.now_ms()
+            let r = proc.process_run(exe_path, [])
+            run_ms = time.now_ms() - t1
+            out_len = len(r.stdout)
+            let want = "hi from alya-spike" + chr(13) + chr(10)
+            let want2 = "hi from alya-spike" + chr(10)
+            if r.exit_code == 0 and (r.stdout == want or r.stdout == want2)
+                ok = 1
+            end
+        else
+            say "gcc failed: " + g.stderr
+        end
+    else
+        say "write failed"
+    end
+    fs.fs_remove(asm_path)
+    fs.fs_remove(exe_path)
+    say "link" + "|" + int_to_dec(ok) + "|" + int_to_dec(gcc_ms) + "|" + int_to_dec(run_ms) + "|" + int_to_dec(out_len)
+    if ok == 0
+        os.exit_process(1)
+    end
+end
+
+main()
