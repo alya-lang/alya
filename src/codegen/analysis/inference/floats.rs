@@ -102,6 +102,7 @@ fn expr_is_definitely_float(expr: &Expr, known_floats: &HashSet<String>) -> bool
             match &**array {
                 Expr::Identifier(arr_name) => {
                     known_floats.contains(&format!("arr_is_flt:{}", arr_name))
+                        && !known_floats.contains(&format!("arr_nonflt:{}", arr_name))
                 }
                 Expr::ForceUnwrap(inner) => expr_is_definitely_float(inner, known_floats),
                 _ => false,
@@ -133,10 +134,19 @@ fn expr_is_definitely_float(expr: &Expr, known_floats: &HashSet<String>) -> bool
 
 fn expr_is_float_array(expr: &Expr, known_floats: &HashSet<String>) -> bool {
     match expr {
-        Expr::Array(elems) => elems
-            .first()
-            .is_some_and(|e| expr_is_definitely_float(e, known_floats)),
-        Expr::Identifier(name) => known_floats.contains(&format!("arr_is_flt:{}", name)),
+        // Mixed literals are NOT float arrays (#95): require all-float,
+        // mirroring the string-array discipline. First-only marking
+        // misread `[1.5, 1][1]` as f64 bits.
+        Expr::Array(elems) => {
+            !elems.is_empty()
+                && elems
+                    .iter()
+                    .all(|e| expr_is_definitely_float(e, known_floats))
+        }
+        Expr::Identifier(name) => {
+            known_floats.contains(&format!("arr_is_flt:{}", name))
+                && !known_floats.contains(&format!("arr_nonflt:{}", name))
+        }
         Expr::ForceUnwrap(inner) => expr_is_float_array(inner, known_floats),
         _ => false,
     }
@@ -328,8 +338,14 @@ fn collect_float_vars_from_stmts(
                         }
                     } else if t == "float[]" || t == "f64[]" || t == "f32[]" {
                         scope.insert(format!("arr_is_flt:{}", name));
+                        // Explicit annotations promise conversion-on-read
+                        // (#95): int pushes into an annotated float array
+                        // convert instead of voiding the claim, so the
+                        // push veto below must not fire for these.
+                        scope.insert(format!("arr_flt_ann:{}", name));
                         if is_top_level {
                             known_floats.insert(format!("arr_is_flt:{}", name));
+                            known_floats.insert(format!("arr_flt_ann:{}", name));
                         }
                     }
                 }
@@ -575,6 +591,28 @@ fn collect_float_vars_from_stmts(
                     is_top_level,
                 );
             }
+            Stmt::Expr(Expr::Call { name, args }) => {
+                // Non-float pushes void inferred whole-array float claims
+                // (#95), mirroring the string `arr_nonstr` veto: readers
+                // fall back to slot-kind dispatch. Annotated float arrays
+                // convert on read instead, so their claim survives. Float
+                // pushes need no action (the push-built pass promotes
+                // those).
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if (bare == "push" || bare == "array_push" || bare == "append") && args.len() == 2 {
+                    if let Expr::Identifier(arr_name) = &args[0] {
+                        let annotated = scope.contains(&format!("arr_flt_ann:{}", arr_name))
+                            || known_floats.contains(&format!("arr_flt_ann:{}", arr_name));
+                        if !annotated && !expr_is_definitely_float(&args[1], scope) {
+                            scope.insert(format!("arr_nonflt:{}", arr_name));
+                            if is_top_level {
+                                known_floats.insert(format!("arr_nonflt:{}", arr_name));
+                            }
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -648,6 +686,9 @@ pub fn collect_known_float_vars_with_index(
                     } else if pt == "float[]" || pt == "f64[]" || pt == "f32[]" {
                         known_floats.insert(format!("fn_param_flt_arr:{}:{}", name, idx));
                         known_floats.insert(format!("fn_param_flt_arr:{}:{}", bare, idx));
+                        // Annotated params convert on read (#95).
+                        known_floats.insert(format!("fn_param_flt_arr_ann:{}:{}", name, idx));
+                        known_floats.insert(format!("fn_param_flt_arr_ann:{}:{}", bare, idx));
                     }
                 }
             }
@@ -775,7 +816,8 @@ pub fn infer_param_is_float_array(func_name: &str, param_idx: usize, program: &P
 
 // alya-lang/alya#50: push-built float arrays.
 //
-// Array literals earn `arr_is_flt` from their first element, but arrays
+// Array literals earn `arr_is_flt` only when all elements are float
+// (#95: first-only marking misread mixed `[1.5, 1]`), but arrays
 // assembled with `push` never did, so untyped reads of their float slots
 // returned raw f64 bit patterns. This pass promotes arrays whose locally
 // visible sources are all float (literal inits, float pushes, float-array

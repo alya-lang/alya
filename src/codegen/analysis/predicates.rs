@@ -988,7 +988,8 @@ pub fn is_dynamic_element_read(expr: &Expr, vars: &HashMap<String, VarType>) -> 
             if matches!(vars.get(name), Some(VarType::Array(_))) {
                 let proven_str = vars.contains_key(&format!("arr_is_str:{}", name))
                     && !vars.contains_key(&format!("arr_nonstr:{}", name));
-                let proven_flt = vars.contains_key(&format!("arr_is_flt:{}", name));
+                let proven_flt = vars.contains_key(&format!("arr_is_flt:{}", name))
+                    && !vars.contains_key(&format!("arr_nonflt:{}", name));
                 return !proven_str && !proven_flt;
             }
         }
@@ -1065,8 +1066,16 @@ pub fn is_string_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
 
 pub fn is_float_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
-        Expr::Array(elems) => elems.first().is_some_and(|e| is_float_expr(e, vars)),
-        Expr::Identifier(name) => vars.contains_key(&format!("arr_is_flt:{}", name)),
+        Expr::Array(elems) => {
+            // Mixed literals are NOT float arrays (#95): every element
+            // must be float, mirroring is_string_array's `all` below.
+            // First-only marking misread `[1.5, 1][1]` as f64 bits.
+            !elems.is_empty() && elems.iter().all(|e| is_float_expr(e, vars))
+        }
+        Expr::Identifier(name) => {
+            vars.contains_key(&format!("arr_is_flt:{}", name))
+                && !vars.contains_key(&format!("arr_nonflt:{}", name))
+        }
         Expr::FieldAccess { object, field } => {
             if let Expr::Identifier(obj_name) = &**object {
                 if let Some(VarType::Struct { struct_name, .. }) = vars.get(obj_name) {

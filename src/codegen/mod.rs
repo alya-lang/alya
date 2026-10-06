@@ -740,7 +740,14 @@ impl CodeGen {
             // marking in inference; codegen reads consult it via
             // `is_float_array` exactly like literal-derived marks
             // (presence-only, same `Number(0)` shape as assign.rs).
-            if s.starts_with("arr_is_flt:") {
+            // `arr_nonflt:` vetoes (#95) travel alongside so mixed
+            // arrays degrade to slot-kind dispatch. `arr_flt_ann:`
+            // marks explicit `float[]` annotations whose conversion
+            // semantics survive int pushes.
+            if s.starts_with("arr_is_flt:")
+                || s.starts_with("arr_nonflt:")
+                || s.starts_with("arr_flt_ann:")
+            {
                 self.ctx.variables.insert(s.clone(), VarType::Number(0));
             }
         }
@@ -1843,6 +1850,16 @@ impl CodeGen {
                     self.ctx
                         .variables
                         .insert(format!("arr_is_flt:{}", param), VarType::Number(0));
+                    // Annotated float-array params convert on read (#95).
+                    let ann_key1 = format!("fn_param_flt_arr_ann:{}:{}", name, i);
+                    let ann_key2 = format!("fn_param_flt_arr_ann:{}:{}", bare, i);
+                    if inference.known_floats.contains(&ann_key1)
+                        || inference.known_floats.contains(&ann_key2)
+                    {
+                        self.ctx
+                            .variables
+                            .insert(format!("arr_flt_ann:{}", param), VarType::Number(0));
+                    }
                 }
                 if is_int_arr {
                     self.ctx
@@ -2594,14 +2611,20 @@ impl CodeGen {
                 // Proven-scalar element reads are never heap pointers:
                 // retaining a large 8-aligned int faults in rc_retain.
                 if let Expr::Identifier(base) = array.as_ref() {
+                    // arr_is_flt agrees with the tag only for proven
+                    // float-only arrays (#95: arr_nonflt vetoes mixed).
                     if self
                         .ctx
                         .variables
                         .contains_key(&format!("arr_is_int:{}", base))
-                        || self
+                        || (self
                             .ctx
                             .variables
                             .contains_key(&format!("arr_is_flt:{}", base))
+                            && !self
+                                .ctx
+                                .variables
+                                .contains_key(&format!("arr_nonflt:{}", base)))
                     {
                         return false;
                     }

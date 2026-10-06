@@ -205,10 +205,17 @@ impl CodeGen {
                         .iter()
                         .all(|e| is_string_expr(e, &self.ctx.variables)))
                     || matches!(type_ann, Some("string[]") | Some("str[]"));
-                let is_flt_arr = elements
-                    .first()
-                    .is_some_and(|e| is_float_expr(e, &self.ctx.variables))
-                    || matches!(type_ann, Some("float[]") | Some("f64[]"));
+                // Mixed literals are NOT float arrays (#95): require all
+                // elements float, mirroring is_str_arr's `all` above.
+                // First-only marking misread `[1.5, 1][1]` as f64 bits.
+                // Explicit annotations promise conversion-on-read, so
+                // they also plant `arr_flt_ann` (push vetoes skip those).
+                let ann_flt_arr = matches!(type_ann, Some("float[]") | Some("f64[]"));
+                let is_flt_arr = (!elements.is_empty()
+                    && elements
+                        .iter()
+                        .all(|e| is_float_expr(e, &self.ctx.variables)))
+                    || ann_flt_arr;
                 // Explicit integer-array annotations are enforced by the
                 // type checker, so they are exact element-kind facts.
                 // Literal-based inference would go stale on later pushes
@@ -261,6 +268,11 @@ impl CodeGen {
                     self.ctx
                         .variables
                         .insert(format!("arr_is_flt:{}", name), VarType::Number(0));
+                }
+                if ann_flt_arr {
+                    self.ctx
+                        .variables
+                        .insert(format!("arr_flt_ann:{}", name), VarType::Number(0));
                 }
                 if is_int_arr {
                     self.ctx
@@ -714,6 +726,11 @@ impl CodeGen {
                         self.ctx
                             .variables
                             .insert(format!("arr_is_flt:{}", name), VarType::Number(0));
+                    }
+                    if matches!(type_ann, Some("float[]") | Some("f64[]")) {
+                        self.ctx
+                            .variables
+                            .insert(format!("arr_flt_ann:{}", name), VarType::Number(0));
                     }
                 } else if is_str {
                     self.ctx

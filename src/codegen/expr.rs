@@ -1325,6 +1325,20 @@ impl CodeGen {
                                 .variables
                                 .insert(format!("arr_nonstr:{}", arr_name), VarType::Number(0));
                         }
+                        // Non-float pushes void the inferred whole-array
+                        // float claim (#95), mirroring arr_nonstr above:
+                        // readers fall back to slot-kind dispatch instead
+                        // of printing int bits as f64. Annotated float
+                        // arrays convert on read, so their claim survives.
+                        let flt_annotated = self
+                            .ctx
+                            .variables
+                            .contains_key(&format!("arr_flt_ann:{}", arr_name));
+                        if !flt_annotated && !is_float_expr(&args[1], &self.ctx.variables) {
+                            self.ctx
+                                .variables
+                                .insert(format!("arr_nonflt:{}", arr_name), VarType::Number(0));
+                        }
                     }
                     self.generate_expression(&args[0]);
                     arch::emit_push_temp(&mut self.output, self.arch);

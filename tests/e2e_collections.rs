@@ -836,6 +836,39 @@ end
 }
 
 #[test]
+fn test_e2e_mixed_float_first_literal_reads_dispatch() {
+    // Regression test for alya-lang/alya#95: float-first mixed literals
+    // (`[1.5, 1]`) were marked whole-array float from the first element
+    // only, so non-float slots printed as f64 bits (`1` -> `4.94e-324`,
+    // `"hi"` -> pointer bits). Every element must be float to earn the
+    // marking; mixed arrays dispatch per slot tag. Also covers the
+    // push-after-float-literal veto and homogeneous literals staying
+    // on the exact float path.
+    let code = r#"
+let a = [1.5, 1]
+say a[0]
+say a[1]
+let b = [1.5, "hi"]
+say b[0]
+say b[1]
+let x = a[1]
+say x
+let h = [1.5, 2.5]
+say h[0]
+say h[1]
+let p = [1.5, 2.5]
+p.push(1)
+say p[0]
+say p[1]
+say p[2]
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "1.5\n1\n1.5\nhi\n1\n1.5\n2.5\n1.5\n2.5\n1\n");
+    }
+}
+
+#[test]
 fn test_e2e_is_string_on_tagged_reads() {
     // alya-lang/alya#39: `is string` on element reads with definite
     // non-string tags must be boolean false, not the leftover value.
