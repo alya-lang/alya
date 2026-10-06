@@ -1,0 +1,7 @@
+[package]
+name = "unwind-cpp-fixture"
+version = "0.1.0"
+
+[build]
+c-sources-windows = ["c/unwind_cpp.cpp"]
+c-link-flags-windows = ["-l:libstdc++.a", "-static-libgcc"]

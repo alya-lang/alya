@@ -96,9 +96,11 @@ fn emit_win_handler(out: &mut String, os: OperatingSystem) {
     out.push_str("alya_crash_handler_win:\n");
     // x0 = EXCEPTION_POINTERS*. ExceptionRecord* is its first word and
     // the ExceptionCode the record's first word.
-    out.push_str("    mov x9, sp\n");
-    out.push_str("    and x9, x9, #-16\n");
-    out.push_str("    mov sp, x9\n");
+    // NOTE (alya-lang/alya#109): sp is left UNTOUCHED until the fatal
+    // path below. Aligning up front would shift the stack for
+    // passthrough codes too, and the OS does not restore sp when a
+    // vectored handler returns CONTINUE_SEARCH — subsequent dispatch
+    // would read every frame slot shifted and jump wild.
     out.push_str("    ldr x1, [x0]\n");
     out.push_str("    ldr w1, [x1]\n");
     out.push_str("    movz x2, #0x0005\n");
@@ -130,7 +132,12 @@ fn emit_win_handler(out: &mut String, os: OperatingSystem) {
     out.push_str(&format!("    mov x2, #{}\n", super::super::data::CRASH_WIN_ILL.len()));
     out.push_str(".L_arm64_crash_win_write:\n");
     // WriteFile(GetStdHandle(-12), msg, len, &written, NULL);
-    // ExitProcess(134). x1/x2 already hold msg/len.
+    // ExitProcess(134). x1/x2 already hold msg/len. Fatal path only
+    // (never returns): force-align here, after the passthrough decision
+    // above left sp pristine (#109).
+    out.push_str("    mov x9, sp\n");
+    out.push_str("    and x9, x9, #-16\n");
+    out.push_str("    mov sp, x9\n");
     out.push_str("    sub sp, sp, #64\n");
     out.push_str("    str x1, [sp, #32]\n");
     out.push_str("    str x2, [sp, #40]\n");

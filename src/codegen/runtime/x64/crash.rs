@@ -98,7 +98,12 @@ fn emit_win_handler(out: &mut String) {
     out.push_str("alya_crash_handler_win:\n");
     // rcx = EXCEPTION_POINTERS*. ExceptionRecord* is its first word and
     // the ExceptionCode the record's first word.
-    out.push_str("    and $-16, %rsp\n");
+    // NOTE (alya-lang/alya#109): rsp is left UNTOUCHED until the fatal
+    // path below. An early `and $-16, %rsp` here would shift the stack
+    // for passthrough codes as well, and the OS does not restore rsp
+    // when a vectored handler returns CONTINUE_SEARCH — subsequent
+    // dispatch (e.g. a driver's internal, self-caught C++ exception)
+    // would then read every frame slot shifted and jump wild.
     out.push_str("    mov (%rcx), %r10\n");
     out.push_str("    mov (%r10), %eax\n");
     out.push_str("    cmp $0xC0000005, %eax\n");
@@ -126,6 +131,9 @@ fn emit_win_handler(out: &mut String) {
     // WriteFile(GetStdHandle(-12), msg, len, &written, NULL);
     // ExitProcess(134). One sub covers both calls' shadow space; msg/len
     // ride on the stack because GetStdHandle clobbers every volatile reg.
+    // Fatal path only (never returns): force-align the stack here, after
+    // the passthrough decision above left rsp pristine (#109).
+    out.push_str("    and $-16, %rsp\n");
     out.push_str("    sub $64, %rsp\n");
     out.push_str("    mov %rdx, 40(%rsp)\n");
     out.push_str("    mov %r8, 48(%rsp)\n");

@@ -1,0 +1,15 @@
+extern "C"
+    function cpp_entry() -> int
+    function cpp_thrower() -> int
+end
+
+@export("alya_mid")
+function mid() -> int
+    return cpp_thrower()
+end
+
+function main()
+    say("unwindcpp=" + str(cpp_entry()))
+end
+
+main()
