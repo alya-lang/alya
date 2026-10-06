@@ -373,12 +373,84 @@ fn collect_tuple_returns_string(
     }
 }
 
+/// True when a body returns a plain (non-array) string literal on some
+/// path (alya-lang/alya#107): such a function doesn't exclusively
+/// return string arrays, so string-array positives must not fire for
+/// it. Mirrors the `returns_non_string_lit` walker shape (literals
+/// only; identifiers/calls can't prove a plain string here — and the
+/// scalar veto already covers proven non-strings).
+fn body_returns_plain_string(stmts: &[Stmt]) -> bool {
+    for s in stmts {
+        match s {
+            Stmt::Return(Some(Expr::String(_) | Expr::InterpolatedString(_))) => {
+                return true;
+            }
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                if body_returns_plain_string(then_block) {
+                    return true;
+                }
+                if let Some(eb) = else_block {
+                    if body_returns_plain_string(eb) {
+                        return true;
+                    }
+                }
+            }
+            Stmt::While { body, .. }
+            | Stmt::Repeat { body }
+            | Stmt::For { body, .. }
+            | Stmt::ForEach { body, .. } => {
+                if body_returns_plain_string(body) {
+                    return true;
+                }
+            }
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                if body_returns_plain_string(try_block)
+                    || body_returns_plain_string(catch_block)
+                    || finally_block
+                        .as_ref()
+                        .is_some_and(|fb| body_returns_plain_string(fb))
+                {
+                    return true;
+                }
+            }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                if body_returns_plain_string(std::slice::from_ref(inner)) {
+                    return true;
+                }
+            }
+            // Nested functions own their returns; do not descend.
+            Stmt::Function { .. } => {}
+            _ => {}
+        }
+    }
+    false
+}
+
 fn collect_function_returns_string_array(
     stmts: &[Stmt],
     known_strings: &HashSet<String>,
     fn_name: &str,
     target_strings: &mut HashSet<String>,
 ) {
+    // #107: string-array positives need veto gating like scalar
+    // positives (`ret_vetoed`): a non-string path — or a plain-string
+    // (non-array) path — means the function doesn't exclusively
+    // return string arrays, so no marker. (Vetoes precede positives
+    // via the closure pre-seed, so no stale markers.)
+    if known_strings.contains(&format!("fn_ret_nonstr:{}", fn_name))
+        || body_returns_plain_string(stmts)
+    {
+        return;
+    }
     for s in stmts {
         match s {
             Stmt::Return(Some(expr)) if expr_is_string_array(expr, known_strings) => {
@@ -645,6 +717,111 @@ fn record_return_nonstr_vetoes(
     body: &[Stmt],
     known_strings: &mut HashSet<String>,
 ) {
+    // Builtins provably returning non-strings (mirror the codebase's
+    // own classifications: `call_returns_known_int` plus the float
+    // builtins). A `return int(...)` proves the function dynamic just
+    // like a literal does. Simple spellings only: qualified calls
+    // resolve through their own markers. (User shadowing over-vetoes
+    // soundly — vetoes only ever degrade to dynamic dispatch.)
+    fn is_non_string_builtin(name: &str) -> bool {
+        matches!(
+            name,
+            "int"
+                | "to_int"
+                | "parse_int"
+                | "len"
+                | "arr_len"
+                | "ord"
+                | "time"
+                | "clock_ms"
+                | "rand"
+                | "rand_int"
+                | "abs"
+                | "abs_val"
+                | "bit_and"
+                | "bit_or"
+                | "bit_xor"
+                | "bit_shl"
+                | "bit_shr"
+                | "bit_not"
+                | "float"
+                | "to_float"
+                | "parse_float"
+        )
+    }
+    // Transitive veto through already-vetoed callees: `return F(...)`
+    // where F is proven dynamic (any spelling; over-matching is sound
+    // — vetoes only degrade). Consults the accumulating set, so this
+    // propagates one call level per fixpoint round (see the closure
+    // pre-seed below).
+    fn returns_vetoed_call(stmts: &[Stmt], known_strings: &HashSet<String>) -> bool {
+        for s in stmts {
+            match s {
+                Stmt::Return(Some(Expr::Call { name, .. })) => {
+                    let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    let swapped_us = name.replace("::", "__");
+                    let swapped_col = name.replace("__", "::");
+                    if known_strings.contains(&format!("fn_ret_nonstr:{}", name))
+                        || known_strings.contains(&format!("fn_ret_nonstr:{}", bare))
+                        || known_strings.contains(&format!("fn_ret_nonstr:{}", swapped_us))
+                        || known_strings.contains(&format!("fn_ret_nonstr:{}", swapped_col))
+                    {
+                        return true;
+                    }
+                    if !name.contains("::") && !name.contains("__") && is_non_string_builtin(name) {
+                        return true;
+                    }
+                }
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    if returns_vetoed_call(then_block, known_strings) {
+                        return true;
+                    }
+                    if let Some(eb) = else_block {
+                        if returns_vetoed_call(eb, known_strings) {
+                            return true;
+                        }
+                    }
+                }
+                Stmt::While { body, .. }
+                | Stmt::Repeat { body }
+                | Stmt::For { body, .. }
+                | Stmt::ForEach { body, .. } => {
+                    if returns_vetoed_call(body, known_strings) {
+                        return true;
+                    }
+                }
+                Stmt::TryCatch {
+                    try_block,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    if returns_vetoed_call(try_block, known_strings)
+                        || returns_vetoed_call(catch_block, known_strings)
+                        || finally_block
+                            .as_ref()
+                            .is_some_and(|fb| returns_vetoed_call(fb, known_strings))
+                    {
+                        return true;
+                    }
+                }
+                Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                    if returns_vetoed_call(std::slice::from_ref(inner), known_strings) {
+                        return true;
+                    }
+                }
+                // Nested functions own their returns; do not descend.
+                Stmt::Function { .. } => {}
+                _ => {}
+            }
+        }
+        false
+    }
     fn returns_non_string_lit(stmts: &[Stmt]) -> bool {
         for s in stmts {
             match s {
@@ -655,6 +832,7 @@ fn record_return_nonstr_vetoes(
                             | Expr::Float(_)
                             | Expr::Array(_)
                             | Expr::Map(_)
+                            | Expr::Null
                             | Expr::StructInit { .. }
                     ) {
                         return true;
@@ -709,7 +887,7 @@ fn record_return_nonstr_vetoes(
         }
         false
     }
-    if returns_non_string_lit(body) {
+    if returns_non_string_lit(body) || returns_vetoed_call(body, known_strings) {
         let bare = func_name.rsplit("::").next().unwrap_or(func_name);
         let bare = bare.rsplit("__").next().unwrap_or(bare);
         known_strings.insert(format!("fn_ret_nonstr:{}", func_name));
@@ -1850,6 +2028,24 @@ pub fn collect_known_string_vars_with_index(
         for m in pre {
             if m.starts_with("fn_param_nonstr:") || m.starts_with("fn_ret_nonstr:") {
                 known_strings.insert(m);
+            }
+        }
+    }
+    // Return-veto closure (alya-lang/alya#107): transitive vetoes
+    // (`return F(...)` where F is already vetoed) propagate one call
+    // level per pass, so close them before any positive is derived —
+    // otherwise a positive recorded in an early round outlives the
+    // veto that should have blocked it. Cheap syntactic walk.
+    {
+        let mut funcs = Vec::new();
+        collect_function_defs(&program.statements, &mut funcs);
+        for _ in 0..10 {
+            let prev_len = known_strings.len();
+            for (name, _, _, body) in &funcs {
+                record_return_nonstr_vetoes(name, body, &mut known_strings);
+            }
+            if known_strings.len() == prev_len {
+                break;
             }
         }
     }

@@ -1407,3 +1407,35 @@ main()
         );
     }
 }
+
+#[test]
+fn test_e2e_mixed_return_push_reads_back() {
+    // alya-lang/alya#107: a function returning ints (via `int()`
+    // calls) on some paths and strings on others must not be
+    // string-marked: return-position vetoes cover builtin calls and
+    // transitive vetoed callees (closed before positives), and
+    // string-array positives are veto-gated. Otherwise pushed ints
+    // read back as empty/crash through string-classified reads.
+    let code = r#"
+function mixed(i)
+    if i == 0
+        return int("10")
+    end
+    return "s"
+end
+
+function main()
+    let arr = []
+    arr.push(mixed(0))
+    arr.push(mixed(1))
+    say("v0=" + str(arr[0]))
+    say("v1=" + str(arr[1]))
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "v0=10\nv1=s\n", "Got: {}", output);
+    }
+}

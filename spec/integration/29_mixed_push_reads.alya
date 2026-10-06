@@ -1,0 +1,30 @@
+# ==============================================================================
+# Alya Integration Fixture 29 (entry): mixed int/string returns in push
+# Distilled from: Lib/yaml `flow_parse_value` returning ints (via
+#                 `int()` calls) and strings across paths, pushed into
+#                 sequence arrays (alya-lang/alya#107)
+# Guards: return-position vetoes cover builtin int/float calls,
+#         null literals, and transitive vetoed-callee calls (closed
+#         before any positive is derived), and string-array positives
+#         are veto-gated — so mixed functions stay dynamic and pushed
+#         values read back with their own kinds.
+# ==============================================================================
+
+function mixed29(i)
+    if i == 0
+        return int("10")
+    end
+    return "s"
+end
+
+function build29()
+    let arr = []
+    arr.push(mixed29(0))
+    arr.push(mixed29(1))
+    return arr
+end
+
+let arr29 = build29()
+say(arr29[0])
+say(arr29[1])
+say f"integration 29_mixed_push_reads: OK"

@@ -52,6 +52,7 @@ fn entry_files() -> Vec<String> {
         "26_dynamic_split_key.alya".to_string(),
         "27_method_field_map.alya".to_string(),
         "28_map_float_array.alya".to_string(),
+        "29_mixed_push_reads.alya".to_string(),
     ]
 }
 
@@ -555,6 +556,21 @@ fn test_integration_28_map_float_array_output() {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("1\n1\n2\n1\n1\n1\n"));
         assert!(output.contains("integration 28_map_float_array: OK"));
+    }
+}
+
+#[test]
+fn test_integration_29_mixed_push_reads_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 29_mixed_push_reads: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("29_mixed_push_reads.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("10\ns\n"));
+        assert!(output.contains("integration 29_mixed_push_reads: OK"));
     }
 }
 
