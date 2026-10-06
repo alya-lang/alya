@@ -478,9 +478,9 @@ fn test_golden_spec_strings_unicode_execution() {
         assert!(output.contains("Rune count: 17"));
         assert!(output.contains("Rocket codepoint (numeric): 128640"));
         assert!(output.contains("Iterating by codepoints (runes):"));
-        assert!(output.contains("Rune: 'A' (Codepoint: 65)"));
-        assert!(output.contains("Rune: 'Ç' (Codepoint: 199)"));
-        assert!(output.contains("Rune: 'ç' (Codepoint: 231)"));
+        assert!(output.contains("Codepoint: 65"));
+        assert!(output.contains("Codepoint: 199"));
+        assert!(output.contains("Codepoint: 231"));
         assert!(output.contains("Iterating by raw UTF-8 bytes:"));
         assert!(output.contains("Byte: 65"));
         assert!(output.contains("Byte: 195"));

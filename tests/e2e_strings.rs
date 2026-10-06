@@ -272,20 +272,29 @@ say len(chr(1114111))
 }
 
 #[test]
-fn test_e2e_char_at_unicode() {
-    // B2: char_at indexes codepoints (not bytes). len() stays bytes.
+fn test_e2e_char_at_byte_indexing() {
+    // #104: char_at indexes BYTES (not codepoints), matching len()
+    // which counts bytes. Every byte is addressable: char_at("héllo",
+    // 1) is the 1-byte lead "\xC3" (ord 195), not "é".
+    // char_count() stays the codepoint counter. Out-of-range and
+    // negative indexes yield "" as before.
     let code = r#"
 say char_at("hello", 1)
-say char_at("héllo", 1)
-say char_at("héllo", 1) == "é"
 say len(char_at("héllo", 1))
+say char_at("héllo", 1) == "é"
+say ord(char_at("héllo", 1))
 say len("héllo")
 say char_count("héllo")
 say char_at("a€中😀", 0)
-say char_at("a€中😀", 1) == "€"
-say char_at("a€中😀", 3) == "😀"
+say ord(char_at("a€中😀", 1))
+say ord(char_at("a€中😀", 3))
 say char_at("abc", 5) == ""
 say char_at("abc", -1) == ""
+# #104: continuation bytes are addressable 1-byte slices.
+say len(char_at("ü", 0))
+say ord(char_at("ü", 0))
+say len(char_at("ü", 1))
+say ord(char_at("ü", 1))
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(
@@ -295,7 +304,10 @@ say char_at("abc", -1) == ""
         );
         assert_eq!(
             output,
-            concat!("e\n", "é\n", "1\n", "2\n", "6\n", "5\n", "a\n", "1\n", "1\n", "1\n", "1\n",)
+            concat!(
+                "e\n", "1\n", "0\n", "195\n", "6\n", "5\n", "a\n", "226\n", "172\n", "1\n", "1\n",
+                "1\n", "195\n", "1\n", "188\n",
+            )
         );
     }
 }
