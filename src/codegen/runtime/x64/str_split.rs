@@ -190,6 +190,20 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    addq $7, %rdi\n");
     out.push_str("    andq $-8, %rdi\n");
     out.push_str("    movq %rdi, (%r9)\n");
+    // Pieces outlive the ring (#97): immortalize the completed token
+    // via the stable store (must run AFTER the copy above — the slot
+    // holds the finished string only here).
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    movq %r10, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_str_store\n");
+        out.push_str("    add $32, %rsp\n");
+        out.push_str("    movq %rax, %r10\n");
+    } else {
+        out.push_str("    movq %r10, %rdi\n");
+        out.push_str("    call alya_str_store\n");
+        out.push_str("    movq %rax, %r10\n");
+    }
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    movq %r14, %rcx\n");
         out.push_str("    movq %r10, %rdx\n");
@@ -258,6 +272,19 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    addq $7, %rdi\n");
     out.push_str("    andq $-8, %rdi\n");
     out.push_str("    movq %rdi, (%r9)\n");
+    // Immortalize the completed piece (#97): the 48(%rsp) slot holds
+    // the finished string only after the copy + commit above.
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    movq 48(%rsp), %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_str_store\n");
+        out.push_str("    add $32, %rsp\n");
+        out.push_str("    movq %rax, 48(%rsp)\n");
+    } else {
+        out.push_str("    movq 48(%rsp), %rdi\n");
+        out.push_str("    call alya_str_store\n");
+        out.push_str("    movq %rax, 48(%rsp)\n");
+    }
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    movq %r14, %rcx\n");
         out.push_str("    movq 48(%rsp), %rdx\n");
@@ -306,6 +333,18 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    addq $7, %rdi\n");
     out.push_str("    andq $-8, %rdi\n");
     out.push_str("    movq %rdi, (%r9)\n");
+    // Immortalize the completed trailing piece (#97, see empty-loop).
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    movq 48(%rsp), %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_str_store\n");
+        out.push_str("    add $32, %rsp\n");
+        out.push_str("    movq %rax, 48(%rsp)\n");
+    } else {
+        out.push_str("    movq 48(%rsp), %rdi\n");
+        out.push_str("    call alya_str_store\n");
+        out.push_str("    movq %rax, 48(%rsp)\n");
+    }
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    movq %r14, %rcx\n");
         out.push_str("    movq 48(%rsp), %rdx\n");

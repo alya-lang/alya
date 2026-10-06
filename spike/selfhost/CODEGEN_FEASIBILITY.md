@@ -203,12 +203,13 @@ plus per-byte string building in `qs`/`json_decode`, fixed with
 native `str.split` + array-join discipline; re-verified 49/49 +
 54/54 + 63/63 differential on str/test/functions). Total Alya
 frontend ~48 ms vs Rust ~18 ms (~2.7x) — no longer a decision
-factor for hybrid. Caution from the work: an `index_of`-based
-`split3` variant produced byte-identical fields in isolation yet
-deterministically corrupted the full parse (see NOTE in
-`parser.alya:split3`, reverted) — smells like a name-resolution
-or heap-interaction compiler quirk, open question, needs a
-minimal repro before filing.
+factor for hybrid. Resolved 2026-10-06 (alya-lang/alya#97): the
+`index_of`-based `split3` anomaly (identical fields in isolation,
+corrupt full parse) was ring-buffer clobbering — `str.split` pieces
+lived in the wrapping ring without a stable dup, so temp volume past
+the ~950KB wrap overwrote earlier dump lines. Fixed at production
+(split immortalizes pieces) plus a tag-gated `str_store` on dynamic
+push stores. The char scan stays (never the hot path).
 
 ### Option A: full port (inference + codegen + driver + tools in Alya)
 

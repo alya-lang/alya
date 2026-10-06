@@ -144,6 +144,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x13, x13, #7\n");
     out.push_str("    and x13, x13, #~7\n");
     out.push_str("    str x13, [x10]\n");
+    // Pieces outlive the ring (#97): immortalize each piece via the
+    // stable store (x12 is scratch-dead past the cursor commit above).
+    out.push_str("    mov x0, x12\n");
+    out.push_str("    bl alya_str_store\n");
+    out.push_str("    mov x12, x0\n");
     out.push_str("    mov x0, x21\n");
     out.push_str("    mov x1, x12\n");
     out.push_str(&format!("    mov x2, #{}\n", KIND_STRING));
@@ -199,6 +204,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x13, x13, #7\n");
     out.push_str("    and x13, x13, #~7\n");
     out.push_str("    str x13, [x10]\n");
+    // Immortalize the piece (#97, see empty-loop site above; x9 is
+    // scratch-dead past the cursor commit, x21 holds the array).
+    out.push_str("    mov x9, x0\n");
+    out.push_str("    mov x0, x25\n");
+    out.push_str("    bl alya_str_store\n");
+    out.push_str("    mov x25, x0\n");
+    out.push_str("    mov x0, x9\n");
     out.push_str("    mov x0, x21\n");
     out.push_str("    mov x1, x25\n");
     out.push_str(&format!("    mov x2, #{}\n", KIND_STRING));
@@ -235,6 +247,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x13, x13, #7\n");
     out.push_str("    and x13, x13, #~7\n");
     out.push_str("    str x13, [x10]\n");
+    // Immortalize the trailing piece (#97, see empty-loop site above).
+    out.push_str("    mov x9, x0\n");
+    out.push_str("    mov x0, x25\n");
+    out.push_str("    bl alya_str_store\n");
+    out.push_str("    mov x25, x0\n");
+    out.push_str("    mov x0, x9\n");
     out.push_str("    mov x0, x21\n");
     out.push_str("    mov x1, x25\n");
     out.push_str(&format!("    mov x2, #{}\n", KIND_STRING));

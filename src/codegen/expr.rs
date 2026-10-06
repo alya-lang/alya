@@ -1389,13 +1389,43 @@ impl CodeGen {
                         }
                     }
                     // B1: named stores outlive the wrapping ring buffer.
-                    if string_store_needs_dup(&args[1], &self.ctx.variables) {
+                    let static_dup = string_store_needs_dup(&args[1], &self.ctx.variables);
+                    if static_dup {
                         arch::emit_str_store(
                             &mut self.output,
                             self.arch,
                             self.ctx.stack_offset,
                             self.os,
                         );
+                    }
+                    if push_is_dynamic_tag && !static_dup {
+                        // Ring-lifetime guard (#97): the spilled runtime tag
+                        // is exact, but a ring-resident string stored raw is
+                        // clobbered by later temps past the ~950KB wrap
+                        // (silent wrong-bytes reads, no crash). Dup exactly
+                        // the proven strings; other kinds skip (dup'ing
+                        // float bits as a pointer would corrupt).
+                        // Stack top is the tag spill here on both arches
+                        // (x64: pushed %rdx, arm64: stored x1); the value is
+                        // in the return reg and str_store returns it there.
+                        let l_skip = self.ctx.next_label();
+                        if matches!(self.arch, Architecture::X64) {
+                            self.output
+                                .push_str(&format!("    cmpb ${}, (%rsp)\n", KIND_STRING));
+                            self.output.push_str(&format!("    jne {}\n", l_skip));
+                        } else {
+                            self.output.push_str("    ldr w9, [sp]\n");
+                            self.output
+                                .push_str(&format!("    cmp w9, #{}\n", KIND_STRING));
+                            self.output.push_str(&format!("    b.ne {}\n", l_skip));
+                        }
+                        arch::emit_str_store(
+                            &mut self.output,
+                            self.arch,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                        self.output.push_str(&format!("{}:\n", l_skip));
                     }
                     if push_is_dynamic_tag {
                         // Stack: [array_temp, tag_spill] (top=tag). Pop tag

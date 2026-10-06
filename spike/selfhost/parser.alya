@@ -840,14 +840,14 @@ function load_dump(path: string) -> DumpRes
 end
 
 # Split one dump line at the first 3 '|' (norm may contain '|').
-# NOTE (2026-10-06): an index_of-based version (native, fewer steps)
-# produced IDENTICAL fields on all 5124 dump lines in isolation yet
-# deterministically corrupted the full parse (body statements emitted
-# as top-level + trailing 0|0|error; empty-slice norms read back as
-# junk ints). Suspect: name-resolution picking a different index_of,
-# or heap interaction via index_of's internal substrings. Reverted to
-# the byte-exact char scan (lines are short; this was never the hot
-# path). Repro: .scratch/split_cmp.alya + ps.tok comparison above.
+# NOTE: an index_of-based version of this function once produced
+# byte-identical fields on all 5124 dump lines in isolation yet
+# deterministically corrupted the full parse. Root cause found and
+# fixed (alya-lang/alya#97): str.split pieces lived in the wrapping
+# ring without a stable dup, so temp volume past the ~950KB wrap
+# overwrote earlier lines; index_of's inner substring loop just made
+# ~100x more temps than this scan. Kept on the char scan regardless
+# (lines are short; never the hot path).
 function split3(line: string) -> array
     let p1 = 0 - 1
     let p2 = 0 - 1

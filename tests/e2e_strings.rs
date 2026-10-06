@@ -866,6 +866,49 @@ say ident(r) == ""
 }
 
 #[test]
+fn test_e2e_split_pieces_survive_temp_churn() {
+    // #97: str.split pieces used to live in the wrapping ring without a
+    // stable dup, so later temp volume past the ~950KB wrap silently
+    // overwrote them (deterministic wrong-bytes reads, no crash — this
+    // was the selfhost split3 anomaly: identical fields in isolation,
+    // corrupt full parse). Pieces are immortalized at production now;
+    // the push tag-guard covers dynamic re-stores.
+    let code = r#"
+import "std/str" as str
+let parts = str.split("aaaa,bbbb,cccc,dddd", ",")
+let keep = []
+keep.push(parts[0])
+keep.push(parts[1])
+say keep[0]
+say keep[1]
+let i = 0
+while i < 200000
+    let t = str.split("x,y", ",")
+    if t[0] == "@@never@@"
+        say t[0]
+    end
+    i += 1
+end
+say keep[0]
+say keep[1]
+say parts[2]
+say parts[3]
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(
+            output, "aaaa\nbbbb\naaaa\nbbbb\ncccc\ndddd\n",
+            "Got: {}",
+            output
+        );
+    }
+}
+
+#[test]
 fn test_e2e_dynamic_interpolation_hole_renders_value() {
     // #93: interpolation holes with statically-unknown values printed
     // raw pointers for strings (`[{s}]` showed the address while
