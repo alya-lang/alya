@@ -189,6 +189,9 @@ impl CodeGenContext {
                 || k.starts_with("fn_param_arr:")
                 || k.starts_with("channel_elem_str:")
                 || k.starts_with("fn_param_interface:")
+                // Ambiguity sentinels (#101) must survive into function
+                // bodies: in-body recording sites consult them.
+                || k.starts_with("fn_ambiguous:")
             {
                 fn_vars.insert(k.clone(), v.clone());
             }

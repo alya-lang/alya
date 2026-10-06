@@ -1,7 +1,8 @@
 use super::common::collect_function_defs;
 use crate::ast::*;
-use crate::codegen::analysis::predicates::is_simple_name;
+use crate::codegen::analysis::predicates::{is_simple_name, seed_ambiguity_markers};
 use crate::codegen::analysis::traversal::CallIndex;
+use crate::may_record_bare;
 use std::collections::{HashMap, HashSet};
 
 fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bool {
@@ -371,10 +372,10 @@ fn collect_function_returns_string_array(
         match s {
             Stmt::Return(Some(expr)) if expr_is_string_array(expr, known_strings) => {
                 target_strings.insert(format!("fn_ret_str_arr:{}", fn_name));
-                // #101: bare markers only for simple names.
-                if is_simple_name(fn_name) {
-                    let bare = fn_name.rsplit("::").next().unwrap_or(fn_name);
-                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                let bare = fn_name.rsplit("::").next().unwrap_or(fn_name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                // #101: bare markers need a single owner.
+                if may_record_bare!(known_strings, fn_name, bare) {
                     target_strings.insert(format!("fn_ret_str_arr:{}", bare));
                 }
             }
@@ -526,8 +527,8 @@ fn scan_expr_for_strings(
             for (idx, arg) in args.iter().enumerate() {
                 if expr_is_definitely_string(arg, known_strings) {
                     known_strings.insert(format!("fn_param_str:{}:{}", name, idx));
-                    // #101: bare markers only for simple names.
-                    if is_simple_name(name) {
+                    // #101: bare markers need a single owner.
+                    if may_record_bare!(known_strings, name, bare) {
                         known_strings.insert(format!("fn_param_str:{}:{}", bare, idx));
                     }
                 } else if expr_is_definitely_non_string_lit(arg) {
@@ -1269,7 +1270,7 @@ fn collect_string_vars_from_stmts(
                 for item in known_strings.iter() {
                     if let Some(var_name) = item.strip_prefix(&prefix1) {
                         fn_locals.insert(format!("arr_is_str:{}", var_name));
-                    } else if is_simple_name(name) {
+                    } else if may_record_bare!(known_strings, name, bare) {
                         if let Some(var_name) = item.strip_prefix(&prefix2) {
                             fn_locals.insert(format!("arr_is_str:{}", var_name));
                         }
@@ -1310,23 +1311,23 @@ fn collect_string_vars_from_stmts(
                     )
                 {
                     known_strings.insert(format!("fn_ret_str:{}", name));
-                    // #101: bare markers only for simple names.
-                    if is_simple_name(name) {
+                    // #101: bare markers need a single owner.
+                    if may_record_bare!(known_strings, name, bare) {
                         known_strings.insert(format!("fn_ret_str:{}", bare));
                     }
                 }
                 collect_tuple_returns_string(body, &fn_locals, name, known_strings);
-                if is_simple_name(name) {
+                if may_record_bare!(known_strings, name, bare) {
                     collect_tuple_returns_string(body, &fn_locals, bare, known_strings);
                 }
                 collect_function_returns_string_array(body, &fn_locals, name, known_strings);
-                if is_simple_name(name) {
+                if may_record_bare!(known_strings, name, bare) {
                     collect_function_returns_string_array(body, &fn_locals, bare, known_strings);
                 }
                 for item in &fn_locals {
                     if let Some(var_name) = item.strip_prefix("arr_is_str:") {
                         known_strings.insert(format!("fn_local_str_arr:{}:{}", name, var_name));
-                        if is_simple_name(name) {
+                        if may_record_bare!(known_strings, name, bare) {
                             known_strings.insert(format!("fn_local_str_arr:{}:{}", bare, var_name));
                         }
                     }
@@ -1725,6 +1726,8 @@ pub fn collect_known_string_vars_with_index(
     call_index: &CallIndex,
 ) -> HashSet<String> {
     let mut known_strings = HashSet::new();
+    // #101: ambiguity sentinels first; collided bare keys stay unrecorded.
+    seed_ambiguity_markers(program, &mut known_strings);
     // Fields whose `string` type is contradicted by another struct's explicit
     // non-string declaration (e.g. `Url.port: string` vs `Srv.port: int`).
     // Bare `struct_field_str:{field}` markers for such fields are unsound and
@@ -1749,9 +1752,10 @@ pub fn collect_known_string_vars_with_index(
         {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
-            // #101: bare markers only for simple names (covers `::`
-            // as well as `__`; see also the body-derived sites).
-            let record_bare = is_simple_name(name);
+            // #101: bare markers need a single owner: simple spellings
+            // always (the exact key IS the bare key), qualified
+            // spellings only when no other function shares the bare.
+            let record_bare = may_record_bare!(known_strings, name, bare);
             if let Some(ret) = return_type {
                 if ret == "str" || ret == "string" {
                     known_strings.insert(format!("fn_ret_str:{}", name));
@@ -1861,8 +1865,8 @@ pub fn collect_known_string_vars_with_index(
                             .all(|arg| expr_is_string_array(arg, &known_strings))
                     {
                         known_strings.insert(format!("fn_param_str_arr:{}:{}", name, idx));
-                        // #101: bare markers only for simple names.
-                        if is_simple_name(name) {
+                        // #101: bare markers need a single owner.
+                        if may_record_bare!(known_strings, name, bare) {
                             known_strings.insert(format!("fn_param_str_arr:{}:{}", bare, idx));
                         }
                     }
@@ -1883,8 +1887,8 @@ pub fn collect_known_string_vars_with_index(
                             .all(|arg| expr_is_definitely_string(arg, &known_strings))
                     {
                         known_strings.insert(format!("fn_param_str:{}:{}", name, idx));
-                        // #101: bare markers only for simple names.
-                        if is_simple_name(name) {
+                        // #101: bare markers need a single owner.
+                        if may_record_bare!(known_strings, name, bare) {
                             known_strings.insert(format!("fn_param_str:{}:{}", bare, idx));
                         }
                     }

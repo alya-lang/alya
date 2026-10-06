@@ -1,7 +1,8 @@
 use crate::ast::*;
 use crate::codegen::analysis::inference::common::collect_function_defs;
-use crate::codegen::analysis::predicates::is_simple_name;
+use crate::codegen::analysis::predicates::{is_simple_name, seed_ambiguity_markers};
 use crate::codegen::analysis::traversal::CallIndex;
+use crate::may_record_bare;
 use std::collections::HashSet;
 
 fn expr_is_definitely_float(expr: &Expr, known_floats: &HashSet<String>) -> bool {
@@ -558,7 +559,7 @@ fn collect_float_vars_from_stmts(
                 collect_tuple_returns_float(body, &fn_locals, name, known_floats);
                 // #101: tuple markers under a bare spelling would be
                 // inherited by unrelated same-bare callers.
-                if is_simple_name(name) {
+                if may_record_bare!(known_floats, name, bare) {
                     collect_tuple_returns_float(body, &fn_locals, bare, known_floats);
                 }
                 // An explicit integer return annotation vetoes body-based
@@ -598,7 +599,7 @@ fn collect_float_vars_from_stmts(
                     // Bare markers only for simple names (#101): a
                     // qualified definition must never seed bare markers
                     // that unrelated same-bare callers would inherit.
-                    if is_simple_name(name) {
+                    if may_record_bare!(known_floats, name, bare) {
                         known_floats.insert(format!("fn_ret_flt:{}", bare));
                     }
                 }
@@ -648,6 +649,9 @@ pub fn collect_known_float_vars_with_index(
     call_index: &CallIndex,
 ) -> HashSet<String> {
     let mut known_floats = HashSet::new();
+    // #101: seed ambiguity sentinels before the fixpoint so
+    // collided bare keys stay unrecorded from the first round.
+    seed_ambiguity_markers(program, &mut known_floats);
     for stmt in &program.statements {
         let stmt = stmt.inner_stmt();
         if let Stmt::ExternBlock { functions, .. } = stmt {
@@ -658,7 +662,8 @@ pub fn collect_known_float_vars_with_index(
                     let ret_trimmed = ret.trim();
                     if ret_trimmed == "float" || ret_trimmed == "f64" || ret_trimmed == "f32" {
                         known_floats.insert(format!("fn_ret_flt:{}", f.name));
-                        if bare != f.name {
+                        // #101: bare markers need a single owner.
+                        if bare != f.name && may_record_bare!(known_floats, &f.name, bare) {
                             known_floats.insert(format!("fn_ret_flt:{}", bare));
                         }
                     }
@@ -678,10 +683,9 @@ pub fn collect_known_float_vars_with_index(
                 let ret_trimmed = ret.trim();
                 if ret_trimmed == "float" || ret_trimmed == "f64" || ret_trimmed == "f32" {
                     known_floats.insert(format!("fn_ret_flt:{}", name));
-                    // #101: bare markers only for simple names (a
-                    // qualified definition must never seed bare markers
-                    // that unrelated same-bare callers would inherit).
-                    if is_simple_name(name) {
+                    // #101: bare markers need a single owner (ambiguous
+                    // bares stay unrecorded; see `may_record_bare!`).
+                    if may_record_bare!(known_floats, name, bare) {
                         known_floats.insert(format!("fn_ret_flt:{}", bare));
                     }
                     // Provenance: an explicit `-> float` annotation is
@@ -689,7 +693,7 @@ pub fn collect_known_float_vars_with_index(
                     // exclusively float (unlike inference markers, which
                     // fire when ANY branch returns float).
                     known_floats.insert(format!("fn_ret_flt_ann:{}", name));
-                    if is_simple_name(name) {
+                    if may_record_bare!(known_floats, name, bare) {
                         known_floats.insert(format!("fn_ret_flt_ann:{}", bare));
                     }
                 } else if ret_trimmed.starts_with('(') && ret_trimmed.ends_with(')') {
@@ -697,7 +701,7 @@ pub fn collect_known_float_vars_with_index(
                         let ty = ty.trim();
                         if ty == "float" || ty == "f64" || ty == "f32" {
                             known_floats.insert(format!("fn_ret_tuple_flt:{}:{}", name, i));
-                            if is_simple_name(name) {
+                            if may_record_bare!(known_floats, name, bare) {
                                 known_floats.insert(format!("fn_ret_tuple_flt:{}:{}", bare, i));
                             }
                         }
@@ -707,24 +711,24 @@ pub fn collect_known_float_vars_with_index(
             let kf_snapshot = known_floats.clone();
             collect_tuple_returns_float(body, &kf_snapshot, name, &mut known_floats);
             // #101: see above.
-            if is_simple_name(name) {
+            if may_record_bare!(known_floats, name, bare) {
                 collect_tuple_returns_float(body, &kf_snapshot, bare, &mut known_floats);
             }
             for (idx, p_type) in param_types.iter().enumerate() {
                 if let Some(pt) = p_type {
                     if pt == "float" || pt == "f64" || pt == "f32" {
                         known_floats.insert(format!("fn_param_flt:{}:{}", name, idx));
-                        if is_simple_name(name) {
+                        if may_record_bare!(known_floats, name, bare) {
                             known_floats.insert(format!("fn_param_flt:{}:{}", bare, idx));
                         }
                     } else if pt == "float[]" || pt == "f64[]" || pt == "f32[]" {
                         known_floats.insert(format!("fn_param_flt_arr:{}:{}", name, idx));
-                        if is_simple_name(name) {
+                        if may_record_bare!(known_floats, name, bare) {
                             known_floats.insert(format!("fn_param_flt_arr:{}:{}", bare, idx));
                         }
                         // Annotated params convert on read (#95).
                         known_floats.insert(format!("fn_param_flt_arr_ann:{}:{}", name, idx));
-                        if is_simple_name(name) {
+                        if may_record_bare!(known_floats, name, bare) {
                             known_floats.insert(format!("fn_param_flt_arr_ann:{}:{}", bare, idx));
                         }
                     }
@@ -782,7 +786,7 @@ pub fn collect_known_float_vars_with_index(
                             .all(|arg| expr_is_definitely_float(arg, &known_floats))
                     {
                         known_floats.insert(format!("fn_param_flt:{}:{}", name, idx));
-                        if is_simple_name(name) {
+                        if may_record_bare!(known_floats, name, bare) {
                             known_floats.insert(format!("fn_param_flt:{}:{}", bare, idx));
                         }
                     }
@@ -798,7 +802,7 @@ pub fn collect_known_float_vars_with_index(
                             .all(|arg| expr_is_float_array(arg, &known_floats))
                     {
                         known_floats.insert(format!("fn_param_flt_arr:{}:{}", name, idx));
-                        if is_simple_name(name) {
+                        if may_record_bare!(known_floats, name, bare) {
                             known_floats.insert(format!("fn_param_flt_arr:{}:{}", bare, idx));
                         }
                     }
@@ -991,8 +995,8 @@ fn collect_push_array_returns(
         match s {
             Stmt::Return(Some(Expr::Identifier(ret))) if state.clean(ret) => {
                 out.insert(format!("fn_ret_arr_flt:{}", fn_name));
-                // #101: bare markers only for simple names.
-                if is_simple_name(fn_name) {
+                // #101: bare markers need a single owner.
+                if may_record_bare!(out, fn_name, bare) {
                     out.insert(format!("fn_ret_arr_flt:{}", bare));
                 }
             }

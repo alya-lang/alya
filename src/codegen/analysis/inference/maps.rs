@@ -1,7 +1,8 @@
 use super::common::{collect_function_defs, count_assignments};
 use crate::ast::*;
-use crate::codegen::analysis::predicates::is_simple_name;
+use crate::codegen::analysis::predicates::{is_simple_name, seed_ambiguity_markers};
 use crate::codegen::analysis::traversal::CallIndex;
+use crate::may_record_bare;
 use crate::parser::dynspec::{dynspec_codes, spec_open_param_kind};
 use std::collections::{HashMap, HashSet};
 
@@ -198,8 +199,8 @@ fn collect_map_vars_from_stmts(
                     {
                         if is_map_type {
                             known_maps.insert(format!("fn_param_map:{}:{}", name, idx));
-                            // #101: bare markers only for simple names.
-                            if is_simple_name(name) {
+                            // #101: bare markers need a single owner.
+                            if may_record_bare!(known_maps, name, bare) {
                                 known_maps.insert(format!("fn_param_map:{}:{}", bare, idx));
                             }
                         }
@@ -257,6 +258,8 @@ pub fn collect_known_map_vars_with_index(
     call_index: &CallIndex,
 ) -> HashSet<String> {
     let mut known_maps = HashSet::new();
+    // #101: ambiguity sentinels first; collided bare keys stay unrecorded.
+    seed_ambiguity_markers(program, &mut known_maps);
     let mut funcs = Vec::new();
     collect_function_defs(&program.statements, &mut funcs);
     for _ in 0..5 {
@@ -269,8 +272,8 @@ pub fn collect_known_map_vars_with_index(
                 || (bare != *name && stmts_return_map(body, Some(bare), &known_maps))
             {
                 known_maps.insert(format!("fn_ret_map:{}", name));
-                // #101: bare markers only for simple names.
-                if is_simple_name(name) {
+                // #101: bare markers need a single owner.
+                if may_record_bare!(known_maps, name, bare) {
                     known_maps.insert(format!("fn_ret_map:{}", bare));
                 }
             }
@@ -281,8 +284,8 @@ pub fn collect_known_map_vars_with_index(
                         || (t.starts_with('[') && t.contains(':') && t.ends_with(']'))
                     {
                         known_maps.insert(format!("fn_param_map:{}:{}", name, idx));
-                        // #101: bare markers only for simple names.
-                        if is_simple_name(name) {
+                        // #101: bare markers need a single owner.
+                        if may_record_bare!(known_maps, name, bare) {
                             known_maps.insert(format!("fn_param_map:{}:{}", bare, idx));
                         }
                         continue;
@@ -305,8 +308,8 @@ pub fn collect_known_map_vars_with_index(
                     })
                 {
                     known_maps.insert(format!("fn_param_map:{}:{}", name, idx));
-                    // #101: bare markers only for simple names.
-                    if is_simple_name(name) {
+                    // #101: bare markers need a single owner.
+                    if may_record_bare!(known_maps, name, bare) {
                         known_maps.insert(format!("fn_param_map:{}:{}", bare, idx));
                     }
                 }
@@ -514,6 +517,8 @@ pub fn collect_known_map_vars_strict_with_index(
     call_index: &CallIndex,
 ) -> HashSet<String> {
     let mut strict = HashSet::new();
+    // #101: ambiguity sentinels first; collided bare keys stay unrecorded.
+    seed_ambiguity_markers(program, &mut strict);
     let mut funcs: Vec<FuncDef> = Vec::new();
     collect_function_defs(&program.statements, &mut funcs);
     let mut counts: HashMap<String, HashMap<String, usize>> = HashMap::new();
@@ -554,8 +559,8 @@ pub fn collect_known_map_vars_strict_with_index(
                     .is_some_and(is_map_annotation)
                 {
                     strict.insert(format!("fn_param_map:{}:{}", name, idx));
-                    // #101: bare markers only for simple names.
-                    if is_simple_name(name) {
+                    // #101: bare markers need a single owner.
+                    if may_record_bare!(strict, name, bare) {
                         strict.insert(format!("fn_param_map:{}:{}", bare, idx));
                     }
                     strict.insert(format!("{}:{}", name, param));
@@ -581,8 +586,8 @@ pub fn collect_known_map_vars_strict_with_index(
                     })
                 {
                     strict.insert(format!("fn_param_map:{}:{}", name, idx));
-                    // #101: bare markers only for simple names.
-                    if is_simple_name(name) {
+                    // #101: bare markers need a single owner.
+                    if may_record_bare!(strict, name, bare) {
                         strict.insert(format!("fn_param_map:{}:{}", bare, idx));
                     }
                 }

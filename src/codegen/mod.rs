@@ -770,6 +770,17 @@ impl CodeGen {
             }
         }
 
+        // Ambiguous bare sentinels for recording sites below (#101):
+        // qualified definitions sharing a bare skip bare inserts, so
+        // collided keys carry only the simple owner's claims.
+        // Presence-only; the key shape matches no value query.
+        for bare in crate::codegen::analysis::ambiguous_bares_of_program(program) {
+            self.ctx.variables.insert(
+                crate::codegen::analysis::ambiguous_bare_key(&bare),
+                VarType::Number(0),
+            );
+        }
+
         for stmt in &program.statements {
             if let Stmt::Function {
                 name,
@@ -826,7 +837,14 @@ impl CodeGen {
                                     offset: 0,
                                 },
                             );
-                            if bare != name {
+                            if bare != name
+                                // #101: bare markers need a single owner.
+                                && crate::codegen::analysis::may_record_bare_vars(
+                                    &self.ctx.variables,
+                                    name,
+                                    bare,
+                                )
+                            {
                                 self.ctx.variables.insert(
                                     format!("fn_param_interface:{}:{}", bare, i),
                                     VarType::Interface {
@@ -878,7 +896,14 @@ impl CodeGen {
                                 offset: 0,
                             },
                         );
-                        if bare != name {
+                        if bare != name
+                            // #101: bare markers need a single owner.
+                            && crate::codegen::analysis::may_record_bare_vars(
+                                &self.ctx.variables,
+                                name,
+                                bare,
+                            )
+                        {
                             self.ctx.variables.insert(
                                 format!("fn_ret_struct:{}", bare),
                                 VarType::Struct {
@@ -900,12 +925,20 @@ impl CodeGen {
                     if crate::codegen::analysis::fn_returns_fresh_value(body, &struct_names) {
                         let colon_name = name.replace("__", "::");
                         let mangled_name = name.replace("::", "__");
-                        for key in [
+                        let mut keys = vec![
                             format!("fn_ret_fresh:{}", name),
-                            format!("fn_ret_fresh:{}", bare),
                             format!("fn_ret_fresh:{}", colon_name),
                             format!("fn_ret_fresh:{}", mangled_name),
-                        ] {
+                        ];
+                        // #101: bare markers need a single owner.
+                        if crate::codegen::analysis::may_record_bare_vars(
+                            &self.ctx.variables,
+                            name,
+                            bare,
+                        ) {
+                            keys.push(format!("fn_ret_fresh:{}", bare));
+                        }
+                        for key in keys {
                             self.ctx.variables.insert(key, VarType::Number(0));
                         }
                     }
@@ -916,8 +949,12 @@ impl CodeGen {
                         self.ctx
                             .variables
                             .insert(format!("fn_ret_arr:{}", name), VarType::Array(0));
-                        // #101: bare markers only for simple names.
-                        if crate::codegen::analysis::is_simple_name(name) {
+                        // #101: bare markers need a single owner.
+                        if crate::codegen::analysis::may_record_bare_vars(
+                            &self.ctx.variables,
+                            name,
+                            bare,
+                        ) {
                             self.ctx
                                 .variables
                                 .insert(format!("fn_ret_arr:{}", bare), VarType::Array(0));
@@ -978,12 +1015,16 @@ impl CodeGen {
                 fname,
                 &inference.struct_inf.struct_names,
             );
-            for key in [
+            let mut keys = vec![
                 format!("fn_ret_tuple_struct:{}:{}", fname, idx),
-                format!("fn_ret_tuple_struct:{}:{}", bare, idx),
                 format!("fn_ret_tuple_struct:{}:{}", colon_name, idx),
                 format!("fn_ret_tuple_struct:{}:{}", mangled_name, idx),
-            ] {
+            ];
+            // #101: bare markers need a single owner.
+            if crate::codegen::analysis::may_record_bare_vars(&self.ctx.variables, fname, bare) {
+                keys.push(format!("fn_ret_tuple_struct:{}:{}", bare, idx));
+            }
+            for key in keys {
                 self.ctx.variables.insert(
                     key,
                     VarType::Struct {
@@ -1126,7 +1167,14 @@ impl CodeGen {
                             self.ctx
                                 .variables
                                 .insert(format!("fn_ret_str:{}", f.name), VarType::StringOffset(0));
-                            if bare != f.name {
+                            // #101: bare markers need a single owner.
+                            if bare != f.name
+                                && crate::codegen::analysis::may_record_bare_vars(
+                                    &self.ctx.variables,
+                                    &f.name,
+                                    bare,
+                                )
+                            {
                                 self.ctx.variables.insert(
                                     format!("fn_ret_str:{}", bare),
                                     VarType::StringOffset(0),
@@ -1139,7 +1187,14 @@ impl CodeGen {
                             self.ctx
                                 .variables
                                 .insert(format!("fn_ret_flt_ann:{}", f.name), VarType::Float(0));
-                            if bare != f.name {
+                            // #101: bare markers need a single owner.
+                            if bare != f.name
+                                && crate::codegen::analysis::may_record_bare_vars(
+                                    &self.ctx.variables,
+                                    &f.name,
+                                    bare,
+                                )
+                            {
                                 self.ctx
                                     .variables
                                     .insert(format!("fn_ret_flt:{}", bare), VarType::Float(0));
@@ -1949,11 +2004,11 @@ impl CodeGen {
             if self.ctx.tag_stats.enabled {
                 self.ctx.tag_stats.markers += 1;
             }
-            // #101: bare markers only for simple names — a qualified
-            // definition must never seed bare markers that unrelated
-            // same-bare callers would inherit.
+            // #101: bare markers need a single owner (ambiguous
+            // bares stay unrecorded; qualified-exact markers stay
+            // precise and qualified-spelled calls never consult bare).
             let mut keys = vec![format!("fn_ret_tagged:{}", name)];
-            if analysis::is_simple_name(name) {
+            if crate::codegen::analysis::may_record_bare_vars(&self.ctx.variables, name, bare) {
                 keys.push(format!("fn_ret_tagged:{}", bare));
             }
             for key in keys {

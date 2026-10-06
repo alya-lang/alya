@@ -1,7 +1,8 @@
 use super::common::{collect_function_defs, count_assignments};
 use crate::ast::*;
-use crate::codegen::analysis::predicates::is_simple_name;
+use crate::codegen::analysis::predicates::{is_simple_name, seed_ambiguity_markers};
 use crate::codegen::analysis::traversal::CallIndex;
+use crate::may_record_bare;
 use crate::parser::dynspec::{dynspec_codes, spec_open_param_kind};
 use std::collections::{HashMap, HashSet};
 
@@ -463,8 +464,8 @@ fn collect_array_vars_from_stmts(
                     {
                         if is_arr_type {
                             known_arrays.insert(format!("fn_param_arr:{}:{}", name, idx));
-                            // #101: bare markers only for simple names.
-                            if is_simple_name(name) {
+                            // #101: bare markers need a single owner.
+                            if may_record_bare!(known_arrays, name, bare) {
                                 known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
                             }
                         }
@@ -498,6 +499,8 @@ pub fn collect_known_array_vars_with_index(
     call_index: &CallIndex,
 ) -> HashSet<String> {
     let mut known_arrays = HashSet::new();
+    // #101: ambiguity sentinels first; collided bare keys stay unrecorded.
+    seed_ambiguity_markers(program, &mut known_arrays);
     let mut funcs = Vec::new();
     collect_function_defs(&program.statements, &mut funcs);
     for stmt in &program.statements {
@@ -533,8 +536,8 @@ pub fn collect_known_array_vars_with_index(
                 || (bare != *name && stmts_return_array(body, Some(bare), &known_arrays))
             {
                 known_arrays.insert(format!("fn_ret_arr:{}", name));
-                // #101: bare markers only for simple names.
-                if is_simple_name(name) {
+                // #101: bare markers need a single owner.
+                if may_record_bare!(known_arrays, name, bare) {
                     known_arrays.insert(format!("fn_ret_arr:{}", bare));
                 }
             }
@@ -543,8 +546,8 @@ pub fn collect_known_array_vars_with_index(
                 if let Some(t) = param_types.get(idx).and_then(|t| t.as_deref()) {
                     if t == "..." || t.starts_with("...") || t == "array" || t.ends_with("[]") {
                         known_arrays.insert(format!("fn_param_arr:{}:{}", name, idx));
-                        // #101: bare markers only for simple names.
-                        if is_simple_name(name) {
+                        // #101: bare markers need a single owner.
+                        if may_record_bare!(known_arrays, name, bare) {
                             known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
                         }
                         continue;
@@ -561,7 +564,7 @@ pub fn collect_known_array_vars_with_index(
 
                 if param_is_used_as_array(param, body) {
                     known_arrays.insert(format!("fn_param_arr:{}:{}", name, idx));
-                    if is_simple_name(name) {
+                    if may_record_bare!(known_arrays, name, bare) {
                         known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
                     }
                     continue;
@@ -569,7 +572,7 @@ pub fn collect_known_array_vars_with_index(
 
                 if find_param_forwarded_call(body, param, &known_arrays) {
                     known_arrays.insert(format!("fn_param_arr:{}:{}", name, idx));
-                    if is_simple_name(name) {
+                    if may_record_bare!(known_arrays, name, bare) {
                         known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
                     }
                     continue;
@@ -596,8 +599,8 @@ pub fn collect_known_array_vars_with_index(
                     })
                 {
                     known_arrays.insert(format!("fn_param_arr:{}:{}", name, idx));
-                    // #101: bare markers only for simple names.
-                    if is_simple_name(name) {
+                    // #101: bare markers need a single owner.
+                    if may_record_bare!(known_arrays, name, bare) {
                         known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
                     }
                 }
@@ -820,6 +823,8 @@ pub fn collect_known_array_vars_strict_with_index(
     call_index: &CallIndex,
 ) -> HashSet<String> {
     let mut strict = HashSet::new();
+    // #101: ambiguity sentinels first; collided bare keys stay unrecorded.
+    seed_ambiguity_markers(program, &mut strict);
     let mut funcs: Vec<FuncDef> = Vec::new();
     collect_function_defs(&program.statements, &mut funcs);
     let mut counts: HashMap<String, HashMap<String, usize>> = HashMap::new();
@@ -869,8 +874,8 @@ pub fn collect_known_array_vars_strict_with_index(
                     })
                 {
                     strict.insert(format!("fn_param_arr:{}:{}", name, idx));
-                    // #101: bare markers only for simple names.
-                    if is_simple_name(name) {
+                    // #101: bare markers need a single owner (see floats.rs).
+                    if may_record_bare!(strict, name, bare) {
                         strict.insert(format!("fn_param_arr:{}:{}", bare, idx));
                     }
                     strict.insert(format!("{}:{}", name, param));
@@ -897,8 +902,8 @@ pub fn collect_known_array_vars_strict_with_index(
                     })
                 {
                     strict.insert(format!("fn_param_arr:{}:{}", name, idx));
-                    // #101: bare markers only for simple names.
-                    if is_simple_name(name) {
+                    // #101: bare markers need a single owner (see floats.rs).
+                    if may_record_bare!(strict, name, bare) {
                         strict.insert(format!("fn_param_arr:{}:{}", bare, idx));
                     }
                 }

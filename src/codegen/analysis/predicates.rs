@@ -4,7 +4,7 @@ use crate::codegen::kinds::{
     kind_of_literal, KIND_ARRAY, KIND_FLOAT, KIND_INT, KIND_MAP, KIND_STRING, KIND_STRUCT,
     KIND_UNKNOWN,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Resolves the struct type of a method-call receiver using only the
 /// variable table (mirrors `CodeGen::get_expr_struct_name` for the
@@ -112,16 +112,92 @@ fn receiver_struct_name(expr: &Expr, vars: &HashMap<String, VarType>) -> Option<
 }
 
 /// Whether a function-name spelling is simple (no `::` or `__`
-/// qualification). Bare markers (`fn_ret_flt:inner`) are only ever
-/// recorded and consulted for simple spellings (alya-lang/alya#101):
-/// a qualified definition (`outer__inner`, `ns::fn`, `S__m`) must never
-/// seed bare markers, and a qualified-spelled call must never consult
-/// them — otherwise markers set by one function are inherited by an
-/// unrelated same-bare function and callers silently take the wrong
-/// path (observed: int calls read as float on arm64). Single-segment
-/// names behave exactly as before.
+/// qualification). Used by alya-lang/alya#101 consult gates: a
+/// qualified-spelled call must never consult bare markers (markers set
+/// by an unrelated same-bare function would be inherited and callers
+/// silently take the wrong path — observed: int calls read as float on
+/// arm64). Single-segment names behave exactly as before.
 pub fn is_simple_name(name: &str) -> bool {
     !name.contains("::") && !name.contains("__")
+}
+
+/// Sentinel prefix marking an ambiguous bare function name
+/// (alya-lang/alya#101): two or more functions share the same bare
+/// (`inner` + `outer__inner`, `S__m` + top-level `m`). A bare marker
+/// recorded by one of them would be inherited by callers of the other,
+/// so recording sites skip bare inserts for ambiguous bares (the
+/// affected calls degrade to dynamic dispatch, always sound) while
+/// qualified-exact markers stay precise. Unique bares behave exactly
+/// as before.
+///
+/// The sentinel travels inside the marker sets themselves
+/// (`fn_ambiguous:<bare>` in `known_*` sets and `ctx.variables`), so
+/// recording sites need no signature changes. `$`-mangled hoisted
+/// nested functions (#99) never collide: `$` survives both `::`- and
+/// `__`-stripping, so each keeps a distinct bare.
+pub fn ambiguous_bare_key(bare: &str) -> String {
+    format!("fn_ambiguous:{}", bare)
+}
+
+/// Bare names shared by more than one function in the program:
+/// top-level definitions plus extern declarations (both participate
+/// in bare lookups).
+pub fn ambiguous_bares_of_program(program: &Program) -> HashSet<String> {
+    ambiguous_bares_of_stmts(&program.statements)
+}
+
+/// [`ambiguous_bares_of_program`] over a statement slice (for passes
+/// that only see statements, e.g. freshness inference).
+pub fn ambiguous_bares_of_stmts(statements: &[Stmt]) -> HashSet<String> {
+    use std::collections::HashMap as CountMap;
+    fn bare_of(name: &str) -> &str {
+        let bare = name.rsplit("::").next().unwrap_or(name);
+        bare.rsplit("__").next().unwrap_or(bare)
+    }
+    let mut counts: CountMap<String, usize> = CountMap::new();
+    for stmt in statements {
+        let stmt = stmt.inner_stmt();
+        if let Stmt::Function { name, .. } = stmt {
+            *counts.entry(bare_of(name).to_string()).or_insert(0) += 1;
+        }
+        if let Stmt::ExternBlock { functions, .. } = stmt {
+            for f in functions {
+                *counts.entry(bare_of(&f.name).to_string()).or_insert(0) += 1;
+            }
+        }
+    }
+    counts
+        .into_iter()
+        .filter_map(|(bare, n)| if n > 1 { Some(bare) } else { None })
+        .collect()
+}
+
+/// Insert one `fn_ambiguous:<bare>` sentinel per ambiguous bare.
+/// Call once per marker set at construction.
+pub fn seed_ambiguity_markers(program: &Program, set: &mut HashSet<String>) {
+    for bare in ambiguous_bares_of_program(program) {
+        set.insert(ambiguous_bare_key(&bare));
+    }
+}
+
+/// True when `name` may seed bare markers: simple spellings always
+/// (the exact key IS the bare key), qualified spellings only when no
+/// other function shares the bare.
+///
+/// A macro (not a function) so call sites compile uniformly whether
+/// their set binding is owned, `&mut`, or `&`: the expanded method
+/// call auto-refs either way.
+#[macro_export]
+macro_rules! may_record_bare {
+    ($set:expr, $name:expr, $bare:expr) => {
+        $crate::codegen::analysis::predicates::is_simple_name($name)
+            || !$set.contains(&$crate::codegen::analysis::ambiguous_bare_key($bare))
+    };
+}
+
+/// `HashMap` (`ctx.variables`) variant of [`may_record_bare`].
+pub fn may_record_bare_vars(vars: &HashMap<String, VarType>, name: &str, bare: &str) -> bool {
+    is_simple_name(name) || !vars.contains_key(&ambiguous_bare_key(bare))
 }
 
 /// Whether a stored string value needs an immortal stable-region copy
@@ -1777,6 +1853,9 @@ pub fn infer_program_fresh_functions(
 
     let mut changed = true;
     let mut passes = 0;
+    // #101: bare freshness markers need a single owner (a stale
+    // freshness claim is use-after-free, alya-lang/alya#79).
+    let ambiguous = ambiguous_bares_of_stmts(statements);
     while changed && passes < 32 {
         changed = false;
         passes += 1;
@@ -1788,7 +1867,9 @@ pub fn infer_program_fresh_functions(
             }
             if fn_returns_fresh_value_ext(body, struct_names, &fresh_set) {
                 fresh_set.insert(name.clone());
-                fresh_set.insert(bare.to_string());
+                if is_simple_name(name) || !ambiguous.contains(bare) {
+                    fresh_set.insert(bare.to_string());
+                }
                 let colon = name.replace("__", "::");
                 let mangled = name.replace("::", "__");
                 fresh_set.insert(colon);
