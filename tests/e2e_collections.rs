@@ -1349,3 +1349,61 @@ main()
         assert_eq!(output, "has=1\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_map_float_array_element_tags() {
+    // alya-lang/alya#106: float arrays behind map values must keep
+    // their per-slot tags: element reads dispatch on the slot tag
+    // (the array fallback always loads it) instead of assuming int.
+    // Covers bound reads, direct nested reads, builder-call reads,
+    // and the math-lib shape (annotated binding + approx compare).
+    let code = r#"
+function make() -> map
+    let x = []
+    x.push(1.0)
+    x.push(2.0)
+    return { "ok": true, "x": x }
+end
+
+function build() -> array
+    let y = []
+    y.push(3.0)
+    return y
+end
+
+function approx(a: float, b: float) -> int
+    let d = a - b
+    if d < 0
+        d = 0 - d
+    end
+    if d < 0.001
+        return 1
+    end
+    return 0
+end
+
+function main()
+    let sol = make()
+    say("ok=" + str(sol["ok"]))
+    let arr = sol["x"]
+    say("a0=" + str(arr[0]) + " a1=" + str(arr[1]))
+    say(sol["x"][0])
+    say(sol["x"][1])
+    say(build()[0])
+    let sx: float = sol["x"][0]
+    let sy: float = sol["x"][1]
+    say(approx(sx, 1.0))
+    say(approx(sy, 2.0))
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(
+            output, "ok=1\na0=1 a1=2\n1\n2\n3\n1\n1\n",
+            "Got: {}",
+            output
+        );
+    }
+}

@@ -1083,6 +1083,11 @@ pub fn is_dynamic_element_read(expr: &Expr, vars: &HashMap<String, VarType>) -> 
         if is_map_read_index(expr, vars) {
             return false;
         }
+        // String-routed bases (char_at) leave no slot tag behind, so
+        // consumers must keep their static paths for them.
+        if is_string_expr(array, vars) {
+            return false;
+        }
         if let Expr::Identifier(name) = &**array {
             if vars.contains_key(&format!("param_is_untyped:{}", name)) {
                 return true;
@@ -1094,7 +1099,24 @@ pub fn is_dynamic_element_read(expr: &Expr, vars: &HashMap<String, VarType>) -> 
                     && !vars.contains_key(&format!("arr_nonflt:{}", name));
                 return !proven_str && !proven_flt;
             }
+            // #106: unknown/dynamic locals flow into the same array
+            // fallback, which loads the slot tag anyway, so consumers
+            // can dispatch on it. Proven scalars, structs, maps and
+            // friends keep their static paths; a non-indexable dynamic
+            // faults at the bounds check either way (layout is assumed
+            // by the fallback itself).
+            if matches!(vars.get(name), None | Some(VarType::Number(_)))
+                && !vars.contains_key(&format!("var_is_int:{}", name))
+            {
+                return true;
+            }
+            return false;
         }
+        // Non-identifier bases (calls, nested reads, field paths) take
+        // the same array fallback with its slot-tag load (#106), unless
+        // string-routed above. Struct operator[] rewrites carry the
+        // callee's own tag, which dispatch handles correctly too.
+        return true;
     }
     false
 }

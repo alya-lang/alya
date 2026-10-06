@@ -1,0 +1,43 @@
+# ==============================================================================
+# Alya Integration Fixture 28 (entry): float array behind map value
+# Distilled from: Lib/math `mat_solve` returning `{ "ok": true, "x" }
+#                 with `sol["x"][0]` reads (alya-lang/alya#106)
+# Guards: element reads of dynamically-typed arrays dispatch on the
+#         per-slot tag (the array fallback always loads it) instead of
+#         assuming int — for bound reads, direct nested reads, and
+#         annotated `: float` bindings feeding approx compares.
+# ==============================================================================
+
+function make28() -> map
+    let x = []
+    x.push(1.0)
+    x.push(2.0)
+    return { "ok": true, "x": x }
+end
+
+function approx28(a: float, b: float) -> int
+    let d = a - b
+    if d < 0
+        d = 0 - d
+    end
+    if d < 0.001
+        return 1
+    end
+    return 0
+end
+
+function main28()
+    let sol = make28()
+    say(sol["ok"])
+    let arr = sol["x"]
+    say(arr[0])
+    say(arr[1])
+    say(sol["x"][0])
+    let sx: float = sol["x"][0]
+    let sy: float = sol["x"][1]
+    say(approx28(sx, 1.0))
+    say(approx28(sy, 2.0))
+end
+
+main28()
+say f"integration 28_map_float_array: OK"
