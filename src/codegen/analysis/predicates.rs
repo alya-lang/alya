@@ -111,6 +111,19 @@ fn receiver_struct_name(expr: &Expr, vars: &HashMap<String, VarType>) -> Option<
     }
 }
 
+/// Whether a function-name spelling is simple (no `::` or `__`
+/// qualification). Bare markers (`fn_ret_flt:inner`) are only ever
+/// recorded and consulted for simple spellings (alya-lang/alya#101):
+/// a qualified definition (`outer__inner`, `ns::fn`, `S__m`) must never
+/// seed bare markers, and a qualified-spelled call must never consult
+/// them — otherwise markers set by one function are inherited by an
+/// unrelated same-bare function and callers silently take the wrong
+/// path (observed: int calls read as float on arm64). Single-segment
+/// names behave exactly as before.
+pub fn is_simple_name(name: &str) -> bool {
+    !name.contains("::") && !name.contains("__")
+}
+
 /// Whether a stored string value needs an immortal stable-region copy
 /// (`alya_str_store`) instead of the ring-buffer pointer as produced.
 /// String literals live in rodata (immortal already); every other string
@@ -367,12 +380,16 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                 return false;
             }
             vars.contains_key(&format!("fn_ret_str:{}", name))
-                || vars.contains_key(&format!("fn_ret_str:{}", bare))
-                || vars.keys().any(|k| {
-                    k.starts_with("fn_ret_str:")
-                        && (k.ends_with(&format!("__{}", bare))
-                            || k.ends_with(&format!("::{}", bare)))
-                })
+                // #101: qualified-spelled calls consult exact markers
+                // only; bare/suffix fallbacks would inherit markers set
+                // by an unrelated same-bare function.
+                || (is_simple_name(name)
+                    && (vars.contains_key(&format!("fn_ret_str:{}", bare))
+                        || vars.keys().any(|k| {
+                            k.starts_with("fn_ret_str:")
+                                && (k.ends_with(&format!("__{}", bare))
+                                    || k.ends_with(&format!("::{}", bare)))
+                        })))
         }
         Expr::Identifier(name) => {
             if let Some(var_type) = vars.get(name) {
@@ -560,11 +577,13 @@ pub fn is_array_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                                            // value kind), so a static array claim miscompiles.
             ) || (bare == "slice" && !args.is_empty() && is_array_expr(&args[0], vars))
                 || vars.contains_key(&format!("fn_ret_arr:{}", name))
-                || vars.contains_key(&format!("fn_ret_arr:{}", bare))
+                // #101: qualified-spelled calls consult exact markers only.
+                || (is_simple_name(name)
+                    && (vars.contains_key(&format!("fn_ret_arr:{}", bare))
+                        || vars.contains_key(&format!("fn_ret_str_arr:{}", bare))))
                 || vars.contains_key(&format!("fn_ret_arr:{}", name.replace("::", "__")))
                 || vars.contains_key(&format!("fn_ret_arr:{}", name.replace("__", "::")))
                 || vars.contains_key(&format!("fn_ret_str_arr:{}", name))
-                || vars.contains_key(&format!("fn_ret_str_arr:{}", bare))
                 || vars.contains_key(&format!("fn_ret_str_arr:{}", name.replace("::", "__")))
                 || vars.contains_key(&format!("fn_ret_str_arr:{}", name.replace("__", "::")))
         }
@@ -655,7 +674,9 @@ pub fn is_map_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                                         // JSON parser (any value kind), so a static map claim
                                         // miscompiles array/string results (for-loop vars, `+=`).
             ) || vars.contains_key(&format!("fn_ret_map:{}", name))
-                || vars.contains_key(&format!("fn_ret_map:{}", bare))
+                // #101: qualified-spelled calls consult exact markers only.
+                || (is_simple_name(name)
+                    && vars.contains_key(&format!("fn_ret_map:{}", bare)))
         }
         Expr::Map(_) => true,
         Expr::Index { array, index } => {
@@ -939,9 +960,14 @@ pub fn is_tag_carrying_read(expr: &Expr, vars: &HashMap<String, VarType>) -> boo
         // (value, tag) on every return path. Unqualified callees
         // (recursion, dynamics) keep legacy behavior; forward
         // references are ordered callee-first (#55-C). Bare-name
-        // lookup mirrors fn_ret_flt.
+        // lookup mirrors fn_ret_flt — but only for simple spellings
+        // (#101): a qualified-spelled call must never inherit markers
+        // set by an unrelated same-bare function.
         if vars.contains_key(&format!("fn_ret_tagged:{}", name)) {
             return true;
+        }
+        if !is_simple_name(name) {
+            return false;
         }
         let bare = name.rsplit("::").next().unwrap_or(name);
         let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -1185,11 +1211,40 @@ pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                             }
                         }
                     }
+                    // Suffix scan mirrors the string arm below: method
+                    // markers may live under an import-alias prefix
+                    // (`m::Box__sum`) while the receiver resolves
+                    // unaliased (`Box`). The struct-qualified suffix
+                    // keeps it precise to this struct+method pair.
+                    for ss in [sname.as_str(), bare_s] {
+                        for cc in [name.as_str(), bare] {
+                            let suffix_us = format!("__{}__{}", ss, cc);
+                            let suffix_col = format!("::{}__{}", ss, cc);
+                            if vars.keys().any(|k| {
+                                k.starts_with("fn_ret_int:")
+                                    && (k.ends_with(&suffix_us) || k.ends_with(&suffix_col))
+                            }) {
+                                return false;
+                            }
+                        }
+                    }
                     for ss in [sname.as_str(), bare_s] {
                         for cc in [name.as_str(), bare] {
                             if vars.contains_key(&format!("fn_ret_flt:{}__{}", ss, cc))
                                 || vars.contains_key(&format!("fn_ret_flt:{}::{}", ss, cc))
                             {
+                                return true;
+                            }
+                        }
+                    }
+                    for ss in [sname.as_str(), bare_s] {
+                        for cc in [name.as_str(), bare] {
+                            let suffix_us = format!("__{}__{}", ss, cc);
+                            let suffix_col = format!("::{}__{}", ss, cc);
+                            if vars.keys().any(|k| {
+                                k.starts_with("fn_ret_flt:")
+                                    && (k.ends_with(&suffix_us) || k.ends_with(&suffix_col))
+                            }) {
                                 return true;
                             }
                         }
@@ -1257,7 +1312,10 @@ pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "fmod"
                     | "sqrt_f"
             ) || vars.contains_key(&format!("fn_ret_flt:{}", name))
-                || vars.contains_key(&format!("fn_ret_flt:{}", bare))
+                // #101: a qualified-spelled call must never inherit
+                // markers set by an unrelated same-bare function.
+                || (is_simple_name(name)
+                    && vars.contains_key(&format!("fn_ret_flt:{}", bare)))
         }
         Expr::Ternary {
             then_branch,
@@ -1525,7 +1583,9 @@ pub fn call_returns_struct(name: &str, vars: &HashMap<String, VarType>) -> bool 
     let bare = name.rsplit("::").next().unwrap_or(name);
     let bare = bare.rsplit("__").next().unwrap_or(bare);
     vars.contains_key(&format!("fn_ret_struct:{}", name))
-        || vars.contains_key(&format!("fn_ret_struct:{}", bare))
+        // #101: qualified-spelled calls consult exact markers only.
+        || (is_simple_name(name)
+            && vars.contains_key(&format!("fn_ret_struct:{}", bare)))
         || vars.contains_key(&format!("fn_ret_struct:{}", name.replace("::", "__")))
         || vars.contains_key(&format!("fn_ret_struct:{}", name.replace("__", "::")))
 }
@@ -1539,7 +1599,10 @@ pub fn call_returns_fresh_value(name: &str, vars: &HashMap<String, VarType>) -> 
     let bare = name.rsplit("::").next().unwrap_or(name);
     let bare = bare.rsplit("__").next().unwrap_or(bare);
     vars.contains_key(&format!("fn_ret_fresh:{}", name))
-        || vars.contains_key(&format!("fn_ret_fresh:{}", bare))
+        // #101: qualified-spelled calls consult exact markers only (a
+        // stale freshness claim is use-after-free, alya-lang/alya#79).
+        || (is_simple_name(name)
+            && vars.contains_key(&format!("fn_ret_fresh:{}", bare)))
         || vars.contains_key(&format!("fn_ret_fresh:{}", name.replace("::", "__")))
         || vars.contains_key(&format!("fn_ret_fresh:{}", name.replace("__", "::")))
 }
@@ -1770,11 +1833,14 @@ pub fn call_returns_known_int(name: &str, vars: &HashMap<String, VarType>) -> bo
         return true;
     }
     vars.contains_key(&format!("fn_ret_int:{}", name))
-        || vars.contains_key(&format!("fn_ret_int:{}", bare))
-        || vars.keys().any(|k| {
-            k.starts_with("fn_ret_int:")
-                && (k.ends_with(&format!("__{}", bare)) || k.ends_with(&format!("::{}", bare)))
-        })
+        // #101: qualified-spelled calls consult exact markers only.
+        || (is_simple_name(name)
+            && (vars.contains_key(&format!("fn_ret_int:{}", bare))
+                || vars.keys().any(|k| {
+                    k.starts_with("fn_ret_int:")
+                        && (k.ends_with(&format!("__{}", bare))
+                            || k.ends_with(&format!("::{}", bare)))
+                })))
 }
 
 /// True when an `==`/`!=` operand has no proven static type for equality:

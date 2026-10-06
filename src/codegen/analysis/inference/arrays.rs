@@ -1,5 +1,6 @@
 use super::common::{collect_function_defs, count_assignments};
 use crate::ast::*;
+use crate::codegen::analysis::predicates::is_simple_name;
 use crate::codegen::analysis::traversal::CallIndex;
 use crate::parser::dynspec::{dynspec_codes, spec_open_param_kind};
 use std::collections::{HashMap, HashSet};
@@ -59,7 +60,9 @@ fn expr_is_definitely_array(
                 && !args.is_empty()
                 && expr_is_definitely_array(&args[0], fn_scope, known_arrays))
                 || known_arrays.contains(&format!("fn_ret_arr:{}", name))
-                || known_arrays.contains(&format!("fn_ret_arr:{}", bare))
+                // #101: qualified-spelled calls consult exact markers only.
+                || (is_simple_name(name)
+                    && known_arrays.contains(&format!("fn_ret_arr:{}", bare)))
         }
         Expr::ForceUnwrap(inner) => expr_is_definitely_array(inner, fn_scope, known_arrays),
         _ => false,
@@ -298,7 +301,9 @@ fn expr_forwards_param_to_array(expr: &Expr, param: &str, known_arrays: &HashSet
             for (idx, arg) in args.iter().enumerate() {
                 if matches!(arg, Expr::Identifier(id) if id == param)
                     && (known_arrays.contains(&format!("fn_param_arr:{}:{}", name, idx))
-                        || known_arrays.contains(&format!("fn_param_arr:{}:{}", bare, idx)))
+                        // #101: qualified-spelled calls consult exact only.
+                        || (is_simple_name(name)
+                            && known_arrays.contains(&format!("fn_param_arr:{}:{}", bare, idx))))
                 {
                     return true;
                 }
@@ -452,11 +457,16 @@ fn collect_array_vars_from_stmts(
                             });
                     if is_arr_type
                         || known_arrays.contains(&format!("fn_param_arr:{}:{}", name, idx))
-                        || known_arrays.contains(&format!("fn_param_arr:{}:{}", bare, idx))
+                        // #101: qualified-spelled functions consult exact only.
+                        || (is_simple_name(name)
+                            && known_arrays.contains(&format!("fn_param_arr:{}:{}", bare, idx)))
                     {
                         if is_arr_type {
                             known_arrays.insert(format!("fn_param_arr:{}:{}", name, idx));
-                            known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                            // #101: bare markers only for simple names.
+                            if is_simple_name(name) {
+                                known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                            }
                         }
                         known_arrays.insert(format!("{}:{}", name, param));
                         if bare != name {
@@ -465,9 +475,10 @@ fn collect_array_vars_from_stmts(
                     }
                 }
                 collect_array_vars_from_stmts(body, Some(name), known_arrays);
-                if bare != name {
-                    collect_array_vars_from_stmts(body, Some(bare), known_arrays);
-                }
+                // #101: no bare-scope scan. For simple names it would
+                // duplicate the scan above (bare == name); for qualified
+                // names its bare markers would be inherited by unrelated
+                // same-bare callers.
             }
             Stmt::Pub(inner) | Stmt::Defer(inner) => {
                 collect_array_vars_from_stmts(std::slice::from_ref(inner), fn_scope, known_arrays);
@@ -522,33 +533,45 @@ pub fn collect_known_array_vars_with_index(
                 || (bare != *name && stmts_return_array(body, Some(bare), &known_arrays))
             {
                 known_arrays.insert(format!("fn_ret_arr:{}", name));
-                known_arrays.insert(format!("fn_ret_arr:{}", bare));
+                // #101: bare markers only for simple names.
+                if is_simple_name(name) {
+                    known_arrays.insert(format!("fn_ret_arr:{}", bare));
+                }
             }
 
             for (idx, param) in params.iter().enumerate() {
                 if let Some(t) = param_types.get(idx).and_then(|t| t.as_deref()) {
                     if t == "..." || t.starts_with("...") || t == "array" || t.ends_with("[]") {
                         known_arrays.insert(format!("fn_param_arr:{}:{}", name, idx));
-                        known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                        // #101: bare markers only for simple names.
+                        if is_simple_name(name) {
+                            known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                        }
                         continue;
                     }
                 }
 
                 if known_arrays.contains(&format!("fn_param_arr:{}:{}", name, idx))
-                    || known_arrays.contains(&format!("fn_param_arr:{}:{}", bare, idx))
+                    // #101: qualified-spelled functions consult exact only.
+                    || (is_simple_name(name)
+                        && known_arrays.contains(&format!("fn_param_arr:{}:{}", bare, idx)))
                 {
                     continue;
                 }
 
                 if param_is_used_as_array(param, body) {
                     known_arrays.insert(format!("fn_param_arr:{}:{}", name, idx));
-                    known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                    if is_simple_name(name) {
+                        known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                    }
                     continue;
                 }
 
                 if find_param_forwarded_call(body, param, &known_arrays) {
                     known_arrays.insert(format!("fn_param_arr:{}:{}", name, idx));
-                    known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                    if is_simple_name(name) {
+                        known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                    }
                     continue;
                 }
 
@@ -573,7 +596,10 @@ pub fn collect_known_array_vars_with_index(
                     })
                 {
                     known_arrays.insert(format!("fn_param_arr:{}:{}", name, idx));
-                    known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                    // #101: bare markers only for simple names.
+                    if is_simple_name(name) {
+                        known_arrays.insert(format!("fn_param_arr:{}:{}", bare, idx));
+                    }
                 }
             }
         }
@@ -593,7 +619,9 @@ pub fn infer_param_is_array_with(
     let bare = func_name.rsplit("::").next().unwrap_or(func_name);
     let bare = bare.rsplit("__").next().unwrap_or(bare);
     known_arrays.contains(&format!("fn_param_arr:{}:{}", func_name, param_idx))
-        || known_arrays.contains(&format!("fn_param_arr:{}:{}", bare, param_idx))
+        // #101: qualified-spelled callees consult exact markers only.
+        || (is_simple_name(func_name)
+            && known_arrays.contains(&format!("fn_param_arr:{}:{}", bare, param_idx)))
 }
 
 pub fn infer_param_is_array(func_name: &str, param_idx: usize, program: &Program) -> bool {
@@ -757,7 +785,9 @@ fn collect_strict_array_vars_from_stmts(
                             });
                     if annotated
                         || strict.contains(&format!("fn_param_arr:{}:{}", name, idx))
-                        || strict.contains(&format!("fn_param_arr:{}:{}", bare, idx))
+                        // #101: qualified-spelled functions consult exact only.
+                        || (is_simple_name(name)
+                            && strict.contains(&format!("fn_param_arr:{}:{}", bare, idx)))
                     {
                         strict.insert(format!("{}:{}", name, param));
                         // Bare-sharing crosses module qualification only:
@@ -839,7 +869,8 @@ pub fn collect_known_array_vars_strict_with_index(
                     })
                 {
                     strict.insert(format!("fn_param_arr:{}:{}", name, idx));
-                    if !name.contains("__spk__") {
+                    // #101: bare markers only for simple names.
+                    if is_simple_name(name) {
                         strict.insert(format!("fn_param_arr:{}:{}", bare, idx));
                     }
                     strict.insert(format!("{}:{}", name, param));
@@ -849,7 +880,9 @@ pub fn collect_known_array_vars_strict_with_index(
                     continue;
                 }
                 if strict.contains(&format!("fn_param_arr:{}:{}", name, idx))
-                    || strict.contains(&format!("fn_param_arr:{}:{}", bare, idx))
+                    // #101: qualified-spelled functions consult exact only.
+                    || (is_simple_name(name)
+                        && strict.contains(&format!("fn_param_arr:{}:{}", bare, idx)))
                 {
                     continue;
                 }
@@ -864,7 +897,8 @@ pub fn collect_known_array_vars_strict_with_index(
                     })
                 {
                     strict.insert(format!("fn_param_arr:{}:{}", name, idx));
-                    if !name.contains("__spk__") {
+                    // #101: bare markers only for simple names.
+                    if is_simple_name(name) {
                         strict.insert(format!("fn_param_arr:{}:{}", bare, idx));
                     }
                 }
@@ -891,7 +925,9 @@ pub fn infer_param_is_array_strict_with(
     let bare = func_name.rsplit("::").next().unwrap_or(func_name);
     let bare = bare.rsplit("__").next().unwrap_or(bare);
     strict.contains(&format!("fn_param_arr:{}:{}", func_name, param_idx))
-        || strict.contains(&format!("fn_param_arr:{}:{}", bare, param_idx))
+        // #101: qualified-spelled callees consult exact markers only.
+        || (is_simple_name(func_name)
+            && strict.contains(&format!("fn_param_arr:{}:{}", bare, param_idx)))
 }
 
 pub fn infer_param_is_array_strict(func_name: &str, param_idx: usize, program: &Program) -> bool {

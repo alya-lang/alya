@@ -1,5 +1,6 @@
 use super::common::collect_function_defs;
 use crate::ast::*;
+use crate::codegen::analysis::predicates::is_simple_name;
 use crate::codegen::analysis::traversal::CallIndex;
 use std::collections::{HashMap, HashSet};
 
@@ -139,12 +140,16 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
                 return true;
             }
             known_strings.contains(&format!("fn_ret_str:{}", name))
-                || known_strings.contains(&format!("fn_ret_str:{}", bare))
-                || known_strings.iter().any(|k| {
-                    k.starts_with("fn_ret_str:")
-                        && (k.ends_with(&format!("__{}", bare))
-                            || k.ends_with(&format!("::{}", bare)))
-                })
+                // #101: qualified-spelled calls consult exact markers
+                // only; bare/suffix fallbacks would inherit markers set
+                // by an unrelated same-bare function.
+                || (is_simple_name(name)
+                    && (known_strings.contains(&format!("fn_ret_str:{}", bare))
+                        || known_strings.iter().any(|k| {
+                            k.starts_with("fn_ret_str:")
+                                && (k.ends_with(&format!("__{}", bare))
+                                    || k.ends_with(&format!("::{}", bare)))
+                        })))
         }
         Expr::Identifier(name) => known_strings.contains(name),
         Expr::Binary {
@@ -222,7 +227,9 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
                     // static string-element claim miscompiles reads/stores.
                     matches!(bare, "args" | "cli_args" | "lines" | "read_lines" | "keys")
                         || known_strings.contains(&format!("fn_ret_str_arr:{}", name))
-                        || known_strings.contains(&format!("fn_ret_str_arr:{}", bare))
+                        // #101: qualified-spelled calls consult exact only.
+                        || (is_simple_name(name)
+                            && known_strings.contains(&format!("fn_ret_str_arr:{}", bare)))
                 }
                 _ => expr_is_definitely_string(array, known_strings),
             }
@@ -250,7 +257,9 @@ fn expr_is_string_array(expr: &Expr, known_strings: &HashSet<String>) -> bool {
             // NOTE: `split` is deliberately absent (see above).
             matches!(bare, "args" | "cli_args" | "lines" | "read_lines" | "keys")
                 || known_strings.contains(&format!("fn_ret_str_arr:{}", name))
-                || known_strings.contains(&format!("fn_ret_str_arr:{}", bare))
+                // #101: qualified-spelled calls consult exact only.
+                || (is_simple_name(name)
+                    && known_strings.contains(&format!("fn_ret_str_arr:{}", bare)))
         }
         Expr::Ternary {
             then_branch,
@@ -362,9 +371,12 @@ fn collect_function_returns_string_array(
         match s {
             Stmt::Return(Some(expr)) if expr_is_string_array(expr, known_strings) => {
                 target_strings.insert(format!("fn_ret_str_arr:{}", fn_name));
-                let bare = fn_name.rsplit("::").next().unwrap_or(fn_name);
-                let bare = bare.rsplit("__").next().unwrap_or(bare);
-                target_strings.insert(format!("fn_ret_str_arr:{}", bare));
+                // #101: bare markers only for simple names.
+                if is_simple_name(fn_name) {
+                    let bare = fn_name.rsplit("::").next().unwrap_or(fn_name);
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    target_strings.insert(format!("fn_ret_str_arr:{}", bare));
+                }
             }
             Stmt::If {
                 then_block,
@@ -514,7 +526,10 @@ fn scan_expr_for_strings(
             for (idx, arg) in args.iter().enumerate() {
                 if expr_is_definitely_string(arg, known_strings) {
                     known_strings.insert(format!("fn_param_str:{}:{}", name, idx));
-                    known_strings.insert(format!("fn_param_str:{}:{}", bare, idx));
+                    // #101: bare markers only for simple names.
+                    if is_simple_name(name) {
+                        known_strings.insert(format!("fn_param_str:{}:{}", bare, idx));
+                    }
                 } else if expr_is_definitely_non_string_lit(arg) {
                     known_strings.insert(format!("fn_param_nonstr:{}:{}", name, idx));
                     known_strings.insert(format!("fn_param_nonstr:{}:{}", bare, idx));
@@ -888,7 +903,9 @@ fn collect_string_vars_from_stmts(
                     let bare_id = id.rsplit("::").next().unwrap_or(id.as_str());
                     let bare_id = bare_id.rsplit("__").next().unwrap_or(bare_id);
                     if known_strings.contains(&format!("fn_ret_str:{}", id))
-                        || known_strings.contains(&format!("fn_ret_str:{}", bare_id))
+                        // #101: qualified-spelled references consult exact only.
+                        || (is_simple_name(id)
+                            && known_strings.contains(&format!("fn_ret_str:{}", bare_id)))
                     {
                         known_strings.insert(format!("fn_ret_str:{}", name));
                     }
@@ -999,7 +1016,9 @@ fn collect_string_vars_from_stmts(
                     let bare_id = id.rsplit("::").next().unwrap_or(id.as_str());
                     let bare_id = bare_id.rsplit("__").next().unwrap_or(bare_id);
                     if known_strings.contains(&format!("fn_ret_str:{}", id))
-                        || known_strings.contains(&format!("fn_ret_str:{}", bare_id))
+                        // #101: qualified-spelled references consult exact only.
+                        || (is_simple_name(id)
+                            && known_strings.contains(&format!("fn_ret_str:{}", bare_id)))
                     {
                         known_strings.insert(format!("fn_ret_str:{}", name));
                     }
@@ -1219,17 +1238,28 @@ fn collect_string_vars_from_stmts(
                 for (idx, param) in params.iter().enumerate() {
                     // Same veto as infer_param_is_string_with: a literal
                     // non-string call proves the parameter is dynamic.
+                    // #101: a bare veto from an unrelated same-bare
+                    // function must not block this function's marking.
                     let vetoed = known_strings
                         .contains(&format!("fn_param_nonstr:{}:{}", name, idx))
-                        || known_strings.contains(&format!("fn_param_nonstr:{}:{}", bare, idx));
+                        || (is_simple_name(name)
+                            && known_strings
+                                .contains(&format!("fn_param_nonstr:{}:{}", bare, idx)));
+                    // #101: qualified-spelled functions consult exact
+                    // markers only.
+                    let bare_ok = is_simple_name(name);
                     if !vetoed
                         && (known_strings.contains(&format!("fn_param_str:{}:{}", name, idx))
-                            || known_strings.contains(&format!("fn_param_str:{}:{}", bare, idx)))
+                            || (bare_ok
+                                && known_strings
+                                    .contains(&format!("fn_param_str:{}:{}", bare, idx))))
                     {
                         fn_locals.insert(param.clone());
                     }
                     if known_strings.contains(&format!("fn_param_str_arr:{}:{}", name, idx))
-                        || known_strings.contains(&format!("fn_param_str_arr:{}:{}", bare, idx))
+                        || (bare_ok
+                            && known_strings
+                                .contains(&format!("fn_param_str_arr:{}:{}", bare, idx)))
                     {
                         fn_locals.insert(format!("arr_is_str:{}", param));
                     }
@@ -1239,8 +1269,10 @@ fn collect_string_vars_from_stmts(
                 for item in known_strings.iter() {
                     if let Some(var_name) = item.strip_prefix(&prefix1) {
                         fn_locals.insert(format!("arr_is_str:{}", var_name));
-                    } else if let Some(var_name) = item.strip_prefix(&prefix2) {
-                        fn_locals.insert(format!("arr_is_str:{}", var_name));
+                    } else if is_simple_name(name) {
+                        if let Some(var_name) = item.strip_prefix(&prefix2) {
+                            fn_locals.insert(format!("arr_is_str:{}", var_name));
+                        }
                     }
                 }
                 collect_string_vars_from_stmts(body, struct_defs, &mut fn_locals, conflicts);
@@ -1249,7 +1281,10 @@ fn collect_string_vars_from_stmts(
                 // dynamic, so trusting the positive would fold `is string`
                 // to constant-true and corrupt heap results (`str_store`).
                 let ret_vetoed = known_strings.contains(&format!("fn_ret_nonstr:{}", name))
-                    || known_strings.contains(&format!("fn_ret_nonstr:{}", bare));
+                    // #101: a bare veto from an unrelated same-bare
+                    // function must not block this function's marking.
+                    || (is_simple_name(name)
+                        && known_strings.contains(&format!("fn_ret_nonstr:{}", bare)));
                 if !ret_vetoed
                     && stmts_return_string(body, &fn_locals)
                     && !matches!(
@@ -1275,22 +1310,25 @@ fn collect_string_vars_from_stmts(
                     )
                 {
                     known_strings.insert(format!("fn_ret_str:{}", name));
-                    if !name.contains("__") {
+                    // #101: bare markers only for simple names.
+                    if is_simple_name(name) {
                         known_strings.insert(format!("fn_ret_str:{}", bare));
                     }
                 }
                 collect_tuple_returns_string(body, &fn_locals, name, known_strings);
-                if !name.contains("__") {
+                if is_simple_name(name) {
                     collect_tuple_returns_string(body, &fn_locals, bare, known_strings);
                 }
                 collect_function_returns_string_array(body, &fn_locals, name, known_strings);
-                if !name.contains("__") {
+                if is_simple_name(name) {
                     collect_function_returns_string_array(body, &fn_locals, bare, known_strings);
                 }
                 for item in &fn_locals {
                     if let Some(var_name) = item.strip_prefix("arr_is_str:") {
                         known_strings.insert(format!("fn_local_str_arr:{}:{}", name, var_name));
-                        known_strings.insert(format!("fn_local_str_arr:{}:{}", bare, var_name));
+                        if is_simple_name(name) {
+                            known_strings.insert(format!("fn_local_str_arr:{}:{}", bare, var_name));
+                        }
                     }
                     if item.starts_with("fn_ret_str:")
                         || item.starts_with("fn_ret_str_arr:")
@@ -1711,16 +1749,18 @@ pub fn collect_known_string_vars_with_index(
         {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
-            let is_mangled = name.contains("__");
+            // #101: bare markers only for simple names (covers `::`
+            // as well as `__`; see also the body-derived sites).
+            let record_bare = is_simple_name(name);
             if let Some(ret) = return_type {
                 if ret == "str" || ret == "string" {
                     known_strings.insert(format!("fn_ret_str:{}", name));
-                    if !is_mangled {
+                    if record_bare {
                         known_strings.insert(format!("fn_ret_str:{}", bare));
                     }
                 } else if ret == "str[]" || ret == "string[]" {
                     known_strings.insert(format!("fn_ret_str_arr:{}", name));
-                    if !is_mangled {
+                    if record_bare {
                         known_strings.insert(format!("fn_ret_str_arr:{}", bare));
                     }
                 }
@@ -1729,12 +1769,12 @@ pub fn collect_known_string_vars_with_index(
                 if let Some(pt) = p_type {
                     if pt == "str" || pt == "string" {
                         known_strings.insert(format!("fn_param_str:{}:{}", name, idx));
-                        if !is_mangled {
+                        if record_bare {
                             known_strings.insert(format!("fn_param_str:{}:{}", bare, idx));
                         }
                     } else if pt == "str[]" || pt == "string[]" {
                         known_strings.insert(format!("fn_param_str_arr:{}:{}", name, idx));
-                        if !is_mangled {
+                        if record_bare {
                             known_strings.insert(format!("fn_param_str_arr:{}:{}", bare, idx));
                         }
                     }
@@ -1821,7 +1861,10 @@ pub fn collect_known_string_vars_with_index(
                             .all(|arg| expr_is_string_array(arg, &known_strings))
                     {
                         known_strings.insert(format!("fn_param_str_arr:{}:{}", name, idx));
-                        known_strings.insert(format!("fn_param_str_arr:{}:{}", bare, idx));
+                        // #101: bare markers only for simple names.
+                        if is_simple_name(name) {
+                            known_strings.insert(format!("fn_param_str_arr:{}:{}", bare, idx));
+                        }
                     }
                 }
                 // Universal (ALL call sites), mirroring the float/array
@@ -1840,7 +1883,10 @@ pub fn collect_known_string_vars_with_index(
                             .all(|arg| expr_is_definitely_string(arg, &known_strings))
                     {
                         known_strings.insert(format!("fn_param_str:{}:{}", name, idx));
-                        known_strings.insert(format!("fn_param_str:{}:{}", bare, idx));
+                        // #101: bare markers only for simple names.
+                        if is_simple_name(name) {
+                            known_strings.insert(format!("fn_param_str:{}:{}", bare, idx));
+                        }
                     }
                 }
             }
@@ -1863,10 +1909,15 @@ pub fn infer_param_is_string_with(
     // A literal non-string call vetoes the existential positive: the
     // parameter is dynamic and `is string` must discriminate at runtime.
     let vetoed = known_strings.contains(&format!("fn_param_nonstr:{}:{}", func_name, param_idx))
-        || known_strings.contains(&format!("fn_param_nonstr:{}:{}", bare, param_idx));
+        // #101: a bare veto from an unrelated same-bare function must
+        // not block this function's marking.
+        || (is_simple_name(func_name)
+            && known_strings.contains(&format!("fn_param_nonstr:{}:{}", bare, param_idx)));
     !vetoed
         && (known_strings.contains(&format!("fn_param_str:{}:{}", func_name, param_idx))
-            || known_strings.contains(&format!("fn_param_str:{}:{}", bare, param_idx)))
+            // #101: qualified-spelled callees consult exact markers only.
+            || (is_simple_name(func_name)
+                && known_strings.contains(&format!("fn_param_str:{}:{}", bare, param_idx))))
 }
 
 pub fn infer_param_is_string_array_with(
@@ -1878,7 +1929,9 @@ pub fn infer_param_is_string_array_with(
     let bare = func_name.rsplit("::").next().unwrap_or(func_name);
     let bare = bare.rsplit("__").next().unwrap_or(bare);
     known_strings.contains(&format!("fn_param_str_arr:{}:{}", func_name, param_idx))
-        || known_strings.contains(&format!("fn_param_str_arr:{}:{}", bare, param_idx))
+        // #101: qualified-spelled callees consult exact markers only.
+        || (is_simple_name(func_name)
+            && known_strings.contains(&format!("fn_param_str_arr:{}:{}", bare, param_idx)))
 }
 
 pub fn infer_param_is_string(func_name: &str, param_idx: usize, program: &Program) -> bool {

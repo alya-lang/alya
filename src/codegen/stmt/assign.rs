@@ -804,13 +804,16 @@ impl CodeGen {
                     ] {
                         let k1 = format!("{}{}", ret_prefix, target_fn);
                         let k2 = format!("{}{}", ret_prefix, bare_tgt);
-                        if let Some(vt) = self
-                            .ctx
-                            .variables
-                            .get(&k1)
-                            .or_else(|| self.ctx.variables.get(&k2))
-                            .cloned()
-                        {
+                        // #101: qualified-spelled references consult exact
+                        // markers only.
+                        let vt = self.ctx.variables.get(&k1).or_else(|| {
+                            if crate::codegen::analysis::is_simple_name(target_fn) {
+                                self.ctx.variables.get(&k2)
+                            } else {
+                                None
+                            }
+                        });
+                        if let Some(vt) = vt.cloned() {
                             self.ctx
                                 .variables
                                 .insert(format!("{}{}", ret_prefix, name), vt);

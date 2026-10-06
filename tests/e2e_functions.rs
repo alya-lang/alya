@@ -1061,3 +1061,106 @@ say outer__inner()
         assert_eq!(output, "1042\n1000\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_bare_collision_tag_and_int() {
+    // alya-lang/alya#101: `inner` + `outer__inner` share bare `inner`.
+    // Markers must not leak across: the int call stays int (on arm64
+    // it read int bits as float via a stale tag register), and the
+    // float call stays float.
+    let code = r#"
+function inner()
+    return 100
+end
+function outer__inner(c)
+    return c * 2
+end
+function outer(a)
+    return outer__inner(a)
+end
+say outer(21)
+say inner()
+function iinner()
+    return 5
+end
+function iouter__iinner(c)
+    return c * 1.5
+end
+function iouter(a)
+    return iouter__iinner(a)
+end
+say iouter(2)
+say iinner()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "42\n100\n3\n5\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_bare_collision_float_and_string() {
+    // #101, float/string families: same-bare pairs with divergent
+    // return kinds must each dispatch on their own markers.
+    let code = r#"
+function finner()
+    return 1.5
+end
+function fout__finner(c)
+    return c * 2
+end
+function fout(a)
+    return fout__finner(a)
+end
+say fout(21)
+say finner()
+function sinner()
+    return "hi"
+end
+function sout__sinner(c)
+    return c * 2
+end
+function sout(a)
+    return sout__sinner(a)
+end
+say sout(21)
+say sinner()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "42\n1.5\n42\nhi\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_bare_collision_array_and_map() {
+    // #101, array/map families: same as above.
+    let code = r#"
+function ainner()
+    return [1, 2]
+end
+function aout__ainner(c)
+    return c * 2
+end
+function aout(a)
+    return aout__ainner(a)
+end
+say aout(21)
+say ainner()
+function minner()
+    return {"k": 1}
+end
+function mout__minner(c)
+    return c * 2
+end
+function mout(a)
+    return mout__minner(a)
+end
+say mout(21)
+say minner()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "42\n[1, 2]\n42\n{k: 1}\n", "Got: {}", output);
+    }
+}

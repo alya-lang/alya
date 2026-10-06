@@ -1,5 +1,6 @@
 use super::common::{collect_function_defs, count_assignments};
 use crate::ast::*;
+use crate::codegen::analysis::predicates::is_simple_name;
 use crate::codegen::analysis::traversal::CallIndex;
 use crate::parser::dynspec::{dynspec_codes, spec_open_param_kind};
 use std::collections::{HashMap, HashSet};
@@ -27,7 +28,9 @@ fn expr_is_definitely_map(
                                          // to the dynamic JSON parser (any value kind), so a static
                                          // map claim miscompiles array/string results.
             ) || known_maps.contains(&format!("fn_ret_map:{}", name))
-                || known_maps.contains(&format!("fn_ret_map:{}", bare))
+                // #101: qualified-spelled calls consult exact markers only.
+                || (is_simple_name(name)
+                    && known_maps.contains(&format!("fn_ret_map:{}", bare)))
         }
         Expr::Map(_) => true,
         Expr::Identifier(name) => {
@@ -188,12 +191,17 @@ fn collect_map_vars_from_stmts(
                                     || (t.starts_with('[') && t.contains(':') && t.ends_with(']'))
                             });
                     if is_map_type
+                        // #101: qualified-spelled functions consult exact only.
                         || known_maps.contains(&format!("fn_param_map:{}:{}", name, idx))
-                        || known_maps.contains(&format!("fn_param_map:{}:{}", bare, idx))
+                        || (is_simple_name(name)
+                            && known_maps.contains(&format!("fn_param_map:{}:{}", bare, idx)))
                     {
                         if is_map_type {
                             known_maps.insert(format!("fn_param_map:{}:{}", name, idx));
-                            known_maps.insert(format!("fn_param_map:{}:{}", bare, idx));
+                            // #101: bare markers only for simple names.
+                            if is_simple_name(name) {
+                                known_maps.insert(format!("fn_param_map:{}:{}", bare, idx));
+                            }
                         }
                         known_maps.insert(format!("{}:{}", name, param));
                         if bare != name {
@@ -202,9 +210,9 @@ fn collect_map_vars_from_stmts(
                     }
                 }
                 collect_map_vars_from_stmts(body, Some(name), known_maps);
-                if bare != name {
-                    collect_map_vars_from_stmts(body, Some(bare), known_maps);
-                }
+                // #101: no bare-scope scan (see arrays.rs: for simple
+                // names it duplicates, for qualified names its bare
+                // markers would leak across same-bare functions).
             }
             _ => {}
         }
@@ -261,7 +269,10 @@ pub fn collect_known_map_vars_with_index(
                 || (bare != *name && stmts_return_map(body, Some(bare), &known_maps))
             {
                 known_maps.insert(format!("fn_ret_map:{}", name));
-                known_maps.insert(format!("fn_ret_map:{}", bare));
+                // #101: bare markers only for simple names.
+                if is_simple_name(name) {
+                    known_maps.insert(format!("fn_ret_map:{}", bare));
+                }
             }
             for (idx, _param) in params.iter().enumerate() {
                 if let Some(t) = param_types.get(idx).and_then(|t| t.as_deref()) {
@@ -270,7 +281,10 @@ pub fn collect_known_map_vars_with_index(
                         || (t.starts_with('[') && t.contains(':') && t.ends_with(']'))
                     {
                         known_maps.insert(format!("fn_param_map:{}:{}", name, idx));
-                        known_maps.insert(format!("fn_param_map:{}:{}", bare, idx));
+                        // #101: bare markers only for simple names.
+                        if is_simple_name(name) {
+                            known_maps.insert(format!("fn_param_map:{}:{}", bare, idx));
+                        }
                         continue;
                     }
                 }
@@ -291,7 +305,10 @@ pub fn collect_known_map_vars_with_index(
                     })
                 {
                     known_maps.insert(format!("fn_param_map:{}:{}", name, idx));
-                    known_maps.insert(format!("fn_param_map:{}:{}", bare, idx));
+                    // #101: bare markers only for simple names.
+                    if is_simple_name(name) {
+                        known_maps.insert(format!("fn_param_map:{}:{}", bare, idx));
+                    }
                 }
             }
         }
@@ -311,7 +328,9 @@ pub fn infer_param_is_map_with(
     let bare = func_name.rsplit("::").next().unwrap_or(func_name);
     let bare = bare.rsplit("__").next().unwrap_or(bare);
     known_maps.contains(&format!("fn_param_map:{}:{}", func_name, param_idx))
-        || known_maps.contains(&format!("fn_param_map:{}:{}", bare, param_idx))
+        // #101: qualified-spelled callees consult exact markers only.
+        || (is_simple_name(func_name)
+            && known_maps.contains(&format!("fn_param_map:{}:{}", bare, param_idx)))
 }
 
 pub fn infer_param_is_map(func_name: &str, param_idx: usize, program: &Program) -> bool {
@@ -464,7 +483,9 @@ fn collect_strict_map_vars_from_stmts(
                         .is_some_and(is_map_annotation);
                     if annotated
                         || strict.contains(&format!("fn_param_map:{}:{}", name, idx))
-                        || strict.contains(&format!("fn_param_map:{}:{}", bare, idx))
+                        // #101: qualified-spelled functions consult exact only.
+                        || (is_simple_name(name)
+                            && strict.contains(&format!("fn_param_map:{}:{}", bare, idx)))
                     {
                         strict.insert(format!("{}:{}", name, param));
                         if !name.contains("__spk__") && bare != name {
@@ -533,7 +554,8 @@ pub fn collect_known_map_vars_strict_with_index(
                     .is_some_and(is_map_annotation)
                 {
                     strict.insert(format!("fn_param_map:{}:{}", name, idx));
-                    if !name.contains("__spk__") {
+                    // #101: bare markers only for simple names.
+                    if is_simple_name(name) {
                         strict.insert(format!("fn_param_map:{}:{}", bare, idx));
                     }
                     strict.insert(format!("{}:{}", name, param));
@@ -543,7 +565,9 @@ pub fn collect_known_map_vars_strict_with_index(
                     continue;
                 }
                 if strict.contains(&format!("fn_param_map:{}:{}", name, idx))
-                    || strict.contains(&format!("fn_param_map:{}:{}", bare, idx))
+                    // #101: qualified-spelled functions consult exact only.
+                    || (is_simple_name(name)
+                        && strict.contains(&format!("fn_param_map:{}:{}", bare, idx)))
                 {
                     continue;
                 }
@@ -557,7 +581,8 @@ pub fn collect_known_map_vars_strict_with_index(
                     })
                 {
                     strict.insert(format!("fn_param_map:{}:{}", name, idx));
-                    if !name.contains("__spk__") {
+                    // #101: bare markers only for simple names.
+                    if is_simple_name(name) {
                         strict.insert(format!("fn_param_map:{}:{}", bare, idx));
                     }
                 }
@@ -584,7 +609,9 @@ pub fn infer_param_is_map_strict_with(
     let bare = func_name.rsplit("::").next().unwrap_or(func_name);
     let bare = bare.rsplit("__").next().unwrap_or(bare);
     strict.contains(&format!("fn_param_map:{}:{}", func_name, param_idx))
-        || strict.contains(&format!("fn_param_map:{}:{}", bare, param_idx))
+        // #101: qualified-spelled callees consult exact markers only.
+        || (is_simple_name(func_name)
+            && strict.contains(&format!("fn_param_map:{}:{}", bare, param_idx)))
 }
 
 pub fn infer_param_is_map_strict(func_name: &str, param_idx: usize, program: &Program) -> bool {

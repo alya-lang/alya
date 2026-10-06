@@ -132,10 +132,13 @@ impl CodeGen {
                             self.ctx
                                 .variables
                                 .contains_key(&format!("fn_ret_flt:{}", cur))
-                                || self
-                                    .ctx
-                                    .variables
-                                    .contains_key(&format!("fn_ret_flt:{}", bare))
+                                // #101: qualified-spelled functions consult
+                                // exact markers only.
+                                || (crate::codegen::analysis::is_simple_name(&cur)
+                                    && self.ctx.variables.contains_key(&format!(
+                                        "fn_ret_flt:{}",
+                                        bare
+                                    )))
                         };
                     if let Expr::Identifier(id) = expr {
                         if let Some(
@@ -175,10 +178,12 @@ impl CodeGen {
                         .ctx
                         .variables
                         .contains_key(&format!("fn_ret_tagged:{}", cur))
-                        || self
-                            .ctx
-                            .variables
-                            .contains_key(&format!("fn_ret_tagged:{}", bare));
+                        // #101: qualified-spelled functions consult exact only.
+                        || (crate::codegen::analysis::is_simple_name(&cur)
+                            && self.ctx.variables.contains_key(&format!(
+                                "fn_ret_tagged:{}",
+                                bare
+                            )));
                     // The conversion above leaves the value float while the
                     // tag still describes the pre-conversion int: refresh
                     // it before the retain spill below reads it.

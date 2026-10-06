@@ -1,5 +1,6 @@
 use crate::ast::*;
 use crate::codegen::analysis::inference::common::collect_function_defs;
+use crate::codegen::analysis::predicates::is_simple_name;
 use crate::codegen::analysis::traversal::CallIndex;
 use std::collections::HashSet;
 
@@ -90,7 +91,9 @@ fn expr_is_definitely_float(expr: &Expr, known_floats: &HashSet<String>) -> bool
                     | "fmod"
                     | "sqrt_f"
             ) || known_floats.contains(&format!("fn_ret_flt:{}", name))
-                || known_floats.contains(&format!("fn_ret_flt:{}", bare))
+                // #101: qualified-spelled calls consult exact markers only.
+                || (is_simple_name(name)
+                    && known_floats.contains(&format!("fn_ret_flt:{}", bare)))
         }
         Expr::Index { array, index } => {
             if let (Expr::Identifier(arr_name), Expr::Number(idx)) = (&**array, &**index) {
@@ -534,21 +537,30 @@ fn collect_float_vars_from_stmts(
                 // proves the function dynamic (see above).
                 record_return_nonflt_vetoes(name, body, known_floats);
                 let mut fn_locals = scope.clone();
+                // #101: qualified-spelled functions consult exact
+                // markers only.
+                let bare_ok = is_simple_name(name);
                 for (idx, param) in params.iter().enumerate() {
                     if known_floats.contains(&format!("fn_param_flt:{}:{}", name, idx))
-                        || known_floats.contains(&format!("fn_param_flt:{}:{}", bare, idx))
+                        || (bare_ok
+                            && known_floats.contains(&format!("fn_param_flt:{}:{}", bare, idx)))
                     {
                         fn_locals.insert(param.clone());
                     }
                     if known_floats.contains(&format!("fn_param_flt_arr:{}:{}", name, idx))
-                        || known_floats.contains(&format!("fn_param_flt_arr:{}:{}", bare, idx))
+                        || (bare_ok
+                            && known_floats.contains(&format!("fn_param_flt_arr:{}:{}", bare, idx)))
                     {
                         fn_locals.insert(format!("arr_is_flt:{}", param));
                     }
                 }
                 collect_float_vars_from_stmts(body, &mut fn_locals, known_floats, false);
                 collect_tuple_returns_float(body, &fn_locals, name, known_floats);
-                collect_tuple_returns_float(body, &fn_locals, bare, known_floats);
+                // #101: tuple markers under a bare spelling would be
+                // inherited by unrelated same-bare callers.
+                if is_simple_name(name) {
+                    collect_tuple_returns_float(body, &fn_locals, bare, known_floats);
+                }
                 // An explicit integer return annotation vetoes body-based
                 // float marking: integer SIMD methods (e.g. `-> int`) share
                 // call shapes with float code, and the body inference alone
@@ -576,11 +588,19 @@ fn collect_float_vars_from_stmts(
                 });
                 if !annotated_int
                     && !known_floats.contains(&format!("fn_ret_nonflt:{}", name))
-                    && !known_floats.contains(&format!("fn_ret_nonflt:{}", bare))
+                    // #101: a bare veto from an unrelated same-bare
+                    // function must not block this function's marking.
+                    && (!is_simple_name(name)
+                        || !known_floats.contains(&format!("fn_ret_nonflt:{}", bare)))
                     && stmts_return_float(body, &fn_locals)
                 {
                     known_floats.insert(format!("fn_ret_flt:{}", name));
-                    known_floats.insert(format!("fn_ret_flt:{}", bare));
+                    // Bare markers only for simple names (#101): a
+                    // qualified definition must never seed bare markers
+                    // that unrelated same-bare callers would inherit.
+                    if is_simple_name(name) {
+                        known_floats.insert(format!("fn_ret_flt:{}", bare));
+                    }
                 }
             }
             Stmt::Pub(inner) | Stmt::Defer(inner) => {
@@ -658,37 +678,55 @@ pub fn collect_known_float_vars_with_index(
                 let ret_trimmed = ret.trim();
                 if ret_trimmed == "float" || ret_trimmed == "f64" || ret_trimmed == "f32" {
                     known_floats.insert(format!("fn_ret_flt:{}", name));
-                    known_floats.insert(format!("fn_ret_flt:{}", bare));
+                    // #101: bare markers only for simple names (a
+                    // qualified definition must never seed bare markers
+                    // that unrelated same-bare callers would inherit).
+                    if is_simple_name(name) {
+                        known_floats.insert(format!("fn_ret_flt:{}", bare));
+                    }
                     // Provenance: an explicit `-> float` annotation is
                     // enforced by the type checker, so these returns are
                     // exclusively float (unlike inference markers, which
                     // fire when ANY branch returns float).
                     known_floats.insert(format!("fn_ret_flt_ann:{}", name));
-                    known_floats.insert(format!("fn_ret_flt_ann:{}", bare));
+                    if is_simple_name(name) {
+                        known_floats.insert(format!("fn_ret_flt_ann:{}", bare));
+                    }
                 } else if ret_trimmed.starts_with('(') && ret_trimmed.ends_with(')') {
                     for (i, ty) in ret_trimmed[1..ret_trimmed.len() - 1].split(',').enumerate() {
                         let ty = ty.trim();
                         if ty == "float" || ty == "f64" || ty == "f32" {
                             known_floats.insert(format!("fn_ret_tuple_flt:{}:{}", name, i));
-                            known_floats.insert(format!("fn_ret_tuple_flt:{}:{}", bare, i));
+                            if is_simple_name(name) {
+                                known_floats.insert(format!("fn_ret_tuple_flt:{}:{}", bare, i));
+                            }
                         }
                     }
                 }
             }
             let kf_snapshot = known_floats.clone();
             collect_tuple_returns_float(body, &kf_snapshot, name, &mut known_floats);
-            collect_tuple_returns_float(body, &kf_snapshot, bare, &mut known_floats);
+            // #101: see above.
+            if is_simple_name(name) {
+                collect_tuple_returns_float(body, &kf_snapshot, bare, &mut known_floats);
+            }
             for (idx, p_type) in param_types.iter().enumerate() {
                 if let Some(pt) = p_type {
                     if pt == "float" || pt == "f64" || pt == "f32" {
                         known_floats.insert(format!("fn_param_flt:{}:{}", name, idx));
-                        known_floats.insert(format!("fn_param_flt:{}:{}", bare, idx));
+                        if is_simple_name(name) {
+                            known_floats.insert(format!("fn_param_flt:{}:{}", bare, idx));
+                        }
                     } else if pt == "float[]" || pt == "f64[]" || pt == "f32[]" {
                         known_floats.insert(format!("fn_param_flt_arr:{}:{}", name, idx));
-                        known_floats.insert(format!("fn_param_flt_arr:{}:{}", bare, idx));
+                        if is_simple_name(name) {
+                            known_floats.insert(format!("fn_param_flt_arr:{}:{}", bare, idx));
+                        }
                         // Annotated params convert on read (#95).
                         known_floats.insert(format!("fn_param_flt_arr_ann:{}:{}", name, idx));
-                        known_floats.insert(format!("fn_param_flt_arr_ann:{}:{}", bare, idx));
+                        if is_simple_name(name) {
+                            known_floats.insert(format!("fn_param_flt_arr_ann:{}:{}", bare, idx));
+                        }
                     }
                 }
             }
@@ -744,7 +782,9 @@ pub fn collect_known_float_vars_with_index(
                             .all(|arg| expr_is_definitely_float(arg, &known_floats))
                     {
                         known_floats.insert(format!("fn_param_flt:{}:{}", name, idx));
-                        known_floats.insert(format!("fn_param_flt:{}:{}", bare, idx));
+                        if is_simple_name(name) {
+                            known_floats.insert(format!("fn_param_flt:{}:{}", bare, idx));
+                        }
                     }
                 }
                 if !known_floats.contains(&format!("fn_param_flt_arr:{}:{}", name, idx))
@@ -758,7 +798,9 @@ pub fn collect_known_float_vars_with_index(
                             .all(|arg| expr_is_float_array(arg, &known_floats))
                     {
                         known_floats.insert(format!("fn_param_flt_arr:{}:{}", name, idx));
-                        known_floats.insert(format!("fn_param_flt_arr:{}:{}", bare, idx));
+                        if is_simple_name(name) {
+                            known_floats.insert(format!("fn_param_flt_arr:{}:{}", bare, idx));
+                        }
                     }
                 }
             }
@@ -789,7 +831,9 @@ pub fn infer_param_is_float_with(
     let bare = func_name.rsplit("::").next().unwrap_or(func_name);
     let bare = bare.rsplit("__").next().unwrap_or(bare);
     known_floats.contains(&format!("fn_param_flt:{}:{}", func_name, param_idx))
-        || known_floats.contains(&format!("fn_param_flt:{}:{}", bare, param_idx))
+        // #101: qualified-spelled callees consult exact markers only.
+        || (is_simple_name(func_name)
+            && known_floats.contains(&format!("fn_param_flt:{}:{}", bare, param_idx)))
 }
 
 pub fn infer_param_is_float_array_with(
@@ -801,7 +845,9 @@ pub fn infer_param_is_float_array_with(
     let bare = func_name.rsplit("::").next().unwrap_or(func_name);
     let bare = bare.rsplit("__").next().unwrap_or(bare);
     known_floats.contains(&format!("fn_param_flt_arr:{}:{}", func_name, param_idx))
-        || known_floats.contains(&format!("fn_param_flt_arr:{}:{}", bare, param_idx))
+        // #101: qualified-spelled callees consult exact markers only.
+        || (is_simple_name(func_name)
+            && known_floats.contains(&format!("fn_param_flt_arr:{}:{}", bare, param_idx)))
 }
 
 pub fn infer_param_is_float(func_name: &str, param_idx: usize, program: &Program) -> bool {
@@ -899,7 +945,9 @@ fn note_array_binding(
             let bare = cname.rsplit("::").next().unwrap_or(cname.as_str());
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             if snapshot.contains(&format!("fn_ret_arr_flt:{}", cname))
-                || snapshot.contains(&format!("fn_ret_arr_flt:{}", bare))
+                // #101: qualified-spelled callees consult exact markers only.
+                || (is_simple_name(cname)
+                    && snapshot.contains(&format!("fn_ret_arr_flt:{}", bare)))
             {
                 state.init.insert(name.to_string());
                 state.float_seen.insert(name.to_string());
@@ -943,7 +991,10 @@ fn collect_push_array_returns(
         match s {
             Stmt::Return(Some(Expr::Identifier(ret))) if state.clean(ret) => {
                 out.insert(format!("fn_ret_arr_flt:{}", fn_name));
-                out.insert(format!("fn_ret_arr_flt:{}", bare));
+                // #101: bare markers only for simple names.
+                if is_simple_name(fn_name) {
+                    out.insert(format!("fn_ret_arr_flt:{}", bare));
+                }
             }
             Stmt::Return(_) => {}
             Stmt::If {
@@ -1128,13 +1179,17 @@ fn collect_push_float_from_stmts(
                 let bare = bare.rsplit("__").next().unwrap_or(bare);
                 let mut fn_scope = HashSet::new();
                 for (idx, param) in params.iter().enumerate() {
+                    // #101: qualified-spelled functions consult exact
+                    // markers only.
+                    let bare_ok = is_simple_name(name);
                     if snapshot.contains(&format!("fn_param_flt:{}:{}", name, idx))
-                        || snapshot.contains(&format!("fn_param_flt:{}:{}", bare, idx))
+                        || (bare_ok && snapshot.contains(&format!("fn_param_flt:{}:{}", bare, idx)))
                     {
                         fn_scope.insert(param.clone());
                     }
                     if snapshot.contains(&format!("fn_param_flt_arr:{}:{}", name, idx))
-                        || snapshot.contains(&format!("fn_param_flt_arr:{}:{}", bare, idx))
+                        || (bare_ok
+                            && snapshot.contains(&format!("fn_param_flt_arr:{}:{}", bare, idx)))
                     {
                         fn_scope.insert(format!("arr_is_flt:{}", param));
                     }

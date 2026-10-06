@@ -916,9 +916,12 @@ impl CodeGen {
                         self.ctx
                             .variables
                             .insert(format!("fn_ret_arr:{}", name), VarType::Array(0));
-                        self.ctx
-                            .variables
-                            .insert(format!("fn_ret_arr:{}", bare), VarType::Array(0));
+                        // #101: bare markers only for simple names.
+                        if crate::codegen::analysis::is_simple_name(name) {
+                            self.ctx
+                                .variables
+                                .insert(format!("fn_ret_arr:{}", bare), VarType::Array(0));
+                        }
                         let colon_name = name.replace("__", "::");
                         self.ctx
                             .variables
@@ -1856,9 +1859,11 @@ impl CodeGen {
                     // Annotated float-array params convert on read (#95).
                     let ann_key1 = format!("fn_param_flt_arr_ann:{}:{}", name, i);
                     let ann_key2 = format!("fn_param_flt_arr_ann:{}:{}", bare, i);
-                    if inference.known_floats.contains(&ann_key1)
-                        || inference.known_floats.contains(&ann_key2)
-                    {
+                    // #101: qualified-spelled functions consult exact only.
+                    let ann_hit = inference.known_floats.contains(&ann_key1)
+                        || (crate::codegen::analysis::is_simple_name(name)
+                            && inference.known_floats.contains(&ann_key2));
+                    if ann_hit {
                         self.ctx
                             .variables
                             .insert(format!("arr_flt_ann:{}", param), VarType::Number(0));
@@ -1944,10 +1949,14 @@ impl CodeGen {
             if self.ctx.tag_stats.enabled {
                 self.ctx.tag_stats.markers += 1;
             }
-            for key in [
-                format!("fn_ret_tagged:{}", name),
-                format!("fn_ret_tagged:{}", bare),
-            ] {
+            // #101: bare markers only for simple names — a qualified
+            // definition must never seed bare markers that unrelated
+            // same-bare callers would inherit.
+            let mut keys = vec![format!("fn_ret_tagged:{}", name)];
+            if analysis::is_simple_name(name) {
+                keys.push(format!("fn_ret_tagged:{}", bare));
+            }
+            for key in keys {
                 self.ctx.variables.insert(key.clone(), VarType::Number(0));
                 saved.variables.insert(key, VarType::Number(0));
             }

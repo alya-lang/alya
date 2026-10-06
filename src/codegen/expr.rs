@@ -3,7 +3,7 @@ use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     eq_operand_is_dynamic, escape_string, is_array_expr, is_array_fold_true,
     is_definitely_not_numeric, is_float_expr, is_map_expr, is_map_fold_true, is_null_expr,
-    is_number_expr, is_strict_dynamic_op, is_string_expr, is_string_fold_true,
+    is_number_expr, is_simple_name, is_strict_dynamic_op, is_string_expr, is_string_fold_true,
     is_tag_carrying_read, is_unsigned_expr, string_store_needs_dup,
     struct_field_markers_mixed_vars, ternary_arm_carries, typeof_operand_is_repeatable,
     value_kind_tag,
@@ -2307,10 +2307,12 @@ impl CodeGen {
                         .ctx
                         .variables
                         .contains_key(&format!("fn_param_flt:{}:{}", call_name, param_idx))
-                        || self
-                            .ctx
-                            .variables
-                            .contains_key(&format!("fn_param_flt:{}:{}", param_bare, param_idx))
+                        // #101: qualified-spelled callees consult exact only.
+                        || (is_simple_name(call_name)
+                            && self.ctx.variables.contains_key(&format!(
+                                "fn_param_flt:{}:{}",
+                                param_bare, param_idx
+                            )))
                     {
                         self.emit_implicit_float_convert(arg);
                     }
@@ -2371,10 +2373,12 @@ impl CodeGen {
                         .ctx
                         .variables
                         .contains_key(&format!("fn_ret_flt:{}", call_name))
-                        || self
-                            .ctx
-                            .variables
-                            .contains_key(&format!("fn_ret_flt:{}", extern_name))
+                        // #101: qualified-spelled callees consult exact only.
+                        || (is_simple_name(call_name)
+                            && self.ctx.variables.contains_key(&format!(
+                                "fn_ret_flt:{}",
+                                extern_name
+                            )))
                         || self
                             .ctx
                             .extern_functions

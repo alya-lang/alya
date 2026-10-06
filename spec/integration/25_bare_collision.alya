@@ -1,0 +1,73 @@
+# ==============================================================================
+# Alya Integration Fixture 25 (entry): bare-name marker collision
+# Distilled from: `inner` + `outer__inner` sharing bare `inner`
+#                 (alya-lang/alya#101)
+# Guards: qualified definitions (`Y__X`) never seed bare markers and
+#         qualified-spelled calls never consult them, so each call
+#         dispatches on its own function's markers across all families
+#         (tag, int, float, string, array, map). Before the fix the int
+#         call read int bits as float on arm64 (and crashed for
+#         string/array on all arches via `%s`/slot misdispatch).
+# ==============================================================================
+
+function t25_inner()
+    return 100
+end
+function t25_outer__t25_inner(c)
+    return c * 2
+end
+function t25_outer(a)
+    return t25_outer__t25_inner(a)
+end
+
+function f25_inner()
+    return 5
+end
+function f25_outer__f25_inner(c)
+    return c * 1.5
+end
+function f25_outer(a)
+    return f25_outer__f25_inner(a)
+end
+
+function s25_inner()
+    return "hi"
+end
+function s25_outer__s25_inner(c)
+    return c * 2
+end
+function s25_outer(a)
+    return s25_outer__s25_inner(a)
+end
+
+function a25_inner()
+    return [1, 2]
+end
+function a25_outer__a25_inner(c)
+    return c * 2
+end
+function a25_outer(a)
+    return a25_outer__a25_inner(a)
+end
+
+function m25_inner()
+    return {"k": 1}
+end
+function m25_outer__m25_inner(c)
+    return c * 2
+end
+function m25_outer(a)
+    return m25_outer__m25_inner(a)
+end
+
+say t25_outer(21)
+say t25_inner()
+say f25_outer(2)
+say f25_inner()
+say s25_outer(21)
+say s25_inner()
+say a25_outer(21)
+say a25_inner()
+say m25_outer(21)
+say m25_inner()
+say f"integration 25_bare_collision: OK"
