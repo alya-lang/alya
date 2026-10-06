@@ -695,9 +695,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ret\n\n");
 
     // fn_ord / fn_char_code
-    // B2: UTF-8 decode first codepoint. Tagged ints (<256) pass through.
-    // Single bytes and invalid sequences fall back to the first byte value,
-    // preserving the legacy chr(1..255) round-trip.
+    // Byte semantics (alya-lang/alya#103): return the first byte.
+    // len/char_at/substring are all byte-based, and the fused
+    // ord(char_at(...)) fast path reads a single byte via movzbl —
+    // a UTF-8 decode here made var-vs-inline disagree (252 vs 195
+    // for "ü"). Tagged ints (<256) pass through; empty pointers
+    // read their NUL byte (0).
     out.push_str("fn_char_code:\n");
     out.push_str("fn_ord:\n");
     out.push_str("    push %rbp\n");
@@ -711,79 +714,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    jz .L_x64_ord_ret\n");
     out.push_str("    cmp $256, %rax\n");
     out.push_str("    jb .L_x64_ord_ret\n");
-    out.push_str("    mov %rax, %r10\n");
-    out.push_str("    movzbq (%r10), %rax\n");
-    out.push_str("    cmp $0x80, %rax\n");
-    out.push_str("    jb .L_x64_ord_ret\n");
-    out.push_str("    mov %rax, %rcx\n");
-    out.push_str("    and $0xE0, %rcx\n");
-    out.push_str("    cmp $0xC0, %rcx\n");
-    out.push_str("    jne .L_x64_ord_c3\n");
-    out.push_str("    movzbq 1(%r10), %rcx\n");
-    out.push_str("    mov %rcx, %rdx\n");
-    out.push_str("    and $0xC0, %rdx\n");
-    out.push_str("    cmp $0x80, %rdx\n");
-    out.push_str("    jne .L_x64_ord_ret\n");
-    out.push_str("    and $0x1F, %eax\n");
-    out.push_str("    shl $6, %rax\n");
-    out.push_str("    and $0x3F, %rcx\n");
-    out.push_str("    or %rcx, %rax\n");
-    out.push_str("    jmp .L_x64_ord_ret\n");
-    out.push_str(".L_x64_ord_c3:\n");
-    out.push_str("    mov %rax, %rcx\n");
-    out.push_str("    and $0xF0, %rcx\n");
-    out.push_str("    cmp $0xE0, %rcx\n");
-    out.push_str("    jne .L_x64_ord_c4\n");
-    out.push_str("    movzbq 1(%r10), %rcx\n");
-    out.push_str("    mov %rcx, %rdx\n");
-    out.push_str("    and $0xC0, %rdx\n");
-    out.push_str("    cmp $0x80, %rdx\n");
-    out.push_str("    jne .L_x64_ord_ret\n");
-    out.push_str("    movzbq 2(%r10), %rdx\n");
-    out.push_str("    mov %rdx, %r11\n");
-    out.push_str("    and $0xC0, %r11\n");
-    out.push_str("    cmp $0x80, %r11\n");
-    out.push_str("    jne .L_x64_ord_ret\n");
-    out.push_str("    and $0x0F, %eax\n");
-    out.push_str("    shl $12, %rax\n");
-    out.push_str("    and $0x3F, %rcx\n");
-    out.push_str("    shl $6, %rcx\n");
-    out.push_str("    or %rcx, %rax\n");
-    out.push_str("    and $0x3F, %rdx\n");
-    out.push_str("    or %rdx, %rax\n");
-    out.push_str("    jmp .L_x64_ord_ret\n");
-    out.push_str(".L_x64_ord_c4:\n");
-    out.push_str("    mov %rax, %rcx\n");
-    out.push_str("    and $0xF8, %rcx\n");
-    out.push_str("    cmp $0xF0, %rcx\n");
-    out.push_str("    jne .L_x64_ord_ret\n");
-    out.push_str("    movzbq 1(%r10), %rcx\n");
-    out.push_str("    mov %rcx, %rdx\n");
-    out.push_str("    and $0xC0, %rdx\n");
-    out.push_str("    cmp $0x80, %rdx\n");
-    out.push_str("    jne .L_x64_ord_ret\n");
-    out.push_str("    movzbq 2(%r10), %rdx\n");
-    out.push_str("    mov %rdx, %r11\n");
-    out.push_str("    and $0xC0, %r11\n");
-    out.push_str("    cmp $0x80, %r11\n");
-    out.push_str("    jne .L_x64_ord_ret\n");
-    out.push_str("    movzbq 3(%r10), %r11\n");
-    out.push_str("    mov %r11, %r8\n");
-    out.push_str("    and $0xC0, %r8\n");
-    out.push_str("    cmp $0x80, %r8\n");
-    // NOTE: r8 is the thread str-buf base in callers, but ord uses no
-    // str_buf_ctx here, so r8 is free scratch in this leaf.
-    out.push_str("    jne .L_x64_ord_ret\n");
-    out.push_str("    and $0x07, %eax\n");
-    out.push_str("    shl $18, %rax\n");
-    out.push_str("    and $0x3F, %rcx\n");
-    out.push_str("    shl $12, %rcx\n");
-    out.push_str("    or %rcx, %rax\n");
-    out.push_str("    and $0x3F, %rdx\n");
-    out.push_str("    shl $6, %rdx\n");
-    out.push_str("    or %rdx, %rax\n");
-    out.push_str("    and $0x3F, %r11\n");
-    out.push_str("    or %r11, %rax\n");
+    out.push_str("    movzbq (%rax), %rax\n");
     out.push_str(".L_x64_ord_ret:\n");
     out.push_str("    mov %rbp, %rsp\n");
     out.push_str("    pop %rbp\n");
@@ -1778,7 +1709,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     // fn_string_codepoints
     // B2: `for ch in s` yields rune codepoints (spec ch.21 §1.4), so the
     // foreach temp holds decoded codepoint ints, not 1-char strings like
-    // fn_runes. Width validation mirrors fn_runes; decode mirrors fn_ord.
+    // fn_runes. Width validation mirrors fn_runes (codepoint iteration
+    // still decodes; only fn_ord went byte-oriented in #103).
     out.push_str(".global fn_string_codepoints\n");
     out.push_str("fn_string_codepoints:\n");
     out.push_str("    push %rbp\n");

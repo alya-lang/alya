@@ -561,75 +561,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ret\n\n");
 
     // fn_ord / fn_char_code
-    // B2: UTF-8 decode first codepoint (see x64 mirror for semantics).
+    // Byte semantics (alya-lang/alya#103, see x64 mirror): return
+    // the first byte. Tagged ints (<256) pass through.
     out.push_str(".align 2\n");
     out.push_str("fn_char_code:\n");
     out.push_str("fn_ord:\n");
     out.push_str("    cbz x0, .L_arm64_ord_ret\n");
     out.push_str("    cmp x0, #256\n");
     out.push_str("    b.lo .L_arm64_ord_ret\n");
-    out.push_str("    mov x9, x0\n");
-    out.push_str("    ldrb w0, [x9]\n");
-    out.push_str("    cmp w0, #0x80\n");
-    out.push_str("    b.lo .L_arm64_ord_ret\n");
-    out.push_str("    and w10, w0, #0xE0\n");
-    out.push_str("    cmp w10, #0xC0\n");
-    out.push_str("    b.ne .L_arm64_ord_c3\n");
-    out.push_str("    ldrb w10, [x9, #1]\n");
-    out.push_str("    and w11, w10, #0xC0\n");
-    out.push_str("    cmp w11, #0x80\n");
-    out.push_str("    b.ne .L_arm64_ord_ret\n");
-    out.push_str("    and w0, w0, #0x1F\n");
-    out.push_str("    lsl w0, w0, #6\n");
-    out.push_str("    and w10, w10, #0x3F\n");
-    out.push_str("    orr w0, w0, w10\n");
-    out.push_str("    b .L_arm64_ord_ret\n");
-    out.push_str(".L_arm64_ord_c3:\n");
-    out.push_str("    and w10, w0, #0xF0\n");
-    out.push_str("    cmp w10, #0xE0\n");
-    out.push_str("    b.ne .L_arm64_ord_c4\n");
-    out.push_str("    ldrb w10, [x9, #1]\n");
-    out.push_str("    and w11, w10, #0xC0\n");
-    out.push_str("    cmp w11, #0x80\n");
-    out.push_str("    b.ne .L_arm64_ord_ret\n");
-    out.push_str("    ldrb w11, [x9, #2]\n");
-    out.push_str("    and w12, w11, #0xC0\n");
-    out.push_str("    cmp w12, #0x80\n");
-    out.push_str("    b.ne .L_arm64_ord_ret\n");
-    out.push_str("    and w0, w0, #0x0F\n");
-    out.push_str("    lsl w0, w0, #12\n");
-    out.push_str("    and w10, w10, #0x3F\n");
-    out.push_str("    lsl w10, w10, #6\n");
-    out.push_str("    orr w0, w0, w10\n");
-    out.push_str("    and w11, w11, #0x3F\n");
-    out.push_str("    orr w0, w0, w11\n");
-    out.push_str("    b .L_arm64_ord_ret\n");
-    out.push_str(".L_arm64_ord_c4:\n");
-    out.push_str("    and w10, w0, #0xF8\n");
-    out.push_str("    cmp w10, #0xF0\n");
-    out.push_str("    b.ne .L_arm64_ord_ret\n");
-    out.push_str("    ldrb w10, [x9, #1]\n");
-    out.push_str("    and w11, w10, #0xC0\n");
-    out.push_str("    cmp w11, #0x80\n");
-    out.push_str("    b.ne .L_arm64_ord_ret\n");
-    out.push_str("    ldrb w11, [x9, #2]\n");
-    out.push_str("    and w12, w11, #0xC0\n");
-    out.push_str("    cmp w12, #0x80\n");
-    out.push_str("    b.ne .L_arm64_ord_ret\n");
-    out.push_str("    ldrb w12, [x9, #3]\n");
-    out.push_str("    and w9, w12, #0xC0\n");
-    out.push_str("    cmp w9, #0x80\n");
-    out.push_str("    b.ne .L_arm64_ord_ret\n");
-    out.push_str("    and w0, w0, #0x07\n");
-    out.push_str("    lsl w0, w0, #18\n");
-    out.push_str("    and w10, w10, #0x3F\n");
-    out.push_str("    lsl w10, w10, #12\n");
-    out.push_str("    orr w0, w0, w10\n");
-    out.push_str("    and w11, w11, #0x3F\n");
-    out.push_str("    lsl w11, w11, #6\n");
-    out.push_str("    orr w0, w0, w11\n");
-    out.push_str("    and w12, w12, #0x3F\n");
-    out.push_str("    orr w0, w0, w12\n");
+    out.push_str("    ldrb w0, [x0]\n");
     out.push_str(".L_arm64_ord_ret:\n");
     out.push_str("    ret\n\n");
 
@@ -1444,7 +1384,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     // fn_string_codepoints
     // B2: `for ch in s` yields rune codepoints (spec ch.21 §1.4), so the
     // foreach temp holds decoded codepoint ints, not 1-char strings like
-    // fn_runes. Width validation mirrors fn_runes; decode mirrors fn_ord.
+    // fn_runes. Width validation mirrors fn_runes (codepoint iteration
+    // still decodes; only fn_ord went byte-oriented in #103).
     out.push_str(".global fn_string_codepoints\n");
     out.push_str(".align 2\n");
     out.push_str("fn_string_codepoints:\n");

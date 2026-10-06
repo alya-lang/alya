@@ -301,9 +301,12 @@ say char_at("abc", -1) == ""
 }
 
 #[test]
-fn test_e2e_ord_utf8_decode() {
-    // B2: ord decodes the first UTF-8 codepoint; legacy single bytes
-    // (chr 1..255) round-trip.
+fn test_e2e_ord_first_byte() {
+    // #103: ord returns the first BYTE (byte semantics, matching the
+    // fused ord(char_at(...)) path, len, and substring). chr(1..255)
+    // stays single-byte so chr(ord(b)) round-trips there; chr(256+)
+    // encodes UTF-8 whose first byte ord returns (no codepoint
+    // decode: ord("é")==195, not 233).
     let code = r#"
 say ord("A")
 say ord(chr(8364))
@@ -320,7 +323,29 @@ say ord(chr(20013))
             "Execution failed with code {} and output:\n{}",
             code, output
         );
-        assert_eq!(output, "65\n8364\n233\n233\n8364\n20013\n128512\n20013\n");
+        assert_eq!(output, "65\n226\n233\n195\n226\n228\n240\n228\n");
+    }
+}
+
+#[test]
+fn test_e2e_ord_var_inline_agree() {
+    // alya-lang/alya#103: ord() must agree whether its argument is a
+    // variable or an inline call (the fused ord(char_at(...)) path and
+    // the runtime fn_ord diverged: 252 vs 195 for "ü").
+    let code = r#"
+function main()
+    let a = "ü"
+    let c0 = char_at(a, 0)
+    say(str(ord(c0)) + "/" + str(ord(char_at(a, 0))))
+    assert_eq(ord(c0), ord(char_at(a, 0)))
+    say("ok")
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "195/195\nok\n", "Got: {}", output);
     }
 }
 
@@ -328,6 +353,9 @@ say ord(chr(20013))
 fn test_e2e_runes_unicode_iteration() {
     // B2: runes() splits codepoints; for-in over strings yields rune
     // codepoints (spec ch.21 §1.4), not 1-char strings.
+    // #103: ord() reads the first BYTE, so ord() of a multi-byte
+    // runes element is its lead byte (codepoint ints come from
+    // for-in yields, which are unaffected).
     let code = r#"
 let r = runes("a€中😀")
 say len(r)
@@ -354,7 +382,7 @@ say total
         );
         assert_eq!(
             output,
-            "4\na\n3\n8364\n128512\nint\na\nint\n€\nint\n中\n3\n28474\n"
+            "4\na\n3\n226\n240\nint\na\nint\n€\nint\n中\n3\n28474\n"
         );
     }
 }
