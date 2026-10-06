@@ -220,13 +220,20 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
                         && !known_strings.contains(&format!("arr_nonstr:{}", arr_name)))
                         || known_strings.contains(arr_name)
                 }
-                Expr::Call { name, .. } => {
+                Expr::Call { name, args } => {
                     let bare = name.rsplit("::").next().unwrap_or(name.as_str());
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
-                    // NOTE: `split` is deliberately absent: `Tensor.split`
-                    // (and any user `split`) returns non-string arrays, so a
-                    // static string-element claim miscompiles reads/stores.
-                    matches!(bare, "args" | "cli_args" | "lines" | "read_lines" | "keys")
+                    // `split` is absent from the static list on purpose
+                    // (`Tensor.split` and any user `split` return
+                    // non-string arrays), but a `split` call on a proven
+                    // string is the string builtin: its pieces are
+                    // strings (alya-lang/alya#102). Without this,
+                    // dynamic-container reads keyed by split pieces
+                    // misroute to array indexing and fault.
+                    (bare == "split"
+                        && !args.is_empty()
+                        && expr_is_definitely_string(&args[0], known_strings))
+                        || matches!(bare, "args" | "cli_args" | "lines" | "read_lines" | "keys")
                         || known_strings.contains(&format!("fn_ret_str_arr:{}", name))
                         // #101: qualified-spelled calls consult exact only.
                         || (is_simple_name(name)
@@ -252,11 +259,15 @@ fn expr_is_string_array(expr: &Expr, known_strings: &HashSet<String>) -> bool {
             known_strings.contains(&format!("arr_is_str:{}", name))
                 && !known_strings.contains(&format!("arr_nonstr:{}", name))
         }
-        Expr::Call { name, .. } => {
+        Expr::Call { name, args } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
             let bare = bare.rsplit("__").next().unwrap_or(bare);
-            // NOTE: `split` is deliberately absent (see above).
-            matches!(bare, "args" | "cli_args" | "lines" | "read_lines" | "keys")
+            // NOTE: `split` is deliberately absent from the static list
+            // (see above); the string-receiver carve-out applies here too.
+            (bare == "split"
+                && !args.is_empty()
+                && expr_is_definitely_string(&args[0], known_strings))
+                || matches!(bare, "args" | "cli_args" | "lines" | "read_lines" | "keys")
                 || known_strings.contains(&format!("fn_ret_str_arr:{}", name))
                 // #101: qualified-spelled calls consult exact only.
                 || (is_simple_name(name)

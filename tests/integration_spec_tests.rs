@@ -49,6 +49,7 @@ fn entry_files() -> Vec<String> {
         "23_bare_module_calls.alya".to_string(),
         "24_nested_functions.alya".to_string(),
         "25_bare_collision.alya".to_string(),
+        "26_dynamic_split_key.alya".to_string(),
     ]
 }
 
@@ -507,6 +508,21 @@ fn test_integration_25_bare_collision_output() {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("42\n100\n3\n5\n42\nhi\n42\n[1, 2]\n42\n{k: 1}\n"));
         assert!(output.contains("integration 25_bare_collision: OK"));
+    }
+}
+
+#[test]
+fn test_integration_26_dynamic_split_key_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 26_dynamic_split_key: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("26_dynamic_split_key.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("Ada\nAda\nAda\nAda\n"));
+        assert!(output.contains("integration 26_dynamic_split_key: OK"));
     }
 }
 

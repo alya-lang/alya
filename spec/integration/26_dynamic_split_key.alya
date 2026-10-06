@@ -1,0 +1,26 @@
+# ==============================================================================
+# Alya Integration Fixture 26 (entry): dynamic map read by split piece
+# Distilled from: mustache `context_find` dot-notation over an
+#                 array-loaded scope (alya-lang/alya#102)
+# Guards: `split` on a proven string classifies pieces as strings, so
+#         a map read keyed by a split piece routes to map lookup even
+#         when the container is dynamically typed. `split` stays off
+#         the static string-array list (Tensor.split returns
+#         non-strings); only split-on-proven-string qualifies.
+# ==============================================================================
+
+function get_profile(scope)
+    let parts = "user.profile".split(".")
+    let part = parts[0]
+    return scope[part]["profile"]
+end
+
+let d8 = { "user": { "profile": "Ada" } }
+let stack = [d8]
+let scope = stack[0]
+
+say d8["user"]["profile"]
+say scope["user"]["profile"]
+say get_profile(d8)
+say get_profile(scope)
+say f"integration 26_dynamic_split_key: OK"

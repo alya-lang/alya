@@ -684,6 +684,34 @@ say merged["d"]
 }
 
 #[test]
+fn test_e2e_dynamic_map_read_by_split_piece() {
+    // alya-lang/alya#102: a map read keyed by a `split()` piece must
+    // route to map lookup even when the container is dynamically
+    // typed (array element). `split` stays off the static
+    // string-array list (Tensor.split returns non-strings); only
+    // split-on-proven-string classifies pieces as strings.
+    let code = r#"
+function main()
+    let d8 = { "user": { "profile": "Ada" } }
+    let parts = "user.profile".split(".")
+    let part = parts[0]
+    say(d8[part]["profile"])
+    let stack = [d8]
+    let scope = stack[0]
+    say(scope["user"]["profile"])
+    say(scope[part]["profile"])
+    say("ok")
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "Ada\nAda\nAda\nok\n", "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_push_built_float_array_reads() {
     // Regression test for alya-lang/alya#50: an array built with `push`
     // of float values must read back floats without an annotation.
