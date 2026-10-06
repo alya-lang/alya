@@ -332,6 +332,22 @@ lines, mostly match arms). Residual unknowns: float/int edge texts
 frontend-binary distribution (checked in vs rebuilt — Tst/Test
 builds from source anyway). None threatens the shape above.
 
+### First-slice result (2026-10-07): reader + round-trip gate green
+
+Artifacts: `src/driver/sexpr_reader.rs` (canonical dump → `Program`;
+JSON-unescape incl. surrogate pairs, `i128` ints, `inf`/`NaN` floats,
+`_`/`true`/`false`, all `Expr`/`Stmt` arms incl. the `(_)`-vs-`()` import
+quirk; never re-desugars) + `tests/sexpr_roundtrip_tests.rs` (dump →
+read → dump byte-identical + `Program` equality over `spec/syntax` +
+`stdlib`) + 6 unit tests in-reader (arith, float bits/specials,
+unicode, all stmt shapes, rejections). Result: **44/44 corpus files
+round-trip, 0 skips**. One documented loss: NUL-containing strings
+(`lexical.alya` `\0Done`) — the dumper truncates at the first NUL (same
+rule as `diff_parse.py`), so AST equality holds modulo NUL-truncation
+and re-dump stays byte-identical. Next: flag-gated pipeline wiring
+(`--frontend alya`, stage-0 prebuilt frontend binaries) for gate 2
+(execution parity over Lib/* + App/*).
+
 ## Recommendation (staged, no full-port commitment)
 
 1. **Capability spikes in Alya** (days, kill the unknowns first):

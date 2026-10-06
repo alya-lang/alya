@@ -10,6 +10,7 @@ pub mod build_cache;
 pub mod c_builder;
 pub mod console;
 pub mod runner;
+pub mod sexpr_reader;
 pub mod toolchain;
 
 pub use console::init_console;
