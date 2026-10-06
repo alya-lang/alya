@@ -1,0 +1,14 @@
+# EXPECT-FAIL: check: Unknown identifier 'x'
+# Chapter 07: nested functions have lexical scope with no capture
+# (alya-lang/alya#99, tracked in alya-lang/alya#100). Closing over an
+# outer local is rejected at check time instead of reading a dead
+# stack slot.
+function outer_07(a)
+    let x = 10
+    function inner_07(c)
+        return c + x
+    end
+    return inner_07(a)
+end
+
+say outer_07(5)

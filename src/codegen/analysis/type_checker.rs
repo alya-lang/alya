@@ -1874,6 +1874,15 @@ impl TypeChecker {
                 let prev_ret = self.current_fn_return_type.take();
                 self.current_fn_return_type = Some(declared_ret.clone());
                 let prev_name = self.current_fn_name.take();
+                // Nested definitions see only globals, matching
+                // parse-desugared lambdas (alya-lang/alya#99): outer
+                // locals stay invisible so capture fails loudly at
+                // check time instead of reading dead stack slots
+                // (real capture is tracked in alya-lang/alya#100).
+                // Save the enclosing scopes across the body.
+                let nested = prev_name.is_some();
+                let saved_scopes = nested.then(|| self.scopes.split_off(1));
+                let saved_assigned = nested.then(|| self.assigned.split_off(1));
                 self.current_fn_name = Some(name.clone());
                 self.push_scope();
 
@@ -1890,6 +1899,12 @@ impl TypeChecker {
                 }
 
                 self.pop_scope();
+                if let Some(mut s) = saved_scopes {
+                    self.scopes.append(&mut s);
+                }
+                if let Some(mut a) = saved_assigned {
+                    self.assigned.append(&mut a);
+                }
                 self.current_fn_return_type = prev_ret;
                 self.current_fn_name = prev_name;
             }
