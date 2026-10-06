@@ -258,6 +258,80 @@ perf tax or sync burden proves uneconomic. Do NOT start A
 directly — its emergent core is exactly the risk the spikes
 quarantined.
 
+## Bridge design (2026-10-06): S-expr → Rust AST reader
+
+Exploration before any hybrid commitment. Verdict up front: the
+assumed "span format extension" is NOT needed.
+
+### Key finding: spans are absent end-to-end
+
+- `src/ast/` nodes carry zero span fields (`expr.rs`/`stmt.rs` have
+  no `span`/`line`/`col`); the whole pipeline downstream of `parse()`
+  works without positions.
+- Post-parse diagnostics carry no positions either: type-checker
+  errors are plain strings (`TypeError: ...`, no line/col), and
+  import resolution emits no positioned diagnostics.
+- The only positioned diagnostics are parse errors, produced by the
+  frontend itself — and the Alya frontend already reports them with
+  position parity (`diff_parse.py`: 4/4 negative files agree on
+  positions; `0|0|error|LINE:COL` contract).
+
+Consequence: the bridge is a pure function
+`canonical-dump-text → ast::Program`, the exact inverse of
+`src/driver/ast_sexpr.rs`. No dump-format change, no AST change.
+
+### Reader spec (`src/driver/sexpr_reader.rs`, new, ~1.5k lines)
+
+Mechanical inverse of `ast_sexpr.rs`, sharing its atom tables where
+possible. Tricky atoms and their rules:
+
+- Strings: exact inverse of `qs`/`esc_char` — JSON-unescape incl.
+  `\uXXXX` and surrogate pairs. NUL needs no rule: the dumper
+  truncates at the first NUL, so the reader never sees one.
+- Floats: parse decimal/`inf`/`NaN` text to f64; shortest-roundtrip
+  (`{:?}`) guarantees text identity. Tests compare by bit value.
+- Integers: decimal → i64; overflow behavior must match the Rust
+  parser's (open: verify `>i64::MAX` literal handling on both sides).
+- `_` → None, `true`/`false` → bool, folded desugars pass through
+  untouched (the dump already contains `(call "m" ...)`,
+  `(unop not (binop in ...))` etc. — the reader must NOT re-desugar).
+- `0|0|error|...` lines never reach the reader: the driver checks
+  the frontend exit code first and surfaces the Alya-side diagnostic.
+
+### Pipeline wiring (flag-gated, default off)
+
+`alya build --frontend alya` (name TBD): stage-0 Rust-built `alya`
+compiles `lexer.alya`+`parser.alya` once (prebuilt binaries, the same
+ones the perf numbers — ~20 ms + ~28 ms on 32 KB — were measured
+with); the driver runs frontend → dump → `sexpr_reader` →
+`resolve_imports` and continues UNCHANGED. Reversible by flag
+removal; no existing path is touched.
+
+### Acceptance gates (before any default-flip discussion)
+
+1. Round-trip: dump → read → dump byte-identical over the full
+   differential corpus (new CI job, extends `diff_parse.py`).
+2. Execution: bridge-compiled programs behave byte-identically to
+   direct-compiled ones over Lib/* + App/* via the ecosystem runner.
+3. Errors: position parity (have); message TEXT parity explicitly
+   out of scope initially (owner decision: normalize later or accept
+   Alya-side wording).
+
+### Sync discipline (the permanent cost)
+
+Rust AST change → three places, enforced by (1): dump arm in
+`ast_sexpr.rs` + reader arm in `sexpr_reader.rs` + `parser.alya`
+arm. A CI assertion enumerates `Expr`/`Stmt` variants against
+round-trip coverage so a new variant cannot slip through silently.
+
+### Effort and risks
+
+Reader + harness + build plumbing: weeks, not months (~1.5k Rust
+lines, mostly match arms). Residual unknowns: float/int edge texts
+(`1e999`, huge ints), reader stack depth on adversarial nesting,
+frontend-binary distribution (checked in vs rebuilt — Tst/Test
+builds from source anyway). None threatens the shape above.
+
 ## Recommendation (staged, no full-port commitment)
 
 1. **Capability spikes in Alya** (days, kill the unknowns first):
