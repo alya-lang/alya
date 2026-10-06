@@ -554,11 +554,9 @@ pub fn collect_known_array_vars_with_index(
                     }
                 }
 
-                if known_arrays.contains(&format!("fn_param_arr:{}:{}", name, idx))
-                    // #101: qualified-spelled functions consult exact only.
-                    || (is_simple_name(name)
-                        && known_arrays.contains(&format!("fn_param_arr:{}:{}", bare, idx)))
-                {
+                // Universal derivation is keyed on the exact name: a bare
+                // marker must not suppress it (alya-lang/alya#105).
+                if known_arrays.contains(&format!("fn_param_arr:{}:{}", name, idx)) {
                     continue;
                 }
 
@@ -884,11 +882,9 @@ pub fn collect_known_array_vars_strict_with_index(
                     }
                     continue;
                 }
-                if strict.contains(&format!("fn_param_arr:{}:{}", name, idx))
-                    // #101: qualified-spelled functions consult exact only.
-                    || (is_simple_name(name)
-                        && strict.contains(&format!("fn_param_arr:{}:{}", bare, idx)))
-                {
+                // Universal derivation is keyed on the exact name: a bare
+                // marker must not suppress it (alya-lang/alya#105).
+                if strict.contains(&format!("fn_param_arr:{}:{}", name, idx)) {
                     continue;
                 }
                 let mut call_args = Vec::new();

@@ -1865,9 +1865,12 @@ pub fn collect_known_string_vars_with_index(
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             for (idx, _param) in params.iter().enumerate() {
-                if !known_strings.contains(&format!("fn_param_str_arr:{}:{}", name, idx))
-                    && !known_strings.contains(&format!("fn_param_str_arr:{}:{}", bare, idx))
-                {
+                // Universal derivation is keyed on the exact name: a bare
+                // marker from the per-call rule (or another same-bare
+                // function) must not suppress it (alya-lang/alya#105 —
+                // bare-spelled UFCS method calls left qualified
+                // definitions without exact param markers).
+                if !known_strings.contains(&format!("fn_param_str_arr:{}:{}", name, idx)) {
                     let mut call_args = Vec::new();
                     call_index.collect_all_call_args(name, bare, idx, &mut call_args);
                     if !call_args.is_empty()
@@ -1887,9 +1890,10 @@ pub fn collect_known_string_vars_with_index(
                 // the parameter is dynamic, so an existential (ANY) rule
                 // would fold `is string` to constant-true and miscompile
                 // every other call (`%s` on an int segfaults).
-                if !known_strings.contains(&format!("fn_param_str:{}:{}", name, idx))
-                    && !known_strings.contains(&format!("fn_param_str:{}:{}", bare, idx))
-                {
+                // Universal derivation is keyed on the exact name: a bare
+                // marker from the per-call rule (or another same-bare
+                // function) must not suppress it (alya-lang/alya#105).
+                if !known_strings.contains(&format!("fn_param_str:{}:{}", name, idx)) {
                     let mut call_args = Vec::new();
                     call_index.collect_all_call_args(name, bare, idx, &mut call_args);
                     if !call_args.is_empty()

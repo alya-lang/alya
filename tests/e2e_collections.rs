@@ -1304,3 +1304,48 @@ main()
         );
     }
 }
+
+#[test]
+fn test_e2e_method_field_map_read_untyped_key() {
+    // alya-lang/alya#105: a struct-field map read keyed by an
+    // unannotated method param must route to map lookup. Bare-spelled
+    // UFCS calls (`b.has(k)`) record param evidence under the bare
+    // name only; the universal rule used to skip the exact
+    // definition-spelled derivation when the bare marker existed.
+    let code = r#"
+struct Meta2
+    expires_at: int
+end
+
+struct BoxA
+    store: map,
+    meta: map
+end
+
+function BoxA.has(self: BoxA, key) -> int
+    if key in self.store
+        if key in self.meta
+            let m = self.meta[key]
+            if m.expires_at == 0
+                return true
+            end
+        end
+        return true
+    end
+    return false
+end
+
+function main()
+    let b = BoxA { store: {}, meta: {} }
+    b.store["k"] = 1
+    b.meta["k"] = Meta2 { expires_at: 0 }
+    say("has=" + str(b.has("k")))
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "has=1\n", "Got: {}", output);
+    }
+}

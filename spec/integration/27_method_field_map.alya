@@ -1,0 +1,40 @@
+# ==============================================================================
+# Alya Integration Fixture 27 (entry): method field-map read, untyped key
+# Distilled from: Lib/cache `store_has` shape — nested `key in c.store`
+#                 + `key in c.meta` + `c.meta[key]` via a Cache method
+#                 (alya-lang/alya#105)
+# Guards: bare-spelled UFCS calls record param evidence under the bare
+#         name only; the universal param rule must still derive the
+#         exact definition-spelled marker so the read routes to map
+#         lookup instead of array indexing.
+# ==============================================================================
+
+struct Meta27
+    expires_at: int
+end
+
+struct Box27
+    store: map,
+    meta: map
+end
+
+function Box27.has(self: Box27, key) -> int
+    if key in self.store
+        if key in self.meta
+            let m = self.meta[key]
+            if m.expires_at == 0
+                return true
+            end
+        end
+        return true
+    end
+    return false
+end
+
+let b27 = Box27 { store: {}, meta: {} }
+b27.store["k"] = 1
+b27.meta["k"] = Meta27 { expires_at: 0 }
+
+say b27.has("k")
+say b27.has("missing")
+say f"integration 27_method_field_map: OK"

@@ -775,9 +775,9 @@ pub fn collect_known_float_vars_with_index(
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             for (idx, _param) in params.iter().enumerate() {
-                if !known_floats.contains(&format!("fn_param_flt:{}:{}", name, idx))
-                    && !known_floats.contains(&format!("fn_param_flt:{}:{}", bare, idx))
-                {
+                // Universal derivation is keyed on the exact name: a bare
+                // marker must not suppress it (alya-lang/alya#105).
+                if !known_floats.contains(&format!("fn_param_flt:{}:{}", name, idx)) {
                     let mut call_args = Vec::new();
                     call_index.collect_all_call_args(name, bare, idx, &mut call_args);
                     if !call_args.is_empty()
@@ -791,9 +791,9 @@ pub fn collect_known_float_vars_with_index(
                         }
                     }
                 }
-                if !known_floats.contains(&format!("fn_param_flt_arr:{}:{}", name, idx))
-                    && !known_floats.contains(&format!("fn_param_flt_arr:{}:{}", bare, idx))
-                {
+                // Universal derivation is keyed on the exact name: a bare
+                // marker must not suppress it (alya-lang/alya#105).
+                if !known_floats.contains(&format!("fn_param_flt_arr:{}:{}", name, idx)) {
                     let mut call_args = Vec::new();
                     call_index.collect_all_call_args(name, bare, idx, &mut call_args);
                     if !call_args.is_empty()
