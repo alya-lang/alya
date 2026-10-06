@@ -1,0 +1,37 @@
+# ==============================================================================
+# Alya Integration Fixture 30 (entry): struct-field array big-int return
+# Distilled from: Lib/gui `image_set_px`/`image_get_px` storing 0xRRGGBB
+#                 colors (> 65536) in struct-field arrays (alya-lang/alya#108)
+# Guards: `return field[i]` in a function the return-tag marker skips
+#         (here via `return -1`: unary leaves a stale tag) must still
+#         guard its return retain on the fresh slot tag — retaining a
+#         pointer-range int unconditionally faults inside `fn_rc_retain`.
+# ==============================================================================
+
+struct Img30
+    w: int
+    h: int
+    pixels: array
+end
+
+function img30_new(w: int, h: int) -> Img30
+    let px = []
+    let i = 0
+    while i < w * h
+        px.push(0)
+        i += 1
+    end
+    return Img30 { w: w, h: h, pixels: px }
+end
+
+function img30_get(img: Img30, x: int, y: int) -> int
+    if img is null or x < 0 or y < 0 or x >= img.w or y >= img.h
+        return -1
+    end
+    return img.pixels[y * img.w + x]
+end
+
+let img30 = img30_new(20, 10)
+img30.pixels[5] = 16711680
+say(img30_get(img30, 5, 0))
+say f"integration 30_struct_field_bigint: OK"

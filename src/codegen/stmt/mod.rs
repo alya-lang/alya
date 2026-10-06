@@ -204,11 +204,22 @@ impl CodeGen {
                         // SIGSEGV downstream on real use). When the tag is
                         // fresh, skip the call entirely for int/float tags
                         // (retaining a large 8-aligned int faults).
-                        let tag_fresh = ret_tagged
-                            && crate::codegen::analysis::is_tag_carrying_read(
-                                expr,
-                                &self.ctx.variables,
-                            );
+                        // Freshness comes from the read itself: right after
+                        // expression emission the tag register holds the
+                        // slot/entry/callee tag whenever
+                        // `is_tag_carrying_read` holds (the same guard
+                        // `assign.rs` uses without any marker). `ret_tagged`
+                        // only decides the spill above (whether callers may
+                        // read the tag) — an unmarked function (e.g. one
+                        // `return -1` beside a dynamic read; unary leaves a
+                        // stale tag so the marker correctly stays absent)
+                        // still has a fresh register here, and retaining
+                        // unconditionally faults on pointer-range ints
+                        // (alya-lang/alya#108).
+                        let tag_fresh = crate::codegen::analysis::is_tag_carrying_read(
+                            expr,
+                            &self.ctx.variables,
+                        );
                         if ret_tagged {
                             match self.arch {
                                 Architecture::X64 => {

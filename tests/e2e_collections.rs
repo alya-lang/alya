@@ -1439,3 +1439,57 @@ main()
         assert_eq!(output, "v0=10\nv1=s\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_struct_field_array_bigint_return() {
+    // alya-lang/alya#108: `return img.pixels[i]` in a function the
+    // return-tag marker skips (here via `return -1`: unary leaves a
+    // stale tag) retained unconditionally, faulting on pointer-range
+    // ints (>= 65536, 8-aligned) inside `fn_rc_retain`. The slot tag
+    // is fresh in the tag register regardless of the marker, so the
+    // retain is tag-guarded like every other site.
+    let code = r#"
+struct Img2
+    w: int
+    h: int
+    pixels: array
+end
+
+function img2_new(w: int, h: int) -> Img2
+    let px = []
+    let i = 0
+    while i < w * h
+        px.push(0)
+        i += 1
+    end
+    return Img2 { w: w, h: h, pixels: px }
+end
+
+function img2_set(img: Img2, x: int, y: int, color: int) -> int
+    if img is null or x < 0 or y < 0 or x >= img.w or y >= img.h
+        return false
+    end
+    img.pixels[y * img.w + x] = color
+    return true
+end
+
+function img2_get(img: Img2, x: int, y: int) -> int
+    if img is null or x < 0 or y < 0 or x >= img.w or y >= img.h
+        return -1
+    end
+    return img.pixels[y * img.w + x]
+end
+
+function main()
+    let img = img2_new(20, 10)
+    say("set=" + str(img2_set(img, 5, 0, 16711680)))
+    say("get=" + str(img2_get(img, 5, 0)))
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "set=1\nget=16711680\n", "Got: {}", output);
+    }
+}
