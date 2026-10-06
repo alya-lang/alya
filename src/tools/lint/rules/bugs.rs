@@ -377,6 +377,106 @@ fn nth_ident_token_line(tokens: &[Token], ident: &str, n: usize) -> Option<usize
     None
 }
 
+/// Token index of the `function` keyword defining `Type.method`
+/// (`enclosing_full` is the AST `__`-joined spelling, e.g.
+/// `Regex__is_match`, while source uses the dotted form).
+fn find_method_def(tokens: &[Token], enclosing_full: &str, bare: &str) -> Option<usize> {
+    let norm = enclosing_full.replace("__", ".").replace("::", ".");
+    let mut segs: Vec<&str> = norm.split('.').collect();
+    if segs.last() != Some(&bare) || segs.len() < 2 {
+        return None;
+    }
+    segs.pop();
+    let type_last = segs.last().copied().unwrap_or("");
+    let mut i = 0;
+    while i + 3 < tokens.len() {
+        if matches!(tokens[i].token_type, TokenType::Function) {
+            let is_type =
+                matches!(&tokens[i + 1].token_type, TokenType::Identifier(t) if t == type_last);
+            let is_dot = matches!(tokens[i + 2].token_type, TokenType::Dot);
+            let is_bare =
+                matches!(&tokens[i + 3].token_type, TokenType::Identifier(b) if b == bare);
+            if is_type && is_dot && is_bare {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Line/column of the `occurrence`-th call-shaped `bare(` after the method
+/// definition: a bare identifier followed by `(`, skipping definitions
+/// (`function name(`), qualified calls (`mod::name(`), and anything inside
+/// a nested/later function. UFCS calls (`self.name(`) count: the parser
+/// desugars them to the same bare call the diagnostic fires on.
+/// Returns None when the shape cannot be matched (caller falls back).
+fn method_call_site(
+    tokens: &[Token],
+    def_idx: usize,
+    bare: &str,
+    occurrence: usize,
+) -> Option<(usize, usize, usize)> {
+    // Block openers that consume a matching `end`. Anything else with an
+    // `end` (e.g. an untracked construct) can only stop the scan early
+    // via the depth-0 rule below, which degrades to the fallback span
+    // instead of misattributing a later call.
+    fn opens_block(tt: &TokenType) -> bool {
+        matches!(
+            tt,
+            TokenType::If
+                | TokenType::While
+                | TokenType::For
+                | TokenType::Repeat
+                | TokenType::Try
+                | TokenType::When
+        )
+    }
+    let mut depth = 0usize;
+    let mut seen = 0usize;
+    // Start past the `function Type . name` header so the definition's
+    // own name token is never counted as a call.
+    let mut j = def_idx + 4;
+    while j < tokens.len() {
+        match &tokens[j].token_type {
+            TokenType::Function => break,
+            TokenType::End => {
+                if depth == 0 {
+                    break;
+                }
+                depth -= 1;
+            }
+            TokenType::Identifier(name) if name == bare => {
+                let next_lparen = matches!(
+                    tokens.get(j + 1).map(|t| &t.token_type),
+                    Some(TokenType::LeftParen)
+                );
+                let prev = tokens.get(j.wrapping_sub(1)).map(|t| &t.token_type);
+                let prev_is_fn_or_scoped = matches!(
+                    prev,
+                    Some(TokenType::Function) | Some(TokenType::ColonColon)
+                );
+                if next_lparen && !prev_is_fn_or_scoped {
+                    // Any nesting depth counts: `Function` already stops
+                    // the scan, so if/loop/try blocks here are all inside
+                    // this method (guards around the call are common).
+                    seen += 1;
+                    if seen == occurrence {
+                        let tok = &tokens[j];
+                        return Some((tok.line, tok.column, tok.column + bare.len()));
+                    }
+                }
+            }
+            tt if opens_block(tt) => {
+                depth += 1;
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+    None
+}
+
 fn check_call_self_recursion(
     name: &str,
     args: &[Expr],
@@ -427,18 +527,35 @@ fn check_call_self_recursion(
             "if delegation to a same-named free function was intended, qualify the call so it does not resolve to this method",
         )
     };
-    let count = ctx.occurrences.entry(name.to_string()).or_insert(0);
+    let count = ctx
+        .occurrences
+        .entry(format!("{}::{}", enclosing_full, bare))
+        .or_insert(0);
     *count += 1;
-    let line = nth_ident_token_line(tokens, name, *count).unwrap_or(1);
+    // Span the call site, not the callee: locate the occurrence-th
+    // `bare(` call after this method's own definition. When the shape
+    // cannot be matched, fall back to the method definition itself —
+    // never to the callee's definition, which sent readers to the wrong
+    // line (alya-lang/alya#111).
+    let (line, col, end_col) = match find_method_def(tokens, &enclosing_full, bare) {
+        Some(def) => method_call_site(tokens, def, bare, *count).unwrap_or_else(|| {
+            let name_tok = tokens.get(def + 3).unwrap_or(&tokens[def]);
+            (name_tok.line, name_tok.column, name_tok.column + bare.len())
+        }),
+        None => {
+            let line = nth_ident_token_line(tokens, name, *count).unwrap_or(1);
+            (line, 1, name.len().max(1))
+        }
+    };
     diags.push(LintDiagnostic {
         rule: "method-self-recursion".to_string(),
         severity,
         message,
         file_path: file_path.to_path_buf(),
         line,
-        col: 1,
+        col,
         end_line: line,
-        end_col: name.len().max(1),
+        end_col,
         help: Some(help.to_string()),
         fix: None,
     });

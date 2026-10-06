@@ -184,6 +184,60 @@ end
 }
 
 #[test]
+fn test_lint_unused_import_unresolvable_target_silent() {
+    // alya-lang/alya#111: a lone copy (missing siblings) hides the
+    // target's exports from per-file analysis. The import must stay
+    // silent — flagging it deletes live code (`Regex` in return-type
+    // positions, `compile_regex`/`escape_pattern` calls).
+    let tmp = std::env::temp_dir().join(format!("alya_lint_lone_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp);
+    let file = tmp.join("lib.alya");
+    let source = r#"import "./types.alya"
+import "./utils.alya"
+import "./compiler.alya"
+
+pub function compile(pattern: string) -> Regex
+    return compile_regex(pattern)
+end
+
+pub function Regex.is_match(self: Regex, text: string) -> int
+    return is_match(self, text)
+end
+"#;
+    std::fs::write(&file, source).unwrap();
+    let diags = lint_source(source, &file).unwrap();
+    let import_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-import").collect();
+    assert!(
+        import_diags.is_empty(),
+        "unresolvable targets must stay silent, got: {:?}",
+        import_diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_lint_unused_import_resolvable_dead_still_fires() {
+    // The silence above must not swallow genuine dead imports: with the
+    // sibling present and none of its exports referenced, the warning
+    // (and its whole-line fix) still fires.
+    let tmp = std::env::temp_dir().join(format!("alya_lint_dead_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&tmp);
+    std::fs::write(
+        tmp.join("dead.alya"),
+        "pub struct Unused\nend\npub function never_called() -> int\n    return 0\nend\n",
+    )
+    .unwrap();
+    let file = tmp.join("user.alya");
+    let source = "import \"./dead.alya\"\n\nfunction main()\n    say 1\nend\n";
+    std::fs::write(&file, source).unwrap();
+    let diags = lint_source(source, &file).unwrap();
+    let import_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-import").collect();
+    assert_eq!(import_diags.len(), 1);
+    assert!(import_diags[0].fix.is_some());
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
 fn test_lint_unused_import_exported_symbols_and_keywords() {
     let source = r#"
 import "std/hash"
@@ -1171,6 +1225,51 @@ end
         hits[0].severity,
         crate::tools::lint::types::LintSeverity::Info
     );
+}
+
+#[test]
+fn test_lint_method_self_recursion_spans_call_site() {
+    // alya-lang/alya#111: the diagnostic must span the call site, not
+    // the callee's definition — with several same-bare delegations,
+    // each instance lands on its own call.
+    let source = r#"pub function is_match(reg, text: string) -> int
+    return 1
+end
+pub function find(reg, text: string) -> int
+    return 2
+end
+struct Regex
+    pattern: string
+end
+pub function Regex.is_match(self: Regex, text: string) -> int
+    return is_match(self, text)
+end
+pub function Regex.find(self: Regex, text: string) -> int
+    if text == ""
+        return 0
+    end
+    return find(self, text)
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "method-self-recursion")
+        .collect();
+    assert_eq!(
+        hits.len(),
+        2,
+        "got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    // Call sites are on lines 11 and 17 (no leading newline here); the
+    // callee definitions are on lines 1 and 4.
+    assert_eq!(hits[0].line, 11, "first hit must span its call");
+    assert_eq!(hits[1].line, 17, "second hit must span its call");
+    for h in &hits {
+        assert!(h.col > 1, "span must carry the real column, got {:?}", h);
+        assert!(h.end_col > h.col, "span must cover the name, got {:?}", h);
+    }
 }
 
 #[test]

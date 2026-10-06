@@ -904,39 +904,56 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                 .iter()
                 .any(|id| id.starts_with(&format!("{}_", imp.name_to_check)));
 
+        // Whether the module target resolved. An unresolvable target
+        // (missing sibling, uninstalled package) hides its exports from
+        // per-file analysis: the import must stay silent instead of
+        // risking a build-breaking `--fix` (alya-lang/alya#111).
+        let mut target_known = true;
+
         // If it's a full-line import without direct alias match (e.g. `import "std/hash"`, `import "../src/lib.alya"`),
         // check if any of the symbols exported by the module are used directly.
         if !is_used && imp.is_full_line {
             if let Some(path) = &imp.raw_path {
-                if let Some(exported) = get_exported_symbols_from_module(path, file_path) {
-                    if exported.iter().any(|sym| code_idents.contains(sym)) {
-                        is_used = true;
-                    } else if !imp.is_aliased
-                        && !exported.is_empty()
-                        && is_facade_file(tokens, &import_token_ranges)
-                    {
-                        // Re-export candidate: this file declares `pub`/`extern`
-                        // items, so it acts as a module surface and its imports
-                        // double as re-exports — downstream consumers resolve
-                        // `alias::symbol` through them and the native linker
-                        // needs every directly-imported module compiled in.
-                        // Per-file analysis cannot prove such an import is
-                        // dead, so stay silent instead of risking a
-                        // build-breaking `--fix` (e.g. `src/lib.alya` facades
-                        // importing submodule files whose symbols are only
-                        // referenced downstream).
-                        //
-                        // Unaliased imports only: an explicit `as` alias
-                        // namespaces the module for local use without
-                        // re-exporting it (`facade::symbol` and
-                        // `facade::alias::symbol` do not resolve
-                        // downstream), so an unreferenced aliased import is
-                        // always dead — flag it deterministically instead of
-                        // depending on whether the target resolves.
-                        continue;
+                match get_exported_symbols_from_module(path, file_path) {
+                    Some(exported) => {
+                        if exported.iter().any(|sym| code_idents.contains(sym)) {
+                            is_used = true;
+                        } else if !imp.is_aliased
+                            && !exported.is_empty()
+                            && is_facade_file(tokens, &import_token_ranges)
+                        {
+                            // Re-export candidate: this file declares `pub`/`extern`
+                            // items, so it acts as a module surface and its imports
+                            // double as re-exports — downstream consumers resolve
+                            // `alias::symbol` through them and the native linker
+                            // needs every directly-imported module compiled in.
+                            // Per-file analysis cannot prove such an import is
+                            // dead, so stay silent instead of risking a
+                            // build-breaking `--fix` (e.g. `src/lib.alya` facades
+                            // importing submodule files whose symbols are only
+                            // referenced downstream).
+                            //
+                            // Unaliased imports only: an explicit `as` alias
+                            // namespaces the module for local use without
+                            // re-exporting it (`facade::symbol` and
+                            // `facade::alias::symbol` do not resolve
+                            // downstream), so an unreferenced aliased import is
+                            // always dead — flag it deterministically instead of
+                            // depending on whether the target resolves.
+                            continue;
+                        }
+                    }
+                    None => {
+                        target_known = false;
                     }
                 }
+            } else {
+                target_known = false;
             }
+        }
+
+        if !is_used && !target_known {
+            continue;
         }
 
         if !is_used {
