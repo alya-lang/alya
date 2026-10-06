@@ -1326,6 +1326,76 @@ end
 }
 
 #[test]
+fn test_lint_compound_assign_mixed_operators_silent() {
+    // alya-lang/alya#110: `x OP= REST` regroups the RHS around OP, so the
+    // rule must stay silent unless OP is the loosest operator and no
+    // same-level follower regroups unsoundly. Every shape below broke
+    // semantics when rewritten (`res = res * 16 + (c - 48)` became
+    // `res *= 16 + (c - 48)` and stuck the accumulator at 0).
+    let source = r#"
+function scan(c)
+    let res = 0
+    res = res * 16 + (c - 48)
+    res = res * 8 + (c - 48)
+    res = res * 2 + 1
+    res = res - c - 1
+    res = res * c / 2
+    res = res / c * 2
+    res = res % c + 1
+    res = res + c == 1
+    return res
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "compound-assign")
+        .collect();
+    assert!(
+        hits.is_empty(),
+        "got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_lint_compound_assign_sound_shapes_fire() {
+    // Same-level followers that regroup exactly (`+` then `+`/`-`,
+    // `*` then `*`), parenthesized tails, unary operands, and tighter
+    // trailing operators keep their suggestions.
+    let source = r#"
+function bump(a, b, c)
+    a = a + 1
+    a = a + b - c
+    a = a * b * c
+    a = a + b * c
+    a = a - b * c
+    a = a + (b - c)
+    a = a * -b
+    return a
+end
+"#;
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "compound-assign")
+        .collect();
+    assert_eq!(
+        hits.len(),
+        7,
+        "got: {:?}",
+        hits.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    let reps: Vec<_> = hits
+        .iter()
+        .map(|d| d.fix.as_ref().unwrap().replacement.clone())
+        .collect();
+    assert_eq!(reps.iter().filter(|r| *r == "a +=").count(), 4);
+    assert_eq!(reps.iter().filter(|r| *r == "a *=").count(), 2);
+    assert_eq!(reps.iter().filter(|r| *r == "a -=").count(), 1);
+}
+
+#[test]
 fn test_lint_float_equality_fires() {
     let source = r#"
 function check(f: float) -> int

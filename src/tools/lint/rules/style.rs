@@ -752,6 +752,188 @@ fn check_compound_assign(tokens: &[Token], file_path: &Path, diags: &mut Vec<Lin
         Some((segs.join("."), start))
     }
 
+    // Precedence level of an infix operator (higher binds tighter).
+    // Mirrors the parser's chain (loosest first): ternary `?`, `??`,
+    // `or`, `and`, `|` `^` `&`, comparisons, ranges, shifts, `+` `-`,
+    // `*` `/` `%` (`as` casts bind at postfix tightness and never split
+    // a term, so they need no level here).
+    fn op_level(tt: &TokenType) -> Option<u8> {
+        match tt {
+            TokenType::Question => Some(0),
+            TokenType::NullCoalesce => Some(1),
+            TokenType::Or => Some(2),
+            TokenType::And => Some(3),
+            TokenType::BitOr => Some(4),
+            TokenType::BitXor => Some(5),
+            TokenType::BitAnd => Some(6),
+            TokenType::Equal
+            | TokenType::NotEqual
+            | TokenType::Less
+            | TokenType::Greater
+            | TokenType::LessEqual
+            | TokenType::GreaterEqual
+            | TokenType::In
+            | TokenType::Is => Some(7),
+            TokenType::DotDot | TokenType::DotDotEqual => Some(8),
+            TokenType::Shl | TokenType::Shr => Some(9),
+            TokenType::Plus | TokenType::Minus => Some(10),
+            TokenType::Multiply | TokenType::Divide | TokenType::Modulo => Some(11),
+            _ => None,
+        }
+    }
+
+    // Same-precedence followers that regroup soundly under `x OP= REST`
+    // (exact for ints: `x+(a-b)` is `(x+a)-b`, `x*(a*b)` is `(x*a)*b`).
+    // Every other same-level pair (`-` then anything, `*` then `/`/`%`,
+    // `/` or `%` then anything) regroups into a different value, as does
+    // any looser operator — so the suggestion must stay silent there
+    // (alya-lang/alya#110: `res = res * 16 + (c - 48)` must not become
+    // `res *= 16 + (c - 48)`).
+    fn same_level_ok(matched: &str, following: &TokenType) -> bool {
+        match matched {
+            "+=" => matches!(following, TokenType::Plus | TokenType::Minus),
+            "*=" => matches!(following, TokenType::Multiply),
+            _ => false,
+        }
+    }
+
+    // True when the RHS remainder (from token `from`) keeps `x = x OP ..`
+    // equivalent under `x OP= ..`: no same-depth operator binds looser
+    // than OP, and no same-level follower regroups unsoundly.
+    fn rhs_compound_safe(tokens: &[Token], from: usize, op: &str) -> bool {
+        let matched_level = match op {
+            "+=" | "-=" => 10,
+            "*=" | "/=" | "%=" => 11,
+            _ => return false,
+        };
+        let mut paren = 0usize;
+        let mut bracket = 0usize;
+        let mut brace = 0usize;
+        // True while an operand (or unary prefix) is expected, i.e. a
+        // `+`/`-`/`not`/`~` here is unary and part of the current term.
+        let mut expect_operand = true;
+        let mut j = from;
+        while j < tokens.len() {
+            match &tokens[j].token_type {
+                TokenType::LeftParen => {
+                    paren += 1;
+                    expect_operand = true;
+                }
+                TokenType::LeftBracket => {
+                    bracket += 1;
+                    expect_operand = true;
+                }
+                TokenType::LeftBrace => {
+                    brace += 1;
+                    expect_operand = true;
+                }
+                TokenType::RightParen => {
+                    paren = paren.saturating_sub(1);
+                    expect_operand = false;
+                }
+                TokenType::RightBracket => {
+                    bracket = bracket.saturating_sub(1);
+                    expect_operand = false;
+                }
+                TokenType::RightBrace => {
+                    brace = brace.saturating_sub(1);
+                    expect_operand = false;
+                }
+                TokenType::Comma => {
+                    if paren == 0 && bracket == 0 && brace == 0 {
+                        return false;
+                    }
+                    expect_operand = true;
+                }
+                TokenType::Newline => {
+                    // Only a base-depth newline after an operand ends the
+                    // statement. Operator-then-newline continues it, and
+                    // nested newlines never end anything (bracketed content
+                    // cannot affect top-level grouping either way).
+                    if paren == 0 && bracket == 0 && brace == 0 && !expect_operand {
+                        return true;
+                    }
+                }
+                TokenType::End
+                | TokenType::Else
+                | TokenType::Elif
+                | TokenType::Then
+                | TokenType::Eof => {
+                    if paren == 0 && bracket == 0 && brace == 0 {
+                        return true;
+                    }
+                    return false;
+                }
+                TokenType::Not if !expect_operand && paren == 0 && bracket == 0 && brace == 0 => {
+                    // `not in` reads as one loose operator; a lone
+                    // `not` between operands is not valid code.
+                    if matches!(
+                        tokens.get(j + 1).map(|t| &t.token_type),
+                        Some(TokenType::In)
+                    ) {
+                        return false;
+                    }
+                    return false;
+                }
+                TokenType::Plus | TokenType::Minus | TokenType::Not | TokenType::BitNot
+                    if expect_operand =>
+                {
+                    // Unary prefix: part of the current term.
+                }
+                TokenType::As => {
+                    // Postfix-tight cast: never splits a term; the type
+                    // name that follows flows through operand handling.
+                }
+                TokenType::Dot | TokenType::QuestionDot | TokenType::ColonColon => {
+                    // Path continuations (`a.b`, `a?.b`, `x::Y`).
+                }
+                tt if paren == 0 && bracket == 0 && brace == 0 => {
+                    if matches!(
+                        tt,
+                        TokenType::Identifier(_)
+                            | TokenType::Number(_)
+                            | TokenType::Float(_)
+                            | TokenType::String(_)
+                            | TokenType::Rune(_)
+                            | TokenType::True
+                            | TokenType::False
+                            | TokenType::Null
+                            | TokenType::SelfKw
+                            | TokenType::Typeof
+                            | TokenType::Sizeof
+                            | TokenType::Alignof
+                    ) {
+                        expect_operand = false;
+                    } else if let Some(level) = op_level(tt) {
+                        if expect_operand {
+                            // Binary-only operator where an operand belongs:
+                            // not valid code; stay silent.
+                            return false;
+                        }
+                        if level < matched_level
+                            || (level == matched_level && !same_level_ok(op, tt))
+                        {
+                            return false;
+                        }
+                        expect_operand = true;
+                    } else {
+                        // Anything else at statement depth (`?`, keywords
+                        // that can open an expression, stray `=`...): not
+                        // modeled, stay silent rather than risk semantics.
+                        return false;
+                    }
+                }
+                _ => {
+                    // Nested tokens: operands and inner operators alike
+                    // belong to a bracketed sub-expression.
+                    expect_operand = false;
+                }
+            }
+            j += 1;
+        }
+        true
+    }
+
     let mut paren = 0usize;
     let mut bracket = 0usize;
     let mut brace = 0usize;
@@ -797,7 +979,12 @@ fn check_compound_assign(tokens: &[Token], file_path: &Path, diags: &mut Vec<Lin
                             if let Some(op) = op_word {
                                 let op_tok = &tokens[k];
                                 let start_tok = &tokens[start_idx];
-                                if start_tok.line == op_tok.line {
+                                // `x OP= REST` regroups the RHS around OP:
+                                // only suggest it when OP stays the loosest
+                                // operator (see rhs_compound_safe).
+                                if start_tok.line == op_tok.line
+                                    && rhs_compound_safe(tokens, k + 1, op)
+                                {
                                     diags.push(LintDiagnostic {
                                         rule: "compound-assign".to_string(),
                                         severity: LintSeverity::Info,
