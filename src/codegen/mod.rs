@@ -531,6 +531,9 @@ impl CodeGen {
         let _ = crate::parser::constants::resolve_and_validate_constants(&mut resolved_prog);
         crate::parser::generics::resolve_generics(&mut resolved_prog);
         crate::parser::dynspec::resolve_dynspec(&mut resolved_prog);
+        // Lexical nested functions become top-level qualified functions
+        // (alya-lang/alya#99) before DCE/inference see the program.
+        crate::codegen::analysis::nested::hoist_nested_functions(&mut resolved_prog);
         let program = &resolved_prog;
 
         let original_stmts = program.statements.len();

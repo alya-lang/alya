@@ -47,6 +47,7 @@ fn entry_files() -> Vec<String> {
         "21_dynamic_index_assign.alya".to_string(),
         "22_operator_dispatch.alya".to_string(),
         "23_bare_module_calls.alya".to_string(),
+        "24_nested_functions.alya".to_string(),
     ]
 }
 
@@ -476,6 +477,20 @@ fn test_integration_18_dynamic_parse_shapes_output() {
     if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("integration 18_dynamic_parse_shapes: OK"));
+    }
+}
+
+#[test]
+fn test_integration_24_nested_functions_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 24_nested_functions: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("24_nested_functions.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 24_nested_functions: OK (85, 55)"));
     }
 }
 

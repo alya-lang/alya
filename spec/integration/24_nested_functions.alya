@@ -1,0 +1,33 @@
+# ==============================================================================
+# Alya Integration Fixture 24 (entry): nested function definitions
+# Distilled from: named nested `function` inside a body (alya-lang/alya#99)
+# Guards: nested definitions hoist with lexical scope (`outer$inner`),
+#         sibling/recursive calls resolve inward, block-level definitions
+#         hoist, and same-named variables shadow the definition. No
+#         capture: closing over outer locals stays a check-time error.
+# ==============================================================================
+
+function outer_24(a)
+    function inner_24(c)
+        return c * 2
+    end
+    function helper_24(d)
+        return inner_24(d) + 1
+    end
+    return helper_24(a) + inner_24(a)
+end
+
+function rec_24(n)
+    function down_24(k)
+        if k <= 0
+            return 0
+        end
+        return k + down_24(k - 1)
+    end
+    return down_24(n)
+end
+
+let r1 = outer_24(21)
+let r2 = rec_24(10)
+
+say f"integration 24_nested_functions: OK ({r1}, {r2})"

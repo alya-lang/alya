@@ -966,3 +966,98 @@ main()
         assert_eq!(output, "1\n1\n2\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_nested_function_basic() {
+    // alya-lang/alya#99: named nested definitions linked against a
+    // missing symbol. They hoist to `outer__inner` with lexical scope.
+    let code = r#"
+function outer(a)
+    function inner(c)
+        return c * 2
+    end
+    return inner(a)
+end
+say outer(21)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "42\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_nested_function_scope_rules() {
+    // #99 scope rules: siblings and recursion resolve inward, block
+    // definitions hoist, and a same-named variable shadows the
+    // definition (value semantics, as for top-level shadowing).
+    let code = r#"
+function outer(a)
+    function inner(c)
+        return c * 2
+    end
+    function helper(d)
+        return inner(d) + 1
+    end
+    return helper(a) + inner(a)
+end
+function rec(n)
+    function down(k)
+        if k <= 0
+            return 0
+        end
+        return k + down(k - 1)
+    end
+    return down(n)
+end
+function shadow()
+    function inner()
+        return 100
+    end
+    let inner = 7
+    return inner
+end
+function inblock(x)
+    if x > 0
+        function pos()
+            return 1
+        end
+        return pos()
+    end
+    return 0 - 1
+end
+say outer(21)
+say rec(10)
+say shadow()
+say inblock(5)
+say inblock(0 - 3)
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "85\n55\n7\n1\n-1\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_e2e_nested_function_name_collision() {
+    // #99: hoisted names use the unspellable `$` separator, so a user
+    // top-level `outer__inner` can never collide with hoisted
+    // `outer$inner`; explicit qualified calls resolve as written.
+    let code = r#"
+function outer__inner()
+    return 1000
+end
+function outer(a)
+    function inner(c)
+        return c * 2
+    end
+    return inner(a) + outer__inner()
+end
+say outer(21)
+say outer__inner()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "1042\n1000\n", "Got: {}", output);
+    }
+}
