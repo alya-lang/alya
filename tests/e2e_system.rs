@@ -997,6 +997,49 @@ say (my_os == os.OS.Unknown)
 }
 
 #[test]
+fn test_e2e_native_string_collections_survive_temp_churn() {
+    // #98 audit lock-in: native multi-string producers must not leave
+    // ring-resident slots behind (the #97 split3-anomaly class).
+    // list_dir pieces are malloc-owned, read_lines inherits split's
+    // immortal pieces, keys/values alias stable map entries — soak all
+    // of them past the ~950KB ring wrap and read back.
+    let code = r#"
+import "std/fs"
+import "std/str"
+ensure_dir("temp_e2e_ring_dir/sub")
+write_file("temp_e2e_ring_dir/sub/a.txt", "one\ntwo\nthree\n")
+let ls = list_dir_recursive("temp_e2e_ring_dir")
+let lns = read_lines("temp_e2e_ring_dir/sub/a.txt")
+let m = {}
+m["ka"] = "va"
+let ks = keys(m)
+let i = 0
+while i < 200000
+    let t = str.split("x,y", ",")
+    if t[0] == "@@never@@"
+        say t[0]
+    end
+    i += 1
+end
+say len(ls)
+say ls[0]
+say lns[0]
+say lns[2]
+say ks[0]
+say m["ka"]
+remove_dir_recursive("temp_e2e_ring_dir")
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(
+            output, "2\ntemp_e2e_ring_dir/sub\none\nthree\nka\nva\n",
+            "Got: {}",
+            output
+        );
+    }
+}
+
+#[test]
 fn test_e2e_path_stdlib() {
     let code = r#"
 import "std/path"
