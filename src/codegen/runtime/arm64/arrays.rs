@@ -1,4 +1,4 @@
-use crate::codegen::kinds::KIND_STRING;
+use crate::codegen::kinds::{KIND_ARRAY, KIND_FLOAT, KIND_MAP, KIND_STRING};
 use crate::codegen::target::OperatingSystem;
 use super::emit_adrp_add;
 
@@ -156,9 +156,26 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     emit_adrp_add(out, "x0", "alya_fmt_arr_comma", os);
     out.push_str(&format!("    bl {}printf\n", p));
     out.push_str(".L_arm64_arr_print_elem:\n");
+    // Per-slot kind dispatch (#96): the kind sidecar (+24, one byte per
+    // slot) is exact, so floats print shortest-round-trip via
+    // fn_str_from_float (bits in x0), strings via %s, and nested
+    // collections recurse. Int/unknown/struct slots keep the legacy
+    // %lld word print. The slot value rides in x22 (callee-saved,
+    // printf preserves it); x9 is scratch for the kind load.
+    out.push_str("    ldr x9, [x19, #16]\n");
+    out.push_str("    ldr x22, [x9, x21, lsl #3]\n");
+    out.push_str("    ldr x9, [x19, #24]\n");
+    out.push_str("    ldrb w9, [x9, x21]\n");
+    out.push_str(&format!("    cmp x9, #{}\n", KIND_FLOAT));
+    out.push_str("    b.eq .L_arm64_arr_elem_flt\n");
+    out.push_str(&format!("    cmp x9, #{}\n", KIND_STRING));
+    out.push_str("    b.eq .L_arm64_arr_elem_str\n");
+    out.push_str(&format!("    cmp x9, #{}\n", KIND_ARRAY));
+    out.push_str("    b.eq .L_arm64_arr_elem_arr\n");
+    out.push_str(&format!("    cmp x9, #{}\n", KIND_MAP));
+    out.push_str("    b.eq .L_arm64_arr_elem_map\n");
     emit_adrp_add(out, "x0", "alya_fmt_arr_elem", os);
-    out.push_str("    ldr x22, [x19, #16]\n");
-    out.push_str("    ldr x1, [x22, x21, lsl #3]\n");
+    out.push_str("    mov x1, x22\n");
     if matches!(os, OperatingSystem::MacOS) {
         out.push_str("    sub sp, sp, #16\n");
         out.push_str("    str x1, [sp]\n");
@@ -167,6 +184,43 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     } else {
         out.push_str(&format!("    bl {}printf\n", p));
     }
+    out.push_str("    b .L_arm64_arr_elem_next\n");
+    out.push_str(".L_arm64_arr_elem_flt:\n");
+    out.push_str("    mov x0, x22\n");
+    out.push_str("    bl fn_str_from_float\n");
+    out.push_str("    mov x22, x0\n");
+    emit_adrp_add(out, "x0", "alya_fmt_prompt", os);
+    out.push_str("    mov x1, x22\n");
+    if matches!(os, OperatingSystem::MacOS) {
+        out.push_str("    sub sp, sp, #16\n");
+        out.push_str("    str x1, [sp]\n");
+        out.push_str(&format!("    bl {}printf\n", p));
+        out.push_str("    add sp, sp, #16\n");
+    } else {
+        out.push_str(&format!("    bl {}printf\n", p));
+    }
+    out.push_str("    b .L_arm64_arr_elem_next\n");
+    out.push_str(".L_arm64_arr_elem_str:\n");
+    emit_adrp_add(out, "x0", "alya_fmt_prompt", os);
+    out.push_str("    mov x1, x22\n");
+    if matches!(os, OperatingSystem::MacOS) {
+        out.push_str("    sub sp, sp, #16\n");
+        out.push_str("    str x1, [sp]\n");
+        out.push_str(&format!("    bl {}printf\n", p));
+        out.push_str("    add sp, sp, #16\n");
+    } else {
+        out.push_str(&format!("    bl {}printf\n", p));
+    }
+    out.push_str("    b .L_arm64_arr_elem_next\n");
+    out.push_str(".L_arm64_arr_elem_arr:\n");
+    out.push_str("    mov x0, x22\n");
+    out.push_str("    bl alya_print_array\n");
+    out.push_str("    b .L_arm64_arr_elem_next\n");
+    out.push_str(".L_arm64_arr_elem_map:\n");
+    out.push_str("    mov x0, x22\n");
+    out.push_str("    bl alya_print_map\n");
+    out.push_str("    b .L_arm64_arr_elem_next\n");
+    out.push_str(".L_arm64_arr_elem_next:\n");
     out.push_str("    add x21, x21, #1\n");
     out.push_str("    b .L_arm64_arr_loop\n");
     out.push_str(".L_arm64_arr_close_call:\n");

@@ -869,6 +869,31 @@ say p[2]
 }
 
 #[test]
+fn test_e2e_whole_array_say_dispatches_on_slot_tags() {
+    // Regression test for alya-lang/alya#96: whole-array `say` printed
+    // every slot with a single `%lld`, so floats rendered as f64
+    // bit patterns and strings as heap pointers. The printer now
+    // dispatches per slot-kind sidecar. NOTE: nested collections reuse
+    // the recursive printer verbatim, so each nested close still emits
+    // its own trailing newline (`[[1, 2]\n, ...]`); flat output is
+    // exact, nesting format is a known follow-up.
+    let code = r#"
+let f = [1.5, 2.5]
+say f
+let m = [1, "hi"]
+say m
+let s = ["a", "b"]
+say s
+let n = [[1, 2], [3]]
+say n
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "[1.5, 2.5]\n[1, hi]\n[a, b]\n[[1, 2]\n, [3]\n]\n");
+    }
+}
+
+#[test]
 fn test_e2e_is_string_on_tagged_reads() {
     // alya-lang/alya#39: `is string` on element reads with definite
     // non-string tags must be boolean false, not the leftover value.

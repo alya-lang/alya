@@ -1,4 +1,4 @@
-use crate::codegen::kinds::KIND_STRING;
+use crate::codegen::kinds::{KIND_ARRAY, KIND_FLOAT, KIND_MAP, KIND_STRING};
 use crate::codegen::target::OperatingSystem;
 
 #[rustfmt::skip]
@@ -224,10 +224,49 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    lea alya_fmt_arr_comma(%rip), %rcx\n");
         out.push_str("    call printf\n");
         out.push_str(".L_x64_arr_print_elem:\n");
-        out.push_str("    lea alya_fmt_arr_elem(%rip), %rcx\n");
+        // Per-slot kind dispatch (#96): the kind sidecar (+24, one byte
+        // per slot) is exact, so floats print shortest-round-trip via
+        // fn_str_from_float, strings via %s, and nested collections
+        // recurse. Int/unknown/struct slots keep the legacy %lld word
+        // print. The slot value rides in %rbx (callee-saved, printf
+        // preserves it) across the kind load.
         out.push_str("    mov 16(%r12), %rax\n");
-        out.push_str("    mov (%rax, %r14, 8), %rdx\n");
+        out.push_str("    mov (%rax, %r14, 8), %rbx\n");
+        out.push_str("    mov 24(%r12), %rax\n");
+        out.push_str("    movzbq (%rax, %r14), %rax\n");
+        out.push_str(&format!("    cmp ${}, %rax\n", KIND_FLOAT));
+        out.push_str("    je .L_x64_arr_elem_flt\n");
+        out.push_str(&format!("    cmp ${}, %rax\n", KIND_STRING));
+        out.push_str("    je .L_x64_arr_elem_str\n");
+        out.push_str(&format!("    cmp ${}, %rax\n", KIND_ARRAY));
+        out.push_str("    je .L_x64_arr_elem_arr\n");
+        out.push_str(&format!("    cmp ${}, %rax\n", KIND_MAP));
+        out.push_str("    je .L_x64_arr_elem_map\n");
+        out.push_str("    lea alya_fmt_arr_elem(%rip), %rcx\n");
+        out.push_str("    mov %rbx, %rdx\n");
         out.push_str("    call printf\n");
+        out.push_str("    jmp .L_x64_arr_elem_next\n");
+        out.push_str(".L_x64_arr_elem_flt:\n");
+        out.push_str("    mov %rbx, %rcx\n");
+        out.push_str("    call fn_str_from_float\n");
+        out.push_str("    lea alya_fmt_prompt(%rip), %rcx\n");
+        out.push_str("    mov %rax, %rdx\n");
+        out.push_str("    call printf\n");
+        out.push_str("    jmp .L_x64_arr_elem_next\n");
+        out.push_str(".L_x64_arr_elem_str:\n");
+        out.push_str("    lea alya_fmt_prompt(%rip), %rcx\n");
+        out.push_str("    mov %rbx, %rdx\n");
+        out.push_str("    call printf\n");
+        out.push_str("    jmp .L_x64_arr_elem_next\n");
+        out.push_str(".L_x64_arr_elem_arr:\n");
+        out.push_str("    mov %rbx, %rcx\n");
+        out.push_str("    call alya_print_array\n");
+        out.push_str("    jmp .L_x64_arr_elem_next\n");
+        out.push_str(".L_x64_arr_elem_map:\n");
+        out.push_str("    mov %rbx, %rcx\n");
+        out.push_str("    call alya_print_map\n");
+        out.push_str("    jmp .L_x64_arr_elem_next\n");
+        out.push_str(".L_x64_arr_elem_next:\n");
         out.push_str("    inc %r14\n");
         out.push_str("    jmp .L_x64_arr_loop\n");
         out.push_str(".L_x64_arr_close_call:\n");
@@ -258,11 +297,49 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    xor %rax, %rax\n");
         out.push_str(&format!("    call {}printf\n", p));
         out.push_str(".L_x64_arr_print_elem:\n");
-        out.push_str("    lea alya_fmt_arr_elem(%rip), %rdi\n");
+        // Per-slot kind dispatch (#96): mirrors the Windows path above
+        // (SysV args: fmt in %rdi, value in %rsi; float bits via %xmm0
+        // into fn_str_from_float, which takes xmm0 on SysV).
         out.push_str("    mov 16(%r12), %rax\n");
-        out.push_str("    mov (%rax, %r14, 8), %rsi\n");
+        out.push_str("    mov (%rax, %r14, 8), %rbx\n");
+        out.push_str("    mov 24(%r12), %rax\n");
+        out.push_str("    movzbq (%rax, %r14), %rax\n");
+        out.push_str(&format!("    cmp ${}, %rax\n", KIND_FLOAT));
+        out.push_str("    je .L_x64_arr_elem_flt\n");
+        out.push_str(&format!("    cmp ${}, %rax\n", KIND_STRING));
+        out.push_str("    je .L_x64_arr_elem_str\n");
+        out.push_str(&format!("    cmp ${}, %rax\n", KIND_ARRAY));
+        out.push_str("    je .L_x64_arr_elem_arr\n");
+        out.push_str(&format!("    cmp ${}, %rax\n", KIND_MAP));
+        out.push_str("    je .L_x64_arr_elem_map\n");
+        out.push_str("    lea alya_fmt_arr_elem(%rip), %rdi\n");
+        out.push_str("    mov %rbx, %rsi\n");
         out.push_str("    xor %rax, %rax\n");
         out.push_str(&format!("    call {}printf\n", p));
+        out.push_str("    jmp .L_x64_arr_elem_next\n");
+        out.push_str(".L_x64_arr_elem_flt:\n");
+        out.push_str("    movq %rbx, %xmm0\n");
+        out.push_str("    call fn_str_from_float\n");
+        out.push_str("    lea alya_fmt_prompt(%rip), %rdi\n");
+        out.push_str("    mov %rax, %rsi\n");
+        out.push_str("    xor %rax, %rax\n");
+        out.push_str(&format!("    call {}printf\n", p));
+        out.push_str("    jmp .L_x64_arr_elem_next\n");
+        out.push_str(".L_x64_arr_elem_str:\n");
+        out.push_str("    lea alya_fmt_prompt(%rip), %rdi\n");
+        out.push_str("    mov %rbx, %rsi\n");
+        out.push_str("    xor %rax, %rax\n");
+        out.push_str(&format!("    call {}printf\n", p));
+        out.push_str("    jmp .L_x64_arr_elem_next\n");
+        out.push_str(".L_x64_arr_elem_arr:\n");
+        out.push_str("    mov %rbx, %rdi\n");
+        out.push_str("    call alya_print_array\n");
+        out.push_str("    jmp .L_x64_arr_elem_next\n");
+        out.push_str(".L_x64_arr_elem_map:\n");
+        out.push_str("    mov %rbx, %rdi\n");
+        out.push_str("    call alya_print_map\n");
+        out.push_str("    jmp .L_x64_arr_elem_next\n");
+        out.push_str(".L_x64_arr_elem_next:\n");
         out.push_str("    inc %r14\n");
         out.push_str("    jmp .L_x64_arr_loop\n");
         out.push_str(".L_x64_arr_close_call:\n");
