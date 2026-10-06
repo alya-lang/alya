@@ -136,7 +136,11 @@ behavior marked "current engine" is netted by the existing test suite.
   64-bit range (`u64::MAX` is the integer-literal ceiling).
 - `float`: raw IEEE-754 f64 bits, always unboxed. Boxing floats is a
   non-goal: scalar float performance is load-bearing (math packages,
-  SIMD paths in §1.6). Consequence: a float bit pattern is
+  SIMD paths in §1.6). Measured prototype (struct-boxed float,
+  2M-iteration loop, Windows x64 exe): unboxed `15-16ms` vs per-op
+  heap alloc `156-172ms` (~10-11x); field reuse without per-op alloc
+  matches unboxed, so the cost is allocation + ARC, not dereference.
+  Consequence: a float bit pattern is
   indistinguishable by inspection from an integer or a pointer.
 - `bool`: the numerals `1` (`true`) and `0` (`false`). `bool` is not
   distinguishable from `int` at runtime; separation is static only.
