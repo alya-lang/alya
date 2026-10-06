@@ -242,8 +242,8 @@ push stores. The char scan stays (never the hot path).
 
 ### Option C: stop (spike complete, no production commitment)
 
-- Cost: zero. Artifacts stay as regression guards (wire
-  diff_lex/diff_parse/diff_emit into CI cheaply or leave manual).
+- Cost: zero. Artifacts stay as regression guards (wired into CI
+  2026-10-06: `spike-lex-parse` on Linux + `spike-emit` on Windows).
 - Benefit: findings already paid for themselves (#91, emission
   discipline, feasibility data).
 - Cost of stopping: the bootstrap loop and hybrid path stay

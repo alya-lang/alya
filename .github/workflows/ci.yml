@@ -89,6 +89,55 @@ jobs:
           cargo run -- toolchain status
           cargo run -- toolchain help
 
+  spike-lex-parse:
+    name: Spike differential (lexer + parser)
+    needs: [lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      # Runner images ship Python 3 (stdlib-only harnesses); no setup needed.
+      - name: Build debug compiler
+        run: cargo build --verbose
+
+      - name: Differential lexer (Rust vs Alya frontend)
+        run: python3 spike/selfhost/diff_lex.py --alya ./target/debug/alya
+
+      - name: Differential parser (Rust vs Alya frontend)
+        run: python3 spike/selfhost/diff_parse.py --alya ./target/debug/alya
+
+  spike-emit:
+    name: Spike differential (Alya emitter)
+    needs: [lint]
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build debug compiler
+        run: cargo build --verbose
+
+      # The Alya-written x64 emitter targets Windows; the driver exits
+      # nonzero unless all 19 programs match `alya run` byte-exactly.
+      - name: Differential emitter (Alya backend vs Rust backend)
+        shell: pwsh
+        run: ./target/debug/alya.exe run spike/selfhost/diff_emit.alya -- target/debug/alya.exe
+
   release-check:
     name: Release build (${{ matrix.label }})
     needs: [test]
