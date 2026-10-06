@@ -10,6 +10,60 @@ fn simple_program(stmt: Stmt) -> Program {
 }
 
 #[test]
+fn test_codegen_x64_windows_seh_unwind_info() {
+    // alya-lang/alya#109: every Windows-x64 function (entry `main`
+    // plus each `fn_*`) needs SEH prologue metadata, or the OS
+    // unwinder cannot walk Alya frames (garbage frames, wild jumps
+    // when foreign code raises through them). Frame-pointer prologue
+    // lets the unwinder recompute rsp from rbp.
+    let program = simple_program(Stmt::Function {
+        name: "f".to_string(),
+        params: vec![],
+        param_types: vec![],
+        return_type: None,
+        defaults: vec![],
+        body: vec![Stmt::Say(Expr::Number(42))],
+        type_params: vec![],
+        attributes: vec![],
+    });
+    let asm = generate(&program, Architecture::X64, OperatingSystem::Windows);
+
+    assert!(asm.contains(".seh_proc main"));
+    assert!(asm.contains(".seh_proc fn_f"));
+    assert!(asm.contains(".seh_pushreg %rbp"));
+    assert!(asm.contains(".seh_setframe %rbp, 0"));
+    assert!(asm.contains(".seh_endprologue"));
+    // Scopes balance: one close per function, entry included.
+    assert_eq!(
+        asm.matches(".seh_proc ").count(),
+        asm.matches(".seh_endproc").count(),
+        "unbalanced SEH scopes"
+    );
+}
+
+#[test]
+fn test_codegen_seh_windows_x64_only() {
+    // `.seh_*` is a PE/COFF concept: GAS ELF/Mach-O rejects it, so
+    // non-Windows targets must stay byte-clean of SEH directives.
+    let program = simple_program(Stmt::Say(Expr::Number(42)));
+    for (arch, os) in [
+        (Architecture::X64, OperatingSystem::Linux),
+        (Architecture::X64, OperatingSystem::MacOS),
+        (Architecture::ARM64, OperatingSystem::Linux),
+        (Architecture::ARM64, OperatingSystem::MacOS),
+        (Architecture::ARM64, OperatingSystem::Windows),
+    ] {
+        let asm = generate(&program, arch, os);
+        assert!(
+            !asm.contains(".seh_"),
+            "SEH directive leaked into {:?}/{:?}",
+            arch,
+            os
+        );
+    }
+}
+
+#[test]
 fn test_codegen_x64_windows_header_and_footer() {
     let program = simple_program(Stmt::Say(Expr::Number(42)));
     let asm = generate(&program, Architecture::X64, OperatingSystem::Windows);

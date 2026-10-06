@@ -302,11 +302,16 @@ pub fn mangle_symbol_name(name: &str) -> String {
         .replace("operator%", "operator_mod_")
 }
 
-pub fn emit_function_prologue(out: &mut String, arch: Architecture, name: &str) {
+pub fn emit_function_prologue(
+    out: &mut String,
+    arch: Architecture,
+    os: OperatingSystem,
+    name: &str,
+) {
     let mangled = mangle_symbol_name(name);
     match arch {
-        Architecture::ARM64 => arm64::emit_function_prologue(out, &mangled),
-        Architecture::X64 => x64::emit_function_prologue(out, &mangled),
+        Architecture::ARM64 => arm64::emit_function_prologue(out, &mangled, os),
+        Architecture::X64 => x64::emit_function_prologue(out, &mangled, os),
     }
 }
 
@@ -324,6 +329,15 @@ pub fn emit_function_epilogue(out: &mut String, arch: Architecture) {
     match arch {
         Architecture::ARM64 => arm64::emit_function_epilogue(out),
         Architecture::X64 => x64::emit_function_epilogue(out),
+    }
+}
+
+/// Closes the Windows-x64 SEH scope for one generated function. No-op on
+/// every other target (GAS ELF/Mach-O rejects `.seh_*`). Call once per
+/// function at its final `.text` position.
+pub fn emit_function_endproc(out: &mut String, arch: Architecture, os: OperatingSystem) {
+    if matches!(arch, Architecture::X64) && matches!(os, OperatingSystem::Windows) {
+        x64::emit_seh_endproc(out);
     }
 }
 

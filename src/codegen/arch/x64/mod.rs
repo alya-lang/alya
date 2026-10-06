@@ -238,9 +238,21 @@ pub fn emit_header(out: &mut String, os: OperatingSystem) {
             out.push_str(".extern rmdir\n\n");
         }
         out.push_str(".text\n");
+        if matches!(os, OperatingSystem::Windows) {
+            // SEH for the entry itself (alya-lang/alya#109): CRT calls
+            // `main`, so the unwinder walks through it like any `fn_*`.
+            out.push_str("    .seh_proc main\n");
+        }
         out.push_str("main:\n");
         out.push_str("    push %rbp\n");
+        if matches!(os, OperatingSystem::Windows) {
+            out.push_str("    .seh_pushreg %rbp\n");
+        }
         out.push_str("    mov %rsp, %rbp\n");
+        if matches!(os, OperatingSystem::Windows) {
+            out.push_str("    .seh_setframe %rbp, 0\n");
+            out.push_str("    .seh_endprologue\n");
+        }
         if matches!(os, OperatingSystem::Windows) {
             out.push_str("    movq %rcx, alya_argc(%rip)\n");
             out.push_str("    movq %rdx, alya_argv(%rip)\n\n");

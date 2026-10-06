@@ -45,7 +45,7 @@ pub fn emit_increment_var(
     out.push_str(&format!("    b {}\n", start_label));
 }
 
-pub fn emit_function_prologue(out: &mut String, name: &str) {
+pub fn emit_function_prologue(out: &mut String, name: &str, _os: OperatingSystem) {
     out.push_str(&format!("\n.globl fn_{}\n", name));
     out.push_str(&format!("fn_{}:\n", name));
     out.push_str("    stp x29, x30, [sp, #-16]!\n");

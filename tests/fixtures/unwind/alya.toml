@@ -1,0 +1,6 @@
+[package]
+name = "unwind-fixture"
+version = "0.1.0"
+
+[build]
+c-sources-windows = ["c/unwind_probe.c"]

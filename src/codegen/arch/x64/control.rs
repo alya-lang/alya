@@ -41,11 +41,33 @@ pub fn emit_increment_var(out: &mut String, var_offset: i32, start_label: &str) 
     out.push_str(&format!("    jmp {}\n", start_label));
 }
 
-pub fn emit_function_prologue(out: &mut String, name: &str) {
+pub fn emit_function_prologue(out: &mut String, name: &str, os: OperatingSystem) {
     out.push_str(&format!("\n.global fn_{}\n", name));
+    if matches!(os, OperatingSystem::Windows) {
+        // Windows x64 unwinding (alya-lang/alya#109): the OS unwinder
+        // cannot walk a frame without .pdata/.xdata. Frame-pointer
+        // prologue (push rbp + SET_FPREG) lets it recompute rsp from
+        // rbp, ignoring body pushes/subs. No prologue stackalloc is
+        // emitted (locals go through pushes), so no UWOP_ALLOC needed.
+        out.push_str(&format!("    .seh_proc fn_{}\n", name));
+    }
     out.push_str(&format!("fn_{}:\n", name));
     out.push_str("    push %rbp\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    .seh_pushreg %rbp\n");
+    }
     out.push_str("    mov %rsp, %rbp\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    .seh_setframe %rbp, 0\n");
+        out.push_str("    .seh_endprologue\n");
+    }
+}
+
+/// Closes the SEH scope opened by the prologue. Call once per function
+/// at its final `.text` position — never in the per-return epilogue
+/// (every `return` inlines its own epilogue + `ret`).
+pub fn emit_seh_endproc(out: &mut String) {
+    out.push_str("    .seh_endproc\n");
 }
 
 /// Emits a global alias label for `@export("name")` (Chapter 18 §1.2).

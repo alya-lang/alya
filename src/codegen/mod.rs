@@ -1451,6 +1451,9 @@ impl CodeGen {
         }
 
         arch::emit_footer(&mut self.output, self.arch);
+        // Close the entry `main:` SEH scope (alya-lang/alya#109). The
+        // footer ends with `ret`, so this is main's final position.
+        arch::emit_function_endproc(&mut self.output, self.arch, self.os);
 
         // Function bodies generated up front (see above); appended here
         // so the file layout is unchanged: entry flow, its `ret`, then
@@ -1670,7 +1673,7 @@ impl CodeGen {
             }
         }
 
-        arch::emit_function_prologue(&mut self.output, self.arch, name);
+        arch::emit_function_prologue(&mut self.output, self.arch, self.os, name);
 
         let mut heap_param_offsets = Vec::new();
         // Static call-site specialization (alya-lang/alya#39 Phase 2):
@@ -2063,6 +2066,12 @@ impl CodeGen {
         }
 
         arch::emit_function_epilogue(&mut self.output, self.arch);
+        // Windows-x64 SEH scope close (alya-lang/alya#109): once per
+        // function at its final `.text` position. Code emission always
+        // ends in `.text` (every rodata hop switches back), and every
+        // `return` inlines its own epilogue above, so this is the single
+        // function end.
+        arch::emit_function_endproc(&mut self.output, self.arch, self.os);
 
         self.ctx.exit_function(saved);
     }

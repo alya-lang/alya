@@ -1,0 +1,17 @@
+extern "C"
+    function run_unwind_test() -> int
+    function probe_has_pdata() -> int
+    function probe_do_raise() -> int
+end
+
+@export("alya_probe_raiser")
+function probe_raiser() -> int
+    return probe_do_raise()
+end
+
+function main()
+    say("pdata=" + str(probe_has_pdata()))
+    say("unwind=" + str(run_unwind_test()))
+end
+
+main()
