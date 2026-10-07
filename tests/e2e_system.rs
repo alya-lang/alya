@@ -1311,6 +1311,61 @@ main()
 }
 
 #[test]
+fn test_e2e_direct_field_function_call() {
+    // alya-lang/alya#114: `m.action(null)` must indirect-call through
+    // the field value, identical to the let-bound form. Pre-fix it
+    // emitted a static `fn_action` call (link error). Both the
+    // imported-module shape (issue repro) and the same-module shape.
+    let code = r#"
+import "tests/fixtures/modules/fnaction/store.alya" as rr
+
+struct Local
+    cb
+end
+
+struct Multi
+    f
+end
+
+function handle_nop(ctx)
+    return 42
+end
+
+function handle_local(x)
+    return 7
+end
+
+function h_multi(a, b, c, d, e)
+    return a + b + c + d + e
+end
+
+function main()
+    let rt = rr::router_new("nf")
+    rr::router_add(rt, "/api/status", handle_nop)
+    let m = rr::match_hit(handle_nop)
+    say("found=" + str(m.found))
+    say("direct=" + str(m.action(null)))
+    let stored = rt.routes[0].action
+    say("bound=" + str(stored(null)))
+    let l = Local { cb: handle_local }
+    say("local=" + str(l.cb(null)))
+    let mm = Multi { f: h_multi }
+    say("multi=" + str(mm.f(1, 2, 3, 4, 5)))
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "found=1\ndirect=42\nbound=42\nlocal=7\nmulti=15\n");
+    }
+}
+
+#[test]
 fn test_e2e_simd_fused_dot() {
     // Fused in-place dot kernels (tensor GEMM fast path): zero-allocation
     // accumulation verified lane by lane, incl. strided gathers.

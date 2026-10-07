@@ -38,3 +38,7 @@ end
 pub function router_match(r, pattern: string)
     return Match { found: 0, action: "missing", note: pattern }
 end
+
+pub function match_hit(action)
+    return Match { found: 1, action: action, note: "hit" }
+end

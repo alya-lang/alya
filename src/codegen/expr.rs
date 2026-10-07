@@ -2109,6 +2109,95 @@ impl CodeGen {
                     }
                 }
 
+                // 2c. Indirect call through a function-valued struct field:
+                // `m.action(args)` parses as Call{action, [m, args...]}
+                // (UFCS shape). When no `S__action` method exists but
+                // struct S declares field `action`, the field value is
+                // the callee: sink it into a hidden local and re-dispatch
+                // as the let-bound form (alya-lang/alya#114). Precedence:
+                // struct methods (2) and same-named free/extern functions
+                // keep their legacy resolution; genuinely unknown names
+                // keep the loud link error. Type-name receivers
+                // (`Point.action(...)`) are excluded: only value
+                // receivers (locals, globals, field/index/call results)
+                // can carry a field value.
+                if resolved_name == *name
+                    && !name.contains("::")
+                    && !name.contains("__")
+                    && !self.ctx.functions.contains(name.as_str())
+                    && !self.ctx.extern_functions.contains_key(name.as_str())
+                    && !self
+                        .ctx
+                        .extern_functions
+                        .contains_key(name.rsplit("::").next().unwrap_or(name.as_str()))
+                {
+                    if let Some(receiver) = actual_args.first().cloned() {
+                        let is_value_receiver = match &receiver {
+                            Expr::Identifier(id) => {
+                                self.ctx.variables.contains_key(id)
+                                    || self.ctx.globals.contains_key(id)
+                            }
+                            _ => true,
+                        };
+                        if is_value_receiver {
+                            if let Some(sname) = self.get_expr_struct_name(&receiver) {
+                                let bare_s = sname.rsplit("::").next().unwrap_or(&sname);
+                                let bare_s = bare_s.rsplit("__").next().unwrap_or(bare_s);
+                                let has_field = self
+                                    .ctx
+                                    .structs
+                                    .get(&sname)
+                                    .or_else(|| self.ctx.structs.get(bare_s))
+                                    .is_some_and(|d| d.fields.contains(name));
+                                if has_field {
+                                    // Same hidden-local rewrite as
+                                    // `gen_temp_index_value` (#79): the slot
+                                    // stays tracked, so the re-dispatched
+                                    // call takes the existing indirect path
+                                    // with identical arg handling.
+                                    let hid = format!(
+                                        "__fieldcall_{}",
+                                        self.ctx
+                                            .next_label()
+                                            .trim_start_matches('.')
+                                            .trim_start_matches('L')
+                                    );
+                                    self.generate_expression(&Expr::FieldAccess {
+                                        object: Box::new(receiver),
+                                        field: name.clone(),
+                                    });
+                                    arch::emit_allocate_var(
+                                        &mut self.output,
+                                        self.arch,
+                                        &mut self.ctx.stack_offset,
+                                    );
+                                    let off = self.ctx.stack_offset;
+                                    self.ctx.variables.insert(hid.clone(), VarType::Number(off));
+                                    let rewritten = Expr::Call {
+                                        name: hid,
+                                        args: actual_args.iter().skip(1).cloned().collect(),
+                                    };
+                                    self.generate_expression(&rewritten);
+                                    // Drop the hidden slot: the call result
+                                    // is in the return register, and the
+                                    // slot would otherwise shift every value
+                                    // pushed afterwards (misaligned `say`
+                                    // concat segfaulted). `add`, not `pop`:
+                                    // popping would clobber the result.
+                                    let word = self.temp_offset();
+                                    arch::emit_stack_restore(
+                                        &mut self.output,
+                                        self.arch,
+                                        word,
+                                    );
+                                    self.ctx.stack_offset -= word;
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // 2b. Self-delegation guard: a bare `name(self, ...)` call
                 // inside the resolved method itself, with all-identifier
                 // args, re-enters this same body with identical values and
