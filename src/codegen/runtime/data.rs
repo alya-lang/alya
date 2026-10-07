@@ -360,9 +360,15 @@ pub fn emit_data_sections(
     out.push_str("alya_str_anon_struct:\n");
     out.push_str(&format!("    {} \"Anonymous\"\n", str_directive));
 
-    // Struct name and field name strings
+    // Struct name and field name strings (sorted by struct name:
+    // HashMap order varies per process, and output must be
+    // byte-identical; sorting also fixes which duplicate-bare struct
+    // wins the dedup below).
     let mut emitted_names = std::collections::HashSet::new();
-    for (name, sdef) in structs {
+    let mut struct_names: Vec<&String> = structs.keys().collect();
+    struct_names.sort();
+    for name in struct_names {
+        let sdef = &structs[name];
         let bare = name.rsplit("::").next().unwrap_or(name);
         let bare = bare.rsplit("__").next().unwrap_or(bare);
         if !emitted_names.insert(bare.to_string()) {
@@ -408,7 +414,11 @@ pub fn emit_data_sections(
     let ptr_dir = ".quad";
 
     let mut emitted_descs = std::collections::HashSet::new();
-    for (name, sdef) in structs {
+    // Sorted (see above): deterministic emission and dedup winner.
+    let mut desc_names: Vec<&String> = structs.keys().collect();
+    desc_names.sort();
+    for name in desc_names {
+        let sdef = &structs[name];
         let bare = name.rsplit("::").next().unwrap_or(name);
         let bare = bare.rsplit("__").next().unwrap_or(bare);
         let desc_label = format!("alya_struct_desc_{}", bare);
@@ -424,7 +434,10 @@ pub fn emit_data_sections(
     }
 
     let mut emitted_vtables = std::collections::HashSet::new();
-    for ((sname, iname), vtable_label) in vtables {
+    // Sorted by label (see above): deterministic emission and dedup.
+    let mut vtable_entries: Vec<(&(String, String), &String)> = vtables.iter().collect();
+    vtable_entries.sort_by(|a, b| a.1.cmp(b.1).then_with(|| a.0.cmp(b.0)));
+    for ((sname, iname), vtable_label) in vtable_entries {
         if !emitted_vtables.insert(vtable_label.clone()) {
             continue;
         }
@@ -439,13 +452,22 @@ pub fn emit_data_sections(
                 format!("{}__{}", sname, m.name)
             } else if functions.contains(&format!("{}__{}", bare_s, m.name)) {
                 format!("{}__{}", bare_s, m.name)
-            } else if let Some(matching) = functions.iter().find(|f| {
-                (f.ends_with(&format!("__{}", m.name)) || f.ends_with(&format!("::{}", m.name)))
-                    && f.contains(bare_s)
-            }) {
-                matching.clone()
             } else {
-                format!("{}__{}", bare_s, m.name)
+                // Deterministic pick among several matches (HashSet
+                // order varies per process): smallest name wins.
+                let mut matching: Vec<&String> = functions
+                    .iter()
+                    .filter(|f| {
+                        (f.ends_with(&format!("__{}", m.name))
+                            || f.ends_with(&format!("::{}", m.name)))
+                            && f.contains(bare_s)
+                    })
+                    .collect();
+                matching.sort();
+                matching
+                    .first()
+                    .map(|s| (*s).clone())
+                    .unwrap_or_else(|| format!("{}__{}", bare_s, m.name))
             };
             let mangled = crate::codegen::arch::control::mangle_symbol_name(&fn_target);
             out.push_str(&format!("    {} fn_{}\n", ptr_dir, mangled));

@@ -1354,9 +1354,12 @@ impl CodeGen {
         self.output.push_str("    .byte 0\n");
         self.output.push_str(".text\n");
 
-        // Emit external symbol declarations
+        // Emit external symbol declarations (sorted: HashMap order
+        // varies per process, and output must be byte-identical).
         let mut declared_externs = std::collections::HashSet::new();
-        for name in self.ctx.extern_functions.keys() {
+        let mut extern_names: Vec<&String> = self.ctx.extern_functions.keys().collect();
+        extern_names.sort();
+        for name in extern_names {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
             if declared_externs.insert(bare.to_string()) {
@@ -3057,10 +3060,10 @@ impl CodeGen {
                 || norm.starts_with(&format!("{}::", cur_mod));
             let segs = norm.split("__").count();
             // `same_mod` first (false sorts before true, so invert),
-            // then fewest segments.
-            let key = (!same_mod, segs);
+            // then fewest segments, then smallest name: fully
+            // deterministic across HashSet orders.
             let take = match &best {
-                Some((bsm, bs, _)) => key < (*bsm, *bs),
+                Some((bsm, bs, bf)) => (!same_mod, segs, f) < (*bsm, *bs, bf),
                 None => true,
             };
             if take {
