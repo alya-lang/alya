@@ -47,6 +47,8 @@ pub struct ScopeState {
     pub active_defers: Vec<(usize, Stmt, i32)>,
     pub next_defer_idx: usize,
     pub current_fn_name: String,
+    pub nullable_heap_vars: HashSet<String>,
+    pub loop_mayheap: HashSet<i32>,
 }
 
 /// Counters for the return-tag protocol measurement
@@ -92,6 +94,16 @@ pub struct CodeGenContext {
     pub globals: HashMap<String, (String, Option<String>)>,
     pub enums: HashSet<String>,
     pub tag_stats: TagStats,
+    /// Locals proven to hold only `null` or heap-constructor literals
+    /// (see `nullable_heap_locals`): their reads take the probe-free
+    /// direct retain/release. Recomputed per function body.
+    pub nullable_heap_vars: HashSet<String>,
+    /// Stack offsets of loop-pre-nulled slots. The pre-pass marks them
+    /// `Array`-typed as a may-fact (any value kind can flow in), so
+    /// their `VarType` must NOT drive probe-free direct calls; reads
+    /// consult `nullable_heap_vars` instead. Stale entries only cost a
+    /// probed call, never safety.
+    pub loop_mayheap: HashSet<i32>,
 }
 
 impl CodeGenContext {
@@ -115,6 +127,8 @@ impl CodeGenContext {
             globals: HashMap::new(),
             enums: HashSet::new(),
             tag_stats: TagStats::default(),
+            nullable_heap_vars: HashSet::new(),
+            loop_mayheap: HashSet::new(),
         }
     }
 
@@ -203,6 +217,8 @@ impl CodeGenContext {
             active_defers: std::mem::take(&mut self.active_defers),
             next_defer_idx: self.next_defer_idx,
             current_fn_name: std::mem::take(&mut self.current_fn_name),
+            nullable_heap_vars: std::mem::take(&mut self.nullable_heap_vars),
+            loop_mayheap: std::mem::take(&mut self.loop_mayheap),
         };
         self.stack_offset = 0;
         self.next_defer_idx = 0;
@@ -216,5 +232,7 @@ impl CodeGenContext {
         self.active_defers = saved.active_defers;
         self.next_defer_idx = saved.next_defer_idx;
         self.current_fn_name = saved.current_fn_name;
+        self.nullable_heap_vars = saved.nullable_heap_vars;
+        self.loop_mayheap = saved.loop_mayheap;
     }
 }

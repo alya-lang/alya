@@ -25,8 +25,9 @@ impl CodeGen {
                         self.os,
                     );
                 }
-                if self.is_heap_expression(value) {
-                    arch::emit_rc_retain(
+                if self.value_proven_heap(value) {
+                    // Proven heap: skip the syscall probe.
+                    arch::emit_rc_retain_direct(
                         &mut self.output,
                         self.arch,
                         self.ctx.stack_offset,
@@ -170,7 +171,7 @@ impl CodeGen {
         match value {
             Expr::Null => {
                 self.generate_expression(value);
-                self.emit_let_rebind_release(old_heap_offset, false);
+                self.emit_let_rebind_release(&name, old_heap_offset, false);
                 // Rebinding null needs no store: the rebind release
                 // already nulled the old slot.
                 let slot = match old_heap_offset {
@@ -193,7 +194,7 @@ impl CodeGen {
                 self.emit_string_directive(&escape_string(s));
                 self.output.push_str(".text\n");
                 arch::emit_load_str_label(&mut self.output, self.arch, &label, self.os);
-                self.emit_let_rebind_release(old_heap_offset, false);
+                self.emit_let_rebind_release(&name, old_heap_offset, false);
                 let slot = self.let_home_slot(old_heap_offset, false);
                 self.ctx
                     .variables
@@ -244,7 +245,7 @@ impl CodeGen {
                 };
                 self.generate_expression(value);
 
-                self.emit_let_rebind_release(old_heap_offset, false);
+                self.emit_let_rebind_release(&name, old_heap_offset, false);
                 let slot = self.let_home_slot(old_heap_offset, false);
 
                 self.ctx
@@ -318,7 +319,7 @@ impl CodeGen {
             } => {
                 self.generate_expression(value);
 
-                self.emit_let_rebind_release(old_heap_offset, false);
+                self.emit_let_rebind_release(&name, old_heap_offset, false);
                 let slot = self.let_home_slot(old_heap_offset, false);
 
                 self.ctx.variables.insert(
@@ -415,7 +416,7 @@ impl CodeGen {
 
                 self.generate_expression(value);
 
-                self.emit_let_rebind_release(old_heap_offset, false);
+                self.emit_let_rebind_release(&name, old_heap_offset, false);
                 let slot = self.let_home_slot(old_heap_offset, false);
 
                 self.ctx.variables.insert(
@@ -560,12 +561,7 @@ impl CodeGen {
                 let is_map = is_explicit_map || is_map_expr(value, &self.ctx.variables);
                 let is_null = is_null_expr(value, &self.ctx.variables);
                 let is_alias_heap = match value {
-                    Expr::Identifier(ident) => matches!(
-                        self.ctx.variables.get(ident),
-                        Some(VarType::Array(_))
-                            | Some(VarType::Map(_))
-                            | Some(VarType::Struct { .. })
-                    ),
+                    Expr::Identifier(ident) => self.identifier_proven_heap(ident),
                     Expr::Index { .. } | Expr::FieldAccess { .. } => {
                         is_arr || is_map || is_struct.is_some() || self.is_heap_expression(value)
                     }
@@ -628,7 +624,9 @@ impl CodeGen {
                 }
 
                 if is_alias_heap {
-                    arch::emit_rc_retain(
+                    // Proven heap alias (typed local or proven index/field
+                    // read): probe-free direct retain.
+                    arch::emit_rc_retain_direct(
                         &mut self.output,
                         self.arch,
                         self.ctx.stack_offset,
@@ -636,7 +634,7 @@ impl CodeGen {
                     );
                 }
 
-                self.emit_let_rebind_release(old_heap_offset, is_flt);
+                self.emit_let_rebind_release(&name, old_heap_offset, is_flt);
                 // Reuse a rebound slot when safe (issue #80); otherwise
                 // allocate fresh. `slot` is the home offset from here on.
                 let slot = self.let_home_slot(old_heap_offset, is_flt);
@@ -1027,18 +1025,31 @@ impl CodeGen {
     /// pointer (double-free guard, issue #80). The new value is already
     /// generated (and retained when aliased), so dropping the old slot
     /// mirrors `=` exactly. No-op for first declarations (alya-lang/alya#79).
-    fn emit_let_rebind_release(&mut self, old_offset: Option<i32>, is_flt: bool) {
+    /// Probe-free direct release only when the old slot is proven heap
+    /// (union proof or typed slot untouched by loop pre-nulling, whose
+    /// `Array` markers are may-facts).
+    fn emit_let_rebind_release(&mut self, name: &str, old_offset: Option<i32>, is_flt: bool) {
         if let Some(old_offset) = old_offset {
             let temp_offset = self.temp_offset();
             arch::emit_push_temp(&mut self.output, self.arch);
             self.ctx.stack_offset += temp_offset;
-            arch::emit_rc_release_stack(
-                &mut self.output,
-                self.arch,
-                old_offset,
-                self.ctx.stack_offset,
-                self.os,
-            );
+            if self.slot_proven_heap(name, old_offset) {
+                arch::emit_rc_release_stack_direct(
+                    &mut self.output,
+                    self.arch,
+                    old_offset,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+            } else {
+                arch::emit_rc_release_stack(
+                    &mut self.output,
+                    self.arch,
+                    old_offset,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+            }
             arch::emit_load_num(&mut self.output, self.arch, 0);
             arch::emit_store_var(
                 &mut self.output,
@@ -1137,10 +1148,7 @@ impl CodeGen {
             _ => None,
         };
         let is_alias_heap = match value {
-            Expr::Identifier(ident) => matches!(
-                self.ctx.variables.get(ident),
-                Some(VarType::Array(_)) | Some(VarType::Map(_)) | Some(VarType::Struct { .. })
-            ),
+            Expr::Identifier(ident) => self.identifier_proven_heap(ident),
             Expr::Index { .. } | Expr::FieldAccess { .. } => {
                 old_heap_offset.is_some() || is_arr || is_map
             }
@@ -1219,20 +1227,38 @@ impl CodeGen {
         }
 
         if is_alias_heap {
-            arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+            // Proven heap alias: probe-free direct retain.
+            arch::emit_rc_retain_direct(
+                &mut self.output,
+                self.arch,
+                self.ctx.stack_offset,
+                self.os,
+            );
         }
 
         if let Some(old_offset) = old_heap_offset {
             let temp_offset = self.temp_offset();
             arch::emit_push_temp(&mut self.output, self.arch);
             self.ctx.stack_offset += temp_offset;
-            arch::emit_rc_release_stack(
-                &mut self.output,
-                self.arch,
-                old_offset,
-                self.ctx.stack_offset,
-                self.os,
-            );
+            // Direct only when proven (union or typed slot untouched by
+            // loop pre-nulling); pre-null may-facts keep the probe.
+            if self.slot_proven_heap(&name, old_offset) {
+                arch::emit_rc_release_stack_direct(
+                    &mut self.output,
+                    self.arch,
+                    old_offset,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+            } else {
+                arch::emit_rc_release_stack(
+                    &mut self.output,
+                    self.arch,
+                    old_offset,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+            }
             self.ctx.stack_offset -= temp_offset;
             arch::emit_pop_temp(&mut self.output, self.arch);
             if is_flt {
@@ -1547,8 +1573,14 @@ impl CodeGen {
         self.ctx.stack_offset += temp_offset;
 
         self.generate_expression(value);
-        if !is_weak && self.is_heap_expression(value) {
-            arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+        if !is_weak && self.value_proven_heap(value) {
+            // Proven heap: skip the syscall probe.
+            arch::emit_rc_retain_direct(
+                &mut self.output,
+                self.arch,
+                self.ctx.stack_offset,
+                self.os,
+            );
         }
         // B1: named stores outlive the wrapping ring buffer.
         if string_store_needs_dup(value, &self.ctx.variables) {
@@ -1603,7 +1635,15 @@ impl CodeGen {
             for arg in actual_args.iter() {
                 self.generate_expression(arg);
                 if std::ptr::eq(*arg, value) && self.store_value_needs_retain(value) {
-                    if is_tag_carrying_read(value, &self.ctx.variables) {
+                    if self.value_proven_heap(value) {
+                        // Proven heap: skip the syscall probe.
+                        arch::emit_rc_retain_direct(
+                            &mut self.output,
+                            self.arch,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    } else if is_tag_carrying_read(value, &self.ctx.variables) {
                         // The value tag is fresh: skip the retain for
                         // int/float scalars (retaining a large 8-aligned
                         // int faults), keep it for heap/unknown kinds.
@@ -1752,7 +1792,15 @@ impl CodeGen {
             for arg in actual_args.iter() {
                 self.generate_expression(arg);
                 if std::ptr::eq(*arg, value) && self.store_value_needs_retain(value) {
-                    if is_tag_carrying_read(value, &self.ctx.variables) {
+                    if self.value_proven_heap(value) {
+                        // Proven heap: skip the syscall probe.
+                        arch::emit_rc_retain_direct(
+                            &mut self.output,
+                            self.arch,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    } else if is_tag_carrying_read(value, &self.ctx.variables) {
                         self.emit_tag_guarded_retain();
                     } else {
                         arch::emit_rc_retain(
@@ -1794,7 +1842,22 @@ impl CodeGen {
 
             self.generate_expression(value);
             if self.store_value_needs_retain(value) {
-                arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+                if self.value_proven_heap(value) {
+                    // Proven heap: skip the syscall probe.
+                    arch::emit_rc_retain_direct(
+                        &mut self.output,
+                        self.arch,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                } else {
+                    arch::emit_rc_retain(
+                        &mut self.output,
+                        self.arch,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                }
             }
             // B1: named stores outlive the wrapping ring buffer.
             if string_store_needs_dup(value, &self.ctx.variables) {

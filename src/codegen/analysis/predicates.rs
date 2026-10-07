@@ -1541,6 +1541,232 @@ pub fn is_null_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     }
 }
 
+/// Assigned-kind classes for the nullable-heap proof below.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AssignedKind {
+    /// `null` literal: refcount guards skip it.
+    Null,
+    /// Heap-constructor literal (array/map/struct) or a call proven to
+    /// return heap (struct constructor, `fn_ret_arr/map/struct`
+    /// markers — the same evidence `is_heap_expression` trusts):
+    /// a fresh live heap object.
+    Heap,
+    /// Anything else (calls, identifiers, reads, arithmetic...):
+    /// unknown, never proven.
+    Other,
+}
+
+fn classify_assigned(
+    expr: &Expr,
+    vars: &HashMap<String, VarType>,
+    structs: &HashMap<String, crate::codegen::context::StructDefInfo>,
+) -> AssignedKind {
+    match expr {
+        Expr::Null => AssignedKind::Null,
+        Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. } => AssignedKind::Heap,
+        Expr::Call { name, .. } => {
+            let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            if structs.contains_key(name)
+                || structs.contains_key(bare)
+                || is_array_expr(expr, vars)
+                || is_map_expr(expr, vars)
+            {
+                AssignedKind::Heap
+            } else {
+                AssignedKind::Other
+            }
+        }
+        _ => AssignedKind::Other,
+    }
+}
+
+/// Nullable-heap locals for the probe-free refcount fast path.
+///
+/// Walks a function body and returns the locals that can only ever hold
+/// `null` or heap values: every syntactic assignment to them (including
+/// inside nested blocks and closures, which may capture and write outer
+/// locals) is a `null` literal, a heap-constructor literal, or a call
+/// proven to return heap (struct constructors, `fn_ret_arr/map/struct`
+/// markers — the same evidence `is_heap_expression` trusts), with at
+/// least one heap assignment. Reads of such locals take the direct
+/// (probe-free) retain/release: `null` skips via the guards, heap
+/// objects via the magic check. Anything else — unlisted statement
+/// forms, loop/catch variables (iterable/throwable values are unknown),
+/// parameters (callers assign invisibly), globals (assigned anywhere in
+/// the program), shadowed names (several `let` bindings), any other
+/// right-hand side — stays unproven and keeps the probed call, so the
+/// analysis only ever removes syscalls, never safety.
+///
+/// Soundness rests on syntactic completeness: every assignment to a
+/// local in the language is a `let`, `const`, `=`-assign, or loop/catch
+/// binding, all covered above; there are no references, eval, or other
+/// invisible writers to locals.
+pub fn nullable_heap_locals(
+    body: &[&Stmt],
+    params: &[String],
+    globals: &std::collections::HashSet<String>,
+    vars: &HashMap<String, VarType>,
+    structs: &HashMap<String, crate::codegen::context::StructDefInfo>,
+) -> HashSet<String> {
+    use std::collections::HashMap as Map;
+    let mut lets: Map<String, usize> = Map::new();
+    let mut assigns: Map<String, Vec<AssignedKind>> = Map::new();
+    let mut disqualified: HashSet<String> = params.iter().cloned().collect();
+
+    fn walk_refs(
+        body: &[Stmt],
+        lets: &mut Map<String, usize>,
+        assigns: &mut Map<String, Vec<AssignedKind>>,
+        disqualified: &mut HashSet<String>,
+        vars: &HashMap<String, VarType>,
+        structs: &HashMap<String, crate::codegen::context::StructDefInfo>,
+    ) {
+        let refs: Vec<&Stmt> = body.iter().collect();
+        walk(&refs, lets, assigns, disqualified, vars, structs);
+    }
+
+    fn walk(
+        stmts: &[&Stmt],
+        lets: &mut Map<String, usize>,
+        assigns: &mut Map<String, Vec<AssignedKind>>,
+        disqualified: &mut HashSet<String>,
+        vars: &HashMap<String, VarType>,
+        structs: &HashMap<String, crate::codegen::context::StructDefInfo>,
+    ) {
+        for stmt in stmts {
+            match *stmt {
+                Stmt::Let { name, value, .. } => {
+                    *lets.entry(name.clone()).or_insert(0) += 1;
+                    assigns
+                        .entry(name.clone())
+                        .or_default()
+                        .push(classify_assigned(value, vars, structs));
+                }
+                Stmt::Const { name, value } => {
+                    *lets.entry(name.clone()).or_insert(0) += 1;
+                    assigns
+                        .entry(name.clone())
+                        .or_default()
+                        .push(classify_assigned(value, vars, structs));
+                }
+                Stmt::Assign { name, value } => {
+                    assigns
+                        .entry(name.clone())
+                        .or_default()
+                        .push(classify_assigned(value, vars, structs));
+                }
+                Stmt::For { var, body, .. } => {
+                    disqualified.insert(var.clone());
+                    walk_refs(body, lets, assigns, disqualified, vars, structs);
+                }
+                Stmt::ForEach {
+                    var,
+                    value_var,
+                    body,
+                    ..
+                } => {
+                    disqualified.insert(var.clone());
+                    if let Some(vv) = value_var {
+                        disqualified.insert(vv.clone());
+                    }
+                    walk_refs(body, lets, assigns, disqualified, vars, structs);
+                }
+                Stmt::Function {
+                    name, params, body, ..
+                } => {
+                    // Nested closures may capture and write outer locals:
+                    // their params are invisible to us, their bodies are not.
+                    // The function name itself could also shadow a variable.
+                    disqualified.insert(name.clone());
+                    for p in params {
+                        disqualified.insert(p.clone());
+                    }
+                    walk_refs(body, lets, assigns, disqualified, vars, structs);
+                }
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    walk_refs(then_block, lets, assigns, disqualified, vars, structs);
+                    if let Some(eb) = else_block {
+                        walk_refs(eb, lets, assigns, disqualified, vars, structs);
+                    }
+                }
+                Stmt::While { body, .. } | Stmt::Repeat { body } => {
+                    walk_refs(body, lets, assigns, disqualified, vars, structs);
+                }
+                Stmt::TryCatch {
+                    try_block,
+                    catch_var,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    if let Some(cv) = catch_var {
+                        disqualified.insert(cv.clone());
+                    }
+                    walk_refs(try_block, lets, assigns, disqualified, vars, structs);
+                    walk_refs(catch_block, lets, assigns, disqualified, vars, structs);
+                    if let Some(fb) = finally_block {
+                        walk_refs(fb, lets, assigns, disqualified, vars, structs);
+                    }
+                }
+                Stmt::Defer(inner) | Stmt::Pub(inner) => {
+                    walk(
+                        std::slice::from_ref(&inner.as_ref()),
+                        lets,
+                        assigns,
+                        disqualified,
+                        vars,
+                        structs,
+                    );
+                }
+                // No variable assignments: imports, definitions, externs,
+                // expression statements (expressions hold no statements),
+                // control transfers, and container-slot writes
+                // (`IndexAssign`/`FieldAssign` target slots, not locals).
+                Stmt::Import { .. }
+                | Stmt::ExternBlock { .. }
+                | Stmt::Say(_)
+                | Stmt::StructDef { .. }
+                | Stmt::EnumDef { .. }
+                | Stmt::Return(_)
+                | Stmt::Break
+                | Stmt::Continue
+                | Stmt::Expr(_)
+                | Stmt::Throw(_)
+                | Stmt::IndexAssign { .. }
+                | Stmt::FieldAssign { .. }
+                | Stmt::InterfaceDef { .. } => {}
+            }
+        }
+    }
+
+    walk(
+        body,
+        &mut lets,
+        &mut assigns,
+        &mut disqualified,
+        vars,
+        structs,
+    );
+
+    assigns
+        .into_iter()
+        .filter(|(name, kinds)| {
+            !disqualified.contains(name)
+                && !globals.contains(name)
+                && lets.get(name).copied().unwrap_or(0) <= 1
+                && !kinds.is_empty()
+                && kinds.iter().all(|k| *k != AssignedKind::Other)
+                && kinds.contains(&AssignedKind::Heap)
+        })
+        .map(|(name, _)| name)
+        .collect()
+}
+
 pub fn is_number_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::Number(_) => true,

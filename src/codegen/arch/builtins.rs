@@ -326,6 +326,22 @@ pub fn emit_rc_retain(
     }
 }
 
+/// Probe-free retain for statically-proven heap values: same shape as
+/// `emit_rc_retain`, but calls `fn_rc_retain_direct` (no readability
+/// probe, no syscall). Call ONLY when `is_heap_expression(value)` holds;
+/// dynamic values must keep the probed call (alya-lang/alya#117).
+pub fn emit_rc_retain_direct(
+    out: &mut String,
+    arch: Architecture,
+    stack_offset: i32,
+    os: OperatingSystem,
+) {
+    match arch {
+        Architecture::X64 => x64::builtins::emit_rc_retain_direct(out, stack_offset, os),
+        Architecture::ARM64 => arm64::builtins::emit_rc_retain_direct(out),
+    }
+}
+
 /// Duplicate the string in `rax`/`x0` into immortal stable-region memory
 /// (B1: named stores must outlive the wrapping ring buffer). Single
 /// argument in, same register out. Literals pass through untouched inside
@@ -354,6 +370,20 @@ pub fn emit_rc_release(
     }
 }
 
+/// Probe-free release for statically-proven heap values (see
+/// `emit_rc_retain_direct`).
+pub fn emit_rc_release_direct(
+    out: &mut String,
+    arch: Architecture,
+    stack_offset: i32,
+    os: OperatingSystem,
+) {
+    match arch {
+        Architecture::X64 => x64::builtins::emit_rc_release_direct(out, stack_offset, os),
+        Architecture::ARM64 => arm64::builtins::emit_rc_release_direct(out),
+    }
+}
+
 pub fn emit_rc_release_stack(
     out: &mut String,
     arch: Architecture,
@@ -364,6 +394,24 @@ pub fn emit_rc_release_stack(
     match arch {
         Architecture::X64 => x64::builtins::emit_rc_release_stack(out, offset, stack_offset, os),
         Architecture::ARM64 => arm64::builtins::emit_rc_release_stack(out, offset),
+    }
+}
+
+/// Probe-free slot release for statically-proven heap slots (see
+/// `emit_rc_retain_direct`). All offsets from `get_scope_heap_offsets`
+/// are proven heap by construction (Array/Map/Struct/Interface only).
+pub fn emit_rc_release_stack_direct(
+    out: &mut String,
+    arch: Architecture,
+    offset: i32,
+    stack_offset: i32,
+    os: OperatingSystem,
+) {
+    match arch {
+        Architecture::X64 => {
+            x64::builtins::emit_rc_release_stack_direct(out, offset, stack_offset, os)
+        }
+        Architecture::ARM64 => arm64::builtins::emit_rc_release_stack_direct(out, offset),
     }
 }
 

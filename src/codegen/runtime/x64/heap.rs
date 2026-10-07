@@ -563,6 +563,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    test %r10d, %r10d\n");
         out.push_str("    jnz .L_x64_rc_retain_done\n");
     }
+    // Shared tag-read entry: fn_rc_retain_direct jumps here after its
+    // own (probe-free) guards. Same registers (r11 value), same frame
+    // shape, so the shared tail below serves both.
+    out.push_str(".L_x64_rc_ret_tag_read:\n");
     out.push_str("    movl -16(%r11), %eax\n");
     out.push_str("    cmp $0x5A110001, %rax\n");
     out.push_str("    je .L_x64_rc_retain_ok\n");
@@ -580,6 +584,53 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov %rbp, %rsp\n");
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
+
+    // fn_rc_retain_direct(value): same contract as fn_rc_retain but
+    // WITHOUT the readability probe. Call ONLY with statically-proven
+    // heap values (`is_heap_expression`): literals, typed
+    // array/map/struct locals, proven calls. Their headers are our own
+    // live allocations, always mapped, so the syscall probe
+    // (msync/VirtualQuery, ~100ns+ per op) is pure overhead — it cost up
+    // to 6x on allocation-heavy benchmarks. Dynamic or unknown values
+    // MUST use the probed fn_rc_retain (alya-lang/alya#117: raw big ints
+    // fault on the header read). Guards run first, then control joins
+    // the shared tag-read tail (same registers and frame shape).
+    out.push_str(".global fn_rc_retain_direct\n");
+    out.push_str("fn_rc_retain_direct:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    mov %rcx, %r11\n");
+    } else {
+        out.push_str("    mov %rdi, %r11\n");
+    }
+    out.push_str("    test $7, %r11\n");
+    out.push_str("    jnz .L_x64_rc_retain_done\n");
+    out.push_str("    cmp $65536, %r11\n");
+    out.push_str("    jbe .L_x64_rc_retain_done\n");
+    out.push_str("    mov $0x00007fffffffffff, %rax\n");
+    out.push_str("    cmp %rax, %r11\n");
+    out.push_str("    ja .L_x64_rc_retain_done\n");
+    out.push_str("    lea alya_rodata_start(%rip), %rax\n");
+    out.push_str("    cmp %rax, %r11\n");
+    out.push_str("    jb .L_x64_rc_retain_direct_chk_str_buf\n");
+    out.push_str("    lea alya_rodata_end(%rip), %rdx\n");
+    out.push_str("    cmp %rdx, %r11\n");
+    out.push_str("    jb .L_x64_rc_retain_done\n");
+    out.push_str(".L_x64_rc_retain_direct_chk_str_buf:\n");
+    out.push_str("    lea alya_str_buf(%rip), %rax\n");
+    out.push_str("    cmp %rax, %r11\n");
+    out.push_str("    jb .L_x64_rc_ret_tag_read\n");
+    out.push_str("    lea 67108864(%rax), %rdx\n");
+    out.push_str("    cmp %rdx, %r11\n");
+    out.push_str("    jb .L_x64_rc_retain_done\n");
+    out.push_str("    lea alya_str_stable(%rip), %rax\n");
+    out.push_str("    cmp %rax, %r11\n");
+    out.push_str("    jb .L_x64_rc_ret_tag_read\n");
+    out.push_str("    lea 67108864(%rax), %rdx\n");
+    out.push_str("    cmp %rdx, %r11\n");
+    out.push_str("    jb .L_x64_rc_retain_done\n");
+    out.push_str("    jmp .L_x64_rc_ret_tag_read\n\n");
 
     // fn_rc_release
     out.push_str(".global fn_rc_release\n");
@@ -655,6 +706,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    test %r10d, %r10d\n");
         out.push_str("    jnz .L_x64_rc_rel_done\n");
     }
+    // Shared tag-read entry, same arrangement as retain (see above).
+    out.push_str(".L_x64_rc_rel_tag_read:\n");
     out.push_str("    movl -16(%rbx), %r12d\n");
     out.push_str("    cmp $0x5A110001, %r12\n");
     out.push_str("    je .L_x64_rc_rel_ok\n");
@@ -873,6 +926,49 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov %rbp, %rsp\n");
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
+
+    // fn_rc_release_direct(value): same contract as fn_rc_retain_direct
+    // (proven heap only, no probe). Guards run first, then control joins
+    // the shared tag-read tail, whose cascade keeps probed recursion.
+    out.push_str(".global fn_rc_release_direct\n");
+    out.push_str("fn_rc_release_direct:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %rbx\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    sub $48, %rsp\n");
+    if is_win {
+        out.push_str("    mov %rcx, %rbx\n");
+    } else {
+        out.push_str("    mov %rdi, %rbx\n");
+    }
+    out.push_str("    test $7, %rbx\n");
+    out.push_str("    jnz .L_x64_rc_rel_done\n");
+    out.push_str("    cmp $65536, %rbx\n");
+    out.push_str("    jbe .L_x64_rc_rel_done\n");
+    out.push_str("    mov $0x00007fffffffffff, %rax\n");
+    out.push_str("    cmp %rax, %rbx\n");
+    out.push_str("    ja .L_x64_rc_rel_done\n");
+    out.push_str("    lea alya_rodata_start(%rip), %rax\n");
+    out.push_str("    cmp %rax, %rbx\n");
+    out.push_str("    jb .L_x64_rc_rel_direct_chk_str_buf\n");
+    out.push_str("    lea alya_rodata_end(%rip), %rdx\n");
+    out.push_str("    cmp %rdx, %rbx\n");
+    out.push_str("    jb .L_x64_rc_rel_done\n");
+    out.push_str(".L_x64_rc_rel_direct_chk_str_buf:\n");
+    out.push_str("    lea alya_str_buf(%rip), %rax\n");
+    out.push_str("    cmp %rax, %rbx\n");
+    out.push_str("    jb .L_x64_rc_rel_tag_read\n");
+    out.push_str("    lea 67108864(%rax), %rdx\n");
+    out.push_str("    cmp %rdx, %rbx\n");
+    out.push_str("    jb .L_x64_rc_rel_done\n");
+    out.push_str("    lea alya_str_stable(%rip), %rax\n");
+    out.push_str("    cmp %rax, %rbx\n");
+    out.push_str("    jb .L_x64_rc_rel_tag_read\n");
+    out.push_str("    lea 67108864(%rax), %rdx\n");
+    out.push_str("    cmp %rdx, %rbx\n");
+    out.push_str("    jb .L_x64_rc_rel_done\n");
+    out.push_str("    jmp .L_x64_rc_rel_tag_read\n\n");
 
     // fn_rc_count
     out.push_str(".global fn_rc_count\n");

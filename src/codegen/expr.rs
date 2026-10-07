@@ -1134,8 +1134,9 @@ impl CodeGen {
                         if field_wants_flt {
                             self.emit_implicit_float_convert(arg);
                         }
-                        if !is_weak && self.is_heap_expression(arg) {
-                            arch::emit_rc_retain(
+                        if !is_weak && self.value_proven_heap(arg) {
+                            // Proven heap: probe-free direct retain.
+                            arch::emit_rc_retain_direct(
                                 &mut self.output,
                                 self.arch,
                                 self.ctx.stack_offset,
@@ -1374,7 +1375,15 @@ impl CodeGen {
                         }
                     }
                     if self.store_value_needs_retain(&args[1]) {
-                        if is_tag_carrying_read(&args[1], &self.ctx.variables) {
+                        if self.value_proven_heap(&args[1]) {
+                            // Proven heap: skip the syscall probe.
+                            arch::emit_rc_retain_direct(
+                                &mut self.output,
+                                self.arch,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                        } else if is_tag_carrying_read(&args[1], &self.ctx.variables) {
                             // The element tag is fresh: skip the retain for
                             // int/float scalars (retaining a large 8-aligned
                             // int faults), keep it for heap/unknown kinds.
@@ -2724,12 +2733,22 @@ impl CodeGen {
                             self.emit_implicit_float_convert(arg_expr);
                         }
                         if !is_weak && self.store_value_needs_retain(arg_expr) {
-                            arch::emit_rc_retain(
-                                &mut self.output,
-                                self.arch,
-                                self.ctx.stack_offset,
-                                self.os,
-                            );
+                            if self.value_proven_heap(arg_expr) {
+                                // Proven heap: skip the syscall probe.
+                                arch::emit_rc_retain_direct(
+                                    &mut self.output,
+                                    self.arch,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
+                            } else {
+                                arch::emit_rc_retain(
+                                    &mut self.output,
+                                    self.arch,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
+                            }
                         }
                         // B1: named stores outlive the wrapping ring buffer.
                         if string_store_needs_dup(arg_expr, &self.ctx.variables) {
@@ -2746,12 +2765,22 @@ impl CodeGen {
                     for (i, (_, fval)) in fields.iter().enumerate() {
                         self.generate_expression(fval);
                         if self.store_value_needs_retain(fval) {
-                            arch::emit_rc_retain(
-                                &mut self.output,
-                                self.arch,
-                                self.ctx.stack_offset,
-                                self.os,
-                            );
+                            if self.value_proven_heap(fval) {
+                                // Proven heap: skip the syscall probe.
+                                arch::emit_rc_retain_direct(
+                                    &mut self.output,
+                                    self.arch,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
+                            } else {
+                                arch::emit_rc_retain(
+                                    &mut self.output,
+                                    self.arch,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
+                            }
                         }
                         // B1: named stores outlive the wrapping ring buffer.
                         if string_store_needs_dup(fval, &self.ctx.variables) {
@@ -2876,8 +2905,9 @@ impl CodeGen {
                         _ => false,
                     };
                     self.generate_expression(elem);
-                    if self.is_heap_expression(elem) && !elem_moves {
-                        arch::emit_rc_retain(
+                    if self.value_proven_heap(elem) && !elem_moves {
+                        // Proven heap (non-moving alias): direct retain.
+                        arch::emit_rc_retain_direct(
                             &mut self.output,
                             self.arch,
                             self.ctx.stack_offset,
@@ -2986,12 +3016,22 @@ impl CodeGen {
                                     _ => false,
                                 };
                         if self.store_value_needs_retain(v) && !v_moves {
-                            arch::emit_rc_retain(
-                                &mut self.output,
-                                self.arch,
-                                self.ctx.stack_offset,
-                                self.os,
-                            );
+                            if self.value_proven_heap(v) {
+                                // Proven heap (non-moving alias): direct.
+                                arch::emit_rc_retain_direct(
+                                    &mut self.output,
+                                    self.arch,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
+                            } else {
+                                arch::emit_rc_retain(
+                                    &mut self.output,
+                                    self.arch,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
+                            }
                         }
                         arch::emit_push_temp(&mut self.output, self.arch);
 

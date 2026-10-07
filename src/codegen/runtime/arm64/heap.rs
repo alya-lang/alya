@@ -377,6 +377,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    ldp x0, x30, [sp], #32\n");
         out.push_str("    cbnz w9, .L_arm64_rc_retain_done\n");
     }
+    // Shared tag-read entry for fn_rc_retain_direct (same registers and
+    // frame shape; see the x64 counterpart).
+    out.push_str(".L_arm64_rc_ret_tag_read:\n");
     out.push_str("    ldur x1, [x0, #-16]\n");
     out.push_str("    uxtw x1, w1\n");
     out.push_str("    movz x2, #0x0001\n");
@@ -405,6 +408,40 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    stur wzr, [x0, #-12]\n");
     out.push_str(".L_arm64_rc_retain_done:\n");
     out.push_str("    ret\n\n");
+
+    // fn_rc_retain_direct: probe-free fast path for statically-proven
+    // heap values (see the x64 counterpart). Leaf like the probed form.
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_rc_retain_direct\n");
+    out.push_str("fn_rc_retain_direct:\n");
+    out.push_str("    tst x0, #7\n");
+    out.push_str("    b.ne .L_arm64_rc_retain_done\n");
+    out.push_str("    cmp x0, #65536\n");
+    out.push_str("    b.ls .L_arm64_rc_retain_done\n");
+    out.push_str("    lsr x1, x0, #47\n");
+    out.push_str("    cbnz x1, .L_arm64_rc_retain_done\n");
+    emit_adrp_add(out, "x1", "alya_rodata_start", os);
+    out.push_str("    cmp x0, x1\n");
+    out.push_str("    b.lo .L_arm64_rc_retain_direct_chk_str_buf\n");
+    emit_adrp_add(out, "x2", "alya_rodata_end", os);
+    out.push_str("    cmp x0, x2\n");
+    out.push_str("    b.lo .L_arm64_rc_retain_done\n");
+    out.push_str(".L_arm64_rc_retain_direct_chk_str_buf:\n");
+    emit_adrp_add(out, "x1", "alya_str_buf", os);
+    out.push_str("    cmp x0, x1\n");
+    out.push_str("    b.lo .L_arm64_rc_ret_tag_read\n");
+    out.push_str("    movz x2, #1024, lsl #16\n");
+    out.push_str("    add x2, x1, x2\n");
+    out.push_str("    cmp x0, x2\n");
+    out.push_str("    b.lo .L_arm64_rc_retain_done\n");
+    emit_adrp_add(out, "x1", "alya_str_stable", os);
+    out.push_str("    cmp x0, x1\n");
+    out.push_str("    b.lo .L_arm64_rc_ret_tag_read\n");
+    out.push_str("    movz x2, #1024, lsl #16\n");
+    out.push_str("    add x2, x1, x2\n");
+    out.push_str("    cmp x0, x2\n");
+    out.push_str("    b.lo .L_arm64_rc_retain_done\n");
+    out.push_str("    b .L_arm64_rc_ret_tag_read\n\n");
 
     // fn_rc_release
     out.push_str(".align 2\n");
@@ -473,6 +510,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         }
         out.push_str("    cbnz w0, .L_arm64_rc_rel_done\n");
     }
+    // Shared tag-read entry for fn_rc_release_direct (x19 holds the
+    // value in both forms; frames match).
+    out.push_str(".L_arm64_rc_rel_tag_read:\n");
     out.push_str("    ldur x20, [x19, #-16]\n");
     out.push_str("    uxtw x20, w20\n");
     out.push_str("    movz x2, #0x0001\n");
@@ -626,6 +666,46 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldp x19, x20, [sp, #16]\n");
     out.push_str("    ldp x29, x30, [sp], #32\n");
     out.push_str("    ret\n\n");
+
+    // fn_rc_release_direct: probe-free fast path for statically-proven
+    // heap values (see the x64 counterpart). Same frame as the probed
+    // form so the shared tail serves both; its cascade keeps probed
+    // recursion.
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_rc_release_direct\n");
+    out.push_str("fn_rc_release_direct:\n");
+    out.push_str("    stp x29, x30, [sp, #-32]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    stp x19, x20, [sp, #16]\n");
+    out.push_str("    mov x19, x0\n");
+    out.push_str("    tst x19, #7\n");
+    out.push_str("    b.ne .L_arm64_rc_rel_done\n");
+    out.push_str("    cmp x19, #65536\n");
+    out.push_str("    b.ls .L_arm64_rc_rel_done\n");
+    out.push_str("    lsr x1, x19, #47\n");
+    out.push_str("    cbnz x1, .L_arm64_rc_rel_done\n");
+    emit_adrp_add(out, "x1", "alya_rodata_start", os);
+    out.push_str("    cmp x19, x1\n");
+    out.push_str("    b.lo .L_arm64_rc_rel_direct_chk_str_buf\n");
+    emit_adrp_add(out, "x2", "alya_rodata_end", os);
+    out.push_str("    cmp x19, x2\n");
+    out.push_str("    b.lo .L_arm64_rc_rel_done\n");
+    out.push_str(".L_arm64_rc_rel_direct_chk_str_buf:\n");
+    emit_adrp_add(out, "x1", "alya_str_buf", os);
+    out.push_str("    cmp x19, x1\n");
+    out.push_str("    b.lo .L_arm64_rc_rel_tag_read\n");
+    out.push_str("    movz x2, #1024, lsl #16\n");
+    out.push_str("    add x2, x1, x2\n");
+    out.push_str("    cmp x19, x2\n");
+    out.push_str("    b.lo .L_arm64_rc_rel_done\n");
+    emit_adrp_add(out, "x1", "alya_str_stable", os);
+    out.push_str("    cmp x19, x1\n");
+    out.push_str("    b.lo .L_arm64_rc_rel_tag_read\n");
+    out.push_str("    movz x2, #1024, lsl #16\n");
+    out.push_str("    add x2, x1, x2\n");
+    out.push_str("    cmp x19, x2\n");
+    out.push_str("    b.lo .L_arm64_rc_rel_done\n");
+    out.push_str("    b .L_arm64_rc_rel_tag_read\n\n");
 
     // fn_rc_count
     out.push_str(".align 2\n");

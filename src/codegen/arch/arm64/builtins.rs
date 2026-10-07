@@ -358,13 +358,32 @@ pub fn emit_rc_retain(out: &mut String) {
     out.push_str("    bl fn_rc_retain\n");
 }
 
+/// Probe-free retain for statically-proven heap values (see
+/// `fn_rc_retain_direct`).
+pub fn emit_rc_retain_direct(out: &mut String) {
+    out.push_str("    bl fn_rc_retain_direct\n");
+}
+
 pub fn emit_rc_release(out: &mut String) {
     out.push_str("    bl fn_rc_release\n");
+}
+
+/// Probe-free release for statically-proven heap values (see
+/// `fn_rc_release_direct`).
+pub fn emit_rc_release_direct(out: &mut String) {
+    out.push_str("    bl fn_rc_release_direct\n");
 }
 
 pub fn emit_rc_release_stack(out: &mut String, offset: i32) {
     emit_arm64_load_x29_offset(out, "x0", offset, "x9");
     out.push_str("    bl fn_rc_release\n");
+}
+
+/// Probe-free slot release for statically-proven heap slots (see
+/// `fn_rc_release_direct`).
+pub fn emit_rc_release_stack_direct(out: &mut String, offset: i32) {
+    emit_arm64_load_x29_offset(out, "x0", offset, "x9");
+    out.push_str("    bl fn_rc_release_direct\n");
 }
 
 pub fn emit_weak_check(out: &mut String, lbl: &str) {

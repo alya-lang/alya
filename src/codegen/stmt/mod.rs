@@ -36,7 +36,9 @@ impl CodeGen {
                     });
                 self.generate_expression(expr);
                 if drops_fresh_heap {
-                    arch::emit_rc_release(
+                    // Fresh heap temporaries (literals/constructors/fresh
+                    // calls): proven heap, direct release.
+                    arch::emit_rc_release_direct(
                         &mut self.output,
                         self.arch,
                         self.ctx.stack_offset,
@@ -232,7 +234,15 @@ impl CodeGen {
                                 }
                             }
                         }
-                        if tag_fresh {
+                        if self.value_proven_heap(expr) {
+                            // Proven heap return: skip the syscall probe.
+                            arch::emit_rc_retain_direct(
+                                &mut self.output,
+                                self.arch,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                        } else if tag_fresh {
                             self.emit_tag_guarded_retain();
                         } else {
                             arch::emit_rc_retain(

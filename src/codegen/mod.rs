@@ -1408,6 +1408,18 @@ impl CodeGen {
         let func_output = std::mem::take(&mut self.output);
         self.output = entry_output;
 
+        // Nullable-heap proof for the top-level flow (same as functions).
+        let global_names: std::collections::HashSet<String> =
+            self.ctx.globals.keys().cloned().collect();
+        let proven = crate::codegen::analysis::nullable_heap_locals(
+            &top_level,
+            &[],
+            &global_names,
+            &self.ctx.variables,
+            &self.ctx.structs,
+        );
+        self.ctx.nullable_heap_vars = proven;
+        self.ctx.loop_mayheap.clear();
         for stmt in top_level {
             self.generate_statement(stmt);
         }
@@ -1643,6 +1655,22 @@ impl CodeGen {
     ) {
         let mut saved = self.ctx.enter_function();
         self.ctx.current_fn_name = name.to_string();
+
+        // Nullable-heap proof for the probe-free fast path (see
+        // `nullable_heap_locals`): which locals can only ever hold
+        // `null` or heap values in this body.
+        let global_names: std::collections::HashSet<String> =
+            self.ctx.globals.keys().cloned().collect();
+        let body_refs: Vec<&Stmt> = body.iter().collect();
+        let proven = crate::codegen::analysis::nullable_heap_locals(
+            &body_refs,
+            params,
+            &global_names,
+            &self.ctx.variables,
+            &self.ctx.structs,
+        );
+        self.ctx.nullable_heap_vars = proven;
+        self.ctx.loop_mayheap.clear();
 
         let bare = name.rsplit("::").next().unwrap_or(name);
         let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -1989,7 +2017,13 @@ impl CodeGen {
 
         for offset in heap_param_offsets {
             arch::emit_load_var(&mut self.output, self.arch, offset, self.ctx.stack_offset);
-            arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+            // Heap-typed params are proven heap: direct retain.
+            arch::emit_rc_retain_direct(
+                &mut self.output,
+                self.arch,
+                self.ctx.stack_offset,
+                self.os,
+            );
         }
 
         // Return-tag protocol (Phase 2b, alya-lang/alya#39): when every
@@ -2104,13 +2138,25 @@ impl CodeGen {
     pub(crate) fn emit_cleanup_scope(&mut self, skip_offset: Option<i32>) {
         let offsets = self.get_scope_heap_offsets(skip_offset);
         for offset in offsets {
-            arch::emit_rc_release_stack(
-                &mut self.output,
-                self.arch,
-                offset,
-                self.ctx.stack_offset,
-                self.os,
-            );
+            // Proven heap slots only (see get_scope_heap_offsets), except
+            // loop-pre-nulled may-facts, which keep the probe.
+            if self.ctx.loop_mayheap.contains(&offset) {
+                arch::emit_rc_release_stack(
+                    &mut self.output,
+                    self.arch,
+                    offset,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+            } else {
+                arch::emit_rc_release_stack_direct(
+                    &mut self.output,
+                    self.arch,
+                    offset,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+            }
         }
     }
 
@@ -2121,13 +2167,26 @@ impl CodeGen {
     ) {
         if !check_return_match || heap_offsets.is_empty() {
             for &offset in heap_offsets {
-                arch::emit_rc_release_stack(
-                    &mut self.output,
-                    self.arch,
-                    offset,
-                    self.ctx.stack_offset,
-                    self.os,
-                );
+                // Proven heap slots only (callers pass
+                // get_scope_heap_offsets), except loop-pre-nulled
+                // may-facts, which keep the probe.
+                if self.ctx.loop_mayheap.contains(&offset) {
+                    arch::emit_rc_release_stack(
+                        &mut self.output,
+                        self.arch,
+                        offset,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                } else {
+                    arch::emit_rc_release_stack_direct(
+                        &mut self.output,
+                        self.arch,
+                        offset,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
+                }
             }
             return;
         }
@@ -2154,13 +2213,23 @@ impl CodeGen {
                     self.output
                         .push_str(&format!("    jmp .L_skip_{}\n", clean_uid));
                     self.output.push_str(&format!(".L_rel_{}:\n", clean_uid));
-                    arch::emit_rc_release_stack(
-                        &mut self.output,
-                        self.arch,
-                        offset,
-                        self.ctx.stack_offset,
-                        self.os,
-                    );
+                    if self.ctx.loop_mayheap.contains(&offset) {
+                        arch::emit_rc_release_stack(
+                            &mut self.output,
+                            self.arch,
+                            offset,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    } else {
+                        arch::emit_rc_release_stack_direct(
+                            &mut self.output,
+                            self.arch,
+                            offset,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    }
                     self.output.push_str(&format!(".L_skip_{}:\n", clean_uid));
                 }
                 self.output.push_str("    pop %r11\n");
@@ -2186,13 +2255,23 @@ impl CodeGen {
                     self.output
                         .push_str(&format!("    b .L_skip_{}\n", clean_uid));
                     self.output.push_str(&format!(".L_rel_{}:\n", clean_uid));
-                    arch::emit_rc_release_stack(
-                        &mut self.output,
-                        self.arch,
-                        offset,
-                        self.ctx.stack_offset,
-                        self.os,
-                    );
+                    if self.ctx.loop_mayheap.contains(&offset) {
+                        arch::emit_rc_release_stack(
+                            &mut self.output,
+                            self.arch,
+                            offset,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    } else {
+                        arch::emit_rc_release_stack_direct(
+                            &mut self.output,
+                            self.arch,
+                            offset,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    }
                     self.output.push_str(&format!(".L_skip_{}:\n", clean_uid));
                 }
             }
@@ -2629,6 +2708,44 @@ impl CodeGen {
         }
     }
 
+    /// Proven-heap for the probe-free direct refcount calls:
+    /// statically proven heap (`is_heap_expression`) or a
+    /// nullable-heap local (see `nullable_heap_locals`: every assignment
+    /// in the function is `null` or heap, so reads hold null — skipped
+    /// by the guards — or live heap — magic check). Loop-pre-nulled
+    /// slots carry may-fact `Array` markers (`loop_mayheap`): those never
+    /// count as proof even when the `VarType` matches.
+    pub(crate) fn value_proven_heap(&self, expr: &crate::ast::Expr) -> bool {
+        use crate::ast::Expr as E;
+        if let E::Identifier(name) = expr {
+            return self.identifier_proven_heap(name);
+        }
+        self.is_heap_expression(expr)
+    }
+
+    /// Identifier half of `value_proven_heap`, reused by alias analysis.
+    pub(crate) fn identifier_proven_heap(&self, name: &str) -> bool {
+        if self.ctx.nullable_heap_vars.contains(name) {
+            return true;
+        }
+        match self.ctx.variables.get(name) {
+            Some(
+                crate::codegen::context::VarType::Array(off)
+                | crate::codegen::context::VarType::Map(off)
+                | crate::codegen::context::VarType::Struct { offset: off, .. }
+                | crate::codegen::context::VarType::Interface { offset: off, .. },
+            ) => !self.ctx.loop_mayheap.contains(off),
+            _ => false,
+        }
+    }
+
+    /// Direct-release eligibility for a rebind/scope slot holding
+    /// `name`'s old value: union proof, or a typed-heap slot untouched
+    /// by loop pre-nulling (pre-null markers are may-facts).
+    pub(crate) fn slot_proven_heap(&self, name: &str, off: i32) -> bool {
+        self.ctx.nullable_heap_vars.contains(name) || !self.ctx.loop_mayheap.contains(&off)
+    }
+
     /// Retain gate for collection stores (`push`, map `set`, array `set`, literal construction).
     /// Storing an aliased heap value must retain it so it survives later
     /// drops of the producer slot (loop-end releases, scope restores).
@@ -2831,27 +2948,54 @@ impl CodeGen {
 
     pub(crate) fn emit_tag_guarded_retain(&mut self) {
         let skip = self.ctx.next_label();
+        let direct = self.ctx.next_label();
+        // Int/float tags need no retain; array/map/struct tags are
+        // proven heap at runtime, so they take the probe-free direct
+        // call. Unknown (and string) tags keep the probed call.
         match self.arch {
             Architecture::X64 => {
                 self.output.push_str(&format!(
-                    "    cmpl ${}, %edx\n    je {}\n    cmpl ${}, %edx\n    je {}\n",
+                    "    cmpl ${}, %edx\n    je {}\n    cmpl ${}, %edx\n    je {}\n    cmpl ${}, %edx\n    je {}\n    cmpl ${}, %edx\n    je {}\n    cmpl ${}, %edx\n    je {}\n",
                     kinds::KIND_INT,
                     skip,
                     kinds::KIND_FLOAT,
-                    skip
+                    skip,
+                    kinds::KIND_ARRAY,
+                    direct,
+                    kinds::KIND_MAP,
+                    direct,
+                    kinds::KIND_STRUCT,
+                    direct,
                 ));
             }
             Architecture::ARM64 => {
                 self.output.push_str(&format!(
-                    "    cmp w1, #{}\n    b.eq {}\n    cmp w1, #{}\n    b.eq {}\n",
+                    "    cmp w1, #{}\n    b.eq {}\n    cmp w1, #{}\n    b.eq {}\n    cmp w1, #{}\n    b.eq {}\n    cmp w1, #{}\n    b.eq {}\n    cmp w1, #{}\n    b.eq {}\n",
                     kinds::KIND_INT,
                     skip,
                     kinds::KIND_FLOAT,
-                    skip
+                    skip,
+                    kinds::KIND_ARRAY,
+                    direct,
+                    kinds::KIND_MAP,
+                    direct,
+                    kinds::KIND_STRUCT,
+                    direct,
                 ));
             }
         }
         arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+        match self.arch {
+            Architecture::X64 => {
+                self.output
+                    .push_str(&format!("    jmp {}\n{}:\n", skip, direct));
+            }
+            Architecture::ARM64 => {
+                self.output
+                    .push_str(&format!("    b {}\n{}:\n", skip, direct));
+            }
+        }
+        arch::emit_rc_retain_direct(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
         self.output.push_str(&format!("{}:\n", skip));
     }
 
