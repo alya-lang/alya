@@ -66,6 +66,9 @@ impl CodeGen {
                 self.output.push_str("    cmp x0, x1\n");
                 self.output.push_str(&format!("    b.ls {}\n", l_dyn));
                 self.output.push_str("    ldr x1, [x0, #-16]\n");
+                // Mask to the low 32-bit tag (high word is GC state;
+                // x64 uses movl here).
+                self.output.push_str("    uxtw x1, w1\n");
                 self.output.push_str("    movz x2, #0x0002\n");
                 self.output.push_str("    movk x2, #0x5A11, lsl #16\n");
                 self.output.push_str("    cmp x1, x2\n");

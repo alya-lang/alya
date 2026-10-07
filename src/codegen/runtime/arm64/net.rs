@@ -293,6 +293,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x20, x1\n"); // array
     out.push_str("    cbz x20, .L_arm64_sendb_zero\n");
     out.push_str("    ldr x9, [x20, #-16]\n");
+    // Mask to the low 32-bit tag (high word is GC state).
+    out.push_str("    uxtw x9, w9\n");
     out.push_str("    movz x10, #0x0001\n");
     out.push_str("    movk x10, #0x5A11, lsl #16\n");
     out.push_str("    cmp x9, x10\n");
@@ -417,6 +419,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    cbz x20, .L_arm64_usendb_fail\n");
     out.push_str("    cbz x22, .L_arm64_usendb_zero\n");
     out.push_str("    ldr x9, [x22, #-16]\n");
+    // Mask to the low 32-bit tag (high word is GC state).
+    out.push_str("    uxtw x9, w9\n");
     out.push_str("    movz x10, #0x0001\n");
     out.push_str("    movk x10, #0x5A11, lsl #16\n");
     out.push_str("    cmp x9, x10\n");

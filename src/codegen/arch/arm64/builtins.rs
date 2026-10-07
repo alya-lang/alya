@@ -208,6 +208,10 @@ pub fn emit_for_each_load_element(
     emit_arm64_load_x29_offset(out, "x0", arr_offset, "x9");
     out.push_str(&format!("    cbz x0, {}\n", end_label));
     out.push_str("    ldr x2, [x0, #-16]\n");
+    // Mask to the low 32-bit tag: the high word is GC state (non-zero
+    // for purpled objects) and must not participate in the comparison
+    // (x64 uses movl/cmpl here).
+    out.push_str("    uxtw x2, w2\n");
     out.push_str("    mov x3, #0x0002\n");
     out.push_str("    movk x3, #0x5A11, lsl #16\n");
     out.push_str("    cmp x2, x3\n");
