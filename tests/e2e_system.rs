@@ -4420,6 +4420,31 @@ fn test_e2e_debug_118_teardown_scopes() {
     // own function so the scope-exit release under test is bracketed
     // by markers. DELETE BEFORE MERGE.
     let code = r#"
+function g_rc()
+    let out = []
+    let piece = [1, 2, 3]
+    say("piece fresh rc=" + str(rc_count(piece)))
+    out.push(piece)
+    say("piece pushed rc=" + str(rc_count(piece)))
+    say("out rc=" + str(rc_count(out)))
+end
+
+function g_nested()
+    let out = []
+    let n = 0
+    while n < 3
+        let piece = []
+        let j = 0
+        while j < 16384
+            piece.push(7)
+            j += 1
+        end
+        out.push(piece)
+        n += 1
+    end
+    say("g_nested built parts=" + str(len(out)))
+end
+
 function f_big()
     let big = []
     let i = 0
@@ -4470,6 +4495,10 @@ function f_stracc()
 end
 
 function main()
+    g_rc()
+    say("g_rc done")
+    g_nested()
+    say("g_nested done")
     f_big()
     say("f_big done")
     f_frag()
@@ -4489,7 +4518,7 @@ main()
         );
         assert_eq!(
             output,
-            "f_big built len=40000\nf_big done\nf_frag built parts=3\nf_frag done\nf_maps built t=22\nf_maps done\nf_stracc built wire=AB\nf_stracc done\n"
+            "piece fresh rc=1\npiece pushed rc=2\nout rc=1\ng_rc done\ng_nested built parts=3\ng_nested done\nf_big built len=40000\nf_big done\nf_frag built parts=3\nf_frag done\nf_maps built t=22\nf_maps done\nf_stracc built wire=AB\nf_stracc done\n"
         );
     }
 }
