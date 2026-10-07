@@ -4445,6 +4445,45 @@ function g_nested()
     say("g_nested built parts=" + str(len(out)))
 end
 
+function mk16k()
+    let p = []
+    let j = 0
+    while j < 16384
+        p.push(7)
+        j += 1
+    end
+    return p
+end
+
+function h_small_nested()
+    let out = []
+    let n = 0
+    while n < 3
+        let piece = [1, 2, 3]
+        out.push(piece)
+        n += 1
+    end
+    say("h_small_nested parts=" + str(len(out)))
+end
+
+function h_big_flat()
+    let big = []
+    let i = 0
+    while i < 16384
+        big.push(7)
+        i += 1
+    end
+    say("h_big_flat len=" + str(len(big)))
+end
+
+function h_call_nested()
+    let out = []
+    out.push(mk16k())
+    out.push(mk16k())
+    out.push(mk16k())
+    say("h_call_nested parts=" + str(len(out)))
+end
+
 function f_big()
     let big = []
     let i = 0
@@ -4497,6 +4536,12 @@ end
 function main()
     g_rc()
     say("g_rc done")
+    h_small_nested()
+    say("h_small_nested done")
+    h_big_flat()
+    say("h_big_flat done")
+    h_call_nested()
+    say("h_call_nested done")
     g_nested()
     say("g_nested done")
     f_big()
@@ -4518,7 +4563,7 @@ main()
         );
         assert_eq!(
             output,
-            "piece fresh rc=1\npiece pushed rc=2\nout rc=1\ng_rc done\ng_nested built parts=3\ng_nested done\nf_big built len=40000\nf_big done\nf_frag built parts=3\nf_frag done\nf_maps built t=22\nf_maps done\nf_stracc built wire=AB\nf_stracc done\n"
+            "piece fresh rc=1\npiece pushed rc=2\nout rc=1\ng_rc done\nh_small_nested parts=3\nh_small_nested done\nh_big_flat len=16384\nh_big_flat done\nh_call_nested parts=3\nh_call_nested done\ng_nested built parts=3\ng_nested done\nf_big built len=40000\nf_big done\nf_frag built parts=3\nf_frag done\nf_maps built t=22\nf_maps done\nf_stracc built wire=AB\nf_stracc done\n"
         );
     }
 }
