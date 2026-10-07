@@ -690,6 +690,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     // reference (alya-lang/alya#79). Only statically-known heap kinds
     // are touched: probing unknown slots could misread a large int as a
     // pointer. Maps keep the legacy path (entries only).
+    // Pad the cascade frame to a multiple of 16 so the recursive
+    // fn_rc_release calls below run with an aligned stack
+    // (alya-lang/alya#118). The pad sits beneath the pushed regs and
+    // is removed after the pops.
+    out.push_str("    sub $8, %rsp\n");
     out.push_str("    push %rbx\n");
     out.push_str("    push %r12\n");
     out.push_str("    push %r13\n");
@@ -737,6 +742,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %r13\n");
     out.push_str("    pop %r12\n");
     out.push_str("    pop %rbx\n");
+    out.push_str("    add $8, %rsp\n");
     out.push_str("    movq 16(%rbx), %rax\n");
     out.push_str("    test %rax, %rax\n");
     out.push_str("    jz .L_x64_rc_free_kind\n");
@@ -756,6 +762,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     // before freeing the entries buffer (alya-lang/alya#81). Strings
     // (tag 3) and keys are deliberately untouched: strings carry no
     // refcount header, so releasing them would corrupt the heap.
+    // Pad the cascade frame to a multiple of 16 so the recursive
+    // fn_rc_release calls below run with an aligned stack
+    // (alya-lang/alya#118: misaligned calls faulted in macOS
+    // libmalloc via an aligned SSE spill). The pad is removed before
+    // the pops below (order matters: it sits beneath them).
+    out.push_str("    sub $8, %rsp\n");
     out.push_str("    push %rbx\n");
     out.push_str("    push %r12\n");
     out.push_str("    push %r13\n");
@@ -803,6 +815,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %r13\n");
     out.push_str("    pop %r12\n");
     out.push_str("    pop %rbx\n");
+    out.push_str("    add $8, %rsp\n");
     out.push_str("    movq 16(%rbx), %rax\n");
     out.push_str("    test %rax, %rax\n");
     out.push_str("    jz .L_x64_rc_free_kind\n");
