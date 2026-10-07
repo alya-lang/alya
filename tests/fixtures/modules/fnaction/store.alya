@@ -1,0 +1,40 @@
+## Fixture: function-valued struct field vs string literal in a same-named
+## field (alya-lang/alya#113, distilled from Lib/http router).
+##
+## `Route.action` holds a function value (stored dynamically via param);
+## `Match.action` holds a string literal. The bare `struct_field_str:action`
+## marker must NOT be set from the literal alone: the dynamic store proves
+## the field is not uniformly string, and the read `rt.routes[0].action`
+## (unknown static element type) must dispatch at runtime. Pre-fix the
+## read miscompiled to a string load and the subsequent call segfaulted.
+
+pub struct Route
+    method: string
+    action
+    pattern: string
+end
+
+pub struct Router
+    routes: array
+    fallback
+end
+
+pub struct Match
+    found: int
+    action
+    note: string
+end
+
+pub function router_new(fallback)
+    return Router { routes: [], fallback: fallback }
+end
+
+pub function router_add(r, pattern: string, action)
+    let route = Route { method: "GET", action: action, pattern: pattern }
+    push(r.routes, route)
+    return r
+end
+
+pub function router_match(r, pattern: string)
+    return Match { found: 0, action: "missing", note: pattern }
+end

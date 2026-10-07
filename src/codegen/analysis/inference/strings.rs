@@ -1649,8 +1649,15 @@ fn conflicting_string_fields(program: &Program) -> HashSet<String> {
 /// different literal kinds (e.g. `Box{value: 1}` and `Box{value: "s"}`)
 /// cannot be served by one static marker: the losing instance's reads
 /// miscompile (`%s` on an int segfaults; `%g` on int bits prints
-/// garbage). Kinds: 0 = string, 1 = float, 2 = other literal.
-/// Dynamic values prove nothing and are ignored.
+/// garbage). Kinds: 0 = string, 1 = float, 2 = other literal,
+/// 3 = dynamic (non-literal value: identifier, call result, field/index
+/// read, ...). Dynamic values prove nothing about the field's type, so a
+/// dynamic observation mixed with any literal kind poisons the static
+/// marker exactly like two conflicting literals (alya-lang/alya#113:
+/// `HttpRoute{action: handle_nop}` ignored + `RouteMatch{action:
+/// "not_found"}` recorded poisoned bare `struct_field_str:action`, and
+/// the function-valued read `rt.routes[0].action` miscompiled to a
+/// string load and segfaulted on call).
 fn struct_field_lit_kind(expr: &Expr) -> Option<u8> {
     match expr {
         Expr::String(_) | Expr::InterpolatedString(_) => Some(0),
@@ -1661,9 +1668,16 @@ fn struct_field_lit_kind(expr: &Expr) -> Option<u8> {
     }
 }
 
+/// Kind bit for dynamic (non-literal) struct field values. Any field
+/// mixing this with a literal kind (or with literal kinds across
+/// same-named fields of other structs) earns a `struct_field_mixed`
+/// sentinel, suppressing its global markers.
+const STRUCT_FIELD_DYN_KIND: u8 = 3;
+
 #[derive(Default)]
 struct StructFieldLitKinds {
-    /// (struct, field) -> bitmask of observed literal kinds. Structs keyed
+    /// (struct, field) -> bitmask of observed kinds (literal kinds 0-2
+    /// plus dynamic kind 3). Structs keyed
     /// both as-written and bare to cover read-side lookup variations.
     qualified: HashMap<(String, String), u8>,
     /// field -> bitmask across all structs plus unattributable field
@@ -1697,7 +1711,10 @@ fn collect_struct_kinds_from_expr(
         Expr::Call { name, args } => {
             if let Some(fields) = struct_defs.get(name) {
                 for (i, arg) in args.iter().enumerate() {
-                    if let (Some(fname), Some(k)) = (fields.get(i), struct_field_lit_kind(arg)) {
+                    if let Some(fname) = fields.get(i) {
+                        // Non-literal args are dynamic observations, not
+                        // absences (alya-lang/alya#113).
+                        let k = struct_field_lit_kind(arg).unwrap_or(STRUCT_FIELD_DYN_KIND);
                         observe_struct_field_kind(kinds, name, fname, k);
                     }
                 }
@@ -1708,9 +1725,10 @@ fn collect_struct_kinds_from_expr(
         }
         Expr::StructInit { name, fields } => {
             for (fname, fval) in fields {
-                if let Some(k) = struct_field_lit_kind(fval) {
-                    observe_struct_field_kind(kinds, name, fname, k);
-                }
+                // Non-literal values are dynamic observations, not
+                // absences (alya-lang/alya#113).
+                let k = struct_field_lit_kind(fval).unwrap_or(STRUCT_FIELD_DYN_KIND);
+                observe_struct_field_kind(kinds, name, fname, k);
                 collect_struct_kinds_from_expr(fval, struct_defs, kinds);
             }
         }
@@ -1841,9 +1859,10 @@ fn collect_struct_field_lit_kinds(
                 value,
             } => {
                 collect_struct_kinds_from_expr(object, struct_defs, kinds);
-                if let Some(k) = struct_field_lit_kind(value) {
-                    *kinds.bare.entry(field.clone()).or_default() |= 1u8 << k;
-                }
+                // Non-literal values are dynamic observations, not absences
+                // (alya-lang/alya#113).
+                let k = struct_field_lit_kind(value).unwrap_or(STRUCT_FIELD_DYN_KIND);
+                *kinds.bare.entry(field.clone()).or_default() |= 1u8 << k;
                 collect_struct_kinds_from_expr(value, struct_defs, kinds);
             }
             Stmt::IndexAssign {
@@ -1864,9 +1883,10 @@ fn collect_struct_field_lit_kinds(
                 // Declared defaults are possible values when callers omit args.
                 for (f, d) in fields.iter().zip(defaults.iter()) {
                     if let Some(d) = d {
-                        if let Some(k) = struct_field_lit_kind(d) {
-                            observe_struct_field_kind(kinds, name, f, k);
-                        }
+                        // Non-literal defaults are dynamic observations, not
+                        // absences (alya-lang/alya#113).
+                        let k = struct_field_lit_kind(d).unwrap_or(STRUCT_FIELD_DYN_KIND);
+                        observe_struct_field_kind(kinds, name, f, k);
                     }
                 }
             }

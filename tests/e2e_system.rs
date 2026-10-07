@@ -1248,6 +1248,69 @@ main()
 }
 
 #[test]
+fn test_e2e_aliased_struct_literal_codegen() {
+    // alya-lang/alya#113: alias-qualified struct literals (`fs::Box
+    // {...}`) must codegen identically to same-module literals — the
+    // descriptor label is bare, never `::`-qualified asm.
+    let code = r#"
+import "tests/fixtures/modules/aliased_shadow/boxmod.alya" as fs
+
+function main()
+    let b = fs::Box { action: 42 }
+    say(b.action)
+    let c = fs::make_box(7)
+    say(c.action)
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "42\n7\n");
+    }
+}
+
+#[test]
+fn test_e2e_fnvalued_field_survives_match_literal() {
+    // alya-lang/alya#113: building a struct literal with a string in a
+    // same-named field must not corrupt a function value stored in another
+    // struct's field. The dynamic store (`action: action`) poisons the
+    // bare `struct_field_str:action` marker; reads through unknown static
+    // types (`rt.routes[0].action`) dispatch at runtime and the stored
+    // function stays callable.
+    let code = r#"
+import "tests/fixtures/modules/fnaction/store.alya" as rr
+
+function handle_nop(ctx)
+    return 42
+end
+
+function main()
+    let rt = rr::router_new("nf")
+    rr::router_add(rt, "/api/status", handle_nop)
+    let m = rr::router_match(rt, "/api/status")
+    say("found=" + str(m.found))
+    let stored = rt.routes[0].action
+    say("call=" + str(stored(null)))
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "found=0\ncall=42\n");
+    }
+}
+
+#[test]
 fn test_e2e_simd_fused_dot() {
     // Fused in-place dot kernels (tensor GEMM fast path): zero-allocation
     // accumulation verified lane by lane, incl. strided gathers.

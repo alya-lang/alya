@@ -1,0 +1,12 @@
+## Fixture: struct for alias-qualified literal codegen (alya-lang/alya#113).
+##
+## The importing file spells construction `fs::Box {...}`; codegen must
+## reference the bare descriptor label, never emit `::` into assembly.
+
+pub struct Box
+    action
+end
+
+pub function make_box(a) -> Box
+    return Box { action: a }
+end

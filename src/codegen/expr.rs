@@ -2468,7 +2468,12 @@ impl CodeGen {
                 let field_count = init_sdef
                     .as_ref()
                     .map_or_else(|| fields.len(), |s| s.fields.len());
-                let desc_label = format!("alya_struct_desc_{}", name);
+                // Alias-qualified literals (`fs::Box {...}`) must reference
+                // the bare descriptor label (alya-lang/alya#113): the
+                // descriptor table in `runtime/data.rs` is keyed by bare
+                // name, and `::` in the label is invalid asm (`junk
+                // '::Box' after expression`).
+                let desc_label = format!("alya_struct_desc_{}", bare_init);
                 arch::emit_struct_new(
                     &mut self.output,
                     self.arch,
