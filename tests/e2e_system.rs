@@ -4412,3 +4412,84 @@ say m::X + m::C
         assert_eq!(output, "30\n30\n31\n31\n7\n14\nhi\n2.5\n38\n");
     }
 }
+
+#[test]
+fn test_e2e_debug_118_teardown_scopes() {
+    // TEMP-DIAG for alya-lang/alya#118: tls test_record crashes at
+    // teardown on macOS Intel only. Each workload shape lives in its
+    // own function so the scope-exit release under test is bracketed
+    // by markers. DELETE BEFORE MERGE.
+    let code = r#"
+function f_big()
+    let big = []
+    let i = 0
+    while i < 40000
+        big.push(7)
+        i += 1
+    end
+    say("f_big built len=" + str(len(big)))
+end
+
+function f_frag()
+    let big = []
+    let i = 0
+    while i < 40000
+        big.push(7)
+        i += 1
+    end
+    let out = []
+    let k = 0
+    while k < len(big)
+        let piece = []
+        let j = 0
+        while j < 16384 and k + j < len(big)
+            piece.push(big[k + j])
+            j += 1
+        end
+        out.push(piece)
+        k += 16384
+    end
+    say("f_frag built parts=" + str(len(out)))
+end
+
+function f_maps()
+    let rec = { "type": 22, "version": 771, "length": 2, "bytes": [22, 3, 3, 0, 2] }
+    let back = { "type": rec["type"], "fragment": [72, 105], "error": "" }
+    say("f_maps built t=" + str(back["type"]))
+end
+
+function f_stracc()
+    let data = [65, 66]
+    let out = ""
+    let i = 0
+    while i < len(data)
+        out += chr(data[i])
+        i += 1
+    end
+    say("f_stracc built wire=" + out)
+end
+
+function main()
+    f_big()
+    say("f_big done")
+    f_frag()
+    say("f_frag done")
+    f_maps()
+    say("f_maps done")
+    f_stracc()
+    say("f_stracc done")
+end
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(
+            output,
+            "f_big built len=40000\nf_big done\nf_frag built parts=3\nf_frag done\nf_maps built t=22\nf_maps done\nf_stracc built wire=AB\nf_stracc done\n"
+        );
+    }
+}
