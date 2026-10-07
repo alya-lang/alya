@@ -458,9 +458,27 @@ pub fn select_index_version<'a>(
     pkg: &'a IndexPackage,
     req: &str,
 ) -> Result<Option<&'a IndexVersion>, String> {
+    select_index_version_inner(pkg, req, true)
+}
+
+/// Highest version satisfying `req`, yanked or not. Used to notice when
+/// the yank filter changed the outcome so callers can warn instead of
+/// silently switching versions.
+pub fn select_index_version_including_yanked<'a>(
+    pkg: &'a IndexPackage,
+    req: &str,
+) -> Result<Option<&'a IndexVersion>, String> {
+    select_index_version_inner(pkg, req, false)
+}
+
+fn select_index_version_inner<'a>(
+    pkg: &'a IndexPackage,
+    req: &str,
+    skip_yanked: bool,
+) -> Result<Option<&'a IndexVersion>, String> {
     let mut best: Option<&'a IndexVersion> = None;
     for v in &pkg.versions {
-        if v.yanked {
+        if skip_yanked && v.yanked {
             continue;
         }
         if !version_satisfies_req(req, &v.version)? {
@@ -478,6 +496,37 @@ pub fn select_index_version<'a>(
         }
     }
     Ok(best)
+}
+
+/// Highest non-yanked version in the index, if any. Used by `update` to
+/// filter yanked tags out of the LATEST computation.
+pub fn select_latest_stable(pkg: &IndexPackage) -> Option<&IndexVersion> {
+    let mut best: Option<&IndexVersion> = None;
+    for v in &pkg.versions {
+        if v.yanked {
+            continue;
+        }
+        let better = match &best {
+            None => true,
+            Some(b) => {
+                super::resolver::compare_semver(&v.version, &b.version)
+                    == std::cmp::Ordering::Greater
+            }
+        };
+        if better {
+            best = Some(v);
+        }
+    }
+    best
+}
+
+/// Exact version lookup regardless of yank state (`v` prefix optional on
+/// either side). Used to detect yanked pins/locks so callers can warn.
+pub fn lookup_index_version<'a>(pkg: &'a IndexPackage, version: &str) -> Option<&'a IndexVersion> {
+    let want = version.trim().trim_start_matches(['v', 'V']);
+    pkg.versions
+        .iter()
+        .find(|v| v.version.trim().trim_start_matches(['v', 'V']) == want)
 }
 
 /// Tarball URL for an index version: explicit override, else the GitHub
@@ -671,6 +720,39 @@ mod tests {
         assert!(select_index_version(&pkg, "^2.0.0")
             .expect("select")
             .is_none());
+    }
+
+    #[test]
+    fn latest_stable_and_exact_lookup() {
+        let pkg = parse_index_package(SAMPLE).expect("parse");
+        // Yanked 0.3.0 never surfaces as latest.
+        assert_eq!(
+            select_latest_stable(&pkg).map(|v| v.version.as_str()),
+            Some("0.2.0")
+        );
+        // Exact lookup finds entries regardless of yank state, `v` optional.
+        assert_eq!(
+            lookup_index_version(&pkg, "0.3.0").map(|v| v.yanked),
+            Some(true)
+        );
+        assert_eq!(
+            lookup_index_version(&pkg, "v0.1.0").map(|v| v.tag.as_str()),
+            Some("v0.1.0")
+        );
+        assert!(lookup_index_version(&pkg, "9.9.9").is_none());
+        // Including-yanked selection sees the yanked max (for warnings).
+        assert_eq!(
+            select_index_version_including_yanked(&pkg, "*")
+                .expect("select")
+                .map(|v| v.version.as_str()),
+            Some("0.3.0")
+        );
+        assert_eq!(
+            select_index_version_including_yanked(&pkg, "^0.1.0")
+                .expect("select")
+                .map(|v| v.version.as_str()),
+            Some("0.1.0")
+        );
     }
 
     #[test]
