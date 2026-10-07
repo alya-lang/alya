@@ -1370,7 +1370,9 @@ fn test_e2e_stable_store_interning_flat() {
     // alya-lang/alya#115: repeated stores of identical strings must
     // share one stable copy (interning). Pre-fix each iteration
     // bumped the 64MB monotonic region (4KB x 20k = 80MB) and died
-    // with "stable store overflow"; now memory stays flat.
+    // with "stable store overflow"; now memory stays flat. Assertions
+    // use small ints only: rendering big ints is covered separately
+    // (str_from_int boundary test) and must not conflate the two.
     let code = r#"
 function make_big() -> string
     let s = ""
@@ -1389,10 +1391,10 @@ function main()
     let i = 0
     while i < 20000
         let x = base
-        n += len(x)
+        n += 1
         i += 1
     end
-    say("sum=" + str(n))
+    say("iters=" + str(n))
     # Serializer-shaped pressure (yaml::stringify pattern): same
     # append-built prefixes every iteration. Each prefix is distinct
     # content but repeats across iterations, so interning shares them.
@@ -1406,10 +1408,10 @@ function main()
         doc += "\n  workers: 4"
         doc += "\nendpoints: []"
         doc += "\ntags: [a]"
-        c += len(doc)
+        c += 1
         k += 1
     end
-    say("docsum=" + str(c))
+    say("docs=" + str(c))
 end
 
 main()
@@ -1420,7 +1422,39 @@ main()
             "Execution failed with code {} and output:\n{}",
             code, output
         );
-        assert_eq!(output, "len=4000\nsum=80000000\ndocsum=1600000\n");
+        assert_eq!(output, "len=4000\niters=20000\ndocs=20000\n");
+    }
+}
+
+#[test]
+fn test_e2e_str_big_int_renders() {
+    // alya-lang/alya#115 (companion): `fn_str` classified integers by
+    // full static region ranges, so values numerically inside the
+    // unused stable tail (e.g. 80000000 on low-address no-PIE Linux)
+    // rendered as "" instead of converting. The stable check is now
+    // cursor-bounded like the ring check.
+    let code = r#"
+function main()
+    say("[" + str(65535) + "]")
+    say("[" + str(65536) + "]")
+    say("[" + str(16777215) + "]")
+    say("[" + str(16777216) + "]")
+    say("[" + str(80000000) + "]")
+    say("[" + str(100000000) + "]")
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(
+            output,
+            "[65535]\n[65536]\n[16777215]\n[16777216]\n[80000000]\n[100000000]\n"
+        );
     }
 }
 

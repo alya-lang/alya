@@ -814,12 +814,17 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ret\n");
     // Stable store region (B1): immortal strings live here whole-program
     // (never overwritten, unlike the wrapping ring above) — return directly.
+    // Upper bound is the live cursor, not the region end
+    // (alya-lang/alya#115): plain integers numerically inside the unused
+    // tail are not pointers and must fall through to integer conversion.
+    // Same cursor rule as the ring check above; legit strings always sit
+    // below the cursor.
     out.push_str(".L_arm64_str_chk_stable:\n");
     emit_adrp_add(out, "x5", "alya_str_stable", os);
     out.push_str("    cmp x19, x5\n");
     out.push_str("    b.lo .L_arm64_str_chk_rodata\n");
-    out.push_str("    mov x6, #64\n");
-    out.push_str("    lsl x6, x6, #20\n"); // 67108864
+    emit_adrp_add(out, "x6", "alya_str_stable_idx", os);
+    out.push_str("    ldr x6, [x6]\n");
     out.push_str("    add x6, x5, x6\n");
     out.push_str("    cmp x19, x6\n");
     out.push_str("    b.hs .L_arm64_str_chk_rodata\n");
