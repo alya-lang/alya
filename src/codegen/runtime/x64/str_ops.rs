@@ -80,6 +80,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     // rodata literals: no generated code retains/releases strings, and the
     // pointer-range classifiers treat the stable region as strings.
     // Exhaustion (64MB of stored strings) is a clean catchable error.
+    // Identical content is interned (alya-lang/alya#115): the 64K-entry
+    // table maps djb2(content) to the first stable copy, so repeated
+    // stores of the same string (serialize-the-same-doc loops) share one
+    // copy instead of one per iteration. Sound: strings are immutable
+    // (spec ch.2) and maps hash/compare by content, so pointer identity
+    // never observes the sharing.
     out.push_str(".global alya_str_store\n");
     out.push_str("alya_str_store:\n");
     out.push_str("    push %rbp\n");
@@ -98,14 +104,102 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    xor %r13, %r13\n");
     out.push_str(".L_x64_str_store_len:\n");
     out.push_str("    cmpb $0, (%r12, %r13)\n");
-    out.push_str("    je .L_x64_str_store_bump\n");
+    out.push_str("    je .L_x64_str_store_intern\n");
     out.push_str("    inc %r13\n");
     out.push_str("    jmp .L_x64_str_store_len\n");
-    out.push_str(".L_x64_str_store_bump:\n");
+    // Interning probe: djb2(content) -> open-addressed table. No calls
+    // happen under the spinlock (inline length-tagged compare), so the
+    // only shared state is the table itself. r12 (src) and r13 (len)
+    // are callee-saved and survive the hash call; the hash lives in
+    // rbx (also callee-saved). -32(%rbp) spills the insert slot.
+    out.push_str(".L_x64_str_store_intern:\n");
     // Zero-length inputs canonicalize to the rodata empty (#92),
     // same rule as the other producers; also saves stable space.
     out.push_str("    test %r13, %r13\n");
     out.push_str("    jz .L_x64_str_store_empty\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r12, %rcx\n");
+    } else {
+        out.push_str("    mov %r12, %rdi\n");
+    }
+    out.push_str("    call alya_map_hash\n");
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jnz .L_x64_str_intern_hash_ok\n");
+    out.push_str("    inc %rax\n");
+    out.push_str(".L_x64_str_intern_hash_ok:\n");
+    out.push_str("    mov %rax, %rbx\n");
+    out.push_str(".L_x64_str_intern_lock:\n");
+    out.push_str("    mov $1, %eax\n");
+    out.push_str("    xchg %eax, alya_str_intern_lock(%rip)\n");
+    out.push_str("    test %eax, %eax\n");
+    out.push_str("    jz .L_x64_str_intern_have_lock\n");
+    out.push_str("    pause\n");
+    out.push_str("    jmp .L_x64_str_intern_lock\n");
+    out.push_str(".L_x64_str_intern_have_lock:\n");
+    out.push_str("    mov %rbx, %rax\n");
+    out.push_str("    and $0xFFFF, %eax\n");
+    out.push_str("    mov %rax, %rdx\n");
+    out.push_str("    lea alya_str_intern(%rip), %r8\n");
+    out.push_str(".L_x64_str_intern_probe:\n");
+    out.push_str("    mov %rax, %r9\n");
+    out.push_str("    shl $4, %r9\n");
+    out.push_str("    add %r8, %r9\n");
+    out.push_str("    mov (%r9), %r10\n");
+    out.push_str("    test %r10, %r10\n");
+    out.push_str("    jz .L_x64_str_intern_insert\n");
+    out.push_str("    cmp %rbx, %r10\n");
+    out.push_str("    jne .L_x64_str_intern_next\n");
+    out.push_str("    mov 8(%r9), %r11\n");
+    out.push_str("    mov %r12, %rsi\n");
+    out.push_str("    mov %r11, %rdi\n");
+    out.push_str("    mov %r13, %rcx\n");
+    out.push_str("    inc %rcx\n");
+    out.push_str("    cld\n");
+    out.push_str("    repe cmpsb\n");
+    out.push_str("    jne .L_x64_str_intern_next\n");
+    out.push_str("    mov %r11, %rax\n");
+    out.push_str("    movl $0, alya_str_intern_lock(%rip)\n");
+    out.push_str("    jmp .L_x64_str_store_ret\n");
+    out.push_str(".L_x64_str_intern_next:\n");
+    out.push_str("    inc %rax\n");
+    out.push_str("    and $0xFFFF, %eax\n");
+    out.push_str("    cmp %rdx, %rax\n");
+    out.push_str("    jne .L_x64_str_intern_probe\n");
+    // Table chain exhausted: plain copy without interning (correct,
+    // just unshared), reusing the lock-free bump path below.
+    out.push_str("    movl $0, alya_str_intern_lock(%rip)\n");
+    out.push_str("    jmp .L_x64_str_store_bump\n");
+    // Empty slot: publish the hash, copy under the lock (no torn
+    // readers), publish the pointer, unlock.
+    out.push_str(".L_x64_str_intern_insert:\n");
+    out.push_str("    mov %rbx, (%r9)\n");
+    out.push_str("    mov %r9, -32(%rbp)\n");
+    out.push_str("    lea 1(%r13), %rax\n");
+    out.push_str("    add $7, %rax\n");
+    out.push_str("    and $-8, %rax\n");
+    out.push_str("    lock xaddq %rax, alya_str_stable_idx(%rip)\n");
+    out.push_str("    lea (%rax, %r13, 1), %rbx\n");
+    out.push_str("    inc %rbx\n");
+    out.push_str("    cmp $67108864, %rbx\n");
+    out.push_str("    ja .L_x64_str_intern_insert_oom\n");
+    out.push_str("    lea alya_str_stable(%rip), %rbx\n");
+    out.push_str("    add %rax, %rbx\n");
+    out.push_str("    mov %r12, %rsi\n");
+    out.push_str("    mov %rbx, %rdi\n");
+    out.push_str("    lea 1(%r13), %rcx\n");
+    out.push_str("    cld\n");
+    out.push_str("    rep movsb\n");
+    out.push_str("    mov %rbx, %rax\n");
+    out.push_str("    mov -32(%rbp), %r9\n");
+    out.push_str("    mov %rax, 8(%r9)\n");
+    out.push_str("    movl $0, alya_str_intern_lock(%rip)\n");
+    out.push_str("    jmp .L_x64_str_store_ret\n");
+    out.push_str(".L_x64_str_intern_insert_oom:\n");
+    out.push_str("    mov -32(%rbp), %r9\n");
+    out.push_str("    movq $0, (%r9)\n");
+    out.push_str("    movl $0, alya_str_intern_lock(%rip)\n");
+    out.push_str("    jmp .L_x64_str_store_oom\n");
+    out.push_str(".L_x64_str_store_bump:\n");
     out.push_str("    lea 1(%r13), %rax\n");
     out.push_str("    add $7, %rax\n");
     out.push_str("    and $-8, %rax\n");

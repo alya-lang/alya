@@ -1366,6 +1366,65 @@ main()
 }
 
 #[test]
+fn test_e2e_stable_store_interning_flat() {
+    // alya-lang/alya#115: repeated stores of identical strings must
+    // share one stable copy (interning). Pre-fix each iteration
+    // bumped the 64MB monotonic region (4KB x 20k = 80MB) and died
+    // with "stable store overflow"; now memory stays flat.
+    let code = r#"
+function make_big() -> string
+    let s = ""
+    let i = 0
+    while i < 200
+        s += "0123456789abcdef0123"
+        i += 1
+    end
+    return s
+end
+
+function main()
+    let base = make_big()
+    say("len=" + str(len(base)))
+    let n = 0
+    let i = 0
+    while i < 20000
+        let x = base
+        n += len(x)
+        i += 1
+    end
+    say("sum=" + str(n))
+    # Serializer-shaped pressure (yaml::stringify pattern): same
+    # append-built prefixes every iteration. Each prefix is distinct
+    # content but repeats across iterations, so interning shares them.
+    let c = 0
+    let k = 0
+    while k < 20000
+        let doc = "server:"
+        doc += "\n  host: x"
+        doc += "\n  port: 8080"
+        doc += "\n  ssl: false"
+        doc += "\n  workers: 4"
+        doc += "\nendpoints: []"
+        doc += "\ntags: [a]"
+        c += len(doc)
+        k += 1
+    end
+    say("docsum=" + str(c))
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "len=4000\nsum=80000000\ndocsum=1600000\n");
+    }
+}
+
+#[test]
 fn test_e2e_simd_fused_dot() {
     // Fused in-place dot kernels (tensor GEMM fast path): zero-allocation
     // accumulation verified lane by lane, incl. strided gathers.

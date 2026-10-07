@@ -68,6 +68,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     // rodata literals: no generated code retains/releases strings, and the
     // pointer-range classifiers treat the stable region as strings.
     // Exhaustion (64MB of stored strings) is a clean catchable error.
+    // Identical content is interned (alya-lang/alya#115): the 64K-entry
+    // table maps djb2(content) to the first stable copy, so repeated
+    // stores of the same string share one copy. Sound: strings are
+    // immutable (spec ch.2) and maps hash/compare by content.
     out.push_str(".align 2\n");
     out.push_str("alya_str_store:\n");
     out.push_str("    stp x29, x30, [sp, #-48]!\n");
@@ -81,13 +85,106 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x20, #0\n");
     out.push_str(".L_arm64_str_store_len:\n");
     out.push_str("    ldrb w1, [x19, x20]\n");
-    out.push_str("    cbz w1, .L_arm64_str_store_bump\n");
+    out.push_str("    cbz w1, .L_arm64_str_store_intern\n");
     out.push_str("    add x20, x20, #1\n");
     out.push_str("    b .L_arm64_str_store_len\n");
-    out.push_str(".L_arm64_str_store_bump:\n");
+    // Interning probe: djb2(content) -> open-addressed table. No calls
+    // happen under the spinlock (inline length-tagged compare). x19
+    // (src) and x20 (len) are callee-saved and survive the hash call;
+    // the hash lives in x21, the insert slot in x22 (both saved).
+    out.push_str(".L_arm64_str_store_intern:\n");
     // Zero-length inputs canonicalize to the rodata empty (#92),
     // same rule as the other producers; also saves stable space.
     out.push_str("    cbz x20, .L_arm64_str_store_empty\n");
+    out.push_str("    mov x0, x19\n");
+    out.push_str("    str x30, [sp, #-16]!\n");
+    out.push_str("    bl alya_map_hash\n");
+    out.push_str("    ldr x30, [sp], #16\n");
+    out.push_str("    cbnz x0, .L_arm64_str_intern_hash_ok\n");
+    out.push_str("    mov x0, #1\n");
+    out.push_str(".L_arm64_str_intern_hash_ok:\n");
+    out.push_str("    mov x21, x0\n");
+    emit_adrp_add(out, "x9", "alya_str_intern_lock", os);
+    out.push_str("    mov w10, #1\n");
+    out.push_str(".L_arm64_str_intern_lock:\n");
+    out.push_str("    ldaxr w11, [x9]\n");
+    out.push_str("    cbnz w11, .L_arm64_str_intern_lock\n");
+    out.push_str("    stlxr w11, w10, [x9]\n");
+    out.push_str("    cbnz w11, .L_arm64_str_intern_lock\n");
+    out.push_str("    dmb ish\n");
+    out.push_str("    and x0, x21, #0xffff\n");
+    out.push_str("    mov x12, x0\n");
+    emit_adrp_add(out, "x8", "alya_str_intern", os);
+    out.push_str(".L_arm64_str_intern_probe:\n");
+    out.push_str("    lsl x13, x0, #4\n");
+    out.push_str("    add x13, x8, x13\n");
+    out.push_str("    ldr x14, [x13]\n");
+    out.push_str("    cbz x14, .L_arm64_str_intern_insert\n");
+    out.push_str("    cmp x14, x21\n");
+    out.push_str("    b.ne .L_arm64_str_intern_next\n");
+    out.push_str("    ldr x15, [x13, #8]\n");
+    out.push_str("    mov x16, x19\n");
+    out.push_str("    mov x17, x15\n");
+    out.push_str("    add x18, x20, #1\n");
+    out.push_str(".L_arm64_str_intern_cmp:\n");
+    out.push_str("    ldrb w9, [x16], #1\n");
+    out.push_str("    ldrb w10, [x17], #1\n");
+    out.push_str("    cmp w9, w10\n");
+    out.push_str("    b.ne .L_arm64_str_intern_next\n");
+    out.push_str("    subs x18, x18, #1\n");
+    out.push_str("    b.ne .L_arm64_str_intern_cmp\n");
+    out.push_str("    mov x0, x15\n");
+    emit_adrp_add(out, "x9", "alya_str_intern_lock", os);
+    out.push_str("    stlr wzr, [x9]\n");
+    out.push_str("    b .L_arm64_str_store_ret\n");
+    out.push_str(".L_arm64_str_intern_next:\n");
+    out.push_str("    add x0, x0, #1\n");
+    out.push_str("    and x0, x0, #0xffff\n");
+    out.push_str("    cmp x0, x12\n");
+    out.push_str("    b.ne .L_arm64_str_intern_probe\n");
+    // Table chain exhausted: plain copy without interning (correct,
+    // just unshared), reusing the lock-free bump path below.
+    emit_adrp_add(out, "x9", "alya_str_intern_lock", os);
+    out.push_str("    stlr wzr, [x9]\n");
+    out.push_str("    b .L_arm64_str_store_bump\n");
+    // Empty slot: publish the hash, copy under the lock (no torn
+    // readers), publish the pointer, unlock.
+    out.push_str(".L_arm64_str_intern_insert:\n");
+    out.push_str("    str x21, [x13]\n");
+    out.push_str("    mov x22, x13\n");
+    out.push_str("    add x0, x20, #1\n");
+    out.push_str("    add x0, x0, #7\n");
+    out.push_str("    and x0, x0, #-8\n");
+    emit_adrp_add(out, "x2", "alya_str_stable_idx", os);
+    out.push_str(".L_arm64_str_intern_bump_loop:\n");
+    out.push_str("    ldaxr x3, [x2]\n");
+    out.push_str("    add x4, x3, x0\n");
+    out.push_str("    stlxr w5, x4, [x2]\n");
+    out.push_str("    cbnz w5, .L_arm64_str_intern_bump_loop\n");
+    out.push_str("    mov x5, #64\n");
+    out.push_str("    lsl x5, x5, #20\n"); // 67108864
+    out.push_str("    cmp x4, x5\n");
+    out.push_str("    b.hi .L_arm64_str_intern_insert_oom\n");
+    emit_adrp_add(out, "x6", "alya_str_stable", os);
+    out.push_str("    add x6, x6, x3\n");
+    out.push_str("    add x2, x20, #1\n");
+    out.push_str(".L_arm64_str_intern_copy:\n");
+    out.push_str("    ldrb w1, [x19], #1\n");
+    out.push_str("    strb w1, [x6], #1\n");
+    out.push_str("    subs x2, x2, #1\n");
+    out.push_str("    b.ne .L_arm64_str_intern_copy\n");
+    out.push_str("    sub x0, x6, x20\n");
+    out.push_str("    sub x0, x0, #1\n");
+    out.push_str("    str x0, [x22, #8]\n");
+    emit_adrp_add(out, "x9", "alya_str_intern_lock", os);
+    out.push_str("    stlr wzr, [x9]\n");
+    out.push_str("    b .L_arm64_str_store_ret\n");
+    out.push_str(".L_arm64_str_intern_insert_oom:\n");
+    out.push_str("    str xzr, [x22]\n");
+    emit_adrp_add(out, "x9", "alya_str_intern_lock", os);
+    out.push_str("    stlr wzr, [x9]\n");
+    out.push_str("    b .L_arm64_str_store_oom\n");
+    out.push_str(".L_arm64_str_store_bump:\n");
     out.push_str("    add x0, x20, #1\n");
     out.push_str("    add x0, x0, #7\n");
     out.push_str("    and x0, x0, #-8\n");

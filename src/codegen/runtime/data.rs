@@ -43,6 +43,18 @@ pub fn emit_data_sections(
     out.push_str("    .space 67108864\n");
     out.push_str("alya_str_stable_idx:\n");
     out.push_str("    .quad 0\n");
+    // String interning table (alya-lang/alya#115): open-addressed,
+    // 65536 entries of (hash, stable-pointer) pairs. `alya_str_store`
+    // deduplicates identical content here, so serialize-the-same-doc
+    // loops stay flat instead of filling the 64MB stable region with
+    // one copy per iteration. Full chains fall back to a plain copy
+    // (correct, just not shared). Guarded by a spinlock; all table
+    // access (lookup + insert publication) happens under it, so
+    // concurrent readers never see a hash without its pointer.
+    out.push_str("alya_str_intern:\n");
+    out.push_str("    .space 1048576\n");
+    out.push_str("alya_str_intern_lock:\n");
+    out.push_str("    .quad 0\n");
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("alya_wsa_data:\n");
         out.push_str("    .space 512\n");
