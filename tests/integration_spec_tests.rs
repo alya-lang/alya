@@ -56,6 +56,7 @@ fn entry_files() -> Vec<String> {
         "30_struct_field_bigint.alya".to_string(),
         "31_aliased_bare_builtin.alya".to_string(),
         "32_fnfield_match.alya".to_string(),
+        "33_uuid_loop_flat_memory.alya".to_string(),
     ]
 }
 
@@ -620,6 +621,20 @@ fn test_integration_32_fnfield_match_output() {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("found=0\n"));
         assert!(output.contains("call=42\n"));
+    }
+}
+
+#[test]
+fn test_integration_33_uuid_loop_flat_memory_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 33_uuid_loop_flat_memory: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("33_uuid_loop_flat_memory.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("done=60000\n"));
     }
 }
 

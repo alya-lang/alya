@@ -1,0 +1,29 @@
+# ==============================================================================
+# Alya Integration Fixture 33 (entry): string accumulator loop stays flat
+# Distilled from: Lib/uuid `v4()` loop exhausting stable store (alya-lang/alya#116)
+# Guards: self-accumulating local string reassignments (`res += ...`) must not
+#         duplicate every transient intermediate into the monotonic stable store;
+#         discarded loop accumulators stay in the ring buffer without overflow.
+# ==============================================================================
+
+function v4like(raw_hex: string) -> string
+    let res = ""
+    let i = 0
+    while i < 32
+        res += char_at(raw_hex, i)
+        i += 1
+    end
+    return res
+end
+
+function main()
+    let raw = "0123456789abcdef0123456789abcdef"
+    let i = 0
+    while i < 60000
+        let s = v4like(raw)
+        i += 1
+    end
+    say("done=" + str(i))
+end
+
+main()

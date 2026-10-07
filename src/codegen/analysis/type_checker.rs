@@ -601,6 +601,7 @@ pub struct TypeChecker {
     /// alias only namespaces its module for local use — so they stay
     /// out (alya-lang/alya#77).
     imported_symbols: HashSet<String>,
+    fn_arities: HashMap<String, (usize, usize, bool)>,
 }
 
 impl Default for TypeChecker {
@@ -626,6 +627,7 @@ impl TypeChecker {
             mixed_arrays: HashMap::new(),
             extern_fns: HashSet::new(),
             imported_symbols: HashSet::new(),
+            fn_arities: HashMap::new(),
         };
         tc.register_builtins();
         tc
@@ -681,6 +683,36 @@ impl TypeChecker {
                 return_type: Type::Float,
             },
         );
+        for alias in ["to_int", "parse_int"] {
+            self.functions.insert(
+                alias.to_string(),
+                FnSig {
+                    name: alias.to_string(),
+                    param_types: vec![Type::Any],
+                    return_type: Type::Int,
+                },
+            );
+        }
+        for alias in ["to_float", "parse_float"] {
+            self.functions.insert(
+                alias.to_string(),
+                FnSig {
+                    name: alias.to_string(),
+                    param_types: vec![Type::Any],
+                    return_type: Type::Float,
+                },
+            );
+        }
+        for alias in ["length", "array_len", "arr_len"] {
+            self.functions.insert(
+                alias.to_string(),
+                FnSig {
+                    name: alias.to_string(),
+                    param_types: vec![Type::Any],
+                    return_type: Type::Int,
+                },
+            );
+        }
 
         // --- SIMD Vector Built-in Functions ---
         self.functions.insert(
@@ -1044,6 +1076,13 @@ impl TypeChecker {
                 return_type: Type::Void,
             },
         );
+
+        for (name, sig) in &self.functions {
+            self.fn_arities.insert(
+                name.clone(),
+                (sig.param_types.len(), sig.param_types.len(), false),
+            );
+        }
     }
 
     fn push_scope(&mut self) {
@@ -1226,6 +1265,18 @@ impl TypeChecker {
             }
         }
 
+        if !name.contains("::") {
+            if let Some(cfn) = &self.current_fn_name {
+                let cur_mod = cfn.split("::").next().unwrap_or("");
+                if !cur_mod.is_empty() {
+                    let cand = format!("{}::{}", cur_mod, name);
+                    if let Some(sig) = self.functions.get(&cand) {
+                        return Some(sig.clone());
+                    }
+                }
+            }
+        }
+
         if let Some(sig) = self.functions.get(name) {
             return Some(sig.clone());
         }
@@ -1233,6 +1284,69 @@ impl TypeChecker {
         let bare = name.rsplit("::").next().unwrap_or(name);
         if let Some(sig) = self.functions.get(bare) {
             return Some(sig.clone());
+        }
+
+        None
+    }
+
+    fn lookup_arity(
+        &self,
+        name: &str,
+        first_arg_type: Option<&Type>,
+    ) -> Option<(usize, usize, bool)> {
+        // Method lookup via UFCS: receiver.method(...) -> Struct__method(receiver, ...)
+        if let Some(fat) = first_arg_type {
+            let sname_opt = match fat {
+                Type::Struct(s) => Some(s.as_str()),
+                Type::F64x4 => Some("f64x4"),
+                Type::F32x8 => Some("f32x8"),
+                Type::I32x8 => Some("i32x8"),
+                Type::I64x4 => Some("i64x4"),
+                _ => None,
+            };
+            if let Some(sname) = sname_opt {
+                let bare_struct = sname.rsplit("::").next().unwrap_or(sname);
+                let bare_struct = bare_struct.rsplit("__").next().unwrap_or(bare_struct);
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+
+                let candidates = [
+                    format!("{}__{}", sname, name),
+                    format!("{}__{}", bare_struct, name),
+                    format!("{}__{}", sname, bare),
+                    format!("{}__{}", bare_struct, bare),
+                    format!("{}.{}", sname, name),
+                    format!("{}.{}", bare_struct, name),
+                    format!("{}.{}", sname, bare),
+                    format!("{}.{}", bare_struct, bare),
+                ];
+                for cand in &candidates {
+                    if let Some(arity) = self.fn_arities.get(cand) {
+                        return Some(*arity);
+                    }
+                }
+            }
+        }
+
+        if !name.contains("::") {
+            if let Some(cfn) = &self.current_fn_name {
+                let cur_mod = cfn.split("::").next().unwrap_or("");
+                if !cur_mod.is_empty() {
+                    let cand = format!("{}::{}", cur_mod, name);
+                    if let Some(arity) = self.fn_arities.get(&cand) {
+                        return Some(*arity);
+                    }
+                }
+            }
+        }
+
+        if let Some(arity) = self.fn_arities.get(name) {
+            return Some(*arity);
+        }
+
+        let bare = name.rsplit("::").next().unwrap_or(name);
+        if let Some(arity) = self.fn_arities.get(bare) {
+            return Some(*arity);
         }
 
         None
@@ -1695,6 +1809,40 @@ impl TypeChecker {
 
                 let first_arg_type = args.first().and_then(|a| self.infer_expr(a).ok());
                 if let Some(sig) = self.lookup_fn(name, first_arg_type.as_ref()) {
+                    let (min_params, max_params, is_variadic) = self
+                        .lookup_arity(name, first_arg_type.as_ref())
+                        .unwrap_or((sig.param_types.len(), sig.param_types.len(), false));
+
+                    if is_variadic {
+                        if args.len() < min_params {
+                            return Err(format!(
+                                "TypeError: Function '{}' expects at least {} argument{}, found {}",
+                                name,
+                                min_params,
+                                if min_params == 1 { "" } else { "s" },
+                                args.len()
+                            ));
+                        }
+                    } else if min_params == max_params {
+                        if args.len() != min_params {
+                            return Err(format!(
+                                "TypeError: Function '{}' expects {} argument{}, found {}",
+                                name,
+                                min_params,
+                                if min_params == 1 { "" } else { "s" },
+                                args.len()
+                            ));
+                        }
+                    } else if args.len() < min_params || args.len() > max_params {
+                        return Err(format!(
+                            "TypeError: Function '{}' expects between {} and {} arguments, found {}",
+                            name,
+                            min_params,
+                            max_params,
+                            args.len()
+                        ));
+                    }
+
                     for (i, param_ty) in sig.param_types.iter().enumerate() {
                         if param_ty != &Type::Any {
                             if let Some(arg) = args.get(i) {
@@ -2302,10 +2450,11 @@ impl TypeChecker {
         for stmt in &program.statements {
             if let Stmt::Function {
                 name,
-                params: _,
+                params,
                 param_types,
                 return_type,
                 attributes,
+                defaults,
                 ..
             } = stmt.inner_stmt()
             {
@@ -2355,6 +2504,31 @@ impl TypeChecker {
                 let bare_mod = name.rsplit("::").next().unwrap_or(name);
                 if bare_mod != name && !self.functions.contains_key(bare_mod) {
                     self.functions.insert(bare_mod.to_string(), sig);
+                }
+
+                let is_variadic = param_types
+                    .last()
+                    .and_then(|t| t.as_deref())
+                    .is_some_and(|t| t == "..." || t.starts_with("..."));
+
+                let (min_params, max_params) = if is_variadic {
+                    let fixed_count = params.len().saturating_sub(1);
+                    let min = (0..fixed_count)
+                        .filter(|&i| defaults.get(i).and_then(|d| d.as_ref()).is_none())
+                        .count();
+                    (min, usize::MAX)
+                } else {
+                    let min = (0..params.len())
+                        .filter(|&i| defaults.get(i).and_then(|d| d.as_ref()).is_none())
+                        .count();
+                    (min, params.len())
+                };
+
+                self.fn_arities
+                    .insert(name.clone(), (min_params, max_params, is_variadic));
+                if bare_mod != name && !self.fn_arities.contains_key(bare_mod) {
+                    self.fn_arities
+                        .insert(bare_mod.to_string(), (min_params, max_params, is_variadic));
                 }
             }
         }

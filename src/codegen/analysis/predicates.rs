@@ -220,6 +220,61 @@ pub fn string_store_needs_dup(expr: &Expr, vars: &HashMap<String, VarType>) -> b
     is_string_expr(expr, vars) && !matches!(expr, Expr::String(_))
 }
 
+/// Returns true if `expr` syntactically references variable `target`.
+/// Used to identify self-accumulating loop variables (`res += ...`, `res = res + ...`).
+pub fn expr_mentions_var(expr: &Expr, target: &str) -> bool {
+    let bare_target = target.rsplit("::").next().unwrap_or(target);
+    let bare_target = bare_target.rsplit("__").next().unwrap_or(bare_target);
+    match expr {
+        Expr::Identifier(id) => {
+            let bare_id = id.rsplit("::").next().unwrap_or(id.as_str());
+            let bare_id = bare_id.rsplit("__").next().unwrap_or(bare_id);
+            id == target || id == bare_target || bare_id == target || bare_id == bare_target
+        }
+        Expr::Binary { left, right, .. } => {
+            expr_mentions_var(left, target) || expr_mentions_var(right, target)
+        }
+        Expr::Unary { expr: inner, .. } => expr_mentions_var(inner, target),
+        Expr::Call { args, .. } => args.iter().any(|a| expr_mentions_var(a, target)),
+        Expr::OptionalCall { args, .. } => args.iter().any(|a| expr_mentions_var(a, target)),
+        Expr::Index { array, index } => {
+            expr_mentions_var(array, target) || expr_mentions_var(index, target)
+        }
+        Expr::OptionalIndex { array, index } => {
+            expr_mentions_var(array, target) || expr_mentions_var(index, target)
+        }
+        Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+            expr_mentions_var(object, target)
+        }
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            expr_mentions_var(condition, target)
+                || expr_mentions_var(then_branch, target)
+                || expr_mentions_var(else_branch, target)
+        }
+        Expr::NullCoalesce { value, default } => {
+            expr_mentions_var(value, target) || expr_mentions_var(default, target)
+        }
+        Expr::Array(elements) | Expr::InterpolatedString(elements) => {
+            elements.iter().any(|e| expr_mentions_var(e, target))
+        }
+        Expr::StructInit { fields, .. } => {
+            fields.iter().any(|(_, val)| expr_mentions_var(val, target))
+        }
+        Expr::Map(pairs) => pairs
+            .iter()
+            .any(|(k, v)| expr_mentions_var(k, target) || expr_mentions_var(v, target)),
+        Expr::ForceUnwrap(inner) | Expr::TypeCheck { expr: inner, .. } => {
+            expr_mentions_var(inner, target)
+        }
+        Expr::Cast { expr: inner, .. } => expr_mentions_var(inner, target),
+        _ => false,
+    }
+}
+
 /// Whether an integer expression carries unsigned (u64-family) semantics
 /// (B4): explicit `u64`/`u32`/`uint`/`usize` annotations (locals, globals,
 /// params), `as u64`-family casts, over-i64 literals, or binary/unary

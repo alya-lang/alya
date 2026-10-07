@@ -1,0 +1,7 @@
+# EXPECT-FAIL: check: Function 'int' expects 1 argument, found 2
+# Chapter 07 §1.1: function call arity must match declared parameter count.
+function main()
+    let idx = int(0, 15)
+end
+
+main()

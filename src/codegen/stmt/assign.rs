@@ -1,9 +1,9 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
-    escape_string, is_array_expr, is_array_fold_true, is_definitely_not_numeric, is_float_array,
-    is_float_expr, is_map_expr, is_null_expr, is_number_expr, is_string_array, is_string_expr,
-    is_tag_carrying_read, is_unsigned_expr, string_store_needs_dup,
+    escape_string, expr_mentions_var, is_array_expr, is_array_fold_true, is_definitely_not_numeric,
+    is_float_array, is_float_expr, is_map_expr, is_null_expr, is_number_expr, is_string_array,
+    is_string_expr, is_tag_carrying_read, is_unsigned_expr, string_store_needs_dup,
     struct_field_markers_mixed_vars, value_kind_tag,
 };
 use crate::codegen::arch;
@@ -1196,8 +1196,25 @@ impl CodeGen {
         {
             self.emit_sync_float_reg();
         }
+
+        let is_local_var = match self.ctx.variables.get(&name) {
+            Some(VarType::Number(off))
+            | Some(VarType::Float(off))
+            | Some(VarType::StringOffset(off))
+            | Some(VarType::Array(off))
+            | Some(VarType::Map(off))
+            | Some(VarType::Null(off))
+            | Some(VarType::Struct { offset: off, .. }) => *off != 0,
+            _ => false,
+        };
+
         // B1: named stores outlive the wrapping ring buffer.
-        if string_store_needs_dup(value, &self.ctx.variables) {
+        // Self-accumulating local string stores (`res += ...`, `res = res + ...`)
+        // are transient loop accumulators that live in the wrapping ring buffer.
+        // Duplicating every intermediate step into the immortal stable region
+        // fills it monotonically and overflows on long loops (issue #116).
+        let is_self_accum = is_local_var && expr_mentions_var(value, &name);
+        if !is_self_accum && string_store_needs_dup(value, &self.ctx.variables) {
             arch::emit_str_store(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
         }
 
@@ -1229,17 +1246,6 @@ impl CodeGen {
                 }
             }
         }
-
-        let is_local_var = match self.ctx.variables.get(&name) {
-            Some(VarType::Number(off))
-            | Some(VarType::Float(off))
-            | Some(VarType::StringOffset(off))
-            | Some(VarType::Array(off))
-            | Some(VarType::Map(off))
-            | Some(VarType::Null(off))
-            | Some(VarType::Struct { offset: off, .. }) => *off != 0,
-            _ => false,
-        };
 
         if !is_local_var {
             if let Some((symbol, _)) = self.ctx.globals.get(&name).cloned() {
