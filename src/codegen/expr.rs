@@ -2185,11 +2185,7 @@ impl CodeGen {
                                     // concat segfaulted). `add`, not `pop`:
                                     // popping would clobber the result.
                                     let word = self.temp_offset();
-                                    arch::emit_stack_restore(
-                                        &mut self.output,
-                                        self.arch,
-                                        word,
-                                    );
+                                    arch::emit_stack_restore(&mut self.output, self.arch, word);
                                     self.ctx.stack_offset -= word;
                                     return;
                                 }
