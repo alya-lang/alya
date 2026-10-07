@@ -1230,6 +1230,15 @@ impl TypeChecker {
         None
     }
 
+    fn resolve_struct_for_method(&self, fn_name: &str) -> Option<Type> {
+        let (sname, _) = fn_name.split_once("__")?;
+        let bare = sname.rsplit("::").next().unwrap_or(sname);
+        self.structs
+            .get(sname)
+            .or_else(|| self.structs.get(bare))
+            .map(|sig| Type::Struct(sig.name.clone()))
+    }
+
     fn lookup_fn(&self, name: &str, first_arg_type: Option<&Type>) -> Option<FnSig> {
         // Method lookup via UFCS: receiver.method(...) -> Struct__method(receiver, ...)
         if let Some(fat) = first_arg_type {
@@ -1813,8 +1822,28 @@ impl TypeChecker {
                         .lookup_arity(name, first_arg_type.as_ref())
                         .unwrap_or((sig.param_types.len(), sig.param_types.len(), false));
 
-                    if is_variadic {
-                        if args.len() < min_params {
+                    let arity_mismatch = if is_variadic {
+                        args.len() < min_params
+                    } else if min_params == max_params {
+                        args.len() != min_params
+                    } else {
+                        args.len() < min_params || args.len() > max_params
+                    };
+
+                    if arity_mismatch {
+                        let is_potential_method = !args.is_empty()
+                            && (first_arg_type.is_none()
+                                || matches!(first_arg_type, Some(Type::Any)))
+                            && (self.struct_methods.values().any(|m| m.contains(name))
+                                || self.functions.keys().any(|k| {
+                                    k.ends_with(&format!("__{}", name))
+                                        || k.ends_with(&format!(".{}", name))
+                                }));
+                        if is_potential_method {
+                            return Ok(());
+                        }
+
+                        if is_variadic {
                             return Err(format!(
                                 "TypeError: Function '{}' expects at least {} argument{}, found {}",
                                 name,
@@ -1822,9 +1851,7 @@ impl TypeChecker {
                                 if min_params == 1 { "" } else { "s" },
                                 args.len()
                             ));
-                        }
-                    } else if min_params == max_params {
-                        if args.len() != min_params {
+                        } else if min_params == max_params {
                             return Err(format!(
                                 "TypeError: Function '{}' expects {} argument{}, found {}",
                                 name,
@@ -1832,15 +1859,15 @@ impl TypeChecker {
                                 if min_params == 1 { "" } else { "s" },
                                 args.len()
                             ));
+                        } else {
+                            return Err(format!(
+                                "TypeError: Function '{}' expects between {} and {} arguments, found {}",
+                                name,
+                                min_params,
+                                max_params,
+                                args.len()
+                            ));
                         }
-                    } else if args.len() < min_params || args.len() > max_params {
-                        return Err(format!(
-                            "TypeError: Function '{}' expects between {} and {} arguments, found {}",
-                            name,
-                            min_params,
-                            max_params,
-                            args.len()
-                        ));
                     }
 
                     for (i, param_ty) in sig.param_types.iter().enumerate() {
@@ -2034,11 +2061,20 @@ impl TypeChecker {
                 self.current_fn_name = Some(name.clone());
                 self.push_scope();
 
+                let struct_self_type = self.resolve_struct_for_method(name);
+
                 for (pname, ptype_opt) in params.iter().zip(param_types.iter()) {
                     let pty = ptype_opt
                         .as_ref()
                         .map(|s| self.resolve_type_str(s))
-                        .unwrap_or(Type::Any);
+                        .unwrap_or_else(|| {
+                            if pname == "self" {
+                                if let Some(st) = &struct_self_type {
+                                    return st.clone();
+                                }
+                            }
+                            Type::Any
+                        });
                     self.define_var(pname, pty);
                 }
 
@@ -2479,12 +2515,22 @@ impl TypeChecker {
                         }
                     }
                 }
-                let p_types = param_types
+                let struct_self_type = self.resolve_struct_for_method(name);
+
+                let p_types = params
                     .iter()
-                    .map(|pt| {
+                    .zip(param_types.iter())
+                    .map(|(pname, pt)| {
                         pt.as_ref()
                             .map(|s| self.resolve_type_str(s))
-                            .unwrap_or(Type::Any)
+                            .unwrap_or_else(|| {
+                                if pname == "self" {
+                                    if let Some(st) = &struct_self_type {
+                                        return st.clone();
+                                    }
+                                }
+                                Type::Any
+                            })
                     })
                     .collect();
 

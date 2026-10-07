@@ -2674,9 +2674,9 @@ function Parser.parse_statement(self)
     elif k == "keyword" and nm == "extern"
         self.parse_extern()
     elif k == "keyword" and nm == "struct"
-        self.parse_struct()
+        self.parse_struct(false)
     elif k == "keyword" and nm == "enum"
-        self.parse_enum()
+        self.parse_enum(false)
     elif k == "keyword" and nm == "const"
         self.parse_const()
     elif k == "keyword" and nm == "say"

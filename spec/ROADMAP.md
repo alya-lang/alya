@@ -40,7 +40,6 @@ This roadmap defines the sequenced implementation phases, actionable engineering
 
 - [x] **0.1 Binary Naming Standard (`alya` as Primary Binary)**
   - Update `Src/alya/Cargo.toml` to define `name = "alya"` as the primary executable.
-  - Maintain `alyac` as an alias or secondary entry point for backward compatibility.
   - Target files: `Cargo.toml`, `src/main.rs`.
   - Verification: `cargo build` produces `target/debug/alya` (and `alya.exe` on Windows).
 

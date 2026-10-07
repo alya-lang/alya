@@ -1,0 +1,27 @@
+# ==============================================================================
+# Alya Integration Fixture 34 (entry): struct method shadows global name on self
+# Distilled from: spike/selfhost/lexer.alya Lexer.read_string vs fs.read_string
+# Guards: unannotated `self` in struct methods infers receiver struct type,
+#         preventing fallback to arity-mismatched global builtins with same name.
+# ==============================================================================
+
+struct Reader
+    content: string
+end
+
+function Reader.read_string(self, extra: int) -> string
+    return self.content + ":" + str(extra)
+end
+
+function Reader.process(self) -> string
+    return self.read_string(42)
+end
+
+function main()
+    let r = Reader("hello")
+    let out = r.process()
+    assert_eq(out, "hello:42")
+    say(out)
+end
+
+main()

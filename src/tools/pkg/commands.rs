@@ -466,7 +466,7 @@ fn ensure_dep_cached(
                 if cached_pkg_dir.exists() {
                     let _ = fs::remove_dir_all(&cached_pkg_dir);
                 }
-                fetch_git_or_archive_dependency(
+                let mut fetch_res = fetch_git_or_archive_dependency(
                     name,
                     url,
                     tag.as_deref(),
@@ -474,7 +474,24 @@ fn ensure_dep_cached(
                     effective_rev.as_deref(),
                     &cached_pkg_dir,
                     strict,
-                )?;
+                );
+                if fetch_res.is_err()
+                    && !strict
+                    && tag.is_some()
+                    && branch.is_none()
+                    && effective_rev.is_none()
+                {
+                    fetch_res = fetch_git_or_archive_dependency(
+                        name,
+                        url,
+                        None,
+                        None,
+                        None,
+                        &cached_pkg_dir,
+                        strict,
+                    );
+                }
+                fetch_res?;
                 let commit_sha = fs::read_to_string(cached_pkg_dir.join(".alya-rev"))
                     .ok()
                     .map(|s| s.trim().to_string())
@@ -518,11 +535,28 @@ fn ensure_dep_cached(
             let cache_key = compute_cache_key(name, tag_or_branch, &url);
             let cached_pkg_dir = cache_dir.join(&cache_key);
 
-            let cache_hit = cached_pkg_dir.exists() && cached_pkg_dir.join("alya.toml").exists();
+            let local_pkg_dir = from_manifest_dir.join(".alya").join("packages").join(name);
+            let local_hit = if local_pkg_dir.exists() && local_pkg_dir.join("alya.toml").exists() {
+                if let Ok(manifest_src) = fs::read_to_string(local_pkg_dir.join("alya.toml")) {
+                    if let Ok(parsed) = parse_manifest(&manifest_src) {
+                        parsed.package.version == *v || v == "*"
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            let cache_hit =
+                !local_hit && cached_pkg_dir.exists() && cached_pkg_dir.join("alya.toml").exists();
 
             let head_cache_key = compute_cache_key(name, "head", &url);
             let head_cached_dir = cache_dir.join(&head_cache_key);
             let head_hit = if !cache_hit
+                && !local_hit
                 && head_cached_dir.exists()
                 && head_cached_dir.join("alya.toml").exists()
             {
@@ -539,7 +573,16 @@ fn ensure_dep_cached(
                 false
             };
 
-            if cache_hit {
+            if local_hit {
+                let _ = copy_dir_all(&local_pkg_dir, &cached_pkg_dir, true);
+                let _ = fs::write(cached_pkg_dir.join(".alya-source"), &source);
+                if reported.insert(format!("{}:{}", name, v)) {
+                    println!(
+                        "  Using existing package '{}' ({}) from .alya/packages",
+                        name, v
+                    );
+                }
+            } else if cache_hit {
                 if reported.insert(format!("{}:{}", name, v)) {
                     println!(
                         "  Using cached package '{}' ({}) from global cache",
@@ -616,6 +659,21 @@ fn ensure_dep_cached(
                                     } else {
                                         let _ = fs::remove_dir_all(&cached_pkg_dir);
                                     }
+                                }
+                            }
+                        }
+                    }
+                    if fetch_res.is_err()
+                        && local_pkg_dir.exists()
+                        && local_pkg_dir.join("alya.toml").exists()
+                    {
+                        if let Ok(manifest_src) =
+                            fs::read_to_string(local_pkg_dir.join("alya.toml"))
+                        {
+                            if let Ok(parsed) = parse_manifest(&manifest_src) {
+                                if parsed.package.version == *v || v == "*" {
+                                    let _ = copy_dir_all(&local_pkg_dir, &cached_pkg_dir, true);
+                                    fetch_res = Ok(());
                                 }
                             }
                         }
