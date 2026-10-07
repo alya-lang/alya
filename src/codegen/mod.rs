@@ -1419,7 +1419,6 @@ impl CodeGen {
             &self.ctx.structs,
         );
         self.ctx.nullable_heap_vars = proven;
-        self.ctx.loop_mayheap.clear();
         for stmt in top_level {
             self.generate_statement(stmt);
         }
@@ -1670,7 +1669,11 @@ impl CodeGen {
             &self.ctx.structs,
         );
         self.ctx.nullable_heap_vars = proven;
-        self.ctx.loop_mayheap.clear();
+        // Non-escaping heap params (see `nonescaping_params`): borrowed
+        // for the whole call, so the entry retain and the scope release
+        // are skipped as a balanced pair.
+        self.ctx.nonescaping_params =
+            crate::codegen::analysis::nonescaping_params(&body_refs, params, &global_names);
 
         let bare = name.rsplit("::").next().unwrap_or(name);
         let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -2011,19 +2014,21 @@ impl CodeGen {
                 || is_flt_arr
                 || is_map;
             if is_heap_param {
-                heap_param_offsets.push(self.ctx.stack_offset);
+                heap_param_offsets.push((param.clone(), self.ctx.stack_offset));
             }
         }
 
-        for offset in heap_param_offsets {
+        for (pname, offset) in heap_param_offsets {
+            // Non-escaping params are borrowed for the whole call (see
+            // `nonescaping_params`): skip the entry retain; the scope
+            // release is skipped to match (see
+            // `get_scope_heap_offsets`). All other params keep the
+            // probed retain — the caller's actual value is invisible.
+            if self.ctx.nonescaping_params.contains(&pname) {
+                continue;
+            }
             arch::emit_load_var(&mut self.output, self.arch, offset, self.ctx.stack_offset);
-            // Heap-typed params are proven heap: direct retain.
-            arch::emit_rc_retain_direct(
-                &mut self.output,
-                self.arch,
-                self.ctx.stack_offset,
-                self.os,
-            );
+            arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
         }
 
         // Return-tag protocol (Phase 2b, alya-lang/alya#39): when every
@@ -2116,6 +2121,9 @@ impl CodeGen {
             .variables
             .iter()
             .filter(|(name, _)| !name.contains(':') && !name.contains('.'))
+            // Non-escaping params hold a borrow, not a share: no entry
+            // retain was emitted, so no scope release may be either.
+            .filter(|(name, _)| !self.ctx.nonescaping_params.contains(*name))
             .filter_map(|(_, vtype)| match vtype {
                 VarType::Array(off)
                 | VarType::Map(off)
@@ -2135,13 +2143,41 @@ impl CodeGen {
         offsets
     }
 
+    /// Provenness for a scope-cleanup slot: direct release only when
+    /// every heap-typed name currently mapped to `offset` is
+    /// union-proven. The union (every write to the name is null-or-heap)
+    /// covers the current value exactly; stale typed slots keep the
+    /// probed call. Offsets shared by several names (slot reuse) take
+    /// the probe unless all are proven.
+    pub(crate) fn scope_heap_slot_proven(&self, offset: i32) -> bool {
+        let mut found = false;
+        for (name, vtype) in &self.ctx.variables {
+            if name.contains(':') || name.contains('.') {
+                continue;
+            }
+            let off = match vtype {
+                VarType::Array(o) | VarType::Map(o) => *o,
+                VarType::Struct { offset: o, .. } | VarType::Interface { offset: o, .. } => *o,
+                _ => continue,
+            };
+            if off != offset {
+                continue;
+            }
+            found = true;
+            if !self.ctx.nullable_heap_vars.contains(name) {
+                return false;
+            }
+        }
+        found
+    }
+
     pub(crate) fn emit_cleanup_scope(&mut self, skip_offset: Option<i32>) {
         let offsets = self.get_scope_heap_offsets(skip_offset);
         for offset in offsets {
-            // Proven heap slots only (see get_scope_heap_offsets), except
-            // loop-pre-nulled may-facts, which keep the probe.
-            if self.ctx.loop_mayheap.contains(&offset) {
-                arch::emit_rc_release_stack(
+            // Direct only for union-proven slots (see
+            // `scope_heap_slot_proven`); everything else keeps the probe.
+            if self.scope_heap_slot_proven(offset) {
+                arch::emit_rc_release_stack_direct(
                     &mut self.output,
                     self.arch,
                     offset,
@@ -2149,7 +2185,7 @@ impl CodeGen {
                     self.os,
                 );
             } else {
-                arch::emit_rc_release_stack_direct(
+                arch::emit_rc_release_stack(
                     &mut self.output,
                     self.arch,
                     offset,
@@ -2167,11 +2203,10 @@ impl CodeGen {
     ) {
         if !check_return_match || heap_offsets.is_empty() {
             for &offset in heap_offsets {
-                // Proven heap slots only (callers pass
-                // get_scope_heap_offsets), except loop-pre-nulled
-                // may-facts, which keep the probe.
-                if self.ctx.loop_mayheap.contains(&offset) {
-                    arch::emit_rc_release_stack(
+                // Direct only for union-proven slots (see
+                // `scope_heap_slot_proven`).
+                if self.scope_heap_slot_proven(offset) {
+                    arch::emit_rc_release_stack_direct(
                         &mut self.output,
                         self.arch,
                         offset,
@@ -2179,7 +2214,7 @@ impl CodeGen {
                         self.os,
                     );
                 } else {
-                    arch::emit_rc_release_stack_direct(
+                    arch::emit_rc_release_stack(
                         &mut self.output,
                         self.arch,
                         offset,
@@ -2213,8 +2248,10 @@ impl CodeGen {
                     self.output
                         .push_str(&format!("    jmp .L_skip_{}\n", clean_uid));
                     self.output.push_str(&format!(".L_rel_{}:\n", clean_uid));
-                    if self.ctx.loop_mayheap.contains(&offset) {
-                        arch::emit_rc_release_stack(
+                    // Direct only for union-proven slots (see
+                    // `scope_heap_slot_proven`).
+                    if self.scope_heap_slot_proven(offset) {
+                        arch::emit_rc_release_stack_direct(
                             &mut self.output,
                             self.arch,
                             offset,
@@ -2222,7 +2259,7 @@ impl CodeGen {
                             self.os,
                         );
                     } else {
-                        arch::emit_rc_release_stack_direct(
+                        arch::emit_rc_release_stack(
                             &mut self.output,
                             self.arch,
                             offset,
@@ -2255,8 +2292,10 @@ impl CodeGen {
                     self.output
                         .push_str(&format!("    b .L_skip_{}\n", clean_uid));
                     self.output.push_str(&format!(".L_rel_{}:\n", clean_uid));
-                    if self.ctx.loop_mayheap.contains(&offset) {
-                        arch::emit_rc_release_stack(
+                    // Direct only for union-proven slots (see
+                    // `scope_heap_slot_proven`).
+                    if self.scope_heap_slot_proven(offset) {
+                        arch::emit_rc_release_stack_direct(
                             &mut self.output,
                             self.arch,
                             offset,
@@ -2264,7 +2303,7 @@ impl CodeGen {
                             self.os,
                         );
                     } else {
-                        arch::emit_rc_release_stack_direct(
+                        arch::emit_rc_release_stack(
                             &mut self.output,
                             self.arch,
                             offset,
@@ -2708,42 +2747,53 @@ impl CodeGen {
         }
     }
 
-    /// Proven-heap for the probe-free direct refcount calls:
-    /// statically proven heap (`is_heap_expression`) or a
-    /// nullable-heap local (see `nullable_heap_locals`: every assignment
-    /// in the function is `null` or heap, so reads hold null — skipped
-    /// by the guards — or live heap — magic check). Loop-pre-nulled
-    /// slots carry may-fact `Array` markers (`loop_mayheap`): those never
-    /// count as proof even when the `VarType` matches.
+    /// Proven-heap for the probe-free direct retain: either a freshly
+    /// created heap value (literal, heap-returning call — the value in
+    /// the register IS the new object, so no stale-type window exists)
+    /// or an identifier in `nullable_heap_vars` (every syntactic write
+    /// to it is `null` or heap, so reads hold null — skipped by the
+    /// guards — or live heap — magic check). Notably NOT typed locals:
+    /// conditional writes can leave a stale heap type over a scalar
+    /// value, and direct (prob-free) calls fault or corrupt on such
+    /// values while probed calls skip them. Index/field reads are
+    /// dynamic and never proven. Composite ternaries need both arms.
     pub(crate) fn value_proven_heap(&self, expr: &crate::ast::Expr) -> bool {
         use crate::ast::Expr as E;
-        if let E::Identifier(name) = expr {
-            return self.identifier_proven_heap(name);
-        }
-        self.is_heap_expression(expr)
-    }
-
-    /// Identifier half of `value_proven_heap`, reused by alias analysis.
-    pub(crate) fn identifier_proven_heap(&self, name: &str) -> bool {
-        if self.ctx.nullable_heap_vars.contains(name) {
-            return true;
-        }
-        match self.ctx.variables.get(name) {
-            Some(
-                crate::codegen::context::VarType::Array(off)
-                | crate::codegen::context::VarType::Map(off)
-                | crate::codegen::context::VarType::Struct { offset: off, .. }
-                | crate::codegen::context::VarType::Interface { offset: off, .. },
-            ) => !self.ctx.loop_mayheap.contains(off),
+        match expr {
+            E::Array(_) | E::Map(_) | E::StructInit { .. } => true,
+            E::Identifier(name) => self.ctx.nullable_heap_vars.contains(name),
+            E::Ternary {
+                then_branch,
+                else_branch,
+                ..
+            } => self.value_proven_heap(then_branch) && self.value_proven_heap(else_branch),
+            E::NullCoalesce { value, default } => {
+                self.value_proven_heap(value) && self.value_proven_heap(default)
+            }
+            E::ForceUnwrap(inner) => self.value_proven_heap(inner),
+            E::Call { .. } => self.is_heap_expression(expr),
             _ => false,
         }
     }
 
-    /// Direct-release eligibility for a rebind/scope slot holding
-    /// `name`'s old value: union proof, or a typed-heap slot untouched
-    /// by loop pre-nulling (pre-null markers are may-facts).
-    pub(crate) fn slot_proven_heap(&self, name: &str, off: i32) -> bool {
-        self.ctx.nullable_heap_vars.contains(name) || !self.ctx.loop_mayheap.contains(&off)
+    /// Retain-needed test: pre-two-tier `is_heap_expression` plus
+    /// union-proven untyped locals. Extra retains are the safe
+    /// direction (at worst a leak); missing ones are use-after-free.
+    pub(crate) fn value_needs_heap_retain(&self, expr: &crate::ast::Expr) -> bool {
+        use crate::ast::Expr as E;
+        if self.is_heap_expression(expr) {
+            return true;
+        }
+        matches!(expr, E::Identifier(name) if self.ctx.nullable_heap_vars.contains(name))
+    }
+
+    /// Direct-release eligibility for a rebind of `name`: union proof
+    /// only. The released old value was written by an earlier write to
+    /// the same name, so the union (every write is null-or-heap)
+    /// covers it exactly. Typed slots can go stale across conditional
+    /// writes and must keep the probed call.
+    pub(crate) fn slot_proven_heap(&self, name: &str) -> bool {
+        self.ctx.nullable_heap_vars.contains(name)
     }
 
     /// Retain gate for collection stores (`push`, map `set`, array `set`, literal construction).
@@ -2948,54 +2998,32 @@ impl CodeGen {
 
     pub(crate) fn emit_tag_guarded_retain(&mut self) {
         let skip = self.ctx.next_label();
-        let direct = self.ctx.next_label();
-        // Int/float tags need no retain; array/map/struct tags are
-        // proven heap at runtime, so they take the probe-free direct
-        // call. Unknown (and string) tags keep the probed call.
+        // Int/float tags need no retain; every other tag (heap, string,
+        // unknown) keeps the probed call. Heap-kind tags do NOT take a
+        // probe-free path: tags can go stale across overwrites that
+        // don't update them, and only the probe forgives an unmapped
+        // value behind a heap tag.
         match self.arch {
             Architecture::X64 => {
                 self.output.push_str(&format!(
-                    "    cmpl ${}, %edx\n    je {}\n    cmpl ${}, %edx\n    je {}\n    cmpl ${}, %edx\n    je {}\n    cmpl ${}, %edx\n    je {}\n    cmpl ${}, %edx\n    je {}\n",
+                    "    cmpl ${}, %edx\n    je {}\n    cmpl ${}, %edx\n    je {}\n",
                     kinds::KIND_INT,
                     skip,
                     kinds::KIND_FLOAT,
-                    skip,
-                    kinds::KIND_ARRAY,
-                    direct,
-                    kinds::KIND_MAP,
-                    direct,
-                    kinds::KIND_STRUCT,
-                    direct,
+                    skip
                 ));
             }
             Architecture::ARM64 => {
                 self.output.push_str(&format!(
-                    "    cmp w1, #{}\n    b.eq {}\n    cmp w1, #{}\n    b.eq {}\n    cmp w1, #{}\n    b.eq {}\n    cmp w1, #{}\n    b.eq {}\n    cmp w1, #{}\n    b.eq {}\n",
+                    "    cmp w1, #{}\n    b.eq {}\n    cmp w1, #{}\n    b.eq {}\n",
                     kinds::KIND_INT,
                     skip,
                     kinds::KIND_FLOAT,
-                    skip,
-                    kinds::KIND_ARRAY,
-                    direct,
-                    kinds::KIND_MAP,
-                    direct,
-                    kinds::KIND_STRUCT,
-                    direct,
+                    skip
                 ));
             }
         }
         arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
-        match self.arch {
-            Architecture::X64 => {
-                self.output
-                    .push_str(&format!("    jmp {}\n{}:\n", skip, direct));
-            }
-            Architecture::ARM64 => {
-                self.output
-                    .push_str(&format!("    b {}\n{}:\n", skip, direct));
-            }
-        }
-        arch::emit_rc_retain_direct(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
         self.output.push_str(&format!("{}:\n", skip));
     }
 

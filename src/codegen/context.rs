@@ -48,7 +48,7 @@ pub struct ScopeState {
     pub next_defer_idx: usize,
     pub current_fn_name: String,
     pub nullable_heap_vars: HashSet<String>,
-    pub loop_mayheap: HashSet<i32>,
+    pub nonescaping_params: HashSet<String>,
 }
 
 /// Counters for the return-tag protocol measurement
@@ -94,16 +94,14 @@ pub struct CodeGenContext {
     pub globals: HashMap<String, (String, Option<String>)>,
     pub enums: HashSet<String>,
     pub tag_stats: TagStats,
-    /// Locals proven to hold only `null` or heap-constructor literals
-    /// (see `nullable_heap_locals`): their reads take the probe-free
-    /// direct retain/release. Recomputed per function body.
+    /// Locals proven to hold only `null` or heap values
+    /// (see `nullable_heap_locals`): their reads and rebind-releases
+    /// take the probe-free direct calls. Recomputed per function body.
     pub nullable_heap_vars: HashSet<String>,
-    /// Stack offsets of loop-pre-nulled slots. The pre-pass marks them
-    /// `Array`-typed as a may-fact (any value kind can flow in), so
-    /// their `VarType` must NOT drive probe-free direct calls; reads
-    /// consult `nullable_heap_vars` instead. Stale entries only cost a
-    /// probed call, never safety.
-    pub loop_mayheap: HashSet<i32>,
+    /// Heap params that never escape the frame (see
+    /// `nonescaping_params`): no entry retain and no scope release,
+    /// skipped as a balanced pair. Recomputed per function body.
+    pub nonescaping_params: HashSet<String>,
 }
 
 impl CodeGenContext {
@@ -128,7 +126,7 @@ impl CodeGenContext {
             enums: HashSet::new(),
             tag_stats: TagStats::default(),
             nullable_heap_vars: HashSet::new(),
-            loop_mayheap: HashSet::new(),
+            nonescaping_params: HashSet::new(),
         }
     }
 
@@ -218,7 +216,7 @@ impl CodeGenContext {
             next_defer_idx: self.next_defer_idx,
             current_fn_name: std::mem::take(&mut self.current_fn_name),
             nullable_heap_vars: std::mem::take(&mut self.nullable_heap_vars),
-            loop_mayheap: std::mem::take(&mut self.loop_mayheap),
+            nonescaping_params: std::mem::take(&mut self.nonescaping_params),
         };
         self.stack_offset = 0;
         self.next_defer_idx = 0;
@@ -233,6 +231,6 @@ impl CodeGenContext {
         self.next_defer_idx = saved.next_defer_idx;
         self.current_fn_name = saved.current_fn_name;
         self.nullable_heap_vars = saved.nullable_heap_vars;
-        self.loop_mayheap = saved.loop_mayheap;
+        self.nonescaping_params = saved.nonescaping_params;
     }
 }

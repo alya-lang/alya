@@ -326,10 +326,11 @@ pub fn emit_rc_retain(
     }
 }
 
-/// Probe-free retain for statically-proven heap values: same shape as
+/// Probe-free retain for proven-heap values: same shape as
 /// `emit_rc_retain`, but calls `fn_rc_retain_direct` (no readability
-/// probe, no syscall). Call ONLY when `is_heap_expression(value)` holds;
-/// dynamic values must keep the probed call (alya-lang/alya#117).
+/// probe, no syscall). Call ONLY when `value_proven_heap(value)` holds
+/// (fresh heap literal/call, or a union-proven local); anything else
+/// must keep the probed call (alya-lang/alya#117).
 pub fn emit_rc_retain_direct(
     out: &mut String,
     arch: Architecture,
@@ -370,20 +371,6 @@ pub fn emit_rc_release(
     }
 }
 
-/// Probe-free release for statically-proven heap values (see
-/// `emit_rc_retain_direct`).
-pub fn emit_rc_release_direct(
-    out: &mut String,
-    arch: Architecture,
-    stack_offset: i32,
-    os: OperatingSystem,
-) {
-    match arch {
-        Architecture::X64 => x64::builtins::emit_rc_release_direct(out, stack_offset, os),
-        Architecture::ARM64 => arm64::builtins::emit_rc_release_direct(out),
-    }
-}
-
 pub fn emit_rc_release_stack(
     out: &mut String,
     arch: Architecture,
@@ -397,9 +384,12 @@ pub fn emit_rc_release_stack(
     }
 }
 
-/// Probe-free slot release for statically-proven heap slots (see
-/// `emit_rc_retain_direct`). All offsets from `get_scope_heap_offsets`
-/// are proven heap by construction (Array/Map/Struct/Interface only).
+/// Probe-free slot release for union-proven rebinds: same shape as
+/// `emit_rc_release_stack`, but calls `fn_rc_release_direct`. Call ONLY
+/// with a union-proven name (`slot_proven_heap`): the released old
+/// value was written by an earlier write to the same name, so the
+/// union (every write is null-or-heap) covers it exactly. Offset-only
+/// scope cleanups must keep the probed call (stale types possible).
 pub fn emit_rc_release_stack_direct(
     out: &mut String,
     arch: Architecture,

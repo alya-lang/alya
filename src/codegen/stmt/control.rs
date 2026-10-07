@@ -733,14 +733,13 @@ impl CodeGen {
 
     /// Insert pre-nulled slots into tracking so body `let`s reuse (rather
     /// than shadow) them. The `Array` marker is a may-fact (any value
-    /// kind can flow in): record the offset in `loop_mayheap` so
-    /// probe-free direct calls never trust it.
+    /// kind can flow in): only the assigned-kind union
+    /// (`nullable_heap_vars`) ever counts as proof, never the `VarType`.
     fn track_loop_vars(&mut self, vars: &[(String, i32)]) {
         for (name, off) in vars {
             self.ctx
                 .variables
                 .insert(name.clone(), VarType::Array(*off));
-            self.ctx.loop_mayheap.insert(*off);
         }
     }
 
@@ -1382,9 +1381,9 @@ impl CodeGen {
         // `return` paths never reach this label; they are covered by the
         // tracked temp variable above.
         if owns_iter_temp {
-            // Fresh-owned iterable (literal/constructor/fresh call):
-            // proven heap, direct release.
-            arch::emit_rc_release_stack_direct(
+            // Fresh-owned iterable temp: release stays probed (the slot
+            // is offset-addressed; only the union proves a name).
+            arch::emit_rc_release_stack(
                 &mut self.output,
                 self.arch,
                 arr_offset,

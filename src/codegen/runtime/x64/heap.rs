@@ -927,9 +927,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
-    // fn_rc_release_direct(value): same contract as fn_rc_retain_direct
-    // (proven heap only, no probe). Guards run first, then control joins
-    // the shared tag-read tail, whose cascade keeps probed recursion.
+    // fn_rc_release_direct(value): probe-free release for union-proven
+    // rebinds only (see `emit_rc_release_stack_direct`). Guards run
+    // first, then control joins the shared tag-read tail, whose cascade
+    // keeps probed recursion.
     out.push_str(".global fn_rc_release_direct\n");
     out.push_str("fn_rc_release_direct:\n");
     out.push_str("    push %rbp\n");

@@ -36,9 +36,8 @@ impl CodeGen {
                     });
                 self.generate_expression(expr);
                 if drops_fresh_heap {
-                    // Fresh heap temporaries (literals/constructors/fresh
-                    // calls): proven heap, direct release.
-                    arch::emit_rc_release_direct(
+                    // Fresh heap temporaries: release stays probed (see above).
+                    arch::emit_rc_release(
                         &mut self.output,
                         self.arch,
                         self.ctx.stack_offset,

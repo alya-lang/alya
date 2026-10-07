@@ -667,10 +667,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldp x29, x30, [sp], #32\n");
     out.push_str("    ret\n\n");
 
-    // fn_rc_release_direct: probe-free fast path for statically-proven
-    // heap values (see the x64 counterpart). Same frame as the probed
-    // form so the shared tail serves both; its cascade keeps probed
-    // recursion.
+    // fn_rc_release_direct: probe-free release for union-proven rebinds
+    // only (see the x64 counterpart). Same frame as the probed form so
+    // the shared tail serves both; its cascade keeps probed recursion.
     out.push_str(".align 2\n");
     out.push_str(".global fn_rc_release_direct\n");
     out.push_str("fn_rc_release_direct:\n");

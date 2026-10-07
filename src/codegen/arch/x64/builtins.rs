@@ -639,28 +639,6 @@ pub fn emit_rc_release(out: &mut String, stack_offset: i32, os: OperatingSystem)
     }
 }
 
-/// Probe-free release for statically-proven heap values (see
-/// `fn_rc_release_direct`): same shape, direct symbol.
-pub fn emit_rc_release_direct(out: &mut String, stack_offset: i32, os: OperatingSystem) {
-    if matches!(os, OperatingSystem::Windows) {
-        out.push_str("    mov %rax, %rcx\n");
-        let padding = if stack_offset % 16 == 0 { 32 } else { 40 };
-        out.push_str(&format!("    sub ${}, %rsp\n", padding));
-        out.push_str("    call fn_rc_release_direct\n");
-        out.push_str(&format!("    add ${}, %rsp\n", padding));
-    } else {
-        out.push_str("    mov %rax, %rdi\n");
-        let misaligned = stack_offset % 16 != 0;
-        if misaligned {
-            out.push_str("    sub $8, %rsp\n");
-        }
-        out.push_str("    call fn_rc_release_direct\n");
-        if misaligned {
-            out.push_str("    add $8, %rsp\n");
-        }
-    }
-}
-
 pub fn emit_weak_check(out: &mut String, stack_offset: i32, os: OperatingSystem, lbl: &str) {
     let clean_lbl = lbl.trim_start_matches('.');
     out.push_str("    test %rax, %rax\n");
@@ -720,8 +698,8 @@ pub fn emit_rc_release_stack(
     }
 }
 
-/// Probe-free slot release for statically-proven heap slots (see
-/// `fn_rc_release_direct`): same shape, direct symbol.
+/// Probe-free slot release for union-proven rebinds (see
+/// `emit_rc_release_stack_direct` in `arch::builtins`).
 pub fn emit_rc_release_stack_direct(
     out: &mut String,
     offset: i32,

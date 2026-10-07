@@ -1565,10 +1565,14 @@ fn classify_assigned(
         Expr::Null => AssignedKind::Null,
         Expr::Array(_) | Expr::Map(_) | Expr::StructInit { .. } => AssignedKind::Heap,
         Expr::Call { name, .. } => {
-            let bare = name.rsplit("::").next().unwrap_or(name.as_str());
-            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            // Exactly the evidence `is_heap_expression` trusts for calls
+            // (struct constructors, `fn_ret_struct` markers, array/map
+            // calls) — no `fn_ret_fresh`: freshness is not heapness.
             if structs.contains_key(name)
-                || structs.contains_key(bare)
+                || matches!(
+                    vars.get(&format!("fn_ret_struct:{}", name)),
+                    Some(VarType::Struct { .. })
+                )
                 || is_array_expr(expr, vars)
                 || is_map_expr(expr, vars)
             {
@@ -2243,6 +2247,212 @@ pub fn eq_operand_is_dynamic(expr: &Expr, vars: &HashMap<String, VarType>) -> bo
     }
 }
 
+/// Non-escaping heap params for the probe-free fast path.
+///
+/// Returns the params that are never written (no `=`-assign or
+/// `let`-rebind to the name) and never placed where the callee frame's
+/// ownership share would be needed: returned, thrown, stored into a
+/// container slot or a global, or mentioned inside a nested function
+/// (closures may outlive the frame; mentions are textual, so shadowing
+/// only over-approximates). Reads — arithmetic, comparisons, index and
+/// field loads, call arguments (callees retain their own share),
+/// loop iterables — are all borrows: the caller's slot outlives the
+/// call, so no share is needed and both the entry retain and the scope
+/// release can be skipped as a balanced pair.
+///
+/// Soundness notes: interior aliases (`local = param`) retain their own
+/// share through the alias machinery, so they are reads here. Loops
+/// and conditionals only matter through the statements they contain.
+/// There are no references, address-of, or eval, so the statement forms
+/// below are the complete set of writers/escapers.
+pub fn nonescaping_params(
+    body: &[&Stmt],
+    params: &[String],
+    globals: &std::collections::HashSet<String>,
+) -> HashSet<String> {
+    use std::collections::HashSet as Set;
+    let mut escaping: Set<String> = Set::new();
+
+    fn mentions_any(expr: &Expr, params: &[String]) -> Vec<String> {
+        params
+            .iter()
+            .filter(|p| expr_mentions_var(expr, p))
+            .cloned()
+            .collect()
+    }
+
+    fn walk_block(
+        stmts: &[Stmt],
+        params: &[String],
+        globals: &Set<String>,
+        escaping: &mut Set<String>,
+    ) {
+        let refs: Vec<&Stmt> = stmts.iter().collect();
+        walk(&refs, params, globals, escaping);
+    }
+
+    fn walk(stmts: &[&Stmt], params: &[String], globals: &Set<String>, escaping: &mut Set<String>) {
+        for stmt in stmts {
+            match *stmt {
+                Stmt::Let { name, .. } | Stmt::Const { name, .. } => {
+                    // A `let` with a param's name rebinds (releasing) it.
+                    if params.contains(name) {
+                        escaping.insert(name.clone());
+                    }
+                }
+                Stmt::Assign { name, value } => {
+                    if params.contains(name) {
+                        escaping.insert(name.clone());
+                    }
+                    // Storing a param into a global outlives the frame
+                    // (globals have no retaining store path); storing
+                    // into a local aliases through the retaining alias
+                    // machinery and stays a borrow.
+                    if globals.contains(name) {
+                        for p in mentions_any(value, params) {
+                            escaping.insert(p);
+                        }
+                    }
+                }
+                Stmt::IndexAssign { value, .. } | Stmt::FieldAssign { value, .. } => {
+                    // Container-slot stores outlive the frame; the
+                    // set-path retain covers locals, but treat any
+                    // param store conservatively as escaping.
+                    for p in mentions_any(value, params) {
+                        escaping.insert(p);
+                    }
+                }
+                Stmt::Return(Some(expr)) | Stmt::Throw(Some(expr)) => {
+                    for p in mentions_any(expr, params) {
+                        escaping.insert(p);
+                    }
+                }
+                Stmt::Function { body, .. } => {
+                    // Nested closures may outlive the frame: any textual
+                    // mention escapes (shadowing only over-approximates).
+                    for s in body.iter() {
+                        for p in params {
+                            if stmt_mentions(s, p) {
+                                escaping.insert(p.clone());
+                            }
+                        }
+                    }
+                }
+                Stmt::For { body, .. } => walk_block(body, params, globals, escaping),
+                Stmt::ForEach { body, .. } => walk_block(body, params, globals, escaping),
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    walk_block(then_block, params, globals, escaping);
+                    if let Some(eb) = else_block {
+                        walk_block(eb, params, globals, escaping);
+                    }
+                }
+                Stmt::While { body, .. } | Stmt::Repeat { body } => {
+                    walk_block(body, params, globals, escaping)
+                }
+                Stmt::TryCatch {
+                    try_block,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    walk_block(try_block, params, globals, escaping);
+                    walk_block(catch_block, params, globals, escaping);
+                    if let Some(fb) = finally_block {
+                        walk_block(fb, params, globals, escaping);
+                    }
+                }
+                Stmt::Defer(inner) | Stmt::Pub(inner) => walk(
+                    std::slice::from_ref(&inner.as_ref()),
+                    params,
+                    globals,
+                    escaping,
+                ),
+                // Pure reads and control transfers: Say, Expr (call args
+                // are retained by callees; in-place mutation needs no
+                // share), Break/Continue, definitions, imports/externs.
+                Stmt::Import { .. }
+                | Stmt::ExternBlock { .. }
+                | Stmt::Say(_)
+                | Stmt::StructDef { .. }
+                | Stmt::EnumDef { .. }
+                | Stmt::Return(None)
+                | Stmt::Break
+                | Stmt::Continue
+                | Stmt::Expr(_)
+                | Stmt::Throw(None)
+                | Stmt::InterfaceDef { .. } => {}
+            }
+        }
+    }
+
+    fn stmt_mentions(stmt: &Stmt, target: &str) -> bool {
+        match stmt {
+            Stmt::Say(expr) | Stmt::Expr(expr) => expr_mentions_var(expr, target),
+            Stmt::Let { value, .. } | Stmt::Const { name: _, value } => {
+                expr_mentions_var(value, target)
+            }
+            Stmt::Assign { value, .. } => expr_mentions_var(value, target),
+            Stmt::IndexAssign {
+                array,
+                index,
+                value,
+            } => {
+                expr_mentions_var(array, target)
+                    || expr_mentions_var(index, target)
+                    || expr_mentions_var(value, target)
+            }
+            Stmt::FieldAssign { object, value, .. } => {
+                expr_mentions_var(object, target) || expr_mentions_var(value, target)
+            }
+            Stmt::Return(Some(expr)) | Stmt::Throw(Some(expr)) => expr_mentions_var(expr, target),
+            Stmt::If {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                expr_mentions_var(condition, target)
+                    || then_block.iter().any(|s| stmt_mentions(s, target))
+                    || else_block
+                        .as_ref()
+                        .is_some_and(|eb| eb.iter().any(|s| stmt_mentions(s, target)))
+            }
+            Stmt::While { condition, body } => {
+                expr_mentions_var(condition, target)
+                    || body.iter().any(|s| stmt_mentions(s, target))
+            }
+            Stmt::Repeat { body } => body.iter().any(|s| stmt_mentions(s, target)),
+            Stmt::For { body, .. } | Stmt::ForEach { body, .. } => {
+                body.iter().any(|s| stmt_mentions(s, target))
+            }
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                try_block.iter().any(|s| stmt_mentions(s, target))
+                    || catch_block.iter().any(|s| stmt_mentions(s, target))
+                    || finally_block
+                        .as_ref()
+                        .is_some_and(|fb| fb.iter().any(|s| stmt_mentions(s, target)))
+            }
+            Stmt::Defer(inner) | Stmt::Pub(inner) => stmt_mentions(inner, target),
+            Stmt::Function { body, .. } => body.iter().any(|s| stmt_mentions(s, target)),
+            _ => false,
+        }
+    }
+
+    walk(body, params, globals, &mut escaping);
+    params
+        .iter()
+        .filter(|p| !escaping.contains(*p))
+        .cloned()
+        .collect()
+}
 #[cfg(test)]
 mod tests {
     use super::*;

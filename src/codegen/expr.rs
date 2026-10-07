@@ -1134,14 +1134,24 @@ impl CodeGen {
                         if field_wants_flt {
                             self.emit_implicit_float_convert(arg);
                         }
-                        if !is_weak && self.value_proven_heap(arg) {
-                            // Proven heap: probe-free direct retain.
-                            arch::emit_rc_retain_direct(
-                                &mut self.output,
-                                self.arch,
-                                self.ctx.stack_offset,
-                                self.os,
-                            );
+                        if !is_weak && self.value_needs_heap_retain(arg) {
+                            // Retain when maybe-heap (old condition plus
+                            // union); direct only when proven.
+                            if self.value_proven_heap(arg) {
+                                arch::emit_rc_retain_direct(
+                                    &mut self.output,
+                                    self.arch,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
+                            } else {
+                                arch::emit_rc_retain(
+                                    &mut self.output,
+                                    self.arch,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
+                            }
                         }
                         arch::emit_struct_field_set_imm(&mut self.output, self.arch, i);
                     }
@@ -2905,14 +2915,23 @@ impl CodeGen {
                         _ => false,
                     };
                     self.generate_expression(elem);
-                    if self.value_proven_heap(elem) && !elem_moves {
-                        // Proven heap (non-moving alias): direct retain.
-                        arch::emit_rc_retain_direct(
-                            &mut self.output,
-                            self.arch,
-                            self.ctx.stack_offset,
-                            self.os,
-                        );
+                    if self.value_needs_heap_retain(elem) && !elem_moves {
+                        // Retain when maybe-heap; direct only when proven.
+                        if self.value_proven_heap(elem) {
+                            arch::emit_rc_retain_direct(
+                                &mut self.output,
+                                self.arch,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                        } else {
+                            arch::emit_rc_retain(
+                                &mut self.output,
+                                self.arch,
+                                self.ctx.stack_offset,
+                                self.os,
+                            );
+                        }
                     }
                     // B1: named stores outlive the wrapping ring buffer.
                     if string_store_needs_dup(elem, &self.ctx.variables) {

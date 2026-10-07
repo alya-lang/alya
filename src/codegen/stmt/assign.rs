@@ -25,14 +25,23 @@ impl CodeGen {
                         self.os,
                     );
                 }
-                if self.value_proven_heap(value) {
-                    // Proven heap: skip the syscall probe.
-                    arch::emit_rc_retain_direct(
-                        &mut self.output,
-                        self.arch,
-                        self.ctx.stack_offset,
-                        self.os,
-                    );
+                if self.value_needs_heap_retain(value) {
+                    // Retain when maybe-heap; direct only when proven.
+                    if self.value_proven_heap(value) {
+                        arch::emit_rc_retain_direct(
+                            &mut self.output,
+                            self.arch,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    } else {
+                        arch::emit_rc_retain(
+                            &mut self.output,
+                            self.arch,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    }
                 }
                 arch::emit_store_global(&mut self.output, self.arch, &symbol, self.os);
                 if let Some(sn) = sname {
@@ -561,7 +570,10 @@ impl CodeGen {
                 let is_map = is_explicit_map || is_map_expr(value, &self.ctx.variables);
                 let is_null = is_null_expr(value, &self.ctx.variables);
                 let is_alias_heap = match value {
-                    Expr::Identifier(ident) => self.identifier_proven_heap(ident),
+                    // Maybe-heap (old typed-local condition plus
+                    // union-proven untyped locals); the emission below
+                    // goes direct only when proven.
+                    Expr::Identifier(_) => self.value_needs_heap_retain(value),
                     Expr::Index { .. } | Expr::FieldAccess { .. } => {
                         is_arr || is_map || is_struct.is_some() || self.is_heap_expression(value)
                     }
@@ -624,14 +636,23 @@ impl CodeGen {
                 }
 
                 if is_alias_heap {
-                    // Proven heap alias (typed local or proven index/field
-                    // read): probe-free direct retain.
-                    arch::emit_rc_retain_direct(
-                        &mut self.output,
-                        self.arch,
-                        self.ctx.stack_offset,
-                        self.os,
-                    );
+                    // Maybe-heap alias: retain; direct only when proven
+                    // (union or fresh value — never a stale typed slot).
+                    if self.value_proven_heap(value) {
+                        arch::emit_rc_retain_direct(
+                            &mut self.output,
+                            self.arch,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    } else {
+                        arch::emit_rc_retain(
+                            &mut self.output,
+                            self.arch,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    }
                 }
 
                 self.emit_let_rebind_release(&name, old_heap_offset, is_flt);
@@ -1025,15 +1046,16 @@ impl CodeGen {
     /// pointer (double-free guard, issue #80). The new value is already
     /// generated (and retained when aliased), so dropping the old slot
     /// mirrors `=` exactly. No-op for first declarations (alya-lang/alya#79).
-    /// Probe-free direct release only when the old slot is proven heap
-    /// (union proof or typed slot untouched by loop pre-nulling, whose
-    /// `Array` markers are may-facts).
+    /// Probe-free direct release only for union-proven names (every
+    /// write is null-or-heap, so the old value is too); all other
+    /// slots keep the probed call.
     fn emit_let_rebind_release(&mut self, name: &str, old_offset: Option<i32>, is_flt: bool) {
         if let Some(old_offset) = old_offset {
             let temp_offset = self.temp_offset();
             arch::emit_push_temp(&mut self.output, self.arch);
             self.ctx.stack_offset += temp_offset;
-            if self.slot_proven_heap(name, old_offset) {
+            // Direct only for union-proven names (see slot_proven_heap).
+            if self.slot_proven_heap(name) {
                 arch::emit_rc_release_stack_direct(
                     &mut self.output,
                     self.arch,
@@ -1148,7 +1170,9 @@ impl CodeGen {
             _ => None,
         };
         let is_alias_heap = match value {
-            Expr::Identifier(ident) => self.identifier_proven_heap(ident),
+            // Maybe-heap (old conditions plus union-proven untyped
+            // locals); the emission below goes direct only when proven.
+            Expr::Identifier(_) => self.value_needs_heap_retain(value),
             Expr::Index { .. } | Expr::FieldAccess { .. } => {
                 old_heap_offset.is_some() || is_arr || is_map
             }
@@ -1227,22 +1251,26 @@ impl CodeGen {
         }
 
         if is_alias_heap {
-            // Proven heap alias: probe-free direct retain.
-            arch::emit_rc_retain_direct(
-                &mut self.output,
-                self.arch,
-                self.ctx.stack_offset,
-                self.os,
-            );
+            // Maybe-heap alias: retain; direct only when proven
+            // (union or fresh value — never a stale typed slot).
+            if self.value_proven_heap(value) {
+                arch::emit_rc_retain_direct(
+                    &mut self.output,
+                    self.arch,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+            } else {
+                arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+            }
         }
 
         if let Some(old_offset) = old_heap_offset {
             let temp_offset = self.temp_offset();
             arch::emit_push_temp(&mut self.output, self.arch);
             self.ctx.stack_offset += temp_offset;
-            // Direct only when proven (union or typed slot untouched by
-            // loop pre-nulling); pre-null may-facts keep the probe.
-            if self.slot_proven_heap(&name, old_offset) {
+            // Direct only for union-proven names (see slot_proven_heap).
+            if self.slot_proven_heap(&name) {
                 arch::emit_rc_release_stack_direct(
                     &mut self.output,
                     self.arch,
@@ -1573,14 +1601,18 @@ impl CodeGen {
         self.ctx.stack_offset += temp_offset;
 
         self.generate_expression(value);
-        if !is_weak && self.value_proven_heap(value) {
-            // Proven heap: skip the syscall probe.
-            arch::emit_rc_retain_direct(
-                &mut self.output,
-                self.arch,
-                self.ctx.stack_offset,
-                self.os,
-            );
+        if !is_weak && self.value_needs_heap_retain(value) {
+            // Retain when maybe-heap; direct only when proven.
+            if self.value_proven_heap(value) {
+                arch::emit_rc_retain_direct(
+                    &mut self.output,
+                    self.arch,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+            } else {
+                arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+            }
         }
         // B1: named stores outlive the wrapping ring buffer.
         if string_store_needs_dup(value, &self.ctx.variables) {
