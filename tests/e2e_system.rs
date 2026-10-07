@@ -4412,3 +4412,39 @@ say m::X + m::C
         assert_eq!(output, "30\n30\n31\n31\n7\n14\nhi\n2.5\n38\n");
     }
 }
+
+#[test]
+fn test_e2e_nested_array_cascade_teardown() {
+    // alya-lang/alya#118: releasing an array of large arrays crashed at
+    // scope teardown on macOS Intel (SIGSEGV after full pass). The
+    // array/map release cascades ran their recursive releases with a
+    // misaligned stack (3 pushes = rsp%16==8), faulting in libc on the
+    // large-buffer free path. Large nested arrays are required to
+    // reproduce: tiny nests never take the faulting path.
+    let code = r#"
+function main()
+    let out = []
+    let n = 0
+    while n < 3
+        let piece = []
+        let j = 0
+        while j < 16384
+            piece.push(7)
+            j += 1
+        end
+        out.push(piece)
+        n += 1
+    end
+    say("parts=" + str(len(out)))
+end
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "parts=3\n");
+    }
+}
