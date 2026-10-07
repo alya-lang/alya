@@ -2204,8 +2204,20 @@ impl CodeGen {
                         let n = f.replace("::", "__");
                         n != call_name_str && n.ends_with(&format!("__{}", bare_check))
                     });
+                    // Call-site scoping (alya-lang/alya#112): the fallback
+                    // exists for bare calls left unprefixed INSIDE aliased
+                    // modules (method-ambiguous names the parser must not
+                    // prefix). Bare calls in bare-named root functions keep
+                    // resolving to runtime builtins (`join`) or fail loudly
+                    // at link time — an aliased import (`as m`) exposes its
+                    // names only via `m::`. Namespaced functions and entry
+                    // top-level (where merged module leftovers land) keep
+                    // the legacy behavior.
+                    let in_merged_code = self.ctx.current_fn_name.is_empty()
+                        || self.ctx.current_fn_name.contains("::");
                     if is_bare
                         && ambiguous
+                        && in_merged_code
                         && !self.ctx.functions.contains(&call_name_str)
                         && !self
                             .ctx

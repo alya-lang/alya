@@ -1,0 +1,7 @@
+## Fixture helper: aliased module whose bare name collides with a
+## runtime builtin (alya-lang/alya#112). Imported `as m`, so only `m::`
+## calls may reach it; bare `join` must keep resolving to the builtin.
+
+pub function join(base, relative) -> string
+    return "URLJOIN"
+end

@@ -54,6 +54,7 @@ fn entry_files() -> Vec<String> {
         "28_map_float_array.alya".to_string(),
         "29_mixed_push_reads.alya".to_string(),
         "30_struct_field_bigint.alya".to_string(),
+        "31_aliased_bare_builtin.alya".to_string(),
     ]
 }
 
@@ -587,6 +588,21 @@ fn test_integration_30_struct_field_bigint_output() {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("16711680\n"));
         assert!(output.contains("integration 30_struct_field_bigint: OK"));
+    }
+}
+
+#[test]
+fn test_integration_31_aliased_bare_builtin_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 31_aliased_bare_builtin: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("31_aliased_bare_builtin.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("std=[a/b]\n"));
+        assert!(output.contains("pkg=[URLJOIN]\n"));
     }
 }
 

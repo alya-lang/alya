@@ -1,0 +1,9 @@
+## Fixture: aliased import must not leak bare names (alya-lang/alya#112).
+##
+## `join` here shadows nothing: the importing file spells it `m::join`.
+## Bare `join(...)` calls in the importer must keep resolving to the
+## runtime builtin, never to this module.
+
+pub function join(base, relative) -> string
+    return "URLJOIN"
+end

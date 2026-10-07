@@ -1193,6 +1193,59 @@ say m::sum([1.0])
 }
 
 #[test]
+fn test_e2e_aliased_import_bare_builtin_not_shadowed() {
+    // alya-lang/alya#112: an aliased import (`as m`) exposes its names
+    // only via `m::`. A bare call matching both a runtime builtin and
+    // the imported symbol must keep resolving to the builtin — the
+    // bare-global fallback exists for calls left unprefixed inside
+    // aliased modules, not for bare-named root functions.
+    let code = r#"
+import "tests/fixtures/modules/aliased_shadow/modjoin.alya" as m
+
+function main()
+    say("std=[" + join(["a", "b"], "/") + "]")
+    say("pkg=[" + m::join("http://x", "y") + "]")
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "std=[a/b]\npkg=[URLJOIN]\n");
+    }
+}
+
+#[test]
+fn test_e2e_aliased_module_bare_global_fallback_kept() {
+    // alya-lang/alya#112 (companion): the bare-global fallback still
+    // fires for calls left unprefixed INSIDE aliased modules. `sum(...)`
+    // inside `m::Tensor__mean` reaches the module-global `m::sum`, not a
+    // link error.
+    let code = r#"
+import "tests/fixtures/modules/aliased_shadow/modscope.alya" as m
+
+function main()
+    let t = m::make_tensor(21.0)
+    say(t.mean())
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "999\n");
+    }
+}
+
+#[test]
 fn test_e2e_simd_fused_dot() {
     // Fused in-place dot kernels (tensor GEMM fast path): zero-allocation
     // accumulation verified lane by lane, incl. strided gathers.

@@ -1,0 +1,18 @@
+# ==============================================================================
+# Alya Integration Fixture 31 (entry): aliased import must not shadow builtins
+# Distilled from: Lib/url `join(base, relative)` vs builtin `join(array,
+#                 sep)` via Lib/http `import "url" as url_pkg`
+#                 (alya-lang/alya#112)
+# Guards: bare `join` keeps resolving to the runtime builtin when the
+#         only same-bare user definition sits behind an import alias;
+#         `m::join` still reaches the module.
+# ==============================================================================
+
+import "./31_modjoin_helper.alya" as m
+
+function main()
+    say("std=[" + join(["a", "b"], "/") + "]")
+    say("pkg=[" + m::join("http://x", "y") + "]")
+end
+
+main()

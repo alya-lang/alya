@@ -1,0 +1,25 @@
+## Fixture: bare calls inside namespaced (aliased-module) functions keep
+## the bare-global fallback (alya-lang/alya#112). `sum([self.val])`
+## inside `m::Tensor__mean` was left unprefixed by the parser (a
+## same-bare `Tensor.sum` method exists), so codegen must still route it
+## to the module-global `m::sum`.
+
+pub struct Tensor
+    val: float
+end
+
+pub function sum(arr) -> float
+    return 999.0
+end
+
+pub function Tensor.sum(self: Tensor) -> float
+    return self.val * 2.0
+end
+
+pub function Tensor.mean(self: Tensor) -> float
+    return sum([self.val])
+end
+
+pub function make_tensor(v: float) -> Tensor
+    return Tensor { val: v }
+end
