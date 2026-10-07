@@ -1,0 +1,7 @@
+## Fixture helper: module that imports nothing (alya-lang/alya#112
+## follow-up). Its bare `join` must resolve to the runtime builtin even
+## when the entry file imports a same-bare function under alias.
+
+pub function doit(a) -> string
+    return join(a, "/")
+end

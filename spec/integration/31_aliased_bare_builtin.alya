@@ -9,10 +9,12 @@
 # ==============================================================================
 
 import "./31_modjoin_helper.alya" as m
+import "./31_midjoin_helper.alya" as d
 
 function main()
     say("std=[" + join(["a", "b"], "/") + "]")
     say("pkg=[" + m::join("http://x", "y") + "]")
+    say("mid=[" + d::doit(["a", "b"]) + "]")
 end
 
 main()

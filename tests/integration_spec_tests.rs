@@ -603,6 +603,7 @@ fn test_integration_31_aliased_bare_builtin_output() {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("std=[a/b]\n"));
         assert!(output.contains("pkg=[URLJOIN]\n"));
+        assert!(output.contains("mid=[a/b]\n"));
     }
 }
 

@@ -1201,10 +1201,12 @@ fn test_e2e_aliased_import_bare_builtin_not_shadowed() {
     // aliased modules, not for bare-named root functions.
     let code = r#"
 import "tests/fixtures/modules/aliased_shadow/modjoin.alya" as m
+import "tests/fixtures/modules/aliased_shadow/midjoin.alya" as d
 
 function main()
     say("std=[" + join(["a", "b"], "/") + "]")
     say("pkg=[" + m::join("http://x", "y") + "]")
+    say("mid=[" + d::doit(["a", "b"]) + "]")
 end
 
 main()
@@ -1215,7 +1217,7 @@ main()
             "Execution failed with code {} and output:\n{}",
             code, output
         );
-        assert_eq!(output, "std=[a/b]\npkg=[URLJOIN]\n");
+        assert_eq!(output, "std=[a/b]\npkg=[URLJOIN]\nmid=[a/b]\n");
     }
 }
 

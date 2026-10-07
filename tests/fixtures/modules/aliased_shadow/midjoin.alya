@@ -1,0 +1,11 @@
+## Fixture: module that imports nothing (alya-lang/alya#112 follow-up).
+##
+## `doit` calls bare `join(...)`, which must resolve to the runtime
+## builtin even when some *other* module (`modjoin.alya`, imported as
+## `m` by the entry file) defines a same-bare function. Modules that
+## never imported a name must never resolve it from another module's
+## imports.
+
+pub function doit(a) -> string
+    return join(a, "/")
+end

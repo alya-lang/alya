@@ -2251,8 +2251,24 @@ impl CodeGen {
                         // legacy resolution (natives like `fn_free`, link
                         // errors for unknowns). This also keeps the fallback
                         // silent in unaliased programs.
+                        //
+                        // Module scoping (alya-lang/alya#112 follow-up): the
+                        // candidate must live in the call site's own alias
+                        // scope. A module that never imported the name (e.g.
+                        // `d::doit` vs `m::join`) must not resolve it from
+                        // another module's imports — otherwise every aliased
+                        // import leaks program-wide. Entry top-level ("",
+                        // where merged module leftovers land) keeps legacy.
                         if let Some((2, false, hit)) = best {
-                            call_name_str = hit;
+                            let same_scope = self.ctx.current_fn_name.is_empty() || {
+                                let cur_mod =
+                                    self.ctx.current_fn_name.split("::").next().unwrap_or("");
+                                let hit_mod = hit.split("::").next().unwrap_or("");
+                                !cur_mod.is_empty() && cur_mod == hit_mod
+                            };
+                            if same_scope {
+                                call_name_str = hit;
+                            }
                         }
                     }
                 }
