@@ -123,15 +123,19 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    cmp x14, x21\n");
     out.push_str("    b.ne .L_arm64_str_intern_next\n");
     out.push_str("    ldr x15, [x13, #8]\n");
-    out.push_str("    mov x16, x19\n");
-    out.push_str("    mov x17, x15\n");
-    out.push_str("    add x18, x20, #1\n");
+    // Length-tagged byte comparison. Uses standard caller-saved
+    // registers (x1, x2, x3); never touches x18, which is the reserved
+    // platform register on macOS (Darwin thread data) and Windows
+    // (TEB pointer) (alya-lang/alya#115).
+    out.push_str("    mov x1, x19\n");
+    out.push_str("    mov x2, x15\n");
+    out.push_str("    add x3, x20, #1\n");
     out.push_str(".L_arm64_str_intern_cmp:\n");
-    out.push_str("    ldrb w9, [x16], #1\n");
-    out.push_str("    ldrb w10, [x17], #1\n");
+    out.push_str("    ldrb w9, [x1], #1\n");
+    out.push_str("    ldrb w10, [x2], #1\n");
     out.push_str("    cmp w9, w10\n");
     out.push_str("    b.ne .L_arm64_str_intern_next\n");
-    out.push_str("    subs x18, x18, #1\n");
+    out.push_str("    subs x3, x3, #1\n");
     out.push_str("    b.ne .L_arm64_str_intern_cmp\n");
     out.push_str("    mov x0, x15\n");
     emit_adrp_add(out, "x9", "alya_str_intern_lock", os);
