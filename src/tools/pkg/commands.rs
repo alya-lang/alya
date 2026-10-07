@@ -15,8 +15,8 @@ use super::lock::{format_git_source, parse_git_source_rev, parse_lockfile, seria
 use super::manifest::{check_compiler_compatibility, parse_manifest, serialize_manifest};
 use super::resolver::{
     coalesce_semver_versions, compare_semver, copy_dir_all, fetch_git_or_archive_dependency,
-    find_latest_semver_tag, query_remote_branch_head, query_remote_tags, query_tag_rev,
-    resolve_package_spec, resolve_registry_url, semver_major,
+    query_remote_branch_head, query_remote_tags, query_tag_rev, resolve_package_spec,
+    resolve_registry_url, semver_major,
 };
 use super::types::{
     DependencyEdge, DependencySource, LockedPackage, PackageInfo, PackageLock, PackageManifest,
@@ -387,6 +387,91 @@ fn get_dep_major(dep: &DependencySource, from_dir: &Path) -> Option<u64> {
     }
 }
 
+/// Locked registry version still satisfying `req`, if any. Cargo rule:
+/// a locked version stays pinned even after being yanked; only fresh
+/// selections skip yanked entries. Matches `name` and multi-major
+/// `name-vN` lock entries.
+pub(crate) fn locked_version_for_req(
+    lock: Option<&PackageLock>,
+    name: &str,
+    req: &str,
+) -> Option<String> {
+    let prefix = format!("{name}-v");
+    lock?.packages.iter().find_map(|p| {
+        if p.name != name && !p.name.starts_with(&prefix) {
+            return None;
+        }
+        super::index::version_satisfies_req(req, &p.version)
+            .ok()
+            .filter(|ok| *ok)
+            .map(|_| p.version.clone())
+    })
+}
+
+/// Yank warnings for a registry resolution. Never silent on either side:
+/// honoring a yanked lock/pin says so, and silently switching to an older
+/// version says what was skipped. Deduped per package via `reported`.
+fn warn_on_yanked_resolution(
+    name: &str,
+    req: &str,
+    locked_ver: Option<&str>,
+    index_pick: Option<&super::index::IndexPick>,
+    reported: &mut HashSet<String>,
+) {
+    let Some(pkg) = super::index::fetch_package_index(name) else {
+        return;
+    };
+    let using = locked_ver.or_else(|| index_pick.map(|p| p.version.as_str()));
+    match using {
+        Some(u) if super::index::lookup_index_version(&pkg, u).is_some_and(|e| e.yanked) => {
+            if reported.insert(format!("{name}:yanked-honored")) {
+                println!(
+                    "  Warning: '{}' {} is marked yanked in the package index; honoring as-is.",
+                    name, u
+                );
+            }
+        }
+        Some(u) => {
+            let skipped = super::index::select_index_version_including_yanked(&pkg, req)
+                .ok()
+                .flatten()
+                .filter(|best| best.yanked && best.version != u);
+            if let Some(best) = skipped {
+                if reported.insert(format!("{name}:yanked-skipped")) {
+                    println!(
+                        "  Warning: '{}' newest match {} is yanked; installing {} instead.",
+                        name, best.version, u
+                    );
+                }
+            }
+        }
+        None => {
+            // No lock, no index pick: an exact yanked pin falls through to
+            // the git tag (installed as-is), anything else falls back too.
+            if let Some(pinned) = super::index::lookup_index_version(&pkg, req) {
+                if pinned.yanked && reported.insert(format!("{name}:yanked-pin")) {
+                    println!(
+                        "  Warning: '{}' {} is marked yanked in the package index; installing from git tag anyway.",
+                        name, pinned.version
+                    );
+                }
+            } else if let Some(best) =
+                super::index::select_index_version_including_yanked(&pkg, req)
+                    .ok()
+                    .flatten()
+                    .filter(|b| b.yanked)
+            {
+                if reported.insert(format!("{name}:yanked-only")) {
+                    println!(
+                        "  Warning: '{}' has no non-yanked match for '{}' (newest is yanked {}); falling back to git.",
+                        name, req, best.version
+                    );
+                }
+            }
+        }
+    }
+}
+
 fn ensure_dep_cached(
     name: &str,
     dep: &DependencySource,
@@ -512,10 +597,28 @@ fn ensure_dep_cached(
             // Static index fast path: precise max-satisfying tag without
             // `git ls-remote`. Silent miss (no index, no match) keeps the
             // legacy derivation below.
-            let index_pick = super::index::select_version(name, v)?;
-            let tag_cand: Option<String> = match &index_pick {
-                Some(pick) => Some(pick.tag.clone()),
-                None => {
+            // A locked version stays pinned even when yanked (Cargo rule);
+            // only fresh selections skip yanked entries.
+            let locked_ver = locked_version_for_req(existing_lock, name, v);
+            let index_pick = match &locked_ver {
+                Some(_) => None,
+                None => super::index::select_version(name, v)?,
+            };
+            warn_on_yanked_resolution(
+                name,
+                v,
+                locked_ver.as_deref(),
+                index_pick.as_ref(),
+                reported,
+            );
+            let tag_cand: Option<String> = match (&locked_ver, &index_pick) {
+                (Some(lv), _) => Some(if lv.starts_with('v') || lv.starts_with('V') {
+                    lv.clone()
+                } else {
+                    format!("v{lv}")
+                }),
+                (None, Some(pick)) => Some(pick.tag.clone()),
+                (None, None) => {
                     if v != "*" && !v.is_empty() {
                         Some(if v.starts_with('v') || v.starts_with('V') {
                             v.clone()
@@ -1424,6 +1527,38 @@ struct UpdateRow {
     clear_cache_key: Option<String>,
 }
 
+/// Max semver git tag excluding index-yanked versions. Returns the tag,
+/// whether the index contributed, and is the shared LATEST rule for
+/// `update`: yanked tags are never proposed. A missing/unreachable index
+/// (or no entry) keeps the pure-git result — offline flows never hard-fail.
+pub(crate) fn latest_tag_excluding_yanked(name: &str, tags: &[String]) -> (Option<String>, bool) {
+    let git_latest = || super::resolver::find_latest_semver_tag(tags).map(|s| s.to_string());
+    let Some(pkg) = super::index::fetch_package_index(name) else {
+        return (git_latest(), false);
+    };
+    if pkg.versions.is_empty() {
+        return (git_latest(), false);
+    }
+    let yanked: std::collections::HashSet<String> = pkg
+        .versions
+        .iter()
+        .filter(|v| v.yanked)
+        .map(|v| v.version.trim().trim_start_matches(['v', 'V']).to_string())
+        .collect();
+    let survivors: Vec<String> = tags
+        .iter()
+        .filter(|t| {
+            let clean = t.trim().trim_start_matches(['v', 'V']);
+            super::resolver::parse_semver(t).is_some() && !yanked.contains(clean)
+        })
+        .cloned()
+        .collect();
+    (
+        super::resolver::find_latest_semver_tag(&survivors).map(|s| s.to_string()),
+        true,
+    )
+}
+
 /// Best-effort current revision of an installed/locked git dependency.
 ///
 /// Prefers the lockfile pin, then the local `.alya/packages` checkout.
@@ -1574,7 +1709,8 @@ fn update_one_manifest(
 
     println!("Checking dependencies for updates in alya.toml...\n");
 
-    let (rows, upgradable_count) = collect_update_rows(&manifest, install_root, lock, upgrade);
+    let (rows, upgradable_count, index_sourced) =
+        collect_update_rows(&manifest, install_root, lock, upgrade);
 
     println!(
         "  {:<16} {:<18} {:<18} {:<34}",
@@ -1590,6 +1726,12 @@ fn update_one_manifest(
         println!(
             "  {:<16} {:<18} {:<18} {:<34}",
             r.name, cur_disp, r.latest, r.status
+        );
+    }
+    if index_sourced > 0 {
+        println!(
+            "  LATEST for {} package(s) resolved via package index (yank-filtered).",
+            index_sourced
         );
     }
 
@@ -1654,9 +1796,10 @@ fn collect_update_rows(
     install_root: &Path,
     lock: &Option<PackageLock>,
     upgrade: bool,
-) -> (Vec<UpdateRow>, usize) {
+) -> (Vec<UpdateRow>, usize, usize) {
     let mut rows: Vec<UpdateRow> = Vec::new();
     let mut upgradable_count = 0usize;
+    let mut index_sourced = 0usize;
 
     for (name, dep) in &manifest.dependencies {
         match dep {
@@ -1666,7 +1809,11 @@ fn collect_update_rows(
             } => {
                 let url = resolve_registry_url(name);
                 let tags = query_remote_tags(&url);
-                if let Some(latest_tag) = find_latest_semver_tag(&tags) {
+                let (latest_opt, via_index) = latest_tag_excluding_yanked(name, &tags);
+                if via_index {
+                    index_sourced += 1;
+                }
+                if let Some(latest_tag) = latest_opt {
                     let latest_clean = latest_tag.trim_start_matches(['v', 'V']);
                     let cur_clean = cur_ver.trim_start_matches(['v', 'V']);
                     if compare_semver(latest_clean, cur_clean) == std::cmp::Ordering::Greater {
@@ -1694,12 +1841,24 @@ fn collect_update_rows(
                             clear_cache_key: None,
                         });
                     }
-                } else {
+                } else if tags.is_empty() {
                     rows.push(UpdateRow {
                         name: name.clone(),
                         current: cur_ver.clone(),
                         latest: cur_ver.clone(),
                         status: "Up to date (no remote tags)".to_string(),
+                        can_upgrade: false,
+                        new_source: None,
+                        clear_cache_key: None,
+                    });
+                } else {
+                    // Tags exist but every semver one is yanked in the index:
+                    // propose nothing rather than a yanked LATEST.
+                    rows.push(UpdateRow {
+                        name: name.clone(),
+                        current: cur_ver.clone(),
+                        latest: cur_ver.clone(),
+                        status: "Up to date (latest indexed versions yanked)".to_string(),
                         can_upgrade: false,
                         new_source: None,
                         clear_cache_key: None,
@@ -1715,7 +1874,11 @@ fn collect_update_rows(
             } => {
                 if let Some(cur_tag) = tag {
                     let tags = query_remote_tags(url);
-                    if let Some(latest_tag) = find_latest_semver_tag(&tags) {
+                    let (latest_opt, via_index) = latest_tag_excluding_yanked(name, &tags);
+                    if via_index {
+                        index_sourced += 1;
+                    }
+                    if let Some(latest_tag) = latest_opt {
                         let latest_clean = latest_tag.trim_start_matches(['v', 'V']);
                         let cur_clean = cur_tag.trim_start_matches(['v', 'V']);
                         if compare_semver(latest_clean, cur_clean) == std::cmp::Ordering::Greater {
@@ -1783,12 +1946,22 @@ fn collect_update_rows(
                                 }
                             }
                         }
-                    } else {
+                    } else if tags.is_empty() {
                         rows.push(UpdateRow {
                             name: name.clone(),
                             current: cur_tag.clone(),
                             latest: cur_tag.clone(),
                             status: "Up to date (no remote tags)".to_string(),
+                            can_upgrade: false,
+                            new_source: None,
+                            clear_cache_key: None,
+                        });
+                    } else {
+                        rows.push(UpdateRow {
+                            name: name.clone(),
+                            current: cur_tag.clone(),
+                            latest: cur_tag.clone(),
+                            status: "Up to date (latest indexed versions yanked)".to_string(),
                             can_upgrade: false,
                             new_source: None,
                             clear_cache_key: None,
@@ -1897,7 +2070,7 @@ fn collect_update_rows(
         }
     }
 
-    (rows, upgradable_count)
+    (rows, upgradable_count, index_sourced)
 }
 
 pub fn print_pkg_help() {

@@ -704,6 +704,221 @@ fn test_index_install_from_file_urls_offline() {
 }
 
 #[test]
+fn test_latest_tag_excludes_yanked() {
+    // `update` LATEST rule: yanked tags are never proposed; unknown tags
+    // stay (fail-open for freshness), unknown packages fall back to git.
+    let _env_guard = crate::tools::pkg::lock_registry_env();
+    let pid = std::process::id();
+    let name = format!("idxupdtest{pid}");
+    let base = std::env::temp_dir().join(format!("alya_test_idxupd_{pid}"));
+    let _ = fs::remove_dir_all(&base);
+    let index_dir = base.join("index").join("packages");
+    fs::create_dir_all(&index_dir).unwrap();
+    fs::write(
+        index_dir.join(format!("{name}.json")),
+        format!(
+            "{{\"name\": \"{name}\", \"repository\": \"https://github.com/alya-lang/{name}\", \
+            \"versions\": [{{\"version\": \"1.0.0\", \"tag\": \"v1.0.0\"}}, \
+            {{\"version\": \"1.1.0\", \"tag\": \"v1.1.0\"}}, \
+            {{\"version\": \"1.2.0\", \"tag\": \"v1.2.0\", \"yanked\": true}}]}}",
+        ),
+    )
+    .unwrap();
+    let prev = std::env::var("ALYA_REGISTRY_INDEX").ok();
+    std::env::set_var(
+        "ALYA_REGISTRY_INDEX",
+        format!(
+            "file://{}",
+            base.join("index").display().to_string().replace('\\', "/")
+        ),
+    );
+    let tags = ["v1.0.0", "v1.1.0", "v1.2.0", "v1.3.0"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    // Yanked v1.2.0 dropped; v1.3.0 (absent from index) still proposed.
+    assert_eq!(
+        commands::latest_tag_excluding_yanked(&name, &tags),
+        (Some("v1.3.0".to_string()), true)
+    );
+    // Every candidate yanked: propose nothing, but the index spoke.
+    let only_yanked = ["v1.2.0".to_string()];
+    assert_eq!(
+        commands::latest_tag_excluding_yanked(&name, &only_yanked),
+        (None, true)
+    );
+    // No index entry: pure-git result, silent fallback.
+    assert_eq!(
+        commands::latest_tag_excluding_yanked("nosuchpkgidx", &tags),
+        (Some("v1.3.0".to_string()), false)
+    );
+    match prev {
+        Some(v) => std::env::set_var("ALYA_REGISTRY_INDEX", v),
+        None => std::env::remove_var("ALYA_REGISTRY_INDEX"),
+    }
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
+fn test_locked_version_for_req() {
+    let lock = types::PackageLock {
+        version: 2,
+        packages: vec![
+            types::LockedPackage {
+                name: "alpha".to_string(),
+                version: "1.1.0".to_string(),
+                source: "registry+https://example.test/alpha#v1.1.0".to_string(),
+                entry: String::new(),
+                checksum: String::new(),
+                dependencies: Vec::new(),
+            },
+            types::LockedPackage {
+                name: "beta-v2".to_string(),
+                version: "2.3.0".to_string(),
+                source: "registry+https://example.test/beta#v2.3.0".to_string(),
+                entry: String::new(),
+                checksum: String::new(),
+                dependencies: Vec::new(),
+            },
+        ],
+    };
+    assert_eq!(
+        commands::locked_version_for_req(Some(&lock), "alpha", "*"),
+        Some("1.1.0".to_string())
+    );
+    assert_eq!(
+        commands::locked_version_for_req(Some(&lock), "alpha", "^1.0.0"),
+        Some("1.1.0".to_string())
+    );
+    assert_eq!(
+        commands::locked_version_for_req(Some(&lock), "alpha", "^2.0.0"),
+        None
+    );
+    // Multi-major lock entry resolves under the plain package name.
+    assert_eq!(
+        commands::locked_version_for_req(Some(&lock), "beta", "*"),
+        Some("2.3.0".to_string())
+    );
+    assert_eq!(commands::locked_version_for_req(None, "alpha", "*"), None);
+    assert_eq!(
+        commands::locked_version_for_req(Some(&lock), "gamma", "*"),
+        None
+    );
+}
+
+#[test]
+fn test_install_honors_locked_yanked_version() {
+    // Cargo rule end-to-end, fully offline: install 1.1.0, yank it in the
+    // index afterwards, reinstall with the lock intact. The locked version
+    // must stay (previously the resolver silently switched to 1.0.0, then
+    // died on the lock checksum mismatch).
+    let _env_guard = crate::tools::pkg::lock_registry_env();
+    let pid = std::process::id();
+    let name = format!("idxyanktest{pid}");
+    let base = std::env::temp_dir().join(format!("alya_test_idxyank_{pid}"));
+    let _ = fs::remove_dir_all(&base);
+    let to_url =
+        |p: &std::path::Path| format!("file://{}", p.display().to_string().replace('\\', "/"));
+    let entry = |ver: &str, tarball_url: &str, digest: &str, yanked: bool| -> String {
+        format!(
+            "{{\"version\": \"{ver}\", \"tag\": \"v{ver}\", \"checksum\": \"sha256:{digest}\", \"tarball\": \"{tarball_url}\"{}}}",
+            if yanked { ", \"yanked\": true" } else { "" }
+        )
+    };
+    let pack = |ver: &str| -> (String, String) {
+        let stage = base.join("stage").join(format!("{name}-{ver}"));
+        fs::create_dir_all(stage.join("src")).unwrap();
+        fs::write(
+            stage.join("alya.toml"),
+            format!(
+                "[package]\nname = \"{name}\"\nversion = \"{ver}\"\nentry = \"src/lib.alya\"\n"
+            ),
+        )
+        .unwrap();
+        fs::write(
+            stage.join("src").join("lib.alya"),
+            format!("pub function idx_ver() -> string\n    return \"{ver}\"\nend\n"),
+        )
+        .unwrap();
+        let tarball = base.join(format!("{name}-{ver}.tar.gz"));
+        let packed = std::process::Command::new("tar")
+            .arg("-czf")
+            .arg(&tarball)
+            .arg("-C")
+            .arg(base.join("stage"))
+            .arg(format!("{name}-{ver}"))
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        assert!(packed, "tar CLI must be available to pack the probe asset");
+        let digest = sha256_hex(&fs::read(&tarball).unwrap());
+        (to_url(&tarball), digest)
+    };
+    let (tar_100, sum_100) = pack("1.0.0");
+    let (tar_110, sum_110) = pack("1.1.0");
+    let index_dir = base.join("index").join("packages");
+    fs::create_dir_all(&index_dir).unwrap();
+    let index_file = index_dir.join(format!("{name}.json"));
+    let write_index = |yank_110: bool| {
+        fs::write(
+            &index_file,
+            format!(
+                "{{\"name\": \"{name}\", \"repository\": \"https://github.com/alya-lang/{name}\", \
+                \"versions\": [{}, {}]}}",
+                entry("1.0.0", &tar_100, &sum_100, false),
+                entry("1.1.0", &tar_110, &sum_110, yank_110),
+            ),
+        )
+        .unwrap();
+    };
+    write_index(false);
+
+    let app_dir = base.join("app");
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+    fs::write(app_dir.join("src").join("main.alya"), "say \"hi\"\n").unwrap();
+    fs::write(
+        app_dir.join("alya.toml"),
+        format!("[package]\nname = \"idxapp\"\nversion = \"0.1.0\"\nentry = \"src/main.alya\"\n\n[dependencies]\n{name} = \"*\"\n"),
+    )
+    .unwrap();
+    let prev = std::env::var("ALYA_REGISTRY_INDEX").ok();
+    std::env::set_var(
+        "ALYA_REGISTRY_INDEX",
+        format!(
+            "file://{}",
+            base.join("index").display().to_string().replace('\\', "/")
+        ),
+    );
+    run_install_in(&app_dir, false, &[], false, &[], false, &[]).unwrap();
+    let installed_ver = || {
+        let src = fs::read_to_string(
+            app_dir
+                .join(".alya")
+                .join("packages")
+                .join(&name)
+                .join("alya.toml"),
+        )
+        .unwrap();
+        parse_manifest(&src).unwrap().package.version
+    };
+    assert_eq!(installed_ver(), "1.1.0");
+
+    // Yank 1.1.0, drop the installed tree (keep the lock), reinstall.
+    write_index(true);
+    let _ = fs::remove_dir_all(app_dir.join(".alya").join("packages").join(&name));
+    run_install_in(&app_dir, false, &[], false, &[], false, &[]).unwrap();
+    assert_eq!(installed_ver(), "1.1.0");
+    let lock = parse_lockfile(&fs::read_to_string(app_dir.join("alya.lock")).unwrap()).unwrap();
+    assert!(lock.packages.iter().any(|p| p.version == "1.1.0"));
+
+    match prev {
+        Some(v) => std::env::set_var("ALYA_REGISTRY_INDEX", v),
+        None => std::env::remove_var("ALYA_REGISTRY_INDEX"),
+    }
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
 fn test_git_source_formatting_and_rev_parsing() {
     let url = "https://github.com/alya-lang/rand";
     let sha = "aa1446c94360e0059c0024f3600e553b5df19332";
