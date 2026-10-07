@@ -1,0 +1,25 @@
+# ==============================================================================
+# Alya Integration Fixture 32 (entry): fn-valued field survives match literal
+# Distilled from: Lib/http `router_match` corrupting `rt.routes[0].action`
+#                 (alya-lang/alya#113)
+# Guards: dynamic store into `Route.action` (function) + string literal
+#         into `Match.action` must not set bare `struct_field_str:action`;
+#         the stored function stays callable after the match literal.
+# ==============================================================================
+
+import "./32_fnfield_helper.alya" as rr
+
+function handle_nop(ctx)
+    return 42
+end
+
+function main()
+    let rt = rr::router_new("nf")
+    rr::router_add(rt, "/api/status", handle_nop)
+    let m = rr::router_match(rt, "/api/status")
+    say("found=" + str(m.found))
+    let stored = rt.routes[0].action
+    say("call=" + str(stored(null)))
+end
+
+main()

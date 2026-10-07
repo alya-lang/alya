@@ -55,6 +55,7 @@ fn entry_files() -> Vec<String> {
         "29_mixed_push_reads.alya".to_string(),
         "30_struct_field_bigint.alya".to_string(),
         "31_aliased_bare_builtin.alya".to_string(),
+        "32_fnfield_match.alya".to_string(),
     ]
 }
 
@@ -604,6 +605,21 @@ fn test_integration_31_aliased_bare_builtin_output() {
         assert!(output.contains("std=[a/b]\n"));
         assert!(output.contains("pkg=[URLJOIN]\n"));
         assert!(output.contains("mid=[a/b]\n"));
+    }
+}
+
+#[test]
+fn test_integration_32_fnfield_match_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 32_fnfield_match: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("32_fnfield_match.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("found=0\n"));
+        assert!(output.contains("call=42\n"));
     }
 }
 
