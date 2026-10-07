@@ -2723,7 +2723,7 @@ impl CodeGen {
                         if field_wants_flt {
                             self.emit_implicit_float_convert(arg_expr);
                         }
-                        if !is_weak && self.is_heap_expression(arg_expr) {
+                        if !is_weak && self.store_value_needs_retain(arg_expr) {
                             arch::emit_rc_retain(
                                 &mut self.output,
                                 self.arch,
@@ -2745,7 +2745,7 @@ impl CodeGen {
                 } else {
                     for (i, (_, fval)) in fields.iter().enumerate() {
                         self.generate_expression(fval);
-                        if self.is_heap_expression(fval) {
+                        if self.store_value_needs_retain(fval) {
                             arch::emit_rc_retain(
                                 &mut self.output,
                                 self.arch,

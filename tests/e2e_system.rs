@@ -4448,3 +4448,90 @@ main()
         assert_eq!(output, "parts=3\n");
     }
 }
+
+#[test]
+fn test_e2e_struct_field_init_from_index_read() {
+    // alya-lang/alya#120: a struct field initialized from an index read
+    // of an untyped value (`res["params"]`) skipped the retain, so the
+    // map was freed when the source died at loop end (use-after-free:
+    // wrong values on Windows, segfaults on Unix). Struct literals now
+    // use the sound retain gate (`store_value_needs_retain`), which
+    // keeps the retain for dynamic reads.
+    let code = r#"
+struct MatchRes
+    found: int
+    params: map
+end
+
+function split_segs(pat: string) -> array
+    let cleaned = pat
+    if substring(cleaned, 0, 1) == "/"
+        cleaned = substring(cleaned, 1, len(cleaned) - 1)
+    end
+    let raw_parts = split(cleaned, "/")
+    let segments = []
+    let i = 0
+    while i < len(raw_parts)
+        let part = raw_parts[i]
+        if len(part) > 0
+            push(segments, part)
+        end
+        i += 1
+    end
+    return segments
+end
+
+function match_segs(psegs, req) -> map
+    let params = {}
+    let j = 0
+    let ri = 0
+    while j < len(psegs)
+        if ri >= len(req)
+            return {"matched": 0, "params": {}}
+        end
+        if substring(psegs[j], 0, 1) == ":"
+            let nm = substring(psegs[j], 1, len(psegs[j]) - 1)
+            params[nm] = req[ri]
+        elif psegs[j] != req[ri]
+            return {"matched": 0, "params": {}}
+        end
+        j += 1
+        ri += 1
+    end
+    if ri != len(req)
+        return {"matched": 0, "params": {}}
+    end
+    return {"matched": 1, "params": params}
+end
+
+function wrap(res) -> MatchRes
+    return MatchRes { found: 1, params: res["params"] }
+end
+
+function main()
+    let table = [split_segs("/users"), split_segs("/users/:id")]
+    let req = split_segs("/users/42")
+    let i = 0
+    let m = MatchRes { found: 0, params: {} }
+    while i < len(table)
+        let res = match_segs(table[i], req)
+        if res["matched"] == 1
+            m = wrap(res)
+        end
+        i += 1
+    end
+    say("found=" + str(m.found))
+    say("id=" + str(m.params["id"]))
+    say("done")
+end
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "found=1\nid=42\ndone\n");
+    }
+}
