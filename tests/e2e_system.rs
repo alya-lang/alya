@@ -1427,6 +1427,70 @@ main()
 }
 
 #[test]
+fn test_e2e_big_int_map_store_no_fault() {
+    // alya-lang/alya#117: retaining a raw big int (e.g. 70000 from a
+    // call result) faulted reading `-16(ptr)` on unmapped memory.
+    // Literals skip the retain statically, but call results did not.
+    // The runtime now probes header readability (VirtualQuery/msync)
+    // before the header read; unmapped -> skip (safe direction).
+    let code = r#"
+function get70k()
+    return 70000
+end
+
+function main()
+    let i = 0
+    while i < 500
+        let m = {}
+        let v = get70k()
+        m["k"] = v
+        i += 1
+    end
+    say("callret-done")
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "callret-done\n");
+    }
+}
+
+#[test]
+fn test_e2e_json_parse_loop_no_crash() {
+    // alya-lang/alya#117: `json_parse` in a loop segfaulted (jwt/tls
+    // suites aborted). Big ints flowing through map insert/drop hit
+    // the same raw-int retain fault as above, once per distinct shape.
+    let code = r#"
+import "std/json"
+
+function main()
+    let doc = "{\"sub\":\"expired_user\",\"exp\":1700000000}"
+    let i = 0
+    while i < 500
+        json_parse(doc)
+        i += 1
+    end
+    say("done")
+end
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "done\n");
+    }
+}
+
+#[test]
 fn test_e2e_str_big_int_renders() {
     // alya-lang/alya#115 (companion): `fn_str` classified integers by
     // full static region ranges, so values numerically inside the

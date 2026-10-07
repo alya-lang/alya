@@ -435,6 +435,53 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
+    // alya_mem_header_readable(value): 1 if the 16 header bytes at
+    // value-16 are fully committed+readable, else 0. Never faults.
+    // Windows-only (alya-lang/alya#117): IsBadReadPtr cannot be used
+    // here because its internal probe fault is stolen by our own VEH
+    // crash handler, killing the process instead of returning nonzero.
+    // VirtualQuery is a pure query with no fault path. Callers pass
+    // the value; the header span is derived inside.
+    if is_win {
+        out.push_str(".global alya_mem_header_readable\n");
+        out.push_str("alya_mem_header_readable:\n");
+        out.push_str("    push %rbp\n");
+        out.push_str("    mov %rsp, %rbp\n");
+        // 96 bytes: 32 shadow + 48 struct + 16 save pad.
+        out.push_str("    sub $96, %rsp\n");
+        out.push_str("    mov %rcx, 80(%rsp)\n");
+        out.push_str("    lea -16(%rcx), %rcx\n");
+        out.push_str("    lea 32(%rsp), %rdx\n");
+        out.push_str("    mov $48, %r8\n");
+        out.push_str("    call VirtualQuery\n");
+        out.push_str("    cmp $48, %rax\n");
+        out.push_str("    jne .L_x64_mhr_no\n");
+        // State == MEM_COMMIT (0x1000)?
+        out.push_str("    cmpl $0x1000, 64(%rsp)\n");
+        out.push_str("    jne .L_x64_mhr_no\n");
+        // Base <= hdr?
+        out.push_str("    mov 32(%rsp), %rax\n");
+        out.push_str("    mov 80(%rsp), %rcx\n");
+        out.push_str("    sub $16, %rcx\n");
+        out.push_str("    cmp %rax, %rcx\n");
+        out.push_str("    jb .L_x64_mhr_no\n");
+        // hdr+16 <= Base+Size?
+        out.push_str("    mov 56(%rsp), %rax\n");
+        out.push_str("    add 32(%rsp), %rax\n");
+        out.push_str("    mov 80(%rsp), %rcx\n");
+        out.push_str("    cmp %rax, %rcx\n");
+        out.push_str("    ja .L_x64_mhr_no\n");
+        out.push_str("    mov $1, %eax\n");
+        out.push_str("    jmp .L_x64_mhr_done\n");
+        out.push_str(".L_x64_mhr_no:\n");
+        out.push_str("    xor %eax, %eax\n");
+        out.push_str(".L_x64_mhr_done:\n");
+        out.push_str("    add $96, %rsp\n");
+        out.push_str("    mov %rbp, %rsp\n");
+        out.push_str("    pop %rbp\n");
+        out.push_str("    ret\n\n");
+    }
+
     // fn_rc_retain
     out.push_str(".global fn_rc_retain\n");
     out.push_str("fn_rc_retain:\n");
@@ -465,7 +512,54 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea 67108864(%rax), %rdx\n");
     out.push_str("    cmp %rdx, %r11\n");
     out.push_str("    jb .L_x64_rc_retain_done\n");
+    // Stable strings are immortal and never refcounted: skipping the
+    // header read also avoids gambling on whatever bytes precede the
+    // region (a magic match would corrupt refcounts).
+    out.push_str("    lea alya_str_stable(%rip), %rax\n");
+    out.push_str("    cmp %rax, %r11\n");
+    out.push_str("    jb .L_x64_rc_ret_chk_tag\n");
+    out.push_str("    lea 67108864(%rax), %rdx\n");
+    out.push_str("    cmp %rdx, %r11\n");
+    out.push_str("    jb .L_x64_rc_retain_done\n");
     out.push_str(".L_x64_rc_ret_chk_tag:\n");
+    // Readability probe (alya-lang/alya#117): raw big ints in unmapped
+    // gaps (e.g. 1700000000 on Linux) reach this stage and fault on the
+    // header read below. Verify the 16 header bytes are mapped first;
+    // unmapped -> skip (safe direction: at worst a leak, never a
+    // fault). Fires only for real heap objects and high-gap ints;
+    // small ints and immortal regions return earlier (no syscall).
+    if is_win {
+        // alya_mem_header_readable(value): 1 = proceed, 0 = skip.
+        out.push_str("    push %r11\n");
+        out.push_str("    mov %r11, %rcx\n");
+        out.push_str("    sub $40, %rsp\n");
+        out.push_str("    call alya_mem_header_readable\n");
+        out.push_str("    add $40, %rsp\n");
+        out.push_str("    pop %r11\n");
+        out.push_str("    test %eax, %eax\n");
+        out.push_str("    jz .L_x64_rc_retain_done\n");
+    } else {
+        // msync returns 0 when mapped, ENOMEM otherwise. Aligned base
+        // + exact span avoids over-probing into neighbors. Pad to keep
+        // the call 16-aligned after the push.
+        out.push_str("    push %r11\n");
+        out.push_str("    sub $8, %rsp\n");
+        out.push_str("    lea -16(%r11), %rax\n");
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str("    and $-4096, %rdi\n");
+        out.push_str("    mov %r11, %rsi\n");
+        out.push_str("    sub %rdi, %rsi\n");
+        out.push_str("    mov $1, %rdx\n");
+        if matches!(os, OperatingSystem::MacOS) {
+            out.push_str("    call _msync\n");
+        } else {
+            out.push_str("    call msync\n");
+        }
+        out.push_str("    add $8, %rsp\n");
+        out.push_str("    pop %r11\n");
+        out.push_str("    test %eax, %eax\n");
+        out.push_str("    jnz .L_x64_rc_retain_done\n");
+    }
     out.push_str("    movl -16(%r11), %eax\n");
     out.push_str("    cmp $0x5A110001, %rax\n");
     out.push_str("    je .L_x64_rc_retain_ok\n");
@@ -517,7 +611,45 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea 67108864(%rax), %rdx\n");
     out.push_str("    cmp %rdx, %rbx\n");
     out.push_str("    jb .L_x64_rc_rel_done\n");
+    // Stable strings are immortal and never refcounted (see retain).
+    out.push_str("    lea alya_str_stable(%rip), %rax\n");
+    out.push_str("    cmp %rax, %rbx\n");
+    out.push_str("    jb .L_x64_rc_rel_chk_tag\n");
+    out.push_str("    lea 67108864(%rax), %rdx\n");
+    out.push_str("    cmp %rdx, %rbx\n");
+    out.push_str("    jb .L_x64_rc_rel_done\n");
     out.push_str(".L_x64_rc_rel_chk_tag:\n");
+    // Readability probe, same contract as retain (alya-lang/alya#117).
+    // Frame is 16-aligned here, so pad to keep the call aligned.
+    if is_win {
+        // alya_mem_header_readable(value): 1 = proceed, 0 = skip.
+        out.push_str("    push %rbx\n");
+        out.push_str("    mov %rbx, %rcx\n");
+        out.push_str("    sub $40, %rsp\n");
+        out.push_str("    call alya_mem_header_readable\n");
+        out.push_str("    add $40, %rsp\n");
+        out.push_str("    pop %rbx\n");
+        out.push_str("    test %eax, %eax\n");
+        out.push_str("    jz .L_x64_rc_rel_done\n");
+    } else {
+        out.push_str("    push %rbx\n");
+        out.push_str("    sub $8, %rsp\n");
+        out.push_str("    lea -16(%rbx), %rax\n");
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str("    and $-4096, %rdi\n");
+        out.push_str("    mov %rbx, %rsi\n");
+        out.push_str("    sub %rdi, %rsi\n");
+        out.push_str("    mov $1, %rdx\n");
+        if matches!(os, OperatingSystem::MacOS) {
+            out.push_str("    call _msync\n");
+        } else {
+            out.push_str("    call msync\n");
+        }
+        out.push_str("    add $8, %rsp\n");
+        out.push_str("    pop %rbx\n");
+        out.push_str("    test %eax, %eax\n");
+        out.push_str("    jnz .L_x64_rc_rel_done\n");
+    }
     out.push_str("    movl -16(%rbx), %r12d\n");
     out.push_str("    cmp $0x5A110001, %r12\n");
     out.push_str("    je .L_x64_rc_rel_ok\n");
@@ -754,7 +886,46 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    lea 67108864(%rdx), %rcx\n");
     out.push_str("    cmp %rcx, %rax\n");
     out.push_str("    jb .L_x64_rcc_zero\n");
+    // Stable strings are immortal and never refcounted.
+    out.push_str("    lea alya_str_stable(%rip), %rdx\n");
+    out.push_str("    cmp %rdx, %rax\n");
+    out.push_str("    jb .L_x64_rcc_chk_tag\n");
+    out.push_str("    lea 67108864(%rdx), %rcx\n");
+    out.push_str("    cmp %rcx, %rax\n");
+    out.push_str("    jb .L_x64_rcc_zero\n");
     out.push_str(".L_x64_rcc_chk_tag:\n");
+    if is_win {
+        // alya_mem_header_readable(value): 1 = proceed, 0 = skip.
+        // Save the result before restoring the value: pop would
+        // overwrite rax and the test would read the pointer.
+        out.push_str("    push %rax\n");
+        out.push_str("    mov %rax, %rcx\n");
+        out.push_str("    sub $40, %rsp\n");
+        out.push_str("    call alya_mem_header_readable\n");
+        out.push_str("    add $40, %rsp\n");
+        out.push_str("    mov %eax, %r10d\n");
+        out.push_str("    pop %rax\n");
+        out.push_str("    test %r10d, %r10d\n");
+        out.push_str("    jz .L_x64_rcc_zero\n");
+    } else {
+        out.push_str("    push %rax\n");
+        out.push_str("    sub $8, %rsp\n");
+        out.push_str("    lea -16(%rax), %rax\n");
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str("    and $-4096, %rdi\n");
+        out.push_str("    mov 8(%rsp), %rsi\n");
+        out.push_str("    sub %rdi, %rsi\n");
+        out.push_str("    mov $1, %rdx\n");
+        if matches!(os, OperatingSystem::MacOS) {
+            out.push_str("    call _msync\n");
+        } else {
+            out.push_str("    call msync\n");
+        }
+        out.push_str("    add $8, %rsp\n");
+        out.push_str("    pop %rax\n");
+        out.push_str("    test %eax, %eax\n");
+        out.push_str("    jnz .L_x64_rcc_zero\n");
+    }
     out.push_str("    movl -16(%rax), %edx\n");
     out.push_str("    cmp $0x5A110001, %rdx\n");
     out.push_str("    je .L_x64_rcc_ok\n");

@@ -253,6 +253,53 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldp x29, x30, [sp], #32\n");
     out.push_str("    ret\n\n");
 
+    // alya_mem_header_readable(value): 1 if the 16 header bytes at
+    // value-16 are fully committed+readable, else 0. Never faults.
+    // Windows-only (alya-lang/alya#117): IsBadReadPtr cannot be used
+    // here because its internal probe fault is stolen by our own VEH
+    // crash handler, killing the process instead of returning nonzero.
+    // VirtualQuery is a pure query with no fault path.
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str(".align 2\n");
+        out.push_str(".global alya_mem_header_readable\n");
+        out.push_str("alya_mem_header_readable:\n");
+        out.push_str("    stp x29, x30, [sp, #-112]!\n");
+        out.push_str("    mov x29, sp\n");
+        // 112 bytes: 32 shadow + 48 struct + 32 save.
+        out.push_str("    str x0, [sp, #80]\n");
+        out.push_str("    sub x0, x0, #16\n");
+        out.push_str("    mov x1, sp\n");
+        out.push_str("    add x1, x1, #32\n");
+        out.push_str("    mov x2, #48\n");
+        out.push_str("    bl VirtualQuery\n");
+        out.push_str("    cmp x0, #48\n");
+        out.push_str("    b.ne .L_arm64_mhr_no\n");
+        // State == MEM_COMMIT (0x1000)?
+        out.push_str("    ldr w0, [sp, #64]\n");
+        out.push_str("    cmp w0, #0x1000\n");
+        out.push_str("    b.ne .L_arm64_mhr_no\n");
+        // Base <= hdr?
+        out.push_str("    ldr x0, [sp, #32]\n");
+        out.push_str("    ldr x1, [sp, #80]\n");
+        out.push_str("    sub x1, x1, #16\n");
+        out.push_str("    cmp x1, x0\n");
+        out.push_str("    b.lo .L_arm64_mhr_no\n");
+        // hdr+16 <= Base+Size?
+        out.push_str("    ldr x0, [sp, #56]\n");
+        out.push_str("    ldr x1, [sp, #32]\n");
+        out.push_str("    add x0, x0, x1\n");
+        out.push_str("    ldr x1, [sp, #80]\n");
+        out.push_str("    cmp x1, x0\n");
+        out.push_str("    b.hi .L_arm64_mhr_no\n");
+        out.push_str("    mov x0, #1\n");
+        out.push_str("    b .L_arm64_mhr_done\n");
+        out.push_str(".L_arm64_mhr_no:\n");
+        out.push_str("    mov x0, #0\n");
+        out.push_str(".L_arm64_mhr_done:\n");
+        out.push_str("    ldp x29, x30, [sp], #112\n");
+        out.push_str("    ret\n\n");
+    }
+
     // fn_rc_retain
     out.push_str(".align 2\n");
     out.push_str(".global fn_rc_retain\n");
@@ -277,7 +324,52 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x2, x1, x2\n");
     out.push_str("    cmp x0, x2\n");
     out.push_str("    b.lo .L_arm64_rc_retain_done\n");
+    // Stable strings are immortal and never refcounted; skipping also
+    // avoids gambling the header read on whatever precedes the region.
+    emit_adrp_add(out, "x1", "alya_str_stable", os);
+    out.push_str("    cmp x0, x1\n");
+    out.push_str("    b.lo .L_arm64_rc_ret_chk_tag\n");
+    out.push_str("    movz x2, #1024, lsl #16\n");
+    out.push_str("    add x2, x1, x2\n");
+    out.push_str("    cmp x0, x2\n");
+    out.push_str("    b.lo .L_arm64_rc_retain_done\n");
     out.push_str(".L_arm64_rc_ret_chk_tag:\n");
+    // Readability probe (alya-lang/alya#117): raw big ints in unmapped
+    // gaps fault on the header read below. Verify the 16 header bytes
+    // are mapped first; unmapped -> skip (safe direction: at worst a
+    // leak, never a fault). Fires only for real heap objects and
+    // high-gap ints. Saves value and lr together (otherwise call-free).
+    if matches!(os, OperatingSystem::Windows) {
+        // alya_mem_header_readable(value): 1 = proceed, 0 = skip.
+        // Save value + lr together (otherwise a call-free leaf).
+        out.push_str("    stp x0, x30, [sp, #-32]!\n");
+        out.push_str("    sub sp, sp, #32\n");
+        out.push_str("    ldr x0, [sp, #32]\n");
+        out.push_str("    bl alya_mem_header_readable\n");
+        out.push_str("    add sp, sp, #32\n");
+        out.push_str("    mov w9, w0\n");
+        out.push_str("    ldp x0, x30, [sp], #32\n");
+        out.push_str("    cbz w9, .L_arm64_rc_retain_done\n");
+    } else {
+        // msync returns 0 when mapped, ENOMEM otherwise. Aligned base
+        // + exact span avoids over-probing into neighbors.
+        out.push_str("    stp x0, x30, [sp, #-32]!\n");
+        out.push_str("    sub x0, x0, #16\n");
+        out.push_str("    and x0, x0, #-4096\n");
+        out.push_str("    ldr x1, [sp]\n");
+        out.push_str("    sub x1, x1, x0\n");
+        out.push_str("    mov x2, #1\n");
+        if matches!(os, OperatingSystem::MacOS) {
+            out.push_str("    bl _msync\n");
+        } else {
+            out.push_str("    bl msync\n");
+        }
+        // Save the result before restoring: ldp would overwrite w0
+        // with the value and the test would read the pointer.
+        out.push_str("    mov w9, w0\n");
+        out.push_str("    ldp x0, x30, [sp], #32\n");
+        out.push_str("    cbnz w9, .L_arm64_rc_retain_done\n");
+    }
     out.push_str("    ldur x1, [x0, #-16]\n");
     out.push_str("    uxtw x1, w1\n");
     out.push_str("    movz x2, #0x0001\n");
@@ -335,7 +427,39 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x2, x1, x2\n");
     out.push_str("    cmp x19, x2\n");
     out.push_str("    b.lo .L_arm64_rc_rel_done\n");
+    // Stable strings are immortal and never refcounted.
+    emit_adrp_add(out, "x1", "alya_str_stable", os);
+    out.push_str("    cmp x19, x1\n");
+    out.push_str("    b.lo .L_arm64_rc_rel_chk_tag\n");
+    out.push_str("    movz x2, #1024, lsl #16\n");
+    out.push_str("    add x2, x1, x2\n");
+    out.push_str("    cmp x19, x2\n");
+    out.push_str("    b.lo .L_arm64_rc_rel_done\n");
     out.push_str(".L_arm64_rc_rel_chk_tag:\n");
+    // Readability probe, same contract as retain (alya-lang/alya#117).
+    // x19 is callee-saved and survives the call; no spill needed.
+    if matches!(os, OperatingSystem::Windows) {
+        // alya_mem_header_readable(value): 1 = proceed, 0 = skip.
+        // x19 is callee-saved and survives the call; no spill needed.
+        // The 32-byte sub keeps the call 16-aligned and reserves the
+        // Windows home area.
+        out.push_str("    sub sp, sp, #32\n");
+        out.push_str("    mov x0, x19\n");
+        out.push_str("    bl alya_mem_header_readable\n");
+        out.push_str("    add sp, sp, #32\n");
+        out.push_str("    cbz w0, .L_arm64_rc_rel_done\n");
+    } else {
+        out.push_str("    sub x0, x19, #16\n");
+        out.push_str("    and x0, x0, #-4096\n");
+        out.push_str("    sub x1, x19, x0\n");
+        out.push_str("    mov x2, #1\n");
+        if matches!(os, OperatingSystem::MacOS) {
+            out.push_str("    bl _msync\n");
+        } else {
+            out.push_str("    bl msync\n");
+        }
+        out.push_str("    cbnz w0, .L_arm64_rc_rel_done\n");
+    }
     out.push_str("    ldur x20, [x19, #-16]\n");
     out.push_str("    uxtw x20, w20\n");
     out.push_str("    movz x2, #0x0001\n");
@@ -514,7 +638,44 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x2, x1, x2\n");
     out.push_str("    cmp x0, x2\n");
     out.push_str("    b.lo .L_arm64_rcc_zero\n");
+    // Stable strings are immortal and never refcounted.
+    emit_adrp_add(out, "x1", "alya_str_stable", os);
+    out.push_str("    cmp x0, x1\n");
+    out.push_str("    b.lo .L_arm64_rcc_chk_tag\n");
+    out.push_str("    movz x2, #1024, lsl #16\n");
+    out.push_str("    add x2, x1, x2\n");
+    out.push_str("    cmp x0, x2\n");
+    out.push_str("    b.lo .L_arm64_rcc_zero\n");
     out.push_str(".L_arm64_rcc_chk_tag:\n");
+    // Readability probe, same contract as retain (alya-lang/alya#117).
+    // The result is saved before restoring (ldp would overwrite w0).
+    if matches!(os, OperatingSystem::Windows) {
+        // alya_mem_header_readable(value): 1 = proceed, 0 = skip.
+        // The result is saved before restoring (ldp would overwrite w0).
+        out.push_str("    stp x0, x30, [sp, #-32]!\n");
+        out.push_str("    sub sp, sp, #32\n");
+        out.push_str("    ldr x0, [sp, #32]\n");
+        out.push_str("    bl alya_mem_header_readable\n");
+        out.push_str("    add sp, sp, #32\n");
+        out.push_str("    mov w9, w0\n");
+        out.push_str("    ldp x0, x30, [sp], #32\n");
+        out.push_str("    cbz w9, .L_arm64_rcc_zero\n");
+    } else {
+        out.push_str("    stp x0, x30, [sp, #-32]!\n");
+        out.push_str("    sub x0, x0, #16\n");
+        out.push_str("    and x0, x0, #-4096\n");
+        out.push_str("    ldr x1, [sp]\n");
+        out.push_str("    sub x1, x1, x0\n");
+        out.push_str("    mov x2, #1\n");
+        if matches!(os, OperatingSystem::MacOS) {
+            out.push_str("    bl _msync\n");
+        } else {
+            out.push_str("    bl msync\n");
+        }
+        out.push_str("    mov w9, w0\n");
+        out.push_str("    ldp x0, x30, [sp], #32\n");
+        out.push_str("    cbnz w9, .L_arm64_rcc_zero\n");
+    }
     out.push_str("    ldur x1, [x0, #-16]\n");
     out.push_str("    uxtw x1, w1\n");
     out.push_str("    movz x2, #0x0001\n");
