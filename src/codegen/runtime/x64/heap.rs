@@ -556,8 +556,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
             out.push_str("    call msync\n");
         }
         out.push_str("    add $8, %rsp\n");
+        // Save the result before restoring: pop would overwrite rax
+        // and the test would read the pointer (always nonzero->skip).
+        out.push_str("    mov %eax, %r10d\n");
         out.push_str("    pop %r11\n");
-        out.push_str("    test %eax, %eax\n");
+        out.push_str("    test %r10d, %r10d\n");
         out.push_str("    jnz .L_x64_rc_retain_done\n");
     }
     out.push_str("    movl -16(%r11), %eax\n");
@@ -646,8 +649,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
             out.push_str("    call msync\n");
         }
         out.push_str("    add $8, %rsp\n");
+        // Save the result before restoring: pop would overwrite rax.
+        out.push_str("    mov %eax, %r10d\n");
         out.push_str("    pop %rbx\n");
-        out.push_str("    test %eax, %eax\n");
+        out.push_str("    test %r10d, %r10d\n");
         out.push_str("    jnz .L_x64_rc_rel_done\n");
     }
     out.push_str("    movl -16(%rbx), %r12d\n");
@@ -922,8 +927,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
             out.push_str("    call msync\n");
         }
         out.push_str("    add $8, %rsp\n");
+        // Save the result before restoring the value: pop would
+        // overwrite rax and the test would read the pointer.
+        out.push_str("    mov %eax, %r10d\n");
         out.push_str("    pop %rax\n");
-        out.push_str("    test %eax, %eax\n");
+        out.push_str("    test %r10d, %r10d\n");
         out.push_str("    jnz .L_x64_rcc_zero\n");
     }
     out.push_str("    movl -16(%rax), %edx\n");

@@ -355,7 +355,14 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         // + exact span avoids over-probing into neighbors.
         out.push_str("    stp x0, x30, [sp, #-32]!\n");
         out.push_str("    sub x0, x0, #16\n");
-        out.push_str("    and x0, x0, #-4096\n");
+        if matches!(os, OperatingSystem::MacOS) {
+            // Apple Silicon pages are 16K: a 4K-aligned base is not a
+            // page multiple and msync rejects it with EINVAL.
+            out.push_str("    lsr x0, x0, #14\n");
+            out.push_str("    lsl x0, x0, #14\n");
+        } else {
+            out.push_str("    and x0, x0, #-4096\n");
+        }
         out.push_str("    ldr x1, [sp]\n");
         out.push_str("    sub x1, x1, x0\n");
         out.push_str("    mov x2, #1\n");
@@ -450,7 +457,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    cbz w0, .L_arm64_rc_rel_done\n");
     } else {
         out.push_str("    sub x0, x19, #16\n");
-        out.push_str("    and x0, x0, #-4096\n");
+        if matches!(os, OperatingSystem::MacOS) {
+            // Apple Silicon pages are 16K (see retain).
+            out.push_str("    lsr x0, x0, #14\n");
+            out.push_str("    lsl x0, x0, #14\n");
+        } else {
+            out.push_str("    and x0, x0, #-4096\n");
+        }
         out.push_str("    sub x1, x19, x0\n");
         out.push_str("    mov x2, #1\n");
         if matches!(os, OperatingSystem::MacOS) {
@@ -663,7 +676,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     } else {
         out.push_str("    stp x0, x30, [sp, #-32]!\n");
         out.push_str("    sub x0, x0, #16\n");
-        out.push_str("    and x0, x0, #-4096\n");
+        if matches!(os, OperatingSystem::MacOS) {
+            // Apple Silicon pages are 16K (see retain).
+            out.push_str("    lsr x0, x0, #14\n");
+            out.push_str("    lsl x0, x0, #14\n");
+        } else {
+            out.push_str("    and x0, x0, #-4096\n");
+        }
         out.push_str("    ldr x1, [sp]\n");
         out.push_str("    sub x1, x1, x0\n");
         out.push_str("    mov x2, #1\n");
