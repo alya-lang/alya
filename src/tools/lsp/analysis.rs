@@ -1533,10 +1533,69 @@ pub fn get_document_symbols(source: &str) -> Vec<DocumentSymbol> {
         Err(_) => return symbols,
     };
 
+    // Extern-block token spans in source order, zipped with the AST
+    // blocks below (alya-lang/alya#128).
+    let extern_spans = find_extern_block_symbols(&tokens);
+    let mut extern_seen: usize = 0;
     for stmt in &ast.statements {
         let is_pub = stmt.is_pub();
         let inner = stmt.inner_stmt();
         match inner {
+            Stmt::ExternBlock {
+                abi,
+                lib,
+                functions,
+            } => {
+                // Namespace node per block with the declared functions
+                // as children (alya-lang/alya#128). Spans come from the
+                // token scan in order; both sequences derive from the
+                // same source deterministically.
+                if extern_seen < extern_spans.len() {
+                    let (block_range, decls) = &extern_spans[extern_seen];
+                    let label = match lib {
+                        Some(l) => format!("extern \"{}\" from \"{}\"", abi, l),
+                        None => format!("extern \"{}\"", abi),
+                    };
+                    let detail = format!("extern ({} functions)", functions.len());
+                    let sel = Range::new(
+                        block_range.start.clone(),
+                        Position::new(block_range.start.line, block_range.start.character + 6),
+                    );
+                    let mut sym = DocumentSymbol::new(
+                        &label,
+                        Some(&detail),
+                        3, // Namespace
+                        block_range.clone(),
+                        sel,
+                    );
+                    for f in functions {
+                        if let Some((_, d_range, d_sel)) =
+                            decls.iter().find(|(n, _, _)| n == &f.name)
+                        {
+                            let params = f
+                                .params
+                                .iter()
+                                .map(|p| p.name.clone())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            let f_detail = format!(
+                                "({}) -> {}",
+                                params,
+                                f.return_type.as_deref().unwrap_or("void")
+                            );
+                            sym.children.push(DocumentSymbol::new(
+                                &f.name,
+                                Some(&f_detail),
+                                12, // Function
+                                d_range.clone(),
+                                d_sel.clone(),
+                            ));
+                        }
+                    }
+                    symbols.push(sym);
+                }
+                extern_seen += 1;
+            }
             Stmt::Function {
                 name,
                 params,
@@ -1769,6 +1828,66 @@ fn find_symbol_range(
     None
 }
 
+/// Token spans of `extern` blocks: the block range plus one entry per
+/// declared function (name, decl range, name selection). Chapter 12
+/// declarations are single-line, so each entry spans its `function`
+/// keyword line; the block spans `extern`..`end` (alya-lang/alya#128).
+type ExternFnSymbol = (String, Range, Range);
+type ExternBlockSymbols = (Range, Vec<ExternFnSymbol>);
+fn find_extern_block_symbols(tokens: &[Token]) -> Vec<ExternBlockSymbols> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        if matches!(tokens[i].token_type, TokenType::Extern) {
+            let sl = tokens[i].line.saturating_sub(1) as u32;
+            let sc = tokens[i].column.saturating_sub(1) as u32;
+            let mut decls = Vec::new();
+            let mut j = i + 1;
+            let mut end = None;
+            while j < tokens.len() {
+                match &tokens[j].token_type {
+                    TokenType::End => {
+                        let el = tokens[j].line.saturating_sub(1) as u32;
+                        let ec = tokens[j].column.saturating_sub(1) as u32 + 3;
+                        end = Some(Position::new(el, ec));
+                        break;
+                    }
+                    TokenType::Function => {
+                        let fl = tokens[j].line.saturating_sub(1) as u32;
+                        let fc = tokens[j].column.saturating_sub(1) as u32;
+                        let mut k = j + 1;
+                        while k < tokens.len() && k <= j + 4 {
+                            if let TokenType::Identifier(id) = &tokens[k].token_type {
+                                let l = tokens[k].line.saturating_sub(1) as u32;
+                                let c = tokens[k].column.saturating_sub(1) as u32;
+                                let sel = Range::new(
+                                    Position::new(l, c),
+                                    Position::new(l, c + id.len() as u32),
+                                );
+                                let line_r = Range::new(
+                                    Position::new(fl, fc),
+                                    Position::new(l, c + id.len() as u32),
+                                );
+                                decls.push((id.clone(), line_r, sel));
+                                break;
+                            }
+                            k += 1;
+                        }
+                    }
+                    _ => {}
+                }
+                j += 1;
+            }
+            if let Some(end_pos) = end {
+                out.push((Range::new(Position::new(sl, sc), end_pos), decls));
+                i = j;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
 fn find_field_range(
     tokens: &[Token],
     parent_range: Range,
@@ -1799,10 +1918,24 @@ pub fn get_folding_ranges(source: &str) -> Vec<FoldingRange> {
     let mut lexer = Lexer::new(source);
     if let Ok(tokens) = lexer.tokenize() {
         let mut block_stack = Vec::new();
+        let mut extern_depth: i32 = 0;
         for tok in &tokens {
             match &tok.token_type {
-                TokenType::Function
-                | TokenType::Struct
+                // `extern` opens a foldable block of its own; the
+                // single-line declarations inside must not push fold
+                // starts, or the block's `end` pairs with the wrong line
+                // (alya-lang/alya#128).
+                TokenType::Extern => {
+                    extern_depth += 1;
+                    let l = tok.line.saturating_sub(1) as u32;
+                    block_stack.push(l);
+                }
+                TokenType::Function if extern_depth == 0 => {
+                    let l = tok.line.saturating_sub(1) as u32;
+                    block_stack.push(l);
+                }
+                TokenType::Function => {}
+                TokenType::Struct
                 | TokenType::Enum
                 | TokenType::Interface
                 | TokenType::If
@@ -1817,6 +1950,9 @@ pub fn get_folding_ranges(source: &str) -> Vec<FoldingRange> {
                     block_stack.push(l);
                 }
                 TokenType::End => {
+                    if extern_depth > 0 {
+                        extern_depth -= 1;
+                    }
                     if let Some(start_line) = block_stack.pop() {
                         let end_line = tok.line.saturating_sub(1) as u32;
                         if end_line > start_line {
@@ -2823,6 +2959,13 @@ pub fn get_semantic_tokens(source: &str, file_dir: Option<&std::path::Path>) -> 
                         param_names.insert(p.clone());
                     }
                 }
+                Stmt::ExternBlock { functions, .. } => {
+                    // Extern declarations highlight like functions
+                    // (alya-lang/alya#128).
+                    for f in functions {
+                        function_names.insert(f.name.clone());
+                    }
+                }
                 Stmt::Const { name, .. } => {
                     const_names.insert(name.clone());
                 }
@@ -3328,6 +3471,48 @@ mod tests {
             label.iter().any(|l| l.contains("strlen(s: str)")),
             "expected extern signature, got: {:?}",
             label
+        );
+    }
+
+    #[test]
+    fn test_document_symbols_include_extern_block() {
+        // alya-lang/alya#128: outline shows a namespace node per
+        // extern block with the declared functions as children.
+        let src = "extern \"C\" from \"mylib\"\n    function strlen(s: str) -> i64\n    function puts(s: str) -> i32\nend\n\nfunction main() -> int\n    return 1\nend\n";
+        let syms = get_document_symbols(src);
+        let ns = syms
+            .iter()
+            .find(|s| s.kind == 3)
+            .expect("namespace node missing");
+        assert!(
+            ns.name.contains("mylib"),
+            "namespace names the lib, got: {}",
+            ns.name
+        );
+        let kids: Vec<&str> = ns.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(kids, vec!["strlen", "puts"], "children: {:?}", kids);
+        assert!(
+            syms.iter().any(|s| s.name == "main"),
+            "plain functions still listed"
+        );
+    }
+
+    #[test]
+    fn test_folding_ranges_cover_extern_block() {
+        // alya-lang/alya#128: the block folds as one unit; inner
+        // single-line declarations must not steal the `end`.
+        let src = "extern \"C\"\n    function strlen(s: str) -> i64\nend\n\nfunction main() -> int\n    return 1\nend\n";
+        let folds = get_folding_ranges(src);
+        let starts: Vec<u32> = folds.iter().map(|f| f.start_line).collect();
+        assert!(
+            starts.contains(&0),
+            "extern block folds from line 0: {:?}",
+            starts
+        );
+        assert!(
+            starts.contains(&4),
+            "following function still folds: {:?}",
+            starts
         );
     }
 }
