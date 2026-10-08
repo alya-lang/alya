@@ -955,9 +955,15 @@ end
 
 # cmd.exe `start` swallows a quoted first token as a window title, so an empty
 # title ("") keeps quoted program paths launching correctly.
+# The explicit `cmd /c` layer matters: for shell-internal commands
+# (`echo`, `dir`, ...) a bare `start` spawns a persistent `cmd /K`
+# shell that never exits. That zombie inherits the parent's stdio
+# pipes (hanging any reader to EOF, e.g. `alya test`) and clings to
+# the user's console. Routing through `cmd /c` runs internal and
+# external commands alike in a terminating shell.
 @cfg(os = "windows")
 function internal_spawn_windows(cmd: string) -> ProcessHandle
-    system_exec("start /B \"\" " + cmd)
+    system_exec("start /B \"\" cmd /c " + cmd)
     return ProcessHandle { pid: -1, command: cmd }
 end
 

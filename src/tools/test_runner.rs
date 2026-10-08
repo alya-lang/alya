@@ -768,14 +768,13 @@ pub fn execute_test_file_cached(
     let start_wait = Instant::now();
     let timeout_limit = suite_timeout().1;
     let mut exited = false;
-    let mut exit_status = None;
 
     while start_wait.elapsed() < timeout_limit {
-        if let Some(status) = child
+        let done = child
             .try_wait()
             .map_err(|e| format!("Failed to check status of '{}': {}", exe_str, e))?
-        {
-            exit_status = Some(status);
+            .is_some();
+        if done {
             exited = true;
             break;
         }
@@ -788,15 +787,13 @@ pub fn execute_test_file_cached(
             .map_err(|e| format!("Failed to read output of '{}': {}", exe_str, e))?;
         (output.stdout, output.stderr, false, Some(output.status))
     } else {
+        // Reap without draining pipes: a surviving grandchild holding
+        // them open (e.g. a detached `cmd /K` from `process_spawn`)
+        // must not block us the way `wait_with_output` would. Output
+        // is unreachable past this point by design.
         let _ = child.kill();
-        let output = child
-            .wait_with_output()
-            .unwrap_or_else(|_| std::process::Output {
-                status: exit_status.unwrap_or_default(),
-                stdout: Vec::new(),
-                stderr: Vec::new(),
-            });
-        (output.stdout, output.stderr, true, Some(output.status))
+        let status = child.wait().ok();
+        (Vec::new(), Vec::new(), true, status)
     };
 
     let _ = fs::remove_file(&exe_path);
