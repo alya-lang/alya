@@ -12,6 +12,12 @@ on:
       - master
       - develop
   workflow_dispatch:
+    inputs:
+      ir_limit_pct:
+        description: 'Fail when any workload Ir grows beyond this percent vs base'
+        required: false
+        type: string
+        default: '5.0'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,11 +26,14 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  IR_LIMIT_PCT: ${{ inputs.ir_limit_pct || '5.0' }}
+
 jobs:
   callgrind:
-    name: Callgrind Ir (x64 Linux)
+    name: Callgrind Ir + gate (x64 Linux)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -38,14 +47,69 @@ jobs:
       - name: Install valgrind and C toolchain
         run: sudo apt-get update && sudo apt-get install -y valgrind gcc
 
-      - name: Build alya
+      - name: Build alya (head)
         run: cargo build --verbose
 
-      - name: Run callgrind corpus
-        run: ALYA_BIN=$PWD/target/debug/alya bench/callgrind/run.sh
+      - name: Run callgrind corpus (head)
+        run: ALYA_BIN=$PWD/target/debug/alya CALLGRIND_OUT=/tmp/cg-head bench/callgrind/run.sh
 
-      - name: Upload callgrind files
+      - name: Prepare base checkout
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --depth 1 origin "${{ github.base_ref }}"
+          git worktree add --detach /tmp/cg-base-src FETCH_HEAD
+
+      - name: Build alya (base)
+        if: github.event_name == 'pull_request'
+        working-directory: /tmp/cg-base-src
+        run: cargo build --verbose
+
+      - name: Run callgrind corpus (base)
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_STEP_SUMMARY: ""
+        run: ALYA_BIN=/tmp/cg-base-src/target/debug/alya CALLGRIND_OUT=/tmp/cg-base CORPUS_DIR=/tmp/cg-base-src/bench/callgrind CALLGRIND_TOLERATE_MISSING=1 bench/callgrind/run.sh
+
+      - name: Compare base vs head
+        if: github.event_name == 'pull_request'
+        run: python3 bench/callgrind/compare.py /tmp/cg-base/results.json /tmp/cg-head/results.json "$IR_LIMIT_PCT" /tmp/regressed.txt | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Annotate regressions
+        if: always() && github.event_name == 'pull_request'
+        run: |
+          if [ -s /tmp/regressed.txt ]; then
+            while read -r w; do
+              {
+                echo "<details><summary>top functions: $w (head)</summary>"
+                echo ""
+                bench/callgrind/topfns.sh "/tmp/cg-head/callgrind.out.$w" 5
+                echo ""
+                echo "</details>"
+              } >> "$GITHUB_STEP_SUMMARY"
+            done < /tmp/regressed.txt
+          fi
+
+      - name: Upload head results
+        if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: callgrind-out
-          path: /tmp/alya-callgrind/callgrind.out.*
+          name: callgrind-head
+          path: /tmp/cg-head/callgrind.out.*
+          if-no-files-found: warn
+
+      - name: Upload base results
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: callgrind-base
+          path: /tmp/cg-base/callgrind.out.*
+          if-no-files-found: warn
+
+      - name: Regression gate
+        if: github.event_name == 'pull_request'
+        run: |
+          if [ -s /tmp/regressed.txt ]; then
+            echo "Ir regressions beyond $IR_LIMIT_PCT%: $(tr '\n' ' ' < /tmp/regressed.txt)"
+            exit 1
+          fi
+          echo "No Ir regressions beyond $IR_LIMIT_PCT%."

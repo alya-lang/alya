@@ -1,16 +1,15 @@
 # callgrind/map_churn.alya — map insert then lookup sweep (hash + box path).
-# NOTE: int keys crash past 255 entries (alya-lang/alya#140); string keys used.
 # Expected: 2 * sum(0..8000) = 64008000
-let m = { "k0": 0 }
+let m = { 0: 0 }
 let i: int = 1
 while i <= 8000
-    m[f"k{i}"] = i * 2
+    m[i] = i * 2
     i += 1
 end
 let total: int = 0
 let j: int = 0
 while j <= 8000
-    total += m[f"k{j}"]
+    total += m[j]
     j += 1
 end
 say total
