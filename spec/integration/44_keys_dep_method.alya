@@ -1,0 +1,29 @@
+# ==============================================================================
+# Alya Integration Fixture 44 (entry): builtin keys via untyped param vs
+# dependency method
+# Distilled from: Lib/http `keys(fields)` (untyped `multipart_encode`
+#                 params) hijacked by url dependency's `UrlSearchParams.keys`
+#                 (alya-lang/alya#145; `alya-lang/http` CI SIGSEGV on all
+#                 platforms — zero correct `fn_keys` calls in the binary)
+# Guards: bare `keys(...)` on a dynamically-typed receiver (untyped
+#         function param) resolves to the runtime builtin even when the
+#         single program-wide same-named struct method sits behind an
+#         import alias; `u::` calls and method syntax still bind the method.
+# ==============================================================================
+
+import "./44_dep_keys_helper.alya" as u
+
+function count_keys(m) -> int
+    return len(keys(m))
+end
+
+function main()
+    let fields = { "username": "alya", "role": "maintainer" }
+    assert_eq(count_keys(fields), 2, "builtin keys on untyped param")
+    let reg = u::make_registry()
+    assert_eq(len(reg.keys()), 1, "method syntax still binds")
+    assert_eq(count_keys(reg.items), 1, "builtin keys on struct-field map")
+    say "integration 44_keys_dep_method: OK"
+end
+
+main()

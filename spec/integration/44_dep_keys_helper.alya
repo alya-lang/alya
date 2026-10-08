@@ -1,0 +1,20 @@
+## Fixture helper: dependency module whose struct method collides with a
+## runtime builtin (alya-lang/alya#145). Mirrors `url_pkg` exposing
+## `UrlSearchParams.keys`: imported `as u`, so only `u::` calls may reach
+## it; bare `keys` must keep resolving to the builtin.
+
+pub struct Registry
+    items: map
+end
+
+pub function Registry.keys(self: Registry) -> array
+    let out = []
+    for k in keys(self.items)
+        out.push(k)
+    end
+    return out
+end
+
+pub function make_registry() -> Registry
+    return Registry { items: { "r1": 1 } }
+end
