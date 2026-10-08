@@ -1,8 +1,13 @@
 # Alya Standard Library - Collections Module (std/collections)
-# Provides Stack, Queue, and Set data structures plus array and map utilities.
+# Provides Stack, Queue, PriorityQueue, and Set data structures plus array and map utilities.
 # Usage: import "std/collections"
 
 # --- Types ---
+
+## Binary min-heap priority queue backed by an array.
+##
+## Represented as an array where the root (index 0) holds the minimum element; create one with `priority_queue_new` or `PriorityQueue.new` and operate on it with the `priority_queue_*` functions.
+pub struct PriorityQueue end
 
 ## First-in first-out queue backed by an array with a head pointer.
 ##
@@ -20,6 +25,33 @@ pub struct Set end
 pub struct Stack end
 
 # --- Constructors ---
+
+## Creates a new empty priority queue.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## A new empty priority queue as an empty array.
+pub function PriorityQueue.new()
+    return priority_queue_new()
+end
+
+## Creates a new empty priority queue.
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## A new empty priority queue as an empty array.
+pub function priority_queue_new()
+    return []
+end
+
+## Shorthand alias for `priority_queue_new`.
+pub function pq_new()
+    return priority_queue_new()
+end
 
 ## Creates a new empty queue.
 ##
@@ -272,6 +304,179 @@ pub function queue_to_array(q)
         i += 1
     end
     return res
+end
+
+# --- PriorityQueue ---
+
+## Removes all items from the priority queue.
+##
+## ### Parameters
+## - `pq`: Priority queue to clear.
+##
+## ### Returns
+## No return value; empties the backing array.
+pub function priority_queue_clear(pq)
+    while len(pq) > 0
+        pq.pop()
+    end
+end
+
+## Removes all items from the priority queue (alias for priority_queue_clear).
+pub function pq_clear(pq)
+    priority_queue_clear(pq)
+end
+
+## Returns true if the priority queue is empty, false otherwise.
+##
+## ### Parameters
+## - `pq`: Priority queue to test.
+##
+## ### Returns
+## True when the priority queue holds no items, false otherwise.
+pub function priority_queue_is_empty(pq) -> bool
+    if len(pq) == 0
+        return true
+    end
+    return false
+end
+
+## Returns true if the priority queue is empty, false otherwise (alias for priority_queue_is_empty).
+pub function pq_is_empty(pq) -> bool
+    return priority_queue_is_empty(pq)
+end
+
+## Returns the minimum item without removing it, or 0 if empty.
+##
+## ### Parameters
+## - `pq`: Priority queue to peek at.
+##
+## ### Returns
+## The minimum item (root of the min-heap), or 0 when the priority queue is empty.
+pub function priority_queue_peek(pq)
+    let total: int = len(pq)
+    if total == 0
+        return 0
+    end
+    return pq[0]
+end
+
+## Returns the minimum item without removing it, or 0 if empty (alias for priority_queue_peek).
+pub function pq_peek(pq)
+    return priority_queue_peek(pq)
+end
+
+## Removes and returns the minimum item from the priority queue, or 0 if empty.
+##
+## ### Parameters
+## - `pq`: Priority queue to pop from; its backing array is sifted down to maintain min-heap ordering.
+##
+## ### Returns
+## The removed minimum item, or 0 when the priority queue is empty.
+pub function priority_queue_pop(pq)
+    let total: int = len(pq)
+    if total == 0
+        return 0
+    end
+    if total == 1
+        return pq.pop()
+    end
+    let min_val = pq[0]
+    let last = pq.pop()
+    pq[0] = last
+    total = len(pq)
+    let idx: int = 0
+    let left: int = 0
+    let right: int = 0
+    let smallest: int = 0
+    let temp = 0
+    while true
+        left = 2 * idx + 1
+        right = 2 * idx + 2
+        smallest = idx
+        if left < total and pq[left] < pq[smallest]
+            smallest = left
+        end
+        if right < total and pq[right] < pq[smallest]
+            smallest = right
+        end
+        if smallest != idx
+            temp = pq[idx]
+            pq[idx] = pq[smallest]
+            pq[smallest] = temp
+            idx = smallest
+        else
+            break
+        end
+    end
+    return min_val
+end
+
+## Removes and returns the minimum item from the priority queue (alias for priority_queue_pop).
+pub function pq_pop(pq)
+    return priority_queue_pop(pq)
+end
+
+## Pushes a value into the priority queue, sifting up to maintain min-heap ordering.
+##
+## ### Parameters
+## - `pq`: Priority queue to push onto.
+## - `val`: Value to insert.
+##
+## ### Returns
+## No return value; appends `val` and sifts it up to its heap position.
+pub function priority_queue_push(pq, val)
+    pq.push(val)
+    let idx: int = len(pq) - 1
+    let parent: int = 0
+    let temp = 0
+    while idx > 0
+        parent = (idx - 1) / 2
+        if pq[idx] < pq[parent]
+            temp = pq[idx]
+            pq[idx] = pq[parent]
+            pq[parent] = temp
+            idx = parent
+        else
+            break
+        end
+    end
+end
+
+## Pushes a value into the priority queue (alias for priority_queue_push).
+pub function pq_push(pq, val)
+    priority_queue_push(pq, val)
+end
+
+## Returns the number of items in the priority queue.
+##
+## ### Parameters
+## - `pq`: Priority queue to measure.
+##
+## ### Returns
+## The number of items in the priority queue.
+pub function priority_queue_size(pq) -> int
+    return len(pq)
+end
+
+## Returns the number of items in the priority queue (alias for priority_queue_size).
+pub function pq_size(pq) -> int
+    return priority_queue_size(pq)
+end
+
+## Returns the priority queue items as a plain array.
+##
+## ### Parameters
+## - `pq`: Priority queue whose items are copied; the priority queue itself is left unmodified.
+##
+## ### Returns
+## A new array with the items in internal heap order.
+pub function priority_queue_to_array(pq)
+    return [...pq]
+end
+
+## Returns the priority queue items as a plain array (alias for priority_queue_to_array).
+pub function pq_to_array(pq)
+    return priority_queue_to_array(pq)
 end
 
 # --- Set ---
