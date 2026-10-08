@@ -3481,7 +3481,9 @@ mod tests {
         let src = "function main()\n    let s = \"a\\0b\"\n    say s\nend\n";
         let diags = check_document(src, None);
         assert!(
-            diags.iter().any(|d| d.code.as_deref() == Some("nul-byte-in-string")),
+            diags
+                .iter()
+                .any(|d| d.code.as_deref() == Some("nul-byte-in-string")),
             "expected nul lint diagnostic, got: {:?}",
             diags
                 .iter()
