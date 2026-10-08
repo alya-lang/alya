@@ -1,10 +1,10 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
-    eq_operand_is_dynamic, escape_string, is_array_expr, is_array_fold_true,
-    is_definitely_not_numeric, is_float_expr, is_map_expr, is_map_fold_true, is_null_expr,
-    is_number_expr, is_simple_name, is_strict_dynamic_op, is_string_expr, is_string_fold_true,
-    is_tag_carrying_read, is_unsigned_expr, string_store_needs_dup,
+    builtin_blocks_method_fallback, eq_operand_is_dynamic, escape_string, is_array_expr,
+    is_array_fold_true, is_definitely_not_numeric, is_float_expr, is_map_expr, is_map_fold_true,
+    is_null_expr, is_number_expr, is_simple_name, is_strict_dynamic_op, is_string_expr,
+    is_string_fold_true, is_tag_carrying_read, is_unsigned_expr, string_store_needs_dup,
     struct_field_markers_mixed_vars, ternary_arm_carries, typeof_operand_is_repeatable,
     value_kind_tag,
 };
@@ -2142,10 +2142,14 @@ impl CodeGen {
                 // a loud link error if truly missing), as do a same-named
                 // free function or extern and an arity mismatch (binding
                 // those would trade the link error for silent stack
-                // garbage).
+                // garbage). Runtime builtins (`len`, `keys`, ...) never
+                // reach for a method either: `fn_<name>` already satisfies
+                // the call, so the fallback could only hijack it
+                // (alya-lang/alya#144).
                 if resolved_name == *name
                     && !name.contains("::")
                     && !name.contains("__")
+                    && !builtin_blocks_method_fallback(name)
                     && !self.ctx.functions.contains(name.as_str())
                     && !self.ctx.extern_functions.contains_key(name.as_str())
                     && !self

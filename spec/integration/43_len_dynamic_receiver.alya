@@ -1,0 +1,52 @@
+# ==============================================================================
+# Alya Integration Fixture 43 (entry): builtin len on dynamic receiver vs
+# same-named struct method
+# Distilled from: Lib/event `buffer_to_bytes` (`len(chunk)` on a for-loop
+#                 variable) vs `StreamBuffer.len` (alya-lang/alya#144;
+#                 `alya-lang/event` CI "index out of bounds" + garbage len)
+# Guards: a builtin `len(...)` call on a dynamically-typed receiver must
+#         resolve to the runtime builtin, never to the single program-wide
+#         same-named struct method (which would read the method's field off
+#         a non-struct value). Method syntax on typed receivers is unaffected.
+# ==============================================================================
+
+struct Buf
+    chunks: array,
+    total: int
+end
+
+function buf_append(buf: Buf, chunk) -> int
+    push(buf.chunks, chunk)
+    buf.total += len(chunk)
+    return len(chunk)
+end
+
+function buf_flat(buf: Buf) -> array
+    let out = []
+    for chunk in buf.chunks
+        let i = 0
+        while i < len(chunk)
+            out.push(chunk[i])
+            i += 1
+        end
+    end
+    return out
+end
+
+function Buf.len(self: Buf) -> int
+    return self.total
+end
+
+function main()
+    let b = Buf { chunks: [], total: 0 }
+    buf_append(b, [72, 0])
+    buf_append(b, [255, 1])
+    let flat = buf_flat(b)
+    assert_eq(len(flat), 4, "builtin len on dynamic array")
+    assert_eq(flat[0], 72, "byte 0")
+    assert_eq(flat[3], 1, "byte 3")
+    assert_eq(b.len(), 4, "method-syntax len still binds")
+    say "integration 43_len_dynamic_receiver: OK"
+end
+
+main()

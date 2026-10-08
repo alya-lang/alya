@@ -121,6 +121,45 @@ pub fn is_simple_name(name: &str) -> bool {
     !name.contains("::") && !name.contains("__")
 }
 
+/// Whether a bare call with this name must resolve to the runtime builtin
+/// and never to a same-named struct method via the single-method fallback
+/// (alya-lang/alya#144): the runtime already provides `fn_<name>`, so the
+/// fallback cannot fix a link error — it can only hijack the builtin call
+/// (observed: `len(chunk)` on a dynamic array bound to `Buf__len`, reading
+/// `.total` off the array and running past its end).
+/// Only names with a confirmed runtime `fn_<name>` target that plausibly
+/// double as method names are listed; anything else keeps the legacy
+/// fallback (a loud link error if truly missing).
+pub fn builtin_blocks_method_fallback(name: &str) -> bool {
+    let bare = name.rsplit("::").next().unwrap_or(name);
+    let bare = bare.rsplit("__").next().unwrap_or(bare);
+    matches!(
+        bare,
+        "len"
+            | "length"
+            | "byte_length"
+            | "keys"
+            | "values"
+            | "contains"
+            | "has"
+            | "get"
+            | "set"
+            | "remove"
+            | "slice"
+            | "split"
+            | "join"
+            | "trim"
+            | "upper"
+            | "lower"
+            | "substr"
+            | "substring"
+            | "bytes"
+            | "str"
+            | "ord"
+            | "chr"
+    )
+}
+
 /// Sentinel prefix marking an ambiguous bare function name
 /// (alya-lang/alya#101): two or more functions share the same bare
 /// (`inner` + `outer__inner`, `S__m` + top-level `m`). A bare marker
