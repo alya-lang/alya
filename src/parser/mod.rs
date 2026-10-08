@@ -602,8 +602,22 @@ pub fn resolve_imports(
 pub fn validate_unique_functions(stmts: &[Stmt]) -> Result<(), String> {
     let mut seen_functions: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
+    let mut extern_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     for stmt in stmts {
-        if let Stmt::Function { name, .. } = stmt {
+        if let Stmt::ExternBlock { functions, .. } = stmt.inner_stmt() {
+            for f in functions {
+                extern_names.insert(f.name.clone());
+            }
+        }
+    }
+    for stmt in stmts {
+        if let Stmt::Function { name, .. } = stmt.inner_stmt() {
+            if extern_names.contains(name) {
+                return Err(format!(
+                    "Duplicate definition '{}': declared both as an extern \"C\" function and as an Alya function. Calls cannot resolve across the extern/function boundary (arity is checked against the function while codegen binds the extern). Rename one side (e.g. '{}_raw' for the extern) and call it from the wrapper.",
+                    name, name
+                ));
+            }
             let count = seen_functions.entry(name.clone()).or_insert(0);
             *count += 1;
             if *count > 1 {

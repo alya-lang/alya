@@ -1,0 +1,17 @@
+# EXPECT-FAIL: check: Duplicate definition 'strlen'
+# Chapter 12 §1.5: an extern "C" declaration and an Alya function sharing
+# one name cannot resolve calls coherently (arity is checked against the
+# function while codegen binds the extern), so the collision is rejected.
+extern "C"
+    function strlen(s: str) -> i64
+end
+
+function strlen(s) -> int
+    return strlen(s) + 100
+end
+
+function main()
+    say strlen("hello")
+end
+
+main()

@@ -29,7 +29,14 @@ pub fn check_document(source: &str, file_path: Option<&std::path::Path>) -> Vec<
             // 1. Static Gradual Type Checking Pass
             let mut resolved_ast = program.clone();
             crate::parser::enums::resolve_enums(&mut resolved_ast);
-            let _ = crate::parser::constants::resolve_and_validate_constants(&mut resolved_ast);
+            // Constant redeclaration/assignment errors are same-file and
+            // import-independent, so they surface here (previously
+            // swallowed by `let _`).
+            if let Err(const_err) =
+                crate::parser::constants::resolve_and_validate_constants(&mut resolved_ast)
+            {
+                diagnostics.push(type_error_to_diagnostic(&const_err, source));
+            }
             crate::parser::generics::resolve_generics(&mut resolved_ast);
             if let Err(type_err) =
                 crate::codegen::analysis::type_checker::validate_types(&resolved_ast)
@@ -42,6 +49,15 @@ pub fn check_document(source: &str, file_path: Option<&std::path::Path>) -> Vec<
                 if !is_resolved_import_name(&type_err, source, target_path) {
                     diagnostics.push(type_error_to_diagnostic(&type_err, source));
                 }
+            }
+
+            // Duplicate definitions (same-file extern/function collisions
+            // included, alya-lang/alya#127): `resolve_imports` runs this on
+            // the merged scope for CLI builds; single-file LSP checks it on
+            // the open document (cross-file collisions need merged scopes
+            // and stay a CLI error, like other import-aware checks).
+            if let Err(dup_err) = crate::parser::validate_unique_functions(&program.statements) {
+                diagnostics.push(type_error_to_diagnostic(&dup_err, source));
             }
 
             // 2. Linter Analysis Rules (same filters as the `alya lint` CLI:
@@ -194,6 +210,21 @@ fn type_error_to_diagnostic(err: &str, source: &str) -> Diagnostic {
         if let Some(end) = remainder.find('\'') {
             target_word = Some(remainder[..end].trim());
         }
+    } else if let Some(idx) = err.find("definition '") {
+        // Duplicate-definition diagnostics (`Duplicate function
+        // definition 'f'`, `Duplicate definition 'f' ...`): point at
+        // the first mention of the colliding name (alya-lang/alya#127).
+        let remainder = &err[idx + 12..];
+        if let Some(end) = remainder.find('\'') {
+            target_word = Some(remainder[..end].trim());
+        }
+    } else if let Some(idx) = err.find("constant '") {
+        // Constant diagnostics (`Cannot redeclare constant 'c'`, ...):
+        // same-file by construction, point at the name.
+        let remainder = &err[idx + 10..];
+        if let Some(end) = remainder.find('\'') {
+            target_word = Some(remainder[..end].trim());
+        }
     } else if let Some(idx) = err.find("field '") {
         let remainder = &err[idx + 7..];
         if let Some(end) = remainder.find('\'') {
@@ -290,23 +321,28 @@ pub fn get_completions(source: &str, _pos: &Position) -> Vec<CompletionItem> {
     }
 
     // 2. Standard Library Modules (Kind 9)
+    // Canonical set mirrors `parser::get_embedded_stdlib` (plus its
+    // alias map): suggesting anything else produces an import error.
     let std_modules = [
-        "std/math",
-        "std/simd",
-        "std/mem",
+        "std/cli",
+        "std/collections",
+        "std/console",
         "std/fs",
-        "std/os",
-        "std/sync",
-        "std/time",
-        "std/net",
+        "std/hash",
         "std/io",
         "std/json",
-        "std/crypto",
-        "std/env",
-        "std/process",
+        "std/log",
+        "std/math",
+        "std/mem",
+        "std/net",
+        "std/os",
         "std/path",
-        "std/color",
-        "std/thread",
+        "std/process",
+        "std/simd",
+        "std/str",
+        "std/sync",
+        "std/test",
+        "std/time",
     ];
     for m in std_modules {
         items.push(CompletionItem::new(
@@ -377,6 +413,31 @@ pub fn get_completions(source: &str, _pos: &Position) -> Vec<CompletionItem> {
                         let t = type_ann.as_deref().unwrap_or("auto");
                         let detail = format!("let {}: {}", name, t);
                         items.push(CompletionItem::new(name, 6, Some(&detail), None));
+                    }
+                    Stmt::ExternBlock { functions, .. } => {
+                        // Extern declarations are callable names too;
+                        // surfacing them keeps completion coherent with
+                        // the duplicate-definition rule (alya-lang/alya#127).
+                        for f in functions {
+                            if seen.insert(f.name.clone()) {
+                                let params = f
+                                    .params
+                                    .iter()
+                                    .map(|p| {
+                                        format!(
+                                            "{}: {}",
+                                            p.name,
+                                            p.param_type.as_deref().unwrap_or("_")
+                                        )
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                let ret = f.return_type.as_deref().unwrap_or("void");
+                                let sig =
+                                    format!("extern function {}({}) -> {}", f.name, params, ret);
+                                items.push(CompletionItem::new(&f.name, 3, Some(&sig), Some(&sig)));
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -458,6 +519,31 @@ pub fn get_hover(source: &str, pos: &Position) -> Option<String> {
                     Stmt::Let { name, type_ann, .. } if name == &word => {
                         let t = type_ann.as_deref().unwrap_or("inferred");
                         return Some(format!("```alya\nlet {}: {}\n```", name, t));
+                    }
+                    Stmt::ExternBlock { functions, .. } => {
+                        // Extern declarations hover like functions
+                        // (alya-lang/alya#127 follow-up).
+                        for f in functions {
+                            if f.name == word {
+                                let params = f
+                                    .params
+                                    .iter()
+                                    .map(|p| {
+                                        format!(
+                                            "{}: {}",
+                                            p.name,
+                                            p.param_type.as_deref().unwrap_or("_")
+                                        )
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                let ret = f.return_type.as_deref().unwrap_or("void");
+                                return Some(format!(
+                                    "```alya\nextern function {}({}) -> {}\n```",
+                                    f.name, params, ret
+                                ));
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -1967,6 +2053,23 @@ fn extract_functions(source: &str) -> FunctionSignatureMap {
                         p_infos.push(ParameterInformation::new(&label));
                     }
                     map.insert(name.clone(), (p_infos, return_type.clone(), None));
+                } else if let Stmt::ExternBlock { functions, .. } = stmt.inner_stmt() {
+                    // Extern calls deserve signature help like plain
+                    // functions (alya-lang/alya#127 follow-up).
+                    for f in functions {
+                        let p_infos = f
+                            .params
+                            .iter()
+                            .map(|p| {
+                                ParameterInformation::new(&format!(
+                                    "{}: {}",
+                                    p.name,
+                                    p.param_type.as_deref().unwrap_or("_")
+                                ))
+                            })
+                            .collect();
+                        map.insert(f.name.clone(), (p_infos, f.return_type.clone(), None));
+                    }
                 }
             }
         }
@@ -3090,5 +3193,141 @@ mod tests {
             &file
         ));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_check_document_flags_extern_function_collision() {
+        // alya-lang/alya#127: same-file extern/function collisions must
+        // surface as diagnostics (resolve_imports never runs in LSP).
+        let src = "extern \"C\"\n    function strlen(s: str) -> i64\nend\n\nfunction strlen(s) -> int\n    return 1\nend\n";
+        let diags = check_document(src, None);
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.message.contains("Duplicate definition 'strlen'")),
+            "expected duplicate-definition diagnostic, got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+        // Clean documents stay quiet (no false positive).
+        let ok_src =
+            "extern \"C\"\n    function strlen(s: str) -> i64\nend\n\nfunction get_len(s) -> int\n    return 1\nend\n";
+        let ok_diags = check_document(ok_src, None);
+        assert!(
+            !ok_diags
+                .iter()
+                .any(|d| d.message.contains("Duplicate definition")),
+            "unexpected duplicate diagnostic: {:?}",
+            ok_diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_check_document_flags_constant_errors() {
+        // Previously swallowed by `let _`: same-file constant
+        // violations must surface (no import dependence, no false
+        // positives single-file).
+        let src = "const K = 1\nconst K = 2\n";
+        let diags = check_document(src, None);
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.message.contains("Cannot redeclare constant 'K'")),
+            "expected constant diagnostic, got: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_completions_include_extern_functions() {
+        // alya-lang/alya#127 follow-up: extern declarations are callable
+        // names and belong in completion like plain functions.
+        let src = "extern \"C\"\n    function strlen(s: str) -> i64\nend\n";
+        let items = get_completions(src, &Position::new(3, 0));
+        assert!(
+            items.iter().any(|i| i.label == "strlen"),
+            "expected strlen completion, got: {:?}",
+            items.iter().map(|i| &i.label).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_hover_shows_extern_signature() {
+        let src = "extern \"C\"\n    function strlen(s: str) -> i64\nend\nsay strlen(\"x\")\n";
+        let hover = get_hover(src, &Position::new(3, 5));
+        assert!(
+            hover
+                .as_ref()
+                .is_some_and(|h| h.contains("extern function strlen")),
+            "expected extern hover, got: {:?}",
+            hover
+        );
+    }
+
+    #[test]
+    fn test_std_module_completions_match_embedded_stdlib() {
+        // Every suggested `std/*` module must resolve; every embedded
+        // module must be suggested (drill: `std/env` + `std/crypto`
+        // were suggested but unresolvable, seven real modules missing).
+        let src = "say 1\n";
+        let items = get_completions(src, &Position::new(0, 0));
+        let mods: Vec<String> = items
+            .iter()
+            .filter(|i| i.label.starts_with("std/"))
+            .map(|i| i.label.clone())
+            .collect();
+        for m in &mods {
+            assert!(
+                crate::parser::get_embedded_stdlib(m).is_some(),
+                "suggested {} does not resolve",
+                m
+            );
+        }
+        for expected in [
+            "std/cli",
+            "std/collections",
+            "std/console",
+            "std/fs",
+            "std/hash",
+            "std/io",
+            "std/json",
+            "std/log",
+            "std/math",
+            "std/mem",
+            "std/net",
+            "std/os",
+            "std/path",
+            "std/process",
+            "std/simd",
+            "std/str",
+            "std/sync",
+            "std/test",
+            "std/time",
+        ] {
+            assert!(
+                mods.iter().any(|m| m == expected),
+                "missing {}, got: {:?}",
+                expected,
+                mods
+            );
+        }
+    }
+
+    #[test]
+    fn test_signature_help_shows_extern_call() {
+        let src = "extern \"C\"\n    function strlen(s: str) -> i64\nend\nsay strlen(\"x\"\n";
+        let help = get_signature_help(src, &Position::new(3, 14));
+        let label = help
+            .map(|h| {
+                h.signatures
+                    .into_iter()
+                    .map(|s| s.label)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        assert!(
+            label.iter().any(|l| l.contains("strlen(s: str)")),
+            "expected extern signature, got: {:?}",
+            label
+        );
     }
 }

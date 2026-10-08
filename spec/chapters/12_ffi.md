@@ -42,6 +42,9 @@ function get_native_len(text: string) -> int
 end
 ```
 
+### 1.5 Extern/Function Name Collisions
+An `extern` declaration and an Alya `function` must not share one name in the same scope (including across imports merged into that scope). Calls cannot resolve across the extern/function boundary — arity is checked against the function while codegen binds the extern — so the collision is a check-time `Duplicate definition` error. Name the extern distinctly (e.g. `strlen_raw`) and call it from the wrapper; qualified (`mod::name`) and method (`Type::name`) definitions do not collide with a bare extern.
+
 ---
 
 ## 2. Formal Grammar (EBNF Snippet)

@@ -542,6 +542,28 @@ fn test_aliased_import_resolves_conflict() {
 }
 
 #[test]
+fn test_extern_function_collision_error() {
+    // alya-lang/alya#127: same-name extern "C" + function is incoherent
+    // (arity checked against the function, call bound to the extern).
+    use crate::lexer::Lexer;
+    use crate::parser::{CfgContext, Parser};
+    let code = "extern \"C\"\n    function strlen(s: str) -> i64\nend\n\npub function strlen(s) -> int\n    return 1\nend\n";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().expect("Tokenize failed");
+    let mut parser = Parser::new(tokens);
+    let mut ast = parser.parse().expect("Parse failed");
+
+    let res = crate::parser::resolve_imports(&mut ast, &std::env::temp_dir(), &CfgContext::host());
+    assert!(res.is_err(), "extern/function collision should fail");
+    let err_msg = res.unwrap_err();
+    assert!(
+        err_msg.contains("Duplicate definition 'strlen'"),
+        "Error should mention the duplicate definition, got: {}",
+        err_msg
+    );
+}
+
+#[test]
 fn test_import_embedded_color_and_log_stdlib() {
     let source = "import \"std/color\"\nimport \"std/log\"\nlog_info(\"test\")";
     let mut lexer = Lexer::new(source);
