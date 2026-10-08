@@ -271,8 +271,30 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
         if function_defs.contains_key(symbol) && reachable_functions.insert(symbol.to_string()) {
             worklist.push(WorkItem::Function(symbol.to_string()));
         }
+        let colon_symbol = symbol.replace("__", "::");
+        if colon_symbol != symbol
+            && function_defs.contains_key(&colon_symbol)
+            && reachable_functions.insert(colon_symbol.clone())
+        {
+            worklist.push(WorkItem::Function(colon_symbol));
+        }
+        let mangled_symbol = symbol.replace("::", "__");
+        if mangled_symbol != symbol
+            && function_defs.contains_key(&mangled_symbol)
+            && reachable_functions.insert(mangled_symbol.clone())
+        {
+            worklist.push(WorkItem::Function(mangled_symbol));
+        }
+
         // Also check any candidate free functions matching bare name
-        if !symbol.contains("__") {
+        let is_st_method = if let Some((st_prefix, _)) = symbol.split_once("__") {
+            known_struct_names.contains(st_prefix)
+                || struct_defs.contains_key(st_prefix)
+                || structs_by_bare.contains_key(st_prefix)
+        } else {
+            false
+        };
+        if !is_st_method {
             if let Some(candidates) = free_functions_by_bare.get(bare) {
                 for cand in candidates {
                     if reachable_functions.insert(cand.clone()) {
@@ -967,6 +989,18 @@ fn collect_references_in_expr_scoped(
             refs.insert(name.clone());
             called_methods.insert(bare_name(name).to_string());
             called_methods.insert(name.clone());
+            let colon_name = name.replace("__", "::");
+            if colon_name != *name {
+                refs.insert(colon_name);
+            }
+            let mangled_name = name.replace("::", "__");
+            if mangled_name != *name {
+                refs.insert(mangled_name);
+            }
+            if let Some(Expr::Identifier(recv)) = args.first() {
+                refs.insert(format!("{}::{}", recv, name));
+                refs.insert(format!("{}__{}", recv, name));
+            }
             for arg in args {
                 collect_references_in_expr_scoped(arg, locals, refs, called_methods);
             }
@@ -975,6 +1009,18 @@ fn collect_references_in_expr_scoped(
             refs.insert(callee.clone());
             called_methods.insert(bare_name(callee).to_string());
             called_methods.insert(callee.clone());
+            let colon_name = callee.replace("__", "::");
+            if colon_name != *callee {
+                refs.insert(colon_name);
+            }
+            let mangled_name = callee.replace("::", "__");
+            if mangled_name != *callee {
+                refs.insert(mangled_name);
+            }
+            if let Some(Expr::Identifier(recv)) = args.first() {
+                refs.insert(format!("{}::{}", recv, callee));
+                refs.insert(format!("{}__{}", recv, callee));
+            }
             for arg in args {
                 collect_references_in_expr_scoped(arg, locals, refs, called_methods);
             }
@@ -1000,6 +1046,7 @@ fn collect_references_in_expr_scoped(
             called_methods.insert(field.clone());
             if let Expr::Identifier(mod_name) = &**object {
                 refs.insert(format!("{}::{}", mod_name, field));
+                refs.insert(format!("{}__{}", mod_name, field));
                 refs.insert(field.clone());
             }
             collect_references_in_expr_scoped(object, locals, refs, called_methods);
@@ -1973,5 +2020,32 @@ mod tests {
 
         assert!(iface_names.contains(&"Shape".to_string()));
         assert!(!iface_names.contains(&"UnusedInterface".to_string()));
+    }
+
+    #[test]
+    fn test_dce_aliased_module_call_preserved() {
+        let code = "import \"std/fs\" as fs\nfunction foo() -> string\n    return fs.read_string(\"a.txt\")\nend\nsay foo()";
+        let tokens = crate::lexer::Lexer::new(code).tokenize().unwrap();
+        let mut parser = crate::parser::Parser::new(tokens);
+        let mut program = parser.parse().unwrap();
+        crate::parser::resolve_imports(
+            &mut program,
+            std::path::Path::new("."),
+            &crate::parser::CfgContext::host(),
+        )
+        .unwrap();
+        let pruned = eliminate_dead_code(&program);
+        let fn_names: Vec<String> = pruned
+            .statements
+            .iter()
+            .filter_map(|s| {
+                if let Stmt::Function { name, .. } = s.inner_stmt() {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(fn_names.iter().any(|f| f.contains("read_string")));
     }
 }

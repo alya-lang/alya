@@ -591,7 +591,9 @@ function internal_posix_spawn_capture(program: string, args: string[], cwd: stri
     posix_spawn_file_actions_adddup2(acts, out_w, 1)
     posix_spawn_file_actions_adddup2(acts, err_w, 2)
     posix_spawn_file_actions_addclose(acts, out_w)
-    posix_spawn_file_actions_addclose(acts, err_w)
+    if err_w != out_w
+        posix_spawn_file_actions_addclose(acts, err_w)
+    end
     posix_spawn_file_actions_addclose(acts, out_r)
     if err_r >= 0
         posix_spawn_file_actions_addclose(acts, err_r)
