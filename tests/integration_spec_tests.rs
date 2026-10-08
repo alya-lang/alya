@@ -62,6 +62,7 @@ fn entry_files() -> Vec<String> {
         "36_catch_struct_message.alya".to_string(),
         "37_mixed_kind_field.alya".to_string(),
         "38_mixed_kind_variable.alya".to_string(),
+        "39_map_method_call.alya".to_string(),
     ]
 }
 
@@ -710,6 +711,20 @@ fn test_integration_38_mixed_kind_variable_output() {
     if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("integration 38_mixed_kind_variable: OK"));
+    }
+}
+
+#[test]
+fn test_integration_39_map_method_call_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 39_map_method_call: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("39_map_method_call.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 39_map_method_call: OK"));
     }
 }
 

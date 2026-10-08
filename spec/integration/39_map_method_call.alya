@@ -1,0 +1,33 @@
+# ==============================================================================
+# Alya Integration Fixture 39 (entry): struct method on map-stored value
+# Distilled from: alya-lang/alya#133 (calling `Box.check` on a value
+#                 read back from a `map` emitted bare `fn_check`, which
+#                 never links; definitions are mangled `Box__check`)
+# Guards: when exactly one struct method with the called name exists
+#         program-wide, an unknown-receiver method call binds its
+#         mangled definition (arity-checked). Zero or several
+#         same-named methods keep the legacy bare call (loud link
+#         error), as do a same-named free function or extern.
+# ==============================================================================
+
+pub struct Box
+    w: int
+end
+
+pub function Box.check(self: Box) -> int
+    if self.w > 0
+        return 1
+    end
+    return 0
+end
+
+function main()
+    let m = map()
+    m["b"] = Box { w: 4 }
+    let v = m["b"]
+    assert v.check() == 1
+    assert m["b"].check() == 1
+    say "integration 39_map_method_call: OK"
+end
+
+main()

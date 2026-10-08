@@ -12,6 +12,7 @@ use crate::codegen::arch;
 use crate::codegen::context::VarType;
 use crate::codegen::kinds::{KIND_FLOAT, KIND_INT, KIND_STRING, KIND_UNKNOWN};
 use crate::codegen::target::{Architecture, OperatingSystem};
+use std::collections::HashMap;
 
 impl CodeGen {
     pub(crate) fn generate_expression(&mut self, expr: &Expr) {
@@ -2124,6 +2125,167 @@ impl CodeGen {
                                 || n.ends_with(&suffix4.replace("::", "__"))
                         }) {
                             resolved_name = matched.clone();
+                        }
+                    }
+                }
+
+                // 2d. Single-method fallback for unknown receivers
+                // (alya-lang/alya#133): `v.check()` on a dynamically-typed
+                // receiver (e.g. read back from a `map`) has no static
+                // struct to resolve against, so the steps above leave the
+                // bare name and codegen emits an `fn_check` call that never
+                // links (definitions are mangled `Box__check`). When
+                // exactly one struct method with this name exists
+                // program-wide, bind it: method syntax on a value can only
+                // have meant that method. Zero or several same-named
+                // methods keep the legacy bare call (a C-extern guess with
+                // a loud link error if truly missing), as do a same-named
+                // free function or extern and an arity mismatch (binding
+                // those would trade the link error for silent stack
+                // garbage).
+                if resolved_name == *name
+                    && !name.contains("::")
+                    && !name.contains("__")
+                    && !self.ctx.functions.contains(name.as_str())
+                    && !self.ctx.extern_functions.contains_key(name.as_str())
+                    && !self
+                        .ctx
+                        .extern_functions
+                        .contains_key(name.rsplit("::").next().unwrap_or(name.as_str()))
+                {
+                    if let Some(receiver) = actual_args.first() {
+                        let receiver_is_type_name = match receiver {
+                            Expr::Identifier(id) => {
+                                let b1 = id.rsplit("::").next().unwrap_or(id);
+                                let b2 = b1.rsplit("__").next().unwrap_or(b1);
+                                self.ctx.structs.contains_key(id)
+                                    || self.ctx.structs.contains_key(b1)
+                                    || self.ctx.structs.contains_key(b2)
+                                    || self.ctx.enums.contains(id)
+                                    || self.ctx.interfaces.contains_key(id)
+                            }
+                            _ => false,
+                        };
+                        if !receiver_is_type_name {
+                            // Bind only receivers that could plausibly be
+                            // the candidate struct. Literals and provably
+                            // non-struct values keep the legacy bare call:
+                            // binding those would trade today's loud link
+                            // error for a segfault (`check(1)` must not
+                            // become `Box__check(1)`). Dynamics (untyped
+                            // locals/params, field/index/call results)
+                            // stay eligible: they may hold the struct.
+                            // NOTE: `Null` is deliberately eligible in
+                            // every shape: an `?.` call short-circuits
+                            // before invoking, but the callee symbol
+                            // must still link, and a direct call on null
+                            // hits the catchable null-field trap rather
+                            // than faulting.
+                            let receiver_proven_non_struct = match receiver {
+                                Expr::Number(_)
+                                | Expr::Float(_)
+                                | Expr::String(_)
+                                | Expr::InterpolatedString(_)
+                                | Expr::Array(_)
+                                | Expr::Map(_) => true,
+                                Expr::Identifier(id) => {
+                                    // Concrete scalar/collection/struct slots
+                                    // cannot hold the candidate struct. Map
+                                    // slots are deliberately NOT excluded: a
+                                    // map-typed local often holds a struct
+                                    // value read back from a map
+                                    // (alya-lang/alya#133), and Number slots
+                                    // are dynamic by nature.
+                                    matches!(
+                                        self.ctx.variables.get(id),
+                                        Some(VarType::StringLabel(_))
+                                            | Some(VarType::Struct { .. })
+                                            | Some(VarType::Interface { .. })
+                                    ) || self
+                                        .ctx
+                                        .variables
+                                        .contains_key(&format!("var_is_int:{}", id))
+                                        || is_string_expr(receiver, &self.ctx.variables)
+                                        || is_float_expr(receiver, &self.ctx.variables)
+                                        || is_array_expr(receiver, &self.ctx.variables)
+                                }
+                                // Index results are elements (dynamic by
+                                // nature); other shapes consult the value
+                                // predicates. Map-routed reads are NOT
+                                // excluded: the element may be a struct.
+                                Expr::Index { .. } => false,
+                                _ => {
+                                    is_string_expr(receiver, &self.ctx.variables)
+                                        || is_float_expr(receiver, &self.ctx.variables)
+                                        || is_array_expr(receiver, &self.ctx.variables)
+                                        || is_map_expr(receiver, &self.ctx.variables)
+                                }
+                            };
+                            if !receiver_proven_non_struct {
+                                let suffix = format!("__{}", name);
+                                // Candidates keyed by the prefix's bare struct
+                                // name; each key tracks the distinct full
+                                // prefixes seen (dual spellings of one
+                                // definition normalize identically, while the
+                                // same bare from different modules stays
+                                // ambiguous). Structs are keyed bare here
+                                // (alias-qualified definitions like
+                                // `mm__Box__check` meet a bare `Box` entry).
+                                let mut candidates: HashMap<String, (String, String)> =
+                                    HashMap::new();
+                                let mut ambiguous = false;
+                                for f in self.ctx.functions.iter() {
+                                    let norm = f.replace("::", "__");
+                                    if let Some(prefix) = norm.strip_suffix(suffix.as_str()) {
+                                        if prefix.is_empty() {
+                                            continue;
+                                        }
+                                        let bare = prefix.rsplit("__").next().unwrap_or(prefix);
+                                        let is_struct = self.ctx.structs.keys().any(|s| {
+                                            let b = s.rsplit("::").next().unwrap_or(s);
+                                            b.rsplit("__").next().unwrap_or(b) == bare
+                                        });
+                                        if !is_struct {
+                                            continue;
+                                        }
+                                        match candidates.get(bare) {
+                                            Some((known_prefix, _)) => {
+                                                if *known_prefix != prefix {
+                                                    ambiguous = true;
+                                                    break;
+                                                }
+                                            }
+                                            None => {
+                                                candidates.insert(
+                                                    bare.to_string(),
+                                                    (prefix.to_string(), f.clone()),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                if !ambiguous && candidates.len() == 1 {
+                                    let def_name = candidates.values().next().unwrap().1.clone();
+                                    let arity_ok = self
+                                        .ctx
+                                        .fn_arities
+                                        .get(&def_name)
+                                        .or_else(|| {
+                                            let twin = def_name.replace("::", "__");
+                                            if twin != def_name {
+                                                self.ctx.fn_arities.get(&twin)
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .is_some_and(|(req, total)| {
+                                            actual_args.len() >= *req && actual_args.len() <= *total
+                                        });
+                                    if arity_ok {
+                                        resolved_name = def_name;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
