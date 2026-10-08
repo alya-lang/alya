@@ -188,16 +188,15 @@ pub fn emit_float_cond_jump(
                 (BinaryOp::Greater, true) => {
                     out.push_str(&format!("    jbe {}\n", target));
                 }
-                // jae is CF=0: above-or-equal only.
+                // jae is CF=0: above-or-equal only (unordered CF=1 falls).
                 (BinaryOp::GreaterEqual, false) => {
-                    out.push_str(&format!("    ja {}\n", target));
+                    out.push_str(&format!("    jae {}\n", target));
                 }
-                // Taken iff below AND ordered (ucomisd zeroes SF/OF, so
-                // jl alone falls on unordered; jp covers it).
-                // Note: !(a>=b) is below-OR-unordered, hence jl+jp here.
+                // Taken iff below OR unordered: jb is CF=1 which covers
+                // both (unordered sets CF=1). jl is wrong here because
+                // ucomisd zeroes SF/OF, so jl never fires.
                 (BinaryOp::GreaterEqual, true) => {
-                    out.push_str(&format!("    jl {}\n", target));
-                    out.push_str(&format!("    jp {}\n", target));
+                    out.push_str(&format!("    jb {}\n", target));
                 }
                 // Taken iff equal AND ordered.
                 (BinaryOp::Equal, false) | (BinaryOp::NotEqual, true) => {

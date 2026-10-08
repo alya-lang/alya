@@ -1,0 +1,40 @@
+# ==============================================================================
+# Alya Integration Fixture 46 (entry): float >= in branch position
+# Distilled from: display `refresh_at_least` filter (alya-lang/alya#149)
+#                 always passing on `v >= min_hz` with float params
+# Guards: branch-form float `>=` must compare ordered values on both
+#         x64 (jae/jb) and arm64: below jumps when false, equality
+#         takes the true arm, including through `or` short-circuit.
+# ==============================================================================
+
+function ge_param(v: float, thresh: float) -> bool
+    if v >= thresh
+        return true
+    end
+    return false
+end
+
+function ge_or_eq(v: float, thresh: float) -> bool
+    if v >= thresh or false
+        return true
+    end
+    return false
+end
+
+function main()
+    assert_eq(ge_param(60.0, 200.0), false, "60 >= 200 is false")
+    assert_eq(ge_param(60.0, 60.0), true, "60 >= 60 is true")
+    assert_eq(ge_param(200.0, 60.0), true, "200 >= 60 is true")
+    assert_eq(ge_or_eq(60.0, 60.0), true, "or-path keeps equality")
+    assert_eq(ge_or_eq(60.0, 200.0), false, "or-path keeps below")
+    let a60 = 60.0
+    let thresh = 200.0
+    if a60 >= thresh
+        assert false, "local >= local branch must not take"
+    end
+    assert (60.0 >= 200.0) == false, "literal value form stays false"
+    assert (60.0 >= 60.0) == true, "literal value form stays true"
+    say "integration 46_float_ge_branch: OK"
+end
+
+main()

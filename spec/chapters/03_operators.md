@@ -13,6 +13,7 @@
 - `<` (Less than), `<=` (Less than or equal), `>` (Greater than), `>=` (Greater than or equal).
 - Return type is always `bool`.
 - Float operands with a call or binary-expression on the left and a literal on the right are evaluated via slot materialization (see Chapter 02 §1.1).
+- Branch-form float `>=` compares ordered values: on x64 the taken arm is `jae` (CF=0) and the negated arm is `jb` (CF=1, which also covers unordered NaN); `jl` must never be used after `ucomisd` because it zeroes SF/OF so `jl` never fires (alya-lang/alya#149).
 - Ordered comparisons over reads of a provably-mixed int/float array are a compile-time error, like mixed arithmetic above (alya-lang/alya#39); convert explicitly.
 - Can be overloaded via special methods (see Chapter 20).
 
