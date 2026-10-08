@@ -1,0 +1,33 @@
+# ==============================================================================
+# Alya Integration Fixture 40 (entry): caller-scope float call arguments
+# Distilled from: alya-lang/alya#136 (`sin(x)` for an `x: float` caller
+#                 silently computed on int-converted bits)
+# Guards: a call argument spelled as a bare identifier that is provably
+#         float in its caller's scope (an annotated float parameter or a
+#         float `let` in the caller body) must count toward the callee's
+#         universal float derivation. Classifying it against the global
+#         set — which only carries top-level names — vetoed the
+#         derivation, so the callee compiled its parameter as int and
+#         converted float bits with cvtsi2sdq.
+# ==============================================================================
+
+function wrap(x)
+    return float(x)
+end
+
+function call_with_annotated(v: float)
+    return wrap(v)
+end
+
+function call_with_body_let()
+    let y = 1.5 + 0.25
+    return wrap(y)
+end
+
+function main()
+    assert call_with_annotated(2.5) == 2.5
+    assert call_with_body_let() == 1.75
+    say "integration 40_caller_scope_float_arg: OK"
+end
+
+main()

@@ -3,7 +3,7 @@ use crate::codegen::analysis::inference::common::collect_function_defs;
 use crate::codegen::analysis::predicates::{is_simple_name, seed_ambiguity_markers};
 use crate::codegen::analysis::traversal::CallIndex;
 use crate::may_record_bare;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 fn expr_is_definitely_float(expr: &Expr, known_floats: &HashSet<String>) -> bool {
     match expr {
@@ -804,6 +804,41 @@ pub fn collect_known_float_vars_with_index(
         let prev_len = known_floats.len();
         let mut scope = known_floats.clone();
         collect_float_vars_from_stmts(&program.statements, &mut scope, &mut known_floats, true);
+        // Caller-scope float sets (alya-lang/alya#136): a call argument
+        // spelled as a bare identifier may be provably float in its
+        // caller's scope — an annotated float parameter or a float `let`
+        // in the caller body — while absent from the global set, which
+        // only carries top-level names. Classifying such args against
+        // the global set vetoed the callee's universal float
+        // derivation, so the callee compiled its parameter as int and
+        // converted float bits with cvtsi2sdq (e.g. `sin(x)` for an
+        // `x: float` caller miscompiled every float call site).
+        // Rebuilt per round from the same walk so fixpoint growth stays
+        // visible to later rounds. Unknown scopes fall back to the
+        // global set (today's behavior).
+        let mut scope_floats: HashMap<&str, HashSet<String>> = HashMap::new();
+        for (fname, fparams, _, fbody) in &funcs {
+            let fbare = fname.rsplit("::").next().unwrap_or(fname);
+            let fbare = fbare.rsplit("__").next().unwrap_or(fbare);
+            let mut fscope = scope.clone();
+            let fbare_ok = is_simple_name(fname);
+            for (idx, param) in fparams.iter().enumerate() {
+                if known_floats.contains(&format!("fn_param_flt:{}:{}", fname, idx))
+                    || (fbare_ok
+                        && known_floats.contains(&format!("fn_param_flt:{}:{}", fbare, idx)))
+                {
+                    fscope.insert(param.clone());
+                }
+                if known_floats.contains(&format!("fn_param_flt_arr:{}:{}", fname, idx))
+                    || (fbare_ok
+                        && known_floats.contains(&format!("fn_param_flt_arr:{}:{}", fbare, idx)))
+                {
+                    fscope.insert(format!("arr_is_flt:{}", param));
+                }
+            }
+            collect_float_vars_from_stmts(fbody, &mut fscope, &mut known_floats, false);
+            scope_floats.insert(*fname, fscope);
+        }
         for (name, params, _, _) in &funcs {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -812,11 +847,16 @@ pub fn collect_known_float_vars_with_index(
                 // marker must not suppress it (alya-lang/alya#105).
                 if !known_floats.contains(&format!("fn_param_flt:{}:{}", name, idx)) {
                     let mut call_args = Vec::new();
-                    call_index.collect_all_call_args(name, bare, idx, &mut call_args);
+                    call_index.collect_all_call_args_scoped(name, bare, idx, &mut call_args);
                     if !call_args.is_empty()
                         && call_args
                             .iter()
-                            .all(|arg| expr_is_definitely_float(arg, &known_floats))
+                            .all(|(caller_scope, arg)| match caller_scope {
+                                Some(f) => scope_floats
+                                    .get(*f)
+                                    .is_some_and(|s| expr_is_definitely_float(arg, s)),
+                                None => expr_is_definitely_float(arg, &known_floats),
+                            })
                     {
                         known_floats.insert(format!("fn_param_flt:{}:{}", name, idx));
                         if may_record_bare!(known_floats, name, bare) {
@@ -828,11 +868,16 @@ pub fn collect_known_float_vars_with_index(
                 // marker must not suppress it (alya-lang/alya#105).
                 if !known_floats.contains(&format!("fn_param_flt_arr:{}:{}", name, idx)) {
                     let mut call_args = Vec::new();
-                    call_index.collect_all_call_args(name, bare, idx, &mut call_args);
+                    call_index.collect_all_call_args_scoped(name, bare, idx, &mut call_args);
                     if !call_args.is_empty()
                         && call_args
                             .iter()
-                            .all(|arg| expr_is_float_array(arg, &known_floats))
+                            .all(|(caller_scope, arg)| match caller_scope {
+                                Some(f) => scope_floats
+                                    .get(*f)
+                                    .is_some_and(|s| expr_is_float_array(arg, s)),
+                                None => expr_is_float_array(arg, &known_floats),
+                            })
                     {
                         known_floats.insert(format!("fn_param_flt_arr:{}:{}", name, idx));
                         if may_record_bare!(known_floats, name, bare) {

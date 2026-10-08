@@ -55,6 +55,7 @@
 # | `37_mixed_kind_field.alya` | `http` `SseEvent.data` vs `event` `TcpStream.data` (alya-lang/alya#131) | reachable string-`data` literal must not flip untyped `.data` reads on array holders; mixed fields demote to dynamic reads |
 # | `38_mixed_kind_variable.alya` | `http` `WebSocketFrame.payload` text vs bytes paths (alya-lang/alya#132) | every construction site passing a *variable* still earns both kind markers, so the contradiction demotes reads, params, and `say` to dynamic dispatch; no truncation, no segfault |
 # | `39_map_method_call.alya` | struct method on map-stored value (alya-lang/alya#133) | unknown-receiver method call binds the single program-wide same-named struct method (arity-checked); zero/several candidates keep the legacy bare call |
+# | `40_caller_scope_float_arg.alya` | `std/math` `sin(x)` via `x: float` caller (alya-lang/alya#136) | bare-identifier args provably float in the caller scope (annotated params, body lets) count toward the callee's universal float derivation; no int-converted float bits |
 #
 # ## Known collision (deliberate rename)
 #
