@@ -134,8 +134,18 @@ def main():
     )
     update_file(
         winget,
+        r"RelativeFilePath:\s*alya-[^/]+-x86_64-windows/alya-lsp\.exe",
+        f"RelativeFilePath: alya-{tag}-x86_64-windows/alya-lsp.exe",
+    )
+    update_file(
+        winget,
         r"RelativeFilePath:\s*alya-[^/]+-arm64-windows/alya\.exe",
         f"RelativeFilePath: alya-{tag}-arm64-windows/alya.exe",
+    )
+    update_file(
+        winget,
+        r"RelativeFilePath:\s*alya-[^/]+-arm64-windows/alya-lsp\.exe",
+        f"RelativeFilePath: alya-{tag}-arm64-windows/alya-lsp.exe",
     )
     # InstallerSha256 lines are positional: first belongs to x64, second to ARM64.
     if winget.is_file():

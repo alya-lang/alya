@@ -15,7 +15,7 @@
       "extract_dir": "alya-v0.0.20-arm64-windows"
     }
   },
-  "bin": "alya.exe",
+  "bin": ["alya.exe", "alya-lsp.exe"],
   "suggest": {
     "MinGW-w64": "main/mingw"
   },

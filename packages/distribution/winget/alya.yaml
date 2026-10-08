@@ -32,6 +32,8 @@ Installers:
     NestedInstallerFiles:
       - RelativeFilePath: alya-v0.0.20-x86_64-windows/alya.exe
         PortableCommandAlias: alya
+      - RelativeFilePath: alya-v0.0.20-x86_64-windows/alya-lsp.exe
+        PortableCommandAlias: alya-lsp
   - Architecture: arm64
     InstallerType: zip
     InstallerUrl: https://github.com/alya-lang/alya/releases/download/v0.0.20/alya-v0.0.20-arm64-windows.zip
@@ -40,5 +42,7 @@ Installers:
     NestedInstallerFiles:
       - RelativeFilePath: alya-v0.0.20-arm64-windows/alya.exe
         PortableCommandAlias: alya
+      - RelativeFilePath: alya-v0.0.20-arm64-windows/alya-lsp.exe
+        PortableCommandAlias: alya-lsp
 ManifestType: singleton
 ManifestVersion: 1.6.0
