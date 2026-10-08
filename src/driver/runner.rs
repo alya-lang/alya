@@ -2,6 +2,22 @@ use crate::codegen::{Architecture, OperatingSystem};
 use std::fs;
 use std::process::Command;
 
+/// Max seconds for one gcc assemble+link invocation, overridable via
+/// `ALYA_GCC_TIMEOUT_SECS`. Link-phase stalls (AV locks on fresh
+/// executables, pathological inputs) otherwise hang the caller forever:
+/// unlike suite *execution* (test_runner's `suite_timeout`), the compile
+/// step had no bound, stalling whole `alya test` runs with no summary
+/// (the stuck suite never reports). Absent or invalid values fall back
+/// to 300; values below 1 clamp to 1.
+fn gcc_timeout() -> (u64, std::time::Duration) {
+    let secs: u64 = std::env::var("ALYA_GCC_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .filter(|v| *v >= 1)
+        .unwrap_or(300);
+    (secs, std::time::Duration::from_secs(secs))
+}
+
 pub fn compile_with_gcc(
     asm_file: &str,
     exe_file: &str,
@@ -43,9 +59,55 @@ pub fn compile_with_gcc(
     }
 
     let toolchain = crate::driver::toolchain::resolve_toolchain(arch, os, false)?;
-    let gcc_result = Command::new(&toolchain.compiler_path)
+    // Bounded wait (see `gcc_timeout`): a stuck gcc/ld must fail loudly
+    // instead of hanging the caller with no output.
+    let mut child = Command::new(&toolchain.compiler_path)
         .args(&gcc_args)
-        .output();
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| {
+            let _ = fs::remove_file(asm_file);
+            format!(
+                "Error: Failed to execute compiler '{}': {}\nMake sure the toolchain is installed properly (run 'alya toolchain status').",
+                toolchain.compiler_path.display(),
+                e
+            )
+        })?;
+    let (limit_secs, limit) = gcc_timeout();
+    let start = std::time::Instant::now();
+    let mut exited = false;
+    while start.elapsed() < limit {
+        match child.try_wait().map_err(|e| {
+            format!(
+                "Error: Failed to check status of compiler '{}': {}",
+                toolchain.compiler_path.display(),
+                e
+            )
+        })? {
+            Some(_) => {
+                exited = true;
+                break;
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(50)),
+        }
+    }
+    // On timeout kill and reap without draining pipes (a surviving
+    // grandchild holding them must not block us the way it would in
+    // `wait_with_output`).
+    let gcc_result = if exited {
+        child.wait_with_output().map_err(|e| e.to_string())
+    } else {
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = fs::remove_file(asm_file);
+        return Err(format!(
+            "Compiler ({}) timed out after {}s linking '{}' (override via ALYA_GCC_TIMEOUT_SECS).",
+            toolchain.compiler_path.display(),
+            limit_secs,
+            exe_file
+        ));
+    };
 
     let _ = fs::remove_file(asm_file);
 
