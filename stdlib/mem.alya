@@ -247,6 +247,14 @@ pub function aligned_alloc(size, alignment = 32)
     let mask = 0 - align
     let aligned = offset & mask
     poke_int(aligned - 8, 0, raw)
+    # Canary word: the 8 bytes before the header may hold a stale RC
+    # magic from recycled heap memory. A retain emitted on this raw
+    # (non-RC) pointer reads that word as a tag; a stale magic match
+    # would corrupt refcounts. Zeroing forces the safe mismatch-skip.
+    # Only when in-bounds (small alignments may place it before raw).
+    if aligned - 16 >= raw
+        poke_int(aligned - 16, 0, 0)
+    end
     return aligned
 end
 
