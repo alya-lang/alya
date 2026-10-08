@@ -1767,6 +1767,15 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
             let mut sub_rewrites = std::collections::HashMap::new();
             for sub_stmt in sub_program.statements {
                 let is_unaliased_import = matches!(&sub_stmt, Stmt::Import { alias: None, .. });
+                // A stdlib child never seeds the parent's alias namespace:
+                // its names stay bare program-wide no matter who imports
+                // it, so an on-disk `stdlib/` shadow behaves exactly like
+                // the embedded copy (alya-lang/alya#147: `net::index_of`
+                // vs bare `index_of` depending on CWD broke links).
+                let child_is_stdlib = matches!(&sub_stmt, Stmt::Import { path, .. } if {
+                    let p = path.replace('\\', "/");
+                    p.starts_with("std/") || p.starts_with("std::")
+                });
                 let (child_fns, rewrites) = resolve_stmt_imports_ext_with_rewrites(
                     sub_stmt,
                     sub_dir,
@@ -1778,7 +1787,10 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                     cache,
                 )?;
                 sub_rewrites.extend(rewrites);
-                if is_unaliased_import && (!is_embedded_stdlib || alias.is_some()) {
+                if is_unaliased_import
+                    && !child_is_stdlib
+                    && (!is_embedded_stdlib || alias.is_some())
+                {
                     local_fns.extend(child_fns);
                 }
             }

@@ -68,6 +68,7 @@ fn entry_files() -> Vec<String> {
         "42_len_builtin_method_shadow.alya".to_string(),
         "43_len_dynamic_receiver.alya".to_string(),
         "44_keys_dep_method.alya".to_string(),
+        "45_stdlib_shadow.alya".to_string(),
     ]
 }
 
@@ -800,6 +801,20 @@ fn test_integration_44_keys_dep_method_output() {
     if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("integration 44_keys_dep_method: OK"));
+    }
+}
+
+#[test]
+fn test_integration_45_stdlib_shadow_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 45_stdlib_shadow: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("45_stdlib_shadow.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 45_stdlib_shadow: OK"));
     }
 }
 

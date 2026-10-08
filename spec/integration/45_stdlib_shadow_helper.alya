@@ -1,0 +1,9 @@
+## Fixture helper: module importing stdlib unaliased and calling into it
+## (alya-lang/alya#147). Imported `as h` by the entry: the stdlib names
+## must stay bare program-wide, never take the importer's alias.
+
+import "std/str"
+
+pub function find_delim(haystack: string, needle: string) -> int
+    return index_of(haystack, needle)
+end

@@ -1,0 +1,22 @@
+# ==============================================================================
+# Alya Integration Fixture 45 (entry): on-disk stdlib shadows embedded
+# Distilled from: Lib/event `index_of` resolving to `net::index_of`
+#                 (undefined `fn_index_of` at link) when tests run with the
+#                 working directory inside the compiler repo, where an
+#                 on-disk `stdlib/` shadows the embedded copy
+#                 (alya-lang/alya#147)
+# Guards: a stdlib module behaves identically whether its text comes from
+#         the embedded copy or an on-disk shadow — unaliased stdlib imports
+#         never seed the importer's alias namespace, so bare stdlib calls
+#         keep linking no matter the working directory.
+# ==============================================================================
+
+import "./45_stdlib_shadow_helper.alya" as h
+
+function main()
+    assert_eq(h::find_delim("a\nb", "\n"), 1, "stdlib call through aliased helper")
+    assert_eq(index_of("hello", "ll"), 2, "bare stdlib call in entry")
+    say "integration 45_stdlib_shadow: OK"
+end
+
+main()
