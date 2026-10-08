@@ -1,0 +1,20 @@
+# callgrind/fib_binet.alya — float libm path (pow/sqrt) over a repeat loop.
+# Expected: REPS * sum(fib(0..40)) = 20000 * 267914295 = 5358285900000
+from "std/math" import sqrt_f, pow_f
+
+const GOLDEN_RATIO: float = 1.6180339887
+const REPS: int = 20000
+
+function fibonacci(n: int) -> int
+    return int(pow_f(GOLDEN_RATIO, n) / sqrt_f(5.0) + 0.5)
+end
+
+let total: int = 0
+let r: int = 0
+while r < REPS
+    for n in 0..=40
+        total += fibonacci(n)
+    end
+    r += 1
+end
+say total

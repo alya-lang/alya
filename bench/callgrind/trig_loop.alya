@@ -1,0 +1,13 @@
+# callgrind/trig_loop.alya — libm sin/cos/exp throughput, integer-truncated total.
+# Expected: int(total) = 21506 (fraction .70, far from any boundary)
+from "std/math" import sin, cos, exp_f
+
+const REPS: int = 20000
+let total: float = 0.0
+let i: int = 0
+while i < REPS
+    let x: float = float(i) * 0.001
+    total += sin(x) + cos(x) + exp_f(x * 0.00001)
+    i += 1
+end
+say int(total)
