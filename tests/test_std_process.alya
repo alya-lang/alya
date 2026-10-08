@@ -17,7 +17,7 @@ assert_true(len(process_quote_arg("a b")) > len("a b"), "spaced arg gains quotes
 # 2. Default options shape
 let defs = process_default_options()
 assert_str_eq(defs.cwd, "", "default cwd empty")
-assert_eq(defs.combine_output, 0, "default split streams")
+assert_eq(defs.combine_output, false, "default split streams")
 assert_eq(len(defs.env), 0, "default env empty")
 
 # 3. Output helpers on constructed values (no spawning)
@@ -36,8 +36,8 @@ assert_false(process_is_running(-5), "negative pid never running")
 assert_false(process_is_running(2147483647), "bogus pid not running")
 assert_true(process_wait_pid(-1, 1000), "invalid pid wait yields true")
 assert_true(process_wait_pid(2147483647, 500), "bogus pid wait yields true")
-assert_eq(process_kill(0), 1, "kill pid 0 refused")
-assert_eq(process_kill(-5), 1, "kill negative pid refused")
+assert_false(process_kill(0), "kill pid 0 refused")
+assert_false(process_kill(-5), "kill negative pid refused")
 
 # 5. Client-side validation throws before spawning anything
 let threw_shell = 0

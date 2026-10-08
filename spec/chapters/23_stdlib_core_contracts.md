@@ -81,10 +81,12 @@ function os.current_arch() -> os.Arch
 #### 4. `std/process` (Subprocess & IPC)
 Spawns and controls child processes with standard stream piping.
 Arguments are shell-quoted; raw shell strings go through `run_shell` only.
-`spawn` returns the real child pid on POSIX and -1 on Windows (`start`
-exposes no child id). Exit codes are normalized (POSIX wait status is
-decoded; signal death maps to 128+N). Pid probes are best-effort: pids can
-be recycled and zombies read as running until reaped.
+On POSIX the implementation is native (`posix_spawnp` + pipes, no shell):
+real pids, exact exit codes (signal death maps to 128+N), exact `wait`
+(no pid-reuse races, zombies are reaped), and explicit envp inheritance
+(NULL envp means empty env on glibc — always build the array). Windows still
+uses `system()` (`spawn` pid is -1, probes are best-effort) pending the native
+CreateProcess port.
 ```alya
 struct ProcessOutput
     exit_code: int
@@ -95,7 +97,7 @@ end
 struct ProcessOptions
     cwd: string
     env
-    combine_output: int
+    combine_output: bool
 end
 
 struct ProcessError

@@ -1,10 +1,40 @@
 # Alya Standard Library - Process Module (std/process)
-# Subprocess execution with safe argument quoting, capture temp files outside
-# the working directory, fire-and-forget spawning, and pid supervision helpers
-# (is_running, kill, wait). Spawning is built on `system()` so child stdio
-# redirection and shells behave like the host shell; see each function for
-# platform notes.
+# Subprocess execution with safe argument quoting, native spawn and pipe
+# capture on POSIX (no shell, exact pids and exit codes), fire-and-forget
+# spawning, and pid supervision helpers (is_running, kill, wait). Windows and
+# explicit shell strings still go through `system()`; see each function.
 # Usage: import "std/process"
+
+import "std/mem"
+
+# --- Native OS bindings ---
+#
+# Raw libc / Win32 declarations. Each platform calls only its own set, so the
+# other set stays inert (declared but never emitted as a call). All integer
+# params are declared i64: passing 64-bit where C wants 32-bit is safe (low
+# word), while the reverse would leave upper bits undefined. Returns match C
+# exactly (spec/chapters/12_ffi.md).
+
+extern "C"
+    function posix_spawnp(pid_out: ptr, path: str, acts: ptr, attr: ptr, argv: ptr, envp: ptr) -> i32
+    function posix_spawn_file_actions_init(acts: ptr) -> i32
+    function posix_spawn_file_actions_destroy(acts: ptr) -> i32
+    function posix_spawn_file_actions_adddup2(acts: ptr, fd: i64, newfd: i64) -> i32
+    function posix_spawn_file_actions_addclose(acts: ptr, fd: i64) -> i32
+    # addchdir_np: the _np suffix is the portable spelling (glibc since 2.29,
+    # macOS since 10.15); the un-suffixed POSIX.1-2024 name is still missing
+    # from common libcs (absent even in glibc 2.36).
+    function posix_spawn_file_actions_addchdir_np(acts: ptr, path: str) -> i32
+    function pipe(fds: ptr) -> i32
+    function poll(fds: ptr, nfds: i64, timeout_ms: i64) -> i32
+    function read(fd: i64, buf: ptr, n: usize) -> i64
+    function close(fd: i64) -> i32
+    function waitpid(pid: i64, status: ptr, options: i64) -> i32
+    function kill(pid: i64, sig: i64) -> i32
+    function open(path: str, flags: i64) -> i32
+    # macOS environ access (no /proc there): returns char***, always linked.
+    function _NSGetEnviron() -> ptr
+end
 
 # --- Types ---
 
@@ -36,11 +66,11 @@ end
 ## ### Fields
 ## - `cwd`: Working directory the child runs in ("" keeps the current one).
 ## - `env`: Extra environment entries as a map (e.g. `{ "PORT": "8080" }`).
-## - `combine_output`: Non-zero merges stderr into stdout (`2>&1`).
+## - `combine_output`: True merges stderr into stdout (`2>&1`).
 pub struct ProcessOptions
     cwd: string
     env
-    combine_output: int
+    combine_output: bool
 end
 
 ## Error thrown for invalid process requests and checked-run failures.
@@ -51,6 +81,218 @@ end
 pub struct ProcessError
     message: string
     exit_code: int
+end
+
+# --- Native POSIX plumbing ---
+#
+# Everything below runs only on non-Windows (guarded by target_os at call
+# sites). Conventions:
+# - Out-params use alloc_zeroed so unread upper bytes are deterministic.
+# - Heap blocks are freed and fds closed on every non-throw path; throw paths
+#   only exist before resources are taken (or after env restore, see below).
+# - Alya strings behind str_to_ptr stay alive in caller locals (RC, no moving
+#   GC), so argv pointers are valid for the duration of the spawn call.
+
+## Builds a NULL-terminated argv array (caller frees; keeps items alive).
+function internal_ptr_array(items: string[]) -> ptr
+    let n: int = len(items)
+    let arr = alloc_mem((n + 1) * 8)
+    if arr == 0
+        throw ProcessError { message: "out of memory building argv", exit_code: -1 }
+    end
+    let i: int = 0
+    while i < n
+        write_int(arr, i * 8, str_to_ptr(items[i]))
+        i += 1
+    end
+    write_int(arr, n * 8, 0)
+    return arr
+end
+
+## Reads one environ entry key (up to the first '=', or the whole entry).
+function internal_env_key(entry: string) -> string
+    let i: int = 0
+    while i < len(entry)
+        if char_at(entry, i) == "="
+            return substring(entry, 0, i)
+        end
+        i += 1
+    end
+    return entry
+end
+
+## Snapshots the current environment (Linux: /proc/self/environ).
+@cfg(not(os = "windows"))
+function internal_snapshot_proc() -> string[]
+    let fd: int = open("/proc/self/environ", 0)
+    if fd < 0
+        throw ProcessError { message: "/proc/self/environ unavailable: cannot inherit environment", exit_code: -1 }
+    end
+    let cap: int = 262144
+    let buf = alloc_mem(cap + 1)
+    if buf == 0
+        close(fd)
+        throw ProcessError { message: "out of memory reading environment", exit_code: -1 }
+    end
+    let total: int = 0
+    while total < cap
+        let n: int = read(fd, buf + total, cap - total)
+        if n <= 0
+            break
+        end
+        total += n
+    end
+    close(fd)
+    if total >= cap
+        free_mem(buf)
+        throw ProcessError { message: "environment too large to inherit", exit_code: -1 }
+    end
+    let scratch = alloc_mem(65537)
+    if scratch == 0
+        free_mem(buf)
+        throw ProcessError { message: "out of memory reading environment", exit_code: -1 }
+    end
+    let entries = []
+    let i: int = 0
+    while i < total
+        let j: int = i
+        while j < total and read_byte(buf, j) != 0
+            j += 1
+        end
+        if j > i
+            if j - i >= 65536
+                free_mem(scratch)
+                free_mem(buf)
+                throw ProcessError { message: "environment entry too large", exit_code: -1 }
+            end
+            copy_memory(scratch, buf + i, j - i)
+            write_byte(scratch, j - i, 0)
+            entries.push(string_clone(str_from_ptr(scratch)))
+        end
+        i = j + 1
+    end
+    free_mem(scratch)
+    free_mem(buf)
+    return entries
+end
+
+## Snapshots the current environment (macOS: _NSGetEnviron, no /proc).
+@cfg(os = "macos")
+function internal_snapshot_nsget() -> string[]
+    let entries = []
+    let top = _NSGetEnviron()
+    if top == 0
+        throw ProcessError { message: "environment unavailable: cannot inherit environment", exit_code: -1 }
+    end
+    let table = read_int(top, 0)
+    if table == 0
+        return entries
+    end
+    let i: int = 0
+    while true
+        let p = read_int(table, i * 8)
+        if p == 0
+            break
+        end
+        entries.push(str_from_ptr(p))
+        i += 1
+    end
+    return entries
+end
+
+## Snapshots the current environment for inheritance (per-OS variant).
+@cfg(os = "macos")
+function internal_snapshot_environ() -> string[]
+    return internal_snapshot_nsget()
+end
+
+## Snapshots the current environment for inheritance (per-OS variant).
+@cfg(os = "linux")
+function internal_snapshot_environ() -> string[]
+    return internal_snapshot_proc()
+end
+
+## Snapshots the current environment for inheritance (per-OS variant).
+## Windows never snapshots (inherits via CreateProcess); stub exists so the
+## shared builder type-checks on every target.
+@cfg(os = "windows")
+function internal_snapshot_environ() -> string[]
+    return []
+end
+
+## Merges snapshot with user extras (extras win on key conflict).
+@cfg(not(os = "windows"))
+function internal_build_env_list(env) -> string[]
+    let snap = internal_snapshot_environ()
+    let keys = []
+    if env is not null
+        for k, v in env
+            if internal_valid_env_key(k) == false
+                throw ProcessError { message: f"Invalid environment variable name: {k}", exit_code: -1 }
+            end
+            keys.push(k)
+        end
+    end
+    let result = []
+    for s in snap
+        let key: string = internal_env_key(s)
+        let overridden: bool = false
+        for k in keys
+            if k == key
+                overridden = true
+            end
+        end
+        if overridden == false
+            result.push(s)
+        end
+    end
+    if env is not null
+        for k, v in env
+            result.push(k + "=" + v)
+        end
+    end
+    return result
+end
+
+## Decodes a raw waitpid status without bitwise ops.
+function internal_decode_wait(raw: int) -> int
+    if raw == 0
+        return 0
+    end
+    if raw % 256 == 0
+        return raw / 256
+    end
+    let info: int = raw % 256
+    if info < 0
+        info = -info
+    end
+    let sig: int = info
+    if sig >= 128
+        sig = sig - 128
+    end
+    return 128 + sig
+end
+
+## Single waitpid probe (WNOHANG = 1, never blocks).
+## Returns the exit code when reaped, -1 when still running, -2 on error.
+@cfg(not(os = "windows"))
+function internal_wait_probe(pid: int) -> int
+    let slot = alloc_zeroed(8)
+    if slot == 0
+        throw ProcessError { message: "out of memory waiting for process", exit_code: -1 }
+    end
+    let w: int = waitpid(pid, slot, 1)
+    if w == 0
+        free_mem(slot)
+        return -1
+    end
+    if w == pid
+        let code: int = internal_decode_wait(read_i32(slot, 0))
+        free_mem(slot)
+        return code
+    end
+    free_mem(slot)
+    return -2
 end
 
 # --- Internal quoting ---
@@ -182,22 +424,6 @@ function internal_join_command(program: string, args: string[], opts) -> string
     return cmd
 end
 
-## Returns 1 when every char of s is an ASCII digit (empty yields 0).
-function internal_all_digits(s: string) -> bool
-    if len(s) == 0
-        return false
-    end
-    let d: int = 0
-    while d < len(s)
-        let code: int = ord(char_at(s, d))
-        if code < 48 or code > 57
-            return false
-        end
-        d += 1
-    end
-    return true
-end
-
 # --- Internal capture plumbing ---
 
 ## Temp dir for capture files (mirrors std/os temp_dir so this module stays import-free).
@@ -253,15 +479,76 @@ function internal_normalize_status(raw: int, windows: bool) -> int
     return 128 + raw
 end
 
+## Runs program natively (POSIX): pipes, spawn, pump, exact status.
+## The child gets an explicit envp (snapshot + extras), so the parent
+## environment is never touched.
+@cfg(not(os = "windows"))
+function internal_run_capture_native(program: string, args: string[], cwd: string, env, combine: bool) -> ProcessOutput
+    if len(program) == 0
+        throw ProcessError { message: "process program must not be empty", exit_code: -1 }
+    end
+    let out_pair = alloc_zeroed(8)
+    if out_pair == 0
+        throw ProcessError { message: "out of memory capturing process output", exit_code: -1 }
+    end
+    if pipe(out_pair) != 0
+        free_mem(out_pair)
+        throw ProcessError { message: "process pipe failed", exit_code: -1 }
+    end
+    let out_r: int = read_i32(out_pair, 0)
+    let out_w: int = read_i32(out_pair, 4)
+    free_mem(out_pair)
+    let err_r: int = -1
+    let err_w: int = out_w
+    if combine == false
+        let err_pair = alloc_zeroed(8)
+        if err_pair == 0
+            close(out_r)
+            close(out_w)
+            throw ProcessError { message: "out of memory capturing process output", exit_code: -1 }
+        end
+        if pipe(err_pair) != 0
+            free_mem(err_pair)
+            close(out_r)
+            close(out_w)
+            throw ProcessError { message: "process pipe failed", exit_code: -1 }
+        end
+        err_r = read_i32(err_pair, 0)
+        err_w = read_i32(err_pair, 4)
+        free_mem(err_pair)
+    end
+    let env_list = internal_build_env_list(env)
+    let pid, rc = internal_posix_spawn_capture(program, args, cwd, out_r, out_w, err_r, err_w, env_list)
+    if pid < 0
+        close(out_r)
+        close(out_w)
+        if err_r >= 0
+            close(err_r)
+            close(err_w)
+        end
+        throw ProcessError { message: f"process spawn failed with code {str(rc)}", exit_code: -1 }
+    end
+    close(out_w)
+    if err_r >= 0
+        close(err_w)
+    end
+    let content_out, content_err, code = internal_pump_pipes(out_r, err_r, pid)
+    # Read ends are always closed by the pump (EOF or grace period).
+    if combine == false
+        return ProcessOutput { exit_code: code, stdout: content_out, stderr: content_err }
+    end
+    return ProcessOutput { exit_code: code, stdout: content_out, stderr: "" }
+end
+
 ## Runs a full shell command, capturing stdout (and stderr unless combined).
-function internal_run_capture(full_cmd: string, combine: int) -> ProcessOutput
+function internal_run_capture(full_cmd: string, combine: bool) -> ProcessOutput
     let out_file: string = internal_claim_temp("alya_proc_out", ".tmp")
     let err_file: string = out_file
-    if combine == 0
+    if combine == false
         err_file = internal_claim_temp("alya_proc_err", ".tmp")
     end
     let tail: string = f" > {process_quote_arg(out_file)} 2> {process_quote_arg(err_file)}"
-    if combine != 0
+    if combine
         tail = f" > {process_quote_arg(out_file)} 2>&1"
     end
     let code: int = system_exec(full_cmd + tail)
@@ -272,7 +559,7 @@ function internal_run_capture(full_cmd: string, combine: int) -> ProcessOutput
         out_content = read_file(out_file)
     end
     remove_file(out_file)
-    if combine == 0
+    if combine == false
         let err_content: string = ""
         if file_exists(err_file) == true
             err_content = read_file(err_file)
@@ -283,6 +570,182 @@ function internal_run_capture(full_cmd: string, combine: int) -> ProcessOutput
     return ProcessOutput { exit_code: status, stdout: out_content, stderr: "" }
 end
 
+# posix_spawnp behaves like posix_spawn plus PATH lookup, and copies argv/envp
+# during the call, so the arrays are freed on return. The child inherits no parent fds except the dup2 targets: every
+# other end is addclose-d. Returns (pid, rc); never throws (caller reports).
+@cfg(not(os = "windows"))
+function internal_posix_spawn_capture(program: string, args: string[], cwd: string, out_r: int, out_w: int, err_r: int, err_w: int, env_list: string[])
+    let items = [program]
+    for a in args
+        items.push(a)
+    end
+    let argv = internal_ptr_array(items)
+    let envp = internal_ptr_array(env_list)
+    let acts = alloc_zeroed(512)
+    if acts == 0
+        free_mem(envp)
+        free_mem(argv)
+        return -1, -1
+    end
+    posix_spawn_file_actions_init(acts)
+    posix_spawn_file_actions_adddup2(acts, out_w, 1)
+    posix_spawn_file_actions_adddup2(acts, err_w, 2)
+    posix_spawn_file_actions_addclose(acts, out_w)
+    posix_spawn_file_actions_addclose(acts, err_w)
+    posix_spawn_file_actions_addclose(acts, out_r)
+    if err_r >= 0
+        posix_spawn_file_actions_addclose(acts, err_r)
+    end
+    if len(cwd) > 0
+        # addchdir needs glibc 2.29+ / macOS 10.15+; older hosts cannot set
+        # cwd natively (documented floor, verified on CI runners).
+        posix_spawn_file_actions_addchdir_np(acts, cwd)
+    end
+    let pid_slot = alloc_zeroed(8)
+    if pid_slot == 0
+        posix_spawn_file_actions_destroy(acts)
+        free_mem(acts)
+        free_mem(argv)
+        return -1, -1
+    end
+    let rc: int = posix_spawnp(pid_slot, program, acts, null, argv, envp)
+    let pid: int = read_i32(pid_slot, 0)
+    posix_spawn_file_actions_destroy(acts)
+    free_mem(pid_slot)
+    free_mem(acts)
+    free_mem(envp)
+    free_mem(argv)
+    if rc != 0
+        return -1, rc
+    end
+    return pid, 0
+end
+
+## Native fire-and-forget spawn (POSIX): stdio inherited, no pipes.
+## Returns (pid, rc); never throws (caller reports).
+@cfg(not(os = "windows"))
+function internal_posix_spawn_inherit(program: string, args: string[], cwd: string, env_list: string[])
+    let items = [program]
+    for a in args
+        items.push(a)
+    end
+    let argv = internal_ptr_array(items)
+    let envp = internal_ptr_array(env_list)
+    let acts = null
+    if len(cwd) > 0
+        acts = alloc_zeroed(512)
+        if acts == 0
+            free_mem(envp)
+            free_mem(argv)
+            return -1, -1
+        end
+        posix_spawn_file_actions_init(acts)
+        posix_spawn_file_actions_addchdir_np(acts, cwd)
+    end
+    let pid_slot = alloc_zeroed(8)
+    if pid_slot == 0
+        if acts != null
+            posix_spawn_file_actions_destroy(acts)
+            free_mem(acts)
+        end
+        free_mem(envp)
+        free_mem(argv)
+        return -1, -1
+    end
+    let rc: int = posix_spawnp(pid_slot, program, acts, null, argv, envp)
+    let pid: int = read_i32(pid_slot, 0)
+    if acts != null
+        posix_spawn_file_actions_destroy(acts)
+        free_mem(acts)
+    end
+    free_mem(pid_slot)
+    free_mem(envp)
+    free_mem(argv)
+    if rc != 0
+        return -1, rc
+    end
+    return pid, 0
+end
+
+## Pumps both pipes until the child is reaped and both ends hit EOF.
+## A reaped child with live grandchildren holding the pipes stops the wait
+## after a 2s grace period (their output is then cut off, documented).
+## Returns (stdout, stderr, exit_code); throws only on allocation failure.
+@cfg(not(os = "windows"))
+function internal_pump_pipes(out_r: int, err_r: int, pid: int)
+    let out: string = ""
+    let err: string = ""
+    let out_open: bool = true
+    let err_open: bool = err_r >= 0
+    let code: int = -1
+    let reaped: bool = false
+    let reap_at: int = 0
+    let buf = alloc_mem(65537)
+    if buf == 0
+        throw ProcessError { message: "out of memory capturing process output", exit_code: -1 }
+    end
+    let fds = alloc_zeroed(16)
+    if fds == 0
+        free_mem(buf)
+        throw ProcessError { message: "out of memory capturing process output", exit_code: -1 }
+    end
+    write_i32(fds, 0, out_r)
+    write_byte(fds, 4, 1)
+    write_i32(fds, 8, err_r)
+    write_byte(fds, 12, 1)
+    while reaped == false or out_open or err_open
+        poll(fds, 2, 50)
+        if out_open and (read_byte(fds, 6) != 0 or read_byte(fds, 7) != 0)
+            let n: int = read(out_r, buf, 65536)
+            if n > 0
+                write_byte(buf, n, 0)
+                out = out + string_clone(str_from_ptr(buf))
+            else
+                close(out_r)
+                out_open = false
+            end
+        end
+        if err_open and (read_byte(fds, 14) != 0 or read_byte(fds, 15) != 0)
+            let m: int = read(err_r, buf, 65536)
+            if m > 0
+                write_byte(buf, m, 0)
+                err = err + string_clone(str_from_ptr(buf))
+            else
+                close(err_r)
+                err_open = false
+            end
+        end
+        if reaped == false
+            let probe: int = internal_wait_probe(pid)
+            if probe != -1
+                reaped = true
+                reap_at = clock_ms()
+                if probe == -2
+                    code = -1
+                else
+                    code = probe
+                end
+            end
+        end
+        if reaped and clock_ms() - reap_at > 2000
+            if out_open
+                close(out_r)
+                out_open = false
+            end
+            if err_open
+                close(err_r)
+                err_open = false
+            end
+        end
+    end
+    free_mem(fds)
+    free_mem(buf)
+    if code == -1
+        throw ProcessError { message: "process wait failed", exit_code: -1 }
+    end
+    return out, err, code
+end
+
 # --- Constructors ---
 
 ## Returns default options (current dir, no extra env, split stdout/stderr).
@@ -291,9 +754,9 @@ end
 ## None.
 ##
 ## ### Returns
-## A ProcessOptions with `cwd` "", empty `env`, and `combine_output` 0.
+## A ProcessOptions with `cwd` "", empty `env`, and `combine_output` false.
 pub function process_default_options() -> ProcessOptions
-    return ProcessOptions { cwd: "", env: {}, combine_output: 0 }
+    return ProcessOptions { cwd: "", env: {}, combine_output: false }
 end
 
 ## Executes program with args, waiting for completion and capturing stdout and stderr.
@@ -309,7 +772,7 @@ end
 ## ### Returns
 ## A ProcessOutput with the exit code and the captured stdout and stderr text.
 pub function process_run(program: string, args: string[] = []) -> ProcessOutput
-    return process_run_with_options(program, args, ProcessOptions { cwd: "", env: {}, combine_output: 0 })
+    return process_run_with_options(program, args, ProcessOptions { cwd: "", env: {}, combine_output: false })
 end
 
 ## Executes program with args under opts (cwd, extra env, merged streams).
@@ -322,12 +785,29 @@ end
 ## ### Returns
 ## A ProcessOutput with the exit code and the captured output text.
 pub function process_run_with_options(program: string, args: string[], opts) -> ProcessOutput
-    let cmd: string = internal_join_command(program, args, opts)
-    let combine: int = 0
+    return internal_run_impl(program, args, opts)
+end
+
+@cfg(not(os = "windows"))
+function internal_run_impl(program: string, args: string[], opts) -> ProcessOutput
+    let cwd: string = ""
+    let env = {}
+    let combine: bool = false
+    if opts is not null
+        cwd = opts.cwd
+        env = opts.env
+        combine = opts.combine_output
+    end
+    return internal_run_capture_native(program, args, cwd, env, combine)
+end
+
+@cfg(os = "windows")
+function internal_run_impl(program: string, args: string[], opts) -> ProcessOutput
+    let combine: bool = false
     if opts is not null
         combine = opts.combine_output
     end
-    return internal_run_capture(cmd, combine)
+    return internal_run_capture(internal_join_command(program, args, opts), combine)
 end
 
 ## Executes program with args in directory cwd.
@@ -340,7 +820,7 @@ end
 ## ### Returns
 ## A ProcessOutput with the exit code and the captured stdout and stderr text.
 pub function process_run_in(program: string, args: string[], cwd: string) -> ProcessOutput
-    return process_run_with_options(program, args, ProcessOptions { cwd: cwd, env: {}, combine_output: 0 })
+    return process_run_with_options(program, args, ProcessOptions { cwd: cwd, env: {}, combine_output: false })
 end
 
 ## Executes program with args and extra environment entries.
@@ -353,7 +833,7 @@ end
 ## ### Returns
 ## A ProcessOutput with the exit code and the captured stdout and stderr text.
 pub function process_run_with_env(program: string, args: string[], env) -> ProcessOutput
-    return process_run_with_options(program, args, ProcessOptions { cwd: "", env: env, combine_output: 0 })
+    return process_run_with_options(program, args, ProcessOptions { cwd: "", env: env, combine_output: false })
 end
 
 ## Executes program and throws ProcessError when the exit code is non-zero.
@@ -412,8 +892,8 @@ end
 ## Spawns program with args in the background without waiting for completion.
 ##
 ## Child stdio is inherited. On POSIX the returned pid is the real child pid
-## (captured via `$!` because `system()` cannot return it); on Windows the pid
-## is -1 (unknown) because `start` exposes no child id.
+## (posix_spawn, no shell involved); on Windows the pid is -1 (unknown)
+## because `start` exposes no child id.
 ##
 ## ### Parameters
 ## - `program`: Executable path or name to run.
@@ -422,7 +902,7 @@ end
 ## ### Returns
 ## A ProcessHandle holding the child pid (or -1) and the full command line.
 pub function process_spawn(program: string, args: string[] = []) -> ProcessHandle
-    return process_spawn_with_options(program, args, ProcessOptions { cwd: "", env: {}, combine_output: 0 })
+    return process_spawn_with_options(program, args, ProcessOptions { cwd: "", env: {}, combine_output: false })
 end
 
 ## Spawns program with args under opts (cwd, extra env) without waiting.
@@ -436,32 +916,44 @@ end
 ## ### Returns
 ## A ProcessHandle holding the child pid (or -1) and the full command line.
 pub function process_spawn_with_options(program: string, args: string[], opts) -> ProcessHandle
-    let cmd: string = internal_join_command(program, args, opts)
-    return when target_os()
-        is "windows" => internal_spawn_windows(cmd)
-        else => internal_spawn_posix(cmd)
-    end
+    return internal_spawn_impl(program, args, opts)
 end
 
-# system() returns only the shell status, never the child pid, so POSIX spawn
-# backgrounds the command and reads the real pid back from `$!` while Windows
-# can only fire-and-forget (start exposes no child id, hence pid -1).
-function internal_spawn_posix(cmd: string) -> ProcessHandle
-    let pid_file: string = internal_claim_temp("alya_proc_pid", ".tmp")
-    system_exec(cmd + " & echo $! > " + process_quote_arg(pid_file))
-    let pid: int = -1
-    if file_exists(pid_file) == true
-        let raw: string = trim(read_file(pid_file))
-        remove_file(pid_file)
-        if internal_all_digits(raw)
-            pid = to_int(raw)
-        end
+@cfg(not(os = "windows"))
+function internal_spawn_impl(program: string, args: string[], opts) -> ProcessHandle
+    return internal_spawn_native(program, args, opts)
+end
+
+@cfg(os = "windows")
+function internal_spawn_impl(program: string, args: string[], opts) -> ProcessHandle
+    return internal_spawn_windows(internal_join_command(program, args, opts))
+end
+
+## Native fire-and-forget spawn (POSIX): real child pid, stdio inherited.
+# posix_spawn reports exec failures via rc (no shell involved), so a bad
+# program throws here instead of silently running nothing in background.
+@cfg(not(os = "windows"))
+function internal_spawn_native(program: string, args: string[], opts) -> ProcessHandle
+    if len(program) == 0
+        throw ProcessError { message: "process program must not be empty", exit_code: -1 }
     end
-    return ProcessHandle { pid: pid, command: cmd }
+    let cwd: string = ""
+    let env = {}
+    if opts is not null
+        cwd = opts.cwd
+        env = opts.env
+    end
+    let env_list = internal_build_env_list(env)
+    let pid, rc = internal_posix_spawn_inherit(program, args, cwd, env_list)
+    if pid < 0
+        throw ProcessError { message: f"process spawn failed with code {str(rc)}", exit_code: -1 }
+    end
+    return ProcessHandle { pid: pid, command: internal_join_command(program, args, opts) }
 end
 
 # cmd.exe `start` swallows a quoted first token as a window title, so an empty
 # title ("") keeps quoted program paths launching correctly.
+@cfg(os = "windows")
 function internal_spawn_windows(cmd: string) -> ProcessHandle
     system_exec("start /B \"\" " + cmd)
     return ProcessHandle { pid: -1, command: cmd }
@@ -484,18 +976,35 @@ pub function process_is_running(pid: int) -> bool
     if pid <= 0
         return false
     end
-    return when target_os()
-        is "windows" => internal_is_running_windows(pid)
-        else => internal_is_running_posix(pid)
-    end
+    return internal_is_running_impl(pid)
 end
 
-## Probes pid via `kill -0`, which performs no signal delivery.
+@cfg(not(os = "windows"))
+function internal_is_running_impl(pid: int) -> bool
+    return internal_is_running_posix(pid)
+end
+
+@cfg(os = "windows")
+function internal_is_running_impl(pid: int) -> bool
+    return internal_is_running_windows(pid)
+end
+
+## Probes pid via waitpid (exact for own children: a reaped zombie reads gone).
+@cfg(not(os = "windows"))
 function internal_is_running_posix(pid: int) -> bool
-    return system_exec(f"kill -0 {str(pid)} > /dev/null 2>&1") == 0
+    let probe: int = internal_wait_probe(pid)
+    if probe == -1
+        return true
+    end
+    if probe >= 0
+        return false
+    end
+    # Not our child (or already reaped): fall back to signal 0.
+    return kill(pid, 0) == 0
 end
 
 ## Probes pid via tasklist (a bare `INFO:` reply means no such process).
+@cfg(os = "windows")
 function internal_is_running_windows(pid: int) -> bool
     let out_file: string = internal_claim_temp("alya_proc_task", ".tmp")
     system_exec(f"tasklist /FI \"PID eq {str(pid)}\" /NH > {process_quote_arg(out_file)} 2>&1")
@@ -512,38 +1021,47 @@ function internal_is_running_windows(pid: int) -> bool
     return found
 end
 
-## Sends a termination signal to pid (best-effort: exit 0 means delivered, not dead).
+## Sends a termination signal to pid (best-effort delivery check).
 ##
 ## ### Parameters
-## - `pid`: Process id to signal (values <= 0 yield 1 without doing anything).
-## - `force`: Non-zero uses SIGKILL / /F; zero uses SIGTERM / graceful taskkill.
+## - `pid`: Process id to signal (values <= 0 yield false without doing anything).
+## - `force`: True uses SIGKILL / /F; false uses SIGTERM / graceful taskkill.
 ##
 ## ### Returns
-## The signal-command exit status (0 on delivery).
-pub function process_kill(pid: int, force: bool = true) -> int
+## True when the signal was delivered, otherwise false.
+pub function process_kill(pid: int, force: bool = true) -> bool
     if pid <= 0
-        return 1
+        return false
     end
-    return when target_os()
-        is "windows" => internal_kill_windows(pid, force)
-        else => internal_kill_posix(pid, force)
-    end
+    return internal_kill_impl(pid, force)
+end
+
+@cfg(not(os = "windows"))
+function internal_kill_impl(pid: int, force: bool) -> bool
+    return internal_kill_posix(pid, force)
+end
+
+@cfg(os = "windows")
+function internal_kill_impl(pid: int, force: bool) -> bool
+    return internal_kill_windows(pid, force)
 end
 
 ## Signals pid via kill (-9 when forced).
-function internal_kill_posix(pid: int, force: bool) -> int
+@cfg(not(os = "windows"))
+function internal_kill_posix(pid: int, force: bool) -> bool
     if force
-        return system_exec(f"kill -9 {str(pid)} > /dev/null 2>&1")
+        return kill(pid, 9) == 0
     end
-    return system_exec(f"kill {str(pid)} > /dev/null 2>&1")
+    return kill(pid, 15) == 0
 end
 
 ## Signals pid via taskkill (/F when forced).
-function internal_kill_windows(pid: int, force: bool) -> int
+@cfg(os = "windows")
+function internal_kill_windows(pid: int, force: bool) -> bool
     if force
-        return system_exec(f"taskkill /PID {str(pid)} /F > NUL 2>&1")
+        return system_exec(f"taskkill /PID {str(pid)} /F > NUL 2>&1") == 0
     end
-    return system_exec(f"taskkill /PID {str(pid)} > NUL 2>&1")
+    return system_exec(f"taskkill /PID {str(pid)} > NUL 2>&1") == 0
 end
 
 ## Waits until pid exits or timeout_ms elapses (negative waits forever).
