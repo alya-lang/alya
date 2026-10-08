@@ -1,13 +1,18 @@
 # Alya Standard Library - Process Module (std/process)
-# Provides subprocess spawning, execution, stream piping, and exit code handling.
+# Subprocess execution with safe argument quoting, capture temp files outside
+# the working directory, fire-and-forget spawning, and pid supervision helpers
+# (is_running, kill, wait). Spawning is built on `system()` so child stdio
+# redirection and shells behave like the host shell; see each function for
+# platform notes.
 # Usage: import "std/process"
 
 # --- Types ---
 
-## Handle to a background process: process id plus the command line.
+## Handle to a background process: child id plus the full command line.
 ##
 ## ### Fields
-## - `pid`: Value returned by `system_exec` for the spawn command.
+## - `pid`: Real child pid on POSIX; -1 when unknown (Windows fire-and-forget
+##   spawn via `start`, which exposes no child pid).
 ## - `command`: Full command line built from the program and its arguments.
 pub struct ProcessHandle
     pid: int
@@ -17,73 +22,560 @@ end
 ## Captured result of a finished process: exit code with stdout and stderr text.
 ##
 ## ### Fields
-## - `exit_code`: Exit code reported by `system_exec`.
+## - `exit_code`: Normalized exit code (0 on success; 128+N on POSIX signal death).
 ## - `stdout`: Captured standard output text, or "" when unavailable.
-## - `stderr`: Captured standard error text, or "" when unavailable.
+## - `stderr`: Captured standard error text, or "" when unavailable or merged.
 pub struct ProcessOutput
     exit_code: int
     stdout: string
     stderr: string
 end
 
+## Options for process_run_with_options / process_spawn_with_options.
+##
+## ### Fields
+## - `cwd`: Working directory the child runs in ("" keeps the current one).
+## - `env`: Extra environment entries as a map (e.g. `{ "PORT": "8080" }`).
+## - `combine_output`: Non-zero merges stderr into stdout (`2>&1`).
+pub struct ProcessOptions
+    cwd: string
+    env
+    combine_output: int
+end
+
+## Error thrown for invalid process requests and checked-run failures.
+##
+## ### Fields
+## - `message`: Human-readable failure description.
+## - `exit_code`: Child exit code, or -1 for client-side errors.
+pub struct ProcessError
+    message: string
+    exit_code: int
+end
+
+# --- Internal quoting ---
+
+## Quotes one argv element for POSIX shells (always single-quoted).
+function internal_quote_posix(arg: string) -> string
+    let out: string = "'"
+    let i: int = 0
+    while i < len(arg)
+        let c: string = char_at(arg, i)
+        if c == "'"
+            out = out + "'\\''"
+        else
+            out = out + c
+        end
+        i += 1
+    end
+    return out + "'"
+end
+
+## Quotes one argv element for cmd.exe (quoted only when needed).
+function internal_quote_windows(arg: string) -> string
+    let buf: string = ""
+    let bare_ok: bool = len(arg) > 0
+    let j: int = 0
+    while j < len(arg)
+        let ch: string = char_at(arg, j)
+        if ch == "\""
+            buf = buf + "\\\""
+            bare_ok = false
+        elif ch == " " or ch == "\t" or ch == "\n"
+            buf = buf + ch
+            bare_ok = false
+        else
+            buf = buf + ch
+        end
+        j += 1
+    end
+    if bare_ok
+        return arg
+    end
+    return "\"" + buf + "\""
+end
+
+## Quotes one argv element for the host shell.
+##
+## ### Parameters
+## - `arg`: Single argument value to quote.
+##
+## ### Returns
+## The shell-quoted argument.
+pub function process_quote_arg(arg: string) -> string
+    return when target_os()
+        is "windows" => internal_quote_windows(arg)
+        else => internal_quote_posix(arg)
+    end
+end
+
+# --- Internal option plumbing ---
+
+## Returns 1 when key is a valid environment variable name.
+function internal_valid_env_key(key: string) -> bool
+    if len(key) == 0
+        return false
+    end
+    let p: int = 0
+    while p < len(key)
+        let code: int = ord(char_at(key, p))
+        let ok: bool = (code >= 65 and code <= 90) or (code >= 97 and code <= 122) or code == 95
+        if p > 0 and code >= 48 and code <= 57
+            ok = true
+        end
+        if ok == false
+            return false
+        end
+        p += 1
+    end
+    return true
+end
+
+## Builds the env-assignment prefix for a command line.
+function internal_env_prefix(env, windows: bool) -> string
+    if env is null
+        return ""
+    end
+    let prefix: string = ""
+    for k, v in env
+        if internal_valid_env_key(k) == false
+            throw ProcessError { message: f"Invalid environment variable name: {k}", exit_code: -1 }
+        end
+        if windows
+            prefix = prefix + f"set \"{k}={v}\" && "
+        else
+            # Keys stay bare: a quoted name is not an assignment to the shell.
+            # Keys are charset-validated above, so bare interpolation is safe.
+            prefix = prefix + k + "=" + internal_quote_posix(v) + " "
+        end
+    end
+    return prefix
+end
+
+## Builds the `cd` prefix that runs a command in cwd ("" keeps cwd).
+function internal_cwd_prefix(cwd: string, windows: bool) -> string
+    if len(cwd) == 0
+        return ""
+    end
+    if windows
+        return "cd /d " + internal_quote_windows(cwd) + " && "
+    end
+    return "cd " + internal_quote_posix(cwd) + " && "
+end
+
+## Joins program + args into a safely quoted shell command with cwd/env applied.
+function internal_join_command(program: string, args: string[], opts) -> string
+    if len(program) == 0
+        throw ProcessError { message: "process program must not be empty", exit_code: -1 }
+    end
+    let cwd: string = ""
+    let env = {}
+    if opts is not null
+        cwd = opts.cwd
+        env = opts.env
+    end
+    let windows: bool = target_os() == "windows"
+    let cmd: string = internal_env_prefix(env, windows) + internal_cwd_prefix(cwd, windows) + process_quote_arg(program)
+    for a in args
+        cmd = cmd + " " + process_quote_arg(a)
+    end
+    return cmd
+end
+
+## Returns 1 when every char of s is an ASCII digit (empty yields 0).
+function internal_all_digits(s: string) -> bool
+    if len(s) == 0
+        return false
+    end
+    let d: int = 0
+    while d < len(s)
+        let code: int = ord(char_at(s, d))
+        if code < 48 or code > 57
+            return false
+        end
+        d += 1
+    end
+    return true
+end
+
+# --- Internal capture plumbing ---
+
+## Temp dir for capture files (mirrors std/os temp_dir so this module stays import-free).
+function internal_temp_dir() -> string
+    if target_os() == "windows"
+        let t: string = get_env("TEMP")
+        if len(t) > 0
+            return t
+        end
+        t = get_env("TMP")
+        if len(t) > 0
+            return t
+        end
+        return "C:/Windows/Temp"
+    end
+    let p: string = get_env("TMPDIR")
+    if len(p) > 0
+        return p
+    end
+    return "/tmp"
+end
+
+## Claims a non-existing temp path (retries so threads sharing pid+clock_ms cannot collide).
+function internal_claim_temp(prefix: string, suffix: string) -> string
+    let base: string = internal_temp_dir()
+    let pid: int = __native_get_pid()
+    let stamp: int = clock_ms()
+    let i: int = 0
+    while i < 1000
+        let name: string = f"{base}/{prefix}_{pid}_{stamp}_{i}{suffix}"
+        if file_exists(name) == false
+            return name
+        end
+        i += 1
+    end
+    throw ProcessError { message: "Could not allocate a unique temp file for process capture", exit_code: -1 }
+end
+
+## Normalizes a raw system() status to a portable exit code.
+function internal_normalize_status(raw: int, windows: bool) -> int
+    # system() returns the exit code as-is on Windows but the raw wait
+    # status (code * 256) on POSIX, so decode there; a small raw status on
+    # POSIX means death by signal N, reported shell-style as 128 + N.
+    if windows
+        return raw
+    end
+    if raw == 0
+        return 0
+    end
+    if raw >= 256
+        return raw / 256
+    end
+    return 128 + raw
+end
+
+## Runs a full shell command, capturing stdout (and stderr unless combined).
+function internal_run_capture(full_cmd: string, combine: int) -> ProcessOutput
+    let out_file: string = internal_claim_temp("alya_proc_out", ".tmp")
+    let err_file: string = out_file
+    if combine == 0
+        err_file = internal_claim_temp("alya_proc_err", ".tmp")
+    end
+    let tail: string = f" > {process_quote_arg(out_file)} 2> {process_quote_arg(err_file)}"
+    if combine != 0
+        tail = f" > {process_quote_arg(out_file)} 2>&1"
+    end
+    let code: int = system_exec(full_cmd + tail)
+    let windows: bool = target_os() == "windows"
+    let status: int = internal_normalize_status(code, windows)
+    let out_content: string = ""
+    if file_exists(out_file) == true
+        out_content = read_file(out_file)
+    end
+    remove_file(out_file)
+    if combine == 0
+        let err_content: string = ""
+        if file_exists(err_file) == true
+            err_content = read_file(err_file)
+        end
+        remove_file(err_file)
+        return ProcessOutput { exit_code: status, stdout: out_content, stderr: err_content }
+    end
+    return ProcessOutput { exit_code: status, stdout: out_content, stderr: "" }
+end
+
 # --- Constructors ---
+
+## Returns default options (current dir, no extra env, split stdout/stderr).
+##
+## ### Parameters
+## None.
+##
+## ### Returns
+## A ProcessOptions with `cwd` "", empty `env`, and `combine_output` 0.
+pub function process_default_options() -> ProcessOptions
+    return ProcessOptions { cwd: "", env: {}, combine_output: 0 }
+end
 
 ## Executes program with args, waiting for completion and capturing stdout and stderr.
 ##
+## Arguments are shell-quoted, so values with spaces or quotes are safe.
+## `program` is a single executable (quoted as one word): pass compound shell
+## lines with pipes or flags to `process_run_shell` instead.
+##
 ## ### Parameters
 ## - `program`: Executable path or name to run.
-## - `args`: Argument list appended to the command separated by spaces.
+## - `args`: Argument list appended to the command (each one quoted).
 ##
 ## ### Returns
 ## A ProcessOutput with the exit code and the captured stdout and stderr text.
 pub function process_run(program: string, args: string[] = []) -> ProcessOutput
-    let pid: int = __native_get_pid()
-    let now_ms: int = clock_ms()
-    let out_file: string = f"temp_proc_out_{pid}_{now_ms}.tmp"
-    let err_file: string = f"temp_proc_err_{pid}_{now_ms}.tmp"
+    return process_run_with_options(program, args, ProcessOptions { cwd: "", env: {}, combine_output: 0 })
+end
 
-    let cmd: string = program
-    for arg in args
-        cmd = f"{cmd} {arg}"
+## Executes program with args under opts (cwd, extra env, merged streams).
+##
+## ### Parameters
+## - `program`: Executable path or name to run.
+## - `args`: Argument list appended to the command (each one quoted).
+## - `opts`: ProcessOptions (null behaves like process_default_options).
+##
+## ### Returns
+## A ProcessOutput with the exit code and the captured output text.
+pub function process_run_with_options(program: string, args: string[], opts) -> ProcessOutput
+    let cmd: string = internal_join_command(program, args, opts)
+    let combine: int = 0
+    if opts is not null
+        combine = opts.combine_output
     end
+    return internal_run_capture(cmd, combine)
+end
 
-    cmd = f"{cmd} > {out_file} 2> {err_file}"
-    let exit_code: int = system_exec(cmd)
+## Executes program with args in directory cwd.
+##
+## ### Parameters
+## - `program`: Executable path or name to run.
+## - `args`: Argument list appended to the command (each one quoted).
+## - `cwd`: Working directory the child runs in.
+##
+## ### Returns
+## A ProcessOutput with the exit code and the captured stdout and stderr text.
+pub function process_run_in(program: string, args: string[], cwd: string) -> ProcessOutput
+    return process_run_with_options(program, args, ProcessOptions { cwd: cwd, env: {}, combine_output: 0 })
+end
 
-    let out_content: string = ""
-    if file_exists(out_file) == true
-        out_content = read_file(out_file)
-        remove_file(out_file)
+## Executes program with args and extra environment entries.
+##
+## ### Parameters
+## - `program`: Executable path or name to run.
+## - `args`: Argument list appended to the command (each one quoted).
+## - `env`: Extra environment entries as a map.
+##
+## ### Returns
+## A ProcessOutput with the exit code and the captured stdout and stderr text.
+pub function process_run_with_env(program: string, args: string[], env) -> ProcessOutput
+    return process_run_with_options(program, args, ProcessOptions { cwd: "", env: env, combine_output: 0 })
+end
+
+## Executes program and throws ProcessError when the exit code is non-zero.
+##
+## ### Parameters
+## - `program`: Executable path or name to run.
+## - `args`: Argument list appended to the command (each one quoted).
+##
+## ### Returns
+## The ProcessOutput (exit code 0).
+##
+## ### Throws
+## `ProcessError` carrying the exit code and stderr text on failure.
+pub function process_run_checked(program: string, args: string[] = []) -> ProcessOutput
+    let out: ProcessOutput = process_run(program, args)
+    if out.exit_code != 0
+        throw ProcessError { message: f"process exited with code {str(out.exit_code)}: {out.stderr}", exit_code: out.exit_code }
     end
+    return out
+end
 
-    let err_content: string = ""
-    if file_exists(err_file) == true
-        err_content = read_file(err_file)
-        remove_file(err_file)
+## Runs a raw shell command line (pipes/redirects allowed) and captures output.
+##
+## The command is NOT quoted: only pass trusted input, never user text.
+##
+## ### Parameters
+## - `command`: Full shell command line to execute.
+##
+## ### Returns
+## A ProcessOutput with the exit code and the captured stdout and stderr text.
+pub function process_run_shell(command: string) -> ProcessOutput
+    if len(trim(command)) == 0
+        throw ProcessError { message: "process shell command must not be empty", exit_code: -1 }
     end
+    return internal_run_capture(command, 0)
+end
 
-    return ProcessOutput { exit_code: exit_code, stdout: out_content, stderr: err_content }
+## Runs a raw shell command line in directory cwd and captures output.
+##
+## The command is NOT quoted: only pass trusted input, never user text.
+##
+## ### Parameters
+## - `command`: Full shell command line to execute.
+## - `cwd`: Working directory the command runs in.
+##
+## ### Returns
+## A ProcessOutput with the exit code and the captured stdout and stderr text.
+pub function process_run_shell_in(command: string, cwd: string) -> ProcessOutput
+    if len(trim(command)) == 0
+        throw ProcessError { message: "process shell command must not be empty", exit_code: -1 }
+    end
+    let windows: bool = target_os() == "windows"
+    return internal_run_capture(internal_cwd_prefix(cwd, windows) + command, 0)
 end
 
 ## Spawns program with args in the background without waiting for completion.
 ##
+## Child stdio is inherited. On POSIX the returned pid is the real child pid
+## (captured via `$!` because `system()` cannot return it); on Windows the pid
+## is -1 (unknown) because `start` exposes no child id.
+##
 ## ### Parameters
 ## - `program`: Executable path or name to run.
-## - `args`: Argument list appended to the command separated by spaces.
+## - `args`: Argument list appended to the command (each one quoted).
 ##
 ## ### Returns
-## A ProcessHandle holding the spawn result code and the full command line.
+## A ProcessHandle holding the child pid (or -1) and the full command line.
 pub function process_spawn(program: string, args: string[] = []) -> ProcessHandle
-    let cmd: string = program
-    for arg in args
-        cmd = f"{cmd} {arg}"
+    return process_spawn_with_options(program, args, ProcessOptions { cwd: "", env: {}, combine_output: 0 })
+end
+
+## Spawns program with args under opts (cwd, extra env) without waiting.
+##
+## ### Parameters
+## - `program`: Executable path or name to run.
+## - `args`: Argument list appended to the command (each one quoted).
+## - `opts`: ProcessOptions (null behaves like process_default_options;
+##   `combine_output` is ignored: spawned stdio is inherited).
+##
+## ### Returns
+## A ProcessHandle holding the child pid (or -1) and the full command line.
+pub function process_spawn_with_options(program: string, args: string[], opts) -> ProcessHandle
+    let cmd: string = internal_join_command(program, args, opts)
+    return when target_os()
+        is "windows" => internal_spawn_windows(cmd)
+        else => internal_spawn_posix(cmd)
     end
-    let bg_cmd: string = when target_os()
-        is "windows" => f"start /B {cmd}"
-        else => f"{cmd} &"
+end
+
+# system() returns only the shell status, never the child pid, so POSIX spawn
+# backgrounds the command and reads the real pid back from `$!` while Windows
+# can only fire-and-forget (start exposes no child id, hence pid -1).
+function internal_spawn_posix(cmd: string) -> ProcessHandle
+    let pid_file: string = internal_claim_temp("alya_proc_pid", ".tmp")
+    system_exec(cmd + " & echo $! > " + process_quote_arg(pid_file))
+    let pid: int = -1
+    if file_exists(pid_file) == true
+        let raw: string = trim(read_file(pid_file))
+        remove_file(pid_file)
+        if internal_all_digits(raw)
+            pid = to_int(raw)
+        end
     end
-    let code: int = system_exec(bg_cmd)
-    return ProcessHandle { pid: code, command: cmd }
+    return ProcessHandle { pid: pid, command: cmd }
+end
+
+# cmd.exe `start` swallows a quoted first token as a window title, so an empty
+# title ("") keeps quoted program paths launching correctly.
+function internal_spawn_windows(cmd: string) -> ProcessHandle
+    system_exec("start /B \"\" " + cmd)
+    return ProcessHandle { pid: -1, command: cmd }
+end
+
+# --- Supervision ---
+
+## Returns 1 when pid exists (best-effort probe, no signal is delivered on POSIX).
+##
+## Pids can be recycled by the OS: a pid that just exited may read as running
+## when a new process reuses it. A zombie (dead but not yet reaped by its
+## parent or init) also reads as running until it is reaped.
+##
+## ### Parameters
+## - `pid`: Process id to probe (values <= 0 yield false).
+##
+## ### Returns
+## True when the process exists, otherwise false.
+pub function process_is_running(pid: int) -> bool
+    if pid <= 0
+        return false
+    end
+    return when target_os()
+        is "windows" => internal_is_running_windows(pid)
+        else => internal_is_running_posix(pid)
+    end
+end
+
+## Probes pid via `kill -0`, which performs no signal delivery.
+function internal_is_running_posix(pid: int) -> bool
+    return system_exec(f"kill -0 {str(pid)} > /dev/null 2>&1") == 0
+end
+
+## Probes pid via tasklist (a bare `INFO:` reply means no such process).
+function internal_is_running_windows(pid: int) -> bool
+    let out_file: string = internal_claim_temp("alya_proc_task", ".tmp")
+    system_exec(f"tasklist /FI \"PID eq {str(pid)}\" /NH > {process_quote_arg(out_file)} 2>&1")
+    let found: bool = false
+    if file_exists(out_file) == true
+        let content: string = trim(read_file(out_file))
+        remove_file(out_file)
+        if len(content) > 0 and substring(content, 0, 5) == "INFO:"
+            found = false
+        elif len(content) > 0
+            found = true
+        end
+    end
+    return found
+end
+
+## Sends a termination signal to pid (best-effort: exit 0 means delivered, not dead).
+##
+## ### Parameters
+## - `pid`: Process id to signal (values <= 0 yield 1 without doing anything).
+## - `force`: Non-zero uses SIGKILL / /F; zero uses SIGTERM / graceful taskkill.
+##
+## ### Returns
+## The signal-command exit status (0 on delivery).
+pub function process_kill(pid: int, force: bool = true) -> int
+    if pid <= 0
+        return 1
+    end
+    return when target_os()
+        is "windows" => internal_kill_windows(pid, force)
+        else => internal_kill_posix(pid, force)
+    end
+end
+
+## Signals pid via kill (-9 when forced).
+function internal_kill_posix(pid: int, force: bool) -> int
+    if force
+        return system_exec(f"kill -9 {str(pid)} > /dev/null 2>&1")
+    end
+    return system_exec(f"kill {str(pid)} > /dev/null 2>&1")
+end
+
+## Signals pid via taskkill (/F when forced).
+function internal_kill_windows(pid: int, force: bool) -> int
+    if force
+        return system_exec(f"taskkill /PID {str(pid)} /F > NUL 2>&1")
+    end
+    return system_exec(f"taskkill /PID {str(pid)} > NUL 2>&1")
+end
+
+## Waits until pid exits or timeout_ms elapses (negative waits forever).
+##
+## Polls with sleep, so short-lived pids may already be gone (yields 1).
+## Pid reuse can also fake "running" for an instant: prefer waiting on
+## children you spawned and know to be alive. A freshly killed child can
+## stay visible until init reaps its zombie; a second short wait then succeeds.
+##
+## ### Parameters
+## - `pid`: Process id to wait for (values <= 0 yield 1 immediately).
+## - `timeout_ms`: Maximum wait in milliseconds (negative waits forever).
+## - `poll_ms`: Delay between probes (clamped to >= 10).
+##
+## ### Returns
+## True when the process exited, false on timeout.
+pub function process_wait_pid(pid: int, timeout_ms: int = -1, poll_ms: int = 50) -> bool
+    if pid <= 0
+        return true
+    end
+    let step: int = poll_ms
+    if step < 10
+        step = 10
+    end
+    let start: int = clock_ms()
+    while process_is_running(pid)
+        if timeout_ms >= 0 and clock_ms() - start >= timeout_ms
+            return false
+        end
+        sleep(step)
+    end
+    return true
 end
 
 # --- Methods ---
@@ -97,6 +589,23 @@ end
 ## True when `exit_code` is 0, otherwise false.
 pub function ProcessOutput.is_ok(self: ProcessOutput) -> bool
     return self.exit_code == 0
+end
+
+## Returns stdout with stderr appended (either side empty yields the other).
+##
+## ### Parameters
+## - `self`: Finished process output to inspect.
+##
+## ### Returns
+## The combined output text.
+pub function ProcessOutput.combined(self: ProcessOutput) -> string
+    if len(self.stderr) == 0
+        return self.stdout
+    end
+    if len(self.stdout) == 0
+        return self.stderr
+    end
+    return self.stdout + self.stderr
 end
 
 # --- Utilities ---

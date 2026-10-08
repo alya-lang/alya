@@ -1,9 +1,70 @@
 import "std/test"
 import "std/process"
+import "std/str"
 
 test_suite("Alya std/process Test Suite")
 
-# Only side-effect-free probes: no processes are spawned here.
+# Probes stay side-effect-free: nothing is launched except impossible-pid
+# queries, and validation paths throw before any spawn happens.
 assert_true(process_pid() > 0, "process pid positive")
+
+# 1. Argument quoting is pure (quote shape differs per OS, content is kept)
+assert_true(len(process_quote_arg("")) > 0, "empty arg never bare")
+assert_true(contains_str(process_quote_arg("a b"), "a b"), "spaced arg content kept")
+assert_true(contains_str(process_quote_arg("it's"), "it"), "quoted arg content kept")
+assert_true(len(process_quote_arg("a b")) > len("a b"), "spaced arg gains quotes")
+
+# 2. Default options shape
+let defs = process_default_options()
+assert_str_eq(defs.cwd, "", "default cwd empty")
+assert_eq(defs.combine_output, 0, "default split streams")
+assert_eq(len(defs.env), 0, "default env empty")
+
+# 3. Output helpers on constructed values (no spawning)
+let ok_out = ProcessOutput { exit_code: 0, stdout: "out", stderr: "err" }
+assert_true(ok_out.is_ok(), "exit 0 is ok")
+assert_str_eq(ok_out.combined(), "outerr", "combined concatenates")
+let quiet = ProcessOutput { exit_code: 1, stdout: "out", stderr: "" }
+assert_false(quiet.is_ok(), "nonzero is not ok")
+assert_str_eq(quiet.combined(), "out", "combined skips empty stderr")
+let empty = ProcessOutput { exit_code: 0, stdout: "", stderr: "" }
+assert_str_eq(empty.combined(), "", "combined empty yields empty")
+
+# 4. Supervision guards for impossible pids (no process can hold these)
+assert_false(process_is_running(0), "pid 0 never running")
+assert_false(process_is_running(-5), "negative pid never running")
+assert_false(process_is_running(2147483647), "bogus pid not running")
+assert_true(process_wait_pid(-1, 1000), "invalid pid wait yields true")
+assert_true(process_wait_pid(2147483647, 500), "bogus pid wait yields true")
+assert_eq(process_kill(0), 1, "kill pid 0 refused")
+assert_eq(process_kill(-5), 1, "kill negative pid refused")
+
+# 5. Client-side validation throws before spawning anything
+let threw_shell = 0
+let shell_msg = ""
+try
+    process_run_shell("   ")
+catch err
+    threw_shell = 1
+    shell_msg = err.message
+end
+assert_eq(threw_shell, 1, "empty shell command throws")
+assert_true(len(shell_msg) > 0, "shell error carries message")
+
+let threw_env = 0
+try
+    process_run_with_env("echo", [], { "NOT A KEY": "x" })
+catch err
+    threw_env = 1
+end
+assert_eq(threw_env, 1, "invalid env key throws")
+
+let threw_prog = 0
+try
+    process_run("", [])
+catch err
+    threw_prog = 1
+end
+assert_eq(threw_prog, 1, "empty program throws")
 
 say "All std/process tests passed successfully!"

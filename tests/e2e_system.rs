@@ -3064,15 +3064,35 @@ import "std/str"
 
 let pid = process_pid()
 say "valid_pid: " + str(pid > 0)
-let out = process_run("echo hello_process")
+let out = process_run("echo", ["hello_process"])
 say "exit_code: " + str(out.exit_code)
 say "has_output: " + str(contains_str(out.stdout, "hello_process"))
+let spaced = process_run("echo", ["hello spaced world"])
+say "spaced_ok: " + str(contains_str(spaced.stdout, "hello spaced world"))
+say "quote_ok: " + str(contains_str(process_quote_arg("a b"), "a b"))
+let chk = process_run_checked("echo", ["checked_ok"])
+say "checked_code: " + str(chk.exit_code)
+let opt = process_run_with_options("echo", ["opt_ok"], ProcessOptions { cwd: "", env: {}, combine_output: 1 })
+say "opt_code: " + str(opt.exit_code)
+say "opt_has: " + str(contains_str(opt.stdout, "opt_ok"))
+let sh = process_run_shell("echo shell_ok")
+say "shell_has: " + str(contains_str(sh.stdout, "shell_ok"))
+say "bogus_running: " + str(process_is_running(2147483647))
+say "bogus_wait: " + str(process_wait_pid(2147483647, 1000))
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(code, 0, "Execution failed: {}", output);
         assert!(output.contains("valid_pid: 1"), "Got: {}", output);
         assert!(output.contains("exit_code: 0"), "Got: {}", output);
         assert!(output.contains("has_output: 1"), "Got: {}", output);
+        assert!(output.contains("spaced_ok: 1"), "Got: {}", output);
+        assert!(output.contains("quote_ok: 1"), "Got: {}", output);
+        assert!(output.contains("checked_code: 0"), "Got: {}", output);
+        assert!(output.contains("opt_code: 0"), "Got: {}", output);
+        assert!(output.contains("opt_has: 1"), "Got: {}", output);
+        assert!(output.contains("shell_has: 1"), "Got: {}", output);
+        assert!(output.contains("bogus_running: 0"), "Got: {}", output);
+        assert!(output.contains("bogus_wait: 1"), "Got: {}", output);
     }
 }
 

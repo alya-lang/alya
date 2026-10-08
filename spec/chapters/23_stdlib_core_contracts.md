@@ -79,7 +79,12 @@ function os.current_arch() -> os.Arch
 ```
 
 #### 4. `std/process` (Subprocess & IPC)
-Spawns and controls child processes with standard stream piping:
+Spawns and controls child processes with standard stream piping.
+Arguments are shell-quoted; raw shell strings go through `run_shell` only.
+`spawn` returns the real child pid on POSIX and -1 on Windows (`start`
+exposes no child id). Exit codes are normalized (POSIX wait status is
+decoded; signal death maps to 128+N). Pid probes are best-effort: pids can
+be recycled and zombies read as running until reaped.
 ```alya
 struct ProcessOutput
     exit_code: int
@@ -87,8 +92,31 @@ struct ProcessOutput
     stderr: string
 end
 
+struct ProcessOptions
+    cwd: string
+    env
+    combine_output: int
+end
+
+struct ProcessError
+    message: string
+    exit_code: int
+end
+
 function process.run(program: string, args: string[] = []) -> ProcessOutput
+function process.run_with_options(program: string, args: string[], opts) -> ProcessOutput
+function process.run_in(program: string, args: string[], cwd: string) -> ProcessOutput
+function process.run_with_env(program: string, args: string[], env) -> ProcessOutput
+function process.run_checked(program: string, args: string[] = []) -> ProcessOutput
+function process.run_shell(command: string) -> ProcessOutput
+function process.run_shell_in(command: string, cwd: string) -> ProcessOutput
 function process.spawn(program: string, args: string[] = []) -> ProcessHandle
+function process.spawn_with_options(program: string, args: string[], opts) -> ProcessHandle
+function process.quote_arg(arg: string) -> string
+function process.default_options() -> ProcessOptions
+function process.is_running(pid: int) -> bool
+function process.kill(pid: int, force: bool = true) -> int
+function process.wait_pid(pid: int, timeout_ms: int = -1, poll_ms: int = 50) -> bool
 ```
 
 #### 5. `std/io` (Streams & Standard I/O)

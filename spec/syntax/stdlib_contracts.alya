@@ -55,6 +55,15 @@ let proc_out = process.run("echo", ["Subprocess execution verified"])
 say f"Process exit code: {proc_out.exit_code}"
 say f"Process output: {proc_out.stdout.trim()}"
 
+let quoted = process_quote_arg("hello world")
+say f"Quoted arg: {quoted}"
+let checked = process_run_checked("echo", ["checked probe"])
+say f"Checked exit code: {checked.exit_code}"
+let bg = process_spawn("echo", ["background probe"])
+say f"Spawned command: {bg.command}"
+say f"Unknown pid idle: {process_wait_pid(-1, 1000)}"
+say f"Bogus pid running: {process_is_running(2147483647)}"
+
 # ------------------------------------------------------------------------------
 # 4. Streams & Standard I/O (std/io)
 # ------------------------------------------------------------------------------
