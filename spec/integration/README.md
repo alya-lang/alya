@@ -57,6 +57,7 @@
 # | `39_map_method_call.alya` | struct method on map-stored value (alya-lang/alya#133) | unknown-receiver method call binds the single program-wide same-named struct method (arity-checked); zero/several candidates keep the legacy bare call |
 # | `40_caller_scope_float_arg.alya` | `std/math` `sin(x)` via `x: float` caller (alya-lang/alya#136) | bare-identifier args provably float in the caller scope (annotated params, body lets) count toward the callee's universal float derivation; no int-converted float bits |
 # | `41_mixed_kind_map_key.alya` | `clipboard` struct payloads through a `map` field (alya-lang/alya#138) | a non-string store under a string key earns a key-level veto, demoting every read of that key (bare or qualified, any map) to dynamic dispatch; string-only keys keep static paths |
+# | `42_len_builtin_method_shadow.alya` | `Lib/cache` `Cache.len` + `len(self.store)` (alya-lang/alya#143) | builtin `len(...)` on a statically-proven map receiver never binds the single program-wide same-named struct method (emission-order independent); method syntax keeps binding |
 #
 # ## Known collision (deliberate rename)
 #

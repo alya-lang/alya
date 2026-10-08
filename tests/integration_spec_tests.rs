@@ -65,6 +65,7 @@ fn entry_files() -> Vec<String> {
         "39_map_method_call.alya".to_string(),
         "40_caller_scope_float_arg.alya".to_string(),
         "41_mixed_kind_map_key.alya".to_string(),
+        "42_len_builtin_method_shadow.alya".to_string(),
     ]
 }
 
@@ -755,6 +756,20 @@ fn test_integration_41_mixed_kind_map_key_output() {
     if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("integration 41_mixed_kind_map_key: OK"));
+    }
+}
+
+#[test]
+fn test_integration_42_len_builtin_method_shadow_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 42_len_builtin_method_shadow: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("42_len_builtin_method_shadow.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 42_len_builtin_method_shadow: OK"));
     }
 }
 

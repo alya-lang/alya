@@ -1,0 +1,42 @@
+# ==============================================================================
+# Alya Integration Fixture 42 (entry): builtin len vs same-named struct method
+# Distilled from: Lib/cache `Cache.len` + `len(self.store)` (alya-lang/alya#143;
+#                 `alya-lang/cache` CI SIGSEGV on all platforms)
+# Guards: a builtin `len(...)` call on a statically-proven map receiver must
+#         never bind the single program-wide same-named struct method, even
+#         when the holder's construction site has not been emitted yet.
+#         Method syntax (`b.len()`) keeps binding the method.
+# ==============================================================================
+
+struct Box
+    store: map,
+    capacity: int
+end
+
+function evict_one(b: Box) -> bool
+    if len(b.store) < b.capacity
+        return false
+    end
+    return true
+end
+
+function Box.len(self: Box) -> int
+    return len(self.store)
+end
+
+function box_set(b: Box, key: string, value) -> int
+    evict_one(b)
+    b.store[key] = value
+    return 1
+end
+
+function main()
+    let b = Box { store: map(), capacity: 2 }
+    box_set(b, "k0", 0)
+    box_set(b, "k1", 1)
+    assert_eq(len(b.store), 2, "builtin len on struct-field map")
+    assert_eq(b.len(), 2, "method-syntax len still binds")
+    say "integration 42_len_builtin_method_shadow: OK"
+end
+
+main()

@@ -2190,12 +2190,15 @@ impl CodeGen {
                                 | Expr::Map(_) => true,
                                 Expr::Identifier(id) => {
                                     // Concrete scalar/collection/struct slots
-                                    // cannot hold the candidate struct. Map
-                                    // slots are deliberately NOT excluded: a
-                                    // map-typed local often holds a struct
-                                    // value read back from a map
-                                    // (alya-lang/alya#133), and Number slots
-                                    // are dynamic by nature.
+                                    // cannot hold the candidate struct. A
+                                    // Map-typed local IS a map, never the
+                                    // candidate struct: the #133 case (struct
+                                    // value read back from a map) is
+                                    // dynamically typed, not Map-typed, so it
+                                    // stays eligible below. Number slots are
+                                    // dynamic by nature.
+                                    // (alya-lang/alya#143: a lone `Box.len`
+                                    // method hijacked builtin `len(map)`.)
                                     matches!(
                                         self.ctx.variables.get(id),
                                         Some(VarType::StringLabel(_))
@@ -2208,6 +2211,7 @@ impl CodeGen {
                                         || is_string_expr(receiver, &self.ctx.variables)
                                         || is_float_expr(receiver, &self.ctx.variables)
                                         || is_array_expr(receiver, &self.ctx.variables)
+                                        || is_map_expr(receiver, &self.ctx.variables)
                                 }
                                 // Index results are elements (dynamic by
                                 // nature); other shapes consult the value
@@ -2215,7 +2219,59 @@ impl CodeGen {
                                 // excluded: the element may be a struct.
                                 Expr::Index { .. } => false,
                                 _ => {
-                                    is_string_expr(receiver, &self.ctx.variables)
+                                    // Struct-definition field types are
+                                    // order-independent (unlike
+                                    // construction-site markers): a field
+                                    // access to a known collection/scalar
+                                    // field can never be the candidate
+                                    // struct, even when no construction site
+                                    // has been emitted yet
+                                    // (alya-lang/alya#143: `len(b.store)`
+                                    // bound to `Box__len` because the marker
+                                    // did not exist when `evict_one` was
+                                    // compiled before `main`).
+                                    let via_struct_def = match receiver {
+                                        Expr::FieldAccess { object, field }
+                                        | Expr::OptionalFieldAccess { object, field } => self
+                                            .get_expr_struct_name(object)
+                                            .and_then(|sname| {
+                                                let bare =
+                                                    sname.rsplit("::").next().unwrap_or(&sname);
+                                                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                                                self.ctx
+                                                    .structs
+                                                    .get(&sname)
+                                                    .or_else(|| self.ctx.structs.get(bare))
+                                            })
+                                            .and_then(|sdef| {
+                                                sdef.fields
+                                                    .iter()
+                                                    .position(|f| f == field)
+                                                    .and_then(|idx| {
+                                                        sdef.field_types
+                                                            .get(idx)
+                                                            .and_then(|ft| ft.as_ref())
+                                                    })
+                                            })
+                                            .is_some_and(|ftype| {
+                                                let b = ftype.rsplit("::").next().unwrap_or(ftype);
+                                                let b = b.rsplit("__").next().unwrap_or(b);
+                                                !self.ctx.structs.contains_key(ftype)
+                                                    && !self.ctx.structs.contains_key(b)
+                                                    && matches!(
+                                                        b,
+                                                        "map"
+                                                            | "array"
+                                                            | "string"
+                                                            | "int"
+                                                            | "float"
+                                                            | "bool"
+                                                    )
+                                            }),
+                                        _ => false,
+                                    };
+                                    via_struct_def
+                                        || is_string_expr(receiver, &self.ctx.variables)
                                         || is_float_expr(receiver, &self.ctx.variables)
                                         || is_array_expr(receiver, &self.ctx.variables)
                                         || is_map_expr(receiver, &self.ctx.variables)
