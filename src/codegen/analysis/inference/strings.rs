@@ -337,6 +337,8 @@ fn collect_tuple_returns_string(
                 for (i, elem) in elements.iter().enumerate() {
                     if expr_is_definitely_string(elem, known_strings) {
                         target_strings.insert(format!("fn_ret_tuple_str:{}:{}", fn_name, i));
+                        // Presence summary for the scan gate above.
+                        target_strings.insert(format!("fn_ret_tuple:{}", fn_name));
                     }
                 }
             }
@@ -1105,17 +1107,26 @@ fn collect_string_vars_from_stmts(
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
                     let prefix1 = format!("fn_ret_tuple_str:{}:", cname);
                     let prefix2 = format!("fn_ret_tuple_str:{}:", bare);
-                    for item in known_strings.clone() {
-                        if item.starts_with(&prefix1) {
-                            if let Some(idx_str) = item.strip_prefix(&prefix1) {
-                                known_strings
-                                    .insert(format!("tuple_elem_str:{}:{}", name, idx_str));
+                    // Presence summaries (exact: set alongside the marker
+                    // inserts below): skip the full-set scan unless a
+                    // matching marker exists.
+                    if known_strings.contains(&format!("fn_ret_tuple:{}", cname))
+                        || known_strings.contains(&format!("fn_ret_tuple:{}", bare))
+                    {
+                        let mut pending: Vec<String> = Vec::new();
+                        for item in known_strings.iter() {
+                            if item.starts_with(&prefix1) {
+                                if let Some(idx_str) = item.strip_prefix(&prefix1) {
+                                    pending.push(idx_str.to_string());
+                                }
+                            } else if item.starts_with(&prefix2) {
+                                if let Some(idx_str) = item.strip_prefix(&prefix2) {
+                                    pending.push(idx_str.to_string());
+                                }
                             }
-                        } else if item.starts_with(&prefix2) {
-                            if let Some(idx_str) = item.strip_prefix(&prefix2) {
-                                known_strings
-                                    .insert(format!("tuple_elem_str:{}:{}", name, idx_str));
-                            }
+                        }
+                        for idx_str in pending {
+                            known_strings.insert(format!("tuple_elem_str:{}:{}", name, idx_str));
                         }
                     }
                 } else if let Expr::Array(elems) = value {
@@ -1142,6 +1153,9 @@ fn collect_string_vars_from_stmts(
                             if let Expr::String(field) = k {
                                 known_strings.insert(format!("map_field_str:{}", field));
                                 known_strings.insert(format!("map_str:{}.{}", name, field));
+                                // Presence summary for the map-field
+                                // scans (exact: set alongside).
+                                known_strings.insert(format!("map_has_str:{}", name));
                             }
                         } else {
                             // Any non-string value voids the whole-map string
@@ -1218,17 +1232,26 @@ fn collect_string_vars_from_stmts(
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
                     let prefix1 = format!("fn_ret_tuple_str:{}:", cname);
                     let prefix2 = format!("fn_ret_tuple_str:{}:", bare);
-                    for item in known_strings.clone() {
-                        if item.starts_with(&prefix1) {
-                            if let Some(idx_str) = item.strip_prefix(&prefix1) {
-                                known_strings
-                                    .insert(format!("tuple_elem_str:{}:{}", name, idx_str));
+                    // Presence summaries (exact: set alongside the marker
+                    // inserts below): skip the full-set scan unless a
+                    // matching marker exists.
+                    if known_strings.contains(&format!("fn_ret_tuple:{}", cname))
+                        || known_strings.contains(&format!("fn_ret_tuple:{}", bare))
+                    {
+                        let mut pending: Vec<String> = Vec::new();
+                        for item in known_strings.iter() {
+                            if item.starts_with(&prefix1) {
+                                if let Some(idx_str) = item.strip_prefix(&prefix1) {
+                                    pending.push(idx_str.to_string());
+                                }
+                            } else if item.starts_with(&prefix2) {
+                                if let Some(idx_str) = item.strip_prefix(&prefix2) {
+                                    pending.push(idx_str.to_string());
+                                }
                             }
-                        } else if item.starts_with(&prefix2) {
-                            if let Some(idx_str) = item.strip_prefix(&prefix2) {
-                                known_strings
-                                    .insert(format!("tuple_elem_str:{}:{}", name, idx_str));
-                            }
+                        }
+                        for idx_str in pending {
+                            known_strings.insert(format!("tuple_elem_str:{}:{}", name, idx_str));
                         }
                     }
                 } else if let Expr::Array(elems) = value {
@@ -1244,6 +1267,9 @@ fn collect_string_vars_from_stmts(
                             if let Expr::String(field) = k {
                                 known_strings.insert(format!("map_field_str:{}", field));
                                 known_strings.insert(format!("map_str:{}.{}", name, field));
+                                // Presence summary for the map-field
+                                // scans (exact: set alongside).
+                                known_strings.insert(format!("map_has_str:{}", name));
                             }
                         } else {
                             // Any non-string value voids the whole-map string
@@ -1384,10 +1410,16 @@ fn collect_string_vars_from_stmts(
                 };
                 let is_map = match iterable_inner {
                     Expr::Map(_) => true,
-                    Expr::Identifier(name) => known_strings.iter().any(|k| {
-                        k.starts_with(&format!("map_str:{}.", name))
-                            || k.starts_with(&format!("map_map:{}.", name))
-                    }),
+                    // Presence-gated (exact: summaries are inserted
+                    // alongside the markers): skip the full-set scan
+                    // unless this map has field markers. The map_map
+                    // half has no writers in this set; keep it verbatim.
+                    Expr::Identifier(name) => {
+                        known_strings.contains(&format!("map_has_str:{}", name))
+                            || known_strings
+                                .iter()
+                                .any(|k| k.starts_with(&format!("map_map:{}.", name)))
+                    }
                     _ => false,
                 };
                 if let Some(v) = value_var {
@@ -1397,9 +1429,9 @@ fn collect_string_vars_from_stmts(
                             Expr::Map(entries) => entries
                                 .iter()
                                 .any(|(_, val)| expr_is_definitely_string(val, known_strings)),
-                            Expr::Identifier(name) => known_strings
-                                .iter()
-                                .any(|k| k.starts_with(&format!("map_str:{}.", name))),
+                            Expr::Identifier(name) => {
+                                known_strings.contains(&format!("map_has_str:{}", name))
+                            }
                             _ => false,
                         };
                         if val_is_str {
@@ -1456,12 +1488,19 @@ fn collect_string_vars_from_stmts(
                 }
                 let prefix1 = format!("fn_local_str_arr:{}:", name);
                 let prefix2 = format!("fn_local_str_arr:{}:", bare);
-                for item in known_strings.iter() {
-                    if let Some(var_name) = item.strip_prefix(&prefix1) {
-                        fn_locals.insert(format!("arr_is_str:{}", var_name));
-                    } else if may_record_bare!(known_strings, name, bare) {
-                        if let Some(var_name) = item.strip_prefix(&prefix2) {
+                // Presence-gated: skip the full-set scan unless a
+                // matching marker exists (exact: summaries are inserted
+                // alongside the markers above).
+                if known_strings.contains(&format!("has_local_str_arr:{}", name))
+                    || known_strings.contains(&format!("has_local_str_arr:{}", bare))
+                {
+                    for item in known_strings.iter() {
+                        if let Some(var_name) = item.strip_prefix(&prefix1) {
                             fn_locals.insert(format!("arr_is_str:{}", var_name));
+                        } else if may_record_bare!(known_strings, name, bare) {
+                            if let Some(var_name) = item.strip_prefix(&prefix2) {
+                                fn_locals.insert(format!("arr_is_str:{}", var_name));
+                            }
                         }
                     }
                 }
@@ -1516,9 +1555,17 @@ fn collect_string_vars_from_stmts(
                 for item in &fn_locals {
                     if let Some(var_name) = item.strip_prefix("arr_is_str:") {
                         known_strings.insert(format!("fn_local_str_arr:{}:{}", name, var_name));
+                        // Presence summary for the scan below.
+                        known_strings.insert(format!("has_local_str_arr:{}", name));
                         if may_record_bare!(known_strings, name, bare) {
                             known_strings.insert(format!("fn_local_str_arr:{}:{}", bare, var_name));
+                            known_strings.insert(format!("has_local_str_arr:{}", bare));
                         }
+                    }
+                    // Skip re-exporting markers already global
+                    // (monotonic: present items re-insert identically).
+                    if known_strings.contains(item) {
+                        continue;
                     }
                     if item.starts_with("fn_ret_str:")
                         || item.starts_with("fn_ret_str_arr:")
@@ -1549,6 +1596,9 @@ fn collect_string_vars_from_stmts(
                     }
                     if let (Expr::Identifier(map_name), Expr::String(field)) = (array, index) {
                         known_strings.insert(format!("map_str:{}.{}", map_name, field));
+                        // Presence summary for the map-field scans
+                        // (exact: set alongside).
+                        known_strings.insert(format!("map_has_str:{}", map_name));
                     }
                 } else if let (Expr::Identifier(map_name), Expr::String(_)) = (array, index) {
                     // Non-string write voids the whole-map string claim
