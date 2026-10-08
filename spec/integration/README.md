@@ -58,6 +58,7 @@
 # | `40_caller_scope_float_arg.alya` | `std/math` `sin(x)` via `x: float` caller (alya-lang/alya#136) | bare-identifier args provably float in the caller scope (annotated params, body lets) count toward the callee's universal float derivation; no int-converted float bits |
 # | `41_mixed_kind_map_key.alya` | `clipboard` struct payloads through a `map` field (alya-lang/alya#138) | a non-string store under a string key earns a key-level veto, demoting every read of that key (bare or qualified, any map) to dynamic dispatch; string-only keys keep static paths |
 # | `42_len_builtin_method_shadow.alya` | `Lib/cache` `Cache.len` + `len(self.store)` (alya-lang/alya#143) | builtin `len(...)` on a statically-proven map receiver never binds the single program-wide same-named struct method (emission-order independent); method syntax keeps binding |
+# | `43_len_dynamic_receiver.alya` | `Lib/event` `buffer_to_bytes` (`len(chunk)` on a for-loop variable) vs `StreamBuffer.len` (alya-lang/alya#144) | builtin `len(...)` on a dynamically-typed receiver resolves to the runtime builtin, never to the single program-wide same-named struct method; method syntax on typed receivers is unaffected |
 #
 # ## Known collision (deliberate rename)
 #
