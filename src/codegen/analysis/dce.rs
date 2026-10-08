@@ -100,9 +100,13 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
                 let parts: Vec<&str> = base_fn.split("__").collect();
                 let is_struct_method = if parts.len() >= 2 && !parts[0].is_empty() {
                     let st_prefix = parts[0];
-                    let full_st = name.rsplit_once("::").map(|(m, _)| format!("{}::{}", m, st_prefix));
+                    let full_st = name
+                        .rsplit_once("::")
+                        .map(|(m, _)| format!("{}::{}", m, st_prefix));
                     known_struct_names.contains(st_prefix)
-                        || full_st.as_ref().is_some_and(|s| known_struct_names.contains(s))
+                        || full_st
+                            .as_ref()
+                            .is_some_and(|s| known_struct_names.contains(s))
                 } else {
                     false
                 };
@@ -221,11 +225,17 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
                         || called_methods.contains(fn_name)
                         || mb == "to_string"
                         || mb.starts_with("operator");
-                    let is_exported = function_defs.get(fn_name).is_some_and(|s| match s.inner_stmt() {
-                        Stmt::Function { attributes, .. } => attributes.iter().any(|a| a.name == "export"),
-                        _ => false,
-                    });
-                    let is_pub_in_lib = !has_main && function_defs.get(fn_name).is_some_and(|s| s.is_pub());
+                    let is_exported =
+                        function_defs
+                            .get(fn_name)
+                            .is_some_and(|s| match s.inner_stmt() {
+                                Stmt::Function { attributes, .. } => {
+                                    attributes.iter().any(|a| a.name == "export")
+                                }
+                                _ => false,
+                            });
+                    let is_pub_in_lib =
+                        !has_main && function_defs.get(fn_name).is_some_and(|s| s.is_pub());
 
                     if (is_called || is_exported || is_pub_in_lib)
                         && reachable_functions.insert(fn_name.clone())
@@ -374,7 +384,12 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
     let mut initial_calls = HashSet::new();
     let empty_locals = HashSet::new();
     for stmt in &top_level {
-        collect_references_in_stmt_scoped(stmt, &empty_locals, &mut initial_refs, &mut initial_calls);
+        collect_references_in_stmt_scoped(
+            stmt,
+            &empty_locals,
+            &mut initial_refs,
+            &mut initial_calls,
+        );
     }
     all_reachable_refs.extend(initial_refs.iter().cloned());
 
@@ -456,10 +471,20 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
                         collect_local_vars(body, &mut locals);
 
                         for expr in defaults.iter().flatten() {
-                            collect_references_in_expr_scoped(expr, &locals, &mut item_refs, &mut new_calls);
+                            collect_references_in_expr_scoped(
+                                expr,
+                                &locals,
+                                &mut item_refs,
+                                &mut new_calls,
+                            );
                         }
                         for s in body {
-                            collect_references_in_stmt_scoped(s, &locals, &mut item_refs, &mut new_calls);
+                            collect_references_in_stmt_scoped(
+                                s,
+                                &locals,
+                                &mut item_refs,
+                                &mut new_calls,
+                            );
                         }
                     }
                 }
@@ -495,7 +520,12 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
                         }
                         let empty_locals = HashSet::new();
                         for expr in defaults.iter().flatten() {
-                            collect_references_in_expr_scoped(expr, &empty_locals, &mut item_refs, &mut new_calls);
+                            collect_references_in_expr_scoped(
+                                expr,
+                                &empty_locals,
+                                &mut item_refs,
+                                &mut new_calls,
+                            );
                         }
                     }
                 }
@@ -523,9 +553,7 @@ pub fn eliminate_dead_code(program: &Program) -> Program {
                                 let is_st_reachable = reachable_structs.contains(st_prefix)
                                     || reachable_structs.contains(bare_st)
                                     || reachable_structs.iter().any(|s| bare_name(s) == bare_st);
-                                if is_st_reachable
-                                    && reachable_functions.insert(fn_name.clone())
-                                {
+                                if is_st_reachable && reachable_functions.insert(fn_name.clone()) {
                                     worklist.push(WorkItem::Function(fn_name.clone()));
                                 }
                             }
@@ -1741,13 +1769,11 @@ mod tests {
                     param_types: vec![],
                     return_type: None,
                     defaults: vec![],
-                    body: vec![
-                        Stmt::Let {
-                            name: "x".into(),
-                            type_ann: Some("int".into()),
-                            value: Expr::Number(42),
-                        },
-                    ],
+                    body: vec![Stmt::Let {
+                        name: "x".into(),
+                        type_ann: Some("int".into()),
+                        value: Expr::Number(42),
+                    }],
                 },
             ],
         };
@@ -1802,9 +1828,7 @@ mod tests {
                     param_types: vec![],
                     return_type: None,
                     defaults: vec![],
-                    body: vec![
-                        Stmt::Say(Expr::Identifier("path".into())),
-                    ],
+                    body: vec![Stmt::Say(Expr::Identifier("path".into()))],
                 },
                 Stmt::Function {
                     name: "main".into(),
@@ -1814,12 +1838,10 @@ mod tests {
                     param_types: vec![],
                     return_type: None,
                     defaults: vec![],
-                    body: vec![
-                        Stmt::Expr(Expr::Call {
-                            name: "helper".into(),
-                            args: vec![Expr::String("test".into())],
-                        }),
-                    ],
+                    body: vec![Stmt::Expr(Expr::Call {
+                        name: "helper".into(),
+                        args: vec![Expr::String("test".into())],
+                    })],
                 },
             ],
         };
@@ -1953,4 +1975,3 @@ mod tests {
         assert!(!iface_names.contains(&"UnusedInterface".to_string()));
     }
 }
-
