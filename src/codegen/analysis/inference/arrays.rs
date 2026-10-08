@@ -1,4 +1,5 @@
 use super::common::{collect_function_defs, count_assignments};
+use super::strings::collect_struct_defs;
 use crate::ast::*;
 use crate::codegen::analysis::predicates::{is_simple_name, seed_ambiguity_markers};
 use crate::codegen::analysis::traversal::CallIndex;
@@ -494,6 +495,171 @@ pub fn collect_known_array_vars(program: &Program) -> HashSet<String> {
     collect_known_array_vars_with_index(program, &call_index)
 }
 
+/// Records one proven-array construction site for a struct field,
+/// mirroring the string dataflow's `struct_field_str` markers.
+fn record_array_struct_field(known_arrays: &mut HashSet<String>, sname: &str, fname: &str) {
+    known_arrays.insert(format!("struct_field_arr:{}.{}", sname, fname));
+    let bare = sname.rsplit("::").next().unwrap_or(sname);
+    let bare = bare.rsplit("__").next().unwrap_or(bare);
+    // #101: bare markers need a single owner.
+    if may_record_bare!(known_arrays, sname, bare) {
+        known_arrays.insert(format!("struct_field_arr:{}", fname));
+    }
+}
+
+fn scan_expr_for_array_struct_fields(
+    expr: &Expr,
+    struct_defs: &HashMap<String, Vec<String>>,
+    fn_scope: Option<&str>,
+    known_arrays: &mut HashSet<String>,
+) {
+    match expr {
+        Expr::Call { name, args } => {
+            if let Some(fields) = struct_defs.get(name) {
+                for (i, arg) in args.iter().enumerate() {
+                    if let Some(fname) = fields.get(i) {
+                        if expr_is_definitely_array(arg, fn_scope, known_arrays) {
+                            record_array_struct_field(known_arrays, name, fname);
+                        }
+                    }
+                }
+            }
+            for arg in args {
+                scan_expr_for_array_struct_fields(arg, struct_defs, fn_scope, known_arrays);
+            }
+        }
+        Expr::StructInit { name, fields } => {
+            for (fname, fval) in fields {
+                if expr_is_definitely_array(fval, fn_scope, known_arrays) {
+                    record_array_struct_field(known_arrays, name, fname);
+                }
+                scan_expr_for_array_struct_fields(fval, struct_defs, fn_scope, known_arrays);
+            }
+        }
+        Expr::Binary { left, right, .. } => {
+            scan_expr_for_array_struct_fields(left, struct_defs, fn_scope, known_arrays);
+            scan_expr_for_array_struct_fields(right, struct_defs, fn_scope, known_arrays);
+        }
+        Expr::Unary { expr, .. } => {
+            scan_expr_for_array_struct_fields(expr, struct_defs, fn_scope, known_arrays);
+        }
+        Expr::ForceUnwrap(inner) => {
+            scan_expr_for_array_struct_fields(inner, struct_defs, fn_scope, known_arrays);
+        }
+        Expr::Array(elems) => {
+            for elem in elems {
+                scan_expr_for_array_struct_fields(elem, struct_defs, fn_scope, known_arrays);
+            }
+        }
+        Expr::Index { array, index } => {
+            scan_expr_for_array_struct_fields(array, struct_defs, fn_scope, known_arrays);
+            scan_expr_for_array_struct_fields(index, struct_defs, fn_scope, known_arrays);
+        }
+        Expr::FieldAccess { object, .. } => {
+            scan_expr_for_array_struct_fields(object, struct_defs, fn_scope, known_arrays);
+        }
+        Expr::Map(entries) => {
+            for (k, v) in entries {
+                scan_expr_for_array_struct_fields(k, struct_defs, fn_scope, known_arrays);
+                scan_expr_for_array_struct_fields(v, struct_defs, fn_scope, known_arrays);
+            }
+        }
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            scan_expr_for_array_struct_fields(condition, struct_defs, fn_scope, known_arrays);
+            scan_expr_for_array_struct_fields(then_branch, struct_defs, fn_scope, known_arrays);
+            scan_expr_for_array_struct_fields(else_branch, struct_defs, fn_scope, known_arrays);
+        }
+        _ => {}
+    }
+}
+
+fn scan_array_struct_fields(
+    stmts: &[Stmt],
+    struct_defs: &HashMap<String, Vec<String>>,
+    fn_scope: Option<&str>,
+    known_arrays: &mut HashSet<String>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { value, .. } | Stmt::Assign { value, .. } => {
+                scan_expr_for_array_struct_fields(value, struct_defs, fn_scope, known_arrays);
+            }
+            Stmt::Return(Some(expr)) | Stmt::Throw(Some(expr)) => {
+                scan_expr_for_array_struct_fields(expr, struct_defs, fn_scope, known_arrays);
+            }
+            Stmt::Expr(expr) | Stmt::Say(expr) => {
+                scan_expr_for_array_struct_fields(expr, struct_defs, fn_scope, known_arrays);
+            }
+            Stmt::If {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                scan_expr_for_array_struct_fields(condition, struct_defs, fn_scope, known_arrays);
+                scan_array_struct_fields(then_block, struct_defs, fn_scope, known_arrays);
+                if let Some(eb) = else_block {
+                    scan_array_struct_fields(eb, struct_defs, fn_scope, known_arrays);
+                }
+            }
+            Stmt::While { condition, body } => {
+                scan_expr_for_array_struct_fields(condition, struct_defs, fn_scope, known_arrays);
+                scan_array_struct_fields(body, struct_defs, fn_scope, known_arrays);
+            }
+            Stmt::For {
+                start, end, body, ..
+            } => {
+                scan_expr_for_array_struct_fields(start, struct_defs, fn_scope, known_arrays);
+                scan_expr_for_array_struct_fields(end, struct_defs, fn_scope, known_arrays);
+                scan_array_struct_fields(body, struct_defs, fn_scope, known_arrays);
+            }
+            Stmt::Repeat { body } => {
+                scan_array_struct_fields(body, struct_defs, fn_scope, known_arrays);
+            }
+            Stmt::IndexAssign {
+                array,
+                index,
+                value,
+            } => {
+                scan_expr_for_array_struct_fields(array, struct_defs, fn_scope, known_arrays);
+                scan_expr_for_array_struct_fields(index, struct_defs, fn_scope, known_arrays);
+                scan_expr_for_array_struct_fields(value, struct_defs, fn_scope, known_arrays);
+            }
+            Stmt::ForEach { iterable, body, .. } => {
+                scan_expr_for_array_struct_fields(iterable, struct_defs, fn_scope, known_arrays);
+                scan_array_struct_fields(body, struct_defs, fn_scope, known_arrays);
+            }
+            Stmt::Function { name, body, .. } => {
+                scan_array_struct_fields(body, struct_defs, Some(name), known_arrays);
+            }
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                scan_array_struct_fields(try_block, struct_defs, fn_scope, known_arrays);
+                scan_array_struct_fields(catch_block, struct_defs, fn_scope, known_arrays);
+                if let Some(fb) = finally_block {
+                    scan_array_struct_fields(fb, struct_defs, fn_scope, known_arrays);
+                }
+            }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                scan_array_struct_fields(
+                    std::slice::from_ref(inner),
+                    struct_defs,
+                    fn_scope,
+                    known_arrays,
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
 pub fn collect_known_array_vars_with_index(
     program: &Program,
     call_index: &CallIndex,
@@ -503,6 +669,8 @@ pub fn collect_known_array_vars_with_index(
     seed_ambiguity_markers(program, &mut known_arrays);
     let mut funcs = Vec::new();
     collect_function_defs(&program.statements, &mut funcs);
+    let mut struct_defs = HashMap::new();
+    collect_struct_defs(&program.statements, &mut struct_defs);
     for stmt in &program.statements {
         let stmt = stmt.inner_stmt();
         if let Stmt::StructDef {
@@ -528,6 +696,14 @@ pub fn collect_known_array_vars_with_index(
     for _ in 0..7 {
         let prev_len = known_arrays.len();
         collect_array_vars_from_stmts(&program.statements, None, &mut known_arrays);
+        // Struct-field array markers from construction sites, mirroring
+        // the string dataflow (alya-lang/alya#132): without these, a
+        // field fed arrays through variables carries no array marker
+        // while the string path records one, and every array read
+        // miscompiles to the string path. Genuinely mixed fields earn
+        // both markers and are demoted to dynamic dispatch by the
+        // post-seeding contradiction cleanup.
+        scan_array_struct_fields(&program.statements, &struct_defs, None, &mut known_arrays);
         for (name, params, param_types, body) in &funcs {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);

@@ -526,7 +526,7 @@ fn collect_function_returns_string_array(
     }
 }
 
-fn collect_struct_defs(stmts: &[Stmt], map: &mut HashMap<String, Vec<String>>) {
+pub(super) fn collect_struct_defs(stmts: &[Stmt], map: &mut HashMap<String, Vec<String>>) {
     for s in stmts {
         match s {
             Stmt::StructDef { name, fields, .. } => {
@@ -1625,7 +1625,7 @@ fn collect_string_vars_from_stmts(
 
 pub fn collect_known_string_vars(program: &Program) -> HashSet<String> {
     let call_index = CallIndex::build(&program.statements);
-    collect_known_string_vars_with_index(program, &call_index)
+    collect_known_string_vars_with_index(program, &call_index, &HashSet::new())
 }
 
 /// Bare field names whose `string` type is contradicted by another struct's
@@ -1987,10 +1987,17 @@ fn struct_field_markers_mixed(known: &HashSet<String>, sname: &str, fname: &str)
 pub fn collect_known_string_vars_with_index(
     program: &Program,
     call_index: &CallIndex,
+    seed_mixed_fields: &HashSet<String>,
 ) -> HashSet<String> {
     let mut known_strings = HashSet::new();
     // #101: ambiguity sentinels first; collided bare keys stay unrecorded.
     seed_ambiguity_markers(program, &mut known_strings);
+    // Cross-family contradictions, second pass (alya-lang/alya#132):
+    // seeds from the inference-level cleanup so re-derived markers and
+    // their derivations stay suppressed from the start.
+    for f in seed_mixed_fields {
+        known_strings.insert(format!("struct_field_mixed:{}", f));
+    }
     // Fields whose `string` type is contradicted by another struct's explicit
     // non-string declaration (e.g. `Url.port: string` vs `Srv.port: int`).
     // Bare `struct_field_str:{field}` markers for such fields are unsound and

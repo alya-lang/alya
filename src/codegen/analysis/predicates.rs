@@ -1016,6 +1016,107 @@ fn struct_field_kind_mixed(vars: &HashMap<String, VarType>, field: &str) -> bool
     vars.contains_key(&format!("struct_field_mixed:{}", field))
 }
 
+/// Post-seeding cleanup (alya-lang/alya#132): when one field name carries
+/// markers from two or more kind families (string vs array vs map vs
+/// float), no static kind serves every read, so every marker for that
+/// field is unsound — including the qualified per-struct ones that typed
+/// receivers consult directly.
+///
+/// The literal-kind sentinels (alya-lang/alya#113) and the annotation
+/// conflicts (alya-lang/alya#131) both miss the case where every
+/// construction site passes a *variable* (`payload: payload` in both the
+/// string and the byte paths): each side observes DYN, no sentinel is
+/// emitted, yet inference still records `struct_field_str:F.payload` on
+/// the string side and `struct_field_arr:F.payload` on the array side.
+/// Typed reads then take the losing static path (a byte array read back
+/// as a C string truncates at the first NUL: `len` reports 1 for
+/// `[72, 0]`, element loads return header garbage, a later `push`
+/// segfaults).
+///
+/// Contradictory keys are removed outright (not just gated) so readers
+/// that never consult the sentinel cannot pick the losing path either;
+/// a `struct_field_mixed:{field}` sentinel is left behind so write sites
+/// and bare-global fallbacks demote the field to dynamic dispatch.
+/// Fields with markers from a single family are untouched.
+pub fn suppress_contradictory_struct_field_markers(vars: &mut HashMap<String, VarType>) {
+    const F_STR: u8 = 1;
+    const F_ARR: u8 = 2;
+    const F_MAP: u8 = 4;
+    const F_FLT: u8 = 8;
+
+    fn family_of(key: &str) -> Option<(u8, &str)> {
+        // Longest (sub-kind) prefixes first: `struct_field_arr_str:` etc.
+        // refine array elements but are still array-kind markers.
+        for (prefix, fam) in [
+            ("struct_field_arr_str:", F_ARR),
+            ("struct_field_arr_flt:", F_ARR),
+            ("struct_field_arr_int:", F_ARR),
+            ("struct_field_arr:", F_ARR),
+            ("struct_field_str:", F_STR),
+            ("struct_field_map:", F_MAP),
+            ("struct_field_flt:", F_FLT),
+        ] {
+            if let Some(rest) = key.strip_prefix(prefix) {
+                return Some((fam, rest));
+            }
+        }
+        None
+    }
+
+    fn bare_struct(s: &str) -> &str {
+        let b = s.rsplit("::").next().unwrap_or(s);
+        b.rsplit("__").next().unwrap_or(b)
+    }
+
+    // field -> kind mask (bare-global markers).
+    let mut bare_fams: HashMap<String, u8> = HashMap::new();
+    // (bare struct, field) -> kind mask (qualified markers).
+    let mut qual_fams: HashMap<(String, String), u8> = HashMap::new();
+    // (bare struct, field) -> qualified keys in that group.
+    let mut qual_keys: HashMap<(String, String), Vec<String>> = HashMap::new();
+    // field -> bare-global keys.
+    let mut bare_keys: HashMap<String, Vec<String>> = HashMap::new();
+
+    for key in vars.keys() {
+        let Some((fam, rest)) = family_of(key) else {
+            continue;
+        };
+        if let Some((s, f)) = rest.rsplit_once('.') {
+            let group = (bare_struct(s).to_string(), f.to_string());
+            *qual_fams.entry(group.clone()).or_default() |= fam;
+            qual_keys.entry(group).or_default().push(key.clone());
+        } else {
+            *bare_fams.entry(rest.to_string()).or_default() |= fam;
+            bare_keys
+                .entry(rest.to_string())
+                .or_default()
+                .push(key.clone());
+        }
+    }
+
+    let mut remove: Vec<String> = Vec::new();
+    let mut mixed_fields: HashSet<String> = HashSet::new();
+    for (field, mask) in &bare_fams {
+        if mask.count_ones() > 1 {
+            mixed_fields.insert(field.clone());
+            remove.extend(bare_keys[field].iter().cloned());
+        }
+    }
+    for (group, mask) in &qual_fams {
+        if mask.count_ones() > 1 {
+            mixed_fields.insert(group.1.clone());
+            remove.extend(qual_keys[group].iter().cloned());
+        }
+    }
+
+    for key in remove {
+        vars.remove(&key);
+    }
+    for field in mixed_fields {
+        vars.insert(format!("struct_field_mixed:{}", field), VarType::Number(0));
+    }
+}
+
 /// True when an `Index` read routes through `fn_get` (map path) rather
 /// than a direct array load. Mirrors the routing condition in the
 /// expression codegen: map-typed base, string-typed key, or string
@@ -1455,11 +1556,16 @@ pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "native_log"
                     | "native_log2"
                     | "native_log10"
+                    | "native_log1p"
                     | "native_exp"
+                    | "native_exp2"
+                    | "native_expm1"
                     | "native_sqrt"
+                    | "native_cbrt"
                     | "native_ceil"
                     | "native_floor"
                     | "native_fmod"
+                    | "native_pow"
                     | "asin"
                     | "acos"
                     | "atan"
@@ -1470,9 +1576,15 @@ pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "log_n"
                     | "log2"
                     | "log10"
+                    | "log1p"
                     | "exp_f"
+                    | "exp2"
+                    | "expm1"
                     | "fmod"
                     | "sqrt_f"
+                    | "cbrt"
+                    | "pow_f"
+                    | "powi"
             ) || vars.contains_key(&format!("fn_ret_flt:{}", name))
                 // #101: a qualified-spelled call must never inherit
                 // markers set by an unrelated same-bare function.

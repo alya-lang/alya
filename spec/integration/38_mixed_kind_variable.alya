@@ -1,0 +1,41 @@
+# ==============================================================================
+# Alya Integration Fixture 38 (entry): mixed-kind struct field via variables
+# Distilled from: alya-lang/alya#132 (http WebSocketFrame.payload fed a
+#                 string on the text path and a byte array on the bytes
+#                 path, both through variables)
+# Guards: when every construction site passes a *variable*, literal-kind
+#         observation sees DYN+DYN and emits no sentinel, yet inference
+#         still records a one-sided string marker. The array side must
+#         record its marker too so the contradiction demotes every read
+#         to dynamic dispatch: string reads keep working, array len and
+#         element reads stay exact, and push-into-field never segfaults.
+# ==============================================================================
+
+struct F
+    payload
+end
+
+function make_str(payload)
+    return F { payload: payload }
+end
+
+function make_arr(payload)
+    return F { payload: payload }
+end
+
+function main()
+    let s = make_str("hi")
+    assert s.payload == "hi"
+    say s.payload
+    let a = make_arr([72, 0, 1])
+    assert len(a.payload) == 3
+    assert a.payload[0] == 72
+    assert a.payload[1] == 0
+    assert a.payload[2] == 1
+    a.payload.push(99)
+    assert len(a.payload) == 4
+    assert a.payload[3] == 99
+    say "integration 38_mixed_kind_variable: OK"
+end
+
+main()

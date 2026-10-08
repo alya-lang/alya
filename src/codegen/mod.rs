@@ -781,6 +781,18 @@ impl CodeGen {
             );
         }
 
+        // Cross-family contradictions (alya-lang/alya#132): one field
+        // name with markers from two or more kind families (e.g. string
+        // on the text path, array on the byte path, both fed by
+        // variables so no literal-kind sentinel exists). Neither the
+        // bare nor the qualified markers are sound; drop them all and
+        // leave the mixed sentinel so every read demotes to dynamic
+        // dispatch. Runs after every seeding pass above (annotations,
+        // inference transfer) so it sees the complete marker set.
+        crate::codegen::analysis::suppress_contradictory_struct_field_markers(
+            &mut self.ctx.variables,
+        );
+
         for stmt in &program.statements {
             if let Stmt::Function {
                 name,
@@ -1777,6 +1789,26 @@ impl CodeGen {
                 .and_then(|t| t.as_deref())
                 .is_some_and(crate::codegen::analysis::is_int_array_annotation);
             let mut is_map = inference.infer_param_is_map(name, i, program) || annot_map;
+            // Explicit collection annotations veto the other families'
+            // may-facts (alya-lang/alya#132): inference keys string-ness
+            // by bare field name, so a poisoned `struct_field_str` marker
+            // once flipped an explicitly-typed `array` parameter into
+            // string treatment (`a[i]` compiled to `char_at` on an array
+            // pointer, returning heap garbage). An annotated collection
+            // is never a scalar string/float or the other collection;
+            // element refinements (`string[]` + `is_str_arr`) still apply.
+            if annot_arr {
+                is_str = false;
+                is_flt = false;
+                is_map = false;
+            }
+            if annot_map {
+                is_str = false;
+                is_flt = false;
+                is_arr = false;
+                is_str_arr = false;
+                is_flt_arr = false;
+            }
             if let Some(s) = explicit_scalar {
                 match s {
                     "string" | "str" => {

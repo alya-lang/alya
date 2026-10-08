@@ -53,6 +53,7 @@
 # | `35_return_borrowed_alias.alya` | `archive` entry loop via pass-through helper (alya-lang/alya#125) | `return data` of an untyped param retains the borrowed alias so loop-end releases never reclaim the shared referent |
 # | `36_catch_struct_message.alya` | `std/process` `ProcessError` handling (alya-lang/alya#126) | `.message` on a catch binding prefers the throw-recorded text over the struct-pointer identity, with value fallback for string throws |
 # | `37_mixed_kind_field.alya` | `http` `SseEvent.data` vs `event` `TcpStream.data` (alya-lang/alya#131) | reachable string-`data` literal must not flip untyped `.data` reads on array holders; mixed fields demote to dynamic reads |
+# | `38_mixed_kind_variable.alya` | `http` `WebSocketFrame.payload` text vs bytes paths (alya-lang/alya#132) | every construction site passing a *variable* still earns both kind markers, so the contradiction demotes reads, params, and `say` to dynamic dispatch; no truncation, no segfault |
 #
 # ## Known collision (deliberate rename)
 #
