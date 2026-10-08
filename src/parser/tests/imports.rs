@@ -960,10 +960,11 @@ fn test_import_cache_reuse_across_programs() {
 
 #[test]
 fn test_import_cache_byte_identical_codegen() {
-    use std::fs;
     use crate::codegen::{Architecture, OperatingSystem};
+    use std::fs;
 
-    let temp_dir = std::env::temp_dir().join(format!("alya_import_byte_identical_{}", std::process::id()));
+    let temp_dir =
+        std::env::temp_dir().join(format!("alya_import_byte_identical_{}", std::process::id()));
     let _ = fs::remove_dir_all(&temp_dir);
     let _ = fs::create_dir_all(&temp_dir);
 
@@ -995,19 +996,33 @@ fn test_import_cache_byte_identical_codegen() {
 
     // 2. Pre-populate cache with helper.alya
     let cache = crate::parser::ImportCache::default();
-    let mut dummy_ast = Parser::new(crate::lexer::Lexer::new("import \"helper.alya\"").tokenize().unwrap())
-        .parse()
-        .unwrap();
-    crate::parser::resolve_imports_with_sources_cached(&mut dummy_ast, &temp_dir, &cfg, Some(&cache))
-        .expect("populate cache");
+    let mut dummy_ast = Parser::new(
+        crate::lexer::Lexer::new("import \"helper.alya\"")
+            .tokenize()
+            .unwrap(),
+    )
+    .parse()
+    .unwrap();
+    crate::parser::resolve_imports_with_sources_cached(
+        &mut dummy_ast,
+        &temp_dir,
+        &cfg,
+        Some(&cache),
+    )
+    .expect("populate cache");
 
     // 3. Compile WITH cache (warm run)
     let mut lexer2 = crate::lexer::Lexer::new(main_source);
     let tokens2 = lexer2.tokenize().expect("tokenize 2");
     let mut parser2 = Parser::new(tokens2);
     let mut program2 = parser2.parse().expect("parse 2");
-    crate::parser::resolve_imports_with_sources_cached(&mut program2, &temp_dir, &cfg, Some(&cache))
-        .expect("resolve 2");
+    crate::parser::resolve_imports_with_sources_cached(
+        &mut program2,
+        &temp_dir,
+        &cfg,
+        Some(&cache),
+    )
+    .expect("resolve 2");
 
     // Verify byte-identical codegen across all architectures and OS combinations
     for (arch, os) in [
