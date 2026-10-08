@@ -957,3 +957,73 @@ fn test_import_cache_reuse_across_programs() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_import_cache_byte_identical_codegen() {
+    use std::fs;
+    use crate::codegen::{Architecture, OperatingSystem};
+
+    let temp_dir = std::env::temp_dir().join(format!("alya_import_byte_identical_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    let _ = fs::create_dir_all(&temp_dir);
+
+    // Create a shared helper module with functions, structs, constants, and nested imports
+    let sub_helper = temp_dir.join("sub_helper.alya");
+    fs::write(
+        &sub_helper,
+        "pub const FACTOR: int = 42\npub function multiply(a: int, b: int) -> int\n    return a * b + FACTOR\nend\n",
+    )
+    .unwrap();
+
+    let helper_path = temp_dir.join("helper.alya");
+    fs::write(
+        &helper_path,
+        "import \"sub_helper.alya\"\npub struct Point\n    x: int\n    y: int\nend\npub function make_point(x: int, y: int) -> Point\n    return Point { x: multiply(x, 2), y: y }\nend\n",
+    )
+    .unwrap();
+
+    let main_source = "import \"helper.alya\"\nlet pt = make_point(10, 20)\nsay pt.x + pt.y\n";
+    let cfg = CfgContext::host();
+
+    // 1. Compile WITHOUT cache (cold baseline)
+    let mut lexer1 = crate::lexer::Lexer::new(main_source);
+    let tokens1 = lexer1.tokenize().expect("tokenize 1");
+    let mut parser1 = Parser::new(tokens1);
+    let mut program1 = parser1.parse().expect("parse 1");
+    crate::parser::resolve_imports_with_sources_cached(&mut program1, &temp_dir, &cfg, None)
+        .expect("resolve 1");
+
+    // 2. Pre-populate cache with helper.alya
+    let cache = crate::parser::ImportCache::default();
+    let mut dummy_ast = Parser::new(crate::lexer::Lexer::new("import \"helper.alya\"").tokenize().unwrap())
+        .parse()
+        .unwrap();
+    crate::parser::resolve_imports_with_sources_cached(&mut dummy_ast, &temp_dir, &cfg, Some(&cache))
+        .expect("populate cache");
+
+    // 3. Compile WITH cache (warm run)
+    let mut lexer2 = crate::lexer::Lexer::new(main_source);
+    let tokens2 = lexer2.tokenize().expect("tokenize 2");
+    let mut parser2 = Parser::new(tokens2);
+    let mut program2 = parser2.parse().expect("parse 2");
+    crate::parser::resolve_imports_with_sources_cached(&mut program2, &temp_dir, &cfg, Some(&cache))
+        .expect("resolve 2");
+
+    // Verify byte-identical codegen across all architectures and OS combinations
+    for (arch, os) in [
+        (Architecture::X64, OperatingSystem::Windows),
+        (Architecture::X64, OperatingSystem::Linux),
+        (Architecture::ARM64, OperatingSystem::Linux),
+        (Architecture::ARM64, OperatingSystem::MacOS),
+    ] {
+        let asm1 = crate::codegen::generate(&program1, arch, os);
+        let asm2 = crate::codegen::generate(&program2, arch, os);
+        assert_eq!(
+            asm1, asm2,
+            "Generated assembly for {:?}-{:?} must be byte-identical whether resolved with or without ImportCache",
+            arch, os
+        );
+    }
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}
