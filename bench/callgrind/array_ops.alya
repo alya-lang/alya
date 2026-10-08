@@ -1,0 +1,13 @@
+# callgrind/array_ops.alya — array push sweep then iteration (growth + index path).
+# Expected: sum(0..80000) = 3200040000
+let arr: int[] = []
+let i: int = 0
+while i <= 80000
+    arr.push(i)
+    i += 1
+end
+let total: int = 0
+for x in arr
+    total += x
+end
+say total

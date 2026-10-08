@@ -1,0 +1,10 @@
+# callgrind/fib_rec.alya — deep integer recursion + call overhead.
+# Expected: fib(26) = 121393
+function fib(n: int) -> int
+    if n <= 1
+        return n
+    end
+    return fib(n - 1) + fib(n - 2)
+end
+
+say fib(26)

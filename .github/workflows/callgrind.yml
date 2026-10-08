@@ -1,0 +1,51 @@
+name: Callgrind benchmarks
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+      - develop
+  push:
+    branches:
+      - main
+      - master
+      - develop
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  callgrind:
+    name: Callgrind Ir (x64 Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install valgrind and C toolchain
+        run: sudo apt-get update && sudo apt-get install -y valgrind gcc
+
+      - name: Build alya
+        run: cargo build --verbose
+
+      - name: Run callgrind corpus
+        run: ALYA_BIN=$PWD/target/debug/alya bench/callgrind/run.sh
+
+      - name: Upload callgrind files
+        uses: actions/upload-artifact@v7
+        with:
+          name: callgrind-out
+          path: /tmp/alya-callgrind/callgrind.out.*

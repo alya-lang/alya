@@ -1,0 +1,9 @@
+# callgrind/str_build.alya — repeated string concatenation (O(n^2) realloc path).
+# Expected: 8000
+let s: string = ""
+let i: int = 0
+while i < 8000
+    s = s + "x"
+    i += 1
+end
+say s.length()

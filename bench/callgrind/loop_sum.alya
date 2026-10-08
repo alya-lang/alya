@@ -1,0 +1,9 @@
+# callgrind/loop_sum.alya — tight integer loop with accumulator.
+# Expected: sum(0..8000000) = 31999996000000
+let total: int = 0
+let i: int = 0
+while i < 8000000
+    total += i
+    i += 1
+end
+say total

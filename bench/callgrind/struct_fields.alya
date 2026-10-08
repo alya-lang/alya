@@ -1,0 +1,17 @@
+# callgrind/struct_fields.alya — struct field read/write in a loop.
+# Expected: int(total) = 15000675000 (exact: halves/quarters only, no libm)
+struct Point
+    x: float
+    y: float
+end
+
+let p = Point { x: 1.0, y: 2.0 }
+let total: float = 0.0
+let i: int = 0
+while i < 200000
+    p.x = p.x + 0.5
+    p.y = p.y + 0.25
+    total += p.x + p.y
+    i += 1
+end
+say int(total)

@@ -1,0 +1,13 @@
+# callgrind/closure.alya — closure allocation + higher-order call per iteration.
+# Expected: sum(i + 2 for i in 0..80000) = 3200200002
+function apply_twice(val: int, transform: |int| -> int) -> int
+    return transform(transform(val))
+end
+
+let total: int = 0
+let i: int = 0
+while i <= 80000
+    total += apply_twice(i, |x: int| => x + 1)
+    i += 1
+end
+say total
