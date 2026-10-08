@@ -355,8 +355,6 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         ("native_fmod", "fmod"),
         ("native_pow", "pow"),
         ("native_copysign", "copysign"),
-        ("native_fmin", "fmin"),
-        ("native_fmax", "fmax"),
         ("native_nextafter", "nextafter"),
     ];
 
