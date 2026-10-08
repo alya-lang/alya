@@ -39,6 +39,71 @@ pub let SQRT2: float = 1.4142135623730951
 ## The constant tau (approximately 6.28319), used for full-circle angles in radians.
 pub let TAU: float = 6.283185307179586
 
+## One over pi (1/pi).
+##
+## The value 1/pi (approximately 0.31831), used to normalize radian fractions.
+pub let FRAC_1_PI: float = 0.3183098861837907
+
+## Two over pi (2/pi).
+##
+## The value 2/pi (approximately 0.63662).
+pub let FRAC_2_PI: float = 0.6366197723675814
+
+## Two over the square root of pi (2/sqrt(pi)).
+##
+## The value 2/sqrt(pi) (approximately 1.12838), used in normal-distribution scaling.
+pub let FRAC_2_SQRT_PI: float = 1.1283791670955126
+
+## Pi over two (pi/2, a right angle in radians).
+##
+## The value pi/2 (approximately 1.57080).
+pub let FRAC_PI_2: float = 1.5707963267948966
+
+## Pi over three (pi/3, 60 degrees in radians).
+##
+## The value pi/3 (approximately 1.04720).
+pub let FRAC_PI_3: float = 1.0471975511965976
+
+## Pi over four (pi/4, 45 degrees in radians).
+##
+## The value pi/4 (approximately 0.78540).
+pub let FRAC_PI_4: float = 0.7853981633974483
+
+## Pi over six (pi/6, 30 degrees in radians).
+##
+## The value pi/6 (approximately 0.52360).
+pub let FRAC_PI_6: float = 0.5235987755982989
+
+## Pi over eight (pi/8, 22.5 degrees in radians).
+##
+## The value pi/8 (approximately 0.39270).
+pub let FRAC_PI_8: float = 0.39269908169872414
+
+## One over the square root of two (1/sqrt(2)).
+##
+## The value 1/sqrt(2) (approximately 0.70711), used as the half-power point.
+pub let FRAC_1_SQRT_2: float = 0.7071067811865476
+
+## Base-2 logarithm of 10.
+##
+## The value log2(10) (approximately 3.32193), used to convert decimal digits to bits.
+pub let LOG2_10: float = 3.321928094887362
+
+## Base-10 logarithm of 2.
+##
+## The value log10(2) (approximately 0.30103), used to convert bits to decimal digits.
+pub let LOG10_2: float = 0.3010299956639812
+
+## Base-2 logarithm of e.
+##
+## The value log2(e) (approximately 1.44270), used to convert natural logarithms to base 2.
+pub let LOG2_E: float = 1.4426950408889634
+
+## Base-10 logarithm of e.
+##
+## The value log10(e) (approximately 0.43429), used to convert natural logarithms to base 10.
+pub let LOG10_E: float = 0.4342944819032518
+
 # --- Angle Conversion ---
 
 ## Converts degrees to radians.
@@ -92,6 +157,90 @@ end
 ## The floating-point remainder of `a` divided by `b`.
 pub function fmod(a, b) -> float
     return native_fmod(float(a), float(b))
+end
+
+## Returns the smaller of two values as a float.
+##
+## ### Parameters
+## - `a`: First value, converted to float.
+## - `b`: Second value, converted to float.
+##
+## ### Returns
+## The smaller of `a` and `b` as a float, following C `fmin` NaN handling.
+pub function fmin(a, b) -> float
+    return native_fmin(float(a), float(b))
+end
+
+## Returns the larger of two values as a float.
+##
+## ### Parameters
+## - `a`: First value, converted to float.
+## - `b`: Second value, converted to float.
+##
+## ### Returns
+## The larger of `a` and `b` as a float, following C `fmax` NaN handling.
+pub function fmax(a, b) -> float
+    return native_fmax(float(a), float(b))
+end
+
+## Returns a value with the magnitude of x and the sign of y.
+##
+## ### Parameters
+## - `x`: Value supplying the magnitude, converted to float.
+## - `y`: Value supplying the sign, converted to float.
+##
+## ### Returns
+## The magnitude of `x` with the sign of `y` as a float.
+pub function copysign(x, y) -> float
+    return native_copysign(float(x), float(y))
+end
+
+## Returns the next representable value after x toward y.
+##
+## ### Parameters
+## - `x`: Starting value, converted to float.
+## - `y`: Direction target, converted to float.
+##
+## ### Returns
+## The representable float adjacent to `x` in the direction of `y`.
+pub function nextafter(x, y) -> float
+    return native_nextafter(float(x), float(y))
+end
+
+## Returns the fused multiply-add of the three values.
+##
+## ### Parameters
+## - `x`: First factor, converted to float.
+## - `y`: Second factor, converted to float.
+## - `z`: Addend, converted to float.
+##
+## ### Returns
+## The value `x * y + z` as a float, computed with a single rounding step.
+pub function fma(x, y, z) -> float
+    return native_fma(float(x), float(y), float(z))
+end
+
+## Returns the fractional part of the value, keeping its sign.
+##
+## ### Parameters
+## - `x`: Value, converted to float.
+##
+## ### Returns
+## The signed fractional part of `x` as a float (`x - trunc(x)`).
+pub function fract(x) -> float
+    let f: float = float(x)
+    return f - float(trunc(f))
+end
+
+## Returns the reciprocal of the value.
+##
+## ### Parameters
+## - `x`: Value, converted to float.
+##
+## ### Returns
+## The value `1 / x` as a float.
+pub function recip(x) -> float
+    return 1.0 / float(x)
 end
 
 ## Tests whether a number is even.
@@ -191,6 +340,47 @@ end
 ## The value of `base` raised to `n` as a float.
 pub function powi(base, n: int) -> float
     return native_pow(float(base), float(n))
+end
+
+# --- Float Classification ---
+
+## Tests whether a value is NaN (not a number).
+##
+## ### Parameters
+## - `x`: Value to test, converted to float.
+##
+## ### Returns
+## True when `x` is NaN, otherwise false.
+pub function is_nan(x) -> bool
+    let f: float = float(x)
+    return f != f
+end
+
+## Tests whether a value is infinite.
+##
+## ### Parameters
+## - `x`: Value to test, converted to float.
+##
+## ### Returns
+## True when `x` is positive or negative infinity, otherwise false.
+pub function is_infinite(x) -> bool
+    let f: float = float(x)
+    if f != f
+        return false
+    end
+    let d: float = f - f
+    return d != d
+end
+
+## Tests whether a value is finite (neither infinite nor NaN).
+##
+## ### Parameters
+## - `x`: Value to test, converted to float.
+##
+## ### Returns
+## True when `x` is a finite number, otherwise false.
+pub function is_finite(x) -> bool
+    return not is_nan(x) and not is_infinite(x)
 end
 
 # --- Rounding ---
@@ -347,6 +537,18 @@ pub function tan(x) -> float
     return native_tan(float(x))
 end
 
+## Returns the sine and cosine of the angle in radians together.
+##
+## ### Parameters
+## - `x`: Angle in radians, converted to float.
+##
+## ### Returns
+## The pair `(sin(x), cos(x))` as floats.
+pub function sin_cos(x) -> (float, float)
+    let f: float = float(x)
+    return sin(f), cos(f)
+end
+
 # --- Hyperbolic Functions ---
 
 ## Returns the hyperbolic cosine of the value.
@@ -380,6 +582,39 @@ end
 ## The hyperbolic tangent of `x`.
 pub function tanh(x) -> float
     return native_tanh(float(x))
+end
+
+## Returns the inverse hyperbolic sine of the value.
+##
+## ### Parameters
+## - `x`: Value, converted to float.
+##
+## ### Returns
+## The inverse hyperbolic sine of `x` as a float.
+pub function asinh(x) -> float
+    return native_asinh(float(x))
+end
+
+## Returns the inverse hyperbolic cosine of the value.
+##
+## ### Parameters
+## - `x`: Value, converted to float; inputs below 1 yield NaN.
+##
+## ### Returns
+## The inverse hyperbolic cosine of `x` as a float.
+pub function acosh(x) -> float
+    return native_acosh(float(x))
+end
+
+## Returns the inverse hyperbolic tangent of the value.
+##
+## ### Parameters
+## - `x`: Value, converted to float; inputs outside [-1, 1] yield NaN.
+##
+## ### Returns
+## The inverse hyperbolic tangent of `x` as a float.
+pub function atanh(x) -> float
+    return native_atanh(float(x))
 end
 
 # --- Exponentials and Logarithms ---
@@ -459,6 +694,52 @@ end
 ## The natural (base-e) logarithm of `1 + x` as a float, accurate for small `x`.
 pub function log1p(x) -> float
     return native_log1p(float(x))
+end
+
+# --- Special Functions ---
+
+## Returns the error function of the value.
+##
+## ### Parameters
+## - `x`: Value, converted to float.
+##
+## ### Returns
+## The error function `erf(x)` as a float, ranging from -1 to 1.
+pub function erf(x) -> float
+    return native_erf(float(x))
+end
+
+## Returns the complementary error function of the value.
+##
+## ### Parameters
+## - `x`: Value, converted to float.
+##
+## ### Returns
+## The complementary error function `1 - erf(x)` as a float.
+pub function erfc(x) -> float
+    return native_erfc(float(x))
+end
+
+## Returns the natural logarithm of the absolute gamma function.
+##
+## ### Parameters
+## - `x`: Value, converted to float.
+##
+## ### Returns
+## The value `ln(|Gamma(x)|)` as a float.
+pub function lgamma(x) -> float
+    return native_lgamma(float(x))
+end
+
+## Returns the gamma function of the value.
+##
+## ### Parameters
+## - `x`: Value, converted to float.
+##
+## ### Returns
+## The value `Gamma(x)` as a float, extending factorial to reals.
+pub function tgamma(x) -> float
+    return native_tgamma(float(x))
 end
 
 # --- Statistics ---

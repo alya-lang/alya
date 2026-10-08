@@ -220,6 +220,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         ("native_sinh", "sinh"),
         ("native_cosh", "cosh"),
         ("native_tanh", "tanh"),
+        ("native_asinh", "asinh"),
+        ("native_acosh", "acosh"),
+        ("native_atanh", "atanh"),
         ("native_log", "log"),
         ("native_log2", "log2"),
         ("native_log10", "log10"),
@@ -229,6 +232,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         ("native_expm1", "expm1"),
         ("native_sqrt", "sqrt"),
         ("native_cbrt", "cbrt"),
+        ("native_erf", "erf"),
+        ("native_erfc", "erfc"),
+        ("native_lgamma", "lgamma"),
+        ("native_tgamma", "tgamma"),
         ("native_ceil", "ceil"),
         ("native_floor", "floor"),
     ];
@@ -251,6 +258,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         ("native_atan2", "atan2"),
         ("native_fmod", "fmod"),
         ("native_pow", "pow"),
+        ("native_copysign", "copysign"),
+        ("native_fmin", "fmin"),
+        ("native_fmax", "fmax"),
+        ("native_nextafter", "nextafter"),
     ];
 
     for (fn_name, c_name) in two_arg_math {
@@ -261,6 +272,24 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    mov x29, sp\n");
         out.push_str("    fmov d0, x0\n");
         out.push_str("    fmov d1, x1\n");
+        out.push_str(&format!("    bl {}{}\n", p, c_name));
+        out.push_str("    fmov x0, d0\n");
+        out.push_str("    ldp x29, x30, [sp], #16\n");
+        out.push_str("    ret\n\n");
+    }
+
+    // Native libc floating-point math functions (three arguments: arg0, arg1, arg2)
+    let three_arg_math = [("native_fma", "fma")];
+
+    for (fn_name, c_name) in three_arg_math {
+        out.push_str(".align 2\n");
+        out.push_str(&format!(".global fn_{}\n", fn_name));
+        out.push_str(&format!("fn_{}:\n", fn_name));
+        out.push_str("    stp x29, x30, [sp, #-16]!\n");
+        out.push_str("    mov x29, sp\n");
+        out.push_str("    fmov d0, x0\n");
+        out.push_str("    fmov d1, x1\n");
+        out.push_str("    fmov d2, x2\n");
         out.push_str(&format!("    bl {}{}\n", p, c_name));
         out.push_str("    fmov x0, d0\n");
         out.push_str("    ldp x29, x30, [sp], #16\n");

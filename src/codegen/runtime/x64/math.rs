@@ -310,6 +310,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         ("native_sinh", "sinh"),
         ("native_cosh", "cosh"),
         ("native_tanh", "tanh"),
+        ("native_asinh", "asinh"),
+        ("native_acosh", "acosh"),
+        ("native_atanh", "atanh"),
         ("native_log", "log"),
         ("native_log2", "log2"),
         ("native_log10", "log10"),
@@ -319,6 +322,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         ("native_expm1", "expm1"),
         ("native_sqrt", "sqrt"),
         ("native_cbrt", "cbrt"),
+        ("native_erf", "erf"),
+        ("native_erfc", "erfc"),
+        ("native_lgamma", "lgamma"),
+        ("native_tgamma", "tgamma"),
         ("native_ceil", "ceil"),
         ("native_floor", "floor"),
     ];
@@ -347,6 +354,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         ("native_atan2", "atan2"),
         ("native_fmod", "fmod"),
         ("native_pow", "pow"),
+        ("native_copysign", "copysign"),
+        ("native_fmin", "fmin"),
+        ("native_fmax", "fmax"),
+        ("native_nextafter", "nextafter"),
     ];
 
     for (fn_name, c_name) in two_arg_math {
@@ -361,6 +372,32 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         } else {
             out.push_str("    movq %rdi, %xmm0\n");
             out.push_str("    movq %rsi, %xmm1\n");
+        }
+        out.push_str(&format!("    call {}{}\n", p, c_name));
+        out.push_str("    movq %xmm0, %rax\n");
+        out.push_str("    add $32, %rsp\n");
+        out.push_str("    mov %rbp, %rsp\n");
+        out.push_str("    pop %rbp\n");
+        out.push_str("    ret\n\n");
+    }
+
+    // Native libc floating-point math functions (three arguments: arg0, arg1, arg2)
+    let three_arg_math = [("native_fma", "fma")];
+
+    for (fn_name, c_name) in three_arg_math {
+        out.push_str(&format!(".global fn_{}\n", fn_name));
+        out.push_str(&format!("fn_{}:\n", fn_name));
+        out.push_str("    push %rbp\n");
+        out.push_str("    mov %rsp, %rbp\n");
+        out.push_str("    sub $32, %rsp\n");
+        if is_win {
+            out.push_str("    movq %rcx, %xmm0\n");
+            out.push_str("    movq %rdx, %xmm1\n");
+            out.push_str("    movq %r8, %xmm2\n");
+        } else {
+            out.push_str("    movq %rdi, %xmm0\n");
+            out.push_str("    movq %rsi, %xmm1\n");
+            out.push_str("    movq %rdx, %xmm2\n");
         }
         out.push_str(&format!("    call {}{}\n", p, c_name));
         out.push_str("    movq %xmm0, %rax\n");
