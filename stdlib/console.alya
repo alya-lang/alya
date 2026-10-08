@@ -327,15 +327,15 @@ end
 
 # --- Console Input ---
 
-## Asks a yes/no question, returning 1 for yes and 0 for no.
+## Asks a yes/no question, returning true for yes and false for no.
 ##
 ## ### Parameters
 ## - `prompt_text`: Question text shown before the yes/no suffix.
-## - `default_yes`: Default hint and empty-input result (1 shows ` (Y/n): ` and defaults to yes; 0 shows ` (y/N): ` and defaults to no).
+## - `default_yes`: Default hint and empty-input result (true shows ` (Y/n): ` and defaults to yes; false shows ` (y/N): ` and defaults to no).
 ##
 ## ### Returns
-## 1 for a yes answer (`y`, `yes`, `1`, `e`, `evet`, case-insensitive) or an empty answer resolving to a nonzero default; else 0.
-pub function console_confirm(prompt_text: string, default_yes: int = 1) -> int
+## True for a yes answer (`y`, `yes`, `1`, `e`, `evet`, case-insensitive) or an empty answer resolving to a true default; else false.
+pub function console_confirm(prompt_text: string, default_yes: bool = true) -> bool
     let suffix: string = " (Y/n): "
     if default_yes == false
         suffix = " (y/N): "
@@ -345,7 +345,7 @@ pub function console_confirm(prompt_text: string, default_yes: int = 1) -> int
         return default_yes
     end
     when resp
-        is "y", "yes", "1", "e", "evet" then return 1
+        is "y", "yes", "1", "e", "evet" then return true
     end
     return false
 end

@@ -89,7 +89,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when the condition passes, otherwise 0.
+## True when the condition passes, otherwise false.
 pub function assert(cond: int, msg: string) -> bool
     if cond
         say "  [PASS] {msg}"
@@ -108,7 +108,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when actual equals expected, otherwise 0.
+## True when actual equals expected, otherwise false.
 pub function assert_eq(actual, expected, msg: string) -> bool
     if actual == expected
         say "  [PASS] {msg}"
@@ -126,7 +126,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when cond is zero, otherwise 0.
+## True when cond is zero, otherwise false.
 pub function assert_false(cond: int, msg: string) -> bool
     if cond == 0
         say "  [PASS] {msg}"
@@ -145,7 +145,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when actual is greater than expected, otherwise 0.
+## True when actual is greater than expected, otherwise false.
 pub function assert_gt(actual, expected, msg: string) -> bool
     if actual > expected
         say "  [PASS] {msg}"
@@ -164,7 +164,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when actual is greater than or equal to expected, otherwise 0.
+## True when actual is greater than or equal to expected, otherwise false.
 pub function assert_gte(actual, expected, msg: string) -> bool
     if actual >= expected
         say "  [PASS] {msg}"
@@ -183,7 +183,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when actual is less than expected, otherwise 0.
+## True when actual is less than expected, otherwise false.
 pub function assert_lt(actual, expected, msg: string) -> bool
     if actual < expected
         say "  [PASS] {msg}"
@@ -202,7 +202,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when actual is less than or equal to expected, otherwise 0.
+## True when actual is less than or equal to expected, otherwise false.
 pub function assert_lte(actual, expected, msg: string) -> bool
     if actual <= expected
         say "  [PASS] {msg}"
@@ -221,7 +221,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when actual differs from expected, otherwise 0.
+## True when actual differs from expected, otherwise false.
 pub function assert_ne(actual, expected, msg: string) -> bool
     if actual != expected
         say "  [PASS] {msg}"
@@ -239,7 +239,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when val is neither null nor zero, otherwise 0.
+## True when val is neither null nor zero, otherwise false.
 pub function assert_not_null(val, msg: string) -> bool
     if val is not null and val != 0
         say "  [PASS] {msg}"
@@ -257,7 +257,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when val is null or zero, otherwise 0.
+## True when val is null or zero, otherwise false.
 pub function assert_null(val, msg: string) -> bool
     if val is null or val == 0
         say "  [PASS] {msg}"
@@ -276,7 +276,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when the strings are equal, otherwise 0.
+## True when the strings are equal, otherwise false.
 pub function assert_str_eq(actual: string, expected: string, msg: string) -> bool
     if streq(actual, expected)
         say "  [PASS] {msg}"
@@ -295,7 +295,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when the strings differ, otherwise 0.
+## True when the strings differ, otherwise false.
 pub function assert_str_ne(actual: string, expected: string, msg: string) -> bool
     if streq(actual, expected) == false
         say "  [PASS] {msg}"
@@ -313,7 +313,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when cond is nonzero, otherwise 0.
+## True when cond is nonzero, otherwise false.
 pub function assert_true(cond: int, msg: string) -> bool
     if cond
         say "  [PASS] {msg}"
@@ -381,7 +381,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when the condition passes, otherwise 0.
+## True when the condition passes, otherwise false.
 pub function runner_assert(r: TestRunner, cond: int, msg: string) -> bool
     r.total += 1
     if cond
@@ -404,7 +404,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when actual equals expected, otherwise 0.
+## True when actual equals expected, otherwise false.
 pub function runner_assert_eq(r: TestRunner, actual, expected, msg: string) -> bool
     r.total += 1
     if actual == expected
@@ -426,7 +426,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when cond is zero, otherwise 0.
+## True when cond is zero, otherwise false.
 pub function runner_assert_false(r: TestRunner, cond: int, msg: string) -> int
     let is_zero: int = 0
     if cond == 0
@@ -444,7 +444,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when actual differs from expected, otherwise 0.
+## True when actual differs from expected, otherwise false.
 pub function runner_assert_ne(r: TestRunner, actual, expected, msg: string) -> bool
     r.total += 1
     if actual != expected
@@ -467,7 +467,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when the strings are equal, otherwise 0.
+## True when the strings are equal, otherwise false.
 pub function runner_assert_str_eq(r: TestRunner, actual: string, expected: string, msg: string) -> bool
     r.total += 1
     if streq(actual, expected)
@@ -490,7 +490,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when the strings differ, otherwise 0.
+## True when the strings differ, otherwise false.
 pub function runner_assert_str_ne(r: TestRunner, actual: string, expected: string, msg: string) -> bool
     r.total += 1
     if streq(actual, expected) == false
@@ -512,7 +512,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when cond is nonzero, otherwise 0.
+## True when cond is nonzero, otherwise false.
 pub function runner_assert_true(r: TestRunner, cond: int, msg: string) -> int
     return runner_assert(r, cond, msg)
 end
@@ -545,7 +545,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when the condition passes, otherwise 0.
+## True when the condition passes, otherwise false.
 pub function TestRunner.assert(self: TestRunner, cond: int, msg: string) -> int
     return runner_assert(self, cond, msg)
 end
@@ -559,7 +559,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when actual equals expected, otherwise 0.
+## True when actual equals expected, otherwise false.
 pub function TestRunner.assert_eq(self: TestRunner, actual, expected, msg: string) -> int
     return runner_assert_eq(self, actual, expected, msg)
 end
@@ -572,7 +572,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when cond is zero, otherwise 0.
+## True when cond is zero, otherwise false.
 pub function TestRunner.assert_false(self: TestRunner, cond: int, msg: string) -> int
     return runner_assert_false(self, cond, msg)
 end
@@ -586,7 +586,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when actual differs from expected, otherwise 0.
+## True when actual differs from expected, otherwise false.
 pub function TestRunner.assert_ne(self: TestRunner, actual, expected, msg: string) -> int
     return runner_assert_ne(self, actual, expected, msg)
 end
@@ -600,7 +600,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when the strings are equal, otherwise 0.
+## True when the strings are equal, otherwise false.
 pub function TestRunner.assert_str_eq(self: TestRunner, actual: string, expected: string, msg: string) -> int
     return runner_assert_str_eq(self, actual, expected, msg)
 end
@@ -614,7 +614,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when the strings differ, otherwise 0.
+## True when the strings differ, otherwise false.
 pub function TestRunner.assert_str_ne(self: TestRunner, actual: string, expected: string, msg: string) -> int
     return runner_assert_str_ne(self, actual, expected, msg)
 end
@@ -627,7 +627,7 @@ end
 ## - `msg`: Label identifying the check.
 ##
 ## ### Returns
-## 1 when cond is nonzero, otherwise 0.
+## True when cond is nonzero, otherwise false.
 pub function TestRunner.assert_true(self: TestRunner, cond: int, msg: string) -> int
     return runner_assert_true(self, cond, msg)
 end

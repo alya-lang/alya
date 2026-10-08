@@ -353,7 +353,7 @@ end
 
 # --- Internal option plumbing ---
 
-## Returns 1 when key is a valid environment variable name.
+## Returns true when key is a valid environment variable name.
 function internal_valid_env_key(key: string) -> bool
     if len(key) == 0
         return false
@@ -961,7 +961,7 @@ end
 
 # --- Supervision ---
 
-## Returns 1 when pid exists (best-effort probe, no signal is delivered on POSIX).
+## Returns true when pid exists (best-effort probe, no signal is delivered on POSIX).
 ##
 ## Pids can be recycled by the OS: a pid that just exited may read as running
 ## when a new process reuses it. A zombie (dead but not yet reaped by its
@@ -1066,7 +1066,7 @@ end
 
 ## Waits until pid exits or timeout_ms elapses (negative waits forever).
 ##
-## Polls with sleep, so short-lived pids may already be gone (yields 1).
+## Polls with sleep, so short-lived pids may already be gone (yields true).
 ## Pid reuse can also fake "running" for an instant: prefer waiting on
 ## children you spawned and know to be alive. A freshly killed child can
 ## stay visible until init reaps its zombie; a second short wait then succeeds.

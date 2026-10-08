@@ -398,13 +398,13 @@ function _json_skip_ws(s: string, pos: int[], slen: int)
     end
 end
 
-## Returns 1 when the text parses as a complete non-null JSON value.
+## Returns true when the text parses as a complete non-null JSON value.
 ##
 ## ### Parameters
 ## - `text`: JSON source text parsed and checked for trailing content.
 ##
 ## ### Returns
-## 1 when the whole text is one complete non-null JSON value, 0 otherwise.
+## True when the whole text is one complete non-null JSON value, false otherwise.
 pub function json_is_valid(text: string) -> bool
     let s: string = str_from_ptr(text)
     let slen: int = len(s)

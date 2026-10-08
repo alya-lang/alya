@@ -24,6 +24,8 @@ assert_true(len(arch()) > 0, "arch non-empty")
 # 2. Environment lookup with defaults
 assert_str_eq(env_or("ALYA_DEFINITELY_MISSING_VAR_XYZ", "dflt"), "dflt", "env_or default")
 assert_false(has_env("ALYA_DEFINITELY_MISSING_VAR_XYZ"), "has_env missing")
+assert_true(os_setenv("ALYA_TEST_ROUNDTRIP_XYZ", "1"), "os_setenv applies")
+assert_str_eq(env_or("ALYA_TEST_ROUNDTRIP_XYZ", "dflt"), "1", "os_setenv round-trip")
 assert_not_null(get_cwd(), "get_cwd non-null")
 assert_true(len(cwd()) > 0, "cwd non-empty")
 assert_true(len(home_dir()) > 0, "home_dir non-empty")

@@ -89,13 +89,13 @@ end
 
 # --- Stack ---
 
-## Returns 1 if the stack is empty, 0 otherwise.
+## Returns true if the stack is empty, false otherwise.
 ##
 ## ### Parameters
 ## - `s`: Stack to test.
 ##
 ## ### Returns
-## 1 when the stack holds no items, 0 otherwise.
+## True when the stack holds no items, false otherwise.
 pub function stack_is_empty(s) -> bool
     if len(s) == 0
         return true
@@ -168,13 +168,13 @@ pub function queue_clear(q)
     q[0] = 1
 end
 
-## Returns 1 if the queue is empty, 0 otherwise.
+## Returns true if the queue is empty, false otherwise.
 ##
 ## ### Parameters
 ## - `q`: Queue to test.
 ##
 ## ### Returns
-## 1 when the queue holds no pending items, 0 otherwise.
+## True when the queue holds no pending items, false otherwise.
 pub function queue_is_empty(q) -> bool
     if q[0] >= len(q)
         return true
@@ -334,19 +334,19 @@ pub function set_from_array(arr)
     return s
 end
 
-## Returns 1 if the item is in the set, 0 otherwise.
+## Returns true if the item is in the set, false otherwise.
 ##
 ## ### Parameters
 ## - `s`: Set to search.
 ## - `item`: Item to look up.
 ##
 ## ### Returns
-## 1 when `item` is in the set, 0 otherwise.
-pub function set_has(s, item) -> int
+## True when `item` is in the set, otherwise false.
+pub function set_has(s, item) -> bool
     if item in s
-        return 1
+        return true
     end
-    return 0
+    return false
 end
 
 ## Returns items present in both sets.
@@ -367,14 +367,14 @@ pub function set_intersection(a, b)
     return res
 end
 
-## Returns 1 if every item of a is in b, 0 otherwise.
+## Returns true if every item of a is in b, false otherwise.
 ##
 ## ### Parameters
 ## - `a`: Potential subset to test.
 ## - `b`: Set that must contain every item of `a`.
 ##
 ## ### Returns
-## 1 when every item of `a` is in `b` (an empty `a` yields 1), 0 otherwise.
+## True when every item of `a` is in `b` (an empty `a` yields true), false otherwise.
 pub function set_is_subset(a, b) -> bool
     for k in keys(a)
         if k not in b
@@ -492,14 +492,14 @@ pub function array_concat(a, b)
     return [...a, ...b]
 end
 
-## Returns 1 if the array contains the value, 0 otherwise.
+## Returns true if the array contains the value, false otherwise.
 ##
 ## ### Parameters
 ## - `arr`: Array to search.
 ## - `val`: Value to look for.
 ##
 ## ### Returns
-## 1 when `val` is in the array, 0 otherwise.
+## True when `val` is in the array, otherwise false.
 pub function array_contains(arr, val) -> bool
     if val in arr
         return true
@@ -776,13 +776,13 @@ pub function map_from_entries(entries)
     return res
 end
 
-## Returns 1 if the map is empty, 0 otherwise.
+## Returns true if the map is empty, false otherwise.
 ##
 ## ### Parameters
 ## - `m`: Map to test.
 ##
 ## ### Returns
-## 1 when the map holds no keys, 0 otherwise.
+## True when the map holds no keys, otherwise false.
 pub function map_is_empty(m) -> bool
     if len(m) == 0
         return true

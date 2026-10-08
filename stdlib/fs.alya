@@ -14,9 +14,9 @@ import "std/path"
 ## - `line`: Line text written with a trailing newline.
 ##
 ## ### Returns
-## The status code returned by `append_file`.
-pub function append_line(path: string, line: string) -> int
-    return append_file(path, line + "\n")
+## True when the operation succeeds, otherwise false.
+pub function append_line(path: string, line: string) -> bool
+    return append_file(path, line + "\n") != 0
 end
 
 ## Appends multiple lines to a file, each terminated by a newline.
@@ -26,8 +26,8 @@ end
 ## - `lines`: Line texts joined with newlines, each terminated by a newline.
 ##
 ## ### Returns
-## The status code returned by `append_file`.
-pub function append_lines(path: string, lines: string[]) -> int
+## True when the operation succeeds, otherwise false.
+pub function append_lines(path: string, lines: string[]) -> bool
     let content: string = ""
     let count: int = len(lines)
     let i: int = 0
@@ -35,7 +35,7 @@ pub function append_lines(path: string, lines: string[]) -> int
         content += lines[i] + "\n"
         i += 1
     end
-    return append_file(path, content)
+    return append_file(path, content) != 0
 end
 
 ## Appends raw content to a file.
@@ -45,9 +45,9 @@ end
 ## - `content`: Raw text appended unchanged.
 ##
 ## ### Returns
-## The status code returned by `append_file`.
-pub function append_string(path: string, content: string) -> int
-    return append_file(path, content)
+## True when the operation succeeds, otherwise false.
+pub function append_string(path: string, content: string) -> bool
+    return append_file(path, content) != 0
 end
 
 ## Truncates a file to zero length.
@@ -56,9 +56,9 @@ end
 ## - `path`: Target file path.
 ##
 ## ### Returns
-## The status code returned by `write_file`.
-pub function clear_file(path: string) -> int
-    return write_file(path, "")
+## True when the operation succeeds, otherwise false.
+pub function clear_file(path: string) -> bool
+    return write_file(path, "") != 0
 end
 
 ## Appends raw content to a file.
@@ -68,9 +68,9 @@ end
 ## - `content`: Raw text appended unchanged.
 ##
 ## ### Returns
-## The status code returned by `append_file`.
-pub function fs_append(path: string, content: string) -> int
-    return append_file(path, content)
+## True when the operation succeeds, otherwise false.
+pub function fs_append(path: string, content: string) -> bool
+    return append_file(path, content) != 0
 end
 
 ## Reads a whole file as a string.
@@ -90,9 +90,9 @@ end
 ## - `path`: File path to remove.
 ##
 ## ### Returns
-## The status code returned by `remove_file`.
-pub function fs_remove(path: string) -> int
-    return remove_file(path)
+## True when the operation succeeds, otherwise false.
+pub function fs_remove(path: string) -> bool
+    return remove_file(path) != 0
 end
 
 ## Writes content to a file, overwriting it.
@@ -102,9 +102,9 @@ end
 ## - `content`: Raw text written, replacing previous contents.
 ##
 ## ### Returns
-## The status code returned by `write_file`.
-pub function fs_write(path: string, content: string) -> int
-    return write_file(path, content)
+## True when the operation succeeds, otherwise false.
+pub function fs_write(path: string, content: string) -> bool
+    return write_file(path, content) != 0
 end
 
 ## Reads a file, returning a default value when it is missing.
@@ -182,12 +182,12 @@ end
 ## - `path`: File path to create.
 ##
 ## ### Returns
-## 1 when the file already exists, else the status code returned by `write_file`.
-pub function touch(path: string) -> int
+## True when the file already exists or is created, otherwise false.
+pub function touch(path: string) -> bool
     if file_exists(path) == true
         return true
     end
-    return write_file(path, "")
+    return write_file(path, "") != 0
 end
 
 ## Writes lines to a file, each terminated by a newline.
@@ -197,8 +197,8 @@ end
 ## - `lines`: Line texts joined with newlines, each terminated by a newline.
 ##
 ## ### Returns
-## The status code returned by `write_file`.
-pub function write_lines(path: string, lines: string[]) -> int
+## True when the operation succeeds, otherwise false.
+pub function write_lines(path: string, lines: string[]) -> bool
     let content: string = ""
     let count: int = len(lines)
     let i: int = 0
@@ -206,7 +206,7 @@ pub function write_lines(path: string, lines: string[]) -> int
         content += lines[i] + "\n"
         i += 1
     end
-    return write_file(path, content)
+    return write_file(path, content) != 0
 end
 
 ## Writes content to a file, overwriting it.
@@ -216,21 +216,21 @@ end
 ## - `content`: Raw text written, replacing previous contents.
 ##
 ## ### Returns
-## The status code returned by `write_file`.
-pub function write_string(path: string, content: string) -> int
-    return write_file(path, content)
+## True when the operation succeeds, otherwise false.
+pub function write_string(path: string, content: string) -> bool
+    return write_file(path, content) != 0
 end
 
 # --- Path and Metadata ---
 
-## Returns 1 when a path exists on the filesystem.
+## Returns true when a path exists on the filesystem.
 ##
 ## ### Parameters
 ## - `path`: Path to test.
 ##
 ## ### Returns
-## 1 when the path exists, else the value returned by `file_exists`.
-pub function exists(path: string) -> int
+## True when the path exists, otherwise false.
+pub function exists(path: string) -> bool
     return file_exists(path)
 end
 
@@ -325,25 +325,25 @@ pub function file_parent(path: string) -> string
     return "."
 end
 
-## Returns 1 when a path exists on the filesystem.
+## Returns true when a path exists on the filesystem.
 ##
 ## ### Parameters
 ## - `path`: Path to test.
 ##
 ## ### Returns
-## 1 when the path exists, else the value returned by `file_exists`.
-pub function fs_exists(path: string) -> int
+## True when the path exists, otherwise false.
+pub function fs_exists(path: string) -> bool
     return file_exists(path)
 end
 
-## Returns 1 when a path is a directory.
+## Returns true when a path is a directory.
 ##
 ## ### Parameters
 ## - `path`: Path to test.
 ##
 ## ### Returns
-## 1 when the path is a directory, else the value returned by `is_dir`.
-pub function fs_is_dir(path: string) -> int
+## True when the path is a directory, otherwise false.
+pub function fs_is_dir(path: string) -> bool
     return is_dir(path)
 end
 
@@ -358,13 +358,13 @@ pub function fs_size(path: string) -> int
     return file_size(path)
 end
 
-## Returns 1 when a file exists and has zero size.
+## Returns true when a file exists and has zero size.
 ##
 ## ### Parameters
 ## - `path`: File path to test.
 ##
 ## ### Returns
-## 1 when the file exists with zero size, else 0 (missing files return 0).
+## True when the file exists with zero size, else 0 (missing files return 0).
 pub function is_empty_file(path: string) -> bool
     if file_exists(path) == false
         return false
@@ -384,7 +384,7 @@ end
 ## - `dst`: Destination directory path, created with missing parents.
 ##
 ## ### Returns
-## 1 when `src` is a directory, or 0 otherwise. Per-entry copy results are ignored.
+## True when `src` is a directory, or false otherwise. Per-entry copy results are ignored.
 pub function copy_dir_recursive(src: string, dst: string) -> bool
     if is_dir(src) == false
         return false
@@ -413,13 +413,13 @@ end
 ## - `dst`: Destination file path, overwritten with the source contents.
 ##
 ## ### Returns
-## 0 when the source is missing, else the status code returned by `write_file`.
-pub function copy_file(src: string, dst: string) -> int
+## False when the source is missing, else true when the write succeeds.
+pub function copy_file(src: string, dst: string) -> bool
     if file_exists(src) == false
         return false
     end
     let content: string = read_file(src)
-    return write_file(dst, content)
+    return write_file(dst, content) != 0
 end
 
 ## Creates a directory and all missing parents, like mkdir -p.
@@ -428,8 +428,8 @@ end
 ## - `path`: Directory path to create; empty paths and existing directories need no action.
 ##
 ## ### Returns
-## 1 when no action is needed, else the status code returned by `make_dir`.
-pub function ensure_dir(path: string) -> int
+## True when no action is needed or creation succeeds, otherwise false.
+pub function ensure_dir(path: string) -> bool
     if len(path) == 0 or is_dir(path) == true
         return true
     end
@@ -437,7 +437,7 @@ pub function ensure_dir(path: string) -> int
     if parent != "." and parent != "/" and parent != path and len(parent) > 0
         ensure_dir(parent)
     end
-    return make_dir(path)
+    return make_dir(path) != 0
 end
 
 ## Lists entry names directly inside a directory.
@@ -457,9 +457,9 @@ end
 ## - `path`: Directory path to create (parents are not created).
 ##
 ## ### Returns
-## The status code returned by `make_dir`.
-pub function fs_mkdir(path: string) -> int
-    return make_dir(path)
+## True when the operation succeeds, otherwise false.
+pub function fs_mkdir(path: string) -> bool
+    return make_dir(path) != 0
 end
 
 ## Removes an empty directory.
@@ -468,9 +468,9 @@ end
 ## - `path`: Directory path to remove.
 ##
 ## ### Returns
-## The status code returned by `rmdir`.
-pub function fs_rmdir(path: string) -> int
-    return rmdir(path)
+## True when the operation succeeds, otherwise false.
+pub function fs_rmdir(path: string) -> bool
+    return rmdir(path) != 0
 end
 
 ## Recursively lists all paths under a directory.
@@ -508,10 +508,10 @@ end
 ## - `dst`: Destination file path.
 ##
 ## ### Returns
-## 0 when the copy fails, else the status code returned by `remove_file`.
-pub function move_file(src: string, dst: string) -> int
+## False when the copy fails, else true when the source removal succeeds.
+pub function move_file(src: string, dst: string) -> bool
     if copy_file(src, dst) == true
-        return remove_file(src)
+        return remove_file(src) != 0
     end
     return false
 end
@@ -522,8 +522,8 @@ end
 ## - `path`: Root directory path to remove with all its contents.
 ##
 ## ### Returns
-## 0 when `path` is not a directory, else the status code returned by `rmdir`.
-pub function remove_dir_recursive(path: string) -> int
+## False when `path` is not a directory, else true when the removal succeeds.
+pub function remove_dir_recursive(path: string) -> bool
     if is_dir(path) == false
         return false
     end
@@ -539,7 +539,7 @@ pub function remove_dir_recursive(path: string) -> int
         end
         i += 1
     end
-    return rmdir(path)
+    return rmdir(path) != 0
 end
 
 # --- Globbing (Merged from std/glob) ---
@@ -577,14 +577,14 @@ end
 ## Legacy alias appending content to a file.
 ##
 ## See: `append_file`.
-pub function fs__append_string(path: string, content: string) -> int
-    return append_file(path, content)
+pub function fs__append_string(path: string, content: string) -> bool
+    return append_file(path, content) != 0
 end
 
 ## Legacy alias reporting whether a path exists.
 ##
 ## See: `exists`.
-pub function fs__exists(path: string) -> int
+pub function fs__exists(path: string) -> bool
     return exists(path)
 end
 
@@ -595,12 +595,12 @@ end
 ## - `recursive`: When true, missing parents are created via `ensure_dir`; otherwise a single directory is made (defaults to false).
 ##
 ## ### Returns
-## The status code from `ensure_dir` or `make_dir`.
-pub function fs__mkdir(path: string, recursive: bool = false) -> int
+## The success flag from `ensure_dir` or `make_dir`.
+pub function fs__mkdir(path: string, recursive: bool = false) -> bool
     if recursive
         return ensure_dir(path)
     end
-    return make_dir(path)
+    return make_dir(path) != 0
 end
 
 ## Legacy alias reading a whole file as a string.
@@ -613,8 +613,8 @@ end
 ## Legacy alias writing content to a file.
 ##
 ## See: `write_file`.
-pub function fs__write_string(path: string, content: string) -> int
-    return write_file(path, content)
+pub function fs__write_string(path: string, content: string) -> bool
+    return write_file(path, content) != 0
 end
 
 ## Legacy alias recursively listing paths under a directory.

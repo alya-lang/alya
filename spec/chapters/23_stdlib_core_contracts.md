@@ -117,7 +117,7 @@ function process.spawn_with_options(program: string, args: string[], opts) -> Pr
 function process.quote_arg(arg: string) -> string
 function process.default_options() -> ProcessOptions
 function process.is_running(pid: int) -> bool
-function process.kill(pid: int, force: bool = true) -> int
+function process.kill(pid: int, force: bool = true) -> bool
 function process.wait_pid(pid: int, timeout_ms: int = -1, poll_ms: int = 50) -> bool
 ```
 

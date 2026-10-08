@@ -5,14 +5,14 @@
 
 # --- Inspection ---
 
-## Returns 1 when the string contains the given substring.
+## Returns true when the string contains the given substring.
 ##
 ## ### Parameters
 ## - `s`: String to search.
 ## - `sub`: Substring to look for.
 ##
 ## ### Returns
-## 1 when `sub` is found in `s`, otherwise 0.
+## True when `sub` is found in `s`, otherwise false.
 pub function contains_str(s: string, sub: string) -> bool
     if sub in s
         return true
@@ -47,14 +47,14 @@ pub function count_matches(s: string, sub: string) -> int
     return count
 end
 
-## Returns 1 when the string ends with the given suffix.
+## Returns true when the string ends with the given suffix.
 ##
 ## ### Parameters
 ## - `s`: String to inspect.
 ## - `suffix`: Suffix to look for.
 ##
 ## ### Returns
-## 1 when `s` ends with `suffix` (empty suffix yields 1), otherwise 0.
+## True when `s` ends with `suffix` (empty suffix yields true), otherwise false.
 pub function ends_with(s: string, suffix: string) -> bool
     let slen: int = len(s)
     let suflen: int = len(suffix)
@@ -98,13 +98,13 @@ pub function index_of(s: string, sub: string) -> int
     return -1
 end
 
-## Returns 1 when the string holds only ASCII letters.
+## Returns true when the string holds only ASCII letters.
 ##
 ## ### Parameters
 ## - `s`: String to inspect.
 ##
 ## ### Returns
-## 1 for a non-empty string of A-Z and a-z only, otherwise 0.
+## 1 for a non-empty string of A-Z and a-z only, otherwise false.
 pub function is_alphabetic(s: string) -> bool
     let slen: int = len(s)
     if slen == 0
@@ -126,13 +126,13 @@ pub function is_alphabetic(s: string) -> bool
     return true
 end
 
-## Returns 1 when the string holds only ASCII letters or digits.
+## Returns true when the string holds only ASCII letters or digits.
 ##
 ## ### Parameters
 ## - `s`: String to inspect.
 ##
 ## ### Returns
-## 1 for a non-empty string of A-Z, a-z, and 0-9 only, otherwise 0.
+## 1 for a non-empty string of A-Z, a-z, and 0-9 only, otherwise false.
 pub function is_alphanumeric(s: string) -> bool
     let slen: int = len(s)
     if slen == 0
@@ -156,13 +156,13 @@ pub function is_alphanumeric(s: string) -> bool
     return true
 end
 
-## Returns 1 when the string is empty or holds only whitespace.
+## Returns true when the string is empty or holds only whitespace.
 ##
 ## ### Parameters
 ## - `s`: String to inspect.
 ##
 ## ### Returns
-## 1 when empty or holding only spaces, tabs, and line breaks, otherwise 0.
+## True when empty or holding only spaces, tabs, and line breaks, otherwise false.
 pub function is_blank(s: string) -> bool
     let slen: int = len(s)
     if slen == 0
@@ -180,13 +180,13 @@ pub function is_blank(s: string) -> bool
     return true
 end
 
-## Returns 1 when the string is null or has zero length.
+## Returns true when the string is null or has zero length.
 ##
 ## ### Parameters
 ## - `s`: String to inspect.
 ##
 ## ### Returns
-## 1 when null or zero-length, otherwise 0.
+## True when null or zero-length, otherwise false.
 pub function is_empty(s: string) -> bool
     if s is null or len(s) == 0
         return true
@@ -194,13 +194,13 @@ pub function is_empty(s: string) -> bool
     return false
 end
 
-## Returns 1 when the string holds only lowercase ASCII letters.
+## Returns true when the string holds only lowercase ASCII letters.
 ##
 ## ### Parameters
 ## - `s`: String to inspect.
 ##
 ## ### Returns
-## 1 for a non-empty string of a-z only, otherwise 0.
+## 1 for a non-empty string of a-z only, otherwise false.
 pub function is_lower(s: string) -> bool
     let slen: int = len(s)
     if slen == 0
@@ -218,13 +218,13 @@ pub function is_lower(s: string) -> bool
     return true
 end
 
-## Returns 1 when the string holds only ASCII digits.
+## Returns true when the string holds only ASCII digits.
 ##
 ## ### Parameters
 ## - `s`: String to inspect.
 ##
 ## ### Returns
-## 1 for a non-empty string of 0-9 only, otherwise 0.
+## 1 for a non-empty string of 0-9 only, otherwise false.
 pub function is_numeric(s: string) -> bool
     let slen: int = len(s)
     if slen == 0
@@ -242,13 +242,13 @@ pub function is_numeric(s: string) -> bool
     return true
 end
 
-## Returns 1 when the string holds only uppercase ASCII letters.
+## Returns true when the string holds only uppercase ASCII letters.
 ##
 ## ### Parameters
 ## - `s`: String to inspect.
 ##
 ## ### Returns
-## 1 for a non-empty string of A-Z only, otherwise 0.
+## 1 for a non-empty string of A-Z only, otherwise false.
 pub function is_upper(s: string) -> bool
     let slen: int = len(s)
     if slen == 0
@@ -293,14 +293,14 @@ pub function last_index_of(s: string, sub: string) -> int
     return -1
 end
 
-## Returns 1 when the string begins with the given prefix.
+## Returns true when the string begins with the given prefix.
 ##
 ## ### Parameters
 ## - `s`: String to inspect.
 ## - `prefix`: Prefix to look for.
 ##
 ## ### Returns
-## 1 when `s` starts with `prefix` (empty prefix yields 1), otherwise 0.
+## True when `s` starts with `prefix` (empty prefix yields true), otherwise false.
 pub function starts_with(s: string, prefix: string) -> bool
     let plen: int = len(prefix)
     let slen: int = len(s)
@@ -756,13 +756,13 @@ pub function hex_encode(s: string) -> string
     return res
 end
 
-## Returns 1 when the string is even-length valid hex.
+## Returns true when the string is even-length valid hex.
 ##
 ## ### Parameters
 ## - `s`: String to inspect.
 ##
 ## ### Returns
-## 1 for a non-empty even-length string of hex digits only, otherwise 0.
+## 1 for a non-empty even-length string of hex digits only, otherwise false.
 pub function is_hex(s: string) -> bool
     let slen: int = len(s)
     if slen == 0 or slen % 2 != 0
@@ -865,7 +865,7 @@ end
 ## - `b`: Second byte array.
 ##
 ## ### Returns
-## 1 when lengths and all elements match, otherwise 0.
+## True when lengths and all elements match, otherwise false.
 pub function bytes_equal(a, b) -> bool
     let n: int = len(a)
     if n != len(b)
@@ -1039,13 +1039,13 @@ pub function base64_encode_bytes(bytes: int[]) -> string
     return res
 end
 
-## Returns 1 when the string looks like valid base64 input.
+## Returns true when the string looks like valid base64 input.
 ##
 ## ### Parameters
 ## - `s`: String to inspect.
 ##
 ## ### Returns
-## 1 for a non-empty alphabet-only string whose length is a multiple of 4, otherwise 0.
+## 1 for a non-empty alphabet-only string whose length is a multiple of 4, otherwise false.
 pub function is_base64(s: string) -> bool
     let slen: int = len(s)
     if slen == 0 or slen % 4 != 0

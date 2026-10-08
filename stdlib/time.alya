@@ -281,13 +281,13 @@ pub function epoch_to_date(epoch_sec: int)
     }
 end
 
-## Returns 1 when a Gregorian year is a leap year.
+## Returns true when a Gregorian year is a leap year.
 ##
 ## ### Parameters
 ## - `year`: Gregorian year.
 ##
 ## ### Returns
-## 1 when the year is a leap year, else 0.
+## True when the year is a leap year, else false.
 pub function is_leap_year(year: int) -> bool
     if year % 400 == 0
         return true

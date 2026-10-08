@@ -100,7 +100,7 @@ end
 ## - `n`: Integer to test.
 ##
 ## ### Returns
-## 1 when `n` is even, 0 otherwise.
+## True when `n` is even, false otherwise.
 pub function is_even(n: int) -> bool
     return n % 2 == 0
 end
@@ -111,7 +111,7 @@ end
 ## - `n`: Integer to test.
 ##
 ## ### Returns
-## 1 when `n` is odd, 0 otherwise.
+## True when `n` is odd, false otherwise.
 pub function is_odd(n: int) -> bool
     return n % 2 != 0
 end
@@ -592,13 +592,13 @@ pub function gcd(a: int, b: int) -> int
     return x
 end
 
-## Tests whether a number is prime, returning 1 or 0.
+## Tests whether a number is prime, returning true or false.
 ##
 ## ### Parameters
 ## - `n`: Integer to test for primality.
 ##
 ## ### Returns
-## 1 when `n` is prime, 0 otherwise; values of 1 or less yield 0.
+## True when `n` is prime, otherwise false; values of 1 or less yield false.
 pub function is_prime(n: int) -> bool
     if n <= 1
         return false
@@ -657,18 +657,18 @@ end
 ## None.
 ##
 ## ### Returns
-## 1 or 0 with roughly even probability, taken from the global PRNG.
-pub function rand_bool() -> int
-    return rand_next() % 2
+## True or false with roughly even probability, taken from the global PRNG.
+pub function rand_bool() -> bool
+    return rand_next() % 2 == 1
 end
 
-## Returns 1 if an event with probability pct (0..100) occurs, else 0.
+## Returns true if an event with probability pct (0..100) occurs, else false.
 ##
 ## ### Parameters
 ## - `pct`: Chance in percent from 0 to 100; values at or below 0 always yield 0 and values at or above 100 always yield 1.
 ##
 ## ### Returns
-## 1 when the random draw falls below `pct`, else 0.
+## True when the random draw falls below `pct`, else false.
 pub function rand_chance(pct: int) -> bool
     if pct <= 0
         return false

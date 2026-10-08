@@ -74,13 +74,13 @@ pub function current_os() -> OS
     end
 end
 
-## Returns 1 when running on Linux, else 0.
+## Returns true when running on Linux, else false.
 ##
 ## ### Parameters
 ## None.
 ##
 ## ### Returns
-## 1 when running on Linux, else 0.
+## True when running on Linux, else false.
 pub function is_linux() -> bool
     if target_os() == "linux"
         return true
@@ -88,13 +88,13 @@ pub function is_linux() -> bool
     return false
 end
 
-## Returns 1 when running on macOS, else 0.
+## Returns true when running on macOS, else false.
 ##
 ## ### Parameters
 ## None.
 ##
 ## ### Returns
-## 1 when running on macOS, else 0.
+## True when running on macOS, else false.
 pub function is_macos() -> bool
     if target_os() == "macos"
         return true
@@ -102,13 +102,13 @@ pub function is_macos() -> bool
     return false
 end
 
-## Returns 1 when running on a POSIX system (non-Windows), else 0.
+## Returns true when running on a POSIX system (non-Windows), else false.
 ##
 ## ### Parameters
 ## None.
 ##
 ## ### Returns
-## 1 when running on a POSIX system (non-Windows), else 0.
+## True when running on a POSIX system (non-Windows), else false.
 pub function is_posix() -> bool
     if target_os() != "windows"
         return true
@@ -116,13 +116,13 @@ pub function is_posix() -> bool
     return false
 end
 
-## Returns 1 when running on Windows, else 0.
+## Returns true when running on Windows, else false.
 ##
 ## ### Parameters
 ## None.
 ##
 ## ### Returns
-## 1 when running on Windows, else 0.
+## True when running on Windows, else false.
 pub function is_windows() -> bool
     if target_os() == "windows"
         return true
@@ -142,6 +142,13 @@ pub function os_name() -> string
 end
 
 # --- Environment Variables ---
+
+extern "C"
+    function setenv(name: str, value: str, overwrite: i64) -> i32
+    # _putenv (not SetEnvironmentVariableA): the CRT caches environ at startup,
+    # so the Win32 API is invisible to get_env; _putenv updates the CRT block.
+    function _putenv(entry: str) -> i32
+end
 
 ## Returns the value of environment variable key.
 ##
@@ -185,13 +192,13 @@ pub function getenv(key: string)
     return val
 end
 
-## Returns 1 when environment variable key is set and non-empty.
+## Returns true when environment variable key is set and non-empty.
 ##
 ## ### Parameters
 ## - `key`: Environment variable name.
 ##
 ## ### Returns
-## 1 when the variable is set and non-empty, else 0.
+## True when the variable is set and non-empty, else false.
 pub function has_env(key: string) -> bool
     if len(get_env(key)) > 0
         return true
@@ -245,15 +252,15 @@ pub function get_pid() -> int
     return __native_get_pid()
 end
 
-## Sets the current working directory, returning a status code.
+## Sets the current working directory, returning true on success.
 ##
 ## ### Parameters
 ## - `path`: Directory path to switch to.
 ##
 ## ### Returns
-## The native status code.
-pub function set_cwd(path: string) -> int
-    return __native_set_cwd(path)
+## True when the directory change succeeds, otherwise false.
+pub function set_cwd(path: string) -> bool
+    return __native_set_cwd(path) != 0
 end
 
 # --- Command-Line Arguments ---
@@ -297,13 +304,13 @@ pub function cli_args() -> string[]
     return args()
 end
 
-## Returns 1 when flag is present among CLI arguments.
+## Returns true when flag is present among CLI arguments.
 ##
 ## ### Parameters
 ## - `flag`: Flag text matched exactly against each argument.
 ##
 ## ### Returns
-## 1 when the flag is present, else 0.
+## True when the flag is present, else false.
 pub function has_arg(flag: string) -> bool
     let a: string[] = args()
     for arg in a
@@ -451,8 +458,8 @@ end
 
 ## Alias of set_cwd.
 ## See: `set_cwd`.
-pub function chdir(path: string) -> int
-    return __native_set_cwd(path)
+pub function chdir(path: string) -> bool
+    return __native_set_cwd(path) != 0
 end
 
 ## Alias of get_cwd.
@@ -511,26 +518,40 @@ end
 
 ## Legacy alias of has_arg.
 ## See: `has_arg`.
-pub function os_has_arg(flag: string) -> int
+pub function os_has_arg(flag: string) -> bool
     return has_arg(flag)
 end
 
 ## Legacy alias of set_cwd.
 ## See: `set_cwd`.
-pub function os_set_cwd(path: string) -> int
+pub function os_set_cwd(path: string) -> bool
     return set_cwd(path)
 end
 
-## Sets environment variable key to value, returning a status code.
+## Sets environment variable key to value.
 ##
 ## ### Parameters
 ## - `key`: Environment variable name.
 ## - `value`: Value to assign.
 ##
 ## ### Returns
-## The native status code.
-pub function os_setenv(key: string, value: string) -> int
-    return set_env(key, value)
+## True when the variable is set, otherwise false.
+@cfg(not(os = "windows"))
+pub function os_setenv(key: string, value: string) -> bool
+    return setenv(key, value, 1) == 0
+end
+
+## Sets environment variable key to value.
+##
+## ### Parameters
+## - `key`: Environment variable name.
+## - `value`: Value to assign.
+##
+## ### Returns
+## True when the variable is set, otherwise false.
+@cfg(os = "windows")
+pub function os_setenv(key: string, value: string) -> bool
+    return _putenv(key + "=" + value) == 0
 end
 
 ## Alias of get_pid.

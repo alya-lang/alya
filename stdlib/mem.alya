@@ -170,28 +170,28 @@ end
 
 # --- Pointer Utilities ---
 
-## Returns 1 if the pointer is null, 0 otherwise.
+## Returns true if the pointer is null, false otherwise.
 ##
 ## ### Parameters
 ## - `ptr`: Raw pointer to test against 0.
 ##
 ## ### Returns
-## 1 when `ptr` equals 0, else 0.
-pub function is_null(ptr)
+## True when `ptr` equals 0, else false.
+pub function is_null(ptr) -> bool
     if ptr == 0
         return true
     end
     return false
 end
 
-## Returns 1 if the pointer is not null, 0 otherwise.
+## Returns true if the pointer is not null, false otherwise.
 ##
 ## ### Parameters
 ## - `ptr`: Raw pointer to test against 0.
 ##
 ## ### Returns
-## 1 when `ptr` differs from 0, else 0.
-pub function is_valid(ptr)
+## True when `ptr` differs from 0, else false.
+pub function is_valid(ptr) -> bool
     if ptr != 0
         return true
     end
@@ -359,7 +359,7 @@ end
 ## - `size`: Number of bytes to compare.
 ##
 ## ### Returns
-## 1 when both blocks hold identical bytes (including when both pointers are equal), else 0. Null pointers compare as unequal.
+## True when both blocks hold identical bytes (including when both pointers are equal), else false. Null pointers compare as unequal.
 pub function mem_equal(ptr_a, ptr_b, size)
     if ptr_a == ptr_b
         return true
@@ -594,13 +594,13 @@ pub function Arena.clear(self) arena_clear(self) end
 ## 0 (implicit return; no meaningful value is produced).
 pub function Arena.free(self) arena_free(self) end
 
-## Returns 1 if the arena has an active handle, 0 otherwise.
+## Returns true if the arena has an active handle, false otherwise.
 ##
 ## ### Parameters
 ## - `self`: Arena to test.
 ##
 ## ### Returns
-## 1 when the arena handle is active, else 0.
+## True when the arena handle is active, else false.
 pub function Arena.is_valid(self) return arena_is_valid(self) end
 
 ## Returns the total bytes currently allocated through this arena.
@@ -686,13 +686,13 @@ pub function arena_free(arena: Arena)
     end
 end
 
-## Returns 1 if the arena has an active handle, 0 otherwise.
+## Returns true if the arena has an active handle, false otherwise.
 ##
 ## ### Parameters
 ## - `arena`: Arena to test.
 ##
 ## ### Returns
-## 1 when the arena handle is non-zero, else 0.
+## True when the arena handle is non-zero, else false.
 pub function arena_is_valid(arena: Arena)
     if arena.handle != 0
         return true
@@ -760,14 +760,14 @@ pub function buffer_free(buf: ByteBuffer)
     end
 end
 
-## Returns 1 if the buffer is empty, 0 otherwise.
+## Returns true if the buffer is empty, false otherwise.
 ##
 ## ### Parameters
 ## - `buf`: Buffer to test.
 ##
 ## ### Returns
-## 1 when `buf.size` equals 0, else 0.
-pub function buffer_is_empty(buf: ByteBuffer)
+## True when `buf.size` equals 0, else false.
+pub function buffer_is_empty(buf: ByteBuffer) -> bool
     if buf.size == 0
         return true
     end
@@ -1011,8 +1011,8 @@ pub function Pool.available(self) return pool_available(self) end
 ## - `self`: Pool to reset.
 ##
 ## ### Returns
-## 1 when the free list was rebuilt, or 0 when the pool has no usable storage.
-pub function Pool.clear(self) return pool_clear(self) end
+## True when the free list was rebuilt, or false when the pool has no usable storage.
+pub function Pool.clear(self) -> bool return pool_clear(self) end
 
 ## Destroys the pool and frees its memory.
 ##
@@ -1030,8 +1030,8 @@ pub function Pool.destroy(self) pool_destroy(self) end
 ## - `ptr`: Block pointer to return; 0 is ignored.
 ##
 ## ### Returns
-## 1 when the block was linked back, or 0 for a null pointer.
-pub function Pool.free(self, ptr) return pool_free(self, ptr) end
+## True when the block was linked back, or false for a null pointer.
+pub function Pool.free(self, ptr) -> bool return pool_free(self, ptr) end
 
 ## Allocates one fixed-size block from the pool in O(1) time.
 ## Returns raw pointer to block, or 0 if pool is exhausted.
@@ -1069,8 +1069,8 @@ end
 ## - `pool`: Pool to reset; its free list is rebuilt and the checked-out count is cleared.
 ##
 ## ### Returns
-## 1 when the free list was rebuilt, or 0 when the pool has no buffer or capacity.
-pub function pool_clear(pool: Pool)
+## True when the free list was rebuilt, or false when the pool has no buffer or capacity.
+pub function pool_clear(pool: Pool) -> bool
     if pool.buffer == 0 or pool.capacity <= 0
         return false
     end
@@ -1112,8 +1112,8 @@ end
 ## - `ptr`: Block pointer to return; 0 is ignored. Ownership is not validated.
 ##
 ## ### Returns
-## 1 when the block was linked back, or 0 for a null pointer.
-pub function pool_free(pool: Pool, ptr)
+## True when the block was linked back, or false for a null pointer.
+pub function pool_free(pool: Pool, ptr) -> bool
     if ptr == 0
         return false
     end

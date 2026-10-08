@@ -10,15 +10,15 @@
 ## ### Fields
 ## - `q`: FIFO queue storage with the head index kept at position 0.
 ## - `lock`: Mutex handle guarding the channel state.
-## - `closed`: 1 when the channel is closed, 0 while open.
+## - `closed`: True when the channel is closed, false while open.
 ## - `capacity`: Maximum buffered items; 0 means unbounded.
-## - `rendezvous`: 1 for unbuffered rendezvous mode, 0 otherwise.
+## - `rendezvous`: True for unbuffered rendezvous mode, otherwise false.
 pub struct Channel
     q
     lock: int
-    closed: int
+    closed: bool
     capacity: int
-    rendezvous: int
+    rendezvous: bool
 end
 
 ## Mutual exclusion lock handle.
@@ -32,10 +32,10 @@ end
 ## Primitive that runs an action exactly once.
 ##
 ## ### Fields
-## - `done`: 1 once the first caller has claimed the instance, 0 before.
+## - `done`: True once the first caller has claimed the instance, false before.
 ## - `lock`: Mutex handle guarding the claim.
 pub struct Once
-    done: int
+    done: bool
     lock: int
 end
 
@@ -43,11 +43,11 @@ end
 ##
 ## ### Fields
 ## - `readers`: Number of active shared read holders.
-## - `writing`: 1 while a writer holds the exclusive lock, 0 otherwise.
+## - `writing`: True while a writer holds the exclusive lock, otherwise false.
 ## - `lock`: Mutex handle guarding the counters.
 pub struct RwLock
     readers: int
-    writing: int
+    writing: bool
     lock: int
 end
 
@@ -92,7 +92,7 @@ end
 ## ### Returns
 ## The new Channel handle.
 pub function channel_new(capacity: int = 0) -> Channel
-    return Channel { q: [1], lock: mutex_new(), closed: 0, capacity: capacity, rendezvous: 0 }
+    return Channel { q: [1], lock: mutex_new(), closed: false, capacity: capacity, rendezvous: false }
 end
 
 ## Creates an unbuffered rendezvous channel where sends block until consumed by a receiver.
@@ -100,7 +100,7 @@ end
 ## ### Returns
 ## The new unbuffered rendezvous Channel handle.
 pub function channel_rendezvous() -> Channel
-    return Channel { q: [1], lock: mutex_new(), closed: 0, capacity: 0, rendezvous: 1 }
+    return Channel { q: [1], lock: mutex_new(), closed: false, capacity: 0, rendezvous: true }
 end
 
 ## Creates a new mutex.
@@ -124,7 +124,7 @@ end
 ## ### Returns
 ## The new unclaimed Once instance.
 pub function once_new() -> Once
-    return Once(0, mutex_new())
+    return Once(false, mutex_new())
 end
 
 ## Creates a new reader-writer lock.
@@ -132,7 +132,7 @@ end
 ## ### Returns
 ## The new RwLock with no active readers or writer.
 pub function rwlock_new() -> RwLock
-    return RwLock(0, 0, mutex_new())
+    return RwLock(0, false, mutex_new())
 end
 
 ## Creates a new WaitGroup with its counter set to zero.
@@ -159,8 +159,8 @@ end
 ## - `self`: Mutex released.
 ##
 ## ### Returns
-## The result status from the native free operation.
-pub function Mutex.free(self: Mutex) -> int
+## True when the native free operation succeeds.
+pub function Mutex.free(self: Mutex) -> bool
     return mutex_free(self.handle)
 end
 
@@ -170,8 +170,8 @@ end
 ## - `self`: Mutex acquired.
 ##
 ## ### Returns
-## The result status from the native lock operation.
-pub function Mutex.lock(self: Mutex) -> int
+## True when the native lock operation succeeds.
+pub function Mutex.lock(self: Mutex) -> bool
     return mutex_lock(self.handle)
 end
 
@@ -181,8 +181,8 @@ end
 ## - `self`: Mutex released.
 ##
 ## ### Returns
-## The result status from the native unlock operation.
-pub function Mutex.unlock(self: Mutex) -> int
+## True when the native unlock operation succeeds.
+pub function Mutex.unlock(self: Mutex) -> bool
     return mutex_unlock(self.handle)
 end
 
@@ -192,9 +192,9 @@ end
 ## - `m`: Native mutex handle released.
 ##
 ## ### Returns
-## The result status from the native free operation.
-pub function mutex_free(m: int) -> int
-    return __native_mutex_free(m)
+## True when the native free operation succeeds.
+pub function mutex_free(m: int) -> bool
+    return __native_mutex_free(m) == 0
 end
 
 ## Locks the mutex, blocking until it is acquired.
@@ -203,9 +203,9 @@ end
 ## - `m`: Native mutex handle acquired.
 ##
 ## ### Returns
-## The result status from the native lock operation.
-pub function mutex_lock(m: int) -> int
-    return __native_mutex_lock(m)
+## True when the native lock operation succeeds.
+pub function mutex_lock(m: int) -> bool
+    return __native_mutex_lock(m) == 0
 end
 
 ## Unlocks the mutex.
@@ -214,9 +214,9 @@ end
 ## - `m`: Native mutex handle released.
 ##
 ## ### Returns
-## The result status from the native unlock operation.
-pub function mutex_unlock(m: int) -> int
-    return __native_mutex_unlock(m)
+## True when the native unlock operation succeeds.
+pub function mutex_unlock(m: int) -> bool
+    return __native_mutex_unlock(m) == 0
 end
 
 # --- Channel ---
@@ -238,8 +238,8 @@ end
 ## - `self`: Channel closed.
 ##
 ## ### Returns
-## 1 once the channel is marked closed.
-pub function Channel.close(self: Channel) -> int
+## True once the channel is marked closed.
+pub function Channel.close(self: Channel) -> bool
     return channel_close(self)
 end
 
@@ -254,25 +254,25 @@ pub function Channel.free(self: Channel)
     channel_free(self)
 end
 
-## Returns 1 if the channel is closed, 0 otherwise.
+## Returns true if the channel is closed, otherwise false.
 ##
 ## ### Parameters
 ## - `self`: Channel checked.
 ##
 ## ### Returns
-## 1 when closed, 0 while open.
-pub function Channel.is_closed(self: Channel) -> int
+## True when closed, otherwise false.
+pub function Channel.is_closed(self: Channel) -> bool
     return channel_is_closed(self)
 end
 
-## Returns 1 if the channel is unbuffered rendezvous, 0 otherwise.
+## Returns true if the channel is unbuffered rendezvous, otherwise false.
 ##
 ## ### Parameters
 ## - `self`: Channel checked.
 ##
 ## ### Returns
-## 1 for rendezvous mode, 0 for buffered or unbounded mode.
-pub function Channel.is_rendezvous(self: Channel) -> int
+## True for rendezvous mode, otherwise false.
+pub function Channel.is_rendezvous(self: Channel) -> bool
     return channel_is_rendezvous(self)
 end
 
@@ -299,15 +299,15 @@ pub function Channel.recv_timeout(self: Channel, timeout_ms: int)
     return channel_recv(self, timeout_ms)
 end
 
-## Sends a value into the channel; returns 1 on success, 0 if closed.
+## Sends a value into the channel; returns true on success, false if closed.
 ##
 ## ### Parameters
 ## - `self`: Channel sent into.
 ## - `val`: Value enqueued into the channel.
 ##
 ## ### Returns
-## 1 on success, 0 when the channel is closed.
-pub function Channel.send(self: Channel, val) -> int
+## True on success, false when the channel is closed.
+pub function Channel.send(self: Channel, val) -> bool
     return channel_send(self, val)
 end
 
@@ -340,8 +340,8 @@ end
 ## - `val`: Value enqueued when there is room.
 ##
 ## ### Returns
-## 1 on success, 0 when full, rendezvous, or closed.
-pub function Channel.try_send(self: Channel, val) -> int
+## True on success, false when full, rendezvous, or closed.
+pub function Channel.try_send(self: Channel, val) -> bool
     return channel_try_send(self, val)
 end
 
@@ -365,7 +365,7 @@ end
 ## 1 once the channel is marked closed.
 pub function channel_close(ch: Channel) -> bool
     mutex_lock(ch.lock)
-    ch.closed = 1
+    ch.closed = true
     mutex_unlock(ch.lock)
     return true
 end
@@ -382,28 +382,28 @@ pub function channel_free(ch: Channel)
     mutex_free(ch.lock)
 end
 
-## Returns 1 if the channel is closed, 0 otherwise.
+## Returns true if the channel is closed, otherwise false.
 ##
 ## ### Parameters
 ## - `ch`: Channel checked.
 ##
 ## ### Returns
-## 1 when closed, 0 while open.
-pub function channel_is_closed(ch: Channel) -> int
+## True when closed, otherwise false.
+pub function channel_is_closed(ch: Channel) -> bool
     mutex_lock(ch.lock)
-    let c: int = ch.closed
+    let c: bool = ch.closed
     mutex_unlock(ch.lock)
     return c
 end
 
-## Returns 1 if the channel is unbuffered rendezvous, 0 otherwise.
+## Returns true if the channel is unbuffered rendezvous, false otherwise.
 ##
 ## ### Parameters
 ## - `ch`: Channel checked.
 ##
 ## ### Returns
 ## 1 for rendezvous mode, 0 for buffered or unbounded mode.
-pub function channel_is_rendezvous(ch: Channel) -> int
+pub function channel_is_rendezvous(ch: Channel) -> bool
     return ch.rendezvous
 end
 
@@ -427,7 +427,7 @@ pub function channel_recv(ch: Channel, timeout_ms: int = 5000)
         mutex_lock(ch.lock)
         let head: int = ch.q[0]
         let total: int = arr_len(ch.q)
-        let is_closed: int = ch.closed
+        let is_closed: bool = ch.closed
         if head < total
             let val = ch.q[head]
             head += 1
@@ -486,7 +486,7 @@ pub function channel_send(ch: Channel, val) -> bool
                     let cur_head: int = ch.q[0]
                     let cur_total: int = arr_len(ch.q)
                     let cur_sz: int = cur_total - cur_head
-                    if cur_sz <= 0 or ch.closed == 1
+                    if cur_sz <= 0 or ch.closed
                         break
                     end
                     mutex_unlock(ch.lock)
@@ -494,12 +494,12 @@ pub function channel_send(ch: Channel, val) -> bool
                     sleep(1)
                     mutex_lock(ch.lock)
                 end
-                let was_closed: int = ch.closed
+                let was_closed: bool = ch.closed
                 let final_head: int = ch.q[0]
                 let final_total: int = arr_len(ch.q)
                 let rem: int = final_total - final_head
                 mutex_unlock(ch.lock)
-                if was_closed == 1 and rem > 0
+                if was_closed and rem > 0
                     return false
                 end
                 return true
@@ -673,7 +673,7 @@ end
 ## - `timeout_ms`: Maximum wait in milliseconds; 0 waits indefinitely.
 ##
 ## ### Returns
-## 1 when the counter reached zero, 0 on timeout.
+## True when the counter reached zero, 0 on timeout.
 pub function wait_group_wait(wg: WaitGroup, timeout_ms: int = 0) -> bool
     let start: int = clock_ms()
     while 1
@@ -732,21 +732,21 @@ end
 ## - `timeout_ms`: Maximum wait in milliseconds; 0 waits indefinitely.
 ##
 ## ### Returns
-## 1 when the counter reached zero, 0 on timeout.
+## True when the counter reached zero, 0 on timeout.
 pub function WaitGroup.wait(self: WaitGroup, timeout_ms: int = 0) -> int
     return wait_group_wait(self, timeout_ms)
 end
 
 # --- Once ---
 
-## Claims the Once instance; returns 1 on first call, 0 afterwards.
+## Claims the Once instance; returns true on first call, false afterwards.
 ##
 ## ### Parameters
 ## - `self`: Once instance claimed.
 ##
 ## ### Returns
-## 1 on the first call, 0 on later calls.
-pub function Once.check(self: Once) -> int
+## True on the first call, false on later calls.
+pub function Once.check(self: Once) -> bool
     return once_check(self)
 end
 
@@ -762,13 +762,13 @@ pub function Once.free(self: Once)
 end
 
 ## Atomically claims the Once instance for the first caller.
-# Returns 1 if this is the first invocation (caller proceeds with action), 0 otherwise.
+# Returns true if this is the first invocation (caller proceeds with action), false otherwise.
 ##
 ## ### Parameters
 ## - `o`: Once instance claimed.
 ##
 ## ### Returns
-## 1 on the first call, 0 on later calls.
+## True on the first call, false on later calls.
 pub function once_check(o: Once) -> bool
     mutex_lock(o.lock)
     if o.done == false
@@ -811,8 +811,8 @@ end
 ## - `timeout_ms`: Maximum wait in milliseconds.
 ##
 ## ### Returns
-## 1 when the read lock is acquired, 0 on timeout.
-pub function RwLock.read_lock(self: RwLock, timeout_ms: int = 5000) -> int
+## True when the read lock is acquired, false on timeout.
+pub function RwLock.read_lock(self: RwLock, timeout_ms: int = 5000) -> bool
     return rwlock_read_lock(self, timeout_ms)
 end
 
@@ -834,8 +834,8 @@ end
 ## - `timeout_ms`: Maximum wait in milliseconds.
 ##
 ## ### Returns
-## 1 when the write lock is acquired, 0 on timeout.
-pub function RwLock.write_lock(self: RwLock, timeout_ms: int = 5000) -> int
+## True when the write lock is acquired, false on timeout.
+pub function RwLock.write_lock(self: RwLock, timeout_ms: int = 5000) -> bool
     return rwlock_write_lock(self, timeout_ms)
 end
 
@@ -868,7 +868,7 @@ end
 ## - `timeout_ms`: Maximum wait in milliseconds; non-positive waits indefinitely.
 ##
 ## ### Returns
-## 1 when the read lock is acquired, 0 on timeout.
+## True when the read lock is acquired, 0 on timeout.
 pub function rwlock_read_lock(rw: RwLock, timeout_ms: int = 5000) -> bool
     let start: int = clock_ms()
     while 1
@@ -909,13 +909,13 @@ end
 ## - `timeout_ms`: Maximum wait in milliseconds; non-positive waits indefinitely.
 ##
 ## ### Returns
-## 1 when the write lock is acquired, 0 on timeout.
+## True when the write lock is acquired, 0 on timeout.
 pub function rwlock_write_lock(rw: RwLock, timeout_ms: int = 5000) -> bool
     let start: int = clock_ms()
     while 1
         mutex_lock(rw.lock)
         if rw.writing == false and rw.readers == false
-            rw.writing = 1
+            rw.writing = true
             mutex_unlock(rw.lock)
             return true
         end
@@ -937,7 +937,7 @@ end
 ## No return value.
 pub function rwlock_write_unlock(rw: RwLock)
     mutex_lock(rw.lock)
-    rw.writing = 0
+    rw.writing = false
     mutex_unlock(rw.lock)
 end
 
