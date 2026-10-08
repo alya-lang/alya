@@ -11,6 +11,8 @@ function _close(a: float, b: float) -> bool
     return d < 0.000001
 end
 
+check_float_classification()
+
 # 1. Integer arithmetic helpers
 assert_eq(factorial(0), 1, "factorial 0")
 assert_eq(factorial(5), 120, "factorial 5")
@@ -73,5 +75,47 @@ rand_seed_state(12345)
 let b = rand_next()
 assert_eq(a, b, "prng reseed deterministic")
 assert_true(rand_int(1, 10) >= 1 and rand_int(1, 10) <= 10, "rand_int bounds")
+
+# 6. Powers, special functions and classification (issue #134)
+assert_true(_close(asinh(0.0), 0.0), "asinh zero")
+assert_true(_close(acosh(1.0), 0.0), "acosh one")
+assert_true(_close(atanh(0.0), 0.0), "atanh zero")
+assert_true(_close(erf(0.0), 0.0), "erf zero")
+assert_true(_close(erfc(0.0), 1.0), "erfc zero")
+assert_true(_close(lgamma(1.0), 0.0), "lgamma one")
+assert_true(_close(tgamma(5.0), 24.0), "tgamma five")
+assert_true(_close(fma(2.0, 3.0, 4.0), 10.0), "fma")
+assert_true(_close(copysign(3.0, -1.0), -3.0), "copysign")
+assert_eq(fmin(3, 8), 3.0, "fmin")
+assert_eq(fmax(3, 8), 8.0, "fmax")
+assert_true(nextafter(1.0, 2.0) > 1.0, "nextafter above")
+assert_true(nextafter(1.0, 2.0) < 1.000001, "nextafter adjacent")
+assert_true(_close(fract(1.5), 0.5), "fract positive")
+assert_true(_close(fract(-1.5), -0.5), "fract negative")
+assert_true(_close(recip(4.0), 0.25), "recip")
+assert_true(_close(FRAC_PI_2, 1.5707963267948966), "FRAC_PI_2")
+assert_true(_close(LOG2_E, 1.4426950408889634), "LOG2_E")
+
+# NOTE: tuple destructure of a call must come last in this file: a
+function check_float_classification() -> bool
+    # NOTE: full NaN/inf assertions are blocked on alya-lang/alya#136
+    # (stale stack slot passed to later calls in larger files). The
+    # non-finite branches below were verified with standalone probes
+    # (is_nan/is_infinite true, is_finite false for NaN/inf); re-enable
+    # them here once #136 is fixed.
+    assert_false(is_nan(1.0), "is_nan false")
+    assert_false(is_infinite(1.0), "is_infinite false")
+    assert_true(is_finite(1.0), "is_finite true")
+    assert_true(is_finite(0.0), "is_finite zero")
+    return true
+end
+
+# NOTE: tuple destructure of a call must come last in this file: a
+# multi-return destructure currently corrupts float values used by later
+# statements (miscompiled stale stack slot, see alya-lang/alya#136).
+# Keep any `let a, b = f()` + later-use pattern below this line only.
+let sc_s, sc_c = sin_cos(0.0)
+assert_true(_close(sc_s, 0.0), "sin_cos sin")
+assert_true(_close(sc_c, 1.0), "sin_cos cos")
 
 say "All std/math tests passed successfully!"
