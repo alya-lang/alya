@@ -158,6 +158,41 @@ pub function sqrt_f(x) -> float
     return native_sqrt(float(x))
 end
 
+## Returns the cube root of the value.
+##
+## ### Parameters
+## - `x`: Value to take the cube root of, converted to float.
+##
+## ### Returns
+## The cube root of `x` as a float.
+pub function cbrt(x) -> float
+    return native_cbrt(float(x))
+end
+
+## Returns base raised to the given exponent.
+##
+## ### Parameters
+## - `base`: Base value, converted to float.
+## - `exp`: Exponent, converted to float.
+##
+## ### Returns
+## The value of `base` raised to `exp` as a float.
+pub function pow_f(base, exp) -> float
+    return native_pow(float(base), float(exp))
+end
+
+## Returns base raised to an integer exponent.
+##
+## ### Parameters
+## - `base`: Base value, converted to float.
+## - `n`: Integer exponent.
+##
+## ### Returns
+## The value of `base` raised to `n` as a float.
+pub function powi(base, n: int) -> float
+    return native_pow(float(base), float(n))
+end
+
 # --- Rounding ---
 
 ## Rounds a float up to the nearest integer.
@@ -360,6 +395,28 @@ pub function exp_f(x) -> float
     return native_exp(float(x))
 end
 
+## Returns 2 raised to the given power.
+##
+## ### Parameters
+## - `x`: Exponent, converted to float.
+##
+## ### Returns
+## The value of 2 raised to `x` as a float.
+pub function exp2(x) -> float
+    return native_exp2(float(x))
+end
+
+## Returns e raised to the given power, minus one.
+##
+## ### Parameters
+## - `x`: Exponent, converted to float.
+##
+## ### Returns
+## The value of e raised to `x` minus 1 as a float, accurate for small `x`.
+pub function expm1(x) -> float
+    return native_expm1(float(x))
+end
+
 ## Returns the base-10 logarithm of the value.
 ##
 ## ### Parameters
@@ -391,6 +448,17 @@ end
 ## The natural (base-e) logarithm of `x` as a float.
 pub function log_n(x) -> float
     return native_log(float(x))
+end
+
+## Returns the natural logarithm of one plus the value.
+##
+## ### Parameters
+## - `x`: Value, converted to float.
+##
+## ### Returns
+## The natural (base-e) logarithm of `1 + x` as a float, accurate for small `x`.
+pub function log1p(x) -> float
+    return native_log1p(float(x))
 end
 
 # --- Statistics ---
