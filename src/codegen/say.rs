@@ -1237,7 +1237,11 @@ impl CodeGen {
                 // printing the raw pointer with %lld corrupts output (issue
                 // #44). Classify at runtime like unknown dynamics. Calls
                 // proven to return ints keep the direct %lld path.
-                let unknown_call = match expr {
+                // Struct fields demoted to dynamic dispatch (mixed kinds,
+                // alya-lang/alya#131/#132) are the same shape: no static
+                // marker serves every instance, so classify the loaded
+                // word at runtime instead of guessing %lld.
+                let unknown_dynamic = match expr {
                     Expr::Call { name, .. } => {
                         !is_str
                             && !is_flt
@@ -1245,6 +1249,13 @@ impl CodeGen {
                             && !is_array_expr(expr, &self.ctx.variables)
                             && !is_null_expr(expr, &self.ctx.variables)
                             && !call_returns_known_int(name, &self.ctx.variables)
+                    }
+                    Expr::FieldAccess { .. } | Expr::OptionalFieldAccess { .. } => {
+                        !is_str
+                            && !is_flt
+                            && !is_map_expr(expr, &self.ctx.variables)
+                            && !is_array_expr(expr, &self.ctx.variables)
+                            && !is_null_expr(expr, &self.ctx.variables)
                     }
                     _ => false,
                 };
@@ -1285,7 +1296,7 @@ impl CodeGen {
                     (None, None, None)
                 };
 
-                if unknown_call {
+                if unknown_dynamic {
                     let l_call_str = self.ctx.next_label();
                     let l_call_end = self.ctx.next_label();
                     arch::emit_push_temp(&mut self.output, self.arch);
