@@ -159,30 +159,6 @@ pub function fmod(a, b) -> float
     return native_fmod(float(a), float(b))
 end
 
-## Returns the smaller of two values as a float.
-##
-## ### Parameters
-## - `a`: First value, converted to float.
-## - `b`: Second value, converted to float.
-##
-## ### Returns
-## The smaller of `a` and `b` as a float, following C `fmin` NaN handling.
-pub function fmin(a, b) -> float
-    return native_fmin(float(a), float(b))
-end
-
-## Returns the larger of two values as a float.
-##
-## ### Parameters
-## - `a`: First value, converted to float.
-## - `b`: Second value, converted to float.
-##
-## ### Returns
-## The larger of `a` and `b` as a float, following C `fmax` NaN handling.
-pub function fmax(a, b) -> float
-    return native_fmax(float(a), float(b))
-end
-
 ## Returns a value with the magnitude of x and the sign of y.
 ##
 ## ### Parameters
