@@ -610,6 +610,19 @@ pub fn execute_test_file(
     build: &ResolvedBuild,
     fresh: bool,
 ) -> Result<TestExecution, String> {
+    execute_test_file_cached(path, arch, os, kind, build, fresh, None)
+}
+
+/// Compiles and runs an Alya test file with an optional in-memory module import cache.
+pub fn execute_test_file_cached(
+    path: &Path,
+    arch: Architecture,
+    os: OperatingSystem,
+    kind: SuiteKind,
+    build: &ResolvedBuild,
+    fresh: bool,
+    cache: Option<&crate::parser::ImportCache>,
+) -> Result<TestExecution, String> {
     let start_time = Instant::now();
     let source = fs::read_to_string(path)
         .map_err(|e| format!("Cannot read file '{}': {}", path.display(), e))?;
@@ -637,10 +650,11 @@ pub fn execute_test_file(
     // Collect suite entry points BEFORE imports merge (foreign `__test_*`
     // / `__bench_*` functions must not be auto-invoked here).
     let test_entries = discover_suite_entry_points(&ast, kind);
-    let imported_files = crate::parser::resolve_imports_with_sources(
+    let imported_files = crate::parser::resolve_imports_with_sources_cached(
         &mut ast,
         base_dir,
         &target_cfg(os, arch, &build.profile, &build.active_features),
+        cache,
     )
     .map_err(|e| format!("Import resolution error in '{}': {}", path.display(), e))?;
 
@@ -1149,11 +1163,25 @@ pub fn run_tests(
 
     let mut stats = TestStats::default();
     let total_start = Instant::now();
+    let use_import_cache = std::env::var("ALYA_DISABLE_IMPORT_CACHE").is_err();
+    let import_cache = if use_import_cache {
+        Some(Arc::new(crate::parser::ImportCache::default()))
+    } else {
+        None
+    };
 
     if num_workers == 1 {
         for file in &test_files {
             let display_name = format_test_path(file, root);
-            let outcome = execute_test_file(file, arch, os, SuiteKind::Test, &build, fresh);
+            let outcome = execute_test_file_cached(
+                file,
+                arch,
+                os,
+                SuiteKind::Test,
+                &build,
+                fresh,
+                import_cache.as_deref(),
+            );
             handle_test_result(&display_name, outcome, name_width, &mut stats);
         }
     } else {
@@ -1166,6 +1194,7 @@ pub fn run_tests(
             let r_root = Arc::clone(&root_arc);
             let sender = tx.clone();
             let worker_build = build.clone();
+            let worker_cache = import_cache.clone();
             handles.push(thread::spawn(move || loop {
                 let file = {
                     let mut locked = q.lock().unwrap();
@@ -1174,13 +1203,14 @@ pub fn run_tests(
                 match file {
                     Some(path) => {
                         let display_name = format_test_path(&path, &r_root);
-                        let outcome = execute_test_file(
+                        let outcome = execute_test_file_cached(
                             &path,
                             arch,
                             os,
                             SuiteKind::Test,
                             &worker_build,
                             fresh,
+                            worker_cache.as_deref(),
                         );
                         let _ = sender.send(TestResultItem {
                             display_name,
@@ -1305,10 +1335,24 @@ pub fn run_benches(
 
     let mut stats = TestStats::default();
     let total_start = Instant::now();
+    let use_import_cache = std::env::var("ALYA_DISABLE_IMPORT_CACHE").is_err();
+    let import_cache = if use_import_cache {
+        Some(Arc::new(crate::parser::ImportCache::default()))
+    } else {
+        None
+    };
 
     for file in &bench_files {
         let display_name = format_test_path(file, root);
-        let outcome = execute_test_file(file, arch, os, SuiteKind::Bench, &build, fresh);
+        let outcome = execute_test_file_cached(
+            file,
+            arch,
+            os,
+            SuiteKind::Bench,
+            &build,
+            fresh,
+            import_cache.as_deref(),
+        );
         handle_test_result(&display_name, outcome, name_width, &mut stats);
     }
 

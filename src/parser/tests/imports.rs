@@ -885,3 +885,75 @@ fn test_bare_module_call_shadowed_local_kept() {
     assert!(kept);
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_import_cache_reuse_across_programs() {
+    use std::fs;
+    let temp_dir =
+        std::env::temp_dir().join(format!("alya_import_cache_test_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp_dir);
+    let _ = fs::create_dir_all(&temp_dir);
+
+    let shared_path = temp_dir.join("shared.alya");
+    fs::write(
+        &shared_path,
+        "pub function calculate(x: int) -> int\n    return x * 2\nend\n",
+    )
+    .unwrap();
+
+    let cache = crate::parser::ImportCache::default();
+    let cfg = CfgContext::host();
+
+    // Suite 1: resolve imports with cache
+    let source1 = "import \"shared.alya\"\nlet r1 = calculate(10)\nsay r1";
+    let mut lexer1 = crate::lexer::Lexer::new(source1);
+    let tokens1 = lexer1.tokenize().expect("Failed to tokenize 1");
+    let mut parser1 = Parser::new(tokens1);
+    let mut program1 = parser1.parse().expect("Failed to parse 1");
+
+    let files1 = crate::parser::resolve_imports_with_sources_cached(
+        &mut program1,
+        &temp_dir,
+        &cfg,
+        Some(&cache),
+    )
+    .expect("Failed to resolve imports 1");
+
+    assert_eq!(cache.parsed_ast_count(), 1);
+    assert_eq!(cache.resolved_path_count(), 1);
+    assert!(files1.iter().any(|p| p.ends_with("shared.alya")));
+
+    // Remove file from disk to verify Suite 2 hits memory cache
+    fs::remove_file(&shared_path).expect("Failed to remove shared file");
+
+    // Suite 2: resolve identical import from cache
+    let source2 = "import \"shared.alya\"\nlet r2 = calculate(20)\nsay r2";
+    let mut lexer2 = crate::lexer::Lexer::new(source2);
+    let tokens2 = lexer2.tokenize().expect("Failed to tokenize 2");
+    let mut parser2 = Parser::new(tokens2);
+    let mut program2 = parser2.parse().expect("Failed to parse 2");
+
+    let files2 = crate::parser::resolve_imports_with_sources_cached(
+        &mut program2,
+        &temp_dir,
+        &cfg,
+        Some(&cache),
+    )
+    .expect("Failed to resolve imports 2 from cache");
+
+    assert_eq!(cache.parsed_ast_count(), 1);
+    assert_eq!(cache.resolved_path_count(), 1);
+    assert!(files2.iter().any(|p| p.ends_with("shared.alya")));
+
+    // Verify program2 has the function definition from shared.alya
+    let has_fn = program2.statements.iter().any(|s| match s.inner_stmt() {
+        Stmt::Function { name, .. } => name == "calculate",
+        _ => false,
+    });
+    assert!(
+        has_fn,
+        "Expected 'calculate' function to be in resolved program2"
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
+}

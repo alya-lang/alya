@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod constants;
 pub mod dynspec;
 pub mod enums;
@@ -7,6 +8,8 @@ pub mod inline;
 pub mod stmt;
 #[cfg(test)]
 mod tests;
+
+pub use cache::ImportCache;
 
 use crate::ast::{Expr, Program, Stmt};
 use crate::lexer::{Token, TokenType};
@@ -31,7 +34,7 @@ pub struct Parser {
 }
 
 /// Compile-time configuration context for `@cfg(...)` conditions.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CfgContext {
     /// Target OS name: `windows` | `linux` | `macos`.
     pub os: String,
@@ -465,7 +468,16 @@ pub fn resolve_imports_with_sources(
     base_dir: &std::path::Path,
     cfg: &CfgContext,
 ) -> Result<std::collections::HashSet<std::path::PathBuf>, String> {
-    resolve_imports_with_sources_ext(program, base_dir, false, cfg)
+    resolve_imports_with_sources_ext_cached(program, base_dir, false, cfg, None)
+}
+
+pub fn resolve_imports_with_sources_cached(
+    program: &mut Program,
+    base_dir: &std::path::Path,
+    cfg: &CfgContext,
+    cache: Option<&ImportCache>,
+) -> Result<std::collections::HashSet<std::path::PathBuf>, String> {
+    resolve_imports_with_sources_ext_cached(program, base_dir, false, cfg, cache)
 }
 
 pub fn resolve_imports_with_sources_ext(
@@ -473,6 +485,16 @@ pub fn resolve_imports_with_sources_ext(
     base_dir: &std::path::Path,
     no_std: bool,
     cfg: &CfgContext,
+) -> Result<std::collections::HashSet<std::path::PathBuf>, String> {
+    resolve_imports_with_sources_ext_cached(program, base_dir, no_std, cfg, None)
+}
+
+pub fn resolve_imports_with_sources_ext_cached(
+    program: &mut Program,
+    base_dir: &std::path::Path,
+    no_std: bool,
+    cfg: &CfgContext,
+    cache: Option<&ImportCache>,
 ) -> Result<std::collections::HashSet<std::path::PathBuf>, String> {
     let mut visited = std::collections::HashSet::new();
     let mut resolved_stmts = Vec::new();
@@ -506,6 +528,7 @@ pub fn resolve_imports_with_sources_ext(
             no_std,
             cfg,
             &top_manifest_dir,
+            cache,
         )?;
         root_rewrites.extend(rewrites);
         if let Some((stem, written)) = bare_stem {
@@ -1494,6 +1517,7 @@ pub(crate) fn get_embedded_stdlib(module: &str) -> Option<&'static str> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
     stmt: Stmt,
     current_dir: &std::path::Path,
@@ -1502,6 +1526,7 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
     no_std: bool,
     cfg: &CfgContext,
     top_manifest_dir: &Option<std::path::PathBuf>,
+    cache: Option<&ImportCache>,
 ) -> Result<
     (
         std::collections::HashSet<String>,
@@ -1525,117 +1550,154 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                     import_path_str
                 ));
             }
-            let path = std::path::Path::new(&normalized_path);
-            let target_path = if path.is_absolute() {
-                path.to_path_buf()
-            } else {
-                current_dir.join(path)
-            };
 
-            let candidate = if target_path.exists() {
-                Some(target_path.clone())
-            } else if target_path.with_extension("alya").exists() {
-                Some(target_path.with_extension("alya"))
-            } else if normalized_path.starts_with("std/") || normalized_path.starts_with("std::") {
-                let clean = normalized_path
-                    .strip_prefix("std/")
-                    .or_else(|| normalized_path.strip_prefix("std::"))
-                    .unwrap_or(&normalized_path);
-                let clean = clean.strip_suffix(".alya").unwrap_or(clean);
-                let canonical_name = canonical_stdlib_module(clean);
-                let std_dir = current_dir.join("stdlib").join(canonical_name);
-                let std_root = std::path::Path::new("stdlib").join(canonical_name);
-                if std_dir.exists() {
-                    Some(std_dir)
-                } else if std_dir.with_extension("alya").exists() {
-                    Some(std_dir.with_extension("alya"))
-                } else if std_root.exists() {
-                    Some(std_root)
-                } else if std_root.with_extension("alya").exists() {
-                    Some(std_root.with_extension("alya"))
+            let canonical = if let Some(canon) =
+                cache.and_then(|c| c.get_resolved_path(current_dir, &normalized_path))
+            {
+                canon
+            } else {
+                let path = std::path::Path::new(&normalized_path);
+                let target_path = if path.is_absolute() {
+                    path.to_path_buf()
                 } else {
-                    None
-                }
-            } else {
-                crate::tools::pkg::resolve_package_import(&normalized_path, current_dir)?
-            };
+                    current_dir.join(path)
+                };
 
-            let (canonical, source) = if let Some(cand) = candidate {
-                let canon = std::fs::canonicalize(&cand)
-                    .map_err(|e| format!("Failed to resolve path '{}': {}", cand.display(), e))?;
-                if visited.contains(&(canon.clone(), alias.clone())) {
-                    return Ok((
-                        std::collections::HashSet::new(),
-                        std::collections::HashMap::new(),
-                    ));
-                }
-                let src = std::fs::read_to_string(&canon).map_err(|e| {
-                    format!(
-                        "Failed to read imported module '{}': {}",
-                        canon.display(),
-                        e
-                    )
-                })?;
-                (canon, src)
-            } else if normalized_path.starts_with("std/") || normalized_path.starts_with("std::") {
-                let clean = normalized_path
-                    .strip_prefix("std/")
-                    .or_else(|| normalized_path.strip_prefix("std::"))
-                    .unwrap_or(&normalized_path);
-                let clean = clean.strip_suffix(".alya").unwrap_or(clean);
-                let canonical_name = canonical_stdlib_module(clean);
-                if let Some(src) = get_embedded_stdlib(canonical_name) {
-                    let synthetic =
-                        std::path::PathBuf::from(format!("<embedded:std/{}>", canonical_name));
-                    if visited.contains(&(synthetic.clone(), alias.clone())) {
-                        return Ok((
-                            std::collections::HashSet::new(),
-                            std::collections::HashMap::new(),
+                let candidate = if target_path.exists() {
+                    Some(target_path.clone())
+                } else if target_path.with_extension("alya").exists() {
+                    Some(target_path.with_extension("alya"))
+                } else if normalized_path.starts_with("std/")
+                    || normalized_path.starts_with("std::")
+                {
+                    let clean = normalized_path
+                        .strip_prefix("std/")
+                        .or_else(|| normalized_path.strip_prefix("std::"))
+                        .unwrap_or(&normalized_path);
+                    let clean = clean.strip_suffix(".alya").unwrap_or(clean);
+                    let canonical_name = canonical_stdlib_module(clean);
+                    let std_dir = current_dir.join("stdlib").join(canonical_name);
+                    let std_root = std::path::Path::new("stdlib").join(canonical_name);
+                    if std_dir.exists() {
+                        Some(std_dir)
+                    } else if std_dir.with_extension("alya").exists() {
+                        Some(std_dir.with_extension("alya"))
+                    } else if std_root.exists() {
+                        Some(std_root)
+                    } else if std_root.with_extension("alya").exists() {
+                        Some(std_root.with_extension("alya"))
+                    } else {
+                        None
+                    }
+                } else {
+                    crate::tools::pkg::resolve_package_import(&normalized_path, current_dir)?
+                };
+
+                let canon = if let Some(cand) = candidate {
+                    std::fs::canonicalize(&cand).map_err(|e| {
+                        format!("Failed to resolve path '{}': {}", cand.display(), e)
+                    })?
+                } else if normalized_path.starts_with("std/")
+                    || normalized_path.starts_with("std::")
+                {
+                    let clean = normalized_path
+                        .strip_prefix("std/")
+                        .or_else(|| normalized_path.strip_prefix("std::"))
+                        .unwrap_or(&normalized_path);
+                    let clean = clean.strip_suffix(".alya").unwrap_or(clean);
+                    let canonical_name = canonical_stdlib_module(clean);
+                    if get_embedded_stdlib(canonical_name).is_some() {
+                        std::path::PathBuf::from(format!("<embedded:std/{}>", canonical_name))
+                    } else {
+                        return Err(format!(
+                            "Cannot find standard library module '{}'",
+                            import_path_str
                         ));
                     }
-                    (synthetic, src.to_string())
                 } else {
                     return Err(format!(
-                        "Cannot find standard library module '{}'",
-                        import_path_str
+                        "Cannot find imported module '{}' (looked at '{}')",
+                        import_path_str,
+                        target_path.display()
                     ));
+                };
+
+                if let Some(c) = cache {
+                    c.insert_resolved_path(
+                        current_dir.to_path_buf(),
+                        normalized_path.clone(),
+                        canon.clone(),
+                    );
                 }
-            } else {
-                return Err(format!(
-                    "Cannot find imported module '{}' (looked at '{}')",
-                    import_path_str,
-                    target_path.display()
-                ));
+                canon
             };
+
+            if visited.contains(&(canonical.clone(), alias.clone())) {
+                return Ok((
+                    std::collections::HashSet::new(),
+                    std::collections::HashMap::new(),
+                ));
+            }
 
             visited.insert((canonical.clone(), alias.clone()));
 
-            let mut lexer = crate::lexer::Lexer::new(&source);
-            let tokens = lexer.tokenize().map_err(|e| {
-                format!(
-                    "Lexer error in imported module '{}': {}",
-                    canonical.display(),
-                    e
-                )
-            })?;
+            let file_cfg =
+                crate::tools::pkg::features::imported_file_cfg(&canonical, top_manifest_dir, cfg)?;
 
-            let mut parser = Parser::new(tokens);
-            // Imported files evaluate `@cfg` under their OWN package's unified
-            // feature set (entry defaults + CLI, plus every `dep/feat`
-            // request from active parents). Same-package files inherit the
-            // top context.
-            parser.set_cfg_context(crate::tools::pkg::features::imported_file_cfg(
-                &canonical,
-                top_manifest_dir,
-                cfg,
-            )?);
-            let sub_program = parser.parse().map_err(|e| {
-                format!(
-                    "Parser error in imported module '{}': {}",
-                    canonical.display(),
-                    e
-                )
-            })?;
+            let sub_program = if let Some(cached_ast) =
+                cache.and_then(|c| c.get_parsed_ast(&canonical, &file_cfg))
+            {
+                cached_ast
+            } else {
+                let source = if canonical.to_string_lossy().starts_with("<embedded:std/") {
+                    let s = canonical.to_string_lossy();
+                    let clean = s
+                        .strip_prefix("<embedded:std/")
+                        .and_then(|s| s.strip_suffix('>'))
+                        .unwrap_or("");
+                    get_embedded_stdlib(clean)
+                        .ok_or_else(|| {
+                            format!("Cannot find standard library module '{}'", import_path_str)
+                        })?
+                        .to_string()
+                } else {
+                    std::fs::read_to_string(&canonical).map_err(|e| {
+                        format!(
+                            "Failed to read imported module '{}': {}",
+                            canonical.display(),
+                            e
+                        )
+                    })?
+                };
+
+                let mut lexer = crate::lexer::Lexer::new(&source);
+                let tokens = lexer.tokenize().map_err(|e| {
+                    format!(
+                        "Lexer error in imported module '{}': {}",
+                        canonical.display(),
+                        e
+                    )
+                })?;
+
+                let mut parser = Parser::new(tokens);
+                // Imported files evaluate `@cfg` under their OWN package's unified
+                // feature set (entry defaults + CLI, plus every `dep/feat`
+                // request from active parents). Same-package files inherit the
+                // top context.
+                parser.set_cfg_context(file_cfg.clone());
+                let parsed = parser.parse().map_err(|e| {
+                    format!(
+                        "Parser error in imported module '{}': {}",
+                        canonical.display(),
+                        e
+                    )
+                })?;
+
+                if let Some(c) = cache {
+                    c.insert_parsed_ast(canonical.clone(), file_cfg.clone(), parsed.clone());
+                }
+                parsed
+            };
 
             let is_embedded_stdlib = canonical.to_string_lossy().starts_with("<embedded:");
             let has_any_pub = sub_program.statements.iter().any(|s| s.is_pub());
@@ -1699,6 +1761,7 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                     no_std,
                     cfg,
                     top_manifest_dir,
+                    cache,
                 )?;
                 sub_rewrites.extend(rewrites);
                 if is_unaliased_import && (!is_embedded_stdlib || alias.is_some()) {
