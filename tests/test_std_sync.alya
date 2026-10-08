@@ -5,9 +5,9 @@ test_suite("Alya std/sync Test Suite")
 
 # 1. Mutex lock/unlock cycle
 let m = mutex_new()
-assert_eq(mutex_lock(m), 0, "mutex lock")
-assert_eq(mutex_unlock(m), 0, "mutex unlock")
-assert_eq(mutex_free(m), 0, "mutex free")
+assert_true(mutex_lock(m), "mutex lock")
+assert_true(mutex_unlock(m), "mutex unlock")
+assert_true(mutex_free(m), "mutex free")
 
 # 2. Buffered channel send/recv round-trip (no threads)
 let ch = channel_new(4)
