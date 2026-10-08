@@ -41,18 +41,15 @@ assert_false(process_kill(-5), "kill negative pid refused")
 
 # 5. Client-side validation throws before spawning anything
 let threw_shell = 0
-let shell_code = 0
+let shell_msg = ""
 try
     process_run_shell("   ")
 catch err
     threw_shell = 1
-    shell_code = err.exit_code
+    shell_msg = err.message
 end
 assert_eq(threw_shell, 1, "empty shell command throws")
-# NOTE: err.message reads empty here (compiler bug: caught string fields lose
-# their value while int fields survive; see .scratch/catch_fields.alya).
-# Keep asserting the surviving int field until the runtime is fixed.
-assert_eq(shell_code, -1, "shell error carries code")
+assert_true(len(shell_msg) > 0, "shell error carries message")
 
 let threw_env = 0
 try
