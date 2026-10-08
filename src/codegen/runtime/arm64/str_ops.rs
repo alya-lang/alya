@@ -578,12 +578,14 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
 
     // fn_ord / fn_char_code
     // Byte semantics (alya-lang/alya#103, see x64 mirror): return
-    // the first byte. Tagged ints (<256) pass through.
+    // the first byte. Immediates (<65536) pass through
+    // (alya-lang/alya#140: the old 256 cutoff dereferenced int args
+    // 256..65535 as string pointers).
     out.push_str(".align 2\n");
     out.push_str("fn_char_code:\n");
     out.push_str("fn_ord:\n");
     out.push_str("    cbz x0, .L_arm64_ord_ret\n");
-    out.push_str("    cmp x0, #256\n");
+    out.push_str("    cmp x0, #65536\n");
     out.push_str("    b.lo .L_arm64_ord_ret\n");
     out.push_str("    ldrb w0, [x0]\n");
     out.push_str(".L_arm64_ord_ret:\n");
@@ -982,7 +984,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".align 2\n");
     out.push_str("fn_is_digit:\n");
     out.push_str("    cbz x0, .L_arm64_is_digit_false\n");
-    out.push_str("    cmp x0, #256\n");
+    // Immediates (<65536) compare directly (alya-lang/alya#140).
+    out.push_str("    cmp x0, #65536\n");
     out.push_str("    b.lo .L_arm64_is_digit_cmp\n");
     out.push_str("    ldrb w0, [x0]\n");
     out.push_str(".L_arm64_is_digit_cmp:\n");
@@ -1000,7 +1003,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".align 2\n");
     out.push_str("fn_is_alpha:\n");
     out.push_str("    cbz x0, .L_arm64_is_alpha_false\n");
-    out.push_str("    cmp x0, #256\n");
+    // Immediates (<65536) compare directly (alya-lang/alya#140).
+    out.push_str("    cmp x0, #65536\n");
     out.push_str("    b.lo .L_arm64_is_alpha_cmp\n");
     out.push_str("    ldrb w0, [x0]\n");
     out.push_str(".L_arm64_is_alpha_cmp:\n");
@@ -1043,7 +1047,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("fn_is_whitespace:\n");
     out.push_str("fn_is_space:\n");
     out.push_str("    cbz x0, .L_arm64_is_space_false\n");
-    out.push_str("    cmp x0, #256\n");
+    // Immediates (<65536) compare directly (alya-lang/alya#140).
+    out.push_str("    cmp x0, #65536\n");
     out.push_str("    b.lo .L_arm64_is_space_cmp\n");
     out.push_str("    ldrb w0, [x0]\n");
     out.push_str(".L_arm64_is_space_cmp:\n");

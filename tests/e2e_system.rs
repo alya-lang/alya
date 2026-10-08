@@ -1462,6 +1462,59 @@ main()
 }
 
 #[test]
+fn test_e2e_int_map_keys_past_256_no_crash() {
+    // alya-lang/alya#140: int keys >= 256 crashed with 0xC0000005. The
+    // x64 map hash classified only keys < 256 as immediates and ran the
+    // djb2 string loop over the rest, dereferencing the key value as a
+    // pointer. The cutoff is 65536 everywhere else (key_eq, ARM64 hash,
+    // array printers); the map hash and both map printers now agree.
+    let code = r#"
+function main()
+    let m = { 0: 0 }
+    let i: int = 1
+    while i <= 1000
+        m[i] = i * 2
+        i += 1
+    end
+    m[20000] = 40000
+    m[60000] = 120000
+    assert m[0] == 0
+    assert m[255] == 510
+    assert m[256] == 512
+    assert m[1000] == 2000
+    assert m[20000] == 40000
+    assert m[60000] == 120000
+    assert (256 in m) == true
+    assert ("nope" in m) == false
+    say m[256]
+    say(m[60000])
+    // Same stale-256 immediate cutoff lived in the char predicates
+    // (alya-lang/alya#140 follow-up): int args 256..65535 took the
+    // string path and faulted. They now compare/pass through directly.
+    assert is_digit(300) == 0
+    assert is_digit("7") == 1
+    assert is_alpha(300) == 0
+    assert is_alpha("X") == 1
+    assert is_space(300) == 0
+    assert is_space(" ") == 1
+    assert ord(300) == 300
+    assert ord("A") == 65
+    say("intkeys-done")
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(
+            code, 0,
+            "Execution failed with code {} and output:\n{}",
+            code, output
+        );
+        assert_eq!(output, "512\n120000\nintkeys-done\n");
+    }
+}
+
+#[test]
 fn test_e2e_json_parse_loop_no_crash() {
     // alya-lang/alya#117: `json_parse` in a loop segfaulted (jwt/tls
     // suites aborted). Big ints flowing through map insert/drop hit

@@ -702,7 +702,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     // len/char_at/substring are all byte-based, and the fused
     // ord(char_at(...)) fast path reads a single byte via movzbl —
     // a UTF-8 decode here made var-vs-inline disagree (252 vs 195
-    // for "ü"). Tagged ints (<256) pass through; empty pointers
+    // for "ü"). Immediates (<65536) pass through; empty pointers
     // read their NUL byte (0).
     out.push_str("fn_char_code:\n");
     out.push_str("fn_ord:\n");
@@ -715,7 +715,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     }
     out.push_str("    test %rax, %rax\n");
     out.push_str("    jz .L_x64_ord_ret\n");
-    out.push_str("    cmp $256, %rax\n");
+    // Immediates (<65536) pass through (alya-lang/alya#140: the old 256
+    // cutoff dereferenced int args 256..65535 as string pointers).
+    out.push_str("    cmp $65536, %rax\n");
     out.push_str("    jb .L_x64_ord_ret\n");
     out.push_str("    movzbq (%rax), %rax\n");
     out.push_str(".L_x64_ord_ret:\n");
@@ -1187,7 +1189,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    xor %rax, %rax\n");
     out.push_str("    test %rdx, %rdx\n");
     out.push_str("    jz .L_x64_is_digit_end\n");
-    out.push_str("    cmp $256, %rdx\n");
+    // Immediates (<65536) compare directly (alya-lang/alya#140).
+    out.push_str("    cmp $65536, %rdx\n");
     out.push_str("    jb .L_x64_is_digit_cmp\n");
     out.push_str("    movzbl (%rdx), %edx\n");
     out.push_str(".L_x64_is_digit_cmp:\n");
@@ -1213,7 +1216,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    xor %rax, %rax\n");
     out.push_str("    test %rdx, %rdx\n");
     out.push_str("    jz .L_x64_is_alpha_end\n");
-    out.push_str("    cmp $256, %rdx\n");
+    // Immediates (<65536) compare directly (alya-lang/alya#140).
+    out.push_str("    cmp $65536, %rdx\n");
     out.push_str("    jb .L_x64_is_alpha_cmp\n");
     out.push_str("    movzbl (%rdx), %edx\n");
     out.push_str(".L_x64_is_alpha_cmp:\n");
@@ -1281,7 +1285,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    xor %rax, %rax\n");
     out.push_str("    test %rdx, %rdx\n");
     out.push_str("    jz .L_x64_is_space_end\n");
-    out.push_str("    cmp $256, %rdx\n");
+    // Immediates (<65536) compare directly (alya-lang/alya#140).
+    out.push_str("    cmp $65536, %rdx\n");
     out.push_str("    jb .L_x64_is_space_cmp\n");
     out.push_str("    movzbl (%rdx), %edx\n");
     out.push_str(".L_x64_is_space_cmp:\n");

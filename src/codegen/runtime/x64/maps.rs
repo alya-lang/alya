@@ -6,7 +6,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     let p = if matches!(os, OperatingSystem::MacOS) { "_" } else { "" };
     let _ = (is_win, p);
 
-    // alya_map_hash
+    // alya_map_hash: values below 65536 are immediates (int/bool/null)
+    // and hash by identity; anything at/above is a heap/rodata pointer
+    // hashed with djb2 (alya-lang/alya#140: the old 256 cutoff sent int
+    // keys 256..65535 down the string path, dereferencing the key value
+    // as a pointer). Must match alya_map_key_eq and the array printers.
     out.push_str(".global alya_map_hash\n");
     out.push_str("alya_map_hash:\n");
     out.push_str("    push %rbp\n");
@@ -16,7 +20,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     } else {
         out.push_str("    mov %rdi, %rdx\n");
     }
-    out.push_str("    cmp $256, %rdx\n");
+    out.push_str("    cmp $65536, %rdx\n");
     out.push_str("    jb .L_x64_mhash_int\n");
     out.push_str("    mov $5381, %rax\n");
     out.push_str(".L_x64_mhash_loop:\n");
@@ -890,7 +894,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    shl $3, %rax\n");
         out.push_str("    add %r13, %rax\n");
         out.push_str("    mov (%rax), %rdx\n");
-        out.push_str("    cmp $256, %rdx\n");
+        out.push_str("    cmp $65536, %rdx\n");
         out.push_str("    jb .L_x64_pmap_key_num\n");
         out.push_str("    lea alya_fmt_prompt(%rip), %rcx\n");
         out.push_str("    call printf\n");
@@ -956,7 +960,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    shl $3, %rax\n");
         out.push_str("    add %r13, %rax\n");
         out.push_str("    mov (%rax), %rsi\n");
-        out.push_str("    cmp $256, %rsi\n");
+        out.push_str("    cmp $65536, %rsi\n");
         out.push_str("    jb .L_x64_pmap_key_num\n");
         out.push_str("    lea alya_fmt_prompt(%rip), %rdi\n");
         out.push_str("    xor %rax, %rax\n");

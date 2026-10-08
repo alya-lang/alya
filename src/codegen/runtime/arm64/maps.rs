@@ -626,7 +626,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x10, x21, x21, lsl #1\n");
     out.push_str("    add x10, x9, x10, lsl #3\n");
     out.push_str("    ldr x1, [x10]\n");
-    out.push_str("    cmp x1, #256\n");
+    out.push_str("    cmp x1, #65536\n");
     out.push_str("    b.lo .L_arm64_pmap_key_num\n");
     emit_adrp_add(out, "x0", "alya_fmt_prompt", os);
     if matches!(os, OperatingSystem::MacOS) {
