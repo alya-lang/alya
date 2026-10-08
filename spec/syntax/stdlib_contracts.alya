@@ -81,6 +81,15 @@ import "std/net" as net
 try
     let sock = net::tcp_connect("127.0.0.1", 8080)
     net::send(sock, "PING\n")
+    # Port 8080 is the most collision-prone dev port: an unrelated
+    # silent server would make the blocking recv below wait forever
+    # and stall the whole `alya test` run (the summary prints only
+    # after every suite reports). Bound the wait; a timeout takes the
+    # same skip path as a refused connection.
+    if net::tcp_poll(sock, 1500) != 1
+        net::close(sock)
+        throw "no response within timeout"
+    end
     let response = net::recv(sock, 1024)
     net::close(sock)
 catch err
