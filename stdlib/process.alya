@@ -268,7 +268,7 @@ function internal_decode_wait(raw: int) -> int
     end
     let sig: int = info
     if sig >= 128
-        sig = sig - 128
+        sig -= 128
     end
     return 128 + sig
 end
@@ -304,9 +304,9 @@ function internal_quote_posix(arg: string) -> string
     while i < len(arg)
         let c: string = char_at(arg, i)
         if c == "'"
-            out = out + "'\\''"
+            out += "'\\''"
         else
-            out = out + c
+            out += c
         end
         i += 1
     end
@@ -321,13 +321,13 @@ function internal_quote_windows(arg: string) -> string
     while j < len(arg)
         let ch: string = char_at(arg, j)
         if ch == "\""
-            buf = buf + "\\\""
+            buf += "\\\""
             bare_ok = false
         elif ch == " " or ch == "\t" or ch == "\n"
-            buf = buf + ch
+            buf += ch
             bare_ok = false
         else
-            buf = buf + ch
+            buf += ch
         end
         j += 1
     end
@@ -384,11 +384,11 @@ function internal_env_prefix(env, windows: bool) -> string
             throw ProcessError { message: f"Invalid environment variable name: {k}", exit_code: -1 }
         end
         if windows
-            prefix = prefix + f"set \"{k}={v}\" && "
+            prefix += f"set \"{k}={v}\" && "
         else
             # Keys stay bare: a quoted name is not an assignment to the shell.
             # Keys are charset-validated above, so bare interpolation is safe.
-            prefix = prefix + k + "=" + internal_quote_posix(v) + " "
+            prefix += k + "=" + internal_quote_posix(v) + " "
         end
     end
     return prefix
@@ -419,7 +419,7 @@ function internal_join_command(program: string, args: string[], opts) -> string
     let windows: bool = target_os() == "windows"
     let cmd: string = internal_env_prefix(env, windows) + internal_cwd_prefix(cwd, windows) + process_quote_arg(program)
     for a in args
-        cmd = cmd + " " + process_quote_arg(a)
+        cmd += " " + process_quote_arg(a)
     end
     return cmd
 end
@@ -644,7 +644,7 @@ function internal_posix_spawn_inherit(program: string, args: string[], cwd: stri
     end
     let pid_slot = alloc_zeroed(8)
     if pid_slot == 0
-        if acts != null
+        if acts is not null
             posix_spawn_file_actions_destroy(acts)
             free_mem(acts)
         end
@@ -654,7 +654,7 @@ function internal_posix_spawn_inherit(program: string, args: string[], cwd: stri
     end
     let rc: int = posix_spawnp(pid_slot, program, acts, null, argv, envp)
     let pid: int = read_i32(pid_slot, 0)
-    if acts != null
+    if acts is not null
         posix_spawn_file_actions_destroy(acts)
         free_mem(acts)
     end
@@ -699,7 +699,7 @@ function internal_pump_pipes(out_r: int, err_r: int, pid: int)
             let n: int = read(out_r, buf, 65536)
             if n > 0
                 write_byte(buf, n, 0)
-                out = out + string_clone(str_from_ptr(buf))
+                out += string_clone(str_from_ptr(buf))
             else
                 close(out_r)
                 out_open = false
@@ -709,7 +709,7 @@ function internal_pump_pipes(out_r: int, err_r: int, pid: int)
             let m: int = read(err_r, buf, 65536)
             if m > 0
                 write_byte(buf, m, 0)
-                err = err + string_clone(str_from_ptr(buf))
+                err += string_clone(str_from_ptr(buf))
             else
                 close(err_r)
                 err_open = false
