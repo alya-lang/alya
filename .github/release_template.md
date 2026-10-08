@@ -26,6 +26,8 @@ Alya is an expressive, compiled, multi-paradigm systems programming language des
 {{WIN_ARM_SHA}}  alya-{{VERSION}}-arm64-windows.zip
 ```
 
+> Each archive also ships a standalone `alya-lsp` language server (equivalent to `alya lsp`) for editor integration.
+
 ---
 
 ## ⚡ Quick Start
