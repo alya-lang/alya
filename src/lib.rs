@@ -29,3 +29,23 @@ pub fn run_cli() {
         }
     }
 }
+
+pub fn run_lsp() {
+    driver::init_console();
+
+    let child = std::thread::Builder::new()
+        .stack_size(STACK_SIZE)
+        .spawn(crate::tools::lsp::run_lsp)
+        .expect("Failed to spawn LSP server thread");
+
+    match child.join() {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => {
+            eprintln!("{}", err);
+            std::process::exit(1);
+        }
+        Err(panic_payload) => {
+            std::panic::resume_unwind(panic_payload);
+        }
+    }
+}

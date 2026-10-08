@@ -29,6 +29,10 @@ path = "src/lib.rs"
 name = "alya"
 path = "src/main.rs"
 
+[[bin]]
+name = "alya-lsp"
+path = "src/bin/alya-lsp.rs"
+
 [[bench]]
 name = "compiler_bench"
 harness = false

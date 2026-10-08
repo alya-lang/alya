@@ -587,6 +587,9 @@ pub fn print_lsp_help() {
     println!("  alya lsp\n");
     println!("EXAMPLES:");
     println!("  alya lsp                             # Start LSP for editor integration");
+    println!("\nNOTE:");
+    println!("  The standalone `alya-lsp` binary (same archive) is equivalent;");
+    println!("  editors may spawn it directly with no arguments.");
 }
 
 pub fn print_dap_help() {

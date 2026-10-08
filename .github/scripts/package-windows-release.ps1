@@ -1,6 +1,6 @@
 #Requires -Version 5.1
-# Packages Windows alya release archives:
-#   1. Standard lightweight package (binary + README + LICENSE + SHA-256)
+# Packages Windows alya release archives (both `alya` and `alya-lsp`):
+#   1. Standard lightweight package (binaries + README + LICENSE + SHA-256)
 #   2. Standalone offline package (with pre-bundled C toolchain)
 # Usage: package-windows-release.ps1 -Version <v> -Platform <p> -Target <t> -Bin <b> -Tc <toolchain-zip>
 [CmdletBinding()]
@@ -18,6 +18,13 @@ $ErrorActionPreference = "Stop"
 $PackageName = "alya-$Version-$Platform"
 New-Item -ItemType Directory -Force -Path $PackageName | Out-Null
 Copy-Item "target/$Target/release/$Bin" -Destination $PackageName
+# Standalone LSP server ships in the same archive so editors fetch one
+# file and use `alya-lsp` for editing plus `alya` for run/build/test.
+$LspBin = if ($Bin -eq "alya.exe") { "alya-lsp.exe" } else { $Bin -replace 'alya(\.exe)?$', 'alya-lsp$1' }
+$LspPath = "target/$Target/release/$LspBin"
+if (Test-Path $LspPath) {
+  Copy-Item $LspPath -Destination $PackageName
+}
 Copy-Item README.md, LICENSE -Destination $PackageName
 Compress-Archive -Path $PackageName -DestinationPath "$PackageName.zip"
 $hash = (Get-FileHash -Algorithm SHA256 "$PackageName.zip").Hash.ToLower()
@@ -27,6 +34,9 @@ $hash = (Get-FileHash -Algorithm SHA256 "$PackageName.zip").Hash.ToLower()
 $StandaloneName = "alya-$Version-$Platform-standalone"
 New-Item -ItemType Directory -Force -Path $StandaloneName | Out-Null
 Copy-Item "target/$Target/release/$Bin" -Destination $StandaloneName
+if (Test-Path $LspPath) {
+  Copy-Item $LspPath -Destination $StandaloneName
+}
 Copy-Item README.md, LICENSE -Destination $StandaloneName
 
 # Download and bundle minimal toolchain (tracking latest release, with fallback)
