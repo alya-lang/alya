@@ -50,6 +50,7 @@
 # | `32_fnfield_helper.alya` + `32_fnfield_match.alya` | `Lib/http` `router_match` (alya-lang/alya#113) | dynamic fn store + string literal in same-named fields must not set bare `struct_field_str`; stored fn stays callable |
 # | `33_uuid_loop_flat_memory.alya` | `Lib/uuid` `v4()` loop (alya-lang/alya#116) | self-accumulating `res += ...` reassignments must not dup transients into the stable store; loop memory stays flat |
 # | `34_method_self_shadow_builtin.alya` | `spike/selfhost/lexer.alya` `Lexer.read_string` vs `fs.read_string` | unannotated `self` in methods infers struct type to prevent fallback to global same-name builtin |
+# | `35_return_borrowed_alias.alya` | `archive` entry loop via pass-through helper (alya-lang/alya#125) | `return data` of an untyped param retains the borrowed alias so loop-end releases never reclaim the shared referent |
 #
 # ## Known collision (deliberate rename)
 #

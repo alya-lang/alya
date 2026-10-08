@@ -1,0 +1,35 @@
+# ==============================================================================
+# Alya Integration Fixture 35 (entry): returning a borrowed array alias
+# Distilled from: alya-lang/alya#125 (`archive` ZIP builder looping over a
+#                 reused entry list via a pass-through helper)
+# Guards: when a function returns its untyped parameter (a borrowed alias
+#         of the caller's array), the return must be retained so the
+#         caller's per-iteration release of the receiver does not reclaim
+#         the referent while the shared container still holds it (UAF).
+# ==============================================================================
+
+function wrap(data, flag: int) -> array
+    if flag == 1
+        return data
+    end
+    return data
+end
+
+function main()
+    let shared = [[72, 105]]
+    let k = 0
+    while k < 200
+        let p = wrap(shared[0], 0)
+        let out = []
+        for b in p
+            out.push(b)
+        end
+        assert len(out) == 2
+        assert out[0] == 72
+        assert out[1] == 105
+        k += 1
+    end
+    say "integration 35_return_borrowed_alias: OK"
+end
+
+main()

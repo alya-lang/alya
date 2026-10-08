@@ -58,6 +58,7 @@ fn entry_files() -> Vec<String> {
         "32_fnfield_match.alya".to_string(),
         "33_uuid_loop_flat_memory.alya".to_string(),
         "34_method_self_shadow_builtin.alya".to_string(),
+        "35_return_borrowed_alias.alya".to_string(),
     ]
 }
 
@@ -650,6 +651,20 @@ fn test_integration_34_method_self_shadow_builtin_output() {
     if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("hello:42\n"));
+    }
+}
+
+#[test]
+fn test_integration_35_return_borrowed_alias_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 35_return_borrowed_alias: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("35_return_borrowed_alias.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 35_return_borrowed_alias: OK"));
     }
 }
 

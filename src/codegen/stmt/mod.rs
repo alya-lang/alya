@@ -191,11 +191,20 @@ impl CodeGen {
                     if needs_float_convert && ret_tagged {
                         self.emit_materialize_float_tag();
                     }
-                    // Borrowed heap returns (indexing, field access) must be
-                    // retained before scope cleanup releases the container, preventing use-after-free.
-                    let is_borrowed_container_access =
-                        matches!(expr, Expr::Index { .. } | Expr::FieldAccess { .. });
-                    let needs_return_retain = is_borrowed_container_access
+                    // Borrowed heap returns (indexing, field access, or a
+                    // borrowed identifier such as an untyped parameter
+                    // aliasing the caller's array) must be retained
+                    // before scope cleanup releases the container,
+                    // preventing use-after-free. Owned heap slots are
+                    // excluded via `skip_offset`: their cleanup is
+                    // skipped and ownership transfers, so retaining
+                    // again would leak one reference per call
+                    // (alya-lang/alya#125).
+                    let is_borrowed_value = matches!(
+                        expr,
+                        Expr::Index { .. } | Expr::FieldAccess { .. } | Expr::Identifier(_)
+                    ) && skip_offset.is_none();
+                    let needs_return_retain = is_borrowed_value
                         && (self.is_heap_expression(expr) || self.store_value_needs_retain(expr));
                     if needs_return_retain {
                         // The retain call clobbers the tag register (rdx on
