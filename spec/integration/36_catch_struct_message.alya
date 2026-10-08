@@ -1,0 +1,31 @@
+# ==============================================================================
+# Alya Integration Fixture 36 (entry): `.message` on a caught struct value
+# Distilled from: alya-lang/alya#126 (`std/process` `ProcessError` handling)
+# Guards: a `catch` binding is always `StringOffset`-typed, so the
+#         `is_string_expr` identity shortcut for `.message` returned the
+#         thrown struct pointer (printing empty) instead of the struct's
+#         message text. The catch path must prefer the throw-recorded
+#         message, falling back to the value itself for string throws.
+# ==============================================================================
+
+struct CaughtFields
+    message: string
+    code: int
+end
+
+function main()
+    try
+        throw CaughtFields { message: "hello", code: 42 }
+    catch err
+        assert err.code == 42
+        assert err.message == "hello"
+    end
+    try
+        throw "boom"
+    catch err
+        assert err.message == "boom"
+    end
+    say "integration 36_catch_struct_message: OK"
+end
+
+main()

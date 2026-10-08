@@ -2809,17 +2809,32 @@ impl CodeGen {
                 arch::emit_pop_temp(&mut self.output, self.arch);
             }
             Expr::FieldAccess { object, field } => {
-                if field == "message" && is_string_expr(object, &self.ctx.variables) {
-                    self.generate_expression(object);
-                    match self.arch {
-                        Architecture::X64 => {
-                            self.output.push_str("    movq %rax, %xmm0\n");
-                        }
-                        Architecture::ARM64 => {
-                            self.output.push_str("    fmov d0, x0\n");
+                if field == "message" {
+                    // Catch bindings may hold structs despite their
+                    // StringOffset type: prefer the throw-recorded text
+                    // (alya-lang/alya#126).
+                    if let Expr::Identifier(obj_name) = &**object {
+                        if self
+                            .ctx
+                            .variables
+                            .contains_key(&format!("is_catch_var:{}", obj_name))
+                        {
+                            self.generate_catch_message(object, false);
+                            return;
                         }
                     }
-                    return;
+                    if is_string_expr(object, &self.ctx.variables) {
+                        self.generate_expression(object);
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output.push_str("    movq %rax, %xmm0\n");
+                            }
+                            Architecture::ARM64 => {
+                                self.output.push_str("    fmov d0, x0\n");
+                            }
+                        }
+                        return;
+                    }
                 }
                 if let Expr::Identifier(obj_name) = &**object {
                     if !self.ctx.variables.contains_key(obj_name) {
@@ -3282,17 +3297,31 @@ impl CodeGen {
                 }
             }
             Expr::OptionalFieldAccess { object, field } => {
-                if field == "message" && is_string_expr(object, &self.ctx.variables) {
-                    self.generate_expression(object);
-                    match self.arch {
-                        Architecture::X64 => {
-                            self.output.push_str("    movq %rax, %xmm0\n");
-                        }
-                        Architecture::ARM64 => {
-                            self.output.push_str("    fmov d0, x0\n");
+                if field == "message" {
+                    // Same catch-struct rule as FieldAccess above
+                    // (alya-lang/alya#126).
+                    if let Expr::Identifier(obj_name) = &**object {
+                        if self
+                            .ctx
+                            .variables
+                            .contains_key(&format!("is_catch_var:{}", obj_name))
+                        {
+                            self.generate_catch_message(object, true);
+                            return;
                         }
                     }
-                    return;
+                    if is_string_expr(object, &self.ctx.variables) {
+                        self.generate_expression(object);
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output.push_str("    movq %rax, %xmm0\n");
+                            }
+                            Architecture::ARM64 => {
+                                self.output.push_str("    fmov d0, x0\n");
+                            }
+                        }
+                        return;
+                    }
                 }
                 let null_label = self.ctx.next_label();
                 let end_label = self.ctx.next_label();
@@ -5123,6 +5152,88 @@ impl CodeGen {
             }
         }
         false
+    }
+
+    /// `.message` on a `catch` binding (alya-lang/alya#126): the catch
+    /// slot is always `StringOffset`-typed, so the plain `is_string_expr`
+    /// identity shortcut would return a thrown *struct* pointer instead
+    /// of its message text. The throw site already resolves the real
+    /// message field index and records the text in the thread block
+    /// (+3088); plain string throws record null there. Prefer the
+    /// recorded text, falling back to the value itself (string throws).
+    /// Same staleness contract as the catch value (+3080): valid until
+    /// the next throw on this thread.
+    fn generate_catch_message(&mut self, object: &Expr, null_safe: bool) {
+        self.generate_expression(object);
+        // `?.` on a null catch value yields null without consulting
+        // the thread block (a stale recorded message must not print).
+        let (null_label, end_label) = if null_safe {
+            let n = self.ctx.next_label();
+            let e = self.ctx.next_label();
+            match self.arch {
+                Architecture::X64 => {
+                    self.output.push_str("    test %rax, %rax\n");
+                    self.output.push_str(&format!("    jz {}\n", n));
+                }
+                Architecture::ARM64 => {
+                    self.output.push_str(&format!("    cbz x0, {}\n", n));
+                }
+            }
+            (Some(n), Some(e))
+        } else {
+            (None, None)
+        };
+        match self.arch {
+            Architecture::X64 => {
+                arch::emit_push_temp(&mut self.output, self.arch);
+                self.ctx.stack_offset += 8;
+                arch::x64::control::emit_call_target(
+                    &mut self.output,
+                    "alya_catch_block",
+                    0,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+                self.output.push_str("    mov 3088(%rax), %rcx\n");
+                self.output.push_str("    pop %rax\n");
+                self.ctx.stack_offset -= 8;
+                self.output.push_str("    test %rcx, %rcx\n");
+                self.output.push_str("    cmovne %rcx, %rax\n");
+                self.output.push_str("    movq %rax, %xmm0\n");
+            }
+            Architecture::ARM64 => {
+                arch::emit_push_temp(&mut self.output, self.arch);
+                self.ctx.stack_offset += 16;
+                arch::arm64::control::emit_call_target(&mut self.output, "alya_catch_block", 0);
+                self.output.push_str("    ldr x1, [x0, #3088]\n");
+                self.output.push_str("    ldr x0, [sp], #16\n");
+                self.ctx.stack_offset -= 16;
+                let done_label = self.ctx.next_label();
+                self.output
+                    .push_str(&format!("    cbz x1, {}\n", done_label));
+                self.output.push_str("    mov x0, x1\n");
+                self.output.push_str(&format!("{}:\n", done_label));
+                self.output.push_str("    fmov d0, x0\n");
+            }
+        }
+        if let (Some(null_label), Some(end_label)) = (null_label, end_label) {
+            match self.arch {
+                Architecture::X64 => {
+                    self.output.push_str(&format!("    jmp {}\n", end_label));
+                    self.output.push_str(&format!("{}:\n", null_label));
+                    self.output.push_str("    movq $0, %rax\n");
+                    self.output.push_str("    xorpd %xmm0, %xmm0\n");
+                    self.output.push_str(&format!("{}:\n", end_label));
+                }
+                Architecture::ARM64 => {
+                    self.output.push_str(&format!("    b {}\n", end_label));
+                    self.output.push_str(&format!("{}:\n", null_label));
+                    self.output.push_str("    mov x0, #0\n");
+                    self.output.push_str("    fmov d0, xzr\n");
+                    self.output.push_str(&format!("{}:\n", end_label));
+                }
+            }
+        }
     }
 
     pub(crate) fn get_type_size_and_align(

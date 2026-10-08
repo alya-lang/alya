@@ -167,6 +167,34 @@ end
 }
 
 #[test]
+fn test_e2e_throw_struct_caught_keeps_string_field() {
+    // alya-lang/alya#126: `.message` on a catch binding must read the
+    // throw-recorded struct text, not the struct pointer (which printed
+    // empty); int fields and plain-string throws are unaffected.
+    let code = r#"
+struct CaughtFields
+    message: string
+    code: int
+end
+try
+    throw CaughtFields { message: "hello", code: 42 }
+catch err
+    say err.code
+    say err.message
+end
+try
+    throw "boom"
+catch err
+    say err.message
+end
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "42\nhello\nboom\n");
+    }
+}
+
+#[test]
 fn test_e2e_throw_uncaught_in_worker_prints_message() {
     // Fatal path (printf + exit) on a pthread-created thread.
     let code = r#"
