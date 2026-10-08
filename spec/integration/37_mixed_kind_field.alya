@@ -1,0 +1,35 @@
+# ==============================================================================
+# Alya Integration Fixture 37 (entry): mixed-kind struct field reads
+# Distilled from: alya-lang/alya#131 (http SseEvent.data vs event
+#                 TcpStream.data breaking reactive networking)
+# Guards: a reachable struct literal with a string `data` field must not
+#         flip untyped `.data` reads on array-holding structs program-wide
+#         (bare-global kind markers). Mixed fields demote to dynamic reads.
+# ==============================================================================
+
+struct Buf
+    data: array
+end
+
+struct Qq
+    data: string
+end
+
+function getfirst(b)
+    return b.data[0]
+end
+
+function make_q()
+    let q = Qq { data: "x" }
+    return q
+end
+
+function main()
+    let qq = make_q()
+    assert qq.data == "x"
+    let b = Buf { data: [72, 105] }
+    assert getfirst(b) == 72
+    say "integration 37_mixed_kind_field: OK"
+end
+
+main()

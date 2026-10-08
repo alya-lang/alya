@@ -570,7 +570,7 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                 }
             }
             let global_field_key = format!("struct_field_str:{}", field);
-            if vars.contains_key(&global_field_key) {
+            if !struct_field_kind_mixed(vars, field) && vars.contains_key(&global_field_key) {
                 return true;
             }
             false
@@ -734,7 +734,7 @@ pub fn is_array_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                 }
             }
             let global_field_key = format!("struct_field_arr:{}", field);
-            if vars.contains_key(&global_field_key) {
+            if !struct_field_kind_mixed(vars, field) && vars.contains_key(&global_field_key) {
                 return true;
             }
             false
@@ -841,7 +841,7 @@ pub fn is_map_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                 }
             }
             let global_field_key = format!("struct_field_map:{}", field);
-            if vars.contains_key(&global_field_key) {
+            if !struct_field_kind_mixed(vars, field) && vars.contains_key(&global_field_key) {
                 return true;
             }
             false
@@ -1005,6 +1005,15 @@ pub fn struct_field_markers_mixed_vars(
     vars.contains_key(&format!("struct_field_mixed:{}.{}", sname, fname))
         || vars.contains_key(&format!("struct_field_mixed:{}.{}", bare_s, fname))
         || vars.contains_key(&format!("struct_field_mixed:{}", fname))
+}
+
+/// True when bare-global kind markers for `field` are unusable: mixed
+/// literal kinds or conflicting declarations were observed, so no single
+/// static kind serves every holder. Every bare-global fallback below
+/// consults this (alya-lang/alya#131); qualified per-struct markers stay
+/// precise and are unaffected.
+fn struct_field_kind_mixed(vars: &HashMap<String, VarType>, field: &str) -> bool {
+    vars.contains_key(&format!("struct_field_mixed:{}", field))
 }
 
 /// True when an `Index` read routes through `fn_get` (map path) rather
@@ -1196,7 +1205,7 @@ pub fn is_string_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                 }
             }
             let global_field_key = format!("struct_field_arr_str:{}", field);
-            vars.contains_key(&global_field_key)
+            !struct_field_kind_mixed(vars, field) && vars.contains_key(&global_field_key)
         }
         Expr::Call { name, .. } => {
             let bare = name.rsplit("::").next().unwrap_or(name.as_str());
@@ -1268,7 +1277,7 @@ pub fn is_float_array(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                 }
             }
             let global_field_key = format!("struct_field_arr_flt:{}", field);
-            vars.contains_key(&global_field_key)
+            !struct_field_kind_mixed(vars, field) && vars.contains_key(&global_field_key)
         }
         Expr::ForceUnwrap(inner) => is_float_array(inner, vars),
         _ => false,
@@ -1296,7 +1305,7 @@ pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                 }
             }
             let global_field_key = format!("struct_field_flt:{}", field);
-            if vars.contains_key(&global_field_key) {
+            if !struct_field_kind_mixed(vars, field) && vars.contains_key(&global_field_key) {
                 return true;
             }
             false

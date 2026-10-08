@@ -1280,26 +1280,35 @@ impl CodeGen {
             {
                 for fname in &sdef.fields {
                     let field_key = format!("{}.{}", target_struct_var, fname);
-                    if self
+                    // Mixed-kind fields suppress the bare-global marker:
+                    // no single static kind serves every holder
+                    // (alya-lang/alya#131).
+                    let kind_mixed = self
                         .ctx
                         .variables
-                        .contains_key(&format!("struct_field_str:{}.{}", sname, fname))
-                        || self
+                        .contains_key(&format!("struct_field_mixed:{}", fname));
+                    if !kind_mixed
+                        && (self
                             .ctx
                             .variables
-                            .contains_key(&format!("struct_field_str:{}", fname))
+                            .contains_key(&format!("struct_field_str:{}.{}", sname, fname))
+                            || self
+                                .ctx
+                                .variables
+                                .contains_key(&format!("struct_field_str:{}", fname)))
                     {
                         self.ctx
                             .variables
                             .insert(field_key, VarType::StringOffset(0));
-                    } else if self
-                        .ctx
-                        .variables
-                        .contains_key(&format!("struct_field_flt:{}.{}", sname, fname))
-                        || self
+                    } else if !kind_mixed
+                        && (self
                             .ctx
                             .variables
-                            .contains_key(&format!("struct_field_flt:{}", fname))
+                            .contains_key(&format!("struct_field_flt:{}.{}", sname, fname))
+                            || self
+                                .ctx
+                                .variables
+                                .contains_key(&format!("struct_field_flt:{}", fname)))
                     {
                         self.ctx.variables.insert(field_key, VarType::Float(0));
                     } else {

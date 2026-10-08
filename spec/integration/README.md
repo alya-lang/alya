@@ -52,6 +52,7 @@
 # | `34_method_self_shadow_builtin.alya` | `spike/selfhost/lexer.alya` `Lexer.read_string` vs `fs.read_string` | unannotated `self` in methods infers struct type to prevent fallback to global same-name builtin |
 # | `35_return_borrowed_alias.alya` | `archive` entry loop via pass-through helper (alya-lang/alya#125) | `return data` of an untyped param retains the borrowed alias so loop-end releases never reclaim the shared referent |
 # | `36_catch_struct_message.alya` | `std/process` `ProcessError` handling (alya-lang/alya#126) | `.message` on a catch binding prefers the throw-recorded text over the struct-pointer identity, with value fallback for string throws |
+# | `37_mixed_kind_field.alya` | `http` `SseEvent.data` vs `event` `TcpStream.data` (alya-lang/alya#131) | reachable string-`data` literal must not flip untyped `.data` reads on array holders; mixed fields demote to dynamic reads |
 #
 # ## Known collision (deliberate rename)
 #

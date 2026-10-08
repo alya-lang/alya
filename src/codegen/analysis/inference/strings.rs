@@ -167,7 +167,11 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
                     return true;
                 }
             }
-            known_strings.contains(&format!("struct_field_str:{}", field))
+            // A mixed-kind sentinel suppresses the bare-global marker:
+            // no single static kind serves every holder
+            // (alya-lang/alya#131).
+            !known_strings.contains(&format!("struct_field_mixed:{}", field))
+                && known_strings.contains(&format!("struct_field_str:{}", field))
         }
         Expr::Ternary {
             then_branch,
@@ -1992,6 +1996,13 @@ pub fn collect_known_string_vars_with_index(
     // Bare `struct_field_str:{field}` markers for such fields are unsound and
     // are skipped; qualified markers stay precise.
     let conflicts = conflicting_string_fields(program);
+    // Unify annotation conflicts into the mixed-literal sentinel channel
+    // (alya-lang/alya#131): readers gate every bare-global kind marker
+    // on these sentinels, so one signal suppresses poison from either
+    // source. Merged into codegen scope by the transfer below.
+    for f in &conflicts {
+        known_strings.insert(format!("struct_field_mixed:{}", f));
+    }
     for stmt in &program.statements {
         let stmt = stmt.inner_stmt();
         if let Stmt::ExternBlock { functions, .. } = stmt {

@@ -60,6 +60,7 @@ fn entry_files() -> Vec<String> {
         "34_method_self_shadow_builtin.alya".to_string(),
         "35_return_borrowed_alias.alya".to_string(),
         "36_catch_struct_message.alya".to_string(),
+        "37_mixed_kind_field.alya".to_string(),
     ]
 }
 
@@ -680,6 +681,20 @@ fn test_integration_36_catch_struct_message_output() {
     if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("integration 36_catch_struct_message: OK"));
+    }
+}
+
+#[test]
+fn test_integration_37_mixed_kind_field_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 37_mixed_kind_field: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("37_mixed_kind_field.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 37_mixed_kind_field: OK"));
     }
 }
 
