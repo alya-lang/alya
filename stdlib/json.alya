@@ -427,6 +427,9 @@ end
 ##
 ## ### Returns
 ## The parsed Alya value with `true` as 1, `false` as 0, or null for empty input.
+##
+## `\u0000` escapes throw: strings cannot hold NUL bytes
+## (alya-lang/alya#129).
 pub function json_parse(text: string)
     let s: string = str_from_ptr(text)
     let slen: int = len(s)

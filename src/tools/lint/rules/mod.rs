@@ -43,6 +43,9 @@ pub fn run_all_rules(program: &Program, tokens: &[Token], file_path: &Path) -> V
     // 6c. Duplicate literal keys in map literals
     diagnostics.extend(bugs::check_duplicate_map_keys(tokens, file_path));
 
+    // 6d. NUL byte inside a string literal (truncates at runtime)
+    diagnostics.extend(bugs::check_nul_byte_in_string(tokens, file_path));
+
     // 7. Naming conventions
     diagnostics.extend(naming::check_naming_conventions(program, tokens, file_path));
 

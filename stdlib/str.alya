@@ -714,6 +714,9 @@ end
 ##
 ## ### Returns
 ## The decoded bytes as a string; a trailing lone nibble is dropped.
+##
+## Throws if any decoded byte is zero (strings cannot hold NUL bytes;
+## alya-lang/alya#129); use `hex_to_bytes` for binary data.
 pub function hex_decode(s: string) -> string
     let slen: int = len(s)
     let res: string = ""
@@ -902,6 +905,9 @@ end
 ##
 ## ### Returns
 ## The decoded string.
+##
+## Throws if any decoded byte is zero (strings cannot hold NUL bytes;
+## alya-lang/alya#129); use `base64_decode_bytes` for binary data.
 pub function base64_decode(s: string) -> string
     let bytes: int[] = base64_decode_bytes(s)
     let blen: int = len(bytes)

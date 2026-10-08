@@ -855,3 +855,35 @@ pub fn check_duplicate_map_keys(tokens: &[Token], file_path: &Path) -> Vec<LintD
     }
     diags
 }
+
+/// NUL byte inside a string literal (`nul-byte-in-string`, warning).
+/// Alya strings are NUL-terminated, so an embedded `\0` (or `\u{0}`)
+/// truncates the value at runtime with no error: everything from the
+/// NUL on is silently lost. Flag the literal so binary-protocol code
+/// moves to byte arrays instead of corrupting wire data quietly.
+/// Rune literals are excluded: comparing against NUL (e.g. parsing
+/// C-style input) is legitimate and never truncates.
+pub fn check_nul_byte_in_string(tokens: &[Token], file_path: &Path) -> Vec<LintDiagnostic> {
+    let mut diags = Vec::new();
+    for tok in tokens {
+        if let TokenType::String(value) = &tok.token_type {
+            if value.contains('\0') {
+                diags.push(LintDiagnostic {
+                    rule: "nul-byte-in-string".to_string(),
+                    severity: LintSeverity::Warning,
+                    message: "string literal contains a NUL byte, which truncates the value at runtime (Alya strings cannot hold NUL bytes; use byte arrays for binary data)".to_string(),
+                    file_path: file_path.to_path_buf(),
+                    line: tok.line,
+                    col: tok.column,
+                    end_line: tok.line,
+                    end_col: tok.column + 1,
+                    help: Some(
+                        "remove the `\\0` escape or build the payload as a byte array".to_string(),
+                    ),
+                    fix: None,
+                });
+            }
+        }
+    }
+    diags
+}

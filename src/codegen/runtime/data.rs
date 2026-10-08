@@ -277,6 +277,11 @@ pub fn emit_data_sections(
         "    {} \"mixed int/float arithmetic (convert explicitly)\"\n",
         str_directive
     ));
+    out.push_str("alya_str_nul_byte:\n");
+    out.push_str(&format!(
+        "    {} \"NUL byte cannot be represented in strings (use byte arrays for binary data)\"\n",
+        str_directive
+    ));
     out.push_str("alya_fmt_arr_empty:\n");
     out.push_str(&format!("    {} \"[]\\n\"\n", str_directive));
     out.push_str("alya_fmt_arr_open:\n");

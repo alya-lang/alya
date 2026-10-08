@@ -3475,6 +3475,22 @@ mod tests {
     }
 
     #[test]
+    fn test_check_document_surfaces_nul_byte_lint() {
+        // alya-lang/alya#129: the `nul-byte-in-string` lint must reach
+        // editors through diagnostics (no separate LSP wiring).
+        let src = "function main()\n    let s = \"a\\0b\"\n    say s\nend\n";
+        let diags = check_document(src, None);
+        assert!(
+            diags.iter().any(|d| d.code.as_deref() == Some("nul-byte-in-string")),
+            "expected nul lint diagnostic, got: {:?}",
+            diags
+                .iter()
+                .map(|d| (d.code.clone(), d.message.clone()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn test_document_symbols_include_extern_block() {
         // alya-lang/alya#128: outline shows a namespace node per
         // extern block with the declared functions as children.

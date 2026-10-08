@@ -40,6 +40,11 @@ fn rule_metadata(rule: &str) -> (&'static str, &'static str, &'static [&'static 
             "warning",
             &["correctness"],
         ),
+        "nul-byte-in-string" => (
+            "NUL byte inside a string literal",
+            "warning",
+            &["correctness", "security"],
+        ),
         "null-equality" => (
             "Null comparison spelled with == instead of is",
             "note",
@@ -102,6 +107,9 @@ fn rule_help(rule: &str) -> &'static str {
         }
         "duplicate-map-key" => {
             "A map literal repeats a literal key. The last value wins at runtime, so earlier entries are dead weight and usually a copy-paste bug. Remove the earlier entry."
+        }
+        "nul-byte-in-string" => {
+            "A string literal contains a NUL byte, which truncates the value at runtime (Alya strings cannot hold NUL bytes). Remove the `\\0` escape or build the payload as a byte array."
         }
         "null-equality" => {
             "A null check spelled `== null` or `!= null`. Prefer `is null` / `is not null`, which spell the same check idiomatically."

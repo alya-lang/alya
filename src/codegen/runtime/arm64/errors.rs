@@ -266,6 +266,14 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x1, #0\n");
     out.push_str("    b fn_throw\n\n");
 
+    // alya_error_nul_byte (chr(0), alya-lang/alya#129): Alya strings
+    // are NUL-terminated, so code 0 has no string representation.
+    // Loud by design: silently returning "" corrupted binary protocols.
+    out.push_str("alya_error_nul_byte:\n");
+    emit_adrp_add(out, "x0", "alya_str_nul_byte", os);
+    out.push_str("    mov x1, #0\n");
+    out.push_str("    b fn_throw\n\n");
+
     // fn_sleep
     out.push_str(".align 2\n");
     out.push_str(".global fn_sleep\n");

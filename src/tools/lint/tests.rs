@@ -1346,6 +1346,41 @@ end
 }
 
 #[test]
+fn test_lint_nul_byte_in_string_fires() {
+    // alya-lang/alya#129: embedded NUL truncates at runtime with no
+    // error, so the literal must be loud.
+    let source = "function main()\n    let s = \"a\\0b\"\n    say s\nend\n";
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "nul-byte-in-string")
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "got: {:?}",
+        diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_lint_nul_byte_in_string_clean() {
+    // Plain strings and NUL runes (legitimate terminator checks) stay
+    // quiet; only string payloads carrying NUL fire.
+    let source = "function main()\n    let s = \"ab\"\n    let r = '\\0'\n    say s\n    say r == '\\0'\nend\n";
+    let diags = lint_source(source, Path::new("test.alya")).unwrap();
+    let hits: Vec<_> = diags
+        .iter()
+        .filter(|d| d.rule == "nul-byte-in-string")
+        .collect();
+    assert!(
+        hits.is_empty(),
+        "got: {:?}",
+        diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn test_lint_null_equality_fires_and_fixes() {
     let source = r#"
 function check(x)

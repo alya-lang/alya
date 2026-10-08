@@ -590,7 +590,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ret\n\n");
 
     // fn_chr / fn_char_from_code
-    // Codes 1..255 yield a single byte (legacy); 256..0x10FFFF are UTF-8
+    // Code 0 throws (alya_error_nul_byte, alya-lang/alya#129): Alya
+    // strings are NUL-terminated and cannot represent it; silently
+    // returning "" corrupted binary protocols. Codes 1..255 yield a
+    // single byte (legacy); 256..0x10FFFF are UTF-8
     // encoded (bytes in w5..w8, length in w9). Larger values keep the
     // legacy pointer behavior (first byte of the pointed string), so
     // chr("AB") == "A" still holds.
@@ -601,7 +604,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x29, sp\n");
     out.push_str("    stp x19, x20, [sp, #16]\n");
     out.push_str("    mov x19, x0\n");
-    out.push_str("    cbz x19, .L_arm64_chr_empty\n");
+    out.push_str("    cbz x19, alya_error_nul_byte\n");
     out.push_str("    movz x5, #0x11, lsl #16\n"); // 0x110000
     out.push_str("    cmp x19, x5\n");
     out.push_str("    b.hs .L_arm64_chr_ptr\n");

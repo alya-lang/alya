@@ -142,7 +142,8 @@ let rocket_esc = "\u{1F680}"
 let g_breve_esc = "\u{11F}"
 # Known limitation: runtime strings are null-terminated, so an embedded `\0`
 # truncates the value (lexer keeps the escape, runtime drops from null on).
-# Revisit if the string model ever supports embedded nulls.
+# The `nul-byte-in-string` lint flags such literals; `chr(0)` throws
+# (Chapter 21 §1.9). Revisit if the string model ever supports embedded nulls.
 let null_trunc = "a\0b"
 
 assert_eq(rocket_esc.byte_length(), 4)

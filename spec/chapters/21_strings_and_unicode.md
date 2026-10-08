@@ -64,10 +64,15 @@ Alya string interpolation supports formatting specifiers via the `:spec` suffix:
 - Strings are UTF-8 **text**: the runtime representation is
   null-terminated, so embedded `\0` bytes truncate values
   (`"a\0b"` behaves as `"a"`; see `spec/syntax/lexical.alya` §8).
+  (The `b"..."` prefix is accepted but carries no binary semantics:
+  it lexes to a plain string.)
+- Construction is loud, not silent: `chr(0)` throws
+  (`NUL byte cannot be represented in strings`), and the
+  `nul-byte-in-string` lint flags `\0`/`\u{0}` inside literals.
 - Binary protocols must not route frames through `string`. Use the
-  explicit-length byte path instead: `b"..."` literals and integer
-  arrays (`u8[]`) preserve every byte including zeros, with
-  `std/net` `send_bytes`/`recv_bytes` for transport and `std/str`
+  explicit-length byte path instead: integer arrays (`u8[]`)
+  preserve every byte including zeros, with `std/net`
+  `send_bytes`/`recv_bytes` for transport and `std/str`
   `bytes_from_string` / `bytes_to_hex` / `hex_to_bytes` /
   `bytes_equal` for conversion and comparison.
 

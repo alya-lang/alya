@@ -395,6 +395,19 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     }
     out.push_str("    jmp fn_throw\n\n");
 
+    // alya_error_nul_byte (chr(0), alya-lang/alya#129): Alya strings
+    // are NUL-terminated, so code 0 has no string representation.
+    // Loud by design: silently returning "" corrupted binary protocols.
+    out.push_str("alya_error_nul_byte:\n");
+    if is_win {
+        out.push_str("    lea alya_str_nul_byte(%rip), %rcx\n");
+        out.push_str("    xor %edx, %edx\n");
+    } else {
+        out.push_str("    lea alya_str_nul_byte(%rip), %rdi\n");
+        out.push_str("    xor %esi, %esi\n");
+    }
+    out.push_str("    jmp fn_throw\n\n");
+
     // fn_sleep
     out.push_str(".global fn_sleep\n");
     out.push_str("fn_sleep:\n");
