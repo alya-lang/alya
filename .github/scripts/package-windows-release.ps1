@@ -22,9 +22,11 @@ Copy-Item "target/$Target/release/$Bin" -Destination $PackageName
 # file and use `alya-lsp` for editing plus `alya` for run/build/test.
 $LspBin = if ($Bin -eq "alya.exe") { "alya-lsp.exe" } else { $Bin -replace 'alya(\.exe)?$', 'alya-lsp$1' }
 $LspPath = "target/$Target/release/$LspBin"
-if (Test-Path $LspPath) {
-  Copy-Item $LspPath -Destination $PackageName
+if (-not (Test-Path $LspPath)) {
+  # Manifests (scoop, winget) promise this file: never ship without it.
+  throw "Missing standalone LSP binary: $LspPath"
 }
+Copy-Item $LspPath -Destination $PackageName
 Copy-Item README.md, LICENSE -Destination $PackageName
 Compress-Archive -Path $PackageName -DestinationPath "$PackageName.zip"
 $hash = (Get-FileHash -Algorithm SHA256 "$PackageName.zip").Hash.ToLower()
@@ -34,9 +36,8 @@ $hash = (Get-FileHash -Algorithm SHA256 "$PackageName.zip").Hash.ToLower()
 $StandaloneName = "alya-$Version-$Platform-standalone"
 New-Item -ItemType Directory -Force -Path $StandaloneName | Out-Null
 Copy-Item "target/$Target/release/$Bin" -Destination $StandaloneName
-if (Test-Path $LspPath) {
-  Copy-Item $LspPath -Destination $StandaloneName
-}
+# $LspPath existence already enforced above (throw); unconditional here.
+Copy-Item $LspPath -Destination $StandaloneName
 Copy-Item README.md, LICENSE -Destination $StandaloneName
 
 # Download and bundle minimal toolchain (tracking latest release, with fallback)

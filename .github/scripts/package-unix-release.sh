@@ -21,9 +21,12 @@ if [ "${BIN}" = "alya" ]; then
 else
   LSP_BIN="${BIN%alya}alya-lsp"
 fi
-if [ -f "target/${TARGET}/release/${LSP_BIN}" ]; then
-  cp "target/${TARGET}/release/${LSP_BIN}" "${PACKAGE_NAME}/"
+if [ ! -f "target/${TARGET}/release/${LSP_BIN}" ]; then
+  # Manifests (scoop, winget) promise this file: never ship without it.
+  echo "error: missing standalone LSP binary target/${TARGET}/release/${LSP_BIN}" >&2
+  exit 1
 fi
+cp "target/${TARGET}/release/${LSP_BIN}" "${PACKAGE_NAME}/"
 cp README.md LICENSE "${PACKAGE_NAME}/"
 tar -czvf "${PACKAGE_NAME}.tar.gz" "${PACKAGE_NAME}"
 shasum -a 256 "${PACKAGE_NAME}.tar.gz" > "${PACKAGE_NAME}.tar.gz.sha256"
