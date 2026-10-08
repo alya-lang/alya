@@ -705,6 +705,7 @@ impl CodeGen {
             if s.starts_with("map_field_str:")
                 || s.starts_with("map_str:")
                 || s.starts_with("map_nonstr:")
+                || s.starts_with("map_nonstr_key:")
                 || s.starts_with("fn_ret_str:")
                 || s.starts_with("fn_ret_str_arr:")
                 || s.starts_with("fn_ret_tuple_str:")
@@ -1808,6 +1809,30 @@ impl CodeGen {
                 is_arr = false;
                 is_str_arr = false;
                 is_flt_arr = false;
+            }
+            // Struct-conflicted parameters are provably non-uniform
+            // (alya-lang/alya#138): callers pass different structs, so
+            // no static kind claim is sound — not even a string may-fact
+            // from other callers (`commit_write` takes strings for text
+            // but structs for image/audio; trusting the string claim
+            // routed structs through `alya_str_store` and corrupted the
+            // map). Clear the inference may-facts; exact annotations
+            // (enforced by the type checker) still apply below.
+            let struct_conflicted = inference
+                .struct_inf
+                .conflicted_params
+                .contains(&(name.to_string(), i))
+                || inference
+                    .struct_inf
+                    .conflicted_params
+                    .contains(&(bare.to_string(), i));
+            if struct_conflicted {
+                is_str = false;
+                is_flt = false;
+                is_arr = annot_arr;
+                is_str_arr = false;
+                is_flt_arr = false;
+                is_map = annot_map;
             }
             if let Some(s) = explicit_scalar {
                 match s {

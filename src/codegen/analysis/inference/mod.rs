@@ -47,6 +47,61 @@ fn bare_struct_name(s: &str) -> &str {
     b.rsplit("__").next().unwrap_or(b)
 }
 
+/// Removes string kind markers for map keys under which a non-string
+/// value is stored somewhere in the program (alya-lang/alya#138). Bare
+/// `map_field_str:{key}` claims are map-agnostic: one map holding
+/// strings under `key` poisons struct reads under the same key in
+/// another map (the misclassified read then routes through
+/// `alya_str_store` and corrupts). Runs after the main fixpoint so
+/// order never matters; codegen readers additionally gate on the
+/// surviving `map_nonstr_key:{key}` vetoes for markers recorded during
+/// emission.
+///
+/// Returns the contested keys (veto overlapping a claim): callers
+/// re-run the string fixpoint when non-empty, seeded with the vetoes,
+/// so markers derived from poisoned reads (`fn_param_str` from a call
+/// arg that is a map read, `fn_ret_str` from a returned map read)
+/// cannot regenerate — the same staleness the struct-field re-run
+/// addresses.
+pub fn suppress_contradicted_map_field_markers(
+    known_strings: &mut HashSet<String>,
+) -> HashSet<String> {
+    let negated: HashSet<String> = known_strings
+        .iter()
+        .filter_map(|k| k.strip_prefix("map_nonstr_key:"))
+        .map(|s| s.to_string())
+        .collect();
+    if negated.is_empty() {
+        return HashSet::new();
+    }
+    let mut contested: HashSet<String> = HashSet::new();
+    for k in known_strings.iter() {
+        if let Some(field) = k.strip_prefix("map_field_str:") {
+            if negated.contains(field) {
+                contested.insert(field.to_string());
+            }
+        } else if let Some(rest) = k.strip_prefix("map_str:") {
+            if let Some((_, field)) = rest.rsplit_once('.') {
+                if negated.contains(field) {
+                    contested.insert(field.to_string());
+                }
+            }
+        }
+    }
+    known_strings.retain(|k| {
+        if let Some(field) = k.strip_prefix("map_field_str:") {
+            return !negated.contains(field);
+        }
+        if let Some(rest) = k.strip_prefix("map_str:") {
+            if let Some((_, field)) = rest.rsplit_once('.') {
+                return !negated.contains(field);
+            }
+        }
+        true
+    });
+    contested
+}
+///
 /// Removes every struct-field kind marker for fields whose markers span
 /// two or more kind families, and returns the touched field names so the
 /// string fixpoint can be re-run with their sentinels present.
@@ -176,26 +231,40 @@ impl ProgramInference {
         let d_call_index = t_idx.elapsed();
 
         let t_inf = std::time::Instant::now();
-        let mut known_strings =
-            collect_known_string_vars_with_index(program, &call_index, &HashSet::new());
+        let mut known_strings = collect_known_string_vars_with_index(
+            program,
+            &call_index,
+            &HashSet::new(),
+            &HashSet::new(),
+        );
         let mut known_floats = collect_known_float_vars_with_index(program, &call_index);
         let mut known_arrays = collect_known_array_vars_with_index(program, &call_index);
         let mut known_maps = collect_known_map_vars_with_index(program, &call_index);
         // Cross-family contradictions (alya-lang/alya#132): fields whose
         // markers span two or more kind families lose every struct-field
-        // marker here, and the string pass re-runs with their sentinels
-        // present so stale derivations (`fn_param_str`, `fn_ret_str`,
-        // per-variable field keys) cannot regenerate. Skipped entirely
-        // when nothing contradicts, so coherent programs pay nothing.
+        // marker here; contested map keys (alya-lang/alya#138) lose
+        // their string markers likewise. At most one shared re-run
+        // follows, seeded with both signals, so markers derived from
+        // poisoned reads (`fn_param_str`, `fn_ret_str`) cannot
+        // regenerate; a second map sweep drops re-recorded claims
+        // (struct claims cannot regenerate: sentinel-gated recording).
+        // Skipped entirely when nothing contradicts, so coherent
+        // programs pay nothing.
         let contradicted = suppress_contradictory_struct_field_markers_inference(
             &mut known_strings,
             &mut known_floats,
             &mut known_arrays,
             &mut known_maps,
         );
-        if !contradicted.is_empty() {
-            known_strings =
-                collect_known_string_vars_with_index(program, &call_index, &contradicted);
+        let map_contested = suppress_contradicted_map_field_markers(&mut known_strings);
+        if !contradicted.is_empty() || !map_contested.is_empty() {
+            known_strings = collect_known_string_vars_with_index(
+                program,
+                &call_index,
+                &contradicted,
+                &map_contested,
+            );
+            suppress_contradicted_map_field_markers(&mut known_strings);
         }
         let known_arrays_strict = collect_known_array_vars_strict_with_index(program, &call_index);
         let known_maps_strict = collect_known_map_vars_strict_with_index(program, &call_index);

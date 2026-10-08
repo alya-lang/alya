@@ -727,6 +727,19 @@ impl CodeGen {
                                 .variables
                                 .insert(format!("map_nonstr:{}", name), VarType::Number(0));
                         }
+                        // Key-level vetoes (alya-lang/alya#138): mirror the
+                        // inference negatives so bare `map_field_str` claims
+                        // cannot govern reads of these slots.
+                        for (k, v) in entries {
+                            if !is_string_expr(v, &self.ctx.variables) {
+                                if let Expr::String(field) = k {
+                                    self.ctx.variables.insert(
+                                        format!("map_nonstr_key:{}", field),
+                                        VarType::Number(0),
+                                    );
+                                }
+                            }
+                        }
                     }
                 } else if is_arr {
                     self.ctx
@@ -1379,6 +1392,18 @@ impl CodeGen {
                                     .variables
                                     .insert(format!("map_nonstr:{}", name), VarType::Number(0));
                             }
+                            // Key-level vetoes (alya-lang/alya#138): mirror
+                            // the inference negatives.
+                            for (k, v) in entries {
+                                if !is_string_expr(v, &self.ctx.variables) {
+                                    if let Expr::String(field) = k {
+                                        self.ctx.variables.insert(
+                                            format!("map_nonstr_key:{}", field),
+                                            VarType::Number(0),
+                                        );
+                                    }
+                                }
+                            }
                         }
                     } else if is_arr {
                         self.ctx
@@ -1743,12 +1768,23 @@ impl CodeGen {
                         VarType::StringOffset(0),
                     );
                 }
-            } else if let (Expr::Identifier(map_name), Expr::String(_)) = (array, index) {
+            } else if let (Expr::Identifier(map_name), Expr::String(field)) = (array, index) {
                 // Non-string write voids the whole-map string claim
                 // (alya-lang/alya#39); mirrors the inference veto.
                 self.ctx
                     .variables
                     .insert(format!("map_nonstr:{}", map_name), VarType::Number(0));
+                // Key-level veto (alya-lang/alya#138); mirrors inference.
+                self.ctx
+                    .variables
+                    .insert(format!("map_nonstr_key:{}", field), VarType::Number(0));
+            } else if let Expr::String(field) = index {
+                // Non-string write under a string key on a non-identifier
+                // base: the whole-map veto has no variable to attach to,
+                // but the key-level veto still applies.
+                self.ctx
+                    .variables
+                    .insert(format!("map_nonstr_key:{}", field), VarType::Number(0));
             }
             if is_map_expr(value, &self.ctx.variables) {
                 if let Expr::String(field) = index {

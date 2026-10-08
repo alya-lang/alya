@@ -196,12 +196,19 @@ fn expr_is_definitely_string(expr: &Expr, known_strings: &HashSet<String>) -> bo
         }
         Expr::Index { array, index } => {
             if let Expr::String(field) = &**index {
-                if known_strings.contains(&format!("map_field_str:{}", field)) {
+                // Key-level veto (alya-lang/alya#138): mirrors the
+                // codegen gate; a non-string store under this key in
+                // any map voids the bare claim.
+                if !known_strings.contains(&format!("map_nonstr_key:{}", field))
+                    && known_strings.contains(&format!("map_field_str:{}", field))
+                {
                     return true;
                 }
             }
             if let (Expr::Identifier(map_name), Expr::String(field)) = (&**array, &**index) {
-                if known_strings.contains(&format!("map_str:{}.{}", map_name, field)) {
+                if !known_strings.contains(&format!("map_nonstr_key:{}", field))
+                    && known_strings.contains(&format!("map_str:{}.{}", map_name, field))
+                {
                     return true;
                 }
             }
@@ -1169,6 +1176,14 @@ fn collect_string_vars_from_stmts(
                             // are still precise); the veto only gates the
                             // map-wide aggregation in the for-loop consumer.
                             known_strings.insert(format!("map_nonstr:{}", name));
+                            // Key-level veto (alya-lang/alya#138): a bare
+                            // `map_field_str:{key}` claim from another map
+                            // must not govern reads of this non-string
+                            // slot. Map-agnostic like the claim itself, so
+                            // readers need no map attribution.
+                            if let Expr::String(field) = k {
+                                known_strings.insert(format!("map_nonstr_key:{}", field));
+                            }
                         }
                     }
                 }
@@ -1283,6 +1298,14 @@ fn collect_string_vars_from_stmts(
                             // are still precise); the veto only gates the
                             // map-wide aggregation in the for-loop consumer.
                             known_strings.insert(format!("map_nonstr:{}", name));
+                            // Key-level veto (alya-lang/alya#138): a bare
+                            // `map_field_str:{key}` claim from another map
+                            // must not govern reads of this non-string
+                            // slot. Map-agnostic like the claim itself, so
+                            // readers need no map attribution.
+                            if let Expr::String(field) = k {
+                                known_strings.insert(format!("map_nonstr_key:{}", field));
+                            }
                         }
                     }
                 }
@@ -1604,10 +1627,18 @@ fn collect_string_vars_from_stmts(
                         // (exact: set alongside).
                         known_strings.insert(format!("map_has_str:{}", map_name));
                     }
-                } else if let (Expr::Identifier(map_name), Expr::String(_)) = (array, index) {
+                } else if let (Expr::Identifier(map_name), Expr::String(field)) = (array, index) {
                     // Non-string write voids the whole-map string claim
                     // (alya-lang/alya#39); see the Map-literal veto above.
                     known_strings.insert(format!("map_nonstr:{}", map_name));
+                    // Key-level veto (alya-lang/alya#138): see below.
+                    known_strings.insert(format!("map_nonstr_key:{}", field));
+                } else if let Expr::String(field) = index {
+                    // Non-string write under a string key on a non-identifier
+                    // base (e.g. a struct field holding the map): the
+                    // whole-map veto has no variable to attach to, but the
+                    // key-level veto (alya-lang/alya#138) still applies.
+                    known_strings.insert(format!("map_nonstr_key:{}", field));
                 }
             }
             Stmt::Pub(inner) | Stmt::Defer(inner) => {
@@ -1625,7 +1656,7 @@ fn collect_string_vars_from_stmts(
 
 pub fn collect_known_string_vars(program: &Program) -> HashSet<String> {
     let call_index = CallIndex::build(&program.statements);
-    collect_known_string_vars_with_index(program, &call_index, &HashSet::new())
+    collect_known_string_vars_with_index(program, &call_index, &HashSet::new(), &HashSet::new())
 }
 
 /// Bare field names whose `string` type is contradicted by another struct's
@@ -1988,6 +2019,7 @@ pub fn collect_known_string_vars_with_index(
     program: &Program,
     call_index: &CallIndex,
     seed_mixed_fields: &HashSet<String>,
+    seed_map_negatives: &HashSet<String>,
 ) -> HashSet<String> {
     let mut known_strings = HashSet::new();
     // #101: ambiguity sentinels first; collided bare keys stay unrecorded.
@@ -1997,6 +2029,12 @@ pub fn collect_known_string_vars_with_index(
     // their derivations stay suppressed from the start.
     for f in seed_mixed_fields {
         known_strings.insert(format!("struct_field_mixed:{}", f));
+    }
+    // Contested map keys (alya-lang/alya#138): same treatment for the
+    // key-level vetoes, so reads consulted during the fixpoint already
+    // demote and derivations from poisoned reads never materialize.
+    for k in seed_map_negatives {
+        known_strings.insert(format!("map_nonstr_key:{}", k));
     }
     // Fields whose `string` type is contradicted by another struct's explicit
     // non-string declaration (e.g. `Url.port: string` vs `Srv.port: int`).

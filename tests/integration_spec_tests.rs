@@ -64,6 +64,7 @@ fn entry_files() -> Vec<String> {
         "38_mixed_kind_variable.alya".to_string(),
         "39_map_method_call.alya".to_string(),
         "40_caller_scope_float_arg.alya".to_string(),
+        "41_mixed_kind_map_key.alya".to_string(),
     ]
 }
 
@@ -740,6 +741,20 @@ fn test_integration_40_caller_scope_float_arg_output() {
     if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("integration 40_caller_scope_float_arg: OK"));
+    }
+}
+
+#[test]
+fn test_integration_41_mixed_kind_map_key_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 41_mixed_kind_map_key: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("41_mixed_kind_map_key.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 41_mixed_kind_map_key: OK"));
     }
 }
 

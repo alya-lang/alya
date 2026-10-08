@@ -531,14 +531,20 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         }
         Expr::Index { array, index } => {
             if let Expr::String(field) = &**index {
-                let key = format!("map_field_str:{}", field);
-                if vars.contains_key(&key) {
+                // Key-level veto (alya-lang/alya#138): a non-string
+                // value stored under this key in any map voids the
+                // bare claim, which is map-agnostic.
+                if !vars.contains_key(&format!("map_nonstr_key:{}", field))
+                    && vars.contains_key(&format!("map_field_str:{}", field))
+                {
                     return true;
                 }
             }
             if let (Expr::Identifier(obj_name), Expr::String(field)) = (&**array, &**index) {
                 let key = format!("map_str:{}.{}", obj_name, field);
-                if vars.contains_key(&key) {
+                if !vars.contains_key(&format!("map_nonstr_key:{}", field))
+                    && vars.contains_key(&key)
+                {
                     return true;
                 }
             }

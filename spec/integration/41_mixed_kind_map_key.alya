@@ -1,0 +1,35 @@
+# ==============================================================================
+# Alya Integration Fixture 40 (entry): mixed-kind map values under one key
+# Distilled from: alya-lang/alya#138 (`clipboard`: one map holding
+#                 strings under `"audio"`, another holding structs —
+#                 every read of the struct miscompiled to the string path
+#                 and corrupted through `alya_str_store`)
+# Guards: a non-string store under a string key earns a key-level veto
+#         (`map_nonstr_key`), demoting every read of that key — bare or
+#         qualified, in any map — to dynamic dispatch. String-only keys
+#         keep their static paths.
+# ==============================================================================
+
+struct Aud
+    sample_rate: int
+    channels: int
+end
+
+function make_aud()
+    return Aud { sample_rate: 8000, channels: 1 }
+end
+
+function main()
+    let store = map()
+    let meta = map()
+    let a = make_aud()
+    store["audio"] = a
+    meta["audio"] = "audio/pcm"
+    let back = store["audio"]
+    assert back.sample_rate == 8000
+    assert back.channels == 1
+    assert meta["audio"] == "audio/pcm"
+    say "integration 41_mixed_kind_map_key: OK"
+end
+
+main()

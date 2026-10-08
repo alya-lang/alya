@@ -161,6 +161,8 @@ impl CodeGenContext {
             if self.globals.contains_key(k)
                 || k.starts_with("map_field_str:")
                 || k.starts_with("map_str:")
+                || k.starts_with("map_nonstr:")
+                || k.starts_with("map_nonstr_key:")
                 || k.starts_with("fn_ret_str:")
                 || k.starts_with("fn_ret_str_arr:")
                 || k.starts_with("fn_ret_arr:")
