@@ -313,8 +313,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         ("native_log", "log"),
         ("native_log2", "log2"),
         ("native_log10", "log10"),
+        ("native_log1p", "log1p"),
         ("native_exp", "exp"),
+        ("native_exp2", "exp2"),
+        ("native_expm1", "expm1"),
         ("native_sqrt", "sqrt"),
+        ("native_cbrt", "cbrt"),
         ("native_ceil", "ceil"),
         ("native_floor", "floor"),
     ];
@@ -342,6 +346,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     let two_arg_math = [
         ("native_atan2", "atan2"),
         ("native_fmod", "fmod"),
+        ("native_pow", "pow"),
     ];
 
     for (fn_name, c_name) in two_arg_math {
