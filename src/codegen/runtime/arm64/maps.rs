@@ -521,6 +521,26 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    bl alya_array_new\n");
     out.push_str("    mov x20, x0\n");
     out.push_str("    cbz x19, .L_arm64_keys_done\n");
+    // #154: trap provably-foreign values instead of faulting on the
+    // header deref below (arm64 mirror of the x64 guard above).
+    out.push_str("    movz x9, #1, lsl #16\n");
+    out.push_str("    cmp x19, x9\n");
+    out.push_str("    b.lo alya_error_keys_type\n");
+    emit_adrp_add(out, "x9", "alya_str_buf", os);
+    out.push_str("    cmp x19, x9\n");
+    out.push_str("    b.lo .L_arm64_keys_ro\n");
+    out.push_str("    movz x10, #1024, lsl #16\n");
+    out.push_str("    add x10, x9, x10\n");
+    out.push_str("    cmp x19, x10\n");
+    out.push_str("    b.lo alya_error_keys_type\n");
+    out.push_str(".L_arm64_keys_ro:\n");
+    emit_adrp_add(out, "x9", "alya_rodata_start", os);
+    out.push_str("    cmp x19, x9\n");
+    out.push_str("    b.lo .L_arm64_keys_proceed\n");
+    emit_adrp_add(out, "x10", "alya_rodata_end", os);
+    out.push_str("    cmp x19, x10\n");
+    out.push_str("    b.lo alya_error_keys_type\n");
+    out.push_str(".L_arm64_keys_proceed:\n");
     out.push_str("    mov x21, #0\n");
     out.push_str("    ldr x22, [x19, #8]\n");
     out.push_str(".L_arm64_keys_loop:\n");

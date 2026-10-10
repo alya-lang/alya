@@ -60,6 +60,9 @@ When an exception occurs inside a block with `defer` statements:
 2. Control transfers to the nearest enclosing matching `catch` block.
 3. The corresponding `finally` block executes.
 
+### 1.6 Trapped Runtime Type Errors
+Dynamic type errors at call and builtin boundaries trap as catchable errors instead of crashing the process: calling a non-function value throws `"value is not callable"`, `keys()` on a non-container throws `"keys() requires a map or array"`, and a nonzero small integer reaching a declared `string` parameter throws `"type mismatch: expected 'string' argument"`. Only provably-foreign values trap (nonzero small integers, and managed strings for calls/`keys()`); null keeps the lenient-null contract and ambiguous heap values keep the legacy path (see Chapter 02 §1.7).
+
 ---
 
 ## 2. Formal Grammar (EBNF Snippet)

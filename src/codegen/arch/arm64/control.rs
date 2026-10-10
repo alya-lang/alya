@@ -141,6 +141,39 @@ pub fn emit_indirect_function_call(out: &mut String, var_offset: i32, args_count
     emit_call_target(out, "x16", args_count);
 }
 
+/// Guarded indirect call (alya-lang/alya#154): arm64 mirror of the x64
+/// helper above. x16 carries the callee, x9/x10 are scratch.
+pub fn emit_guarded_indirect_function_call(
+    out: &mut String,
+    var_offset: i32,
+    args_count: usize,
+    os: OperatingSystem,
+    ro_label: &str,
+    call_label: &str,
+) {
+    use super::emit_adrp_add;
+    emit_arm64_load_x29_offset(out, "x16", var_offset, "x9");
+    out.push_str("    movz x9, #1, lsl #16\n");
+    out.push_str("    cmp x16, x9\n");
+    out.push_str("    b.lo alya_error_not_callable\n");
+    emit_adrp_add(out, "x9", "alya_str_buf", os);
+    out.push_str("    cmp x16, x9\n");
+    out.push_str(&format!("    b.lo {}\n", ro_label));
+    out.push_str("    movz x10, #1024, lsl #16\n");
+    out.push_str("    add x10, x9, x10\n");
+    out.push_str("    cmp x16, x10\n");
+    out.push_str("    b.lo alya_error_not_callable\n");
+    out.push_str(&format!("{}:\n", ro_label));
+    emit_adrp_add(out, "x9", "alya_rodata_start", os);
+    out.push_str("    cmp x16, x9\n");
+    out.push_str(&format!("    b.lo {}\n", call_label));
+    emit_adrp_add(out, "x10", "alya_rodata_end", os);
+    out.push_str("    cmp x16, x10\n");
+    out.push_str("    b.lo alya_error_not_callable\n");
+    out.push_str(&format!("{}:\n", call_label));
+    emit_call_target(out, "x16", args_count);
+}
+
 pub fn emit_c_function_call(out: &mut String, name: &str, args_count: usize, os: OperatingSystem) {
     let target = if matches!(os, OperatingSystem::MacOS) {
         format!("_{}", name)

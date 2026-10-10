@@ -274,6 +274,21 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x1, #0\n");
     out.push_str("    b fn_throw\n\n");
 
+    // Trapped dynamic type errors (alya-lang/alya#154): same catchable
+    // shape as the traps above; only provably-foreign values trap.
+    out.push_str("alya_error_not_callable:\n");
+    emit_adrp_add(out, "x0", "alya_str_not_callable", os);
+    out.push_str("    mov x1, #0\n");
+    out.push_str("    b fn_throw\n\n");
+    out.push_str("alya_error_keys_type:\n");
+    emit_adrp_add(out, "x0", "alya_str_keys_type", os);
+    out.push_str("    mov x1, #0\n");
+    out.push_str("    b fn_throw\n\n");
+    out.push_str("alya_error_param_type:\n");
+    emit_adrp_add(out, "x0", "alya_str_param_type", os);
+    out.push_str("    mov x1, #0\n");
+    out.push_str("    b fn_throw\n\n");
+
     // fn_sleep
     out.push_str(".align 2\n");
     out.push_str(".global fn_sleep\n");

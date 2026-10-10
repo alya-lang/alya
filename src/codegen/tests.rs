@@ -1346,3 +1346,75 @@ end
     assert!(asm_arm64.contains("    bl fn_str_to_int"));
     assert!(asm_arm64.contains("fcvtzs x0, d0"));
 }
+
+// Regression (alya-lang/alya#154): calling a non-function value
+// segfaulted. Indirect calls now trap provably-non-function callees
+// (small values, managed strings) on both arches; genuine function
+// values (code addresses, incl. reassigned holders) keep calling.
+#[test]
+fn test_codegen_guarded_indirect_call_both_arches() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = r#"
+function main()
+    let s = "hello_action"
+    try
+        s("ctxarg")
+    catch err
+        say "threw"
+    end
+end
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_x64 = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    assert!(asm_x64.contains("jb alya_error_not_callable"));
+    assert!(asm_x64.contains("call *%r11"));
+
+    let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(asm_arm64.contains("b.lo alya_error_not_callable"));
+    assert!(asm_arm64.contains("blr x16"));
+}
+
+// Regression (alya-lang/alya#154): an int reaching a declared string
+// parameter corrupted the value. String-annotated params now trap
+// small-int arrivals at entry; untyped params get no guard.
+#[test]
+fn test_codegen_string_param_entry_guard() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = r#"
+function take48(s: string) -> string
+    return s
+end
+function main()
+    say take48("ok")
+end
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_x64 = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    assert!(asm_x64.contains("jb alya_error_param_type"));
+    let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(asm_arm64.contains("b.lo alya_error_param_type"));
+
+    // Negative control: untyped params emit no guard.
+    let plain = "function f(v) return v end function main() say f(1) end";
+    let mut lexer = Lexer::new(plain);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_x64 = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    assert!(!asm_x64.contains("jb alya_error_param_type"));
+    let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(!asm_arm64.contains("b.lo alya_error_param_type"));
+}

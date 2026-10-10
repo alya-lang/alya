@@ -753,6 +753,26 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov %rax, %r13\n");
     out.push_str("    test %r12, %r12\n");
     out.push_str("    jz .L_x64_keys_done\n");
+    // #154: trap provably-foreign values instead of faulting on the
+    // header deref below. Small ints and managed strings can never be
+    // containers (null keeps the empty result above); anything else
+    // keeps the legacy path.
+    out.push_str("    cmp $65536, %r12\n");
+    out.push_str("    jb alya_error_keys_type\n");
+    out.push_str("    lea alya_str_buf(%rip), %r10\n");
+    out.push_str("    cmp %r10, %r12\n");
+    out.push_str("    jb .L_x64_keys_ro\n");
+    out.push_str("    lea 67108864(%r10), %r10\n");
+    out.push_str("    cmp %r10, %r12\n");
+    out.push_str("    jb alya_error_keys_type\n");
+    out.push_str(".L_x64_keys_ro:\n");
+    out.push_str("    lea alya_rodata_start(%rip), %r10\n");
+    out.push_str("    cmp %r10, %r12\n");
+    out.push_str("    jb .L_x64_keys_proceed\n");
+    out.push_str("    lea alya_rodata_end(%rip), %r10\n");
+    out.push_str("    cmp %r10, %r12\n");
+    out.push_str("    jb alya_error_keys_type\n");
+    out.push_str(".L_x64_keys_proceed:\n");
     out.push_str("    mov 16(%r12), %r14\n");
     out.push_str("    xor %rbx, %rbx\n");
     out.push_str(".L_x64_keys_loop:\n");

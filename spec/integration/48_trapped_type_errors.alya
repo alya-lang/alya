@@ -1,0 +1,70 @@
+# ==============================================================================
+# Alya Integration Fixture 48 (entry): trapped dynamic type errors
+# Distilled from: calling a string as a function, keys() on a string,
+#                 and an int reaching a string parameter all crashed
+#                 (0xC0000005) instead of throwing (alya-lang/alya#154).
+# Guards: indirect calls trap provably-non-function values (small ints
+#         incl. null, managed strings); keys() traps small/managed-string
+#         args; declared string params trap small-int arrivals at entry.
+#         Decided on runtime values only, so reassigned function holders
+#         keep working. Opaque heap garbage keeps the legacy path (#55).
+# ==============================================================================
+
+function take48(s: string) -> string
+    return s
+end
+
+function passthru48(v)
+    return take48(v)
+end
+
+function main()
+    # 1. Calling a string value traps instead of segfaulting.
+    let s = "hello_action"
+    let msg1 = ""
+    try
+        s("ctxarg")
+        msg1 = "no-throw"
+    catch err
+        msg1 = str(err)
+    end
+    assert_eq(msg1, "value is not callable", "string call traps")
+
+    # 2. keys() on a string traps; maps and null keep working.
+    let msg2 = ""
+    try
+        keys("str")
+        msg2 = "no-throw"
+    catch err
+        msg2 = str(err)
+    end
+    assert_eq(msg2, "keys() requires a map or array", "keys(str) traps")
+    assert_eq(len(keys({ "a": 1 })), 1, "keys(map) works")
+    assert_eq(len(keys(null)), 0, "keys(null) is empty")
+
+    # 3. int into a string param traps at entry (dynamic path).
+    let msg3 = ""
+    try
+        passthru48(42)
+        msg3 = "no-throw"
+    catch err
+        msg3 = str(err)
+    end
+    assert_eq(msg3, "type mismatch: expected 'string' argument", "int param traps")
+    assert_eq(take48("ok"), "ok", "string param works")
+    let n = take48(null)
+    assert n is null, "null keeps the lenient-null contract"
+
+    # Positive controls: function values still call through.
+    let f = function(c)
+        return c + "!"
+    end
+    assert_eq(f("hi"), "hi!", "closure value-call works")
+    let g = "x"
+    g = f
+    assert_eq(g("yo"), "yo!", "reassigned function calls")
+
+    say "integration 48_trapped_type_errors: OK"
+end
+
+main()

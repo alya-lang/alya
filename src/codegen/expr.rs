@@ -2770,13 +2770,20 @@ impl CodeGen {
                 };
 
                 if let Some(offset) = var_offset {
-                    arch::emit_indirect_function_call(
+                    // #154: the slot may hold a reassigned function
+                    // (calling a string segfaulted instead of throwing),
+                    // so guard on the runtime value, never on static types.
+                    let ro_label = self.ctx.next_label();
+                    let call_label = self.ctx.next_label();
+                    arch::emit_guarded_indirect_function_call(
                         &mut self.output,
                         self.arch,
                         offset,
                         actual_args.len(),
                         initial_stack_offset,
                         self.os,
+                        &ro_label,
+                        &call_label,
                     );
                 } else if is_extern {
                     let extern_name = call_name.rsplit("::").next().unwrap_or(call_name);

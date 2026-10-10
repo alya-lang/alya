@@ -1983,6 +1983,42 @@ impl CodeGen {
                         .variables
                         .insert(format!("param_str_strict:{}", param), VarType::Number(0));
                 }
+                // #154: a nonzero small int reaching a DECLARED string
+                // parameter corrupted downstream reads and could fault at
+                // teardown. Trap it at entry instead. Only the declared
+                // annotation gates this (never inference may-facts).
+                // Null passes through (lenient-null contract, e.g.
+                // `is_empty(null)`); floats, big ints and heap pointers
+                // keep the legacy path (indistinguishable, cf. #55).
+                if annot_str {
+                    let param_ok = self.ctx.next_label();
+                    match self.arch {
+                        Architecture::X64 => {
+                            self.output.push_str(&format!(
+                                "    mov -{}(%rbp), %rax\n",
+                                self.ctx.stack_offset
+                            ));
+                            self.output.push_str("    test %rax, %rax\n");
+                            self.output.push_str(&format!("    jz {}\n", param_ok));
+                            self.output.push_str("    cmp $65536, %rax\n");
+                            self.output.push_str("    jb alya_error_param_type\n");
+                            self.output.push_str(&format!("{}:\n", param_ok));
+                        }
+                        Architecture::ARM64 => {
+                            crate::codegen::arch::arm64::loads::emit_arm64_load_x29_offset(
+                                &mut self.output,
+                                "x0",
+                                self.ctx.stack_offset,
+                                "x9",
+                            );
+                            self.output.push_str(&format!("    cbz x0, {}\n", param_ok));
+                            self.output.push_str("    movz x9, #1, lsl #16\n");
+                            self.output.push_str("    cmp x0, x9\n");
+                            self.output.push_str("    b.lo alya_error_param_type\n");
+                            self.output.push_str(&format!("{}:\n", param_ok));
+                        }
+                    }
+                }
             } else if is_flt {
                 self.ctx
                     .variables

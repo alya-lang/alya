@@ -408,6 +408,38 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     }
     out.push_str("    jmp fn_throw\n\n");
 
+    // Trapped dynamic type errors (alya-lang/alya#154): calling a
+    // non-function value, keys() on a non-container, and a small-int
+    // reaching a string parameter all faulted. Same catchable shape
+    // as the traps above; only provably-foreign values trap.
+    out.push_str("alya_error_not_callable:\n");
+    if is_win {
+        out.push_str("    lea alya_str_not_callable(%rip), %rcx\n");
+        out.push_str("    xor %edx, %edx\n");
+    } else {
+        out.push_str("    lea alya_str_not_callable(%rip), %rdi\n");
+        out.push_str("    xor %esi, %esi\n");
+    }
+    out.push_str("    jmp fn_throw\n\n");
+    out.push_str("alya_error_keys_type:\n");
+    if is_win {
+        out.push_str("    lea alya_str_keys_type(%rip), %rcx\n");
+        out.push_str("    xor %edx, %edx\n");
+    } else {
+        out.push_str("    lea alya_str_keys_type(%rip), %rdi\n");
+        out.push_str("    xor %esi, %esi\n");
+    }
+    out.push_str("    jmp fn_throw\n\n");
+    out.push_str("alya_error_param_type:\n");
+    if is_win {
+        out.push_str("    lea alya_str_param_type(%rip), %rcx\n");
+        out.push_str("    xor %edx, %edx\n");
+    } else {
+        out.push_str("    lea alya_str_param_type(%rip), %rdi\n");
+        out.push_str("    xor %esi, %esi\n");
+    }
+    out.push_str("    jmp fn_throw\n\n");
+
     // fn_sleep
     out.push_str(".global fn_sleep\n");
     out.push_str("fn_sleep:\n");

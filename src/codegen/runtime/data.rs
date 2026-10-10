@@ -282,6 +282,23 @@ pub fn emit_data_sections(
         "    {} \"NUL byte cannot be represented in strings (use byte arrays for binary data)\"\n",
         str_directive
     ));
+    // Trapped dynamic type errors (alya-lang/alya#154): crashes at
+    // call/builtin boundaries become catchable TypeErrors instead.
+    out.push_str("alya_str_not_callable:\n");
+    out.push_str(&format!(
+        "    {} \"value is not callable\"\n",
+        str_directive
+    ));
+    out.push_str("alya_str_keys_type:\n");
+    out.push_str(&format!(
+        "    {} \"keys() requires a map or array\"\n",
+        str_directive
+    ));
+    out.push_str("alya_str_param_type:\n");
+    out.push_str(&format!(
+        "    {} \"type mismatch: expected 'string' argument\"\n",
+        str_directive
+    ));
     out.push_str("alya_fmt_arr_empty:\n");
     out.push_str(&format!("    {} \"[]\\n\"\n", str_directive));
     out.push_str("alya_fmt_arr_open:\n");

@@ -263,6 +263,42 @@ pub fn emit_indirect_function_call(
     emit_call_target(out, "*%r11", args_count, stack_offset, os);
 }
 
+/// Guarded indirect call (alya-lang/alya#154): trap provably-non-function
+/// callees instead of jumping into them. Small values (ints, null, bool)
+/// and managed strings (str_buf, rodata) can never be code addresses, so
+/// they trap; everything else keeps the legacy indirect call. Decided
+/// purely on the runtime value: a variable statically typed as string may
+/// still hold a reassigned function, so static types are not consulted.
+/// Fresh `ro_label`/`call_label` come from the caller (one site each).
+pub fn emit_guarded_indirect_function_call(
+    out: &mut String,
+    var_offset: i32,
+    args_count: usize,
+    stack_offset: i32,
+    os: OperatingSystem,
+    ro_label: &str,
+    call_label: &str,
+) {
+    out.push_str(&format!("    mov -{}(%rbp), %r11\n", var_offset));
+    out.push_str("    cmp $65536, %r11\n");
+    out.push_str("    jb alya_error_not_callable\n");
+    out.push_str("    lea alya_str_buf(%rip), %rcx\n");
+    out.push_str("    cmp %rcx, %r11\n");
+    out.push_str(&format!("    jb {}\n", ro_label));
+    out.push_str("    lea 67108864(%rcx), %rcx\n");
+    out.push_str("    cmp %rcx, %r11\n");
+    out.push_str("    jb alya_error_not_callable\n");
+    out.push_str(&format!("{}:\n", ro_label));
+    out.push_str("    lea alya_rodata_start(%rip), %rcx\n");
+    out.push_str("    cmp %rcx, %r11\n");
+    out.push_str(&format!("    jb {}\n", call_label));
+    out.push_str("    lea alya_rodata_end(%rip), %rcx\n");
+    out.push_str("    cmp %rcx, %r11\n");
+    out.push_str("    jb alya_error_not_callable\n");
+    out.push_str(&format!("{}:\n", call_label));
+    emit_call_target(out, "*%r11", args_count, stack_offset, os);
+}
+
 pub fn emit_stack_restore(out: &mut String, delta: i32) {
     out.push_str(&format!("    add ${}, %rsp\n", delta));
 }
