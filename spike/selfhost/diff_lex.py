@@ -108,6 +108,11 @@ def parse_rust_debug(dbg):
     m = re.fullmatch(r'String\("(.*)"\)', dbg, re.DOTALL)
     if m:
         return ("string", dbg, rust_unescape(m.group(1)))
+    # alya-lang/alya#155: f-strings carry their own token kind so the
+    # differential keeps plain/format apart (values compare alike).
+    m = re.fullmatch(r'FormattedString\("(.*)"\)', dbg, re.DOTALL)
+    if m:
+        return ("formatted_string", dbg, rust_unescape(m.group(1)))
     m = re.fullmatch(r"Rune\('(.*)'\)", dbg, re.DOTALL)
     if m:
         return ("rune", dbg, rust_unescape(m.group(1)))
@@ -182,7 +187,7 @@ def compare(rust, alya):
             diffs.append(f"tok[{i}]: rust={r[:3]} alya={a[:3]}")
             continue
         kind = r[2]
-        if kind in ("string", "rune"):
+        if kind in ("string", "formatted_string", "rune"):
             try:
                 aval = json.loads(f'"{a[3]}"')
             except Exception as e:

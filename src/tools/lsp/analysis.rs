@@ -3252,8 +3252,9 @@ mod tests {
 
     #[test]
     fn test_semantic_tokens_plain_string_interpolation() {
-        // Plain strings interpolate at runtime too: `{floor}` gets the
-        // from-imported function kind, not string color.
+        // #155: plain strings keep braces literal, so `{floor}` gets no
+        // interpolation token and the line keeps its blanket string.
+        // (The f-string twin lives in test_semantic_tokens_fstring_interpolation.)
         let src = "from \"std/math\" import floor\nsay \"v: {floor} done\"\n";
         let toks = get_semantic_tokens(src, None);
         let mut decoded: Vec<(u32, u32, u32, u32, u32)> = Vec::new();
@@ -3268,15 +3269,19 @@ mod tests {
             }
             decoded.push((line, col, chunk[2], chunk[3], chunk[4]));
         }
-        // `say "v: {floor} done"`: `{` at col 8, `floor` at 9..14.
+        // `say "v: {floor} done"`: the whole literal keeps one blanket
+        // string token; no interpolation token is painted inside it
+        // (columns past the `say ` keyword).
         assert!(
-            decoded.contains(&(1, 9, 5, 10, 0)),
-            "plain-string interpolation: {:?}",
+            decoded.iter().any(|&(l, _, _, t, _)| l == 1 && t == 14),
+            "plain string keeps blanket token: {:?}",
             decoded
         );
         assert!(
-            !decoded.iter().any(|&(l, _, _, t, _)| l == 1 && t == 14),
-            "no blanket string: {:?}",
+            !decoded
+                .iter()
+                .any(|&(l, c, _, t, _)| l == 1 && c >= 4 && t != 14),
+            "no interpolation tokens on plain line: {:?}",
             decoded
         );
     }

@@ -1490,7 +1490,7 @@ function Lexer.tokenize(self)
                 if self.failed == true
                     break
                 end
-                self.emit_at(line, col, "string", s)
+                self.emit_at(line, col, "formatted_string", s)
                 self.last_kind = "other"
             elif c == 114 and self.peek() == 34
                 self.advance()

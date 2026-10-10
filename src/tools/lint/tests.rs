@@ -129,16 +129,21 @@ fn test_lint_unused_import_from_symbols_in_fstrings() {
 
 #[test]
 fn test_lint_unused_import_plain_string_braces_count() {
-    // Every string kind interpolates at runtime, so `{name}` in a plain
-    // string counts as usage just like in an f-string.
+    // #155: only f-strings interpolate, so only f-string holes count as
+    // usage; braces in a plain string reference nothing.
     let tmp = std::env::temp_dir().join(format!("alya_lint_pstr_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&tmp);
     let file = tmp.join("user.alya");
-    let source = "from \"std/math\" import floor\nsay \"use {floor} notation\"\n";
+    let source = "from \"std/math\" import floor\nsay f\"use {floor} notation\"\n";
     std::fs::write(&file, source).unwrap();
     let diags = lint_source(source, &file).unwrap();
     let import_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-import").collect();
     assert_eq!(import_diags.len(), 0);
+    let plain = "from \"std/math\" import floor\nsay \"use {floor} notation\"\n";
+    std::fs::write(&file, plain).unwrap();
+    let diags = lint_source(plain, &file).unwrap();
+    let import_diags: Vec<_> = diags.iter().filter(|d| d.rule == "unused-import").collect();
+    assert_eq!(import_diags.len(), 1);
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
