@@ -75,6 +75,7 @@ fn entry_files() -> Vec<String> {
         "49_float_conversion_tagged.alya".to_string(),
         "50_string_brace_literals.alya".to_string(),
         "51_value_call_shadow.alya".to_string(),
+        "52_dual_alias_leaf.alya".to_string(),
     ]
 }
 
@@ -200,6 +201,10 @@ fn test_integration_entries_exist() {
     assert!(!entry_files().contains(&"02_facade_types.alya".to_string()));
     assert!(dir.join("51_value_call_helper.alya").exists());
     assert!(!entry_files().contains(&"51_value_call_helper.alya".to_string()));
+    for helper in ["52_leaf_helper.alya", "52_mid_dual_alias.alya"] {
+        assert!(dir.join(helper).exists());
+        assert!(!entry_files().contains(&helper.to_string()));
+    }
 }
 
 #[test]

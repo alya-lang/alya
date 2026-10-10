@@ -1142,3 +1142,85 @@ fn test_dep_claimed_bare_name_beats_sibling_file() {
 
     let _ = fs::remove_dir_all(&base);
 }
+
+#[test]
+fn test_dual_alias_instances_keep_bare_children() {
+    use std::fs;
+    // alya-lang/alya#161: one leaf file merged under two different
+    // outer aliases must resolve its bare children twice with
+    // per-instance prefixes. The visited set used to swallow the
+    // second instance's bare subtree (missing defs, dangling bare
+    // calls, `undefined reference` at link time).
+    let base = std::env::temp_dir().join(format!(
+        "alya_dual_alias_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let leaf_dir = base.join("leaf");
+    let _ = fs::create_dir_all(&leaf_dir);
+
+    fs::write(
+        leaf_dir.join("helper.alya"),
+        "function leaf_f(x)\n    return x * 2\nend\n",
+    )
+    .unwrap();
+    fs::write(
+        leaf_dir.join("lib.alya"),
+        "import \"./helper.alya\"\n\nfunction leaf_g(x)\n    return leaf_f(x) + 1\nend\n",
+    )
+    .unwrap();
+    fs::write(
+        base.join("mid.alya"),
+        "import \"./leaf/lib.alya\" as l1\nimport \"./leaf/lib.alya\" as l2\n\nfunction mid_g(x)\n    return l1::leaf_g(x) + l2::leaf_g(x)\nend\n",
+    )
+    .unwrap();
+
+    let source = "import \"./mid.alya\" as m\nsay m::mid_g(10)";
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().expect("Tokenize failed");
+    let mut parser = Parser::new(tokens);
+    let mut ast = parser.parse().expect("Parse failed");
+    resolve_imports(&mut ast, &base, &CfgContext::host()).expect("resolve failed");
+
+    let fn_names: Vec<String> = ast
+        .statements
+        .iter()
+        .filter_map(|s| match s.inner_stmt() {
+            Stmt::Function { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    for want in ["l1::leaf_f", "l2::leaf_f", "l1::leaf_g", "l2::leaf_g"] {
+        assert!(
+            fn_names.contains(&want.to_string()),
+            "missing {}, got: {:?}",
+            want,
+            fn_names
+        );
+    }
+    // No instance may leave a dangling bare call behind.
+    let bare_calls: Vec<String> = ast
+        .statements
+        .iter()
+        .filter_map(|s| match s.inner_stmt() {
+            Stmt::Function { name, body, .. } if name.contains("leaf_g") => Some((name, body)),
+            _ => None,
+        })
+        .flat_map(|(_, body)| {
+            body.iter().filter_map(|s| match s.inner_stmt() {
+                Stmt::Return(Some(crate::ast::Expr::Call { name, .. })) => Some(name.clone()),
+                _ => None,
+            })
+        })
+        .collect();
+    assert!(
+        bare_calls.iter().all(|n| n.contains("::")),
+        "leaf_g bodies must call qualified helpers, got: {:?}",
+        bare_calls
+    );
+
+    let _ = fs::remove_dir_all(&base);
+}

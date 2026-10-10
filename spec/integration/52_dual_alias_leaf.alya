@@ -1,0 +1,20 @@
+# ==============================================================================
+# Alya Integration Fixture 52 (entry): dual-aliased mid module keeps leaf
+# Distilled from: root `web` composing `http` views over `mustache` —
+#                 check passed but link failed with `undefined reference
+#                 to fn_mustache_parse` because the second mustache
+#                 instance lost its bare-child bodies (alya-lang/alya#161).
+# Guards: importing one mid file under two aliases emits a complete,
+#         per-instance leaf copy for each; both dispatch and return.
+# ==============================================================================
+
+import "./52_mid_dual_alias.alya" as m1
+import "./52_mid_dual_alias.alya" as m2
+
+function main()
+    assert_eq(m1::mid52_g(10), 21, "first instance dispatches")
+    assert_eq(m2::mid52_g(10), 21, "second instance dispatches")
+    say "integration 52_dual_alias_leaf: OK"
+end
+
+main()

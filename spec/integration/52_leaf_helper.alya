@@ -1,0 +1,15 @@
+# ==============================================================================
+# Alya Integration Fixture 52 (helper): leaf module with a bare child
+# Distilled from: Lib/mustache merged under two aliases (`mustache` via
+#                 web, `mustache_pkg` via http) — the second instance's
+#                 bare-child bodies vanished, leaving dangling bare calls
+#                 (`undefined reference to fn_mustache_parse` at link;
+#                 alya-lang/alya#161).
+# NOT an entry point. `52_mid_dual_alias.alya` bare-imports this file;
+# the entry imports the mid file twice under different aliases.
+# Guards: per-instance prefixes for bare children of dual-aliased modules.
+# ==============================================================================
+
+pub function leaf52_f(x: int) -> int
+    return x * 2
+end

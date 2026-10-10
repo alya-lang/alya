@@ -1,0 +1,15 @@
+# ==============================================================================
+# Alya Integration Fixture 52 (helper): mid module importing the leaf bare
+# Distilled from: Lib/http importing mustache as `mustache_pkg`
+#                 (alya-lang/alya#161). NOT an entry point: the entry
+#                 imports THIS file twice under different aliases, so the
+#                 leaf's bare child must resolve once per instance.
+# Guards: `l1`/`l2`-style per-instance leaf bodies; a swallowed second
+#         instance leaves `mid52_g` calling a missing helper (link error).
+# ==============================================================================
+
+import "./52_leaf_helper.alya"
+
+pub function mid52_g(x: int) -> int
+    return leaf52_f(x) + 1
+end

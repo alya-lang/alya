@@ -546,7 +546,16 @@ pub fn resolve_imports_with_sources_ext_cached(
     cfg: &CfgContext,
     cache: Option<&ImportCache>,
 ) -> Result<std::collections::HashSet<std::path::PathBuf>, String> {
-    let mut visited = std::collections::HashSet::new();
+    // (canonical path, own alias, alias context). The context ("hint")
+    // is the nearest enclosing whole-module alias: one file merged
+    // under two different outer aliases resolves twice with
+    // per-instance prefixes instead of poisoning the second instance
+    // with the first's subtree (alya-lang/alya#161).
+    let mut visited: std::collections::HashSet<(
+        std::path::PathBuf,
+        Option<String>,
+        Option<String>,
+    )> = std::collections::HashSet::new();
     let mut resolved_stmts = Vec::new();
     let mut root_rewrites = std::collections::HashMap::new();
     let mut bare_modules: std::collections::HashMap<String, std::collections::HashSet<String>> =
@@ -579,6 +588,7 @@ pub fn resolve_imports_with_sources_ext_cached(
             cfg,
             &top_manifest_dir,
             cache,
+            &None,
         )?;
         root_rewrites.extend(rewrites);
         if let Some((stem, written)) = bare_stem {
@@ -625,7 +635,7 @@ pub fn resolve_imports_with_sources_ext_cached(
     ] {
         module_stems.insert(std_mod.to_string());
     }
-    for (path, alias) in &visited {
+    for (path, alias, _) in &visited {
         if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
             module_stems.insert(stem.to_string());
         }
@@ -637,7 +647,7 @@ pub fn resolve_imports_with_sources_ext_cached(
     enums::resolve_enums(program);
     constants::resolve_and_validate_constants(program)?;
 
-    let imported_files = visited.into_iter().map(|(path, _)| path).collect();
+    let imported_files = visited.into_iter().map(|(path, _, _)| path).collect();
     Ok(imported_files)
 }
 
@@ -986,6 +996,15 @@ fn manifest_declares_dependency(current_dir: &std::path::Path, name: &str) -> bo
         Ok(m) => m.dependencies.contains_key(name),
         Err(_) => false,
     }
+}
+
+/// True for resolved stdlib paths: embedded pseudo-paths
+/// (`<embedded:std/...>`) and on-disk `stdlib/` shadows. Their names
+/// stay bare program-wide (#147), so they resolve under a global
+/// context (alya-lang/alya#161).
+fn is_stdlib_canonical(canonical: &std::path::Path) -> bool {
+    let s = canonical.to_string_lossy().replace('\\', "/");
+    s.starts_with("<embedded:") || s.contains("/stdlib/")
 }
 
 /// Collects value/type names bound by statements for the bare-module
@@ -1615,12 +1634,13 @@ pub(crate) fn get_embedded_stdlib(module: &str) -> Option<&'static str> {
 pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
     stmt: Stmt,
     current_dir: &std::path::Path,
-    visited: &mut std::collections::HashSet<(std::path::PathBuf, Option<String>)>,
+    visited: &mut std::collections::HashSet<(std::path::PathBuf, Option<String>, Option<String>)>,
     out: &mut Vec<Stmt>,
     no_std: bool,
     cfg: &CfgContext,
     top_manifest_dir: &Option<std::path::PathBuf>,
     cache: Option<&ImportCache>,
+    hint: &Option<String>,
 ) -> Result<
     (
         std::collections::HashSet<String>,
@@ -1737,14 +1757,33 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                 canon
             };
 
-            if visited.contains(&(canonical.clone(), alias.clone())) {
+            // Whole-module aliased imports are self-describing (their
+            // output is prefixed with their own alias); bare and
+            // selective imports inherit the enclosing alias context.
+            // From-imports keep the legacy context-free key to
+            // preserve selective-import dedup. Stdlib subtrees always
+            // resolve globally: their names are excluded from every
+            // parent alias namespace (#147), so per-context copies
+            // would only emit duplicate bare definitions (#161).
+            let eff_hint: Option<String> = if is_stdlib_canonical(&canonical) {
+                None
+            } else {
+                hint.clone()
+            };
+            let key_hint: Option<String> = if symbols.is_none() {
+                alias.clone().or_else(|| eff_hint.clone())
+            } else {
+                None
+            };
+            let visit_key = (canonical.clone(), alias.clone(), key_hint);
+            if visited.contains(&visit_key) {
                 return Ok((
                     std::collections::HashSet::new(),
                     std::collections::HashMap::new(),
                 ));
             }
 
-            visited.insert((canonical.clone(), alias.clone()));
+            visited.insert(visit_key);
 
             let file_cfg =
                 crate::tools::pkg::features::imported_file_cfg(&canonical, top_manifest_dir, cfg)?;
@@ -1867,6 +1906,14 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                     let p = path.replace('\\', "/");
                     p.starts_with("std/") || p.starts_with("std::")
                 });
+                // Children of a whole-module aliased import resolve under
+                // that alias (it prefixes them); everything else
+                // inherits the enclosing context (alya-lang/alya#161).
+                let children_hint: Option<String> = if symbols.is_none() {
+                    alias.clone().or_else(|| eff_hint.clone())
+                } else {
+                    eff_hint.clone()
+                };
                 let (child_fns, rewrites) = resolve_stmt_imports_ext_with_rewrites(
                     sub_stmt,
                     sub_dir,
@@ -1876,6 +1923,7 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                     cfg,
                     top_manifest_dir,
                     cache,
+                    &children_hint,
                 )?;
                 sub_rewrites.extend(rewrites);
                 if is_unaliased_import
