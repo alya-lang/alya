@@ -1418,3 +1418,37 @@ end
     let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
     assert!(!asm_arm64.contains("b.lo alya_error_param_type"));
 }
+
+// alya-lang/alya#153: a user function sharing its mangled label with a
+// runtime builtin (`function get` vs `fn_get`) assembles the label twice.
+// The driver rejects such output with a named diagnostic (see
+// `driver::runner::check_duplicate_symbols`) instead of letting the
+// assembler fail raw. This pins the trigger shape: exactly two `fn_get:`
+// definitions. If user symbols are ever namespaced, update this to
+// assert the single namespaced definition instead.
+#[test]
+fn test_codegen_builtin_name_collision_duplicates_label() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = r#"
+function get(m, key)
+    return m[key]
+end
+function main()
+    let m = { "id": 7 }
+    say get(m, "id")
+end
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    assert_eq!(
+        asm.matches("\nfn_get:\n").count(),
+        2,
+        "expected the user label and the runtime label to collide"
+    );
+}

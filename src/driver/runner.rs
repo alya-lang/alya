@@ -2,6 +2,60 @@ use crate::codegen::{Architecture, OperatingSystem};
 use std::fs;
 use std::process::Command;
 
+/// Pre-assemble duplicate-symbol check (alya-lang/alya#153).
+///
+/// A top-level function sharing its mangled label with a runtime builtin
+/// (e.g. user `function get` vs runtime `fn_get`) used to surface as a
+/// raw assembler error (`symbol 'fn_get' is already defined`). The
+/// assembler only sees the flat labels, so catch repeats here — where
+/// every definition is known — and report which symbol collided instead.
+///
+/// Only file-scope `name:` definitions are considered. Local labels
+/// (`.L<counter>`, fresh per site) and directives (`.global`, `.seh_proc`,
+/// `.extern`, all dot-led) cannot collide by construction. A single
+/// leading underscore is normalized: macOS spells every symbol `_name`
+/// while other targets spell it `name`.
+pub fn check_duplicate_symbols(asm: &str) -> Result<(), String> {
+    use std::collections::HashSet;
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut dups: Vec<String> = Vec::new();
+    for line in asm.lines() {
+        let t = line.trim_start();
+        let mut chars = t.chars();
+        match chars.next() {
+            Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+            _ => continue,
+        }
+        let end = t
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$' || c == '.'))
+            .unwrap_or(t.len());
+        let (name, rest) = t.split_at(end);
+        if !rest.starts_with(':') {
+            continue;
+        }
+        let key = name.strip_prefix('_').unwrap_or(name);
+        if !seen.insert(key.to_string()) && !dups.iter().any(|d| d == key) {
+            dups.push(key.to_string());
+        }
+    }
+    if dups.is_empty() {
+        return Ok(());
+    }
+    let mut msg = String::from(
+        "Error: duplicate symbol(s) defined more than once in the generated assembly:",
+    );
+    for d in &dups {
+        msg.push_str(&format!("\n  `{}`", d));
+        if let Some(bare) = d.strip_prefix("fn_") {
+            msg.push_str(&format!(
+                " — a function named `{}` collides with a runtime builtin of the same name; rename the function",
+                bare
+            ));
+        }
+    }
+    Err(msg)
+}
+
 /// Max seconds for one gcc assemble+link invocation, overridable via
 /// `ALYA_GCC_TIMEOUT_SECS`. Link-phase stalls (AV locks on fresh
 /// executables, pathological inputs) otherwise hang the caller forever:
@@ -27,6 +81,16 @@ pub fn compile_with_gcc(
     c_objects: &[std::path::PathBuf],
     extra_link_args: &[String],
 ) -> Result<(), String> {
+    // Duplicate labels (e.g. a function colliding with a runtime builtin,
+    // alya-lang/alya#153) fail here with a named diagnostic instead of a
+    // raw assembler error. The driver `run` path checks earlier (covering
+    // `-S` output); this covers `test`/`bench`, which assemble separately.
+    if let Ok(text) = fs::read_to_string(asm_file) {
+        if let Err(e) = check_duplicate_symbols(&text) {
+            let _ = fs::remove_file(asm_file);
+            return Err(e);
+        }
+    }
     let mut gcc_args = vec![asm_file.to_string(), "-o".to_string(), exe_file.to_string()];
 
     for obj in c_objects {
@@ -255,5 +319,35 @@ fn signal_name(sig: i32) -> &'static str {
         14 => "SIGALRM",
         15 => "SIGTERM",
         _ => "unknown signal",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_duplicate_symbols;
+
+    #[test]
+    fn user_runtime_symbol_collision_is_reported() {
+        // alya-lang/alya#153: user `function get` vs runtime `fn_get`.
+        let asm = "    .global fn_get\nfn_get:\n    ret\nfn_other:\n    ret\nfn_get:\n    ret\n";
+        let err = check_duplicate_symbols(asm).unwrap_err();
+        assert!(err.contains("`fn_get`"), "got: {}", err);
+        assert!(err.contains("`get`"), "got: {}", err);
+        assert!(err.contains("runtime builtin"), "got: {}", err);
+    }
+
+    #[test]
+    fn clean_assembly_passes_and_locals_are_ignored() {
+        let asm =
+            "    .global fn_main\nfn_main:\n    call fn_get\n.L1:\n    jmp .L1\nmain:\n    ret\n";
+        assert!(check_duplicate_symbols(asm).is_ok());
+    }
+
+    #[test]
+    fn macos_underscore_spelling_matches() {
+        // `_fn_get:` (macOS) and `fn_get:` (same file) are one symbol.
+        let asm = "_fn_get:\n    ret\nfn_get:\n    ret\n";
+        let err = check_duplicate_symbols(asm).unwrap_err();
+        assert!(err.contains("`fn_get`"), "got: {}", err);
     }
 }

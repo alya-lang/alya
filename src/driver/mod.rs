@@ -760,6 +760,11 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     let code = codegen::peephole::optimize_asm(&code, build_cfg.profile.opt_level);
     let asm_lines = code.lines().count();
 
+    // Duplicate labels (e.g. a function colliding with a runtime builtin,
+    // alya-lang/alya#153) fail here with a named diagnostic instead of a
+    // raw assembler error. Covers every output kind, including `-S`.
+    runner::check_duplicate_symbols(&code)?;
+
     fs::write(&asm_file, code)
         .map_err(|e| format!("Error: Cannot write to '{}': {}", asm_file, e))?;
     if final_output.is_none() {
