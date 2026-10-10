@@ -2084,6 +2084,11 @@ fn scan_parts(chars: &[char], interp: bool) -> (Vec<Expr>, bool, bool) {
     let mut i = 0;
     let mut has_interpolation = false;
     let mut has_escaped = false;
+    // Literal hole-depth for non-interpolated strings (#155): a `}`
+    // that closes a hole-shaped region is verbatim text, never half of
+    // a `}}` escape (e.g. `{lvl}}` keeps all three braces). Escapes
+    // only pair at depth 0.
+    let mut lit_depth = 0usize;
 
     while i < chars.len() {
         let ch = chars[i];
@@ -2098,6 +2103,7 @@ fn scan_parts(chars: &[char], interp: bool) -> (Vec<Expr>, bool, bool) {
             // other brace stays literal text (spec Ch.00 §1.6).
             if !interp {
                 current_lit.push('{');
+                lit_depth += 1;
                 i += 1;
                 continue;
             }
@@ -2168,6 +2174,13 @@ fn scan_parts(chars: &[char], interp: bool) -> (Vec<Expr>, bool, bool) {
                 i += 1;
             }
         } else if ch == '}' && i + 1 < chars.len() && chars[i + 1] == '}' {
+            if !interp && lit_depth > 0 {
+                // Hole-closing `}` inside a literal region: verbatim.
+                current_lit.push('}');
+                lit_depth -= 1;
+                i += 1;
+                continue;
+            }
             i += 2;
             current_lit.push('}');
             has_escaped = true;

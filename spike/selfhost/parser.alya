@@ -746,7 +746,7 @@ function Parser.scan_parts(self, val: string) -> ScanRes
     return ScanRes { parts: parts, interp: interp, esc: esc }
 end
 
-function Parser.parse_string_value(self, norm: string) -> string
+function Parser.parse_string_value(self, norm: string, interp: int) -> string
     # NUL truncates: runtime strings are null-terminated (spec ch.21
     # S1.9); the reference dump carries the truncated value. Cut at the
     # JSON level (pure ASCII): a `\u0000` unit ends the value, `\\u0000`
@@ -765,6 +765,10 @@ function Parser.parse_string_value(self, norm: string) -> string
         end
     end
     let val = json_decode(norm[0..cut])
+    # Only f-strings interpolate (#155 mirror): other kinds stay literal.
+    if interp == false
+        return "(str " + qs(val) + ")"
+    end
     let has_open = 0
     let has_close = 0
     let bs = str.bytes_from_string(val)
@@ -1850,9 +1854,12 @@ function Parser.parse_primary(self) -> string
         self.advance()
         return "(float " + nm + ")"
     end
-    if k == "string"
+    if k == "string" or k == "formatted_string"
         self.advance()
-        return self.parse_string_value(nm)
+        if k == "formatted_string"
+            return self.parse_string_value(nm, 1)
+        end
+        return self.parse_string_value(nm, 0)
     end
     if k == "keyword" and nm == "true"
         self.advance()
@@ -3194,7 +3201,7 @@ function Parser.parse_destructure_pattern(self) -> string
             if self.cur_kind() == "ident"
                 key = self.cur_norm()
                 self.advance()
-            elif self.cur_kind() == "string"
+            elif self.cur_kind() == "string" or self.cur_kind() == "formatted_string"
                 key = json_decode(self.cur_norm())
                 self.advance()
             else
@@ -4523,7 +4530,7 @@ end
 
 function Parser.parse_import(self)
     self.advance()
-    if self.cur_kind() != "string"
+    if self.cur_kind() != "string" and self.cur_kind() != "formatted_string"
         self.fail_here()
         return
     end
@@ -4617,7 +4624,7 @@ end
 
 function Parser.parse_extern(self)
     self.advance()
-    if self.cur_kind() != "string"
+    if self.cur_kind() != "string" and self.cur_kind() != "formatted_string"
         self.fail_here()
         return
     end
@@ -4626,7 +4633,7 @@ function Parser.parse_extern(self)
     let lib = "_"
     if self.at("keyword:from") == true
         self.advance()
-        if self.cur_kind() != "string"
+        if self.cur_kind() != "string" and self.cur_kind() != "formatted_string"
             self.fail_here()
             return
         end
@@ -6078,7 +6085,7 @@ function Parser.cfg_eval(self, ptoks: array, plines: array) -> CfgRes
             else
                 key = t.norm
             end
-        elif t.kind == "string"
+        elif t.kind == "string" or t.kind == "formatted_string"
             if inval == true
                 val = json_decode(t.norm)
             end
@@ -6232,7 +6239,7 @@ function attr_group_args(cur: array) -> string
 end
 
 function attr_scalar_text(kind: string, norm: string) -> string
-    if kind == "string" or kind == "ident"
+    if kind == "string" or kind == "formatted_string" or kind == "ident"
         return json_decode(norm)
     end
     if kind == "number" or kind == "float"

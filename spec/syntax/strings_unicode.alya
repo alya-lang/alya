@@ -122,7 +122,7 @@ assert_eq(r"\d{4}", "\\d{4}")
 let ml_braces = """
 line {lvl} here
 """
-assert_eq(contains_str(ml_braces, "line {lvl} here"), true)
+assert_eq(ml_braces, "line {lvl} here\n")
 
 say "Brace semantics OK"
 
