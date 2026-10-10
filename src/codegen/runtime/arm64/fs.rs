@@ -136,6 +136,76 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldp x29, x30, [sp], #48\n");
     out.push_str("    ret\n\n");
 
+    // fn_write_bytes / fn_append_bytes: (path, u8-array) -> int flag.
+    // Writes array slots masked to the low byte (explicit length: embedded
+    // zeros preserved). Returns 1 only when the full payload hits disk.
+    // Short-write verdict lives in callee-saved w22 (calls may clobber w10).
+    for (fn_name, mode_label, tag) in [
+        ("fn_write_bytes", "alya_str_mode_wb", "wbytes"),
+        ("fn_append_bytes", "alya_str_mode_ab", "abytes"),
+    ] {
+        out.push_str(".align 2\n");
+        out.push_str(&format!(".global {}\n", fn_name));
+        out.push_str(&format!("{}:\n", fn_name));
+        out.push_str("    stp x29, x30, [sp, #-64]!\n");
+        out.push_str("    mov x29, sp\n");
+        out.push_str("    stp x19, x20, [sp, #16]\n");
+        out.push_str("    stp x21, x22, [sp, #32]\n");
+        out.push_str("    stp x23, x24, [sp, #48]\n");
+        out.push_str("    mov x19, x0\n"); // path
+        out.push_str("    mov x20, x1\n"); // array
+        out.push_str(&format!("    cbz x19, .L_arm64_{}_fail\n", tag));
+        out.push_str(&format!("    cbz x20, .L_arm64_{}_fail\n", tag));
+        out.push_str("    ldr x21, [x20]\n"); // n = len
+        out.push_str("    ldr x22, [x20, #16]\n"); // dataptr
+        out.push_str("    mov x0, x19\n");
+        emit_adrp_add(out, "x1", mode_label, os);
+        out.push_str(&format!("    bl {}fopen\n", p));
+        out.push_str(&format!("    cbz x0, .L_arm64_{}_fail\n", tag));
+        out.push_str("    mov x23, x0\n"); // fp
+        out.push_str(&format!("    cbz x21, .L_arm64_{}_close_ok\n", tag));
+        out.push_str("    mov x0, x21\n");
+        out.push_str(&format!("    bl {}malloc\n", p));
+        out.push_str(&format!("    cbz x0, .L_arm64_{}_close_fail\n", tag));
+        out.push_str("    mov x24, x0\n"); // staging
+        out.push_str("    mov x9, #0\n");
+        out.push_str(&format!(".L_arm64_{}_fill:\n", tag));
+        out.push_str("    cmp x9, x21\n");
+        out.push_str(&format!("    b.hs .L_arm64_{}_do_write\n", tag));
+        out.push_str("    ldr x10, [x22, x9, lsl #3]\n");
+        out.push_str("    strb w10, [x24, x9]\n");
+        out.push_str("    add x9, x9, #1\n");
+        out.push_str(&format!("    b .L_arm64_{}_fill\n", tag));
+        out.push_str(&format!(".L_arm64_{}_do_write:\n", tag));
+        out.push_str("    mov x0, x24\n");
+        out.push_str("    mov x1, #1\n");
+        out.push_str("    mov x2, x21\n");
+        out.push_str("    mov x3, x23\n");
+        out.push_str(&format!("    bl {}fwrite\n", p));
+        out.push_str("    cmp x0, x21\n");
+        // verdict to callee-saved w22 (free may clobber w10).
+        out.push_str("    cset w22, ne\n");
+        out.push_str("    mov x0, x24\n");
+        out.push_str(&format!("    bl {}free\n", p));
+        out.push_str(&format!("    cbnz w22, .L_arm64_{}_close_fail\n", tag));
+        out.push_str(&format!(".L_arm64_{}_close_ok:\n", tag));
+        out.push_str("    mov x0, x23\n");
+        out.push_str(&format!("    bl {}fclose\n", p));
+        out.push_str("    mov x0, #1\n");
+        out.push_str(&format!("    b .L_arm64_{}_end\n", tag));
+        out.push_str(&format!(".L_arm64_{}_close_fail:\n", tag));
+        out.push_str("    mov x0, x23\n");
+        out.push_str(&format!("    bl {}fclose\n", p));
+        out.push_str(&format!(".L_arm64_{}_fail:\n", tag));
+        out.push_str("    mov x0, #0\n");
+        out.push_str(&format!(".L_arm64_{}_end:\n", tag));
+        out.push_str("    ldp x23, x24, [sp, #48]\n");
+        out.push_str("    ldp x21, x22, [sp, #32]\n");
+        out.push_str("    ldp x19, x20, [sp, #16]\n");
+        out.push_str("    ldp x29, x30, [sp], #64\n");
+        out.push_str("    ret\n\n");
+    }
+
     // fn_read_file
     out.push_str(".align 2\n");
     out.push_str("fn_read_file:\n");
@@ -183,6 +253,87 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldp x21, x22, [sp, #32]\n");
     out.push_str("    ldp x19, x20, [sp, #16]\n");
     out.push_str("    ldp x29, x30, [sp], #48\n");
+    out.push_str("    ret\n\n");
+
+    // fn_read_bytes: (path) -> u8 array. Reads the whole file as byte
+    // slots (explicit length: embedded zeros preserved). Missing files,
+    // seek/stat errors, and malloc failure yield an empty array.
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_read_bytes\n");
+    out.push_str("fn_read_bytes:\n");
+    out.push_str("    stp x29, x30, [sp, #-64]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    stp x19, x20, [sp, #16]\n");
+    out.push_str("    stp x21, x22, [sp, #32]\n");
+    out.push_str("    stp x23, x24, [sp, #48]\n");
+    out.push_str("    mov x19, x0\n"); // path
+    out.push_str("    cbz x19, .L_arm64_rbytes_close_empty\n");
+    out.push_str("    mov x0, x19\n");
+    emit_adrp_add(out, "x1", "alya_str_mode_rb", os);
+    out.push_str(&format!("    bl {}fopen\n", p));
+    out.push_str("    cbz x0, .L_arm64_rbytes_close_empty\n");
+    out.push_str("    mov x19, x0\n"); // fp
+    out.push_str("    mov x0, x19\n");
+    out.push_str("    mov x1, #0\n");
+    out.push_str("    mov x2, #2\n");
+    out.push_str(&format!("    bl {}fseek\n", p));
+    out.push_str("    mov x0, x19\n");
+    out.push_str(&format!("    bl {}ftell\n", p));
+    out.push_str("    cmp x0, #0\n");
+    out.push_str("    b.le .L_arm64_rbytes_close_empty\n");
+    out.push_str("    mov x20, x0\n"); // n
+    out.push_str("    mov x0, x19\n");
+    out.push_str("    mov x1, #0\n");
+    out.push_str("    mov x2, #0\n");
+    out.push_str(&format!("    bl {}fseek\n", p));
+    out.push_str("    mov x0, x20\n");
+    out.push_str(&format!("    bl {}malloc\n", p));
+    out.push_str("    cbz x0, .L_arm64_rbytes_close_empty\n");
+    out.push_str("    mov x21, x0\n"); // staging
+    out.push_str("    mov x0, x21\n");
+    out.push_str("    mov x1, #1\n");
+    out.push_str("    mov x2, x20\n");
+    out.push_str("    mov x3, x19\n");
+    out.push_str(&format!("    bl {}fread\n", p));
+    out.push_str("    mov x22, x0\n"); // got (actual count drives the array)
+    out.push_str("    mov x0, x19\n");
+    out.push_str(&format!("    bl {}fclose\n", p));
+    out.push_str("    mov x19, #0\n"); // fp closed: empty paths must not re-close
+    out.push_str("    cmp x22, #0\n");
+    out.push_str("    b.le .L_arm64_rbytes_free_empty\n");
+    out.push_str("    mov x0, x22\n");
+    out.push_str("    bl alya_array_new\n");
+    out.push_str("    mov x23, x0\n"); // handle
+    out.push_str("    ldr x24, [x23, #16]\n"); // data
+    out.push_str("    mov x9, #0\n");
+    out.push_str(".L_arm64_rbytes_fill:\n");
+    out.push_str("    cmp x9, x22\n");
+    out.push_str("    b.hs .L_arm64_rbytes_done_fill\n");
+    out.push_str("    ldrb w10, [x21, x9]\n");
+    out.push_str("    str x10, [x24, x9, lsl #3]\n");
+    out.push_str("    add x9, x9, #1\n");
+    out.push_str("    b .L_arm64_rbytes_fill\n");
+    out.push_str(".L_arm64_rbytes_done_fill:\n");
+    out.push_str("    mov x0, x21\n");
+    out.push_str(&format!("    bl {}free\n", p));
+    out.push_str("    mov x0, x23\n");
+    out.push_str("    b .L_arm64_rbytes_done\n");
+    out.push_str(".L_arm64_rbytes_free_empty:\n");
+    out.push_str("    mov x0, x21\n");
+    out.push_str(&format!("    bl {}free\n", p));
+    out.push_str(".L_arm64_rbytes_close_empty:\n");
+    // fp is open here exactly when x19 != 0 (closed paths zero it).
+    out.push_str("    cbz x19, .L_arm64_rbytes_mkempty\n");
+    out.push_str("    mov x0, x19\n");
+    out.push_str(&format!("    bl {}fclose\n", p));
+    out.push_str(".L_arm64_rbytes_mkempty:\n");
+    out.push_str("    mov x0, #0\n");
+    out.push_str("    bl alya_array_new\n");
+    out.push_str(".L_arm64_rbytes_done:\n");
+    out.push_str("    ldp x23, x24, [sp, #48]\n");
+    out.push_str("    ldp x21, x22, [sp, #32]\n");
+    out.push_str("    ldp x19, x20, [sp, #16]\n");
+    out.push_str("    ldp x29, x30, [sp], #64\n");
     out.push_str("    ret\n\n");
 
     // fn_file_size

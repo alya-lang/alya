@@ -73,6 +73,46 @@ pub function fs_append(path: string, content: string) -> bool
     return append_file(path, content) != 0
 end
 
+## Writes byte values to a file, truncating it first.
+##
+## Slots are masked to the low byte; embedded zeros are preserved
+## (unlike the string-based writers, which are NUL-terminated).
+##
+## ### Parameters
+## - `path`: Target file path.
+## - `data`: Byte values (0-255) to write.
+##
+## ### Returns
+## True when the full payload hits disk, otherwise false.
+pub function fs_write_bytes(path: string, data) -> bool
+    return write_bytes(path, data) != 0
+end
+
+## Appends byte values to a file.
+##
+## Slots are masked to the low byte; embedded zeros are preserved.
+##
+## ### Parameters
+## - `path`: Target file path.
+## - `data`: Byte values (0-255) to append.
+##
+## ### Returns
+## True when the full payload hits disk, otherwise false.
+pub function fs_append_bytes(path: string, data) -> bool
+    return append_bytes(path, data) != 0
+end
+
+## Reads a whole file as byte values.
+##
+## ### Parameters
+## - `path`: Source file path.
+##
+## ### Returns
+## File bytes (0-255 per slot), or an empty array when missing/unreadable.
+pub function fs_read_bytes(path: string)
+    return read_bytes(path)
+end
+
 ## Reads a whole file as a string.
 ##
 ## ### Parameters

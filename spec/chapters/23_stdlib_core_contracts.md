@@ -34,11 +34,17 @@ The Alya Standard Library (`std/*`) is strictly limited to **low-level operating
 ### 1.3 Module API Contracts
 
 #### 1. `std/fs` (Filesystem I/O)
-Handles cross-platform file reading, writing, and directory traversal:
+Handles cross-platform file reading, writing, and directory traversal.
+String writers are NUL-terminated (Chapter 21 §1.9): binary payloads
+must use the byte writers, which carry an explicit length and preserve
+embedded zeros:
 ```alya
 function fs.read_string(path: string) -> string
 function fs.write_string(path: string, content: string) -> bool
 function fs.append_string(path: string, content: string) -> bool
+function fs.write_bytes(path: string, data: u8[]) -> bool
+function fs.append_bytes(path: string, data: u8[]) -> bool
+function fs.read_bytes(path: string) -> u8[]
 function fs.exists(path: string) -> bool
 function fs.remove(path: string) -> bool
 function fs.mkdir(path: string, recursive: bool = true) -> bool

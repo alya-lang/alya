@@ -748,7 +748,8 @@ pub fn is_array_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     | "tcp_recv_bytes"
                     | "net_recv_bytes"
                     | "udp_recv_bytes"
-                    | "net_udp_recv_bytes" // NOTE: `json_parse_array`, `parse_array` are deliberately
+                    | "net_udp_recv_bytes"
+                    | "read_bytes" // NOTE: `json_parse_array`, `parse_array` are deliberately
                                            // absent: they forward to the dynamic JSON parser (any
                                            // value kind), so a static array claim miscompiles.
             ) || (bare == "slice" && !args.is_empty() && is_array_expr(&args[0], vars))
@@ -2011,6 +2012,9 @@ pub fn is_number_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                     // heap pointers.
                     | "file_exists"
                     | "write_file"
+                    | "append_file"
+                    | "write_bytes"
+                    | "append_bytes"
                     | "delete_file"
                     | "remove_file"
                 // Bitwise builtins are int->int word ops (logical shifts);

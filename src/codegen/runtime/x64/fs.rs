@@ -254,6 +254,156 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
+    // fn_write_bytes / fn_append_bytes: (path, u8-array) -> int flag.
+    // Writes array slots masked to the low byte (explicit length: embedded
+    // zeros preserved). Returns 1 only when the full payload hits disk.
+    // Short-write verdict lives in r15b (n is dead after cmp; calls may
+    // clobber flags and caller-saved regs, callee-saved r15 survives).
+    for (fn_name, mode_label, tag) in [
+        ("fn_write_bytes", "alya_str_mode_wb", "wbytes"),
+        ("fn_append_bytes", "alya_str_mode_ab", "abytes"),
+    ] {
+        out.push_str(&format!(".global {}\n", fn_name));
+        out.push_str(&format!("{}:\n", fn_name));
+        out.push_str("    push %rbp\n");
+        out.push_str("    mov %rsp, %rbp\n");
+        out.push_str("    push %rbx\n");
+        out.push_str("    push %r12\n");
+        out.push_str("    push %r13\n");
+        out.push_str("    push %r14\n");
+        out.push_str("    push %r15\n");
+        if matches!(os, OperatingSystem::Windows) {
+            out.push_str("    sub $40, %rsp\n");
+            out.push_str("    mov %rcx, %r12\n"); // path
+            out.push_str("    mov %rdx, %r13\n"); // array
+        } else {
+            out.push_str("    sub $8, %rsp\n");
+            out.push_str("    mov %rdi, %r12\n");
+            out.push_str("    mov %rsi, %r13\n");
+        }
+        out.push_str("    test %r12, %r12\n");
+        out.push_str(&format!("    jz .L_x64_{}_fail\n", tag));
+        out.push_str("    test %r13, %r13\n");
+        out.push_str(&format!("    jz .L_x64_{}_fail\n", tag));
+        out.push_str("    movq (%r13), %r15\n"); // n = len
+        out.push_str("    movq 16(%r13), %rbx\n"); // dataptr
+        if matches!(os, OperatingSystem::Windows) {
+            out.push_str("    mov %r12, %rcx\n");
+            out.push_str(&format!("    lea {}(%rip), %rdx\n", mode_label));
+            out.push_str("    call fopen\n");
+        } else {
+            out.push_str("    mov %r12, %rdi\n");
+            out.push_str(&format!("    lea {}(%rip), %rsi\n", mode_label));
+            out.push_str(&format!("    call {}fopen\n", p));
+        }
+        out.push_str("    test %rax, %rax\n");
+        out.push_str(&format!("    jz .L_x64_{}_fail\n", tag));
+        out.push_str("    mov %rax, %r14\n"); // fp
+        out.push_str("    cmp $0, %r15\n");
+        out.push_str(&format!("    jle .L_x64_{}_close_ok\n", tag));
+        // malloc staging buffer
+        if matches!(os, OperatingSystem::Windows) {
+            out.push_str("    mov %r15, %rcx\n");
+            out.push_str("    sub $32, %rsp\n");
+            out.push_str("    call malloc\n");
+            out.push_str("    add $32, %rsp\n");
+        } else {
+            out.push_str("    mov %r15, %rdi\n");
+            out.push_str(&format!("    call {}malloc\n", p));
+        }
+        out.push_str("    test %rax, %rax\n");
+        out.push_str(&format!("    jz .L_x64_{}_close_fail\n", tag));
+        if matches!(os, OperatingSystem::Windows) {
+            out.push_str("    mov %rax, 32(%rsp)\n"); // staging slot
+        } else {
+            out.push_str("    mov %rax, (%rsp)\n");
+        }
+        out.push_str("    xor %ecx, %ecx\n");
+        out.push_str(&format!(".L_x64_{}_fill:\n", tag));
+        out.push_str("    cmp %r15, %rcx\n");
+        out.push_str(&format!("    jge .L_x64_{}_do_write\n", tag));
+        out.push_str("    movq (%rbx, %rcx, 8), %rax\n");
+        if matches!(os, OperatingSystem::Windows) {
+            out.push_str("    mov 32(%rsp), %rdx\n");
+        } else {
+            out.push_str("    mov (%rsp), %rdx\n");
+        }
+        out.push_str("    movb %al, (%rdx, %rcx)\n");
+        out.push_str("    inc %rcx\n");
+        out.push_str(&format!("    jmp .L_x64_{}_fill\n", tag));
+        out.push_str(&format!(".L_x64_{}_do_write:\n", tag));
+        if matches!(os, OperatingSystem::Windows) {
+            out.push_str("    mov 32(%rsp), %rax\n");
+            out.push_str("    mov %rax, %rcx\n");
+            out.push_str("    mov $1, %rdx\n");
+            out.push_str("    mov %r15, %r8\n");
+            out.push_str("    mov %r14, %r9\n");
+            out.push_str("    sub $32, %rsp\n");
+            out.push_str("    call fwrite\n");
+            out.push_str("    add $32, %rsp\n");
+        } else {
+            out.push_str("    mov (%rsp), %rax\n");
+            out.push_str("    mov %rax, %rdi\n");
+            out.push_str("    mov $1, %rsi\n");
+            out.push_str("    mov %r15, %rdx\n");
+            out.push_str("    mov %r14, %rcx\n");
+            out.push_str(&format!("    call {}fwrite\n", p));
+        }
+        // calls clobber flags and caller-saved regs: verdict goes to r15b
+        // (n is dead after cmp) and is tested as a byte after free.
+        out.push_str("    cmp %r15, %rax\n");
+        out.push_str("    setne %r15b\n");
+        if matches!(os, OperatingSystem::Windows) {
+            out.push_str("    mov 32(%rsp), %rcx\n");
+            out.push_str("    sub $32, %rsp\n");
+            out.push_str("    call free\n");
+            out.push_str("    add $32, %rsp\n");
+        } else {
+            out.push_str("    mov (%rsp), %rdi\n");
+            out.push_str(&format!("    call {}free\n", p));
+        }
+        out.push_str("    test %r15b, %r15b\n");
+        out.push_str(&format!("    jne .L_x64_{}_close_fail\n", tag));
+        out.push_str(&format!(".L_x64_{}_close_ok:\n", tag));
+        if matches!(os, OperatingSystem::Windows) {
+            out.push_str("    mov %r14, %rcx\n");
+            out.push_str("    sub $32, %rsp\n");
+            out.push_str("    call fclose\n");
+            out.push_str("    add $32, %rsp\n");
+        } else {
+            out.push_str("    mov %r14, %rdi\n");
+            out.push_str(&format!("    call {}fclose\n", p));
+        }
+        out.push_str("    mov $1, %rax\n");
+        out.push_str(&format!("    jmp .L_x64_{}_end\n", tag));
+        out.push_str(&format!(".L_x64_{}_close_fail:\n", tag));
+        if matches!(os, OperatingSystem::Windows) {
+            out.push_str("    mov %r14, %rcx\n");
+            out.push_str("    sub $32, %rsp\n");
+            out.push_str("    call fclose\n");
+            out.push_str("    add $32, %rsp\n");
+        } else {
+            out.push_str("    mov %r14, %rdi\n");
+            out.push_str(&format!("    call {}fclose\n", p));
+        }
+        out.push_str(&format!(".L_x64_{}_fail:\n", tag));
+        out.push_str("    xor %rax, %rax\n");
+        out.push_str(&format!(".L_x64_{}_end:\n", tag));
+        if matches!(os, OperatingSystem::Windows) {
+            out.push_str("    add $40, %rsp\n");
+        } else {
+            out.push_str("    add $8, %rsp\n");
+        }
+        out.push_str("    pop %r15\n");
+        out.push_str("    pop %r14\n");
+        out.push_str("    pop %r13\n");
+        out.push_str("    pop %r12\n");
+        out.push_str("    pop %rbx\n");
+        out.push_str("    mov %rbp, %rsp\n");
+        out.push_str("    pop %rbp\n");
+        out.push_str("    ret\n\n");
+    }
+
     // fn_read_file
     out.push_str("fn_read_file:\n");
     out.push_str("    push %rbp\n");
@@ -348,6 +498,188 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     }
     out.push_str(".L_x64_fread_ret:\n");
     out.push_str("    mov %rbx, %rax\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    add $40, %rsp\n");
+    } else {
+        out.push_str("    add $8, %rsp\n");
+    }
+    out.push_str("    pop %r15\n");
+    out.push_str("    pop %r14\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    pop %rbx\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_read_bytes: (path) -> u8 array. Reads the whole file as byte
+    // slots (explicit length: embedded zeros preserved). Missing files,
+    // seek/stat errors, and malloc failure yield an empty array.
+    out.push_str(".global fn_read_bytes\n");
+    out.push_str("fn_read_bytes:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %rbx\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    out.push_str("    push %r14\n");
+    out.push_str("    push %r15\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    sub $40, %rsp\n");
+        out.push_str("    mov %rcx, %r12\n"); // path
+    } else {
+        out.push_str("    sub $8, %rsp\n");
+        out.push_str("    mov %rdi, %r12\n");
+    }
+    out.push_str("    test %r12, %r12\n");
+    out.push_str("    jz .L_x64_rbytes_empty\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    lea alya_str_mode_rb(%rip), %rdx\n");
+        out.push_str("    call fopen\n");
+    } else {
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str("    lea alya_str_mode_rb(%rip), %rsi\n");
+        out.push_str(&format!("    call {}fopen\n", p));
+    }
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jz .L_x64_rbytes_empty\n");
+    out.push_str("    mov %rax, %r12\n"); // fp
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    xor %rdx, %rdx\n");
+        out.push_str("    mov $2, %r8\n");
+        out.push_str("    call fseek\n");
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    call ftell\n");
+    } else {
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str("    xor %rsi, %rsi\n");
+        out.push_str("    mov $2, %rdx\n");
+        out.push_str(&format!("    call {}fseek\n", p));
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str(&format!("    call {}ftell\n", p));
+    }
+    out.push_str("    cmp $0, %rax\n");
+    out.push_str("    jle .L_x64_rbytes_close_empty\n");
+    out.push_str("    mov %rax, %r13\n"); // n
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    xor %rdx, %rdx\n");
+        out.push_str("    xor %r8, %r8\n");
+        out.push_str("    call fseek\n");
+        out.push_str("    mov %r13, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call malloc\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str("    xor %rsi, %rsi\n");
+        out.push_str("    xor %rdx, %rdx\n");
+        out.push_str(&format!("    call {}fseek\n", p));
+        out.push_str("    mov %r13, %rdi\n");
+        out.push_str(&format!("    call {}malloc\n", p));
+    }
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jz .L_x64_rbytes_close_empty\n");
+    out.push_str("    mov %rax, %r14\n"); // staging
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r14, %rcx\n");
+        out.push_str("    mov $1, %rdx\n");
+        out.push_str("    mov %r13, %r8\n");
+        out.push_str("    mov %r12, %r9\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call fread\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %r14, %rdi\n");
+        out.push_str("    mov $1, %rsi\n");
+        out.push_str("    mov %r13, %rdx\n");
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str(&format!("    call {}fread\n", p));
+    }
+    out.push_str("    mov %rax, %r13\n"); // got (actual count drives the array)
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call fclose\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str(&format!("    call {}fclose\n", p));
+    }
+    out.push_str("    xor %r12d, %r12d\n"); // fp closed: empty paths must not re-close
+    out.push_str("    cmp $0, %r13\n");
+    out.push_str("    jle .L_x64_rbytes_free_empty\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r13, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_array_new\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %r13, %rdi\n");
+        out.push_str("    call alya_array_new\n");
+    }
+    out.push_str("    mov %rax, %r15\n"); // handle
+    out.push_str("    movq 16(%r15), %rbx\n"); // data
+    out.push_str("    xor %ecx, %ecx\n");
+    out.push_str(".L_x64_rbytes_fill:\n");
+    out.push_str("    cmp %r13, %rcx\n");
+    out.push_str("    jge .L_x64_rbytes_done_fill\n");
+    out.push_str("    movzbq (%r14, %rcx), %rax\n");
+    out.push_str("    mov %rax, (%rbx, %rcx, 8)\n");
+    out.push_str("    inc %rcx\n");
+    out.push_str("    jmp .L_x64_rbytes_fill\n");
+    out.push_str(".L_x64_rbytes_done_fill:\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r14, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call free\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %r14, %rdi\n");
+        out.push_str(&format!("    call {}free\n", p));
+    }
+    out.push_str("    mov %r15, %rax\n");
+    out.push_str("    jmp .L_x64_rbytes_done\n");
+    out.push_str(".L_x64_rbytes_free_empty:\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r14, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call free\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %r14, %rdi\n");
+        out.push_str(&format!("    call {}free\n", p));
+    }
+    out.push_str(".L_x64_rbytes_close_empty:\n");
+    // fp is open here exactly when r12 != 0 (already-closed paths zero it).
+    out.push_str("    jmp .L_x64_rbytes_do_close\n");
+    out.push_str(".L_x64_rbytes_empty:\n");
+    out.push_str("    xor %r12d, %r12d\n"); // mark fp invalid (never opened)
+    out.push_str(".L_x64_rbytes_do_close:\n");
+    out.push_str("    test %r12, %r12\n");
+    out.push_str("    jz .L_x64_rbytes_mkempty\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call fclose\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str(&format!("    call {}fclose\n", p));
+    }
+    out.push_str(".L_x64_rbytes_mkempty:\n");
+    if matches!(os, OperatingSystem::Windows) {
+        out.push_str("    xor %ecx, %ecx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_array_new\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    xor %edi, %edi\n");
+        out.push_str("    call alya_array_new\n");
+    }
+    out.push_str(".L_x64_rbytes_done:\n");
     if matches!(os, OperatingSystem::Windows) {
         out.push_str("    add $40, %rsp\n");
     } else {

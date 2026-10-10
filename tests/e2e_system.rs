@@ -405,6 +405,51 @@ say "missing: [{missing}]"
 }
 
 #[test]
+fn test_e2e_file_bytes() {
+    let test_path = "target/test_file_bytes.bin";
+    let _ = std::fs::remove_file(test_path);
+
+    let code = r#"
+let path = "target/test_file_bytes.bin"
+let data = [72, 0, 255, 1, 0, 200]
+let w = write_bytes(path, data)
+say w
+
+let back = read_bytes(path)
+say len(back)
+say back[0]
+say back[1]
+say back[2]
+say back[5]
+
+let a = append_bytes(path, [7, 8, 0, 9])
+say a
+let back2 = read_bytes(path)
+say len(back2)
+say back2[9]
+
+let e = write_bytes("target/test_file_bytes_empty.bin", [])
+say e
+say len(read_bytes("target/test_file_bytes_empty.bin"))
+say len(read_bytes("target/no_such_bytes_xyz.bin"))
+say write_bytes("/no/such/dir/x.bin", [1])
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(
+            output,
+            concat!(
+                "1\n", "6\n", "72\n", "0\n", "255\n", "200\n", "1\n", "10\n", "9\n", "1\n", "0\n",
+                "0\n", "0\n",
+            )
+        );
+    }
+
+    let _ = std::fs::remove_file(test_path);
+    let _ = std::fs::remove_file("target/test_file_bytes_empty.bin");
+}
+
+#[test]
 fn test_e2e_stdlib_modules() {
     let code = r#"
 import "std/math"
