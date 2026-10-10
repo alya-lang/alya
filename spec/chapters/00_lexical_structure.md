@@ -95,7 +95,7 @@ The following 44 tokens are strictly reserved keywords. They cannot be used as v
   WHERE active = true;
   """
   ```
-- Only `f"..."` (and `f"""..."""`) strings interpolate `{...}` holes; every other kind keeps braces literal. `{{` and `}}` collapse to single literal braces in every string kind (see Chapter 21 §1.7).
+- Only `f"..."` (and `f"""..."""`) strings interpolate `{...}` holes; every other kind keeps braces literal. `{{` and `}}` collapse to single literal braces wherever holes are scanned (f-strings always; other kinds when they contain a closing brace — see Chapter 21 §1.7). Template code matching raw `{{`/`}}` delimiters is unaffected.
 
 ### 1.7 Byte Literals
 - Raw byte characters are prefixed with `b'...'` and evaluate to `u8`: `let b = b'A'` (value: `65`).

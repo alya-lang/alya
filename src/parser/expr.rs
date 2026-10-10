@@ -990,9 +990,12 @@ impl Parser {
                 let string = s.clone();
                 self.advance();
                 // #155: only f-strings interpolate. Every other kind keeps
-                // `{...}` literal; `{{`/`}}` escapes still collapse (Ch.21
-                // §1.7 documents them for all string kinds).
-                if string.contains('{') || string.contains('}') {
+                // `{...}` literal; `{{`/`}}` escapes still collapse when a
+                // closing brace is present (Ch.21 §1.7). Closer-less
+                // strings stay verbatim: template code searches for raw
+                // `{{`/`}}` delimiters (e.g. mustache), so collapsing them
+                // would corrupt delimiter matching.
+                if string.contains('{') && string.contains('}') {
                     if let Some(parts) = parse_interpolated_string(&string, false) {
                         return Ok(Expr::InterpolatedString(parts));
                     }
