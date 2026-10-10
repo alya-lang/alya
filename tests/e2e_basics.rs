@@ -392,7 +392,7 @@ Second line`
 say raw
 
 let item = "Alya"
-let templ = """
+let templ = f"""
 Hello, {item}!
 Welcome!
 """
