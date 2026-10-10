@@ -2081,6 +2081,29 @@ pub fn is_int_array_annotation(ann: &str) -> bool {
     is_int_scalar_annotation(&t[..t.len() - 2])
 }
 
+/// Exact-int predicate for conversion builtins (alya-lang/alya#151,
+/// hardens alya-lang/alya#152).
+///
+/// `is_number_expr` is true for ANY Number-typed local, including ones
+/// holding dynamics (reassigned reads, `let x = dynvar`): routing those
+/// through int/float fast paths mistags strings as ints. A proven
+/// identifier carries `var_is_int` with no `var_rebound_nonint` (set by
+/// any rebind whose RHS is not itself proven); other shapes keep the
+/// loose `is_number_expr` rule (literals, arithmetic, bit/int builtins),
+/// which only ever *produce* ints and cannot go stale. Mirrors the
+/// `value_kind_tag` exactness rule for slot tags. Explicit `int`
+/// annotations are trusted like the rest of the pipeline (a dynamic
+/// value stored into one is already mishandled elsewhere).
+pub fn is_proven_int_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    match expr {
+        Expr::Identifier(name) => {
+            vars.contains_key(&format!("var_is_int:{}", name))
+                && !vars.contains_key(&format!("var_rebound_nonint:{}", name))
+        }
+        _ => is_number_expr(expr, vars) && !is_float_expr(expr, vars),
+    }
+}
+
 /// Returns true when `expr` is provably NOT a plain number (a string,
 /// array, map, or statically-known struct value).
 ///

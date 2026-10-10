@@ -3,13 +3,19 @@
 # Distilled from: int() crashed (0xC0000005) on plain ints >= 65536 and
 #                 returned garbage (95) for int64-range mixed-map dynamics
 #                 (alya-lang/alya#152).
-# Guards: statically-known ints bypass fn_str_to_int (which mistook any
-#         value >= 65536 for a string pointer); tag-carrying map reads
-#         dispatch on the KIND tag (INT passes through, FLOAT truncates,
-#         STRING parses); unknown dynamics keep the runtime heuristic.
+# Guards: proven ints bypass fn_str_to_int (which mistook >= 65536 for
+#         string pointers); tag-carrying map reads dispatch on the KIND
+#         tag (INT passes through, FLOAT truncates, STRING parses);
+#         rebound-to-dynamic locals take the heuristic (stale markers
+#         must not passthrough, cf. #151); unknown dynamics keep the
+#         runtime heuristic.
 # NOTE: opaque function-boundary dynamics (untyped params) lose their
 #       tags and stay heuristic (alya-lang/alya#55) — out of scope here.
 # ==============================================================================
+
+function idf47(v)
+    return v
+end
 
 function main()
     assert_eq(int(42), 42, "small int passthrough")
@@ -19,6 +25,12 @@ function main()
     assert_eq(int(2147483647), 2147483647, "i32 max")
     let b = 65536
     assert_eq(int(b), 65536, "let-bound bigint")
+    let z = 65536
+    z = z + 1
+    assert_eq(int(z), 65537, "int rebind keeps passthrough")
+    let r = 0
+    r = idf47("1234")
+    assert_eq(int(r), 1234, "rebound string parses (no stale passthrough)")
     let m = { "small": 7, "big": 4636420632005836800, "s": "1234", "f": 95.5 }
     assert_eq(int(m["small"]), 7, "tagged int read")
     assert_eq(int(m["big"]), 4636420632005836800, "tagged int64 read")

@@ -2,9 +2,9 @@ use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     escape_string, expr_mentions_var, is_array_expr, is_array_fold_true, is_definitely_not_numeric,
-    is_float_array, is_float_expr, is_map_expr, is_null_expr, is_number_expr, is_string_array,
-    is_string_expr, is_tag_carrying_read, is_unsigned_expr, string_store_needs_dup,
-    struct_field_markers_mixed_vars, value_kind_tag,
+    is_float_array, is_float_expr, is_map_expr, is_null_expr, is_number_expr, is_proven_int_expr,
+    is_string_array, is_string_expr, is_tag_carrying_read, is_unsigned_expr,
+    string_store_needs_dup, struct_field_markers_mixed_vars, value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -77,6 +77,21 @@ impl CodeGen {
                         self.ctx
                             .variables
                             .insert(format!("var_is_int:{}", name), VarType::Number(0));
+                    }
+                    // #151: conversion fast paths need exact int-ness, but
+                    // `var_is_int` stays stale-kept by design (retain
+                    // consumers). Track rebind-risk separately: a
+                    // non-proven RHS may hold anything at runtime, so later
+                    // conversions must take the heuristic path. Proven RHS
+                    // clears (lets self-heal, e.g. shadowing).
+                    if is_proven_int_expr(value, &self.ctx.variables) {
+                        self.ctx
+                            .variables
+                            .remove(&format!("var_rebound_nonint:{}", name));
+                    } else {
+                        self.ctx
+                            .variables
+                            .insert(format!("var_rebound_nonint:{}", name), VarType::Number(0));
                     }
                     // Unsigned marker for u64-family annotations (B4):
                     // drives unsigned div/mod/cmp/display. Kept alongside
@@ -796,6 +811,18 @@ impl CodeGen {
                             .variables
                             .insert(format!("var_is_int:{}", name), VarType::Number(0));
                     }
+                    // #151: conversion fast paths need exact int-ness (see
+                    // the top-level `let` twin above): a non-proven RHS may
+                    // hold anything at runtime.
+                    if is_proven_int_expr(value, &self.ctx.variables) {
+                        self.ctx
+                            .variables
+                            .remove(&format!("var_rebound_nonint:{}", name));
+                    } else {
+                        self.ctx
+                            .variables
+                            .insert(format!("var_rebound_nonint:{}", name), VarType::Number(0));
+                    }
                     // NOTE: no clearing here (interim): clearing a stale
                     // int fact makes later `push(name)` retain a dynamic
                     // int and fault; proper fix is local tag spill so
@@ -1464,6 +1491,21 @@ impl CodeGen {
                                 self.ctx
                                     .variables
                                     .insert(format!("var_is_int:{}", name), VarType::Number(0));
+                            }
+                            // #151: conversions consult `var_rebound_nonint`
+                            // instead (parallel marker, retains untouched):
+                            // a non-proven RHS may hold anything, so later
+                            // int()/float() must take the heuristic path.
+                            // Proven RHS clears (rebinds self-heal).
+                            if is_proven_int_expr(value, &self.ctx.variables) {
+                                self.ctx
+                                    .variables
+                                    .remove(&format!("var_rebound_nonint:{}", name));
+                            } else {
+                                self.ctx.variables.insert(
+                                    format!("var_rebound_nonint:{}", name),
+                                    VarType::Number(0),
+                                );
                             }
                             // Call-bound marker for `say` (see `let`).
                             if matches!(value, Expr::Call { .. }) {

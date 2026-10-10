@@ -1,0 +1,29 @@
+# ==============================================================================
+# Alya Integration Fixture 49 (entry): float() conversion on dynamics
+# Distilled from: float() on dynamic strings/floats from mixed maps
+#                 silently returned heap addresses / int-converted bits
+#                 instead of parsing or passing through (alya-lang/alya#151).
+# Guards: proven ints convert exactly (never heuristic); tag-carrying
+#         map reads dispatch on KIND (FLOAT passes through, INT converts,
+#         STRING parses); rebound-to-dynamic locals take the heuristic;
+#         unknown dynamics ride the runtime heuristic. Opaque
+#         function-boundary dynamics stay best-effort (#55); `==` against
+#         float literals and str() on opaque floats are unchanged.
+# ==============================================================================
+
+function main()
+    assert float(42) == 42.0, "small int converts"
+    assert float(100000) == 100000.0, "large static int converts"
+    assert float(2147483647) == 2147483647.0, "i32 max converts"
+    let b = 100000
+    assert float(b) == 100000.0, "let-bound bigint converts"
+    assert float("19.99") == 19.99, "string literal parses"
+    assert float(19.99) == 19.99, "float literal passes through"
+    let m = { "count": 42, "score": 19.99, "name": "19.99" }
+    assert float(m["count"]) == 42.0, "tagged int converts"
+    assert float(m["score"]) == 19.99, "tagged float passes through"
+    assert float(m["name"]) == 19.99, "tagged string parses"
+    say "integration 49_float_conversion_tagged: OK"
+end
+
+main()

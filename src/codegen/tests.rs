@@ -1347,6 +1347,88 @@ end
     assert!(asm_arm64.contains("fcvtzs x0, d0"));
 }
 
+// Regression (alya-lang/alya#151): float() on dynamics silently
+// mistagged (float bits converted as int, heap strings converted as
+// addresses). Tag-carrying reads now dispatch on the KIND tag on both
+// arches: FLOAT passes through, INT converts, anything else parses.
+// (Int-valued key: a float-valued key would fold statically via the
+// map_field_flt marker and skip the dispatch.)
+#[test]
+fn test_codegen_float_builtin_tag_dispatch_both_arches() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = r#"
+function main()
+    let m = { "big": 4636420632005836800 }
+    say float(m["big"])
+end
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_x64 = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    assert!(asm_x64.contains("cmpl $2, %edx"));
+    assert!(asm_x64.contains("cmpl $1, %edx"));
+    assert!(asm_x64.contains("call fn_str_to_float"));
+
+    let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(asm_arm64.contains("cmp w1, #2"));
+    assert!(asm_arm64.contains("cmp w1, #1"));
+    assert!(asm_arm64.contains("    bl fn_str_to_float"));
+}
+
+// Proven ints convert exactly (never heuristic): no string-parser call
+// on either arch.
+#[test]
+fn test_codegen_float_builtin_static_bigint_converts() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = "function main() say float(100000) end";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_x64 = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    assert!(asm_x64.contains("cvtsi2sdq"));
+    assert!(!asm_x64.contains("call fn_str_to_float"));
+    let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(asm_arm64.contains("scvtf"));
+    assert!(!asm_arm64.contains("    bl fn_str_to_float"));
+}
+
+// Rebound-to-dynamic locals must not passthrough: the stale int fact
+// routes through the string-parser heuristic instead.
+#[test]
+fn test_codegen_int_builtin_rebound_dynamic_parses() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = r#"
+function idf(v)
+    return v
+end
+function main()
+    let r = 0
+    r = idf("1234")
+    say int(r)
+end
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm_x64 = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    assert!(asm_x64.contains("call fn_str_to_int"));
+    let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(asm_arm64.contains("    bl fn_str_to_int"));
+}
+
 // Regression (alya-lang/alya#154): calling a non-function value
 // segfaulted. Indirect calls now trap provably-non-function callees
 // (small values, managed strings) on both arches; genuine function

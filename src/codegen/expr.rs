@@ -3,10 +3,10 @@ use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     builtin_blocks_method_fallback, eq_operand_is_dynamic, escape_string, is_array_expr,
     is_array_fold_true, is_definitely_not_numeric, is_float_expr, is_map_expr, is_map_fold_true,
-    is_null_expr, is_number_expr, is_simple_name, is_strict_dynamic_op, is_string_expr,
-    is_string_fold_true, is_tag_carrying_read, is_unsigned_expr, string_store_needs_dup,
-    struct_field_markers_mixed_vars, ternary_arm_carries, typeof_operand_is_repeatable,
-    value_kind_tag,
+    is_null_expr, is_number_expr, is_proven_int_expr, is_simple_name, is_strict_dynamic_op,
+    is_string_expr, is_string_fold_true, is_tag_carrying_read, is_unsigned_expr,
+    string_store_needs_dup, struct_field_markers_mixed_vars, ternary_arm_carries,
+    typeof_operand_is_repeatable, value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -1529,51 +1529,104 @@ impl CodeGen {
                 if (name == "float" || name == "to_float" || name == "parse_float")
                     && args.len() == 1
                 {
-                    self.generate_expression(&args[0]);
+                    // #151: route by knowable kind. The old fallback emitted
+                    // a blind int->float conversion for every unknown, which
+                    // mistagged float dynamics (raw bits converted as int)
+                    // and string dynamics (addresses converted as int) while
+                    // `is` classified them correctly.
                     if is_string_expr(&args[0], &self.ctx.variables) {
+                        self.generate_expression(&args[0]);
                         arch::emit_call_str_to_float(
                             &mut self.output,
                             self.arch,
                             self.ctx.stack_offset,
                             self.os,
                         );
-                    } else if !is_float_expr(&args[0], &self.ctx.variables)
-                        && !is_definitely_not_numeric(&args[0], &self.ctx.variables)
-                    {
-                        // Kind-carrying reads already holding float bits
-                        // must skip the conversion (else cvt mangles them).
-                        let already_float =
-                            matches!(self.arch, Architecture::X64 | Architecture::ARM64)
-                                && matches!(
-                                    &args[0],
-                                    Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                                )
-                                && is_tag_carrying_read(&args[0], &self.ctx.variables);
-                        if already_float {
-                            let l_skip = self.ctx.next_label();
-                            if matches!(self.arch, Architecture::X64) {
-                                self.output
-                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
-                                self.output.push_str(&format!("    je {}\n", l_skip));
-                            } else {
-                                self.output
-                                    .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
-                                self.output.push_str(&format!("    b.eq {}\n", l_skip));
-                            }
-                            arch::emit_int_to_float(&mut self.output, self.arch);
-                            self.output.push_str(&format!("{}:\n", l_skip));
-                        } else {
-                            arch::emit_int_to_float(&mut self.output, self.arch);
-                        }
+                        return;
                     }
+                    if is_float_expr(&args[0], &self.ctx.variables) {
+                        // Already float bits: no conversion (cvt mangles).
+                        self.generate_expression(&args[0]);
+                        return;
+                    }
+                    // Proven ints convert exactly; never heuristic (which
+                    // crashes or mistags >= 65536). See is_proven_int_expr:
+                    // loose Number locals may hold reassigned dynamics.
+                    if is_proven_int_expr(&args[0], &self.ctx.variables) {
+                        self.generate_expression(&args[0]);
+                        arch::emit_int_to_float(&mut self.output, self.arch);
+                        return;
+                    }
+                    // Tag-carrying reads (map Index via fn_get, Ternary,
+                    // Call) dispatch on the runtime kind tag, mirroring the
+                    // int() builtin (#152): FLOAT passes through, INT
+                    // converts, anything else parses as a string.
+                    if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                        && matches!(
+                            &args[0],
+                            Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                        )
+                        && is_tag_carrying_read(&args[0], &self.ctx.variables)
+                    {
+                        self.generate_expression(&args[0]);
+                        let l_int = self.ctx.next_label();
+                        let l_end = self.ctx.next_label();
+                        if matches!(self.arch, Architecture::X64) {
+                            self.output
+                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                            self.output.push_str(&format!("    je {}\n", l_end));
+                            self.output
+                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_INT));
+                            self.output.push_str(&format!("    je {}\n", l_int));
+                        } else {
+                            self.output
+                                .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                            self.output.push_str(&format!("    b.eq {}\n", l_end));
+                            self.output
+                                .push_str(&format!("    cmp w1, #{}\n", KIND_INT));
+                            self.output.push_str(&format!("    b.eq {}\n", l_int));
+                        }
+                        arch::emit_call_str_to_float(
+                            &mut self.output,
+                            self.arch,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                        arch::emit_jump(&mut self.output, self.arch, &l_end);
+                        self.output.push_str(&format!("{}:\n", l_int));
+                        arch::emit_int_to_float(&mut self.output, self.arch);
+                        self.output.push_str(&format!("{}:\n", l_end));
+                        return;
+                    }
+                    if is_definitely_not_numeric(&args[0], &self.ctx.variables) {
+                        // Arrays, maps, struct values: legacy passthrough
+                        // (garbage but non-faulting, as before).
+                        self.generate_expression(&args[0]);
+                        return;
+                    }
+                    // Unknown dynamics ride the runtime heuristic, which is
+                    // tag-aware for floats (passes bits through) and parses
+                    // strings. Residual: opaque >= 65536 ints fault like
+                    // their int() mirror (cf. #55); statically-known and
+                    // tagged flows above never reach this path.
+                    self.generate_expression(&args[0]);
+                    arch::emit_call_str_to_float(
+                        &mut self.output,
+                        self.arch,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
                     return;
                 }
 
                 if (name == "int" || name == "to_int" || name == "parse_int") && args.len() == 1 {
-                    // #152: statically-known ints are already ints; routing them
-                    // through fn_str_to_int misclassifies any value >= 65536 as
-                    // a string pointer and crashes on deref.
-                    if is_number_expr(&args[0], &self.ctx.variables)
+                    // #152: proven ints are already ints; routing them
+                    // through fn_str_to_int misclassifies any value >= 65536
+                    // as a string pointer and crashes on deref. Proven means
+                    // `var_is_int` identifiers (loose Number-typed locals may
+                    // hold reassigned dynamics, cf. #151) or int-producing
+                    // shapes (literals, arithmetic, int builtins).
+                    if is_proven_int_expr(&args[0], &self.ctx.variables)
                         && !is_float_expr(&args[0], &self.ctx.variables)
                         && !is_string_expr(&args[0], &self.ctx.variables)
                     {
