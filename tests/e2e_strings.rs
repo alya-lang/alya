@@ -11,7 +11,7 @@ end
 let name = "Alya"
 say f"Welcome to {name}!"
 say f"Call: {calc(3, 4)}"
-say "Math: {10 + 5 * 2}"
+say f"Math: {10 + 5 * 2}"
 let greeting = "   hello   "
 say f"Method: {greeting.trim().upper()}"
 say "Escaped: {{bracket}}"
