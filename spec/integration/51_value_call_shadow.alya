@@ -1,0 +1,33 @@
+# ==============================================================================
+# Alya Integration Fixture 51 (entry): shadowed callback stays a value call
+# Distilled from: web free `on_error(app, handler)` poisoning the bare
+#                 `on_error(null, ...)` value call in event's
+#                 `tcp_server_listen` — run-mode failed with
+#                 `expected 'App', found 'null'` while test-mode passed
+#                 (alya-lang/alya#158).
+# Guards: a bare callee bound to a local (callback param) is a VALUE
+#         call — the checker's bare global alias must not supply a
+#         signature. Codegen already emits an indirect call through the
+#         slot (it holds no bare entry for namespaced globals), so the
+#         checker mirrors it. Qualified global calls still resolve.
+# ==============================================================================
+
+import "./51_value_call_helper.alya" as web51
+
+function t51_takes_callback(on_error = null)
+    if on_error is not null
+        return on_error(null, "boom")
+    end
+    return 42
+end
+
+function main()
+    assert_eq(t51_takes_callback(), 42, "null-guarded path stays dynamic")
+    let r = t51_takes_callback(|a, b| => 777)
+    assert_eq(r, 777, "value dispatch reaches the callback, not the global")
+    let app = web51::T51App { x: 1 }
+    assert_eq(web51::on_error(app, "h"), 999, "qualified global still resolves")
+    say "integration 51_value_call_shadow: OK"
+end
+
+main()

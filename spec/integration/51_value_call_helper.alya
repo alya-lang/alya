@@ -1,0 +1,17 @@
+# ==============================================================================
+# Alya Integration Fixture 51 (helper): callback-name global for shadowing
+# Distilled from: Lib/web free `on_error` vs Lib/event callback params
+#                 (alya-lang/alya#158)
+# NOT an entry point. Imported by 51_value_call_shadow.alya via relative import.
+# Guards: the namespaced `on_error` global seeds a bare checker alias;
+#         nothing here calls it — the entry's callback param must win.
+# ==============================================================================
+
+pub struct T51App
+    x: int
+end
+
+## Free function whose bare name collides with callback params elsewhere.
+pub function on_error(app: T51App, handler)
+    return 999
+end

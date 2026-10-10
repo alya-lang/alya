@@ -1274,7 +1274,19 @@ impl TypeChecker {
             }
         }
 
-        if !name.contains("::") {
+        // #158: a bare callee that is also a locally-bound variable
+        // (callback parameters, closures in variables) is a VALUE call:
+        // codegen has no bare entry for namespaced globals, so it
+        // emits an indirect call through the slot. The checker's
+        // bare alias (`web::on_error` stored under `on_error`)
+        // must not supply a signature either — skip every global
+        // tier below. Exact matches for qualified names (and
+        // recursion, where the name is not a variable) still apply.
+        // UFCS above already ran, mirroring codegen's method-first
+        // precedence.
+        let value_call = !name.contains("::") && self.lookup_var(name).is_some();
+
+        if !value_call && !name.contains("::") {
             if let Some(cfn) = &self.current_fn_name {
                 let cur_mod = cfn.split("::").next().unwrap_or("");
                 if !cur_mod.is_empty() {
@@ -1286,13 +1298,15 @@ impl TypeChecker {
             }
         }
 
-        if let Some(sig) = self.functions.get(name) {
-            return Some(sig.clone());
-        }
+        if !value_call {
+            if let Some(sig) = self.functions.get(name) {
+                return Some(sig.clone());
+            }
 
-        let bare = name.rsplit("::").next().unwrap_or(name);
-        if let Some(sig) = self.functions.get(bare) {
-            return Some(sig.clone());
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            if let Some(sig) = self.functions.get(bare) {
+                return Some(sig.clone());
+            }
         }
 
         None
@@ -1337,7 +1351,12 @@ impl TypeChecker {
             }
         }
 
-        if !name.contains("::") {
+        // #158: mirror lookup_fn — a bare callee bound to a local
+        // variable is a value call; every global arity tier is
+        // skipped with the signature (codegen emits indirect).
+        let value_call = !name.contains("::") && self.lookup_var(name).is_some();
+
+        if !value_call && !name.contains("::") {
             if let Some(cfn) = &self.current_fn_name {
                 let cur_mod = cfn.split("::").next().unwrap_or("");
                 if !cur_mod.is_empty() {
@@ -1349,13 +1368,15 @@ impl TypeChecker {
             }
         }
 
-        if let Some(arity) = self.fn_arities.get(name) {
-            return Some(*arity);
-        }
+        if !value_call {
+            if let Some(arity) = self.fn_arities.get(name) {
+                return Some(*arity);
+            }
 
-        let bare = name.rsplit("::").next().unwrap_or(name);
-        if let Some(arity) = self.fn_arities.get(bare) {
-            return Some(*arity);
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            if let Some(arity) = self.fn_arities.get(bare) {
+                return Some(*arity);
+            }
         }
 
         None
@@ -2335,6 +2356,12 @@ impl TypeChecker {
     /// Enforces `@deprecated` at a call site. `error = true` is fatal;
     /// otherwise a warning is recorded for the driver to print.
     fn check_deprecated_call(&mut self, name: &str) -> Result<(), String> {
+        // #158: a bare callee bound to a local variable is a value
+        // call through the slot, not the global — never warn for the
+        // shadowed global's deprecation.
+        if !name.contains("::") && self.lookup_var(name).is_some() {
+            return Ok(());
+        }
         let bare = name.rsplit("::").next().unwrap_or(name);
         let bare = bare.rsplit("__").next().unwrap_or(bare);
         let hit = self

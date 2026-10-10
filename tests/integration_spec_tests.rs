@@ -74,6 +74,7 @@ fn entry_files() -> Vec<String> {
         "48_trapped_type_errors.alya".to_string(),
         "49_float_conversion_tagged.alya".to_string(),
         "50_string_brace_literals.alya".to_string(),
+        "51_value_call_shadow.alya".to_string(),
     ]
 }
 
@@ -197,6 +198,8 @@ fn test_integration_entries_exist() {
     // Helper must exist but must NOT be listed as an entry.
     assert!(dir.join("02_facade_types.alya").exists());
     assert!(!entry_files().contains(&"02_facade_types.alya".to_string()));
+    assert!(dir.join("51_value_call_helper.alya").exists());
+    assert!(!entry_files().contains(&"51_value_call_helper.alya".to_string()));
 }
 
 #[test]
