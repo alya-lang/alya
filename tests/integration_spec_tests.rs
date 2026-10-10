@@ -70,6 +70,7 @@ fn entry_files() -> Vec<String> {
         "44_keys_dep_method.alya".to_string(),
         "45_stdlib_shadow.alya".to_string(),
         "46_float_ge_branch.alya".to_string(),
+        "47_int_conversion_bigint.alya".to_string(),
     ]
 }
 
@@ -830,6 +831,20 @@ fn test_integration_46_float_ge_branch_output() {
     if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("integration 46_float_ge_branch: OK"));
+    }
+}
+
+#[test]
+fn test_integration_47_int_conversion_bigint_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 47_int_conversion_bigint: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("47_int_conversion_bigint.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 47_int_conversion_bigint: OK"));
     }
 }
 

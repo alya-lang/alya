@@ -62,6 +62,7 @@
 # | `44_keys_dep_method.alya` + `44_dep_keys_helper.alya` | `Lib/http` `keys(fields)` vs url dependency's `UrlSearchParams.keys` (alya-lang/alya#145) | bare `keys(...)` on any receiver resolves to the runtime builtin even when the single program-wide same-named struct method sits behind an import alias; `u::` calls and method syntax still bind the method |
 # | `45_stdlib_shadow.alya` + `45_stdlib_shadow_helper.alya` | `Lib/event` `index_of` resolving to `net::index_of` under on-disk stdlib shadow (alya-lang/alya#147) | a stdlib module behaves identically from the embedded copy or an on-disk shadow — unaliased stdlib imports never seed the importer's alias namespace, so bare stdlib calls link from any working directory |
 # | `46_float_ge_branch.alya` | `display` `refresh_at_least` filter (alya-lang/alya#149) | branch-form float `>=` compares ordered values (x64 `jae`/`jb`, never x64 `jl` which `ucomisd` zeroes) in both jump-if-false and `or` jump-if-true arms |
+# | `47_int_conversion_bigint.alya` | `int()` on big/static ints + mixed-map dynamics (alya-lang/alya#152) | statically-known ints bypass `fn_str_to_int` (>= 65536 crashed as string-pointer deref); tag-carrying map reads dispatch on KIND (INT passthrough, FLOAT truncate, STRING parse); opaque fn-boundary dynamics stay heuristic (#55) |
 #
 # ## Known collision (deliberate rename)
 #

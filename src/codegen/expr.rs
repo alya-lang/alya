@@ -1570,17 +1570,83 @@ impl CodeGen {
                 }
 
                 if (name == "int" || name == "to_int" || name == "parse_int") && args.len() == 1 {
-                    self.generate_expression(&args[0]);
+                    // #152: statically-known ints are already ints; routing them
+                    // through fn_str_to_int misclassifies any value >= 65536 as
+                    // a string pointer and crashes on deref.
+                    if is_number_expr(&args[0], &self.ctx.variables)
+                        && !is_float_expr(&args[0], &self.ctx.variables)
+                        && !is_string_expr(&args[0], &self.ctx.variables)
+                    {
+                        self.generate_expression(&args[0]);
+                        return;
+                    }
                     if is_float_expr(&args[0], &self.ctx.variables) {
+                        self.generate_expression(&args[0]);
                         arch::emit_float_to_int(&mut self.output, self.arch);
-                    } else {
+                        return;
+                    }
+                    if is_string_expr(&args[0], &self.ctx.variables) {
+                        self.generate_expression(&args[0]);
                         arch::emit_call_str_to_int(
                             &mut self.output,
                             self.arch,
                             self.ctx.stack_offset,
                             self.os,
                         );
+                        return;
                     }
+                    // Tag-carrying reads (map Index via fn_get, Ternary, Call)
+                    // dispatch on the runtime kind tag instead of the
+                    // pointer-range heuristic: INT passes through, FLOAT
+                    // truncates, STRING parses; UNKNOWN falls back to the
+                    // runtime heuristic.
+                    if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                        && matches!(
+                            &args[0],
+                            Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                        )
+                        && is_tag_carrying_read(&args[0], &self.ctx.variables)
+                    {
+                        self.generate_expression(&args[0]);
+                        let l_int = self.ctx.next_label();
+                        let l_flt = self.ctx.next_label();
+                        let l_end = self.ctx.next_label();
+                        if matches!(self.arch, Architecture::X64) {
+                            self.output
+                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_INT));
+                            self.output.push_str(&format!("    je {}\n", l_int));
+                            self.output
+                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                            self.output.push_str(&format!("    je {}\n", l_flt));
+                        } else {
+                            self.output
+                                .push_str(&format!("    cmp w1, #{}\n", KIND_INT));
+                            self.output.push_str(&format!("    b.eq {}\n", l_int));
+                            self.output
+                                .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                            self.output.push_str(&format!("    b.eq {}\n", l_flt));
+                        }
+                        arch::emit_call_str_to_int(
+                            &mut self.output,
+                            self.arch,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                        arch::emit_jump(&mut self.output, self.arch, &l_end);
+                        self.output.push_str(&format!("{}:\n", l_flt));
+                        arch::emit_float_to_int(&mut self.output, self.arch);
+                        arch::emit_jump(&mut self.output, self.arch, &l_end);
+                        self.output.push_str(&format!("{}:\n", l_int));
+                        self.output.push_str(&format!("{}:\n", l_end));
+                        return;
+                    }
+                    self.generate_expression(&args[0]);
+                    arch::emit_call_str_to_int(
+                        &mut self.output,
+                        self.arch,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
                     return;
                 }
 

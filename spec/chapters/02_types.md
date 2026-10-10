@@ -67,6 +67,7 @@ For low-level systems programming, memory-constrained buffers, and C interop, ex
 ### 1.4 Explicit Conversions
 - Conversions are explicit by convention: `int(expr)`, `float(expr)`, `str(expr)`, `bool(expr)`, or string interpolation `f"count: {25}"`.
 - The `+` operator stringifies its right operand when the left operand is a string (`"count: " + 25` evaluates to `"count: 25"`). Relying on this implicit stringification is discouraged; prefer interpolation (`f"count: {25}"`) or explicit `str(25)` for readability.
+- `int(expr)` dispatch: statically-known integers pass through with no conversion (routing them through the string parser misread any value `>= 65536` as a pointer); tag-carrying reads (map indexing, ternary, calls) dispatch on the runtime kind tag (`INT` passes through, `FLOAT` truncates, `STRING` parses); untagged dynamics keep the pointer-range heuristic. Opaque dynamics that cross an untyped function boundary lose their tags and stay best-effort (see §1.7).
 
 ---
 

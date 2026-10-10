@@ -1,0 +1,32 @@
+# ==============================================================================
+# Alya Integration Fixture 47 (entry): int() conversion on big ints
+# Distilled from: int() crashed (0xC0000005) on plain ints >= 65536 and
+#                 returned garbage (95) for int64-range mixed-map dynamics
+#                 (alya-lang/alya#152).
+# Guards: statically-known ints bypass fn_str_to_int (which mistook any
+#         value >= 65536 for a string pointer); tag-carrying map reads
+#         dispatch on the KIND tag (INT passes through, FLOAT truncates,
+#         STRING parses); unknown dynamics keep the runtime heuristic.
+# NOTE: opaque function-boundary dynamics (untyped params) lose their
+#       tags and stay heuristic (alya-lang/alya#55) — out of scope here.
+# ==============================================================================
+
+function main()
+    assert_eq(int(42), 42, "small int passthrough")
+    assert_eq(int(65535), 65535, "boundary below cutoff")
+    assert_eq(int(65536), 65536, "cutoff no longer crashes")
+    assert_eq(int(100000), 100000, "large static int")
+    assert_eq(int(2147483647), 2147483647, "i32 max")
+    let b = 65536
+    assert_eq(int(b), 65536, "let-bound bigint")
+    let m = { "small": 7, "big": 4636420632005836800, "s": "1234", "f": 95.5 }
+    assert_eq(int(m["small"]), 7, "tagged int read")
+    assert_eq(int(m["big"]), 4636420632005836800, "tagged int64 read")
+    assert_eq(int(m["s"]), 1234, "tagged string parses")
+    assert_eq(int(m["f"]), 95, "tagged float truncates")
+    assert_eq(int("1234"), 1234, "string literal parses")
+    assert_eq(int(3.99), 3, "float literal truncates")
+    say "integration 47_int_conversion_bigint: OK"
+end
+
+main()
