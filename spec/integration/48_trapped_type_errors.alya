@@ -52,7 +52,10 @@ function main()
     end
     assert_eq(msg3, "type mismatch: expected 'string' argument", "int param traps")
     assert_eq(take48("ok"), "ok", "string param works")
-    let n = take48(null)
+    # Null must keep the lenient-null contract, so it travels the
+    # dynamic path here (a null literal into a local string param is
+    # already a static type error).
+    let n = passthru48(null)
     assert n is null, "null keeps the lenient-null contract"
 
     # Positive controls: function values still call through.
