@@ -16,7 +16,7 @@ function main()
     let ml = """
 line {name} here
 """
-    assert contains_str(ml, "line {name} here"), "multiline keeps braces"
+    assert_eq(ml, "line {name} here\n", "multiline keeps braces")
     assert_eq("{{name}}", "{name}", "double braces collapse")
     assert_eq(f"{{name}}", "{name}", "double braces collapse in f-strings")
     say "integration 50_string_brace_literals: OK"

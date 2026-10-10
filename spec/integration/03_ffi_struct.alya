@@ -56,7 +56,7 @@ function SafeBuffer.release(self: SafeBuffer)
 end
 
 function SafeBuffer.describe(self: SafeBuffer) -> string
-    return "buffer bytes={self.desc.byte_length} owned={self.owned}"
+    return f"buffer bytes={self.desc.byte_length} owned={self.owned}"
 end
 
 puts("FFI: integration fixture 03_ffi_struct active")

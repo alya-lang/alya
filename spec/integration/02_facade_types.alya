@@ -72,7 +72,7 @@ end
 
 ## Config summary method (UFCS dispatch across file boundary).
 pub function FacadeConfig.summary(self: FacadeConfig) -> string
-    return "{self.name} (count: {self.count})"
+    return f"{self.name} (count: {self.count})"
 end
 
 ## Config validation method.
