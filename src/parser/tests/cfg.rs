@@ -122,3 +122,127 @@ fn test_cfg_dropped_branch_still_parses() {
     // comes from parsing the disabled branch, not from dropping.
     let _ = parse_code("function ok()\n    return 1\nend\n").unwrap();
 }
+
+// alya-lang/alya#156: `any(...)` disjunction over conditions.
+const ANY_FNS: &str =
+    "@cfg(any(feature = \"a\", feature = \"b\"))\nfunction f()\n    return 1\nend\n";
+
+#[test]
+fn test_cfg_any_keeps_when_one_branch_holds() {
+    assert_eq!(
+        parse_with_cfg(ANY_FNS, ctx_for(&["b"]))
+            .unwrap()
+            .statements
+            .len(),
+        1
+    );
+    assert_eq!(
+        parse_with_cfg(ANY_FNS, ctx_for(&["a", "b"]))
+            .unwrap()
+            .statements
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn test_cfg_any_drops_when_no_branch_holds() {
+    assert_eq!(
+        parse_with_cfg(ANY_FNS, ctx_for(&[]))
+            .unwrap()
+            .statements
+            .len(),
+        0
+    );
+    // Unknown feature names are false inside branches too.
+    assert_eq!(
+        parse_with_cfg(ANY_FNS, ctx_for(&["other"]))
+            .unwrap()
+            .statements
+            .len(),
+        0
+    );
+}
+
+#[test]
+fn test_cfg_any_single_branch_and_mixed_kinds() {
+    let code = "@cfg(any(os = \"linux\"))\nfunction f()\n    return 1\nend\n";
+    assert_eq!(
+        parse_with_cfg(code, ctx_for(&[])).unwrap().statements.len(),
+        1
+    );
+    let code = "@cfg(any(debug = false, feature = \"a\"))\nfunction f()\n    return 1\nend\n";
+    assert_eq!(
+        parse_with_cfg(code, ctx_for(&["a"]))
+            .unwrap()
+            .statements
+            .len(),
+        1
+    );
+    assert_eq!(
+        parse_with_cfg(code, ctx_for(&[])).unwrap().statements.len(),
+        0
+    );
+}
+
+#[test]
+fn test_cfg_any_nesting_and_negation() {
+    // Nested `any(...)` composes; commas inside nesting never split.
+    let code = "@cfg(any(feature = \"x\", any(feature = \"a\", feature = \"b\")))\nfunction f()\n    return 1\nend\n";
+    assert_eq!(
+        parse_with_cfg(code, ctx_for(&["b"]))
+            .unwrap()
+            .statements
+            .len(),
+        1
+    );
+    assert_eq!(
+        parse_with_cfg(code, ctx_for(&[])).unwrap().statements.len(),
+        0
+    );
+    // `not(any(...))` gates "none of these features".
+    let code =
+        "@cfg(not(any(feature = \"a\", feature = \"b\")))\nfunction f()\n    return 1\nend\n";
+    assert_eq!(
+        parse_with_cfg(code, ctx_for(&[])).unwrap().statements.len(),
+        1
+    );
+    assert_eq!(
+        parse_with_cfg(code, ctx_for(&["a"]))
+            .unwrap()
+            .statements
+            .len(),
+        0
+    );
+    // De Morgan fallback: `any(not(a), not(b))` keeps unless both on.
+    let code =
+        "@cfg(any(not(feature = \"a\"), not(feature = \"b\")))\nfunction f()\n    return 1\nend\n";
+    assert_eq!(
+        parse_with_cfg(code, ctx_for(&["a"]))
+            .unwrap()
+            .statements
+            .len(),
+        1
+    );
+    assert_eq!(
+        parse_with_cfg(code, ctx_for(&["a", "b"]))
+            .unwrap()
+            .statements
+            .len(),
+        0
+    );
+}
+
+#[test]
+fn test_cfg_any_empty_is_false_and_bad_key_errors() {
+    // Empty disjunction holds nothing.
+    let code = "@cfg(any())\nfunction f()\n    return 1\nend\n";
+    assert_eq!(
+        parse_with_cfg(code, ctx_for(&[])).unwrap().statements.len(),
+        0
+    );
+    // Unknown keys stay hard errors inside branches.
+    let code = "@cfg(any(feature = \"a\", osss = \"linux\"))\nfunction f()\n    return 1\nend\n";
+    let err = parse_with_cfg(code, ctx_for(&[])).unwrap_err();
+    assert!(err.contains("Unknown @cfg key 'osss'"), "got: {}", err);
+}

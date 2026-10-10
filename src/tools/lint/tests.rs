@@ -883,6 +883,26 @@ fn test_lint_cfg_unknown_feature() {
     assert!(cfg_diags.iter().any(|d| d.message.contains("'simdd'")));
     assert!(cfg_diags.iter().any(|d| d.message.contains("'nope'")));
 
+    // alya-lang/alya#156: names nested inside `any(...)` (and `not(any(...))`)
+    // are linted exactly like top-level ones — the rule scans the whole
+    // `@cfg(...)` region depth-independently.
+    let file2 = tmp.join("src").join("other.alya");
+    let source2 = "@cfg(any(feature = \"simd\", feature = \"smd\"))\nfunction f()\n    return 1\nend\n@cfg(not(any(feature = \"simd\", feature = \"smd2\")))\nfunction g()\n    return 2\nend\n";
+    std::fs::write(&file2, source2).unwrap();
+    let diags2 = lint_source(source2, &file2).unwrap();
+    let cfg2: Vec<_> = diags2
+        .iter()
+        .filter(|d| d.rule == "cfg-unknown-feature")
+        .collect();
+    assert_eq!(
+        cfg2.len(),
+        2,
+        "nested typos flagged: {:?}",
+        cfg2.iter().map(|d| &d.message).collect::<Vec<_>>()
+    );
+    assert!(cfg2.iter().any(|d| d.message.contains("'smd'")));
+    assert!(cfg2.iter().any(|d| d.message.contains("'smd2'")));
+
     // Outside packages (no manifest) the rule stays silent.
     let lone = std::env::temp_dir().join(format!("alya_lint_cfglone_{}.alya", std::process::id()));
     let lone_src = "@cfg(feature = \"anything\")\nfunction f()\n    return 1\nend\n";

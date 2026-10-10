@@ -96,7 +96,7 @@ impl CfgContext {
         }
     }
 
-    /// Evaluates one `@cfg(...)` condition (`not(...)`, or
+    /// Evaluates one `@cfg(...)` condition (`not(...)`, `any(...)`, or
     /// `os|arch|debug|feature = value`). A failing branch is still parsed
     /// (syntax errors surface) but dropped from the AST. Unknown keys are
     /// hard errors; unknown feature names are false (typos are caught by
@@ -119,6 +119,56 @@ impl CfgContext {
         {
             let inner = &tokens[2..tokens.len().saturating_sub(1)];
             return self.evaluate(inner).map(|v| !v);
+        }
+        // `any(c1, c2, ...)` disjunction (alya-lang/alya#156): true when
+        // at least one top-level comma-separated branch holds. Branches
+        // evaluate recursively, so `not(...)` and nested `any(...)`
+        // compose; `any()` is false. Short-circuits on the first true
+        // branch, mirroring the selfhost `cfg_eval` twin.
+        let first_is_any = matches!(
+            tokens.first().map(|t| &t.token_type),
+            Some(TokenType::Identifier(id)) if id == "any"
+        );
+        if first_is_any
+            && tokens.len() >= 3
+            && matches!(tokens[1].token_type, TokenType::LeftParen)
+            && matches!(
+                tokens.last().map(|t| &t.token_type),
+                Some(TokenType::RightParen)
+            )
+        {
+            let inner = &tokens[2..tokens.len() - 1];
+            let mut depth = 0usize;
+            let mut start = 0usize;
+            let mut i = 0usize;
+            while i <= inner.len() {
+                let is_split = if i == inner.len() {
+                    true
+                } else {
+                    match &inner[i].token_type {
+                        TokenType::LeftParen => {
+                            depth += 1;
+                            false
+                        }
+                        TokenType::RightParen => {
+                            depth = depth.saturating_sub(1);
+                            false
+                        }
+                        TokenType::Comma if depth == 0 => true,
+                        _ => false,
+                    }
+                };
+                if is_split {
+                    // Stray commas (empty branches) are ignored: only
+                    // real conditions vote.
+                    if start < i && self.evaluate(&inner[start..i])? {
+                        return Ok(true);
+                    }
+                    start = i + 1;
+                }
+                i += 1;
+            }
+            return Ok(false);
         }
 
         let mut key = String::new();

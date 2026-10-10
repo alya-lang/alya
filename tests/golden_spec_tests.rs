@@ -226,6 +226,26 @@ fn test_golden_spec_attributes_features() {
             "debug branch missing:\n{}",
             output
         );
+        assert!(
+            output.contains("Any tauto: any-tautology"),
+            "any tautology missing:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Any os: any-os"),
+            "any os missing:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Any drop: any-dropped-ok"),
+            "any drop missing:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Any feat: any-feat-kept"),
+            "any feat kept missing:\n{}",
+            output
+        );
     }
     // Without features the fallbacks run instead.
     if let Some((code, output)) = run_alya_code_full(&source) {
@@ -237,6 +257,26 @@ fn test_golden_spec_attributes_features() {
         assert!(
             output.contains("spec-proof-fallback"),
             "fallback branch missing:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Any tauto: any-tautology"),
+            "any tautology missing:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Any os: any-os"),
+            "any os missing:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Any drop: any-dropped-ok"),
+            "any drop missing:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Any feat: any-feat-fallback"),
+            "any feat fallback missing:\n{}",
             output
         );
     }

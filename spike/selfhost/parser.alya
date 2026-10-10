@@ -6081,6 +6081,63 @@ function Parser.cfg_eval(self, ptoks: array, plines: array) -> CfgRes
             return CfgRes { ok: 1, keep: 1, line: 0 }
         end
     end
+    # `any(c1, c2, ...)` disjunction (alya-lang/alya#156): true when at
+    # least one top-level comma-separated branch holds. Branches
+    # recurse, so `not(...)` and nested `any(...)` compose; stray
+    # commas are ignored and `any()` is false. Short-circuits on the
+    # first true branch, mirroring the reference evaluator exactly
+    # (including which branch errors surface).
+    if first.kind == "ident" and first.norm == "any"
+        if n >= 3 and self.cfg_tok_kind(ptoks, plines, 1) == "delim:("
+            let lastp = bar_split(ptoks[n - 1])
+            if lastp[0] == "delim" and lastp[1] == ")"
+                let depth = 0
+                let start = 2
+                let i = 2
+                let keep_any = 0
+                while i <= n - 1 and keep_any == false
+                    let is_split = 0
+                    if i == n - 1
+                        is_split = 1
+                    else
+                        let sk = bar_split(ptoks[i])
+                        if sk[0] == "delim" and sk[1] == "("
+                            depth += 1
+                        elif sk[0] == "delim" and sk[1] == ")"
+                            depth -= 1
+                        elif sk[0] == "delim" and sk[1] == "," and depth == 0
+                            is_split = 1
+                        end
+                    end
+                    if is_split == true
+                        if i > start
+                            let sub = []
+                            let sublines = []
+                            let k = start
+                            while k < i
+                                sub.push(ptoks[k])
+                                sublines.push(plines[k])
+                                k += 1
+                            end
+                            let r = self.cfg_eval(sub, sublines)
+                            if r.ok == false
+                                return r
+                            end
+                            if r.keep == true
+                                keep_any = 1
+                            end
+                        end
+                        start = i + 1
+                    end
+                    i += 1
+                end
+                if keep_any == true
+                    return CfgRes { ok: 1, keep: 1, line: 0 }
+                end
+                return CfgRes { ok: 1, keep: 0, line: 0 }
+            end
+        end
+    end
     let key = ""
     let val = ""
     let inval = 0

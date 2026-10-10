@@ -39,6 +39,7 @@ Supported configurations include:
 - `debug = true` | `false` (the active `[profile.*]` debug flag; `true` outside packages)
 - `feature = "<name>"` (a member of the package's *unified* feature set — see Chapter 24 §1.7; unknown names are false)
 - `not(<condition>)` negation; stack multiple `@cfg` lines for conjunction.
+- `any(<condition>, ...)` disjunction (at least one top-level comma-separated branch holds): branches are full conditions (`feature`/`os`/`arch`/`debug`, `not(...)`, nested `any(...)`), so `not(any(...))` gates "none of these" and `any(not(a), not(b))` is the combined-fallback shape. `any()` is false; stray commas are ignored. Branch errors (unknown keys) surface left-to-right with short-circuit on the first true branch. `all(...)` is deliberately absent: stacked lines already express conjunction.
 - A failing branch is still parsed (syntax errors surface) but dropped before name resolution: references to dropped symbols fail as undefined, exactly like missing declarations. A bare `@cfg` (no parens) keeps the item.
 - Unknown keys (anything but `os`, `arch`, `debug`, `feature`) are compile-time errors. Unknown *feature names* are false at compile time (multi-manifest graphs never break on foreign names); `alya lint` flags names absent from the package `[features]` table.
 - Multi-manifest rule: each package's sources evaluate under that package's *unified* feature set (Chapter 24 §1.7): its own defaults (unless every incoming edge sets `default-features = false`, or the entry `--no-default-features` applies), plus CLI `--features` (entry package only), plus every `dep/feat` request from any active parent. A consumer enables dependency features only through `dep/feat` (or the edge `features` list); unrelated parent features never leak across the edge.
@@ -75,6 +76,12 @@ Attribute     ::= "@" Ident ( "(" AttributeArgs? ")" )?
 AttributeArgs ::= AttributeArg ( "," AttributeArg )*
 AttributeArg  ::= Ident ( "=" ( StringLit | BoolLit | Ident ) )?
                 | StringLit
+
+# `@cfg` conditions (Chapter 18 §1.3): the paren tokens of `@cfg(...)`
+# evaluate as one CfgCondition, not as AttributeArgs.
+CfgCondition  ::= CfgPredicate | "not" "(" CfgCondition ")"
+                | "any" "(" CfgCondition ( "," CfgCondition )* ")"
+CfgPredicate  ::= ( "os" | "arch" | "debug" | "feature" ) "=" ( StringLit | BoolLit )
 
 AnnotatedDecl ::= ( Attribute )* ( FunctionDecl | StructDef | ConstDecl )
 
