@@ -640,12 +640,15 @@ function Parser.try_parse_hole(self, htext: string) -> HoleRes
     return HoleRes { ok: 0, s: "" }
 end
 
-# scan_parts over the VALUE bytes.
-function Parser.scan_parts(self, val: string) -> ScanRes
+# scan_parts over the VALUE bytes. interp=0 mirrors the reference
+# lexer (#155): holes stay literal (with depth tracking so a hole
+# closing brace is never half of a `}}` escape), `{{`/`}}` collapse.
+function Parser.scan_parts(self, val: string, do_interp: int) -> ScanRes
     let parts = []
     let lit = ""
     let interp = 0
     let esc = 0
+    let ldep = 0
     let bs = str.bytes_from_string(val)
     let n = len(bs)
     let i = 0
@@ -656,6 +659,10 @@ function Parser.scan_parts(self, val: string) -> ScanRes
                 i += 2
                 lit = lit + "{"
                 esc = 1
+            elif do_interp == false
+                lit = lit + "{"
+                ldep += 1
+                i += 1
             else
                 let depth = 1
                 let instr = 0
@@ -707,7 +714,7 @@ function Parser.scan_parts(self, val: string) -> ScanRes
                     i = j + 1
                 elif found == true
                     lit = lit + "{"
-                    let sub = self.scan_parts(hole)
+                    let sub = self.scan_parts(hole, do_interp)
                     if lit != ""
                         parts.push("(str " + qs(lit) + ")")
                         lit = ""
@@ -732,9 +739,15 @@ function Parser.scan_parts(self, val: string) -> ScanRes
                 end
             end
         elif b == 125 and i + 1 < n and bs[i + 1] == 125
-            i += 2
-            lit = lit + "}"
-            esc = 1
+            if do_interp == false and ldep > 0
+                lit = lit + "}"
+                ldep -= 1
+                i += 1
+            else
+                i += 2
+                lit = lit + "}"
+                esc = 1
+            end
         else
             lit = lit + chr(b)
             i += 1
@@ -765,10 +778,6 @@ function Parser.parse_string_value(self, norm: string, interp: int) -> string
         end
     end
     let val = json_decode(norm[0..cut])
-    # Only f-strings interpolate (#155 mirror): other kinds stay literal.
-    if interp == false
-        return "(str " + qs(val) + ")"
-    end
     let has_open = 0
     let has_close = 0
     let bs = str.bytes_from_string(val)
@@ -785,7 +794,7 @@ function Parser.parse_string_value(self, norm: string, interp: int) -> string
     if has_open == false or has_close == false
         return "(str " + qs(val) + ")"
     end
-    let r = self.scan_parts(val)
+    let r = self.scan_parts(val, interp)
     if r.interp == false and r.esc == false
         return "(str " + qs(val) + ")"
     end
