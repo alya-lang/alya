@@ -1299,11 +1299,12 @@ fn test_codegen_int_builtin_static_bigint_passthrough() {
     let mut parser = Parser::new(tokens);
     let ast = parser.parse().unwrap();
 
-    // No conversion call on either arch: the literal is already an int.
+    // No conversion *call* on either arch: the literal is already an int.
+    // (The runtime prelude always emits the fn_str_to_int definition.)
     let asm_x64 = generate(&ast, Architecture::X64, OperatingSystem::Linux);
-    assert!(!asm_x64.contains("fn_str_to_int"));
+    assert!(!asm_x64.contains("call fn_str_to_int"));
     let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
-    assert!(!asm_arm64.contains("fn_str_to_int"));
+    assert!(!asm_arm64.contains("bl fn_str_to_int"));
 }
 
 #[test]
