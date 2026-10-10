@@ -907,6 +907,39 @@ fn test_arm64_extern_float_split_sequences() {
 }
 
 #[test]
+fn test_arm64_windows_extern_mirrors_to_fp() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // alya-lang/alya#160: Windows ARM64 follows the Win64 mirror
+    // convention (single x sequence homed into d0-d3), not the
+    // AAPCS64 split — a pure split prints 0.000000 on win-arm64.
+    let code = "extern \"C\"\n    function sprintf(buf: ptr, fmt: str, val: f64) -> i32\nend\nfunction main()\n    let buf = alloc(32)\n    sprintf(buf, \"%f\", 19.99)\nend\n";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm = generate(&ast, Architecture::ARM64, OperatingSystem::Windows);
+    let call_pos = asm.find("bl sprintf").expect("missing sprintf call");
+    let region = &asm[..call_pos];
+    // Isolate the call sequence (after the final arg push): float
+    // literal materialization above also uses fmov, so the negative
+    // assert must not scan the whole region.
+    let seq_start = region
+        .rfind("str x0, [sp, #-16]!")
+        .expect("missing final push");
+    let seq = &region[seq_start..];
+    assert!(seq.contains("ldr x2, [sp], #16"), "loads first:\n{}", seq);
+    assert!(
+        seq.contains("fmov d0, x0") && seq.contains("fmov d2, x2"),
+        "mirror lands before the call:\n{}",
+        seq
+    );
+    assert!(!seq.contains("x9"), "no AAPCS64 split placement:\n{}", seq);
+}
+
+#[test]
 fn test_x64_macos_internal_symbols_no_darwin_prefix() {
     use crate::lexer::Lexer;
     use crate::parser::Parser;

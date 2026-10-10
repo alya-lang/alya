@@ -186,6 +186,48 @@ pub fn emit_c_function_call(
     } else {
         name.to_string()
     };
+    if matches!(os, OperatingSystem::Windows) {
+        // Windows ARM64 follows the Win64 mirror convention (one x
+        // sequence homed into d0-d3), not the AAPCS64 split: load the
+        // x sequence, mirror the first four args into the FP file,
+        // THEN call, so fixed and variadic doubles alike arrive
+        // (alya-lang/alya#160: a pure split prints 0.000000; moves
+        // after the call are useless).
+        if args_count <= 8 {
+            for i in (0..args_count).rev() {
+                out.push_str(&format!("    ldr x{}, [sp], #16\n", i));
+            }
+        } else {
+            let extra_args = args_count - 8;
+            let needed = extra_args as i32 * 8;
+            let total_alloc = if needed % 16 == 0 { needed } else { needed + 8 };
+            for i in 0..8 {
+                let offset = (args_count - 1 - i) * 16;
+                out.push_str(&format!("    ldr x{}, [sp, #{}]\n", i, offset));
+            }
+            out.push_str(&format!("    sub sp, sp, #{}\n", total_alloc));
+            for k in 8..args_count {
+                let src_off = total_alloc + ((args_count - 1 - k) * 16) as i32;
+                let dst_off = ((k - 8) * 8) as i32;
+                out.push_str(&format!("    ldr x9, [sp, #{}]\n", src_off));
+                out.push_str(&format!("    str x9, [sp, #{}]\n", dst_off));
+            }
+            let call_insn = if target.starts_with('x') { "blr" } else { "bl" };
+            for i in 0..4 {
+                out.push_str(&format!("    fmov d{}, x{}\n", i, i));
+            }
+            out.push_str(&format!("    {} {}\n", call_insn, target));
+            let total_restore = total_alloc + args_count as i32 * 16;
+            out.push_str(&format!("    add sp, sp, #{}\n", total_restore));
+            return;
+        }
+        for i in 0..args_count.min(4) {
+            out.push_str(&format!("    fmov d{}, x{}\n", i, i));
+        }
+        let call_insn = if target.starts_with('x') { "blr" } else { "bl" };
+        out.push_str(&format!("    {} {}\n", call_insn, target));
+        return;
+    }
     // AAPCS64 (alya-lang/alya#160): ints ride x0-x7, floats d0-d7 in
     // SEPARATE sequences; each sequence's overflow spills to 8-byte
     // stack slots. The shared internal lowering packs one x-sequence

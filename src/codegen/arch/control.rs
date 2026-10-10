@@ -370,8 +370,8 @@ pub fn emit_function_call(
 
 /// Extern C call. `float_args[i]` classifies actual arg `i`: SysV and
 /// AAPCS64 pass ints and floats in separate register sequences, so the
-/// lowering needs per-arg kinds (alya-lang/alya#160). Win64 mirrors one
-/// sequence into both and ignores the mask.
+/// lowering needs per-arg kinds (alya-lang/alya#160). Windows (x64 and
+/// ARM64) mirrors one sequence into both files and ignores the mask.
 #[allow(clippy::too_many_arguments)]
 pub fn emit_c_function_call(
     out: &mut String,
