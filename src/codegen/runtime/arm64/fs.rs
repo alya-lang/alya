@@ -267,11 +267,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    stp x21, x22, [sp, #32]\n");
     out.push_str("    stp x23, x24, [sp, #48]\n");
     out.push_str("    mov x19, x0\n"); // path
-    out.push_str("    cbz x19, .L_arm64_rbytes_close_empty\n");
+    out.push_str("    cbz x19, .L_arm64_rbytes_empty\n");
     out.push_str("    mov x0, x19\n");
     emit_adrp_add(out, "x1", "alya_str_mode_rb", os);
     out.push_str(&format!("    bl {}fopen\n", p));
-    out.push_str("    cbz x0, .L_arm64_rbytes_close_empty\n");
+    out.push_str("    cbz x0, .L_arm64_rbytes_empty\n");
     out.push_str("    mov x19, x0\n"); // fp
     out.push_str("    mov x0, x19\n");
     out.push_str("    mov x1, #0\n");
@@ -321,6 +321,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_arm64_rbytes_free_empty:\n");
     out.push_str("    mov x0, x21\n");
     out.push_str(&format!("    bl {}free\n", p));
+    out.push_str(".L_arm64_rbytes_empty:\n");
+    out.push_str("    mov x19, #0\n"); // never opened: skip fclose below
     out.push_str(".L_arm64_rbytes_close_empty:\n");
     // fp is open here exactly when x19 != 0 (closed paths zero it).
     out.push_str("    cbz x19, .L_arm64_rbytes_mkempty\n");
