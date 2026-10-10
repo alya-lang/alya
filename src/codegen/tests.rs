@@ -1304,7 +1304,15 @@ fn test_codegen_int_builtin_static_bigint_passthrough() {
     let asm_x64 = generate(&ast, Architecture::X64, OperatingSystem::Linux);
     assert!(!asm_x64.contains("call fn_str_to_int"));
     let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
-    assert!(!asm_arm64.contains("bl fn_str_to_int"));
+    assert!(
+        !asm_arm64.contains("bl fn_str_to_int"),
+        "unexpected str_to_int call, context:\n{}",
+        asm_arm64
+            .lines()
+            .filter(|l| l.contains("str_to_int"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
 }
 
 #[test]
