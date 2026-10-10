@@ -701,6 +701,21 @@ pub fn collect_known_float_vars_with_index(
                         }
                     }
                 }
+                // alya-lang/alya#160: float-typed extern params convert
+                // on read exactly like user-function params, so the
+                // extern call-site arg loop emits the implicit
+                // int->float conversion and the SysV/AAPCS64 lowering
+                // below receives double bits.
+                for (idx, p) in f.params.iter().enumerate() {
+                    if let Some(pt) = &p.param_type {
+                        if pt == "float" || pt == "f64" || pt == "f32" {
+                            known_floats.insert(format!("fn_param_flt:{}:{}", f.name, idx));
+                            if bare != f.name && may_record_bare!(known_floats, &f.name, bare) {
+                                known_floats.insert(format!("fn_param_flt:{}:{}", bare, idx));
+                            }
+                        }
+                    }
+                }
             }
         } else if let Stmt::Function {
             name,

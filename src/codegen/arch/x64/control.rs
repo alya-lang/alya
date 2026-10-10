@@ -240,6 +240,7 @@ pub fn emit_function_call(
 pub fn emit_c_function_call(
     out: &mut String,
     name: &str,
+    float_args: &[bool],
     args_count: usize,
     stack_offset: i32,
     os: OperatingSystem,
@@ -249,7 +250,92 @@ pub fn emit_c_function_call(
     } else {
         name.to_string()
     };
-    emit_call_target(out, &target, args_count, stack_offset, os);
+    if matches!(os, OperatingSystem::Windows) {
+        // Win64 passes one sequence (rcx,rdx,r8,r9) mirrored into
+        // xmm0-3: the shared internal lowering is already correct.
+        emit_call_target(out, &target, args_count, stack_offset, os);
+    } else {
+        emit_c_call_sysv(out, &target, float_args, args_count, stack_offset);
+    }
+}
+
+/// Extern C call lowering for System V AMD64 (Linux/macOS x64,
+/// alya-lang/alya#160). Unlike the internal custom ABI (one GP
+/// sequence mirrored into xmm), SysV counts INTEGER args
+/// (rdi,rsi,rdx,rcx,r8,r9) and SSE args (xmm0-xmm7) in SEPARATE
+/// sequences and spills each sequence's overflow to the stack.
+/// AL carries the number of XMM regs used: variadic callees read it,
+/// fixed callees ignore it, so it is always emitted.
+fn emit_c_call_sysv(
+    out: &mut String,
+    target: &str,
+    float_args: &[bool],
+    args_count: usize,
+    stack_offset: i32,
+) {
+    const GP: [&str; 6] = ["%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"];
+    const FP: [&str; 8] = [
+        "%xmm0", "%xmm1", "%xmm2", "%xmm3", "%xmm4", "%xmm5", "%xmm6", "%xmm7",
+    ];
+    #[derive(Clone, Copy)]
+    enum Route {
+        Gp(usize),
+        Fp(usize),
+        Stack(usize),
+    }
+    let mut routes = Vec::with_capacity(args_count);
+    let mut gp = 0usize;
+    let mut fp = 0usize;
+    let mut spilled = 0usize;
+    for i in 0..args_count {
+        let is_float = float_args.get(i).copied().unwrap_or(false);
+        if is_float {
+            if fp < FP.len() {
+                routes.push(Route::Fp(fp));
+                fp += 1;
+            } else {
+                routes.push(Route::Stack(spilled));
+                spilled += 1;
+            }
+        } else if gp < GP.len() {
+            routes.push(Route::Gp(gp));
+            gp += 1;
+        } else {
+            routes.push(Route::Stack(spilled));
+            spilled += 1;
+        }
+    }
+    // Frame holds the spilled stack args; padded so rsp%16==0 at the
+    // call (prologue pushed rbp, so rsp%16==0 iff the effective depth
+    // is 0 mod 16 — the N args are already on the stack at emission,
+    // but stack_offset only counts the pre-arg depth).
+    let stack_bytes = spilled as i32 * 8;
+    let eff_mod = (stack_offset + args_count as i32 * 8) % 16;
+    let need = (16 - eff_mod) % 16;
+    let frame = stack_bytes + (need - stack_bytes % 16 + 16) % 16;
+    if frame > 0 {
+        out.push_str(&format!("    sub ${}, %rsp\n", frame));
+    }
+    // Args sit 8 bytes apart above the frame, arg0 deepest: pop in
+    // reverse straight into each arg's home (no overlap: homes live
+    // inside the frame, sources above it).
+    for i in (0..args_count).rev() {
+        out.push_str(&format!(
+            "    mov {}(%rsp), %rax\n",
+            frame + ((args_count - 1 - i) * 8) as i32
+        ));
+        match routes[i] {
+            Route::Gp(g) => out.push_str(&format!("    mov %rax, {}\n", GP[g])),
+            Route::Fp(f) => out.push_str(&format!("    movq %rax, {}\n", FP[f])),
+            Route::Stack(s) => out.push_str(&format!("    mov %rax, {}(%rsp)\n", s as i32 * 8)),
+        }
+    }
+    out.push_str(&format!("    mov ${}, %eax\n", fp));
+    out.push_str(&format!("    call {}\n", target));
+    out.push_str(&format!(
+        "    add ${}, %rsp\n",
+        frame + args_count as i32 * 8
+    ));
 }
 
 pub fn emit_indirect_function_call(

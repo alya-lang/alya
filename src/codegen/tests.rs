@@ -788,6 +788,125 @@ fn test_arm64_linux_variadic_mixed_float_int_registers() {
 }
 
 #[test]
+fn test_x64_sysv_extern_float_split_sequences() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // alya-lang/alya#160: SysV counts GP (rdi..r9) and SSE (xmm0-7)
+    // args in SEPARATE sequences. (ptr, str, f64) must land in
+    // rdi, rsi, xmm0 — never rdi, rsi, rdx+xmm2 — and AL must carry
+    // the XMM count for variadic callees.
+    let code = "extern \"C\"\n    function sprintf(buf: ptr, fmt: str, val: f64) -> i32\nend\nfunction main()\n    let buf = alloc(32)\n    sprintf(buf, \"%f\", 19.99)\nend\n";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    let call_pos = asm.find("call sprintf").expect("missing sprintf call");
+    let region = &asm[..call_pos];
+    let seq = &region[region.rfind("sub $").unwrap_or(0)..];
+    assert!(
+        seq.contains("movq %rax, %xmm0"),
+        "double must ride xmm0:\n{}",
+        seq
+    );
+    assert!(
+        !seq.contains("movq %rdx, %xmm2"),
+        "no GP-mirrored xmm placement:\n{}",
+        seq
+    );
+    assert!(
+        seq.contains("mov $1, %eax"),
+        "AL must report one XMM reg:\n{}",
+        seq
+    );
+}
+
+#[test]
+fn test_x64_sysv_extern_register_spill_to_stack() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // alya-lang/alya#160: the 7th+ GP arg spills to 8-byte stack
+    // slots while earlier args keep their registers.
+    let code = "extern \"C\"\n    function take8(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int) -> i32\nend\nfunction main()\n    take8(1, 2, 3, 4, 5, 6, 7, 8)\nend\n";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    let call_pos = asm.find("call take8").expect("missing take8 call");
+    let region = &asm[..call_pos];
+    let seq = &region[region.rfind("sub $").unwrap_or(0)..];
+    assert!(seq.contains("mov %rax, %rdi"), "first arg in rdi:\n{}", seq);
+    assert!(seq.contains("mov %rax, %r9"), "sixth arg in r9:\n{}", seq);
+    assert!(
+        seq.contains("mov %rax, 0(%rsp)") && seq.contains("mov %rax, 8(%rsp)"),
+        "overflow args in stack slots:\n{}",
+        seq
+    );
+    assert!(
+        seq.contains("mov $0, %eax"),
+        "AL is zero with no XMM regs:\n{}",
+        seq
+    );
+}
+
+#[test]
+fn test_x64_windows_extern_keeps_mirror_call() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // alya-lang/alya#160: Win64 passes one sequence mirrored into
+    // both register files — the legacy lowering stays, with no AL.
+    let code = "extern \"C\"\n    function sprintf(buf: ptr, fmt: str, val: f64) -> i32\nend\nfunction main()\n    let buf = alloc(32)\n    sprintf(buf, \"%f\", 19.99)\nend\n";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm = generate(&ast, Architecture::X64, OperatingSystem::Windows);
+    let call_pos = asm.find("call sprintf").expect("missing sprintf call");
+    let region = &asm[..call_pos];
+    assert!(
+        region.contains("movq %rdx, %xmm1"),
+        "Win64 mirrors GP regs into xmm:\n{}",
+        region
+    );
+    assert!(!region.contains("%eax"), "Win64 sets no AL:\n{}", region);
+}
+
+#[test]
+fn test_arm64_extern_float_split_sequences() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // alya-lang/alya#160: AAPCS64 rides ints in x0-x7 and floats in
+    // d0-d7. (ptr, str, f64) must land in x0, x1, d0.
+    let code = "extern \"C\"\n    function sprintf(buf: ptr, fmt: str, val: f64) -> i32\nend\nfunction main()\n    let buf = alloc(32)\n    sprintf(buf, \"%f\", 19.99)\nend\n";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
+    let call_pos = asm.find("bl sprintf").expect("missing sprintf call");
+    let region = &asm[..call_pos];
+    assert!(
+        asm.contains("fmov d0, x9"),
+        "double must ride d0:\n{}",
+        region
+    );
+    assert!(
+        region.contains("mov x0, x9") && region.contains("mov x1, x9"),
+        "ints must ride x0/x1:\n{}",
+        region
+    );
+}
+
+#[test]
 fn test_x64_macos_internal_symbols_no_darwin_prefix() {
     use crate::lexer::Lexer;
     use crate::parser::Parser;

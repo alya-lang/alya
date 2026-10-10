@@ -2841,10 +2841,36 @@ impl CodeGen {
                 } else if is_extern {
                     let extern_name = call_name.rsplit("::").next().unwrap_or(call_name);
                     let extern_name = extern_name.rsplit("__").next().unwrap_or(extern_name);
+                    // alya-lang/alya#160: SysV/AAPCS64 pass ints and
+                    // floats in separate register sequences, so the
+                    // lowering needs per-arg kinds. Declared extern
+                    // param types win (callee-authoritative); extra
+                    // variadic args and unknown signatures fall back
+                    // to the float-detect heuristic.
+                    let extern_info = self
+                        .ctx
+                        .extern_functions
+                        .get(call_name)
+                        .or_else(|| self.ctx.extern_functions.get(extern_name));
+                    let float_args: Vec<bool> = actual_args
+                        .iter()
+                        .enumerate()
+                        .map(|(i, arg)| {
+                            if let Some(pt) = extern_info
+                                .and_then(|info| info.params.get(i))
+                                .and_then(|p| p.as_ref())
+                            {
+                                pt == "float" || pt == "f64" || pt == "f32"
+                            } else {
+                                is_float_expr(arg, &self.ctx.variables)
+                            }
+                        })
+                        .collect();
                     arch::emit_c_function_call(
                         &mut self.output,
                         self.arch,
                         extern_name,
+                        &float_args,
                         actual_args.len(),
                         initial_stack_offset,
                         self.os,

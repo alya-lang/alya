@@ -174,13 +174,77 @@ pub fn emit_guarded_indirect_function_call(
     emit_call_target(out, "x16", args_count);
 }
 
-pub fn emit_c_function_call(out: &mut String, name: &str, args_count: usize, os: OperatingSystem) {
+pub fn emit_c_function_call(
+    out: &mut String,
+    name: &str,
+    float_args: &[bool],
+    args_count: usize,
+    os: OperatingSystem,
+) {
     let target = if matches!(os, OperatingSystem::MacOS) {
         format!("_{}", name)
     } else {
         name.to_string()
     };
-    emit_call_target(out, &target, args_count);
+    // AAPCS64 (alya-lang/alya#160): ints ride x0-x7, floats d0-d7 in
+    // SEPARATE sequences; each sequence's overflow spills to 8-byte
+    // stack slots. The shared internal lowering packs one x-sequence
+    // and can never satisfy a double-typed callee parameter.
+    #[derive(Clone, Copy)]
+    enum Route {
+        X(usize),
+        D(usize),
+        Stack(usize),
+    }
+    let mut routes = Vec::with_capacity(args_count);
+    let mut x = 0usize;
+    let mut d = 0usize;
+    let mut spilled = 0usize;
+    for i in 0..args_count {
+        let is_float = float_args.get(i).copied().unwrap_or(false);
+        if is_float {
+            if d < 8 {
+                routes.push(Route::D(d));
+                d += 1;
+            } else {
+                routes.push(Route::Stack(spilled));
+                spilled += 1;
+            }
+        } else if x < 8 {
+            routes.push(Route::X(x));
+            x += 1;
+        } else {
+            routes.push(Route::Stack(spilled));
+            spilled += 1;
+        }
+    }
+    // Frame holds spilled slots; sp stays 16-byte aligned throughout
+    // (every Alya stack op preserves it, so pad the frame to 16).
+    let stack_bytes = spilled as i32 * 8;
+    let frame = stack_bytes + (16 - stack_bytes % 16) % 16;
+    if frame > 0 {
+        out.push_str(&format!("    sub sp, sp, #{}\n", frame));
+    }
+    // Value-stack slots are 16 bytes apart, arg0 deepest: route in
+    // reverse straight into each arg's precomputed home (no overlap:
+    // homes live inside the frame, sources above it).
+    for i in (0..args_count).rev() {
+        out.push_str(&format!(
+            "    ldr x9, [sp, #{}]\n",
+            frame + ((args_count - 1 - i) * 16) as i32
+        ));
+        match routes[i] {
+            Route::X(g) => out.push_str(&format!("    mov x{}, x9\n", g)),
+            Route::D(f) => out.push_str(&format!("    fmov d{}, x9\n", f)),
+            Route::Stack(s) => out.push_str(&format!("    str x9, [sp, #{}]\n", s as i32 * 8)),
+        }
+    }
+    let call_insn = if target.starts_with('x') { "blr" } else { "bl" };
+    out.push_str(&format!("    {} {}\n", call_insn, target));
+    out.push_str(&format!(
+        "    add sp, sp, #{}\n",
+        frame + args_count as i32 * 16
+    ));
 }
 
 pub fn emit_stack_restore(out: &mut String, delta: i32) {
