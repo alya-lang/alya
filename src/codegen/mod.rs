@@ -2767,6 +2767,20 @@ impl CodeGen {
                         return Some(struct_name.clone());
                     }
                 }
+                // Map-literal value structs (alya-lang/alya#163): a
+                // `let m = {"k": <proven struct>}` publishes
+                // `map_struct:{m}:{k}`, so method calls on
+                // map-retrieved receivers bind the construction type
+                // exactly like the checker's first-pair inference.
+                // Anything unclaimed (rebound, element-written, or
+                // never-literal maps) stays dynamic.
+                if let (Expr::Identifier(arr_name), Expr::String(key)) = (&**array, &**index) {
+                    let mkey = format!("map_struct:{}:{}", arr_name, key);
+                    if let Some(VarType::Struct { struct_name, .. }) = self.ctx.variables.get(&mkey)
+                    {
+                        return Some(struct_name.clone());
+                    }
+                }
                 if let Some(sname) = self.get_expr_struct_name(array) {
                     let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
                     let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);

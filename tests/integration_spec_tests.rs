@@ -76,6 +76,7 @@ fn entry_files() -> Vec<String> {
         "50_string_brace_literals.alya".to_string(),
         "51_value_call_shadow.alya".to_string(),
         "52_dual_alias_leaf.alya".to_string(),
+        "53_map_method_receiver.alya".to_string(),
     ]
 }
 

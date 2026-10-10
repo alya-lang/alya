@@ -940,6 +940,69 @@ fn test_arm64_windows_extern_mirrors_to_fp() {
 }
 
 #[test]
+fn test_map_method_receiver_binds_construction_type() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // alya-lang/alya#163: two same-named methods program-wide, so the
+    // single-method fallback never fires — yet the map literal proves
+    // the receiver type and the call must bind it (the checker already
+    // resolves this shape; codegen used to emit dangling `fn_speak`).
+    let code = "struct Cat53\n    name: string\nend\nstruct Dog53\n    name: string\nend\nfunction Cat53.speak(self: Cat53) -> string\n    return \"meow\"\nend\nfunction Dog53.speak(self: Dog53) -> string\n    return \"woof\"\nend\nfunction main()\n    let m = { \"pet\": Cat53 { name: \"tom\" } }\n    say m[\"pet\"].speak()\nend\n";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    for (arch, os) in [
+        (Architecture::X64, OperatingSystem::Linux),
+        (Architecture::ARM64, OperatingSystem::Linux),
+    ] {
+        let asm = generate(&ast, arch, os);
+        let bound = if matches!(arch, Architecture::ARM64) {
+            "bl fn_Cat53__speak"
+        } else {
+            "call fn_Cat53__speak"
+        };
+        let dangling = if matches!(arch, Architecture::ARM64) {
+            "bl fn_speak"
+        } else {
+            "call fn_speak"
+        };
+        assert!(
+            asm.contains(bound),
+            "ambiguous method must bind the construction type on {:?}:",
+            arch,
+        );
+        assert!(
+            !asm.contains(dangling),
+            "no dangling bare reference on {:?}:",
+            arch,
+        );
+    }
+}
+
+#[test]
+fn test_map_method_receiver_voided_by_element_write() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // alya-lang/alya#163: an element write voids the per-key claim —
+    // the call must fall back (never bind the stale struct).
+    let code = "struct Cat53\n    name: string\nend\nstruct Dog53\n    name: string\nend\nfunction Cat53.speak(self: Cat53) -> string\n    return \"meow\"\nend\nfunction Dog53.speak(self: Dog53) -> string\n    return \"woof\"\nend\nfunction main()\n    let m = { \"pet\": Cat53 { name: \"tom\" } }\n    m[\"pet\"] = 42\n    say m[\"pet\"].speak()\nend\n";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    assert!(
+        !asm.contains("call fn_Cat53__speak"),
+        "voided claim must not bind the stale struct",
+    );
+}
+
+#[test]
 fn test_x64_macos_internal_symbols_no_darwin_prefix() {
     use crate::lexer::Lexer;
     use crate::parser::Parser;

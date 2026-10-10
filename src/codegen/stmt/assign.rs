@@ -11,8 +11,59 @@ use crate::codegen::context::VarType;
 use crate::codegen::target::Architecture;
 
 impl CodeGen {
+    /// Clears per-key map value-struct claims for `name`
+    /// (alya-lang/alya#163): any rebind or element write may change
+    /// what each key holds, and a stale claim would misdispatch a
+    /// later method call to the wrong struct's function.
+    pub(super) fn clear_map_struct_markers(&mut self, name: &str) {
+        let prefix = format!("map_struct:{}:", name);
+        let stale: Vec<String> = self
+            .ctx
+            .variables
+            .keys()
+            .filter(|k| k.starts_with(&prefix))
+            .cloned()
+            .collect();
+        for key in stale {
+            self.ctx.variables.remove(&key);
+        }
+    }
+
+    /// Seeds per-key value-struct claims from a map literal
+    /// (alya-lang/alya#163): string-literal keys whose value has a
+    /// proven struct publish `map_struct:{var}:{key}`, consulted by
+    /// `get_expr_struct_name` so method calls on map-retrieved
+    /// receivers bind the construction type exactly like the
+    /// checker's first-pair inference. Only proven structs seed;
+    /// everything else stays dynamic. Deliberately per-variable
+    /// (no bare `map_field_struct` form): a global claim would let
+    /// one map's key govern unrelated maps' reads.
+    pub(super) fn seed_map_struct_markers(
+        &mut self,
+        name: &str,
+        entries: &[(crate::ast::Expr, crate::ast::Expr)],
+    ) {
+        for (k, v) in entries {
+            if let crate::ast::Expr::String(field) = k {
+                if let Some(sname) = self.get_expr_struct_name(v) {
+                    self.ctx.variables.insert(
+                        format!("map_struct:{}:{}", name, field),
+                        VarType::Struct {
+                            struct_name: sname,
+                            offset: 0,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
     pub(super) fn generate_let(&mut self, name: &str, type_ann: Option<&str>, value: &Expr) {
         let name = name.to_string();
+        // alya-lang/alya#163: a rebind voids per-key value-struct
+        // claims (a stale claim would misdispatch a later method
+        // call); map literals re-seed below.
+        self.clear_map_struct_markers(&name);
         if self.ctx.current_fn_name.is_empty() {
             if let Some((symbol, sname)) = self.ctx.globals.get(&name).cloned() {
                 self.generate_expression(value);
@@ -693,6 +744,7 @@ impl CodeGen {
                 } else if is_map {
                     self.ctx.variables.insert(name.clone(), VarType::Map(slot));
                     if let Expr::Map(entries) = value {
+                        self.seed_map_struct_markers(&name, entries);
                         for (k, v) in entries {
                             if is_string_expr(v, &self.ctx.variables) {
                                 if let Expr::String(field) = k {
@@ -1187,6 +1239,8 @@ impl CodeGen {
 
     pub(super) fn generate_assign(&mut self, name: &str, value: &Expr) {
         let name = name.to_string();
+        // alya-lang/alya#163: rebinds void per-key value-struct claims.
+        self.clear_map_struct_markers(&name);
         // Target-aware floatness (#83): assigning an unknown-kind value
         // into an existing float slot must convert AND track float, or
         // the slot keeps int bits while every later read treats them as
@@ -1382,6 +1436,7 @@ impl CodeGen {
                             .variables
                             .insert(name.clone(), VarType::Map(offset));
                         if let Expr::Map(entries) = value {
+                            self.seed_map_struct_markers(&name, entries);
                             for (k, v) in entries {
                                 if is_string_expr(v, &self.ctx.variables) {
                                     if let Expr::String(field) = k {
@@ -1694,6 +1749,26 @@ impl CodeGen {
     }
 
     pub(super) fn generate_index_assign(&mut self, array: &Expr, index: &Expr, value: &Expr) {
+        // alya-lang/alya#163: any element write may change what the
+        // map holds — void all per-key value-struct claims for the
+        // root variable (conservative: keys are not tracked across
+        // writes, so a stale claim could misdispatch a method call).
+        let mut root = array;
+        loop {
+            match root {
+                crate::ast::Expr::Identifier(name) => {
+                    self.clear_map_struct_markers(name);
+                    break;
+                }
+                crate::ast::Expr::Index { array: inner, .. } => {
+                    root = inner;
+                }
+                crate::ast::Expr::FieldAccess { object, .. } => {
+                    root = object;
+                }
+                _ => break,
+            }
+        }
         if let Some(sname) = self.get_expr_struct_name(array) {
             let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
             let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);

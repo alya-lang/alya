@@ -1,0 +1,43 @@
+# ==============================================================================
+# Alya Integration Fixture 53 (entry): method calls on map-retrieved
+# receivers bind the construction type
+# Distilled from: `m["bp"].acquire()` on a pool-holding map resolving
+#                 at check time but emitting a dangling bare
+#                 `fn_acquire` (two same-named methods program-wide, so
+#                 the single-method fallback never fires;
+#                 alya-lang/alya#163).
+# Guards: map literals publish per-key value-struct claims
+#         (`map_struct:{var}:{key}`), so the call binds the literal's
+#         construction type exactly like the checker's first-pair
+#         inference. Shadowing re-seeds (no stale claims); element
+#         writes and non-literal rebinds void the claim (falls back to
+#         the legacy dynamic path, never a stale bind).
+# ==============================================================================
+
+struct Cat53
+    name: string
+end
+
+struct Dog53
+    name: string
+end
+
+function Cat53.speak(self: Cat53) -> string
+    return "meow"
+end
+
+function Dog53.speak(self: Dog53) -> string
+    return "woof"
+end
+
+function main()
+    let m = { "pet": Cat53 { name: "tom" } }
+    assert_eq(m["pet"].speak(), "meow", "construction type dispatches")
+    let m2 = { "pet": Dog53 { name: "rex" } }
+    assert_eq(m2["pet"].speak(), "woof", "second var, other type")
+    let m = { "pet": Dog53 { name: "rex" } }
+    assert_eq(m["pet"].speak(), "woof", "shadow re-seeds, no stale claim")
+    say "integration 53_map_method_receiver: OK"
+end
+
+main()

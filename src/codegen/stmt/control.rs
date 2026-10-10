@@ -844,6 +844,8 @@ impl CodeGen {
         body: &[Stmt],
     ) {
         let var = var.to_string();
+        // alya-lang/alya#163: the loop rebinds its variable.
+        self.clear_map_struct_markers(&var);
         self.generate_expression(start);
 
         let var_offset = match self.ctx.variables.get(&var) {
@@ -941,6 +943,11 @@ impl CodeGen {
         body: &[Stmt],
     ) {
         let var = var.to_string();
+        // alya-lang/alya#163: the loop rebinds its variables.
+        self.clear_map_struct_markers(&var);
+        if let Some(vv) = value_var {
+            self.clear_map_struct_markers(vv);
+        }
         let is_str_iter = is_string_expr(iterable, &self.ctx.variables);
         if is_str_iter {
             let initial_stack_offset = self.ctx.stack_offset;
