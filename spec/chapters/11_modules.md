@@ -57,6 +57,7 @@ from "std/collections" import Map as HashMap, Set
 2. **Relative Paths:** Paths beginning with `"./"` or `"../"` resolve relative to the current file's directory.
 3. **Third-Party / Packages:** Bare names or `"pkg/..."` resolve against the project's dependency manifest (`alya.toml`). Under strict dependency isolation, transitive dependencies are not accessible without explicit declaration in the active project manifest.
 4. **Multi-Major Package Scoping:** When multiple major versions of an external package coexist across dependencies (e.g. `z-v1` and `z-v2`), import statements in each module bind strictly to the major version declared in that module's owning package manifest.
+5. **Declared Dependencies Win Over Same-Named Files:** A bare import name claimed by the enclosing manifest's `[dependencies]` always resolves as a package reference, even when a same-named file sits beside the importing file (otherwise that file — or the importing file itself — would silently shadow the dependency alias; alya-lang/alya#159). Reach the file with an explicit relative prefix (`import "./sqlite.alya"`).
 
 ---
 

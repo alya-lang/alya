@@ -1064,3 +1064,81 @@ fn test_import_cache_byte_identical_codegen() {
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_dep_claimed_bare_name_beats_sibling_file() {
+    use std::fs;
+    // alya-lang/alya#159: `import "sqlite" as sqlite` from a file
+    // named `sqlite.alya` must bind the manifest-declared dependency,
+    // not the importing file itself. The explicit `./` spelling keeps
+    // binding the file (documented disambiguation).
+    let base = std::env::temp_dir().join(format!(
+        "alya_dep_shadow_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let app_dir = base.join("myapp");
+    let dep_dir = base.join("sqlitepkg");
+    let _ = fs::create_dir_all(app_dir.join("src").join("adapters"));
+    let _ = fs::create_dir_all(dep_dir.join("src"));
+
+    fs::write(
+        app_dir.join("alya.toml"),
+        "[package]\nname = \"myapp\"\nversion = \"0.1.0\"\nentry = \"src/main.alya\"\n\n[dependencies]\nsqlite = { path = \"../sqlitepkg\" }\n",
+    )
+    .unwrap();
+    fs::write(
+        dep_dir.join("alya.toml"),
+        "[package]\nname = \"sqlite\"\nversion = \"0.1.0\"\nentry = \"src/lib.alya\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dep_dir.join("src").join("lib.alya"),
+        "pub function open(path: string) -> string\n    return path\nend\n",
+    )
+    .unwrap();
+    // Same stem as the dependency: the old resolver bound this file
+    // to itself (`sqlite::sqlite_open`, dep never merged).
+    fs::write(
+        app_dir
+            .join("src")
+            .join("adapters")
+            .join("sqlite.alya"),
+        "import \"sqlite\" as sqlite\n\nfunction sqlite_open(path)\n    return sqlite::open(path)\nend\n",
+    )
+    .unwrap();
+
+    let source =
+        "import \"./src/adapters/sqlite.alya\" as adapter\nsay adapter::sqlite_open(\"x\")";
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().expect("Tokenize failed");
+    let mut parser = Parser::new(tokens);
+    let mut ast = parser.parse().expect("Parse failed");
+    resolve_imports(&mut ast, &app_dir, &CfgContext::host()).expect("resolve failed");
+
+    let fn_names: Vec<String> = ast
+        .statements
+        .iter()
+        .filter_map(|s| match s.inner_stmt() {
+            Stmt::Function { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    // The dependency definition merged under its alias...
+    assert!(
+        fn_names.contains(&"sqlite::open".to_string()),
+        "dep def must merge, got: {:?}",
+        fn_names
+    );
+    // ...not a self-merge of the importing file.
+    assert!(
+        !fn_names.iter().any(|n| n == "sqlite::sqlite_open"),
+        "importing file must not bind to itself, got: {:?}",
+        fn_names
+    );
+
+    let _ = fs::remove_dir_all(&base);
+}

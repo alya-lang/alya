@@ -958,6 +958,36 @@ fn import_path_stem(path: &str) -> Option<String> {
     Some(stem.to_string())
 }
 
+/// True for import paths that name a module without any location
+/// anchor: `sqlite`, `sqlite/core`. Relative (`./`, `../`, rooted)
+/// and `std/` paths are location-anchored and never package refs.
+fn is_bare_package_ref(normalized: &str) -> bool {
+    !(normalized.starts_with("./")
+        || normalized.starts_with("../")
+        || normalized.starts_with('/')
+        || normalized.starts_with('\\')
+        || normalized.starts_with("std/")
+        || normalized.starts_with("std::"))
+}
+
+/// Whether the enclosing package manifest declares `name` as a
+/// dependency (alya-lang/alya#159). Any IO failure means "not
+/// declared": resolution falls back to the legacy relative probing.
+fn manifest_declares_dependency(current_dir: &std::path::Path, name: &str) -> bool {
+    let Some(manifest_dir) = crate::tools::pkg::discovery::find_manifest_dir_from(current_dir)
+    else {
+        return false;
+    };
+    let content = match std::fs::read_to_string(manifest_dir.join("alya.toml")) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    match crate::tools::pkg::manifest::parse_manifest(&content) {
+        Ok(m) => m.dependencies.contains_key(name),
+        Err(_) => false,
+    }
+}
+
 /// Collects value/type names bound by statements for the bare-module
 /// shadowing guard. Conservative: block-scoped bindings count for the
 /// whole enclosing function (skipping a rewrite is always safe).
@@ -1627,9 +1657,20 @@ pub(crate) fn resolve_stmt_imports_ext_with_rewrites(
                     current_dir.join(path)
                 };
 
-                let candidate = if target_path.exists() {
+                // alya-lang/alya#159: a bare import name claimed by the
+                // enclosing manifest's [dependencies] is a package
+                // reference even when a same-named file sits beside the
+                // importer — otherwise that file (or the importing file
+                // itself) silently shadows the dependency. Explicit
+                // relative paths (`./`, `../`, rooted) and `std/`
+                // imports keep the legacy order; reach a same-named
+                // file with an explicit `./` prefix.
+                let first_seg = normalized_path.split(['/', '\\']).next().unwrap_or("");
+                let dep_claims = is_bare_package_ref(&normalized_path)
+                    && manifest_declares_dependency(current_dir, first_seg);
+                let candidate = if !dep_claims && target_path.exists() {
                     Some(target_path.clone())
-                } else if target_path.with_extension("alya").exists() {
+                } else if !dep_claims && target_path.with_extension("alya").exists() {
                     Some(target_path.with_extension("alya"))
                 } else if normalized_path.starts_with("std/")
                     || normalized_path.starts_with("std::")
