@@ -2472,7 +2472,7 @@ pub fn get_inlay_hints(source: &str) -> Vec<InlayHint> {
                     let inferred = match &tokens[i + 3].token_type {
                         TokenType::Number(_) => Some(": int"),
                         TokenType::Float(_) => Some(": float"),
-                        TokenType::String(_) => Some(": string"),
+                        TokenType::String(_) | TokenType::FormattedString(_) => Some(": string"),
                         TokenType::True | TokenType::False => Some(": bool"),
                         TokenType::LeftBracket => Some(": [any]"),
                         TokenType::Identifier(id) => {
@@ -2591,6 +2591,8 @@ fn token_length(tok: &Token, line_str: Option<&str>) -> usize {
     match &tok.token_type {
         TokenType::Identifier(id) => id.len(),
         TokenType::String(s) => s.len() + 2,
+        // Leading `f` counts toward the source span.
+        TokenType::FormattedString(s) => s.len() + 3,
         TokenType::Rune(_) => 3,
         TokenType::Function => 8,
         TokenType::Struct => 6,
@@ -3036,11 +3038,11 @@ pub fn get_semantic_tokens(source: &str, file_dir: Option<&std::path::Path>) -> 
         let col_0 = tok.column.saturating_sub(1) as u32;
         let cur_line = source_lines.get(line_0 as usize).copied();
 
-        // Interpolated spans: every string kind (`f"`, `"`, `"""`, `r"`,
-        // backtick) interpolates at runtime, so the blanket string token
-        // is dropped and interpolation contents get their real kinds.
-        // TextMate paints the literal parts.
-        if let TokenType::String(value) = &tok.token_type {
+        // Interpolated spans: only `f"` strings interpolate (plain,
+        // raw and multiline strings keep braces literal, Ch.00 §1.6), so
+        // only the formatted token is dropped while interpolation
+        // contents get their real kinds. TextMate paints the literal parts.
+        if let TokenType::FormattedString(value) = &tok.token_type {
             if value.as_bytes().contains(&b'{') {
                 if let Some(line_text) = cur_line {
                     // Past optional `f`/`r`/`b` prefixes and opening quotes.
@@ -3117,7 +3119,9 @@ pub fn get_semantic_tokens(source: &str, file_dir: Option<&std::path::Path>) -> 
             | TokenType::Null => (12, 0, token_length(tok, cur_line)),
 
             TokenType::Number(_) | TokenType::Float(_) => (15, 0, token_length(tok, cur_line)),
-            TokenType::String(_) | TokenType::Rune(_) => (14, 0, token_length(tok, cur_line)),
+            TokenType::String(_) | TokenType::FormattedString(_) | TokenType::Rune(_) => {
+                (14, 0, token_length(tok, cur_line))
+            }
 
             TokenType::Plus
             | TokenType::Minus

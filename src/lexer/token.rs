@@ -50,6 +50,10 @@ pub enum TokenType {
     Number(i128),
     Float(f64),
     String(String),
+    // Formatted strings (`f"..."`, `f"""..."""`) carry holes; every
+    // other string kind keeps braces literal (alya-lang/alya#155).
+    // Same payload shape as String so token consumers twin the arms.
+    FormattedString(String),
     Rune(char),
     Identifier(String),
     True,
@@ -228,6 +232,7 @@ impl std::fmt::Display for TokenType {
             TokenType::Number(n) => write!(f, "number '{}'", n),
             TokenType::Float(n) => write!(f, "float '{}'", n),
             TokenType::String(s) => write!(f, "\"{}\"", s),
+            TokenType::FormattedString(s) => write!(f, "f\"{}\"", s),
             TokenType::Rune(c) => write!(f, "'{}'", c),
             TokenType::Identifier(s) => write!(f, "identifier '{}'", s),
             TokenType::True => write!(f, "'true'"),

@@ -102,7 +102,7 @@ let p3 = translate(p2, 10, 20)
 say p3.x
 say p3.y
 
-say "Formatted point: ({p.x}, {p.y})"
+say f"Formatted point: ({p.x}, {p.y})"
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(code, 0);
@@ -126,7 +126,7 @@ let alice = Person { name: "Alice", age: 30, score: 95.5 }
 say alice.name
 say alice.age
 say alice.score
-say "Student: {alice.name}, Age: {alice.age}, Score: {alice.score}"
+say f"Student: {alice.name}, Age: {alice.age}, Score: {alice.score}"
 
 struct Vector3
     x
@@ -137,7 +137,7 @@ end
 let v1 = Vector3(1.0, 2.0, 3.5)
 let v2 = Vector3(0.5, 1.5, 0.5)
 let dot = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z
-say "Dot product: {dot}"
+say f"Dot product: {dot}"
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(code, 0);
@@ -393,7 +393,7 @@ let team = [
 
 for member in team
     let tier = rank_player(member)
-    say "Player {member.name} scored {member.score} pts -> [{tier}]"
+    say f"Player {member.name} scored {member.score} pts -> [{tier}]"
 end
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
@@ -1085,8 +1085,8 @@ function main()
     let m = []
     m.push(1)
     m.push(0.5)
-    say "v={m[1]}"
-    say "v={m[0]}"
+    say f"v={m[1]}"
+    say f"v={m[0]}"
 end
 
 main()

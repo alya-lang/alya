@@ -214,7 +214,7 @@ end
 
 let fruits = ["apple", "banana", "cherry"]
 for f in fruits
-    say "fruit: {f}"
+    say f"fruit: {f}"
 end
 
 for x in [1, 2, 3, 4, 5]
@@ -282,7 +282,7 @@ say data["tag"]
 fn test_e2e_default_parameters() {
     let code = r#"
 function greet(name, greeting = "Hello", punctuation = "!")
-    say "{greeting}, {name}{punctuation}"
+    say f"{greeting}, {name}{punctuation}"
 end
 
 greet("World")

@@ -337,7 +337,7 @@ if c != null
     say "c is not null"
 end
 
-say "value: {a}"
+say f"value: {a}"
 say str(a)
 
 let x = null
@@ -1479,7 +1479,7 @@ say a < b
 say b < a
 say a / 10
 say a % 10
-say "val={m}"
+say f"val={m}"
 say 9223372036854775808
 say 18446744073709551615
 "#;

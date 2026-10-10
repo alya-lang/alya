@@ -73,6 +73,7 @@ fn entry_files() -> Vec<String> {
         "47_int_conversion_bigint.alya".to_string(),
         "48_trapped_type_errors.alya".to_string(),
         "49_float_conversion_tagged.alya".to_string(),
+        "50_string_brace_literals.alya".to_string(),
     ]
 }
 
@@ -875,6 +876,20 @@ fn test_integration_49_float_conversion_tagged_output() {
     if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
         assert_eq!(code, 0, "Output:\n{}", output);
         assert!(output.contains("integration 49_float_conversion_tagged: OK"));
+    }
+}
+
+#[test]
+fn test_integration_50_string_brace_literals_output() {
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP 50_string_brace_literals: {}", reason);
+        return;
+    }
+    let dir = get_integration_dir();
+    let source = fs::read_to_string(dir.join("50_string_brace_literals.alya")).unwrap();
+    if let Some((code, output)) = run_entry_with_base_dir(&source, &dir) {
+        assert_eq!(code, 0, "Output:\n{}", output);
+        assert!(output.contains("integration 50_string_brace_literals: OK"));
     }
 }
 

@@ -133,7 +133,7 @@ impl CfgContext {
                         key = s.clone();
                     }
                 }
-                TokenType::String(s) if in_val => {
+                TokenType::String(s) | TokenType::FormattedString(s) if in_val => {
                     val = s.clone();
                 }
                 TokenType::True if in_val => {

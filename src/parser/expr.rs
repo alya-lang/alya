@@ -989,8 +989,21 @@ impl Parser {
             TokenType::String(s) => {
                 let string = s.clone();
                 self.advance();
+                // #155: only f-strings interpolate. Every other kind keeps
+                // `{...}` literal; `{{`/`}}` escapes still collapse (Ch.21
+                // §1.7 documents them for all string kinds).
+                if string.contains('{') || string.contains('}') {
+                    if let Some(parts) = parse_interpolated_string(&string, false) {
+                        return Ok(Expr::InterpolatedString(parts));
+                    }
+                }
+                Ok(Expr::String(string))
+            }
+            TokenType::FormattedString(s) => {
+                let string = s.clone();
+                self.advance();
                 if string.contains('{') && string.contains('}') {
-                    if let Some(parts) = parse_interpolated_string(&string) {
+                    if let Some(parts) = parse_interpolated_string(&string, true) {
                         return Ok(Expr::InterpolatedString(parts));
                     }
                 }
@@ -2065,7 +2078,7 @@ fn try_parse_hole(expr_str: &str) -> Option<Expr> {
     parsed_expr
 }
 
-fn scan_parts(chars: &[char]) -> (Vec<Expr>, bool, bool) {
+fn scan_parts(chars: &[char], interp: bool) -> (Vec<Expr>, bool, bool) {
     let mut parts = Vec::new();
     let mut current_lit = String::new();
     let mut i = 0;
@@ -2079,6 +2092,13 @@ fn scan_parts(chars: &[char]) -> (Vec<Expr>, bool, bool) {
                 i += 2;
                 current_lit.push('{');
                 has_escaped = true;
+                continue;
+            }
+            // #155: outside f-strings only `{{`/`}}` are special; every
+            // other brace stays literal text (spec Ch.00 §1.6).
+            if !interp {
+                current_lit.push('{');
+                i += 1;
                 continue;
             }
 
@@ -2129,8 +2149,9 @@ fn scan_parts(chars: &[char]) -> (Vec<Expr>, bool, bool) {
                 // it (e.g. `{"level":"{lvl}"}`) still interpolate. The
                 // terminator itself is preserved verbatim so a following
                 // literal `}` is never merged into an escape pair.
+                // (Unreachable when `interp` is false: `{` never opens.)
                 current_lit.push('{');
-                let (inner_parts, inner_interp, inner_esc) = scan_parts(&chars[i + 1..j]);
+                let (inner_parts, inner_interp, inner_esc) = scan_parts(&chars[i + 1..j], interp);
                 if !current_lit.is_empty() {
                     parts.push(Expr::String(current_lit.clone()));
                     current_lit.clear();
@@ -2163,9 +2184,9 @@ fn scan_parts(chars: &[char]) -> (Vec<Expr>, bool, bool) {
     (parts, has_interpolation, has_escaped)
 }
 
-fn parse_interpolated_string(s: &str) -> Option<Vec<Expr>> {
+fn parse_interpolated_string(s: &str, interp: bool) -> Option<Vec<Expr>> {
     let chars: Vec<char> = s.chars().collect();
-    let (parts, has_interpolation, has_escaped) = scan_parts(&chars);
+    let (parts, has_interpolation, has_escaped) = scan_parts(&chars, interp);
 
     if has_interpolation || has_escaped {
         Some(parts)

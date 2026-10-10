@@ -286,6 +286,7 @@ impl<'a> Scanner<'a> {
                 | TokenType::And
                 | TokenType::Or
                 | TokenType::String(_)
+                | TokenType::FormattedString(_)
                 | TokenType::Float(_)
                 | TokenType::Null => {
                     other = true;

@@ -758,7 +758,7 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
             let mut is_aliased = false;
             if i < tokens.len() {
                 match &tokens[i].token_type {
-                    TokenType::String(path) => {
+                    TokenType::String(path) | TokenType::FormattedString(path) => {
                         raw_path = Some(path.clone());
                         let base = path
                             .split('/')
@@ -810,7 +810,9 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
             // Skip module path
             if i < tokens.len() {
                 match &tokens[i].token_type {
-                    TokenType::String(p) | TokenType::Identifier(p) => {
+                    TokenType::String(p)
+                    | TokenType::FormattedString(p)
+                    | TokenType::Identifier(p) => {
                         raw_path = Some(p.clone());
                         i += 1;
                     }
@@ -876,7 +878,12 @@ pub fn check_unused_imports(tokens: &[Token], file_path: &Path) -> Vec<LintDiagn
                 TokenType::Identifier(id) => {
                     code_idents.insert(id.clone());
                 }
-                TokenType::String(value) => {
+                TokenType::String(_) => {
+                    continue;
+                }
+                TokenType::FormattedString(value) => {
+                    // #155: only f-strings interpolate; braces in plain
+                    // strings reference nothing.
                     if !value.as_bytes().contains(&b'{') {
                         continue;
                     }

@@ -1,0 +1,25 @@
+# ==============================================================================
+# Alya Integration Fixture 50 (entry): braces stay literal outside f-strings
+# Distilled from: every string kind interpolated `{...}` although the
+#                 spec reserves holes for f-strings; downstream template
+#                 code (http log formats, mustache tags) had to assemble
+#                 braces by concatenation (alya-lang/alya#155).
+# Guards: plain, raw and multiline strings keep `{...}` verbatim while
+#         f-strings interpolate; `{{`/`}}` collapse in every kind.
+# ==============================================================================
+
+function main()
+    let name = "Alya"
+    assert_eq("P1 [" + "{name}" + "]", "P1 [{name}]", "plain keeps braces")
+    assert_eq(f"{name}!", "Alya!", "f-string interpolates")
+    assert_eq(r"\d{4}-\d{2}", "\\d{4}-\\d{2}", "raw keeps braces")
+    let ml = """
+line {name} here
+"""
+    assert contains_str(ml, "line {name} here"), "multiline keeps braces"
+    assert_eq("{{name}}", "{name}", "double braces collapse")
+    assert_eq(f"{{name}}", "{name}", "double braces collapse in f-strings")
+    say "integration 50_string_brace_literals: OK"
+end
+
+main()

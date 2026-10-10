@@ -546,7 +546,7 @@ impl Lexer {
                             self.read_format_string()?
                         };
                     tokens.push(Token {
-                        token_type: TokenType::String(s),
+                        token_type: TokenType::FormattedString(s),
                         line,
                         column,
                     });

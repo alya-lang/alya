@@ -33,6 +33,8 @@ Alya string interpolation supports formatting specifiers via the `:spec` suffix:
 - **Radix Conversion**: `f"{val:#x}"` (hex `0xff`), `f"{val:#b}"` (binary `0b1010`)
 
 ### 1.7 Interpolation Brace Semantics
+Unless noted, this section describes `f"..."` strings only: other
+string kinds keep braces literal (Chapter 00 §1.6).
 - `{expr}` interpolates the value of `expr`; any expression (calls, indexing,
   field access, format specs) may appear inside the hole.
 - `{{` and `}}` are escapes rendering single literal braces: `"{{}}"` -> `"{}"`.

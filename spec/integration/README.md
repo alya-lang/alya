@@ -65,6 +65,7 @@
 # | `47_int_conversion_bigint.alya` | `int()` on big/static ints + mixed-map dynamics (alya-lang/alya#152) | statically-known ints bypass `fn_str_to_int` (>= 65536 crashed as string-pointer deref); tag-carrying map reads dispatch on KIND (INT passthrough, FLOAT truncate, STRING parse); opaque fn-boundary dynamics stay heuristic (#55) |
 # | `48_trapped_type_errors.alya` | string-as-function call, `keys()` on string, int into string param (alya-lang/alya#154) | indirect calls trap provably-non-function values, `keys()` traps small/managed-string args, declared string params trap small-int arrivals at entry - all catchable; reassigned function holders keep working |
 # | `49_float_conversion_tagged.alya` | `float()` on big/static ints + mixed-map dynamics (alya-lang/alya#151) | proven ints convert exactly (never heuristic); tag-carrying map reads dispatch on KIND (FLOAT passthrough, INT convert, STRING parse); rebound-to-dynamic locals take the heuristic; opaque fn-boundary dynamics stay heuristic (#55) |
+# | `50_string_brace_literals.alya` | template braces in plain/raw/multiline strings (alya-lang/alya#155) | only f-strings interpolate; other kinds keep `{...}` verbatim while `{{`/`}}` collapse everywhere |
 #
 # ## Known collision (deliberate rename)
 #

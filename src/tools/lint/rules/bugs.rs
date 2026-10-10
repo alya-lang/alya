@@ -688,7 +688,7 @@ struct MapFrame {
 
 fn is_key_token(tt: &TokenType) -> Option<String> {
     match tt {
-        TokenType::String(s) => Some(format!("s:{s}")),
+        TokenType::String(s) | TokenType::FormattedString(s) => Some(format!("s:{s}")),
         TokenType::Number(n) => Some(format!("n:{n}")),
         _ => None,
     }
@@ -737,7 +737,7 @@ pub fn check_duplicate_map_keys(tokens: &[Token], file_path: &Path) -> Vec<LintD
                 }
                 i += 1;
             }
-            TokenType::String(_) | TokenType::Number(_) => {
+            TokenType::String(_) | TokenType::FormattedString(_) | TokenType::Number(_) => {
                 let key = match is_key_token(&tokens[i].token_type) {
                     Some(k) => k,
                     None => {
@@ -866,7 +866,7 @@ pub fn check_duplicate_map_keys(tokens: &[Token], file_path: &Path) -> Vec<LintD
 pub fn check_nul_byte_in_string(tokens: &[Token], file_path: &Path) -> Vec<LintDiagnostic> {
     let mut diags = Vec::new();
     for tok in tokens {
-        if let TokenType::String(value) = &tok.token_type {
+        if let TokenType::String(value) | TokenType::FormattedString(value) = &tok.token_type {
             if value.contains('\0') {
                 diags.push(LintDiagnostic {
                     rule: "nul-byte-in-string".to_string(),

@@ -15,7 +15,9 @@ use crate::tools::pkg::manifest::parse_manifest;
 
 fn token_text(token_type: &TokenType) -> Option<&str> {
     match token_type {
-        TokenType::Identifier(s) | TokenType::String(s) => Some(s.as_str()),
+        TokenType::Identifier(s) | TokenType::String(s) | TokenType::FormattedString(s) => {
+            Some(s.as_str())
+        }
         _ => None,
     }
 }

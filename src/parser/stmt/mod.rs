@@ -612,7 +612,9 @@ impl Parser {
     fn attribute_args_from_tokens(tokens: &[Token]) -> Vec<(Option<String>, String)> {
         fn scalar_text(tok: &Token) -> Option<String> {
             match &tok.token_type {
-                TokenType::String(s) | TokenType::Identifier(s) => Some(s.clone()),
+                TokenType::String(s) | TokenType::FormattedString(s) | TokenType::Identifier(s) => {
+                    Some(s.clone())
+                }
                 TokenType::Number(n) => Some(format!("{}", n)),
                 TokenType::True => Some("true".to_string()),
                 TokenType::False => Some("false".to_string()),

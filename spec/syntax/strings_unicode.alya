@@ -97,20 +97,32 @@ say "String comparison and length OK"
 # 7. Interpolation Brace Semantics (Chapter 21 §1.7)
 # ------------------------------------------------------------------------------
 let lvl = "INFO"
-# Holes nested inside an unparsable region still interpolate (per-hole rule).
-assert_eq("{\"level\":\"{lvl}\"}", "{\"level\":\"INFO\"}")
-assert_eq("{123 abc {lvl}}", "{123 abc INFO}")
-assert_eq("{\"a\":{\"b\":\"{lvl}\"}}", "{\"a\":{\"b\":\"INFO\"}}")
-# `{{` / `}}` escapes render single literal braces.
+# Holes nested inside an unparsable region still interpolate in f-strings
+# (per-hole rule); plain strings keep every brace literal (#155).
+assert_eq(f"{\"level\":\"{lvl}\"}", "{\"level\":\"INFO\"}")
+assert_eq(f"{123 abc {lvl}}", "{123 abc INFO}")
+assert_eq(f"{\"a\":{\"b\":\"{lvl}\"}}", "{\"a\":{\"b\":\"INFO\"}}")
+assert_eq("{\"level\":\"{lvl}\"}", "{\"level\":\"{lvl}\"}")
+assert_eq("{123 abc {lvl}}", "{123 abc {lvl}}")
+assert_eq("{\"a\":{\"b\":\"{lvl}\"}}", "{\"a\":{\"b\":\"{lvl}\"}}")
+# `{{` / `}}` escapes render single literal braces, in every string kind.
 assert_eq("{{}}", "{}")
 assert_eq("{{lvl}}", "{" + "lvl}")
+assert_eq(f"{{lvl}}", "{lvl}")
 # Lone braces without holes stay literal.
 assert_eq("{", "{")
 assert_eq("prefix-}suffix", "prefix-}suffix")
-# `f` strings allow quotes inside holes; plain strings interpolate the same otherwise.
+# `f` strings allow quotes inside holes; other kinds keep braces literal.
 let probe_map = {"key": "VAL"}
 assert_eq(f"{probe_map["key"]}", "VAL")
-assert_eq("Player {lvl}", "Player INFO")
+assert_eq("Player {lvl}", "Player {lvl}")
+assert_eq(f"Player {lvl}", "Player INFO")
+# Raw and multiline strings keep braces literal (#155).
+assert_eq(r"\d{4}", "\\d{4}")
+let ml_braces = """
+line {lvl} here
+"""
+assert_eq(contains_str(ml_braces, "line {lvl} here"), true)
 
 say "Brace semantics OK"
 

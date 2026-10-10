@@ -766,9 +766,9 @@ function main()
     m.push(1)
     m.push(0.5)
     m.push("s")
-    say "v={m[0]}"
-    say "v={m[1]}"
-    say "v={m[2]}"
+    say f"v={m[0]}"
+    say f"v={m[1]}"
+    say f"v={m[2]}"
 end
 
 main()
@@ -785,7 +785,7 @@ fn test_tags_interpolated_static_parts() {
 function main()
     let x = 41
     let y = 0.5
-    say "x={x} y={y}!"
+    say f"x={x} y={y}!"
 end
 
 main()

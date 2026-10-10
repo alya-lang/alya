@@ -225,7 +225,7 @@ fn test_e2e_ask_input_automated() {
     let code = r#"
 let name = ask "Name: "
 let city = ask "City: "
-say "Hello, {name} from {city}!"
+say f"Hello, {name} from {city}!"
 "#;
     if let Some((code, output)) = run_alya_code_with_input(code, Some("Alya\nIstanbul\n")) {
         assert_eq!(code, 0);
@@ -246,10 +246,10 @@ let price = float(raw_price)
 let qty   = int(raw_qty)
 
 let subtotal = price * float(qty)
-say "Item: {item_name}"
-say "Qty: {qty}"
-say "Price: {price}"
-say "Subtotal: {subtotal}"
+say f"Item: {item_name}"
+say f"Qty: {qty}"
+say f"Price: {price}"
+say f"Subtotal: {subtotal}"
 "#;
     if let Some((code, output)) = run_alya_code_with_input(code, Some("Laptop\n450.5\n2\n")) {
         assert_eq!(code, 0);
@@ -307,7 +307,7 @@ say flt_val
 let back_to_int = int(3.99)
 say back_to_int
 
-say "Interpolated: {pi}"
+say f"Interpolated: {pi}"
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(code, 0);
@@ -327,11 +327,11 @@ for arg in a
     say arg
 end
 if a.length() > 0
-    say "first: {a[0]}"
+    say f"first: {a[0]}"
     let num = int(a[2])
-    say "parsed_int: {num}"
+    say f"parsed_int: {num}"
     let next_num = num + 8
-    say "calc: {next_num}"
+    say f"calc: {next_num}"
 end
 "#;
     // Test with CLI arguments
@@ -382,7 +382,7 @@ let del_missing = remove_file("target/non_existent_12345.txt")
 say del_missing
 
 let missing = read_file("target/non_existent_12345.txt")
-say "missing: [{missing}]"
+say f"missing: [{missing}]"
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(code, 0);
@@ -2057,7 +2057,7 @@ while i < 100
     i = i + 1
 end
 bench_stop(b, "loop_sum")
-say "sum: {sum}"
+say f"sum: {sum}"
 bench_summary(b)
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
@@ -2079,26 +2079,26 @@ import "std/rand"
 rand_seed(12345)
 
 let r_int = rand_int(10, 20)
-say "int ok: {r_int >= 10 and r_int <= 20}"
+say f"int ok: {r_int >= 10 and r_int <= 20}"
 
 let r_flt = rand_float()
-say "flt ok: {r_flt >= 0.0 and r_flt < 1.0}"
+say f"flt ok: {r_flt >= 0.0 and r_flt < 1.0}"
 
 let r_rng = rand_float_range(5.0, 10.0)
-say "range ok: {r_rng >= 5.0 and r_rng < 10.0}"
+say f"range ok: {r_rng >= 5.0 and r_rng < 10.0}"
 
 let r_b = rand_bool()
-say "bool ok: {r_b == 0 or r_b == 1}"
+say f"bool ok: {r_b == 0 or r_b == 1}"
 
 let r_c0 = rand_chance(0)
-say "chance0 ok: {r_c0 == 0}"
+say f"chance0 ok: {r_c0 == 0}"
 
 let r_c100 = rand_chance(100)
-say "chance100 ok: {r_c100 == 1}"
+say f"chance100 ok: {r_c100 == 1}"
 
 let arr = [10, 20, 30, 40, 50]
 let chosen = rand_choice(arr)
-say "choice ok: {chosen >= 10 and chosen <= 50}"
+say f"choice ok: {chosen >= 10 and chosen <= 50}"
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(code, 0, "Execution failed: {}", output);
@@ -2270,22 +2270,22 @@ fn test_e2e_console_stdlib() {
 import "std/console"
 
 let utf8_ok = console_utf8()
-say "utf8_ok: {utf8_ok}"
+say f"utf8_ok: {utf8_ok}"
 
 let cp = console_output_cp()
-say "cp: {cp}"
+say f"cp: {cp}"
 
 let enc = get_output_encoding()
-say "enc: {enc}"
+say f"enc: {enc}"
 
 let title_ok = console_title("Alya Test Console")
-say "title_ok: {title_ok}"
+say f"title_ok: {title_ok}"
 
 let beep_ok = console_beep()
-say "beep_ok: {beep_ok}"
+say f"beep_ok: {beep_ok}"
 
 let clear_ok = console_clear()
-say "clear_ok: {clear_ok}"
+say f"clear_ok: {clear_ok}"
 
 say "╔═════════════════╗"
 say "║ UTF-8 Box Test  ║"
@@ -3676,7 +3676,7 @@ fn run_work()
     let p = Person { name: "Alice", age: 30 }
     let numbers = [10, 20, 30]
     let dict = { "status": "active" }
-    say "Person: {p.name}, numbers len: {len(numbers)}"
+    say f"Person: {p.name}, numbers len: {len(numbers)}"
 end
 
 run_work()
@@ -4255,7 +4255,7 @@ struct Point
 end
 
 let pt = Point { x: 5, y: 10 }
-say "Point: {pt.x}, {pt.y}"
+say f"Point: {pt.x}, {pt.y}"
 "#;
 
     if let Some((code, output)) = run_alya_code_full(code) {
@@ -4284,7 +4284,7 @@ end
 
 create_cycle()
 let collected = gc_collect()
-say "SWEEP: {collected}"
+say f"SWEEP: {collected}"
 "#;
 
     if let Some((code, output)) = run_alya_code_with_trace(code) {
@@ -4317,8 +4317,8 @@ b.next = a
 
 # Both a and b are alive in active scope
 let collected = gc_collect()
-say "COLLECTED_LIVE: {collected}"
-say "A_ID: {a.id}, B_ID: {b.id}, A_NEXT_ID: {a.next.id}"
+say f"COLLECTED_LIVE: {collected}"
+say f"A_ID: {a.id}, B_ID: {b.id}, A_NEXT_ID: {a.next.id}"
 "#;
 
     if let Some((code, output)) = run_alya_code_full(code) {
@@ -4366,7 +4366,7 @@ end
 
 make_circular_ring()
 let swept = gc_collect()
-say "SWEPT_RING: {swept}"
+say f"SWEPT_RING: {swept}"
 "#;
 
     if let Some((code, output)) = run_alya_code_with_trace(code) {

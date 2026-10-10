@@ -222,6 +222,7 @@ fn equality_subject(operand: &[Token]) -> Option<String> {
     match operand.get(i).map(|t| &t.token_type) {
         Some(
             TokenType::String(_)
+            | TokenType::FormattedString(_)
             | TokenType::Number(_)
             | TokenType::Float(_)
             | TokenType::True
@@ -456,6 +457,12 @@ fn check_redundant_return_var(tokens: &[Token], file_path: &Path, diags: &mut Ve
                                                         expr_str.push_str(&f.to_string())
                                                     }
                                                     TokenType::String(s) => {
+                                                        expr_str.push('"');
+                                                        expr_str.push_str(s);
+                                                        expr_str.push('"');
+                                                    }
+                                                    TokenType::FormattedString(s) => {
+                                                        expr_str.push('f');
                                                         expr_str.push('"');
                                                         expr_str.push_str(s);
                                                         expr_str.push('"');
@@ -894,6 +901,7 @@ fn check_compound_assign(tokens: &[Token], file_path: &Path, diags: &mut Vec<Lin
                             | TokenType::Number(_)
                             | TokenType::Float(_)
                             | TokenType::String(_)
+                            | TokenType::FormattedString(_)
                             | TokenType::Rune(_)
                             | TokenType::True
                             | TokenType::False

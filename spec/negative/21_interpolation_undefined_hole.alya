@@ -1,0 +1,8 @@
+# EXPECT-FAIL: check: Unknown identifier 'nosuchhole'
+# Chapter 21: a hole naming an undeclared identifier fails at check
+# time (alya-lang/alya#155) instead of reading a pointer at runtime.
+function main()
+    say f"{nosuchhole}"
+end
+
+main()

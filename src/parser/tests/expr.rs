@@ -564,7 +564,8 @@ fn test_parse_tuple_literal() {
 fn test_interpolated_string_per_hole_fallback() {
     // A `{...}` region that does not parse as an expression keeps its braces
     // literally, while valid holes nested inside still interpolate.
-    let program = parse_code("say \"{\\\"level\\\":\\\"{lvl}\\\"}\"").expect("Parse failed");
+    // (#155: holes only exist in f-strings.)
+    let program = parse_code("say f\"{\\\"level\\\":\\\"{lvl}\\\"}\"").expect("Parse failed");
     match &program.statements[0] {
         Stmt::Say(Expr::InterpolatedString(parts)) => {
             assert!(
@@ -608,8 +609,40 @@ fn test_interpolated_string_brace_escapes() {
 #[test]
 fn test_interpolated_string_unterminated_hole() {
     // An unterminated `{` emits literally; later holes still interpolate.
-    let program = parse_code("say \"{oops! {lvl}}\"").expect("Parse failed");
+    // (#155: holes only exist in f-strings.)
+    let program = parse_code("say f\"{oops! {lvl}}\"").expect("Parse failed");
     match &program.statements[0] {
+        Stmt::Say(Expr::InterpolatedString(parts)) => {
+            assert!(
+                parts
+                    .iter()
+                    .any(|p| matches!(p, Expr::Identifier(n) if n == "lvl")),
+                "expected lvl hole in {:?}",
+                parts
+            );
+        }
+        other => panic!("Expected InterpolatedString, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_plain_string_braces_stay_literal() {
+    // alya-lang/alya#155: only f-strings interpolate; every other kind
+    // keeps braces verbatim (with `{{`/`}}` escapes collapsing).
+    let program = parse_code("say \"{lvl}\"").expect("Parse failed");
+    match &program.statements[0] {
+        Stmt::Say(Expr::String(s)) => assert_eq!(s, "{lvl}"),
+        other => panic!("Expected plain String, got {:?}", other),
+    }
+
+    let raw = parse_code("say r\"\\d{4}\"").expect("Parse failed");
+    match &raw.statements[0] {
+        Stmt::Say(Expr::String(s)) => assert_eq!(s, "\\d{4}"),
+        other => panic!("Expected plain String, got {:?}", other),
+    }
+
+    let fmt = parse_code("say f\"{lvl}\"").expect("Parse failed");
+    match &fmt.statements[0] {
         Stmt::Say(Expr::InterpolatedString(parts)) => {
             assert!(
                 parts

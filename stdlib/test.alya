@@ -92,10 +92,10 @@ end
 ## True when the condition passes, otherwise false.
 pub function assert(cond: int, msg: string) -> bool
     if cond
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
-        say "  [FAIL] {msg}"
+        say f"  [FAIL] {msg}"
         return false
     end
 end
@@ -111,10 +111,10 @@ end
 ## True when actual equals expected, otherwise false.
 pub function assert_eq(actual, expected, msg: string) -> bool
     if actual == expected
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
-        say "  [FAIL] {msg} (expected: {expected}, got: {actual})"
+        say f"  [FAIL] {msg} (expected: {expected}, got: {actual})"
         return false
     end
 end
@@ -129,10 +129,10 @@ end
 ## True when cond is zero, otherwise false.
 pub function assert_false(cond: int, msg: string) -> bool
     if cond == 0
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
-        say "  [FAIL] {msg}"
+        say f"  [FAIL] {msg}"
         return false
     end
 end
@@ -148,7 +148,7 @@ end
 ## True when actual is greater than expected, otherwise false.
 pub function assert_gt(actual, expected, msg: string) -> bool
     if actual > expected
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
         say f"  [FAIL] {msg} ({actual} not > {expected})"
@@ -167,7 +167,7 @@ end
 ## True when actual is greater than or equal to expected, otherwise false.
 pub function assert_gte(actual, expected, msg: string) -> bool
     if actual >= expected
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
         say f"  [FAIL] {msg} ({actual} not >= {expected})"
@@ -186,7 +186,7 @@ end
 ## True when actual is less than expected, otherwise false.
 pub function assert_lt(actual, expected, msg: string) -> bool
     if actual < expected
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
         say f"  [FAIL] {msg} ({actual} not < {expected})"
@@ -205,7 +205,7 @@ end
 ## True when actual is less than or equal to expected, otherwise false.
 pub function assert_lte(actual, expected, msg: string) -> bool
     if actual <= expected
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
         say f"  [FAIL] {msg} ({actual} not <= {expected})"
@@ -224,10 +224,10 @@ end
 ## True when actual differs from expected, otherwise false.
 pub function assert_ne(actual, expected, msg: string) -> bool
     if actual != expected
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
-        say "  [FAIL] {msg} (expected not: {expected})"
+        say f"  [FAIL] {msg} (expected not: {expected})"
         return false
     end
 end
@@ -242,10 +242,10 @@ end
 ## True when val is neither null nor zero, otherwise false.
 pub function assert_not_null(val, msg: string) -> bool
     if val is not null and val != 0
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
-        say "  [FAIL] {msg} (expected not null)"
+        say f"  [FAIL] {msg} (expected not null)"
         return false
     end
 end
@@ -260,10 +260,10 @@ end
 ## True when val is null or zero, otherwise false.
 pub function assert_null(val, msg: string) -> bool
     if val is null or val == 0
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
-        say "  [FAIL] {msg} (expected null)"
+        say f"  [FAIL] {msg} (expected null)"
         return false
     end
 end
@@ -279,7 +279,7 @@ end
 ## True when the strings are equal, otherwise false.
 pub function assert_str_eq(actual: string, expected: string, msg: string) -> bool
     if streq(actual, expected)
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
         say f"  [FAIL] {msg} (expected: \"{expected}\", got: \"{actual}\")"
@@ -298,7 +298,7 @@ end
 ## True when the strings differ, otherwise false.
 pub function assert_str_ne(actual: string, expected: string, msg: string) -> bool
     if streq(actual, expected) == false
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
         say f"  [FAIL] {msg} (expected not: \"{expected}\")"
@@ -316,10 +316,10 @@ end
 ## True when cond is nonzero, otherwise false.
 pub function assert_true(cond: int, msg: string) -> bool
     if cond
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
-        say "  [FAIL] {msg}"
+        say f"  [FAIL] {msg}"
         return false
     end
 end
@@ -337,7 +337,7 @@ end
 pub function test_report(passed: int, total: int) -> int
     let failed: int = total - passed
     say "----------------------------------------"
-    say "Results: {passed}/{total} passed, {failed} failed."
+    say f"Results: {passed}/{total} passed, {failed} failed."
     when failed
         is 0 then say "Status: ALL TESTS PASSED!"
         else say "Status: SOME TESTS FAILED!"
@@ -354,7 +354,7 @@ end
 ## ### Returns
 ## Nothing.
 pub function test_suite(name: string)
-    say "=== Test Suite: {name} ==="
+    say f"=== Test Suite: {name} ==="
 end
 
 ## Prints a fixed all-passed summary and returns 0.
@@ -386,11 +386,11 @@ pub function runner_assert(r: TestRunner, cond: int, msg: string) -> bool
     r.total += 1
     if cond
         r.passed += 1
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
         r.failed += 1
-        say "  [FAIL] {msg}"
+        say f"  [FAIL] {msg}"
         return false
     end
 end
@@ -409,11 +409,11 @@ pub function runner_assert_eq(r: TestRunner, actual, expected, msg: string) -> b
     r.total += 1
     if actual == expected
         r.passed += 1
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
         r.failed += 1
-        say "  [FAIL] {msg} (expected: {expected}, got: {actual})"
+        say f"  [FAIL] {msg} (expected: {expected}, got: {actual})"
         return false
     end
 end
@@ -449,11 +449,11 @@ pub function runner_assert_ne(r: TestRunner, actual, expected, msg: string) -> b
     r.total += 1
     if actual != expected
         r.passed += 1
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
         r.failed += 1
-        say "  [FAIL] {msg} (expected not: {expected})"
+        say f"  [FAIL] {msg} (expected not: {expected})"
         return false
     end
 end
@@ -472,7 +472,7 @@ pub function runner_assert_str_eq(r: TestRunner, actual: string, expected: strin
     r.total += 1
     if streq(actual, expected)
         r.passed += 1
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
         r.failed += 1
@@ -495,7 +495,7 @@ pub function runner_assert_str_ne(r: TestRunner, actual: string, expected: strin
     r.total += 1
     if streq(actual, expected) == false
         r.passed += 1
-        say "  [PASS] {msg}"
+        say f"  [PASS] {msg}"
         return true
     else
         r.failed += 1

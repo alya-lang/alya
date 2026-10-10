@@ -416,7 +416,7 @@ fn test_tokenize_runes_attributes_and_prefixes() {
             TokenType::Rune('🚀'),
             TokenType::Rune('\n'),
             TokenType::Number(65),
-            TokenType::String("val: {x}".into()),
+            TokenType::FormattedString("val: {x}".into()),
             TokenType::String("raw\\n".into()),
             TokenType::String("bytes".into()),
             TokenType::DotDotEqual,
@@ -489,4 +489,20 @@ fn test_tokenize_float_untouched() {
     assert_eq!(tokens[0].token_type, TokenType::Float(2.71));
     assert_eq!(tokens[1].token_type, TokenType::Float(1000.0));
     assert_eq!(tokens[2].token_type, TokenType::Float(0.5));
+}
+
+#[test]
+fn test_tokenize_string_kinds_f_only_formatted() {
+    // alya-lang/alya#155: only f-strings carry holes; every other kind
+    // is a plain String token even with braces inside.
+    let source = "f\"{x}\" \"{x}\" r\"\\d{4}\"";
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().expect("Tokenization failed");
+
+    assert_eq!(
+        tokens[0].token_type,
+        TokenType::FormattedString("{x}".into())
+    );
+    assert_eq!(tokens[1].token_type, TokenType::String("{x}".into()));
+    assert_eq!(tokens[2].token_type, TokenType::String("\\d{4}".into()));
 }

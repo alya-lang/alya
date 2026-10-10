@@ -7,7 +7,7 @@ impl Parser {
         self.advance(); // skip 'import'
 
         let path = match &self.current_token().token_type {
-            TokenType::String(s) => s.clone(),
+            TokenType::String(s) | TokenType::FormattedString(s) => s.clone(),
             _ => {
                 return Err(format!(
                     "Expected string literal after 'import' at line {}, column {}",
@@ -47,7 +47,7 @@ impl Parser {
         self.advance(); // skip 'from'
 
         let path = match &self.current_token().token_type {
-            TokenType::String(s) => {
+            TokenType::String(s) | TokenType::FormattedString(s) => {
                 let p = s.clone();
                 self.advance();
                 p
@@ -912,7 +912,7 @@ impl Parser {
         self.advance(); // skip 'extern'
 
         let abi = match &self.current_token().token_type {
-            TokenType::String(s) => s.clone(),
+            TokenType::String(s) | TokenType::FormattedString(s) => s.clone(),
             _ => {
                 return Err(format!(
                     "Expected ABI string literal after 'extern' (e.g. \"C\") at line {}, column {}",
@@ -926,7 +926,7 @@ impl Parser {
         let lib = if matches!(self.current_token().token_type, TokenType::From) {
             self.advance(); // skip 'from'
             let lib_name = match &self.current_token().token_type {
-                TokenType::String(s) => s.clone(),
+                TokenType::String(s) | TokenType::FormattedString(s) => s.clone(),
                 _ => {
                     return Err(format!(
                         "Expected library string literal after 'from' at line {}, column {}",
@@ -1276,7 +1276,7 @@ impl Parser {
                 ) {
                     let field_key = match &self.current_token().token_type {
                         TokenType::Identifier(s) => s.clone(),
-                        TokenType::String(s) => s.clone(),
+                        TokenType::String(s) | TokenType::FormattedString(s) => s.clone(),
                         _ => return Err("Expected property name in map destructuring".into()),
                     };
                     self.advance();

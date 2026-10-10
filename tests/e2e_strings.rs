@@ -9,11 +9,11 @@ function calc(a, b)
 end
 
 let name = "Alya"
-say "Welcome to {name}!"
-say "Call: {calc(3, 4)}"
+say f"Welcome to {name}!"
+say f"Call: {calc(3, 4)}"
 say "Math: {10 + 5 * 2}"
 let greeting = "   hello   "
-say "Method: {greeting.trim().upper()}"
+say f"Method: {greeting.trim().upper()}"
 say "Escaped: {{bracket}}"
 "#;
     if let Some(output) = run_alya_code(code) {
@@ -126,7 +126,7 @@ let single = ["solo"].join(",")
 say single
 
 let empty = [].join(",")
-say "empty: [{empty}]"
+say f"empty: [{empty}]"
 
 // Split delimiter not found
 let no_match = "standalone".split(",")
@@ -195,9 +195,9 @@ say " ".is_space()
 
 // Out of bounds safety
 let out1 = char_at(s, 50)
-say "oob: [{out1}]"
+say f"oob: [{out1}]"
 let out2 = s[-1]
-say "neg: [{out2}]"
+say f"neg: [{out2}]"
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
         assert_eq!(code, 0);
@@ -479,7 +479,7 @@ say str(0)
 say "Count: " + 42
 say 100 + " percent"
 let x = 50
-say "Val is {x}"
+say f"Val is {x}"
 say "item_" + 1 + "_part_" + 2
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
@@ -567,7 +567,7 @@ while i < len(apps)
     csv += apps[i]
     i += 1
 end
-say "csv: {csv}"
+say f"csv: {csv}"
 
 let single = apps[0]
 say "app: " + single
@@ -972,11 +972,11 @@ function ident(x)
     return x
 end
 let s = ident("aa")
-say "[{s}]"
+say f"[{s}]"
 let i = ident(42)
-say "[{i}]"
+say f"[{i}]"
 let n = ident(null)
-say "[{n}]"
+say f"[{n}]"
 say "[" + s + "]"
 "#;
     if let Some((code, output)) = run_alya_code_full(code) {
