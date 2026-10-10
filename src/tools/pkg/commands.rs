@@ -11,7 +11,10 @@ use super::hash::{
     compute_cache_key, compute_cache_key_rev, compute_package_checksum, verify_package_checksum,
     ChecksumVerdict,
 };
-use super::lock::{format_git_source, parse_git_source_rev, parse_lockfile, serialize_lockfile};
+use super::lock::{
+    format_git_source, parse_git_source_pin, parse_git_source_rev, parse_lockfile,
+    serialize_lockfile,
+};
 use super::manifest::{check_compiler_compatibility, parse_manifest, serialize_manifest};
 use super::resolver::{
     coalesce_semver_versions, compare_semver, copy_dir_all, fetch_git_or_archive_dependency,
@@ -472,6 +475,55 @@ fn warn_on_yanked_resolution(
     }
 }
 
+/// Resolves the effective git rev for a manifest pin against a lock
+/// entry, reporting whether the requirement moved.
+///
+/// - Explicit `rev` always wins (immutable).
+/// - Mutable pins (tag/branch) re-resolve live: a changed pin, a
+///   moved remote, or a lock poisoned by an older binary (new tag
+///   recorded with a stale SHA) all resolve fresh. Lookup failure
+///   (offline) falls back to the locked rev when the recorded pin
+///   still matches, else `None` (fresh resolve on next online run).
+/// - Bare floating refs keep the deterministic locked rev.
+///
+/// Returns `(effective_rev, pin_moved)`. (alya-lang/alya#162)
+fn resolve_git_effective_rev(
+    url: &str,
+    tag: Option<&str>,
+    branch: Option<&str>,
+    rev: Option<&str>,
+    locked_source: Option<&str>,
+) -> (Option<String>, bool) {
+    if rev.is_some() {
+        return (rev.map(|s| s.to_string()), false);
+    }
+    let locked_rev = locked_source.and_then(parse_git_source_rev);
+    let pin_unchanged = match (tag, branch) {
+        (Some(t), _) => locked_source.is_some_and(|s| {
+            parse_git_source_pin(s).is_some_and(|(kind, pinned)| kind == "tag" && pinned == *t)
+        }),
+        (None, Some(b)) => locked_source.is_some_and(|s| {
+            parse_git_source_pin(s).is_some_and(|(kind, pinned)| kind == "branch" && pinned == *b)
+        }),
+        (None, None) => true,
+    };
+    // Live re-resolution for mutable pins; silent failure keeps the
+    // deterministic offline behavior.
+    let live_rev: Option<String> = match (tag, branch) {
+        (Some(t), _) => query_tag_rev(url, t),
+        (None, Some(b)) => query_remote_branch_head(url, b),
+        (None, None) => None,
+    };
+    let moved = match (&live_rev, &locked_rev) {
+        (Some(live), Some(locked)) => live != locked,
+        // No locked SHA to compare against: only a changed pin counts
+        // as moved, so SHA-less locks keep the tamper check below.
+        _ => !pin_unchanged,
+    };
+    let effective = live_rev.or(if pin_unchanged { locked_rev } else { None });
+    (effective, moved)
+}
+
 fn ensure_dep_cached(
     name: &str,
     dep: &DependencySource,
@@ -504,11 +556,36 @@ fn ensure_dep_cached(
             rev,
             ..
         } => {
-            let locked_rev = existing_lock
-                .as_ref()
-                .and_then(|l| l.packages.iter().find(|p| p.name == name))
-                .and_then(|p| parse_git_source_rev(&p.source));
-            let effective_rev = rev.clone().or(locked_rev);
+            let locked_source = existing_lock.as_ref().and_then(|l| {
+                l.packages
+                    .iter()
+                    .find(|p| p.name == name)
+                    .map(|p| p.source.as_str())
+            });
+            // alya-lang/alya#162: reconcile the manifest pin with the
+            // lock (changed pins resolve fresh; moved remotes heal).
+            let (effective_rev, pin_moved) = resolve_git_effective_rev(
+                url,
+                tag.as_deref(),
+                branch.as_deref(),
+                rev.as_deref(),
+                locked_source,
+            );
+            if pin_moved {
+                if let (Some(live), Some(locked)) = (
+                    effective_rev.as_deref(),
+                    locked_source.and_then(parse_git_source_rev),
+                ) {
+                    if reported.insert(format!("{name}:pin-moved")) {
+                        println!(
+                            "  Notice: '{}' pin moved ({} -> {}); refreshing.",
+                            name,
+                            &locked[..7.min(locked.len())],
+                            &live[..7.min(live.len())]
+                        );
+                    }
+                }
+            }
 
             let tag_or_branch = tag
                 .as_deref()
@@ -516,16 +593,10 @@ fn ensure_dep_cached(
                 .or(effective_rev.as_deref())
                 .unwrap_or("head");
 
-            // Resolve moved tags to their current commit so the cache key
-            // below is revision-scoped. Lock-pinned revs win (deterministic,
-            // offline-safe); a live lookup happens only for fresh resolves,
-            // and any failure silently falls back to the legacy tag-only key.
-            let resolved_tag_rev: Option<String> = if effective_rev.is_none() {
-                tag.as_deref().and_then(|t| query_tag_rev(url, t))
-            } else {
-                None
-            };
-            let key_rev = effective_rev.as_deref().or(resolved_tag_rev.as_deref());
+            // The cache key is revision-scoped whenever a rev is known
+            // (locked, live-resolved, or explicit); otherwise it falls
+            // back to the legacy tag-only key.
+            let key_rev = effective_rev.as_deref();
             let cache_dir = get_global_cache_dir()
                 .unwrap_or_else(|| from_manifest_dir.join(".alya").join("cache"));
             let cache_key = compute_cache_key_rev(name, tag_or_branch, url, key_rev);
@@ -1187,6 +1258,12 @@ fn install_resolved(
             // intentionally omits dev-only trees (tests/, benches/), so its
             // content checksum legitimately differs from a source-tarball
             // install. The fresh checksum is still recorded below.
+            // A changed manifest pin (tag/branch/rev) is equally exempt
+            // (alya-lang/alya#162): the new tree is *expected* to differ,
+            // and verifying it against the stale lock would hard-error on
+            // every legitimate pin bump. An unchanged pin keeps the
+            // tamper check: manifest edits are user intent, silent swaps
+            // are not.
             let from_asset = dest_dir.join(".alya-asset").exists();
             if let Some(locked) = existing_lock.as_ref().and_then(|l| {
                 l.packages
@@ -1194,7 +1271,32 @@ fn install_resolved(
                     .find(|p| p.name == folder_name)
                     .or_else(|| l.packages.iter().find(|p| p.name == *name))
             }) {
-                if !locked.checksum.is_empty() && !from_asset {
+                let pin_changed = match &dep {
+                    DependencySource::Git {
+                        url,
+                        tag,
+                        branch,
+                        rev,
+                        ..
+                    } => {
+                        let (_, moved) = resolve_git_effective_rev(
+                            url,
+                            tag.as_deref(),
+                            branch.as_deref(),
+                            rev.as_deref(),
+                            Some(&locked.source),
+                        );
+                        moved
+                    }
+                    _ => false,
+                };
+                if pin_changed {
+                    println!(
+                        "  Notice: '{}' requirement moved; lock entry re-resolves (checksum refreshed).",
+                        name
+                    );
+                    // Fall through to re-lock below with the fresh checksum.
+                } else if !locked.checksum.is_empty() && !from_asset {
                     let lock_version = existing_lock.as_ref().map(|l| l.version).unwrap_or(1);
                     match verify_package_checksum(&dest_dir, &locked.checksum, lock_version)? {
                         ChecksumVerdict::Match => {}

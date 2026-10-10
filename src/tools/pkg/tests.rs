@@ -963,6 +963,193 @@ fn test_git_source_formatting_and_rev_parsing() {
 }
 
 #[test]
+fn test_git_source_pin_parsing() {
+    // alya-lang/alya#162: the recorded pin decides whether a locked
+    // rev survives a manifest edit.
+    use super::lock::parse_git_source_pin;
+    let url = "https://github.com/alya-lang/jwt";
+    assert_eq!(
+        parse_git_source_pin(&format!("git:{}?tag=v0.1.0#aa1446c", url)),
+        Some(("tag".to_string(), "v0.1.0".to_string()))
+    );
+    assert_eq!(
+        parse_git_source_pin(&format!("git:{}?branch=main#aa1446c", url)),
+        Some(("branch".to_string(), "main".to_string()))
+    );
+    // Bare rev/head sources record no pin.
+    assert_eq!(
+        parse_git_source_pin(&format!(
+            "git:{}#aa1446c94360e0059c0024f3600e553b5df19332",
+            url
+        )),
+        None
+    );
+    assert_eq!(parse_git_source_pin(&format!("git:{}#head", url)), None);
+    assert_eq!(
+        parse_git_source_pin("registry+https://example.com/x#v1"),
+        None
+    );
+}
+
+#[test]
+fn test_git_tag_bump_relocks() {
+    // alya-lang/alya#162 end to end over local git remotes: changing a
+    // tag pin must refresh the lock (stale SHAs never override the new
+    // pin), and a lock poisoned by an older binary (new tag recorded
+    // with a stale SHA) heals on plain install.
+    use std::process::Command;
+    if Command::new("git").arg("--version").output().is_err() {
+        return;
+    }
+    let _env_guard = crate::tools::pkg::lock_registry_env();
+    let pid = std::process::id();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let base = std::env::temp_dir().join(format!("alya_test_tagbump_{pid}_{nanos}"));
+    let _ = fs::remove_dir_all(&base);
+    let dep_dir = base.join("deppkg");
+    let app_dir = base.join("consumer");
+    fs::create_dir_all(dep_dir.join("src")).unwrap();
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+
+    // Isolate the global package cache per test process run.
+    let prev_home = std::env::var("ALYA_HOME").ok();
+    std::env::set_var("ALYA_HOME", base.join("home"));
+
+    let git = |dir: &std::path::Path, args: &[&str]| {
+        Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    };
+    let rev = |dir: &std::path::Path| {
+        String::from_utf8_lossy(
+            &Command::new("git")
+                .current_dir(dir)
+                .args(["rev-parse", "HEAD"])
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .trim()
+        .to_string()
+    };
+    let file_url =
+        |p: &std::path::Path| format!("file://{}", p.display().to_string().replace('\\', "/"));
+
+    fs::write(
+        dep_dir.join("alya.toml"),
+        "[package]\nname = \"deppkg\"\nversion = \"0.1.0\"\nentry = \"src/lib.alya\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dep_dir.join("src").join("lib.alya"),
+        "pub function marker() -> string\n    return \"v1\"\nend\n",
+    )
+    .unwrap();
+    assert!(git(&dep_dir, &["init", "-q", "-b", "main"]));
+    assert!(git(&dep_dir, &["config", "user.email", "t@t.t"]));
+    assert!(git(&dep_dir, &["config", "user.name", "t"]));
+    assert!(git(&dep_dir, &["add", "-A"]));
+    assert!(git(&dep_dir, &["commit", "-qm", "v1"]));
+    assert!(git(&dep_dir, &["tag", "v0.1.0"]));
+    let sha1 = rev(&dep_dir);
+
+    let manifest_for = |tag: &str| {
+        format!(
+            "[package]\nname = \"consumer\"\nversion = \"0.1.0\"\nentry = \"src/main.alya\"\n\n[dependencies]\ndeppkg = {{ git = \"{}\", tag = \"{}\" }}\n",
+            file_url(&dep_dir),
+            tag
+        )
+    };
+    fs::write(app_dir.join("alya.toml"), manifest_for("v0.1.0")).unwrap();
+    fs::write(app_dir.join("src").join("main.alya"), "say \"hi\"\n").unwrap();
+
+    run_install_in(&app_dir, false, &[], false, &[], false, &[]).unwrap();
+    let lock1 = fs::read_to_string(app_dir.join("alya.lock")).unwrap();
+    assert!(
+        lock1.contains("version = \"0.1.0\""),
+        "lock pins v0.1.0:\n{}",
+        lock1
+    );
+    assert!(lock1.contains(&sha1), "lock records v0.1.0 sha:\n{}", lock1);
+    let vendored1 = fs::read_to_string(
+        app_dir
+            .join(".alya")
+            .join("packages")
+            .join("deppkg")
+            .join("src")
+            .join("lib.alya"),
+    )
+    .unwrap();
+    assert!(vendored1.contains("\"v1\""), "v0.1.0 sources vendored");
+
+    // Bump the dep and the pin.
+    fs::write(
+        dep_dir.join("src").join("lib.alya"),
+        "pub function marker() -> string\n    return \"v2\"\nend\n",
+    )
+    .unwrap();
+    fs::write(
+        dep_dir.join("alya.toml"),
+        "[package]\nname = \"deppkg\"\nversion = \"0.1.1\"\nentry = \"src/lib.alya\"\n",
+    )
+    .unwrap();
+    assert!(git(&dep_dir, &["add", "-A"]));
+    assert!(git(&dep_dir, &["commit", "-qm", "v2"]));
+    assert!(git(&dep_dir, &["tag", "v0.1.1"]));
+    let sha2 = rev(&dep_dir);
+    assert_ne!(sha1, sha2);
+    fs::write(app_dir.join("alya.toml"), manifest_for("v0.1.1")).unwrap();
+
+    run_install_in(&app_dir, false, &[], false, &[], false, &[]).unwrap();
+    let lock2 = fs::read_to_string(app_dir.join("alya.lock")).unwrap();
+    assert!(
+        lock2.contains("version = \"0.1.1\""),
+        "lock must advance to v0.1.1:\n{}",
+        lock2
+    );
+    assert!(
+        lock2.contains(&format!("?tag=v0.1.1#{}", sha2)),
+        "lock records the new pin and sha:\n{}",
+        lock2
+    );
+    let vendored2 = fs::read_to_string(
+        app_dir
+            .join(".alya")
+            .join("packages")
+            .join("deppkg")
+            .join("src")
+            .join("lib.alya"),
+    )
+    .unwrap();
+    assert!(vendored2.contains("\"v2\""), "v0.1.1 sources vendored");
+
+    // Poison the lock the way older binaries wrote it (new tag, stale
+    // SHA): plain install must heal it without deleting anything.
+    let poisoned = lock2.replace(&sha2, &sha1);
+    assert_ne!(poisoned, lock2);
+    fs::write(app_dir.join("alya.lock"), &poisoned).unwrap();
+    run_install_in(&app_dir, false, &[], false, &[], false, &[]).unwrap();
+    let lock3 = fs::read_to_string(app_dir.join("alya.lock")).unwrap();
+    assert!(
+        lock3.contains(&sha2),
+        "poisoned lock must heal to the live sha:\n{}",
+        lock3
+    );
+
+    match prev_home {
+        Some(v) => std::env::set_var("ALYA_HOME", v),
+        None => std::env::remove_var("ALYA_HOME"),
+    }
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
 fn test_lockfile_dependencies_variations() {
     let lock_toml = r#"version = 1
 

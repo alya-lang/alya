@@ -176,3 +176,30 @@ pub fn parse_git_source_rev(source: &str) -> Option<String> {
     }
     None
 }
+
+/// Extracts the branch/tag pin recorded in a git source string, if any.
+///
+/// Returns `("tag"|"branch", name)` for `?tag=<t>#...` / `?branch=<b>#...`
+/// shapes; `None` for bare `#sha` / `#head` sources that record no pin
+/// (alya-lang/alya#162: without a recorded pin, a changed manifest pin
+/// cannot be told apart from a matching one).
+pub fn parse_git_source_pin(source: &str) -> Option<(String, String)> {
+    if !source.starts_with("git:") {
+        return None;
+    }
+    let after_prefix = &source[4..];
+    let (before_frag, _) = after_prefix.split_once('#').unwrap_or((after_prefix, ""));
+    for part in before_frag.split(['?', '&']) {
+        if let Some(t) = part.strip_prefix("tag=") {
+            if !t.is_empty() {
+                return Some(("tag".to_string(), t.to_string()));
+            }
+        }
+        if let Some(b) = part.strip_prefix("branch=") {
+            if !b.is_empty() {
+                return Some(("branch".to_string(), b.to_string()));
+            }
+        }
+    }
+    None
+}
