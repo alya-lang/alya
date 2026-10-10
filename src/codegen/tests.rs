@@ -1282,3 +1282,57 @@ fn test_arm64_thread_proc_preserves_callee_saved_registers() {
     assert!(asm.contains("stp x27, x28, [sp, #80]"));
     assert!(asm.contains("ldp x27, x28, [sp, #80]"));
 }
+
+// Regression (alya-lang/alya#152): int() on plain ints >= 65536 crashed
+// (fn_str_to_int mistook them for string pointers and dereferenced them),
+// and int() on int64-range mixed-map dynamics returned garbage (95) by
+// treating the bits as float. Statically-known ints now pass through,
+// and tag-carrying reads dispatch on the KIND tag.
+#[test]
+fn test_codegen_int_builtin_static_bigint_passthrough() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = "function main() say int(65536) end";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    // No conversion call on either arch: the literal is already an int.
+    let asm_x64 = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    assert!(!asm_x64.contains("fn_str_to_int"));
+    let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(!asm_arm64.contains("fn_str_to_int"));
+}
+
+#[test]
+fn test_codegen_int_builtin_tag_dispatch_both_arches() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = r#"
+function main()
+    let m = { "big": 4636420632005836800 }
+    say int(m["big"])
+end
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    // x64: KIND_INT passthrough, KIND_FLOAT truncate, else string parse.
+    let asm_x64 = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    assert!(asm_x64.contains("cmpl $1, %edx"));
+    assert!(asm_x64.contains("cmpl $2, %edx"));
+    assert!(asm_x64.contains("call fn_str_to_int"));
+    assert!(asm_x64.contains("cvttsd2siq"));
+
+    // ARM64 mirror: w1 tag, atof-free int path kept as fallback.
+    let asm_arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(asm_arm64.contains("cmp w1, #1"));
+    assert!(asm_arm64.contains("cmp w1, #2"));
+    assert!(asm_arm64.contains("bl fn_str_to_int"));
+    assert!(asm_arm64.contains("fcvtzs x0, d0"));
+}
