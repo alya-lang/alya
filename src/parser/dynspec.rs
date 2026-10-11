@@ -202,6 +202,139 @@ fn stmt_tests_params(stmt: &Stmt, params: &HashSet<String>) -> bool {
     }
 }
 
+fn expr_poly_params(expr: &Expr, params: &HashSet<String>) -> bool {
+    match expr {
+        Expr::Call { name, args } => {
+            let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            if matches!(
+                bare,
+                "int"
+                    | "to_int"
+                    | "parse_int"
+                    | "float"
+                    | "to_float"
+                    | "str"
+                    | "to_str"
+                    | "len"
+                    | "length"
+            ) {
+                if let Some(Expr::Identifier(pname)) = args.first() {
+                    if params.contains(pname) {
+                        return true;
+                    }
+                }
+            }
+            args.iter().any(|a| expr_poly_params(a, params))
+        }
+        Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+            if let Expr::Identifier(name) = &**array {
+                if params.contains(name) {
+                    return true;
+                }
+            }
+            expr_poly_params(array, params) || expr_poly_params(index, params)
+        }
+        Expr::Unary { expr: inner, .. } | Expr::ForceUnwrap(inner) => {
+            expr_poly_params(inner, params)
+        }
+        Expr::Binary { left, right, .. } => {
+            expr_poly_params(left, params) || expr_poly_params(right, params)
+        }
+        Expr::Array(args) | Expr::InterpolatedString(args) => {
+            args.iter().any(|a| expr_poly_params(a, params))
+        }
+        Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+            expr_poly_params(object, params)
+        }
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            expr_poly_params(condition, params)
+                || expr_poly_params(then_branch, params)
+                || expr_poly_params(else_branch, params)
+        }
+        Expr::NullCoalesce { value, default } => {
+            expr_poly_params(value, params) || expr_poly_params(default, params)
+        }
+        Expr::StructInit { fields, .. } => fields.iter().any(|(_, v)| expr_poly_params(v, params)),
+        Expr::Map(pairs) => pairs
+            .iter()
+            .any(|(k, v)| expr_poly_params(k, params) || expr_poly_params(v, params)),
+        Expr::Cast { expr: inner, .. } => expr_poly_params(inner, params),
+        Expr::OptionalCall { args, .. } => args.iter().any(|a| expr_poly_params(a, params)),
+        _ => false,
+    }
+}
+
+fn stmts_poly_params(stmts: &[Stmt], params: &HashSet<String>) -> bool {
+    stmts.iter().any(|s| stmt_poly_params(s, params))
+}
+
+fn stmt_poly_params(stmt: &Stmt, params: &HashSet<String>) -> bool {
+    match stmt.inner_stmt() {
+        Stmt::Let { value, .. }
+        | Stmt::Assign { value, .. }
+        | Stmt::Say(value)
+        | Stmt::Expr(value)
+        | Stmt::Return(Some(value))
+        | Stmt::Throw(Some(value)) => expr_poly_params(value, params),
+        Stmt::Const { value, .. } => expr_poly_params(value, params),
+        Stmt::IndexAssign {
+            array,
+            index,
+            value,
+        } => {
+            expr_poly_params(array, params)
+                || expr_poly_params(index, params)
+                || expr_poly_params(value, params)
+        }
+        Stmt::FieldAssign { object, .. } => expr_poly_params(object, params),
+        Stmt::If {
+            condition,
+            then_block,
+            else_block,
+        } => {
+            expr_poly_params(condition, params)
+                || stmts_poly_params(then_block, params)
+                || else_block
+                    .as_ref()
+                    .is_some_and(|eb| stmts_poly_params(eb, params))
+        }
+        Stmt::While { condition, body } => {
+            expr_poly_params(condition, params) || stmts_poly_params(body, params)
+        }
+        Stmt::Repeat { body } => stmts_poly_params(body, params),
+        Stmt::ForEach { iterable, body, .. } => {
+            expr_poly_params(iterable, params) || stmts_poly_params(body, params)
+        }
+        Stmt::For {
+            start, end, body, ..
+        } => {
+            expr_poly_params(start, params)
+                || expr_poly_params(end, params)
+                || stmts_poly_params(body, params)
+        }
+        Stmt::TryCatch {
+            try_block,
+            catch_block,
+            finally_block,
+            ..
+        } => {
+            stmts_poly_params(try_block, params)
+                || stmts_poly_params(catch_block, params)
+                || finally_block
+                    .as_ref()
+                    .is_some_and(|fb| stmts_poly_params(fb, params))
+        }
+        Stmt::Defer(inner) | Stmt::Pub(inner) => stmt_poly_params(inner, params),
+        Stmt::Function { body, .. } => stmts_poly_params(body, params),
+        _ => false,
+    }
+}
+
 fn expr_tests_param_null(expr: &Expr, param: &str) -> bool {
     match expr {
         Expr::TypeCheck {
@@ -348,6 +481,7 @@ fn collect_candidates(program: &Program) -> HashMap<String, Candidate> {
             param_types,
             body,
             type_params,
+            return_type,
             ..
         } = stmt.inner_stmt()
         {
@@ -360,7 +494,12 @@ fn collect_candidates(program: &Program) -> HashMap<String, Candidate> {
                 .filter(|(p, t)| t.is_none() && p.as_str() != "self")
                 .map(|(p, _)| p.clone())
                 .collect();
-            let tests = !untyped.is_empty() && stmts_test_params(body, &untyped);
+            // Specialize untyped params indexed (a[i]), sized (len(a)), or cast (int(v)/float(v))
+            // per call site to prevent string inference poisoning (#132) and float truncation (#152).
+            // Guard: return_type.is_none() avoids over-specializing annotated return functions.
+            let tests = !untyped.is_empty()
+                && (stmts_test_params(body, &untyped)
+                    || (return_type.is_none() && stmts_poly_params(body, &untyped)));
             let open_idx: Vec<usize> = params
                 .iter()
                 .enumerate()

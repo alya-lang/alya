@@ -1,0 +1,72 @@
+# ==============================================================================
+# Alya Integration Fixture 60 (entry): Untyped polymorphic dispatch and
+# multi-kind call site monomorphization.
+# Distilled from: alya-lang/alya#55 (untyped parameter multi-kind surface)
+# Guards:
+#   1. Untyped parameters indexed with [] or checked with len() specialize
+#      per call site without string/array inference poisoning (no 0xC0000005).
+#   2. Untyped parameters passed to int(v) preserve 64-bit integer values
+#      >= 65536 without float-truncation heuristic corruption.
+#   3. Untyped parameters passed to float(v) preserve float values.
+# ==============================================================================
+
+struct F
+    payload
+end
+
+function make_str(payload)
+    return F { payload: payload }
+end
+
+function make_arr(payload)
+    return F { payload: payload }
+end
+
+function usame(a, b)
+    if len(a) != len(b)
+        return 0
+    end
+    let i = 0
+    while i < len(a)
+        if a[i] != b[i]
+            return 0
+        end
+        i += 1
+    end
+    return 1
+end
+
+function test_multi_kind_indexing()
+    let s = make_str("hi")
+    let f = make_arr([72, 101, 0])
+    assert usame(f.payload, [72, 101, 0]) == 1
+    assert usame("hi", "hi") == 1
+    assert usame("hello", "world") == 0
+    assert usame([1, 2, 3], [1, 2, 4]) == 0
+end
+
+function cast_int(v)
+    return int(v)
+end
+
+function cast_flt(v)
+    return float(v)
+end
+
+function test_untyped_number_casts()
+    let m = { "small": 7, "big": 4636420632005836800, "score": 19.99, "count": 42 }
+    assert cast_int(m["small"]) == 7
+    assert cast_int(m["big"]) == 4636420632005836800
+    assert cast_int(12345678901234) == 12345678901234
+    assert cast_flt(m["score"]) == 19.99
+    assert cast_flt(m["count"]) == 42.0
+    assert cast_flt(3.14159) == 3.14159
+end
+
+function main()
+    test_multi_kind_indexing()
+    test_untyped_number_casts()
+    say "integration 60_untyped_poly_dispatch: OK"
+end
+
+main()
