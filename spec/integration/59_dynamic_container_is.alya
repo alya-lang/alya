@@ -1,0 +1,89 @@
+# ==============================================================================
+# Alya Integration Fixture 59 (entry): Dynamic container type checks (`is map` and `is array`).
+# Distilled from: alya-lang/alya#171 (Native is map/is array false for parser-produced
+# containers (call-site-dependent))
+# Guards:
+#   1. Untyped function return bound to local correctly evaluates `is map` and `is array`.
+#   2. Untyped parameter correctly evaluates `is map` and `is array`.
+#   3. Negative checks (`is not map`, `is not array`) work consistently on dynamic containers.
+#   4. Proven non-containers (int, float, string, null) evaluate `is map`/`is array` to false.
+# ==============================================================================
+
+function make_map()
+    let m = { "key": "value" }
+    return m
+end
+
+function make_array()
+    let a = [1, 2, 3]
+    return a
+end
+
+function make_int()
+    return 42
+end
+
+function check_is_map(v)
+    return v is map
+end
+
+function check_is_array(v)
+    return v is array
+end
+
+function test_dynamic_map()
+    let m = make_map()
+    assert m is map
+    assert not (m is not map)
+    assert not (m is array)
+    assert m is not array
+    assert check_is_map(m)
+    assert not check_is_array(m)
+end
+
+function test_dynamic_array()
+    let a = make_array()
+    assert a is array
+    assert not (a is not array)
+    assert not (a is map)
+    assert a is not map
+    assert check_is_array(a)
+    assert not check_is_map(a)
+end
+
+function test_literals_and_proven_types()
+    let m_lit = { "a": 1 }
+    assert m_lit is map
+    assert not (m_lit is array)
+
+    let a_lit = [10, 20]
+    assert a_lit is array
+    assert not (a_lit is map)
+
+    let n = make_int()
+    assert not (n is map)
+    assert n is not map
+    assert not (n is array)
+    assert n is not array
+
+    let n_lit = 100
+    assert not (n_lit is map)
+    assert not (n_lit is array)
+
+    let s = "hello"
+    assert not (s is map)
+    assert not (s is array)
+
+    let nl = null
+    assert not (nl is map)
+    assert not (nl is array)
+end
+
+function main()
+    test_dynamic_map()
+    test_dynamic_array()
+    test_literals_and_proven_types()
+    say "integration 59_dynamic_container_is: OK"
+end
+
+main()

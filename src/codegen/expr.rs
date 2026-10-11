@@ -4553,11 +4553,14 @@ impl CodeGen {
                 // The legacy `is_array_expr` trusts the may-marking, which
                 // also covers merely-possible arrays.
                 let is_arr = is_array_fold_true(expr, &self.ctx.variables);
+                // alya-lang/alya#171: definite non-array requires proven int; loose
+                // Number-typed variables (e.g. untyped function returns) may hold
+                // dynamic arrays at runtime and must run emit_runtime_tag_check.
                 let is_def_non = is_string_fold_true(expr, &self.ctx.variables)
                     || is_map_fold_true(expr, &self.ctx.variables)
                     || is_float_expr(expr, &self.ctx.variables)
                     || is_null_expr(expr, &self.ctx.variables)
-                    || is_number_expr(expr, &self.ctx.variables);
+                    || is_proven_int_expr(expr, &self.ctx.variables);
                 if is_arr {
                     arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
                 } else if is_def_non {
@@ -4569,11 +4572,14 @@ impl CodeGen {
             "map" | "dict" => {
                 // alya-lang/alya#70: same exactness contract as above.
                 let is_map = is_map_fold_true(expr, &self.ctx.variables);
+                // alya-lang/alya#171: definite non-map requires proven int; loose
+                // Number-typed variables (e.g. untyped function returns) may hold
+                // dynamic maps at runtime and must run emit_runtime_tag_check.
                 let is_def_non = is_string_fold_true(expr, &self.ctx.variables)
                     || is_array_fold_true(expr, &self.ctx.variables)
                     || is_float_expr(expr, &self.ctx.variables)
                     || is_null_expr(expr, &self.ctx.variables)
-                    || is_number_expr(expr, &self.ctx.variables);
+                    || is_proven_int_expr(expr, &self.ctx.variables);
                 if is_map {
                     arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
                 } else if is_def_non {
