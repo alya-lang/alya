@@ -389,67 +389,6 @@ impl CodeGen {
                         self.generate_type_check(right, "null", *op == BinaryOp::NotEqual);
                         return;
                     }
-                    // Tag-carrying read vs numeric: if tag is KIND_NULL, never equal to number
-                    if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
-                        && ((right_num && is_tag_carrying_read(left, &self.ctx.variables))
-                            || (left_num && is_tag_carrying_read(right, &self.ctx.variables)))
-                    {
-                        let (read_expr, num_expr) =
-                            if is_tag_carrying_read(left, &self.ctx.variables) {
-                                (left, right)
-                            } else {
-                                (right, left)
-                            };
-                        let is_eq = *op == BinaryOp::Equal;
-                        self.generate_expression(read_expr);
-                        let l_not_null = self.ctx.next_label();
-                        let l_end = self.ctx.next_label();
-                        if matches!(self.arch, Architecture::X64) {
-                            self.output
-                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_NULL));
-                            self.output.push_str(&format!("    jne {}\n", l_not_null));
-                            if is_eq {
-                                self.output.push_str("    xor %eax, %eax\n");
-                            } else {
-                                self.output.push_str("    movq $1, %rax\n");
-                            }
-                            self.output.push_str(&format!("    jmp {}\n", l_end));
-                            self.output.push_str(&format!("{}:\n", l_not_null));
-                            self.output.push_str("    push %rax\n");
-                            self.generate_expression(num_expr);
-                            self.output.push_str("    pop %rbx\n");
-                            self.output.push_str("    cmp %rax, %rbx\n");
-                            if is_eq {
-                                self.output.push_str("    sete %al\n");
-                            } else {
-                                self.output.push_str("    setne %al\n");
-                            }
-                            self.output.push_str("    movzbq %al, %rax\n");
-                            self.output.push_str(&format!("{}:\n", l_end));
-                        } else {
-                            self.output
-                                .push_str(&format!("    cmp w1, #{}\n", KIND_NULL));
-                            self.output.push_str(&format!("    b.ne {}\n", l_not_null));
-                            if is_eq {
-                                self.output.push_str("    mov x0, #0\n");
-                            } else {
-                                self.output.push_str("    mov x0, #1\n");
-                            }
-                            self.output.push_str(&format!("    b {}\n", l_end));
-                            self.output.push_str(&format!("{}:\n", l_not_null));
-                            self.output.push_str("    str x0, [sp, #-16]!\n");
-                            self.generate_expression(num_expr);
-                            self.output.push_str("    ldr x1, [sp], #16\n");
-                            self.output.push_str("    cmp x1, x0\n");
-                            if is_eq {
-                                self.output.push_str("    cset x0, eq\n");
-                            } else {
-                                self.output.push_str("    cset x0, ne\n");
-                            }
-                            self.output.push_str(&format!("{}:\n", l_end));
-                        }
-                        return;
-                    }
                 }
 
                 if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
@@ -620,6 +559,55 @@ impl CodeGen {
                         {
                             arch::emit_mixed_float_check(&mut self.output, self.arch);
                         }
+                        if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
+                            && is_tag_carrying_read(left, &self.ctx.variables)
+                        {
+                            let l_not_null = self.ctx.next_label();
+                            let l_end = self.ctx.next_label();
+                            let is_eq = *op == BinaryOp::Equal;
+                            if matches!(self.arch, Architecture::X64) {
+                                self.output
+                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_NULL));
+                                self.output.push_str(&format!("    jne {}\n", l_not_null));
+                                if is_eq {
+                                    self.output.push_str("    xor %eax, %eax\n");
+                                } else {
+                                    self.output.push_str("    movq $1, %rax\n");
+                                }
+                                self.output.push_str(&format!("    jmp {}\n", l_end));
+                                self.output.push_str(&format!("{}:\n", l_not_null));
+                                arch::emit_binary_op_imm(
+                                    &mut self.output,
+                                    self.arch,
+                                    *op,
+                                    *n as i64,
+                                    is_unsigned_expr(left, &self.ctx.variables)
+                                        || is_unsigned_expr(right, &self.ctx.variables),
+                                );
+                                self.output.push_str(&format!("{}:\n", l_end));
+                            } else {
+                                self.output
+                                    .push_str(&format!("    cmp w1, #{}\n", KIND_NULL));
+                                self.output.push_str(&format!("    b.ne {}\n", l_not_null));
+                                if is_eq {
+                                    self.output.push_str("    mov x0, #0\n");
+                                } else {
+                                    self.output.push_str("    mov x0, #1\n");
+                                }
+                                self.output.push_str(&format!("    b {}\n", l_end));
+                                self.output.push_str(&format!("{}:\n", l_not_null));
+                                arch::emit_binary_op_imm(
+                                    &mut self.output,
+                                    self.arch,
+                                    *op,
+                                    *n as i64,
+                                    is_unsigned_expr(left, &self.ctx.variables)
+                                        || is_unsigned_expr(right, &self.ctx.variables),
+                                );
+                                self.output.push_str(&format!("{}:\n", l_end));
+                            }
+                            return;
+                        }
                         arch::emit_binary_op_imm(
                             &mut self.output,
                             self.arch,
@@ -685,6 +673,55 @@ impl CodeGen {
                                 && is_tag_carrying_read(right, &self.ctx.variables)
                             {
                                 arch::emit_mixed_float_check(&mut self.output, self.arch);
+                            }
+                            if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
+                                && is_tag_carrying_read(right, &self.ctx.variables)
+                            {
+                                let l_not_null = self.ctx.next_label();
+                                let l_end = self.ctx.next_label();
+                                let is_eq = *op == BinaryOp::Equal;
+                                if matches!(self.arch, Architecture::X64) {
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_NULL));
+                                    self.output.push_str(&format!("    jne {}\n", l_not_null));
+                                    if is_eq {
+                                        self.output.push_str("    xor %eax, %eax\n");
+                                    } else {
+                                        self.output.push_str("    movq $1, %rax\n");
+                                    }
+                                    self.output.push_str(&format!("    jmp {}\n", l_end));
+                                    self.output.push_str(&format!("{}:\n", l_not_null));
+                                    arch::emit_binary_op_imm(
+                                        &mut self.output,
+                                        self.arch,
+                                        *op,
+                                        *n as i64,
+                                        is_unsigned_expr(left, &self.ctx.variables)
+                                            || is_unsigned_expr(right, &self.ctx.variables),
+                                    );
+                                    self.output.push_str(&format!("{}:\n", l_end));
+                                } else {
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_NULL));
+                                    self.output.push_str(&format!("    b.ne {}\n", l_not_null));
+                                    if is_eq {
+                                        self.output.push_str("    mov x0, #0\n");
+                                    } else {
+                                        self.output.push_str("    mov x0, #1\n");
+                                    }
+                                    self.output.push_str(&format!("    b {}\n", l_end));
+                                    self.output.push_str(&format!("{}:\n", l_not_null));
+                                    arch::emit_binary_op_imm(
+                                        &mut self.output,
+                                        self.arch,
+                                        *op,
+                                        *n as i64,
+                                        is_unsigned_expr(left, &self.ctx.variables)
+                                            || is_unsigned_expr(right, &self.ctx.variables),
+                                    );
+                                    self.output.push_str(&format!("{}:\n", l_end));
+                                }
+                                return;
                             }
                             arch::emit_binary_op_imm(
                                 &mut self.output,

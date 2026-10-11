@@ -63,9 +63,15 @@ function test_containers()
     assert not (m["id"] is null)
     assert m["parent"] is null
     assert m["id"] == 0
+    assert 0 == m["id"]
     assert not (m["id"] == null)
+    assert not (null == m["id"])
     assert m["parent"] == null
+    assert null == m["parent"]
     assert not (m["parent"] == 0)
+    assert not (0 == m["parent"])
+    assert 0 != m["parent"]
+    assert m["parent"] != 0
     assert typeof(m["id"]) == "int"
     assert typeof(m["parent"]) == "null"
 end
