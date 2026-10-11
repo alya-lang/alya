@@ -2,8 +2,8 @@ use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::{
     escape_string, expr_mentions_var, is_array_expr, is_array_fold_true, is_definitely_not_numeric,
-    is_float_array, is_float_expr, is_map_expr, is_null_expr, is_number_expr, is_proven_int_expr,
-    is_string_array, is_string_expr, is_tag_carrying_read, is_unsigned_expr,
+    is_float_array, is_float_expr, is_map_entry_int, is_map_expr, is_null_expr, is_number_expr,
+    is_proven_int_expr, is_string_array, is_string_expr, is_tag_carrying_read, is_unsigned_expr,
     string_store_needs_dup, struct_field_markers_mixed_vars, value_kind_tag,
 };
 use crate::codegen::arch;
@@ -125,6 +125,7 @@ impl CodeGen {
                     ) || matches!(value, Expr::Number(_))
                         || is_number_expr(value, &self.ctx.variables)
                         || is_proven_int_expr(value, &self.ctx.variables)
+                        || is_map_entry_int(value, &self.ctx.variables)
                     {
                         self.ctx
                             .variables
@@ -136,7 +137,9 @@ impl CodeGen {
                     // non-proven RHS may hold anything at runtime, so later
                     // conversions must take the heuristic path. Proven RHS
                     // clears (lets self-heal, e.g. shadowing).
-                    if is_proven_int_expr(value, &self.ctx.variables) {
+                    if is_proven_int_expr(value, &self.ctx.variables)
+                        || is_map_entry_int(value, &self.ctx.variables)
+                    {
                         self.ctx
                             .variables
                             .remove(&format!("var_rebound_nonint:{}", name));
@@ -886,6 +889,7 @@ impl CodeGen {
                     ) || matches!(value, Expr::Number(_))
                         || is_number_expr(value, &self.ctx.variables)
                         || is_proven_int_expr(value, &self.ctx.variables)
+                        || is_map_entry_int(value, &self.ctx.variables)
                     {
                         self.ctx
                             .variables
@@ -894,7 +898,9 @@ impl CodeGen {
                     // #151: conversion fast paths need exact int-ness (see
                     // the top-level `let` twin above): a non-proven RHS may
                     // hold anything at runtime.
-                    if is_proven_int_expr(value, &self.ctx.variables) {
+                    if is_proven_int_expr(value, &self.ctx.variables)
+                        || is_map_entry_int(value, &self.ctx.variables)
+                    {
                         self.ctx
                             .variables
                             .remove(&format!("var_rebound_nonint:{}", name));
@@ -1597,6 +1603,7 @@ impl CodeGen {
                             if matches!(value, Expr::Number(_))
                                 || is_number_expr(value, &self.ctx.variables)
                                 || is_proven_int_expr(value, &self.ctx.variables)
+                                || is_map_entry_int(value, &self.ctx.variables)
                             {
                                 self.ctx
                                     .variables
@@ -1607,7 +1614,9 @@ impl CodeGen {
                             // a non-proven RHS may hold anything, so later
                             // int()/float() must take the heuristic path.
                             // Proven RHS clears (rebinds self-heal).
-                            if is_proven_int_expr(value, &self.ctx.variables) {
+                            if is_proven_int_expr(value, &self.ctx.variables)
+                                || is_map_entry_int(value, &self.ctx.variables)
+                            {
                                 self.ctx
                                     .variables
                                     .remove(&format!("var_rebound_nonint:{}", name));

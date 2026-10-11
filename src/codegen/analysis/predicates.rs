@@ -2124,22 +2124,26 @@ pub fn is_proven_int_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool 
             vars.contains_key(&format!("var_is_int:{}", name))
                 && !vars.contains_key(&format!("var_rebound_nonint:{}", name))
         }
-        Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
-            if let Expr::String(field) = &**index {
-                if let Expr::Identifier(map_name) = &**array {
-                    if vars.contains_key(&format!("map_int:{}.{}", map_name, field)) {
-                        return true;
-                    }
-                }
-                if vars.contains_key(&format!("map_field_int:{}", field)) {
-                    return true;
-                }
-            }
-            false
-        }
         Expr::Call { name, .. } => call_returns_known_int(name, vars),
         _ => is_number_expr(expr, vars) && !is_float_expr(expr, vars),
     }
+}
+
+/// Returns true when `expr` is an index into a map slot statically known to hold an integer.
+pub fn is_map_entry_int(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    if let Expr::Index { array, index } | Expr::OptionalIndex { array, index } = expr {
+        if let Expr::String(field) = &**index {
+            if let Expr::Identifier(map_name) = &**array {
+                if vars.contains_key(&format!("map_int:{}.{}", map_name, field)) {
+                    return true;
+                }
+            }
+            if vars.contains_key(&format!("map_field_int:{}", field)) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Returns true when `expr` is provably NOT a plain number (a string,
