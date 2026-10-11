@@ -5722,11 +5722,11 @@ impl CodeGen {
                     } else {
                         format!(" in function '{}'", self.ctx.current_fn_name)
                     };
-                    eprintln!(
+                    // Guard against warn-and-miscompile: ambiguous layouts must never silently fall back to index 0.
+                    panic!(
                         "error: ambiguous field access '.{}' on untyped {}{}. Conflicting layouts found: {}. Please specify a type annotation.",
                         field, obj_desc, in_fn, details
                     );
-                    return None;
                 }
             }
             return Some((candidates[0].0.clone(), candidates[0].1));
