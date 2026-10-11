@@ -1,0 +1,31 @@
+# ==============================================================================
+# Alya Integration Fixture 54 (entry): Windows ARM64 extern double
+# routing follows AAPCS64 Stage C with a positional x-home
+# Distilled from: sqlite3_bind_double(stmt, idx, 19.99) storing a
+#                 ~1e-311 denormal on win-arm64 only
+#                 (alya-lang/alya#164).
+# Guards: non-variadic (ptr, int, double) routes to x0, x1, d0
+#         (separate NGRN/NSRN sequences) — the old x-mirror left the
+#         double in d2 while the callee reads d0, surfacing x0 pointer
+#         bits. The double additionally homes into its positional x
+#         slot for the MS variadic addendum (which reads no FP
+#         registers), so libc snprintf — fixed-declared here, variadic
+#         in C — keeps working on every leg. snprintf is
+#         libc-ubiquitous, so the harness executes this wherever a C
+#         toolchain exists (skips auditably where none does).
+# ==============================================================================
+
+extern "C"
+    function snprintf(buf: ptr, size: int, fmt: str, val: f64) -> i32
+end
+
+function main()
+    let buf = alloc(64)
+    let n = snprintf(buf, 64, "%f", 19.99)
+    assert_true(n > 0, "snprintf writes bytes")
+    assert_eq(str_from_ptr(buf), "19.990000", "double routes intact through FFI")
+    free(buf)
+    say "integration 54_winarm64_extern_float: OK"
+end
+
+main()

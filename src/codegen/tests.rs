@@ -907,13 +907,17 @@ fn test_arm64_extern_float_split_sequences() {
 }
 
 #[test]
-fn test_arm64_windows_extern_mirrors_to_fp() {
+fn test_arm64_windows_extern_float_split_with_x_home() {
     use crate::lexer::Lexer;
     use crate::parser::Parser;
 
-    // alya-lang/alya#160: Windows ARM64 follows the Win64 mirror
-    // convention (single x sequence homed into d0-d3), not the
-    // AAPCS64 split — a pure split prints 0.000000 on win-arm64.
+    // alya-lang/alya#164: Windows ARM64 follows the standard AAPCS64
+    // Stage C for non-variadic calls (separate NGRN/NSRN sequences),
+    // NOT the Win64 x-mirror. (ptr, str, f64) must land in x0, x1,
+    // d0; the old mirror (d2) fed the callee x0 pointer bits as a
+    // ~1e-311 denormal. The double additionally homes into its
+    // positional x slot (x2) for the MS variadic addendum, which
+    // reads no FP registers.
     let code = "extern \"C\"\n    function sprintf(buf: ptr, fmt: str, val: f64) -> i32\nend\nfunction main()\n    let buf = alloc(32)\n    sprintf(buf, \"%f\", 19.99)\nend\n";
     let mut lexer = Lexer::new(code);
     let tokens = lexer.tokenize().unwrap();
@@ -924,19 +928,58 @@ fn test_arm64_windows_extern_mirrors_to_fp() {
     let call_pos = asm.find("bl sprintf").expect("missing sprintf call");
     let region = &asm[..call_pos];
     // Isolate the call sequence (after the final arg push): float
-    // literal materialization above also uses fmov, so the negative
-    // assert must not scan the whole region.
+    // literal materialization above also uses fmov, so the asserts
+    // must not scan the whole region.
     let seq_start = region
         .rfind("str x0, [sp, #-16]!")
         .expect("missing final push");
     let seq = &region[seq_start..];
-    assert!(seq.contains("ldr x2, [sp], #16"), "loads first:\n{}", seq);
     assert!(
-        seq.contains("fmov d0, x0") && seq.contains("fmov d2, x2"),
-        "mirror lands before the call:\n{}",
+        seq.contains("fmov d0, x9"),
+        "double must ride d0 (first FP slot):\n{}",
         seq
     );
-    assert!(!seq.contains("x9"), "no AAPCS64 split placement:\n{}", seq);
+    assert!(
+        seq.contains("mov x2, x9"),
+        "double must home into positional x2 (variadic):\n{}",
+        seq
+    );
+    assert!(
+        !seq.contains("fmov d2,"),
+        "no x-mirrored d2 placement:\n{}",
+        seq
+    );
+}
+
+#[test]
+fn test_arm64_windows_bind_double_routes_d0() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // alya-lang/alya#164 reproducer shape: sqlite3_bind_double
+    // (stmt: ptr, idx: i32, val: f64) routes to x0, x1, d0. The old
+    // mirror left the double in d2 while the callee reads d0.
+    let code = "extern \"C\"\n    function sqlite3_bind_double(stmt: ptr, idx: i32, val: f64) -> i32\nend\nfunction main()\n    let s = alloc(8)\n    sqlite3_bind_double(s, 1, 19.99)\nend\n";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm = generate(&ast, Architecture::ARM64, OperatingSystem::Windows);
+    let call_pos = asm
+        .find("bl sqlite3_bind_double")
+        .expect("missing bind call");
+    let region = &asm[..call_pos];
+    let seq_start = region
+        .rfind("str x0, [sp, #-16]!")
+        .expect("missing final push");
+    let seq = &region[seq_start..];
+    assert!(seq.contains("fmov d0, x9"), "double must ride d0:\n{}", seq);
+    assert!(
+        seq.contains("mov x0, x9") && seq.contains("mov x1, x9"),
+        "ptr+int must ride x0/x1:\n{}",
+        seq
+    );
 }
 
 #[test]

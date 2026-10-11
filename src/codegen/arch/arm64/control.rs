@@ -187,45 +187,86 @@ pub fn emit_c_function_call(
         name.to_string()
     };
     if matches!(os, OperatingSystem::Windows) {
-        // Windows ARM64 follows the Win64 mirror convention (one x
-        // sequence homed into d0-d3), not the AAPCS64 split: load the
-        // x sequence, mirror the first four args into the FP file,
-        // THEN call, so fixed and variadic doubles alike arrive
-        // (alya-lang/alya#160: a pure split prints 0.000000; moves
-        // after the call are useless).
-        if args_count <= 8 {
-            for i in (0..args_count).rev() {
-                out.push_str(&format!("    ldr x{}, [sp], #16\n", i));
-            }
-        } else {
-            let extra_args = args_count - 8;
-            let needed = extra_args as i32 * 8;
-            let total_alloc = if needed % 16 == 0 { needed } else { needed + 8 };
-            for i in 0..8 {
-                let offset = (args_count - 1 - i) * 16;
-                out.push_str(&format!("    ldr x{}, [sp, #{}]\n", i, offset));
-            }
-            out.push_str(&format!("    sub sp, sp, #{}\n", total_alloc));
-            for k in 8..args_count {
-                let src_off = total_alloc + ((args_count - 1 - k) * 16) as i32;
-                let dst_off = ((k - 8) * 8) as i32;
-                out.push_str(&format!("    ldr x9, [sp, #{}]\n", src_off));
-                out.push_str(&format!("    str x9, [sp, #{}]\n", dst_off));
-            }
-            let call_insn = if target.starts_with('x') { "blr" } else { "bl" };
-            for i in 0..4 {
-                out.push_str(&format!("    fmov d{}, x{}\n", i, i));
-            }
-            out.push_str(&format!("    {} {}\n", call_insn, target));
-            let total_restore = total_alloc + args_count as i32 * 16;
-            out.push_str(&format!("    add sp, sp, #{}\n", total_restore));
-            return;
+        // Windows ARM64 follows the standard AAPCS64 Stage C for
+        // non-variadic calls (alya-lang/alya#164): ints ride x0-x7
+        // (NGRN) and floats d0-d7 (NSRN) in SEPARATE sequences, so a
+        // (ptr, int, double) call routes to x0, x1, d0. The old x-mirror
+        // (d2) fed the callee x0 pointer bits as a ~1e-311 denormal.
+        // The MS variadic addendum uses NO FP registers (everything
+        // rides xN positionally), so floats additionally home into
+        // their positional x slot when it is otherwise unclaimed —
+        // serving fixed and variadic callees at once. Stack-spilled
+        // (>8) args ride the split frame only.
+        #[derive(Clone, Copy)]
+        enum Route {
+            X(usize),
+            D(usize),
+            Stack(usize),
         }
-        for i in 0..args_count.min(4) {
-            out.push_str(&format!("    fmov d{}, x{}\n", i, i));
+        let mut routes = Vec::with_capacity(args_count);
+        let mut x = 0usize;
+        let mut d = 0usize;
+        let mut spilled = 0usize;
+        for i in 0..args_count {
+            let is_float = float_args.get(i).copied().unwrap_or(false);
+            if is_float {
+                if d < 8 {
+                    routes.push(Route::D(d));
+                    d += 1;
+                } else {
+                    routes.push(Route::Stack(spilled));
+                    spilled += 1;
+                }
+            } else if x < 8 {
+                routes.push(Route::X(x));
+                x += 1;
+            } else {
+                routes.push(Route::Stack(spilled));
+                spilled += 1;
+            }
+        }
+        let claimed_x = {
+            let mut claimed = [false; 8];
+            for r in &routes {
+                if let Route::X(g) = r {
+                    claimed[*g] = true;
+                }
+            }
+            claimed
+        };
+        let stack_bytes = spilled as i32 * 8;
+        let frame = stack_bytes + (16 - stack_bytes % 16) % 16;
+        if frame > 0 {
+            out.push_str(&format!("    sub sp, sp, #{}\n", frame));
+        }
+        for i in (0..args_count).rev() {
+            out.push_str(&format!(
+                "    ldr x9, [sp, #{}]\n",
+                frame + ((args_count - 1 - i) * 16) as i32
+            ));
+            match routes[i] {
+                Route::X(g) => out.push_str(&format!("    mov x{}, x9\n", g)),
+                Route::D(f) => out.push_str(&format!("    fmov d{}, x9\n", f)),
+                Route::Stack(s) => {
+                    out.push_str(&format!("    str x9, [sp, #{}]\n", s as i32 * 8));
+                    continue;
+                }
+            }
+            // Positional home for the variadic addendum (x[i]), when
+            // the split routing left that slot unused. A clash means
+            // another arg owns x[i]: the fixed route wins, the
+            // variadic shape of this arg is unserved (rare; declare
+            // such callees with matching arity instead).
+            if i < 8 && !claimed_x[i] {
+                out.push_str(&format!("    mov x{}, x9\n", i));
+            }
         }
         let call_insn = if target.starts_with('x') { "blr" } else { "bl" };
         out.push_str(&format!("    {} {}\n", call_insn, target));
+        out.push_str(&format!(
+            "    add sp, sp, #{}\n",
+            frame + args_count as i32 * 16
+        ));
         return;
     }
     // AAPCS64 (alya-lang/alya#160): ints ride x0-x7, floats d0-d7 in
