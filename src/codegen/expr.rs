@@ -4483,20 +4483,37 @@ impl CodeGen {
                     || is_array_expr(expr, &self.ctx.variables)
                     || is_map_expr(expr, &self.ctx.variables)
                     || is_null_expr(expr, &self.ctx.variables);
-                let result = if is_num || !is_non {
-                    if negated {
-                        0
-                    } else {
-                        1
-                    }
+                if is_num {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
+                } else if is_non {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 1 } else { 0 });
                 } else {
-                    if negated {
-                        1
-                    } else {
-                        0
+                    self.generate_expression(expr);
+                    arch::emit_push_temp(&mut self.output, self.arch);
+                    self.emit_runtime_classify(self.os);
+                    match self.arch {
+                        Architecture::X64 => {
+                            arch::emit_cmp_imm(&mut self.output, self.arch, KIND_INT);
+                            self.output.push_str(if negated {
+                                "    setne %al\n"
+                            } else {
+                                "    sete %al\n"
+                            });
+                            self.output.push_str("    movzbq %al, %rax\n");
+                        }
+                        Architecture::ARM64 => {
+                            self.output
+                                .push_str(&format!("    cmp x0, #{}\n", KIND_INT));
+                            self.output.push_str(if negated {
+                                "    cset x0, ne\n"
+                            } else {
+                                "    cset x0, eq\n"
+                            });
+                        }
                     }
-                };
-                arch::emit_load_num(&mut self.output, self.arch, result);
+                    let discard = self.temp_offset();
+                    arch::emit_stack_restore(&mut self.output, self.arch, discard);
+                }
             }
             "bool" | "boolean" => {
                 let is_non = is_string_expr(expr, &self.ctx.variables)
@@ -4504,20 +4521,54 @@ impl CodeGen {
                     || is_array_expr(expr, &self.ctx.variables)
                     || is_map_expr(expr, &self.ctx.variables)
                     || is_null_expr(expr, &self.ctx.variables);
-                let result = if !is_non {
-                    if negated {
-                        0
-                    } else {
-                        1
-                    }
-                } else {
-                    if negated {
-                        1
-                    } else {
-                        0
-                    }
+                let is_known_bool = match expr {
+                    Expr::Number(0 | 1) => true,
+                    Expr::Identifier(id) => self
+                        .ctx
+                        .variables
+                        .contains_key(&format!("var_is_bool:{}", id)),
+                    _ => false,
                 };
-                arch::emit_load_num(&mut self.output, self.arch, result);
+                if is_non {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 1 } else { 0 });
+                } else if is_known_bool {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
+                } else {
+                    let is_num = is_number_expr(expr, &self.ctx.variables);
+                    if is_num {
+                        arch::emit_load_num(
+                            &mut self.output,
+                            self.arch,
+                            if negated { 1 } else { 0 },
+                        );
+                    } else {
+                        self.generate_expression(expr);
+                        arch::emit_push_temp(&mut self.output, self.arch);
+                        self.emit_runtime_classify(self.os);
+                        match self.arch {
+                            Architecture::X64 => {
+                                arch::emit_cmp_imm(&mut self.output, self.arch, KIND_INT);
+                                self.output.push_str(if negated {
+                                    "    setne %al\n"
+                                } else {
+                                    "    sete %al\n"
+                                });
+                                self.output.push_str("    movzbq %al, %rax\n");
+                            }
+                            Architecture::ARM64 => {
+                                self.output
+                                    .push_str(&format!("    cmp x0, #{}\n", KIND_INT));
+                                self.output.push_str(if negated {
+                                    "    cset x0, ne\n"
+                                } else {
+                                    "    cset x0, eq\n"
+                                });
+                            }
+                        }
+                        let discard = self.temp_offset();
+                        arch::emit_stack_restore(&mut self.output, self.arch, discard);
+                    }
+                }
             }
             _ => {
                 let known_struct = match expr {
@@ -5445,24 +5496,28 @@ impl CodeGen {
                         distinct.push((bare, *idx));
                     }
                 }
-                let details = distinct
-                    .iter()
-                    .map(|(s, i)| format!("{}.{} (index {})", s, field, i))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let obj_desc = match base_obj {
-                    Expr::Identifier(id) => format!("'{}'", id),
-                    _ => "object".to_string(),
-                };
-                let in_fn = if self.ctx.current_fn_name.is_empty() {
-                    String::new()
-                } else {
-                    format!(" in function '{}'", self.ctx.current_fn_name)
-                };
-                eprintln!(
-                    "warning: ambiguous field access '.{}' on untyped {}{}. Conflicting layouts found: {}. Please specify a type annotation.",
-                    field, obj_desc, in_fn, details
-                );
+                if distinct.len() > 1 && distinct.iter().any(|(_, idx)| *idx != distinct[0].1) {
+                    distinct.sort_by(|a, b| a.0.cmp(b.0));
+                    let details = distinct
+                        .iter()
+                        .map(|(s, i)| format!("{}.{} (index {})", s, field, i))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let obj_desc = match base_obj {
+                        Expr::Identifier(id) => format!("'{}'", id),
+                        _ => "object".to_string(),
+                    };
+                    let in_fn = if self.ctx.current_fn_name.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" in function '{}'", self.ctx.current_fn_name)
+                    };
+                    eprintln!(
+                        "error: ambiguous field access '.{}' on untyped {}{}. Conflicting layouts found: {}. Please specify a type annotation.",
+                        field, obj_desc, in_fn, details
+                    );
+                    return None;
+                }
             }
             return Some((candidates[0].0.clone(), candidates[0].1));
         }

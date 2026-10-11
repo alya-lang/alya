@@ -1433,10 +1433,13 @@ impl CodeGen {
             .get(&sname)
             .or_else(|| self.ctx.structs.get(bare))?;
         let idx = sdef.fields.iter().position(|f| f == "message")?;
-        match sdef.field_types.get(idx).and_then(|t| t.as_deref()) {
-            Some("string") | Some("str") => Some(idx),
-            _ => None,
+        if let Some(Some(t)) = sdef.field_types.get(idx) {
+            let t_low = t.to_lowercase();
+            if t_low != "string" && t_low != "str" {
+                return None;
+            }
         }
+        Some(idx)
     }
 
     pub(crate) fn generate_throw(&mut self, opt_expr: Option<&Expr>) {

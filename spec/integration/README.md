@@ -66,6 +66,11 @@
 # | `48_trapped_type_errors.alya` | string-as-function call, `keys()` on string, int into string param (alya-lang/alya#154) | indirect calls trap provably-non-function values, `keys()` traps small/managed-string args, declared string params trap small-int arrivals at entry - all catchable; reassigned function holders keep working |
 # | `49_float_conversion_tagged.alya` | `float()` on big/static ints + mixed-map dynamics (alya-lang/alya#151) | proven ints convert exactly (never heuristic); tag-carrying map reads dispatch on KIND (FLOAT passthrough, INT convert, STRING parse); rebound-to-dynamic locals take the heuristic; opaque fn-boundary dynamics stay heuristic (#55) |
 # | `50_string_brace_literals.alya` | template braces in plain/raw/multiline strings (alya-lang/alya#155) | only f-strings interpolate; other kinds keep `{...}` verbatim while `{{`/`}}` collapse everywhere |
+# | `51_value_call_shadow.alya` + `51_value_call_helper.alya` | value-bound function call shadowing | value calls dispatched through variable identifiers correctly preserve closure/fn bindings |
+# | `52_dual_alias_leaf.alya` + `52_leaf_helper.alya` + `52_mid_dual_alias.alya` | multi-hop alias re-export | transitive symbol exports across multiple alias hops resolve cleanly |
+# | `53_map_method_receiver.alya` | map method receiver resolution | method invocation on map receiver resolves appropriately |
+# | `54_winarm64_extern_float.alya` | Windows ARM64 extern float calling convention | ABI compliance on Windows ARM64 for floating point parameters |
+# | `55_dynamic_is_not_and_throw.alya` | rebound dynamics `is not int`, untyped struct throw, 0 vs null idiom (alya-lang/alya#167) | null-rebound dynamic parameters preserve null kind in dynspec; runtime is/is-not checks classify correctly; untyped struct throws format message field; 0 vs null blessed idiom |
 #
 # ## Known collision (deliberate rename)
 #

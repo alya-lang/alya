@@ -30,6 +30,7 @@ fn arg_kind_code(arg: &Expr) -> Option<char> {
         Expr::String(_) => Some('s'),
         Expr::Array(_) => Some('a'),
         Expr::Map(_) => Some('m'),
+        Expr::Null => Some('n'),
         _ => None,
     }
 }
@@ -66,7 +67,7 @@ pub fn dynspec_codes(fn_name: &str) -> Option<Vec<char>> {
     if suffix.is_empty()
         || !suffix
             .chars()
-            .all(|c| matches!(c, 'i' | 'f' | 's' | 'a' | 'm'))
+            .all(|c| matches!(c, 'i' | 'f' | 's' | 'a' | 'm' | 'n'))
     {
         return None;
     }

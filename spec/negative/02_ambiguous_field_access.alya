@@ -1,0 +1,15 @@
+# EXPECT-FAIL: check: ambiguous field access
+
+struct Alpha
+    id
+    val
+end
+
+struct Beta
+    val
+    id
+end
+
+function inspect(x)
+    return x.val
+end

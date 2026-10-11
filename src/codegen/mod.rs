@@ -2073,7 +2073,14 @@ impl CodeGen {
                     // Specialized params skip the untyped marker (their
                     // kind is proven); int-specialized ones gain the int
                     // marker exactly like explicitly-typed ints.
-                    if spec_kind.is_none() {
+                    if spec_kind == Some('n') {
+                        self.ctx
+                            .variables
+                            .insert(param.clone(), VarType::Null(self.ctx.stack_offset));
+                        self.ctx
+                            .variables
+                            .insert(format!("param_is_null:{}", param), VarType::Number(0));
+                    } else if spec_kind.is_none() {
                         self.ctx
                             .variables
                             .insert(format!("param_is_untyped:{}", param), VarType::Number(0));
@@ -2098,9 +2105,11 @@ impl CodeGen {
                             .insert(format!("var_is_uint:{}", param), VarType::Number(0));
                     }
                 }
-                self.ctx
-                    .variables
-                    .insert(param.clone(), VarType::Number(self.ctx.stack_offset));
+                if spec_kind != Some('n') {
+                    self.ctx
+                        .variables
+                        .insert(param.clone(), VarType::Number(self.ctx.stack_offset));
+                }
             }
 
             let is_heap_param = struct_type.is_some()

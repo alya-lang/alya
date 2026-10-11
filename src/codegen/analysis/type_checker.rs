@@ -428,6 +428,7 @@ struct StructSig {
     name: String,
     fields: HashMap<String, Type>,
     positional_fields: Vec<Type>,
+    field_order: Vec<String>,
 }
 
 /// Per-scope arrays with statically visible element-kind evidence
@@ -1777,8 +1778,16 @@ impl TypeChecker {
                 self.check_expr(array)?;
                 self.check_expr(index)?;
             }
-            Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+            Expr::FieldAccess { object, field } | Expr::OptionalFieldAccess { object, field } => {
                 self.check_expr(object)?;
+                let obj_type = self.infer_expr(object).unwrap_or(Type::Any);
+                let base_type = match &obj_type {
+                    Type::Nullable(inner) => inner.as_ref(),
+                    other => other,
+                };
+                if matches!(base_type, Type::Any) {
+                    self.check_untyped_field_access(object, field)?;
+                }
             }
             Expr::Ternary {
                 condition,
@@ -1928,6 +1937,107 @@ impl TypeChecker {
             }
             _ => {}
         }
+        Ok(())
+    }
+
+    fn check_untyped_field_access(&self, object: &Expr, field: &str) -> Result<(), String> {
+        if field == "length" || field == "len" || field == "message" {
+            return Ok(());
+        }
+        let base_obj = match object {
+            Expr::OptionalFieldAccess { object: inner, .. } => inner.as_ref(),
+            Expr::ForceUnwrap(inner) => inner.as_ref(),
+            _ => object,
+        };
+
+        // 1. Variable name matching heuristic (mirrors codegen rule 2)
+        let name_opt = match base_obj {
+            Expr::Identifier(obj_name) => Some(obj_name.as_str()),
+            Expr::FieldAccess {
+                field: inner_field, ..
+            }
+            | Expr::OptionalFieldAccess {
+                field: inner_field, ..
+            } => Some(inner_field.as_str()),
+            _ => None,
+        };
+
+        if let Some(name_str) = name_opt {
+            let lower = name_str.to_lowercase();
+            let norm_var = lower.replace('_', "");
+
+            let mut matches: Vec<(i32, &String, usize)> = Vec::new();
+            for (sname, sdef) in &self.structs {
+                if let Some(idx) = sdef.field_order.iter().position(|f| f == field) {
+                    let s_lower = sname.to_lowercase();
+                    let s_bare = s_lower.rsplit("::").next().unwrap_or(&s_lower);
+                    let s_bare = s_bare.rsplit("__").next().unwrap_or(s_bare);
+                    let norm_struct = s_bare.replace('_', "");
+
+                    let score = if norm_struct == norm_var {
+                        3
+                    } else if norm_struct.ends_with(&norm_var) {
+                        2
+                    } else if norm_var.ends_with(&norm_struct) {
+                        1
+                    } else {
+                        0
+                    };
+
+                    if score > 0 {
+                        matches.push((score, sname, idx));
+                    }
+                }
+            }
+
+            if !matches.is_empty() {
+                return Ok(());
+            }
+        }
+
+        // 2. Fallback: match any struct containing this field
+        let mut candidates: Vec<(&String, usize)> = Vec::new();
+        for (sname, sdef) in &self.structs {
+            if let Some(idx) = sdef.field_order.iter().position(|f| f == field) {
+                candidates.push((sname, idx));
+            }
+        }
+
+        if !candidates.is_empty() {
+            candidates.sort_by(|a, b| a.0.cmp(b.0));
+            let first_idx = candidates[0].1;
+            if candidates.iter().any(|c| c.1 != first_idx) {
+                let mut distinct: Vec<(&str, usize)> = Vec::new();
+                for (sname, idx) in &candidates {
+                    let bare = sname.rsplit("::").next().unwrap_or(sname);
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    if !distinct.iter().any(|(b, _)| *b == bare) {
+                        distinct.push((bare, *idx));
+                    }
+                }
+                if distinct.len() > 1 && distinct.iter().any(|(_, idx)| *idx != distinct[0].1) {
+                    distinct.sort_by(|a, b| a.0.cmp(b.0));
+                    let details = distinct
+                        .iter()
+                        .map(|(s, i)| format!("{}.{} (index {})", s, field, i))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let obj_desc = match base_obj {
+                        Expr::Identifier(id) => format!("'{}'", id),
+                        _ => "object".to_string(),
+                    };
+                    let in_fn = match &self.current_fn_name {
+                        Some(name) if !name.is_empty() => format!(" in function '{}'", name),
+                        _ => String::new(),
+                    };
+                    return Err(format!(
+                        "TypeError: ambiguous field access '.{}' on untyped {}{}. Conflicting layouts found: {}. Please specify a type annotation.",
+                        field, obj_desc, in_fn, details
+                    ));
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -2420,6 +2530,7 @@ impl TypeChecker {
                     name: name.clone(),
                     fields: field_map,
                     positional_fields: positional,
+                    field_order: fields.clone(),
                 };
 
                 let bare = name.rsplit("::").next().unwrap_or(name);

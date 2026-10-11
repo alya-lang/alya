@@ -157,11 +157,27 @@ behavior marked "current engine" is netted by the existing test suite.
 | Subject | Decidable at runtime? |
 | :--- | :--- |
 | `null` | Yes — zero test. |
+| `null` vs `int(0)` | On tagged channels (array slots, dynspec call sites): Yes via kind tags (`v is int` vs `v is not int`). On untagged raw slots: No — both occupy the zero word (`0x0`); distinguish via static types (`int?`) or `(v is null) and (v is not int)` on tagged dynamics. |
 | `bool` vs `int` | No — identical encoding; static only. |
 | `int` vs `float` | No — overlapping bit patterns. |
 | heap vs scalar | Heuristic only — address-range checks plus header-kind reads. Large-int and float dynamics can alias heap pointers and fault on the header read (known limitation). |
 | map entry kinds | Yes where the engine's packed entry tags exist. |
-| array slot kinds | No — slots are bare payloads (gap; cf. alya-lang/alya#50). |
+| array slot kinds | Yes — tagged container sidecar (Phase 1). |
+
+##### 0 vs null Idiom on Dynamic Channels
+Because both integer `0` and `null` share the zero word representation (`0x0`) in unboxed slots, checking `v is null` evaluates to `true` for both when the slot is raw zero. However, when dynamic provenance or container tagging is present (such as array element reads or specialized dynamic call parameters), the runtime kind tag distinguishes them. The blessed idiom for testing if an unknown dynamic value `v` is specifically `null` rather than integer `0` is:
+```alya
+if (v is null) and (v is not int) then
+    # value is genuinely null, not integer 0
+end
+```
+Or positively:
+```alya
+if v is int then
+    # value is an integer (including 0), not null
+end
+```
+On untagged raw slots without provenance, functions should declare explicit optional static types (e.g. `val: int?`) so the compiler statically differentiates `null` from integer `0`.
 
 #### 3. Tag scheme (proposal; Phase 1 implemented)
 - **Phase 1 — container slots (implemented).** Array slots carry a kind

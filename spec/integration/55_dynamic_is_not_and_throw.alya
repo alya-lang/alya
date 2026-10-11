@@ -1,0 +1,67 @@
+# ==============================================================================
+# Alya Integration Fixture 55 (entry): dynamic is/is-not int and struct throw
+# Distilled from: alya-lang/alya#167 (is-family unsoundness on rebound dynamics)
+# Guards:
+#   1. Dynamic call arguments rebound with `null` must preserve null kind in
+#      dynspec, and runtime `is int` / `is not int` checks must classify null
+#      correctly (evaluating to false / true).
+#   2. Untyped struct definitions with a `message` field must record the message
+#      text when thrown and allow field reading in catch blocks without miscompilation.
+#   3. Blessed idiom (v is null) and (v is not int) reliably distinguishes null from 0.
+# ==============================================================================
+
+struct AppError
+    code
+    message
+end
+
+function check_is_int(v)
+    return v is int
+end
+
+function check_is_not_int(v)
+    return v is not int
+end
+
+function is_true_null(v)
+    return (v is null) and (v is not int)
+end
+
+function test_dynamic_is()
+    # Dynamic function calls
+    assert not check_is_int(null)
+    assert check_is_not_int(null)
+    assert check_is_int(0)
+    assert not check_is_not_int(0)
+    assert check_is_int(42)
+    assert not check_is_not_int(42)
+
+    # Top-level / local dynamic checks
+    let n = null
+    let z = 0
+    assert not (n is int)
+    assert n is not int
+    assert z is int
+    assert not (z is not int)
+
+    # Blessed 0 vs null idiom
+    assert is_true_null(null)
+    assert not is_true_null(0)
+end
+
+function test_struct_throw()
+    try
+        throw AppError(404, "not found")
+    catch err
+        assert err.code == 404
+        assert err.message == "not found"
+    end
+end
+
+function main()
+    test_dynamic_is()
+    test_struct_throw()
+    say "integration 55_dynamic_is_not_and_throw: OK"
+end
+
+main()

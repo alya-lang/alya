@@ -280,12 +280,51 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     // Prefer the struct `message` text carried as fn_throw's second
     // argument (block+3088); the raw value may be a struct pointer,
     // not a printable string.
+    out.push_str("    mov 3088(%r12), %rdx\n");
+    out.push_str("    test %rdx, %rdx\n");
+    out.push_str("    jnz .L_x64_fatal_have_msg\n");
+    out.push_str("    test %rbx, %rbx\n");
+    out.push_str("    jz .L_x64_fatal_default\n");
+    out.push_str("    test $7, %rbx\n");
+    out.push_str("    jnz .L_x64_fatal_default\n");
+    out.push_str("    cmp $65536, %rbx\n");
+    out.push_str("    jb .L_x64_fatal_default\n");
+    out.push_str("    mov $0x00007fffffffffff, %rdx\n");
+    out.push_str("    cmp %rdx, %rbx\n");
+    out.push_str("    ja .L_x64_fatal_default\n");
+    out.push_str("    movl -16(%rbx), %edx\n");
+    out.push_str("    cmpl $0x5A110003, %edx\n");
+    out.push_str("    jne .L_x64_fatal_default\n");
+    out.push_str("    movq (%rbx), %r10\n");
+    out.push_str("    test %r10, %r10\n");
+    out.push_str("    jz .L_x64_fatal_default\n");
+    out.push_str("    movq 8(%r10), %r8\n");
+    out.push_str("    xor %r9, %r9\n");
+    out.push_str(".L_x64_scan_fields:\n");
+    out.push_str("    cmp %r8, %r9\n");
+    out.push_str("    jae .L_x64_struct_no_msg\n");
+    out.push_str("    movq 16(%r10, %r9, 8), %r11\n");
+    out.push_str("    test %r11, %r11\n");
+    out.push_str("    jz .L_x64_next_field\n");
+    out.push_str("    mov $0x006567617373656d, %rax\n");
+    out.push_str("    cmpq %rax, (%r11)\n");
+    out.push_str("    je .L_x64_found_msg_field\n");
+    out.push_str(".L_x64_next_field:\n");
+    out.push_str("    inc %r9\n");
+    out.push_str("    jmp .L_x64_scan_fields\n");
+    out.push_str(".L_x64_found_msg_field:\n");
+    out.push_str("    inc %r9\n");
+    out.push_str("    movq (%rbx, %r9, 8), %rdx\n");
+    out.push_str("    test %rdx, %rdx\n");
+    out.push_str("    jnz .L_x64_fatal_have_msg\n");
+    out.push_str(".L_x64_struct_no_msg:\n");
+    out.push_str("    movq (%r10), %rdx\n");
+    out.push_str("    test %rdx, %rdx\n");
+    out.push_str("    jnz .L_x64_fatal_have_msg\n");
+    out.push_str(".L_x64_fatal_default:\n");
+    out.push_str("    mov %rbx, %rdx\n");
+    out.push_str(".L_x64_fatal_have_msg:\n");
     if is_win {
-        out.push_str("    mov 3088(%r12), %rdx\n");
-        out.push_str("    test %rdx, %rdx\n");
-        out.push_str("    jnz .L_x64_fatal_have_msg\n");
-        out.push_str("    mov %rbx, %rdx\n");
-        out.push_str(".L_x64_fatal_have_msg:\n");
         out.push_str("    sub $32, %rsp\n");
         out.push_str("    lea alya_fmt_runtime_err(%rip), %rcx\n");
         out.push_str("    call printf\n");
@@ -294,11 +333,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    mov $1, %rcx\n");
         out.push_str("    call exit\n\n");
     } else {
-        out.push_str("    mov 3088(%r12), %rsi\n");
-        out.push_str("    test %rsi, %rsi\n");
-        out.push_str("    jnz .L_x64_fatal_have_msg\n");
-        out.push_str("    mov %rbx, %rsi\n");
-        out.push_str(".L_x64_fatal_have_msg:\n");
+        out.push_str("    mov %rdx, %rsi\n");
         out.push_str("    lea alya_fmt_runtime_err(%rip), %rdi\n");
         out.push_str("    xor %rax, %rax\n");
         out.push_str(&format!("    call {}printf\n", p));
