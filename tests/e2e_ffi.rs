@@ -152,3 +152,49 @@ free(buf)
         );
     }
 }
+
+#[test]
+fn test_e2e_c_ffi_winarm64_sqlite_shaped_probe() {
+    // alya-lang/alya#164, second discriminator: the full sqlite bind
+    // shape (untyped chain, `when` dispatch over param kind, several
+    // extern call sites in one function). Green here while sqlite fails
+    // isolates the C object (sqlite3.c build) from our emission.
+    let code = r#"
+extern "C"
+    function snprintf(buf: ptr, size: int, fmt: str, val: f64) -> i32
+end
+
+extern "C"
+    function strlen(s: str) -> i32
+end
+
+struct DbParamLike
+    kind: int,
+    ival: int,
+    fval: float,
+    sval: string
+end
+
+function bind_params(buf, size, params)
+    let p = params[0]
+    let idx = 0 + 1
+    when p.kind
+        is 1 then
+            return strlen(p.sval)
+        is 2 then
+            return snprintf(buf, size, "%f", p.fval)
+        else return -1
+    end
+end
+
+let buf = alloc(64)
+let ps = [DbParamLike { kind: 2, ival: 0, fval: 19.99, sval: "" }]
+say bind_params(buf, 64, ps)
+say str_from_ptr(buf)
+free(buf)
+"#;
+    if let Some(output) = run_alya_code(code) {
+        println!("sqlite-shaped probe output:\n{}", output);
+        assert_eq!(output, "9\n19.990000\n", "probe output:\n{}", output);
+    }
+}
