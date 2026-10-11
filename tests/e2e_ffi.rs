@@ -113,3 +113,42 @@ say pow(n, 10.0)
         assert_eq!(output, "1024\n1024\n");
     }
 }
+
+#[test]
+fn test_e2e_c_ffi_winarm64_double_probe() {
+    // Diagnostic probe for alya-lang/alya#164: a double literal and a
+    // struct-field double through the same variadic extern call. Both
+    // lines must print 19.990000 on every leg; a field-only mismatch
+    // isolates value provenance from call lowering.
+    let code = r#"
+extern "C"
+    function snprintf(buf: ptr, size: int, fmt: str, val: f64) -> i32
+end
+
+struct ProbeParam
+    kind: int,
+    fval: float
+end
+
+function bind_field(buf, size, params, i)
+    let p = params[i]
+    snprintf(buf, size, "%f", p.fval)
+end
+
+let buf = alloc(64)
+snprintf(buf, 64, "%f", 19.99)
+say str_from_ptr(buf)
+let ps = [ProbeParam { kind: 2, fval: 19.99 }]
+bind_field(buf, 64, ps, 0)
+say str_from_ptr(buf)
+free(buf)
+"#;
+    if let Some(output) = run_alya_code(code) {
+        println!("double probe output:\n{}", output);
+        assert_eq!(
+            output, "19.990000\n19.990000\n",
+            "probe output:\n{}",
+            output
+        );
+    }
+}
