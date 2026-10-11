@@ -198,3 +198,50 @@ free(buf)
         assert_eq!(output, "9\n19.990000\n", "probe output:\n{}", output);
     }
 }
+
+#[test]
+fn test_e2e_c_ffi_winarm64_loop_bind_probe() {
+    // alya-lang/alya#164, third discriminator: loop-carried rebinds
+    // (`let p` / `let idx` fresh per iteration) over a mixed array.
+    // Green here isolates everything but the sqlite3.c object itself.
+    let code = r#"
+extern "C"
+    function snprintf(buf: ptr, size: int, fmt: str, val: f64) -> i32
+end
+
+struct DbParamLike
+    kind: int,
+    ival: int,
+    fval: float,
+    sval: string
+end
+
+function bind_params(buf, size, params)
+    let given = len(params)
+    let i = 0
+    while i < given
+        let p = params[i]
+        let idx = i + 1
+        when p.kind
+            is 1 then
+                say "int arm"
+            is 2 then
+                snprintf(buf, size, "%f", p.fval)
+            else say "other"
+        end
+        i = i + 1
+    end
+    return 0
+end
+
+let buf = alloc(64)
+let ps = [DbParamLike { kind: 1, ival: 7, fval: 0.0, sval: "x" }, DbParamLike { kind: 2, ival: 0, fval: 19.99, sval: "" }]
+bind_params(buf, 64, ps)
+say str_from_ptr(buf)
+free(buf)
+"#;
+    if let Some(output) = run_alya_code(code) {
+        println!("loop-bind probe output:\n{}", output);
+        assert_eq!(output, "int arm\n19.990000\n", "probe output:\n{}", output);
+    }
+}
