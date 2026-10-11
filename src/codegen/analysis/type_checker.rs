@@ -2745,3 +2745,377 @@ pub fn validate_types_with_warnings(program: &Program) -> (Vec<String>, Result<(
     let result = checker.check_program(program);
     (checker.warnings, result)
 }
+
+/// Traverses a program AST and verifies that every untyped field access can be
+/// resolved to a non-conflicting struct field layout (alya-lang/alya#169).
+/// Rejects ambiguous accesses with a compile-time `TypeError`.
+pub fn validate_untyped_field_access(program: &Program) -> Result<(), String> {
+    let mut checker = TypeChecker::new();
+
+    // 1. Collect all struct, enum, and function definitions so their layouts and signatures are known.
+    for stmt in &program.statements {
+        match stmt.inner_stmt() {
+            Stmt::StructDef {
+                name,
+                fields,
+                field_types,
+                ..
+            } => {
+                let mut field_map = HashMap::new();
+                let mut positional = Vec::new();
+                for (fname, ftype_opt) in fields.iter().zip(field_types.iter()) {
+                    let ftype = ftype_opt
+                        .as_ref()
+                        .map(|s| parse_type_str(s))
+                        .unwrap_or(Type::Any);
+                    field_map.insert(fname.clone(), ftype.clone());
+                    positional.push(ftype);
+                }
+
+                let sig = StructSig {
+                    name: name.clone(),
+                    fields: field_map,
+                    positional_fields: positional,
+                    field_order: fields.clone(),
+                };
+
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                checker.structs.insert(name.clone(), sig.clone());
+                if bare != name {
+                    checker.structs.insert(bare.to_string(), sig);
+                }
+            }
+            Stmt::EnumDef { name, .. } => {
+                checker.enums.insert(name.clone());
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if bare != name {
+                    checker.enums.insert(bare.to_string());
+                }
+            }
+            Stmt::Function {
+                name,
+                params: _,
+                param_types,
+                return_type,
+                ..
+            } => {
+                let ret = return_type
+                    .as_ref()
+                    .map(|s| parse_type_str(s))
+                    .unwrap_or(Type::Any);
+                let ptypes = param_types
+                    .iter()
+                    .map(|opt| opt.as_ref().map(|s| parse_type_str(s)).unwrap_or(Type::Any))
+                    .collect();
+                let sig = FnSig {
+                    name: name.clone(),
+                    param_types: ptypes,
+                    return_type: ret,
+                };
+                checker.functions.insert(name.clone(), sig.clone());
+                let bare = name.rsplit("::").next().unwrap_or(name);
+                let bare = bare.rsplit("__").next().unwrap_or(bare);
+                if bare != name {
+                    checker.functions.insert(bare.to_string(), sig);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn walk_expr(checker: &TypeChecker, expr: &Expr) -> Result<(), String> {
+        match expr {
+            Expr::FieldAccess { object, field } | Expr::OptionalFieldAccess { object, field } => {
+                let obj_type = checker.infer_expr(object).unwrap_or(Type::Any);
+                let base_type = match &obj_type {
+                    Type::Nullable(inner) => inner.as_ref(),
+                    other => other,
+                };
+                if matches!(base_type, Type::Any) {
+                    checker.check_untyped_field_access(object, field)?;
+                }
+                walk_expr(checker, object)?;
+            }
+            Expr::Call { args, .. } | Expr::OptionalCall { args, .. } => {
+                for a in args {
+                    walk_expr(checker, a)?;
+                }
+            }
+            Expr::Binary { left, right, .. } => {
+                walk_expr(checker, left)?;
+                walk_expr(checker, right)?;
+            }
+            Expr::Unary { expr, .. } | Expr::ForceUnwrap(expr) => {
+                walk_expr(checker, expr)?;
+            }
+            Expr::Array(items) | Expr::InterpolatedString(items) => {
+                for it in items {
+                    walk_expr(checker, it)?;
+                }
+            }
+            Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+                walk_expr(checker, array)?;
+                walk_expr(checker, index)?;
+            }
+            Expr::StructInit { fields, .. } => {
+                for (_, v) in fields {
+                    walk_expr(checker, v)?;
+                }
+            }
+            Expr::Map(entries) => {
+                for (k, v) in entries {
+                    walk_expr(checker, k)?;
+                    walk_expr(checker, v)?;
+                }
+            }
+            Expr::Ternary {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                walk_expr(checker, condition)?;
+                walk_expr(checker, then_branch)?;
+                walk_expr(checker, else_branch)?;
+            }
+            Expr::NullCoalesce { value, default } => {
+                walk_expr(checker, value)?;
+                walk_expr(checker, default)?;
+            }
+            Expr::TypeCheck { expr, .. } | Expr::Cast { expr, .. } => {
+                walk_expr(checker, expr)?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn walk_stmt(checker: &mut TypeChecker, stmt: &Stmt) -> Result<(), String> {
+        match stmt.inner_stmt() {
+            Stmt::Function {
+                name,
+                params,
+                param_types,
+                body,
+                ..
+            } => {
+                let prev_name = checker.current_fn_name.take();
+                checker.current_fn_name = Some(name.clone());
+                checker.push_scope();
+
+                let struct_self_type = checker.resolve_struct_for_method(name);
+
+                for (pname, ptype_opt) in params.iter().zip(param_types.iter()) {
+                    let pty = ptype_opt
+                        .as_ref()
+                        .map(|s| checker.resolve_type_str(s))
+                        .unwrap_or_else(|| {
+                            if pname == "self" {
+                                if let Some(st) = &struct_self_type {
+                                    return st.clone();
+                                }
+                            }
+                            Type::Any
+                        });
+                    checker.define_var(pname, pty);
+                }
+
+                for s in body {
+                    walk_stmt(checker, s)?;
+                }
+
+                checker.pop_scope();
+                checker.current_fn_name = prev_name;
+            }
+            Stmt::Let {
+                name,
+                type_ann,
+                value,
+            } => {
+                walk_expr(checker, value)?;
+                let var_ty = if let Some(ann) = type_ann {
+                    checker.resolve_type_str(ann)
+                } else {
+                    checker.infer_expr(value).unwrap_or(Type::Any)
+                };
+                checker.define_var(name, var_ty);
+            }
+            Stmt::Const { name, value } => {
+                walk_expr(checker, value)?;
+                let var_ty = checker.infer_expr(value).unwrap_or(Type::Any);
+                checker.define_var(name, var_ty);
+            }
+            Stmt::Assign { name, value } => {
+                walk_expr(checker, value)?;
+                checker.mark_assigned(name);
+                if checker.lookup_var(name).is_none() || checker.lookup_var(name) == Some(Type::Any)
+                {
+                    let val_type = checker.infer_expr(value).unwrap_or(Type::Any);
+                    if val_type != Type::Any {
+                        checker.define_var(name, val_type);
+                    }
+                }
+            }
+            Stmt::FieldAssign {
+                object,
+                field: _,
+                value,
+            } => {
+                walk_expr(checker, object)?;
+                walk_expr(checker, value)?;
+            }
+            Stmt::IndexAssign {
+                array,
+                index,
+                value,
+            } => {
+                walk_expr(checker, array)?;
+                walk_expr(checker, index)?;
+                walk_expr(checker, value)?;
+            }
+            Stmt::Say(expr)
+            | Stmt::Expr(expr)
+            | Stmt::Return(Some(expr))
+            | Stmt::Throw(Some(expr)) => {
+                walk_expr(checker, expr)?;
+            }
+            Stmt::If {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                walk_expr(checker, condition)?;
+                checker.push_scope();
+                for s in then_block {
+                    walk_stmt(checker, s)?;
+                }
+                checker.pop_scope();
+                if let Some(eb) = else_block {
+                    checker.push_scope();
+                    for s in eb {
+                        walk_stmt(checker, s)?;
+                    }
+                    checker.pop_scope();
+                }
+            }
+            Stmt::While { condition, body } => {
+                walk_expr(checker, condition)?;
+                checker.push_scope();
+                for s in body {
+                    walk_stmt(checker, s)?;
+                }
+                checker.pop_scope();
+            }
+            Stmt::Repeat { body } => {
+                checker.push_scope();
+                for s in body {
+                    walk_stmt(checker, s)?;
+                }
+                checker.pop_scope();
+            }
+            Stmt::For {
+                var,
+                start,
+                end,
+                body,
+                ..
+            } => {
+                walk_expr(checker, start)?;
+                walk_expr(checker, end)?;
+                checker.push_scope();
+                checker.define_var(var, Type::Int);
+                for s in body {
+                    walk_stmt(checker, s)?;
+                }
+                checker.pop_scope();
+            }
+            Stmt::ForEach {
+                var,
+                value_var,
+                iterable,
+                body,
+            } => {
+                walk_expr(checker, iterable)?;
+                let iter_type = checker.infer_expr(iterable).unwrap_or(Type::Any);
+                checker.push_scope();
+                match iter_type {
+                    Type::Array(elem) => {
+                        if let Some(val_name) = value_var {
+                            checker.define_var(var, Type::Int);
+                            checker.define_var(val_name, *elem);
+                        } else {
+                            checker.define_var(var, *elem);
+                        }
+                    }
+                    Type::Map(k, v) => {
+                        if let Some(val_name) = value_var {
+                            checker.define_var(var, *k);
+                            checker.define_var(val_name, *v);
+                        } else {
+                            checker.define_var(var, *k);
+                        }
+                    }
+                    Type::String => {
+                        if let Some(val_name) = value_var {
+                            checker.define_var(var, Type::Int);
+                            checker.define_var(val_name, Type::Rune);
+                        } else {
+                            checker.define_var(var, Type::Rune);
+                        }
+                    }
+                    _ => {
+                        checker.define_var(var, Type::Any);
+                        if let Some(val_name) = value_var {
+                            checker.define_var(val_name, Type::Any);
+                        }
+                    }
+                }
+                for s in body {
+                    walk_stmt(checker, s)?;
+                }
+                checker.pop_scope();
+            }
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                catch_var,
+                ..
+            } => {
+                checker.push_scope();
+                for s in try_block {
+                    walk_stmt(checker, s)?;
+                }
+                checker.pop_scope();
+
+                checker.push_scope();
+                if let Some(cvar) = catch_var {
+                    checker.define_var(cvar, Type::Any);
+                }
+                for s in catch_block {
+                    walk_stmt(checker, s)?;
+                }
+                checker.pop_scope();
+
+                if let Some(fb) = finally_block {
+                    checker.push_scope();
+                    for s in fb {
+                        walk_stmt(checker, s)?;
+                    }
+                    checker.pop_scope();
+                }
+            }
+            Stmt::Defer(inner) | Stmt::Pub(inner) => {
+                walk_stmt(checker, inner)?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    for stmt in &program.statements {
+        walk_stmt(&mut checker, stmt)?;
+    }
+    Ok(())
+}

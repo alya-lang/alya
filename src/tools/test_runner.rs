@@ -662,18 +662,12 @@ pub fn execute_test_file_cached(
     // are not already called manually (Chapter 18 §1.4, Chapter 22 §1.3).
     synthesize_test_calls(&mut ast, &test_entries);
 
-    // 3.5 Static Type Checking (Gradual Typing)
+    // 3.5 Check for ambiguous untyped field accesses (reject warn-and-miscompile at check-time, alya-lang/alya#169)
     let mut resolved_ast = ast.clone();
     crate::parser::enums::resolve_enums(&mut resolved_ast);
-    crate::parser::constants::resolve_and_validate_constants(&mut resolved_ast)
-        .map_err(|e| format!("Constant error in '{}': {}", path.display(), e))?;
     crate::parser::generics::resolve_generics(&mut resolved_ast);
-    let (type_warnings, type_result) =
-        crate::codegen::analysis::type_checker::validate_types_with_warnings(&resolved_ast);
-    for warning in type_warnings {
-        eprintln!("{} in '{}'", warning, path.display());
-    }
-    type_result.map_err(|e| format!("Type error in '{}': {}", path.display(), e))?;
+    crate::codegen::analysis::type_checker::validate_untyped_field_access(&resolved_ast)
+        .map_err(|e| format!("Type error in '{}': {}", path.display(), e))?;
 
     // 3c. Function inlining ahead of codegen (Chapter 18 §1.2), so DCE can
     // prune fully-inlined callees.
