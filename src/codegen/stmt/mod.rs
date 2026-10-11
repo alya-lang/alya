@@ -298,10 +298,9 @@ impl CodeGen {
                             Expr::Number(_) => Some(1),
                             Expr::String(_) => Some(3),
                             Expr::Float(_) => Some(2),
-                            // Null materializes KIND_UNKNOWN (0) so mixed
-                            // `return m[k]` / `return null` bodies qualify
-                            // without leaving a stale tag behind.
-                            Expr::Null => Some(0),
+                            // Null materializes KIND_NULL (7) so callers
+                            // can distinguish returned null from integer 0.
+                            Expr::Null => Some(crate::codegen::kinds::KIND_NULL),
                             _ => None,
                         };
                         if let Some(kind) = lit_kind {

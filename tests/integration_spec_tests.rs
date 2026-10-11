@@ -79,6 +79,7 @@ fn entry_files() -> Vec<String> {
         "53_map_method_receiver.alya".to_string(),
         "54_winarm64_extern_float.alya".to_string(),
         "55_dynamic_is_not_and_throw.alya".to_string(),
+        "56_null_zero_distinction.alya".to_string(),
     ]
 }
 

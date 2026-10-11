@@ -14,12 +14,14 @@ pub const KIND_STRING: i64 = 3;
 pub const KIND_ARRAY: i64 = 4;
 pub const KIND_MAP: i64 = 5;
 pub const KIND_STRUCT: i64 = 6;
+pub const KIND_NULL: i64 = 7;
 
 /// Kind of a literal value for tag recording (map `set`, and Phase 1
 /// array `push`). Returns `None` for dynamic values, which keep the
 /// unknown tag (0) so readers fall back to inference.
 pub fn kind_of_literal(value: &Expr) -> Option<i64> {
     match value {
+        Expr::Null => Some(KIND_NULL),
         Expr::String(_) => Some(KIND_STRING),
         Expr::Float(_) => Some(KIND_FLOAT),
         Expr::Number(_) => Some(KIND_INT),
@@ -44,5 +46,6 @@ mod tests {
         assert_eq!(KIND_ARRAY, 4);
         assert_eq!(KIND_MAP, 5);
         assert_eq!(KIND_STRUCT, 6);
+        assert_eq!(KIND_NULL, 7);
     }
 }

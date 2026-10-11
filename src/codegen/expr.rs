@@ -10,7 +10,7 @@ use crate::codegen::analysis::{
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
-use crate::codegen::kinds::{KIND_FLOAT, KIND_INT, KIND_STRING, KIND_UNKNOWN};
+use crate::codegen::kinds::{KIND_FLOAT, KIND_INT, KIND_NULL, KIND_STRING, KIND_UNKNOWN};
 use crate::codegen::target::{Architecture, OperatingSystem};
 use std::collections::HashMap;
 
@@ -359,6 +359,99 @@ impl CodeGen {
                 // marked side is re-verified instead of trusted.
                 // Literals, floats, maps, arrays, nulls, and proven
                 // integers keep their existing paths exactly.
+                if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual) {
+                    let left_null = is_null_expr(left, &self.ctx.variables);
+                    let right_null = is_null_expr(right, &self.ctx.variables);
+                    let left_num = is_number_expr(left, &self.ctx.variables);
+                    let right_num = is_number_expr(right, &self.ctx.variables);
+                    if (left_null && right_num) || (right_null && left_num) {
+                        arch::emit_load_num(
+                            &mut self.output,
+                            self.arch,
+                            if *op == BinaryOp::Equal { 0 } else { 1 },
+                        );
+                        return;
+                    }
+                    if left_null && right_null {
+                        arch::emit_load_num(
+                            &mut self.output,
+                            self.arch,
+                            if *op == BinaryOp::Equal { 1 } else { 0 },
+                        );
+                        return;
+                    }
+                    // Tag-carrying read vs null: route through type-check
+                    if right_null && is_tag_carrying_read(left, &self.ctx.variables) {
+                        self.generate_type_check(left, "null", *op == BinaryOp::NotEqual);
+                        return;
+                    }
+                    if left_null && is_tag_carrying_read(right, &self.ctx.variables) {
+                        self.generate_type_check(right, "null", *op == BinaryOp::NotEqual);
+                        return;
+                    }
+                    // Tag-carrying read vs numeric: if tag is KIND_NULL, never equal to number
+                    if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                        && ((right_num && is_tag_carrying_read(left, &self.ctx.variables))
+                            || (left_num && is_tag_carrying_read(right, &self.ctx.variables)))
+                    {
+                        let (read_expr, num_expr) =
+                            if is_tag_carrying_read(left, &self.ctx.variables) {
+                                (left, right)
+                            } else {
+                                (right, left)
+                            };
+                        let is_eq = *op == BinaryOp::Equal;
+                        self.generate_expression(read_expr);
+                        let l_not_null = self.ctx.next_label();
+                        let l_end = self.ctx.next_label();
+                        if matches!(self.arch, Architecture::X64) {
+                            self.output
+                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_NULL));
+                            self.output.push_str(&format!("    jne {}\n", l_not_null));
+                            if is_eq {
+                                self.output.push_str("    xor %eax, %eax\n");
+                            } else {
+                                self.output.push_str("    movq $1, %rax\n");
+                            }
+                            self.output.push_str(&format!("    jmp {}\n", l_end));
+                            self.output.push_str(&format!("{}:\n", l_not_null));
+                            self.output.push_str("    push %rax\n");
+                            self.generate_expression(num_expr);
+                            self.output.push_str("    pop %rbx\n");
+                            self.output.push_str("    cmp %rax, %rbx\n");
+                            if is_eq {
+                                self.output.push_str("    sete %al\n");
+                            } else {
+                                self.output.push_str("    setne %al\n");
+                            }
+                            self.output.push_str("    movzbq %al, %rax\n");
+                            self.output.push_str(&format!("{}:\n", l_end));
+                        } else {
+                            self.output
+                                .push_str(&format!("    cmp w1, #{}\n", KIND_NULL));
+                            self.output.push_str(&format!("    b.ne {}\n", l_not_null));
+                            if is_eq {
+                                self.output.push_str("    mov x0, #0\n");
+                            } else {
+                                self.output.push_str("    mov x0, #1\n");
+                            }
+                            self.output.push_str(&format!("    b {}\n", l_end));
+                            self.output.push_str(&format!("{}:\n", l_not_null));
+                            self.output.push_str("    str x0, [sp, #-16]!\n");
+                            self.generate_expression(num_expr);
+                            self.output.push_str("    ldr x1, [sp], #16\n");
+                            self.output.push_str("    cmp x1, x0\n");
+                            if is_eq {
+                                self.output.push_str("    cset x0, eq\n");
+                            } else {
+                                self.output.push_str("    cset x0, ne\n");
+                            }
+                            self.output.push_str(&format!("{}:\n", l_end));
+                        }
+                        return;
+                    }
+                }
+
                 if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
                     && !left_is_num
                     && !right_is_num
@@ -1270,6 +1363,10 @@ impl CodeGen {
                     // (must-) proof; the legacy chain below trusts
                     // may-markings that also cover merely-possible kinds.
                     if let Expr::Identifier(ref id) = args[0] {
+                        if is_null_expr(&args[0], &self.ctx.variables) {
+                            self.generate_expression(&Expr::String("null".to_string()));
+                            return;
+                        }
                         if self
                             .ctx
                             .variables
@@ -4077,7 +4174,8 @@ impl CodeGen {
     /// Everything else dispatches at runtime via `emit_typeof_cascade`.
     fn typeof_literal_kind(expr: &Expr) -> Option<&'static str> {
         match expr {
-            Expr::Number(_) | Expr::Null => Some("int"),
+            Expr::Null => Some("null"),
+            Expr::Number(_) => Some("int"),
             Expr::Float(_) => Some("float"),
             Expr::String(_) | Expr::InterpolatedString(_) => Some("string"),
             Expr::Array(_) => Some("array"),
@@ -4088,7 +4186,7 @@ impl CodeGen {
 
     /// Runtime `typeof` dispatch (alya-lang/alya#71): a cascade of `is`
     /// checks over one operand, ending in the historical `"int"`
-    /// fallback (ints, nulls, bools and anything else unrecognized all
+    /// fallback (ints, bools and anything else unrecognized all
     /// report `"int"`, matching the literal vocabulary). Reuses the
     /// verified dynamic `is` paths, so every branch discriminates at
     /// runtime. Repeatable operands re-evaluate per branch (observably
@@ -4119,6 +4217,7 @@ impl CodeGen {
         }
         let end_label = self.ctx.next_label();
         let kinds: &[(&str, &str)] = &[
+            ("null", "null"),
             ("array", "array"),
             ("map", "map"),
             ("string", "string"),
@@ -4156,6 +4255,80 @@ impl CodeGen {
         let t = target.to_lowercase();
         match t.as_str() {
             "null" | "nil" => {
+                let is_null = is_null_expr(expr, &self.ctx.variables);
+                let is_non_null = is_number_expr(expr, &self.ctx.variables)
+                    || is_float_expr(expr, &self.ctx.variables)
+                    || is_string_fold_true(expr, &self.ctx.variables)
+                    || is_array_fold_true(expr, &self.ctx.variables)
+                    || is_map_fold_true(expr, &self.ctx.variables);
+                if is_null {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
+                    return;
+                }
+                if is_non_null {
+                    arch::emit_load_num(&mut self.output, self.arch, if negated { 1 } else { 0 });
+                    return;
+                }
+                if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                    && matches!(
+                        expr,
+                        Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                    )
+                    && is_tag_carrying_read(expr, &self.ctx.variables)
+                {
+                    self.generate_expression(expr);
+                    let l_true = self.ctx.next_label();
+                    let l_end = self.ctx.next_label();
+                    let l_no = self.ctx.next_label();
+                    if matches!(self.arch, Architecture::X64) {
+                        self.output
+                            .push_str(&format!("    cmpl ${}, %edx\n", KIND_NULL));
+                        self.output.push_str(&format!("    je {}\n", l_true));
+                        self.output
+                            .push_str(&format!("    cmpl ${}, %edx\n", KIND_UNKNOWN));
+                        self.output.push_str(&format!("    jne {}\n", l_no));
+                        self.output.push_str("    test %rax, %rax\n");
+                        self.output.push_str(&format!("    jz {}\n", l_true));
+                        self.output.push_str(&format!("{}:\n", l_no));
+                        if negated {
+                            self.output.push_str("    movq $1, %rax\n");
+                        } else {
+                            self.output.push_str("    xor %eax, %eax\n");
+                        }
+                        self.output.push_str(&format!("    jmp {}\n", l_end));
+                        self.output.push_str(&format!("{}:\n", l_true));
+                        if negated {
+                            self.output.push_str("    xor %eax, %eax\n");
+                        } else {
+                            self.output.push_str("    movq $1, %rax\n");
+                        }
+                        self.output.push_str(&format!("{}:\n", l_end));
+                    } else {
+                        self.output
+                            .push_str(&format!("    cmp w1, #{}\n", KIND_NULL));
+                        self.output.push_str(&format!("    b.eq {}\n", l_true));
+                        self.output
+                            .push_str(&format!("    cmp w1, #{}\n", KIND_UNKNOWN));
+                        self.output.push_str(&format!("    b.ne {}\n", l_no));
+                        self.output.push_str("    cbz x0, ");
+                        self.output.push_str(&format!("{}\n", l_true));
+                        self.output.push_str(&format!("{}:\n", l_no));
+                        if negated {
+                            self.output.push_str("    mov x0, #1\n");
+                        } else {
+                            self.output.push_str("    mov x0, #0\n");
+                        }
+                        self.output.push_str(&format!("    b {}\n", l_end));
+                        self.output.push_str(&format!("{}:\n", l_true));
+                        if negated {
+                            self.output.push_str("    mov x0, #0\n");
+                        } else {
+                            self.output.push_str("    mov x0, #1\n");
+                        }
+                        self.output.push_str(&format!("{}:\n", l_end));
+                    }
+                    return;
+                }
                 self.generate_expression(&Expr::Binary {
                     left: Box::new(expr.clone()),
                     op: if negated {

@@ -1,8 +1,8 @@
 use crate::ast::*;
 use crate::codegen::context::VarType;
 use crate::codegen::kinds::{
-    kind_of_literal, KIND_ARRAY, KIND_FLOAT, KIND_INT, KIND_MAP, KIND_STRING, KIND_STRUCT,
-    KIND_UNKNOWN,
+    kind_of_literal, KIND_ARRAY, KIND_FLOAT, KIND_INT, KIND_MAP, KIND_NULL, KIND_STRING,
+    KIND_STRUCT, KIND_UNKNOWN,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -2131,6 +2131,9 @@ pub fn is_definitely_not_numeric(expr: &Expr, vars: &HashMap<String, VarType>) -
 pub fn value_kind_tag(expr: &Expr, vars: &HashMap<String, VarType>) -> i64 {
     if let Some(kind) = kind_of_literal(expr) {
         return kind;
+    }
+    if is_null_expr(expr, vars) {
+        return KIND_NULL;
     }
     if is_string_expr(expr, vars) {
         return KIND_STRING;

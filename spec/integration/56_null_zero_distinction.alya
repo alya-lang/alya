@@ -1,0 +1,82 @@
+# ==============================================================================
+# Alya Integration Fixture 56 (entry): integer 0 and null complete distinction
+# Distilled from: alya-lang/alya#168 (integer 0 indistinguishable from null)
+# Guards:
+#   1. Literals: 0 is null is false, null != 0 is true, typeof(null) is "null".
+#   2. Variables: let z = 0 and let n = null preserve distinct types and predicates.
+#   3. Containers: array elements and map entries record KIND_NULL vs KIND_INT,
+#      distinguishing m["k"] == 0 from m["k"] == null without silent conflation.
+#   4. Dynamic function calls route correctly for both 0 and null arguments.
+# ==============================================================================
+
+function check_dyn(v)
+    if v is null
+        assert typeof(v) == "null"
+        assert v != 0
+        assert v == null
+    else
+        assert v is int
+        assert typeof(v) == "int"
+        assert v == 0
+        assert v != null
+    end
+end
+
+function test_literals()
+    assert not (0 is null)
+    assert null is null
+    assert 0 is not null
+    assert not (null is not null)
+    assert null != 0
+    assert not (null == 0)
+    assert 0 != null
+    assert not (0 == null)
+    assert typeof(null) == "null"
+    assert typeof(0) == "int"
+end
+
+function test_locals()
+    let z = 0
+    let n = null
+    assert not (z is null)
+    assert n is null
+    assert z is not null
+    assert not (n is not null)
+    assert z != null
+    assert not (z == null)
+    assert n != 0
+    assert not (n == 0)
+    assert typeof(z) == "int"
+    assert typeof(n) == "null"
+end
+
+function test_containers()
+    let arr = [0, null]
+    assert not (arr[0] is null)
+    assert arr[1] is null
+    assert arr[0] is int
+    assert not (arr[1] is int)
+    assert typeof(arr[0]) == "int"
+    assert typeof(arr[1]) == "null"
+
+    let m = { "id": 0, "parent": null }
+    assert not (m["id"] is null)
+    assert m["parent"] is null
+    assert m["id"] == 0
+    assert not (m["id"] == null)
+    assert m["parent"] == null
+    assert not (m["parent"] == 0)
+    assert typeof(m["id"]) == "int"
+    assert typeof(m["parent"]) == "null"
+end
+
+function main()
+    test_literals()
+    test_locals()
+    test_containers()
+    check_dyn(0)
+    check_dyn(null)
+    say "integration 56_null_zero_distinction: OK"
+end
+
+main()

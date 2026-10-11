@@ -156,28 +156,21 @@ behavior marked "current engine" is netted by the existing test suite.
 #### 2. Decidability matrix (current engine)
 | Subject | Decidable at runtime? |
 | :--- | :--- |
-| `null` | Yes — zero test. |
-| `null` vs `int(0)` | On tagged channels (array slots, dynspec call sites): Yes via kind tags (`v is int` vs `v is not int`). On untagged raw slots: No — both occupy the zero word (`0x0`); distinguish via static types (`int?`) or `(v is null) and (v is not int)` on tagged dynamics. |
+| `null` | Yes — zero test / `KIND_NULL` tag. |
+| `null` vs `int(0)` | **Yes** across all standard channels: <br>• Literals & static variables: `0 is null` is `0`, `null != 0` is `1`, `typeof(null)` is `"null"`, `typeof(0)` is `"int"`. <br>• Tagged channels (array slots, map entries): Distinguished via `KIND_NULL` (7) vs `KIND_INT` (1). <br>• Specialized calls (`dynspec`): Distinguished via `'n'` vs `'i'` parameter types. <br>• Untagged raw words (e.g. bare C FFI scalars): Zero word test (`0x0`) acts as fallback; disambiguate via static types (`int?`). |
 | `bool` vs `int` | No — identical encoding; static only. |
-| `int` vs `float` | No — overlapping bit patterns. |
+| `int` vs `float` | No — overlapping bit patterns without tags. |
 | heap vs scalar | Heuristic only — address-range checks plus header-kind reads. Large-int and float dynamics can alias heap pointers and fault on the header read (known limitation). |
-| map entry kinds | Yes where the engine's packed entry tags exist. |
-| array slot kinds | Yes — tagged container sidecar (Phase 1). |
+| map entry kinds | Yes where the engine's packed entry tags exist (`KIND_NULL = 7`). |
+| array slot kinds | Yes — tagged container sidecar (Phase 1, `KIND_NULL = 7`). |
 
-##### 0 vs null Idiom on Dynamic Channels
-Because both integer `0` and `null` share the zero word representation (`0x0`) in unboxed slots, checking `v is null` evaluates to `true` for both when the slot is raw zero. However, when dynamic provenance or container tagging is present (such as array element reads or specialized dynamic call parameters), the runtime kind tag distinguishes them. The blessed idiom for testing if an unknown dynamic value `v` is specifically `null` rather than integer `0` is:
-```alya
-if (v is null) and (v is not int) then
-    # value is genuinely null, not integer 0
-end
-```
-Or positively:
-```alya
-if v is int then
-    # value is an integer (including 0), not null
-end
-```
-On untagged raw slots without provenance, functions should declare explicit optional static types (e.g. `val: int?`) so the compiler statically differentiates `null` from integer `0`.
+##### 0 vs null Discrimination
+Alya guarantees that integer `0` and `null` are distinct across all supported discriminators:
+1. **Type Checks & Predicates**: `0 is null` evaluates to `0` (`false`), `null is null` evaluates to `1` (`true`), `0 is not null` evaluates to `1` (`true`), and `null is not null` evaluates to `0` (`false`).
+2. **Equality**: `null == 0` evaluates to `0` (`false`) and `null != 0` evaluates to `1` (`true`). A null value is never equal to an integer.
+3. **Reflective `typeof`**: `typeof(null)` evaluates to `"null"`, whereas `typeof(0)` evaluates to `"int"`.
+4. **Container & Tagged Channels**: Array elements and map entries record tag `KIND_NULL` (7) for null values and `KIND_INT` (1) for integers, allowing indexed reads (`m["key"] == null`, `m["key"] == 0`, `arr[i] is null`, `arr[i] is int`) to route without conflation.
+5. **Raw Untagged Slots**: Only bare unboxed words without dynamic provenance or container tagging share the zero word (`0x0`); for such signatures, declare explicit optional static types (e.g. `val: int?`) at the boundary.
 
 #### 3. Tag scheme (proposal; Phase 1 implemented)
 - **Phase 1 — container slots (implemented).** Array slots carry a kind
