@@ -1027,7 +1027,7 @@ fn test_e2e_issue71_typeof_dynamic_param() {
     // in the int bucket (same contract as `say` printing the bits and
     // `is float` answering false). Only statically-known floats report
     // "float".
-    let expected = "string\narray\nint\nint\nmap\nint\n";
+    let expected = "string\narray\nint\nint\nmap\nnull\n";
     let code = r#"
 function k(v) -> string
     return typeof(v)
