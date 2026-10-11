@@ -102,17 +102,7 @@ fn expr_tests_params(expr: &Expr, params: &HashSet<String>) -> bool {
         Expr::Unary { expr: inner, .. } | Expr::ForceUnwrap(inner) => {
             expr_tests_params(inner, params)
         }
-        Expr::Call { name, args } => {
-            if name == "typeof" && args.len() == 1 {
-                if let Expr::Identifier(arg_name) = &args[0] {
-                    if params.contains(arg_name) {
-                        return true;
-                    }
-                }
-            }
-            args.iter().any(|a| expr_tests_params(a, params))
-        }
-        Expr::Array(args) | Expr::InterpolatedString(args) => {
+        Expr::Call { args, .. } | Expr::Array(args) | Expr::InterpolatedString(args) => {
             args.iter().any(|a| expr_tests_params(a, params))
         }
         Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
