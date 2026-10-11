@@ -610,6 +610,7 @@ impl CodeGen {
             arch::emit_stack_restore(&mut self.output, self.arch, then_delta);
         }
 
+        let mut else_variables = None;
         if let Some(else_stmts) = else_block {
             arch::emit_jump(&mut self.output, self.arch, &end_label);
             self.output.push_str(&format!("{}:\n", else_label));
@@ -625,6 +626,7 @@ impl CodeGen {
             if else_delta > 0 {
                 arch::emit_stack_restore(&mut self.output, self.arch, else_delta);
             }
+            else_variables = Some(self.ctx.variables.clone());
         }
 
         let mut final_variables = initial_variables;
@@ -632,6 +634,14 @@ impl CodeGen {
             if let Some(orig_type) = final_variables.get(var_name) {
                 if matches!(orig_type, VarType::Null(_)) && !matches!(var_type, VarType::Null(_)) {
                     final_variables.insert(var_name.clone(), var_type.clone());
+                    let else_assigned_non_null = else_variables.as_ref().is_some_and(|ev| {
+                        ev.get(var_name)
+                            .is_some_and(|t| !matches!(t, VarType::Null(_)))
+                    });
+                    if !else_assigned_non_null {
+                        final_variables
+                            .insert(format!("var_maybe_null:{}", var_name), VarType::Number(0));
+                    }
                 }
             }
         }

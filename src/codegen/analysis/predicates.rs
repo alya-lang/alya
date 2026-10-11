@@ -1436,7 +1436,8 @@ pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         Expr::Float(_) => true,
         Expr::Number(_) => false,
         Expr::Identifier(name) => {
-            matches!(vars.get(name), Some(VarType::Float(_)))
+            !vars.contains_key(&format!("var_maybe_null:{}", name))
+                && matches!(vars.get(name), Some(VarType::Float(_)))
         }
         Expr::FieldAccess { object, field } => {
             if let Expr::Identifier(obj_name) = &**object {
@@ -1715,7 +1716,10 @@ pub fn is_float_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
 pub fn is_null_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     match expr {
         Expr::Null => true,
-        Expr::Identifier(name) => matches!(vars.get(name), Some(VarType::Null(_))),
+        Expr::Identifier(name) => {
+            !vars.contains_key(&format!("var_maybe_null:{}", name))
+                && matches!(vars.get(name), Some(VarType::Null(_)))
+        }
         Expr::Ternary {
             then_branch,
             else_branch,
@@ -1965,6 +1969,7 @@ pub fn is_number_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
         Expr::Number(_) => true,
         Expr::Identifier(name) => {
             !vars.contains_key(&format!("param_is_untyped:{}", name))
+                && !vars.contains_key(&format!("var_maybe_null:{}", name))
                 && matches!(vars.get(name), Some(VarType::Number(_)))
         }
         Expr::Binary { left, op, right } => match op {
