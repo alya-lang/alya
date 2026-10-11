@@ -139,6 +139,7 @@ function test_loop_key_map_reads()
         let v = m[k]
         if k == "id"
             seen_id = seen_id + 1
+            assert not c(v)
             assert not (v is null)
             assert v is not null
             assert not (v == null)
@@ -148,6 +149,7 @@ function test_loop_key_map_reads()
         end
         if k == "nil"
             seen_nil = seen_nil + 1
+            assert c(v)
             assert v is null
             assert not (v is not null)
             assert v == null

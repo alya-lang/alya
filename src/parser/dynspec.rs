@@ -202,6 +202,133 @@ fn stmt_tests_params(stmt: &Stmt, params: &HashSet<String>) -> bool {
     }
 }
 
+fn expr_tests_param_null(expr: &Expr, param: &str) -> bool {
+    match expr {
+        Expr::TypeCheck {
+            expr: inner,
+            target,
+            ..
+        } => {
+            if let Expr::Identifier(name) = &**inner {
+                if name == param && (target == "null" || target == "nil") {
+                    return true;
+                }
+            }
+            expr_tests_param_null(inner, param)
+        }
+        Expr::Binary { left, op, right } => {
+            if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual) {
+                if let (Expr::Identifier(name), Expr::Null) = (&**left, &**right) {
+                    if name == param {
+                        return true;
+                    }
+                }
+                if let (Expr::Null, Expr::Identifier(name)) = (&**left, &**right) {
+                    if name == param {
+                        return true;
+                    }
+                }
+            }
+            expr_tests_param_null(left, param) || expr_tests_param_null(right, param)
+        }
+        Expr::Unary { expr: inner, .. } | Expr::ForceUnwrap(inner) => {
+            expr_tests_param_null(inner, param)
+        }
+        Expr::Call { args, .. } | Expr::Array(args) | Expr::InterpolatedString(args) => {
+            args.iter().any(|a| expr_tests_param_null(a, param))
+        }
+        Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+            expr_tests_param_null(array, param) || expr_tests_param_null(index, param)
+        }
+        Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+            expr_tests_param_null(object, param)
+        }
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            expr_tests_param_null(condition, param)
+                || expr_tests_param_null(then_branch, param)
+                || expr_tests_param_null(else_branch, param)
+        }
+        Expr::NullCoalesce { value, default } => {
+            expr_tests_param_null(value, param) || expr_tests_param_null(default, param)
+        }
+        _ => false,
+    }
+}
+
+fn stmts_test_param_null(stmts: &[Stmt], param: &str) -> bool {
+    stmts.iter().any(|s| stmt_tests_param_null(s, param))
+}
+
+fn stmt_tests_param_null(stmt: &Stmt, param: &str) -> bool {
+    match stmt.inner_stmt() {
+        Stmt::Let { value, .. }
+        | Stmt::Assign { value, .. }
+        | Stmt::Say(value)
+        | Stmt::Expr(value)
+        | Stmt::Return(Some(value))
+        | Stmt::Throw(Some(value)) => expr_tests_param_null(value, param),
+        Stmt::Const { value, .. } => expr_tests_param_null(value, param),
+        Stmt::IndexAssign {
+            array,
+            index,
+            value,
+        } => {
+            expr_tests_param_null(array, param)
+                || expr_tests_param_null(index, param)
+                || expr_tests_param_null(value, param)
+        }
+        Stmt::FieldAssign { object, .. } => expr_tests_param_null(object, param),
+        Stmt::If {
+            condition,
+            then_block,
+            else_block,
+        } => {
+            expr_tests_param_null(condition, param)
+                || stmts_test_param_null(then_block, param)
+                || else_block
+                    .as_ref()
+                    .is_some_and(|eb| stmts_test_param_null(eb, param))
+        }
+        Stmt::While { condition, body } => {
+            expr_tests_param_null(condition, param) || stmts_test_param_null(body, param)
+        }
+        Stmt::Repeat { body } => stmts_test_param_null(body, param),
+        Stmt::ForEach { iterable, body, .. } => {
+            expr_tests_param_null(iterable, param) || stmts_test_param_null(body, param)
+        }
+        Stmt::For {
+            start, end, body, ..
+        } => {
+            expr_tests_param_null(start, param)
+                || expr_tests_param_null(end, param)
+                || stmts_test_param_null(body, param)
+        }
+        Stmt::TryCatch {
+            try_block,
+            catch_block,
+            finally_block,
+            ..
+        } => {
+            stmts_test_param_null(try_block, param)
+                || stmts_test_param_null(catch_block, param)
+                || finally_block
+                    .as_ref()
+                    .is_some_and(|fb| stmts_test_param_null(fb, param))
+        }
+        Stmt::Defer(inner) | Stmt::Pub(inner) => stmt_tests_param_null(inner, param),
+        Stmt::Function { body, .. } => stmts_test_param_null(body, param),
+        _ => false,
+    }
+}
+
+fn cand_tests_param_null(cand: &Candidate, param: &str) -> bool {
+    stmt_tests_param_null(&cand.stmt, param)
+}
+
 struct Candidate {
     name: String,
     stmt: Stmt,
@@ -294,10 +421,14 @@ fn rewrite_expr_calls(
             }
             let mut codes = String::new();
             let scope_binds = scope.and_then(|s| binds.get(s));
+            let mut all_static = true;
             for &i in &cand.open_idx {
                 let arg = match args.get(i) {
                     Some(a) => a,
-                    None => return,
+                    None => {
+                        all_static = false;
+                        break;
+                    }
                 };
                 match classify_arg(arg, scope_binds).or_else(|| {
                     // Calls classify through the callee's returns
@@ -317,19 +448,103 @@ fn rewrite_expr_calls(
                     }
                 }) {
                     Some(c) => codes.push(c),
-                    None => return,
+                    None => {
+                        all_static = false;
+                        break;
+                    }
                 }
             }
-            let count = versions.entry(cand.name.clone()).or_insert(0);
-            let spec_name = format!("{}__spk__{}", cand.name, codes);
-            if !program_has(&*new_clones, &spec_name) && *count < MAX_VERSIONS_PER_FN {
-                *count += 1;
-                new_clones.push(clone_for_codes(cand, &spec_name));
+            if all_static {
+                let count = versions.entry(cand.name.clone()).or_insert(0);
+                let spec_name = format!("{}__spk__{}", cand.name, codes);
+                if !program_has(&*new_clones, &spec_name) && *count < MAX_VERSIONS_PER_FN {
+                    *count += 1;
+                    new_clones.push(clone_for_codes(cand, &spec_name));
+                }
+                // Rewrite only when the version exists (cap overflow keeps
+                // the generic call, unchanged behavior).
+                if program_has(&*new_clones, &spec_name) {
+                    *name = spec_name;
+                }
+                return;
             }
-            // Rewrite only when the version exists (cap overflow keeps
-            // the generic call, unchanged behavior).
-            if program_has(&*new_clones, &spec_name) {
-                *name = spec_name;
+
+            // alya-lang/alya#170: ternary dynamic dispatch when an argument is nullable
+            // (e.g. from a loop or map holding null and one non-null kind) and the callee
+            // tests that parameter for null.
+            let mut nullable_param: Option<(usize, char)> = None;
+            let mut codes_null = String::new();
+            let mut codes_val = String::new();
+            let mut nullable_eligible = true;
+            for &i in &cand.open_idx {
+                let arg = match args.get(i) {
+                    Some(a) => a,
+                    None => {
+                        nullable_eligible = false;
+                        break;
+                    }
+                };
+                if let Some(c) = classify_arg(arg, scope_binds) {
+                    codes_null.push(c);
+                    codes_val.push(c);
+                } else if nullable_param.is_none() {
+                    if let Some(val_k) = classify_nullable_arg(arg, scope_binds) {
+                        if cand_tests_param_null(cand, &cand.params[i]) {
+                            nullable_param = Some((i, val_k));
+                            codes_null.push('n');
+                            codes_val.push(val_k);
+                        } else {
+                            nullable_eligible = false;
+                            break;
+                        }
+                    } else {
+                        nullable_eligible = false;
+                        break;
+                    }
+                } else {
+                    nullable_eligible = false;
+                    break;
+                }
+            }
+
+            if nullable_eligible {
+                if let Some((null_idx, _)) = nullable_param {
+                    let count = versions.entry(cand.name.clone()).or_insert(0);
+                    let spec_null = format!("{}__spk__{}", cand.name, codes_null);
+                    let spec_val = format!("{}__spk__{}", cand.name, codes_val);
+                    if !program_has(&*new_clones, &spec_null) && *count < MAX_VERSIONS_PER_FN {
+                        *count += 1;
+                        new_clones.push(clone_for_codes(cand, &spec_null));
+                    }
+                    if !program_has(&*new_clones, &spec_val) && *count < MAX_VERSIONS_PER_FN {
+                        *count += 1;
+                        new_clones.push(clone_for_codes(cand, &spec_val));
+                    }
+                    if program_has(&*new_clones, &spec_null) && program_has(&*new_clones, &spec_val)
+                    {
+                        let arg_expr = args[null_idx].clone();
+                        let mut args_null = args.clone();
+                        args_null[null_idx] = Expr::Null;
+                        let args_val = args.clone();
+                        let then_call = Expr::Call {
+                            name: spec_null,
+                            args: args_null,
+                        };
+                        let else_call = Expr::Call {
+                            name: spec_val,
+                            args: args_val,
+                        };
+                        *expr = Expr::Ternary {
+                            condition: Box::new(Expr::TypeCheck {
+                                expr: Box::new(arg_expr),
+                                target: "null".to_string(),
+                                negated: false,
+                            }),
+                            then_branch: Box::new(then_call),
+                            else_branch: Box::new(else_call),
+                        };
+                    }
+                }
             }
         }
         Expr::Binary { left, right, .. } => {
@@ -514,6 +729,7 @@ enum BindVal {
     LitArray(Vec<Expr>),
     LitMap(Vec<(String, Expr)>),
     LitString(String),
+    NullableKind(char),
 }
 
 fn count_assigns(stmts: &[Stmt], counts: &mut HashMap<String, usize>) {
@@ -570,10 +786,53 @@ fn count_assigns(stmts: &[Stmt], counts: &mut HashMap<String, usize>) {
     }
 }
 
+fn walk_scope_stmts<'a>(stmts: &'a [Stmt], out: &mut Vec<&'a Stmt>) {
+    for s in stmts {
+        out.push(s);
+        match s.inner_stmt() {
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                walk_scope_stmts(then_block, out);
+                if let Some(eb) = else_block {
+                    walk_scope_stmts(eb, out);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body } => {
+                walk_scope_stmts(body, out);
+            }
+            Stmt::For { body, .. } | Stmt::ForEach { body, .. } => {
+                walk_scope_stmts(body, out);
+            }
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                walk_scope_stmts(try_block, out);
+                walk_scope_stmts(catch_block, out);
+                if let Some(fb) = finally_block {
+                    walk_scope_stmts(fb, out);
+                }
+            }
+            Stmt::Defer(inner) | Stmt::Pub(inner) => {
+                walk_scope_stmts(std::slice::from_ref(inner), out);
+            }
+            _ => {}
+        }
+    }
+}
+
 fn literal_binds(stmts: &[Stmt], counts: &HashMap<String, usize>) -> HashMap<String, BindVal> {
     let mut out = HashMap::new();
+    let mut flat = Vec::new();
+    walk_scope_stmts(stmts, &mut flat);
+
     // Pass 1: direct literals and empty map() constructors.
-    for s in stmts {
+    for s in &flat {
         if let Stmt::Let { name, value, .. } = s.inner_stmt() {
             if counts.get(name).copied().unwrap_or(0) != 1 {
                 continue;
@@ -620,7 +879,7 @@ fn literal_binds(stmts: &[Stmt], counts: &HashMap<String, usize>) -> HashMap<Str
         }
     }
     // Pass 1b: single-assignment map writes (`m["key"] = val` or `m[k] = val`).
-    for s in stmts {
+    for s in &flat {
         if let Stmt::IndexAssign {
             array,
             index,
@@ -635,19 +894,23 @@ fn literal_binds(stmts: &[Stmt], counts: &HashMap<String, usize>) -> HashMap<Str
                 },
                 _ => None,
             };
-            if let (Expr::Identifier(map_name), Some(key)) = (array, key_str) {
-                if let Some(BindVal::LitMap(entries)) = out.get_mut(map_name) {
-                    if let Some(pos) = entries.iter().position(|(k, _)| k == &key) {
-                        entries[pos].1 = value.clone();
-                    } else {
-                        entries.push((key, value.clone()));
+            if let Expr::Identifier(map_name) = array {
+                if let Some(key) = key_str {
+                    if let Some(BindVal::LitMap(entries)) = out.get_mut(map_name) {
+                        if let Some(pos) = entries.iter().position(|(k, _)| k == &key) {
+                            entries[pos].1 = value.clone();
+                        } else {
+                            entries.push((key, value.clone()));
+                        }
                     }
+                } else {
+                    out.remove(map_name);
                 }
             }
         }
     }
     // Pass 1c: resolve let bindings whose value can be classified (e.g. `let u = m[k]` or `let u = m["id"]`).
-    for s in stmts {
+    for s in &flat {
         if let Stmt::Let { name, value, .. } = s.inner_stmt() {
             if counts.get(name).copied().unwrap_or(0) != 1 {
                 continue;
@@ -655,12 +918,14 @@ fn literal_binds(stmts: &[Stmt], counts: &HashMap<String, usize>) -> HashMap<Str
             if !out.contains_key(name) {
                 if let Some(c) = classify_arg(value, Some(&out)) {
                     out.insert(name.clone(), BindVal::Kind(c));
+                } else if let Some(c) = classify_nullable_arg(value, Some(&out)) {
+                    out.insert(name.clone(), BindVal::NullableKind(c));
                 }
             }
         }
     }
     // Pass 2: single-level aliases (`let x = y`).
-    for s in stmts {
+    for s in &flat {
         if let Stmt::Let { name, value, .. } = s.inner_stmt() {
             if counts.get(name).copied().unwrap_or(0) != 1 {
                 continue;
@@ -731,6 +996,85 @@ fn classify_arg(arg: &Expr, binds: Option<&HashMap<String, BindVal>>) -> Option<
                 }
             }
             None
+        }
+        _ => None,
+    }
+}
+
+/// Classify a call argument as nullable: returns Some(c) when the value
+/// is proven to be either null or of kind `c` (e.g. a map or array holding
+/// both null and `c` values).
+fn classify_nullable_arg(arg: &Expr, binds: Option<&HashMap<String, BindVal>>) -> Option<char> {
+    let binds = binds?;
+    match arg {
+        Expr::Identifier(name) => match binds.get(name) {
+            Some(BindVal::NullableKind(c)) => Some(*c),
+            _ => None,
+        },
+        Expr::Index { array, .. } => {
+            let arr_name = match &**array {
+                Expr::Identifier(arr) => arr,
+                _ => return None,
+            };
+            match binds.get(arr_name) {
+                Some(BindVal::LitMap(entries)) => {
+                    if entries.is_empty() {
+                        return None;
+                    }
+                    let mut has_null = false;
+                    let mut non_null_kind = None;
+                    for (_, val) in entries {
+                        let k = arg_kind_code(val).or_else(|| classify_arg(val, Some(binds)));
+                        match k {
+                            Some('n') => has_null = true,
+                            Some(c) => {
+                                if let Some(existing) = non_null_kind {
+                                    if existing != c {
+                                        return None;
+                                    }
+                                } else {
+                                    non_null_kind = Some(c);
+                                }
+                            }
+                            None => return None,
+                        }
+                    }
+                    if has_null {
+                        non_null_kind
+                    } else {
+                        None
+                    }
+                }
+                Some(BindVal::LitArray(elems)) => {
+                    if elems.is_empty() {
+                        return None;
+                    }
+                    let mut has_null = false;
+                    let mut non_null_kind = None;
+                    for val in elems {
+                        let k = arg_kind_code(val).or_else(|| classify_arg(val, Some(binds)));
+                        match k {
+                            Some('n') => has_null = true,
+                            Some(c) => {
+                                if let Some(existing) = non_null_kind {
+                                    if existing != c {
+                                        return None;
+                                    }
+                                } else {
+                                    non_null_kind = Some(c);
+                                }
+                            }
+                            None => return None,
+                        }
+                    }
+                    if has_null {
+                        non_null_kind
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }
         }
         _ => None,
     }
