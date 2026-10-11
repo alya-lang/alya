@@ -1,10 +1,21 @@
-pub fn print_version() {
-    println!(
+/// Full `alya --version` string. Appends the build commit (`+<sha>`)
+/// when the binary was built from a git checkout, so release-asset
+/// contents are checkable without rebuilding (asset forensics).
+pub fn version_string() -> String {
+    let base = format!(
         "alya {} ({}-{})",
         env!("CARGO_PKG_VERSION"),
         std::env::consts::OS,
         std::env::consts::ARCH
     );
+    match option_env!("ALYA_BUILD_COMMIT") {
+        Some(sha) if !sha.is_empty() && sha != "unknown" => format!("{}+{}", base, sha),
+        _ => base,
+    }
+}
+
+pub fn print_version() {
+    println!("{}", version_string());
 }
 
 pub fn print_usage() {

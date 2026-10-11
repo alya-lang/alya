@@ -85,6 +85,24 @@ fn test_help_and_version() {
 }
 
 #[test]
+fn test_version_string_shape() {
+    // Build-commit provenance (asset forensics): `alya 0.0.20
+    // (windows-x86_64)` plus an optional `+<sha>` suffix when built
+    // from a git checkout.
+    let v = super::help::version_string();
+    assert!(v.starts_with("alya "), "got: {}", v);
+    assert!(
+        v.contains(&format!(
+            "({}-{})",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        )),
+        "got: {}",
+        v
+    );
+}
+
+#[test]
 fn test_subcommand_repl() {
     let args = to_args(&["alya", "repl"]);
     let parsed = CliArgs::parse_from(&args).unwrap().unwrap();
