@@ -559,7 +559,7 @@ fn count_assigns(stmts: &[Stmt], counts: &mut HashMap<String, usize>) {
 
 fn literal_binds(stmts: &[Stmt], counts: &HashMap<String, usize>) -> HashMap<String, BindVal> {
     let mut out = HashMap::new();
-    // Pass 1: direct literals.
+    // Pass 1: direct literals and empty map() constructors.
     for s in stmts {
         if let Stmt::Let { name, value, .. } = s.inner_stmt() {
             if counts.get(name).copied().unwrap_or(0) != 1 {
@@ -586,9 +586,37 @@ fn literal_binds(stmts: &[Stmt], counts: &HashMap<String, usize>) -> HashMap<Str
                         out.insert(name.clone(), BindVal::Kind('m'));
                     }
                 }
+                Expr::Call { name: cname, args } => {
+                    let bare = cname.rsplit("::").next().unwrap_or(cname.as_str());
+                    let bare = bare.rsplit("__").next().unwrap_or(bare);
+                    if bare == "map" && args.is_empty() {
+                        out.insert(name.clone(), BindVal::LitMap(Vec::new()));
+                    } else if let Some(c) = arg_kind_code(value) {
+                        out.insert(name.clone(), BindVal::Kind(c));
+                    }
+                }
                 other => {
                     if let Some(c) = arg_kind_code(other) {
                         out.insert(name.clone(), BindVal::Kind(c));
+                    }
+                }
+            }
+        }
+    }
+    // Pass 1b: single-assignment map writes (`m["key"] = val`).
+    for s in stmts {
+        if let Stmt::IndexAssign {
+            array,
+            index,
+            value,
+        } = s.inner_stmt()
+        {
+            if let (Expr::Identifier(map_name), Expr::String(key)) = (array, index) {
+                if let Some(BindVal::LitMap(entries)) = out.get_mut(map_name) {
+                    if let Some(pos) = entries.iter().position(|(k, _)| k == key) {
+                        entries[pos].1 = value.clone();
+                    } else {
+                        entries.push((key.clone(), value.clone()));
                     }
                 }
             }
@@ -628,6 +656,15 @@ fn classify_arg(arg: &Expr, binds: Option<&HashMap<String, BindVal>>) -> Option<
                 if let Some(BindVal::LitArray(elems)) = binds.get(arr) {
                     if let Some(elem) = elems.get(*idx as usize) {
                         return arg_kind_code(elem);
+                    }
+                }
+            }
+            // alya-lang/alya#170: specialize call sites taking map-read args (e.g. c(m["id"]))
+            // through single-assignment bindings populated by map literals/constructors and index-assigns.
+            if let (Expr::Identifier(arr), Expr::String(key)) = (&**array, &**index) {
+                if let Some(BindVal::LitMap(entries)) = binds.get(arr) {
+                    if let Some((_, val)) = entries.iter().rev().find(|(k, _)| k == key) {
+                        return arg_kind_code(val).or_else(|| classify_arg(val, Some(binds)));
                     }
                 }
             }

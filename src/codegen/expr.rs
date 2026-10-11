@@ -362,8 +362,8 @@ impl CodeGen {
                 if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual) {
                     let left_null = is_null_expr(left, &self.ctx.variables);
                     let right_null = is_null_expr(right, &self.ctx.variables);
-                    let left_num = is_number_expr(left, &self.ctx.variables);
-                    let right_num = is_number_expr(right, &self.ctx.variables);
+                    let left_num = is_proven_int_expr(left, &self.ctx.variables);
+                    let right_num = is_proven_int_expr(right, &self.ctx.variables);
                     if (left_null && right_num) || (right_null && left_num) {
                         arch::emit_load_num(
                             &mut self.output,
@@ -4293,7 +4293,9 @@ impl CodeGen {
         match t.as_str() {
             "null" | "nil" => {
                 let is_null = is_null_expr(expr, &self.ctx.variables);
-                let is_non_null = is_number_expr(expr, &self.ctx.variables)
+                // alya-lang/alya#170: folding `is null` to 0 requires proven integer; dynamic
+                // or rebound locals must run the runtime test so let-bound nulls are not dropped.
+                let is_non_null = is_proven_int_expr(expr, &self.ctx.variables)
                     || is_float_expr(expr, &self.ctx.variables)
                     || is_string_fold_true(expr, &self.ctx.variables)
                     || is_array_fold_true(expr, &self.ctx.variables)

@@ -1,0 +1,101 @@
+# ==============================================================================
+# Alya Integration Fixture 58 (entry): KIND_NULL tag preserved across let-bindings
+# and map-read function calls.
+# Distilled from: alya-lang/alya#170 (KIND_NULL tag lost across let-binding and
+# map-read argument passing)
+# Guards:
+#   1. Map read passed as argument to untyped parameter preserves 0 vs null.
+#   2. Let-bound map read null retains null kind, equality, and typeof.
+#   3. Let-bound untyped all-null function return retains null kind, equality, and typeof.
+# ==============================================================================
+
+function c(v)
+    return v is null
+end
+
+function ret_null()
+    return null
+end
+
+function ret_zero()
+    return 0
+end
+
+function test_map_read_arg_passing()
+    let m = map()
+    m["id"] = 0
+    m["nil"] = null
+
+    assert not c(m["id"])
+    assert c(m["nil"])
+    assert not (m["id"] is null)
+    assert m["nil"] is null
+
+    let m2 = { "id": 0, "nil": null }
+    assert not c(m2["id"])
+    assert c(m2["nil"])
+    assert not (m2["id"] is null)
+    assert m2["nil"] is null
+end
+
+function test_let_bound_map_reads()
+    let m = map()
+    m["id"] = 0
+    m["nil"] = null
+
+    let w = m["nil"]
+    assert w is null
+    assert not (w is not null)
+    assert w == null
+    assert null == w
+    assert w != 0
+    assert not (w == 0)
+    assert typeof(w) == "null"
+
+    let z = m["id"]
+    assert not (z is null)
+    assert z is not null
+    assert z == 0
+    assert 0 == z
+    assert z != null
+    assert not (z == null)
+    assert typeof(z) == "int"
+
+    let m2 = { "id": 0, "nil": null }
+    let w2 = m2["nil"]
+    assert w2 is null
+    assert typeof(w2) == "null"
+    let z2 = m2["id"]
+    assert not (z2 is null)
+    assert typeof(z2) == "int"
+end
+
+function test_let_bound_fn_returns()
+    assert ret_null() is null
+    assert not (ret_zero() is null)
+
+    let b = ret_null()
+    assert b is null
+    assert not (b is not null)
+    assert b == null
+    assert null == b
+    assert b != 0
+    assert not (b == 0)
+    assert typeof(b) == "null"
+
+    let z = ret_zero()
+    assert not (z is null)
+    assert z is not null
+    assert z == 0
+    assert not (z == null)
+    assert typeof(z) == "int"
+end
+
+function main()
+    test_map_read_arg_passing()
+    test_let_bound_map_reads()
+    test_let_bound_fn_returns()
+    say "integration 58_kind_null_transport: OK"
+end
+
+main()

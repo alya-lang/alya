@@ -124,6 +124,7 @@ impl CodeGen {
                             | Some("bool")
                     ) || matches!(value, Expr::Number(_))
                         || is_number_expr(value, &self.ctx.variables)
+                        || is_proven_int_expr(value, &self.ctx.variables)
                     {
                         self.ctx
                             .variables
@@ -782,6 +783,32 @@ impl CodeGen {
                                     );
                                 }
                             }
+                            if is_null_expr(v, &self.ctx.variables) {
+                                if let Expr::String(field) = k {
+                                    self.ctx.variables.insert(
+                                        format!("map_field_null:{}", field),
+                                        VarType::Null(0),
+                                    );
+                                    self.ctx.variables.insert(
+                                        format!("map_null:{}.{}", name, field),
+                                        VarType::Null(0),
+                                    );
+                                }
+                            }
+                            if is_proven_int_expr(v, &self.ctx.variables)
+                                || matches!(v, Expr::Number(_))
+                            {
+                                if let Expr::String(field) = k {
+                                    self.ctx.variables.insert(
+                                        format!("map_field_int:{}", field),
+                                        VarType::Number(0),
+                                    );
+                                    self.ctx.variables.insert(
+                                        format!("map_int:{}.{}", name, field),
+                                        VarType::Number(0),
+                                    );
+                                }
+                            }
                         }
                         // Whole-map veto (alya-lang/alya#39): any non-string
                         // value demotes for-loop values to Number (runtime
@@ -858,6 +885,7 @@ impl CodeGen {
                             | Some("bool")
                     ) || matches!(value, Expr::Number(_))
                         || is_number_expr(value, &self.ctx.variables)
+                        || is_proven_int_expr(value, &self.ctx.variables)
                     {
                         self.ctx
                             .variables
@@ -1462,6 +1490,32 @@ impl CodeGen {
                                         );
                                     }
                                 }
+                                if is_null_expr(v, &self.ctx.variables) {
+                                    if let Expr::String(field) = k {
+                                        self.ctx.variables.insert(
+                                            format!("map_field_null:{}", field),
+                                            VarType::Null(0),
+                                        );
+                                        self.ctx.variables.insert(
+                                            format!("map_null:{}.{}", name, field),
+                                            VarType::Null(0),
+                                        );
+                                    }
+                                }
+                                if is_proven_int_expr(v, &self.ctx.variables)
+                                    || matches!(v, Expr::Number(_))
+                                {
+                                    if let Expr::String(field) = k {
+                                        self.ctx.variables.insert(
+                                            format!("map_field_int:{}", field),
+                                            VarType::Number(0),
+                                        );
+                                        self.ctx.variables.insert(
+                                            format!("map_int:{}.{}", name, field),
+                                            VarType::Number(0),
+                                        );
+                                    }
+                                }
                             }
                             // Whole-map veto mirroring the inference pass
                             // (alya-lang/alya#39): gates the for-loop
@@ -1542,6 +1596,7 @@ impl CodeGen {
                             // fault; proper fix is local tag spill.
                             if matches!(value, Expr::Number(_))
                                 || is_number_expr(value, &self.ctx.variables)
+                                || is_proven_int_expr(value, &self.ctx.variables)
                             {
                                 self.ctx
                                     .variables
@@ -1902,6 +1957,39 @@ impl CodeGen {
                 self.ctx
                     .variables
                     .insert(format!("map_nonstr_key:{}", field), VarType::Number(0));
+            }
+            if let (Expr::Identifier(map_name), Expr::String(field)) = (array, index) {
+                if is_null_expr(value, &self.ctx.variables) {
+                    self.ctx
+                        .variables
+                        .insert(format!("map_field_null:{}", field), VarType::Null(0));
+                    self.ctx
+                        .variables
+                        .insert(format!("map_null:{}.{}", map_name, field), VarType::Null(0));
+                    self.ctx
+                        .variables
+                        .remove(&format!("map_int:{}.{}", map_name, field));
+                } else if is_proven_int_expr(value, &self.ctx.variables)
+                    || matches!(value, Expr::Number(_))
+                {
+                    self.ctx
+                        .variables
+                        .insert(format!("map_field_int:{}", field), VarType::Number(0));
+                    self.ctx.variables.insert(
+                        format!("map_int:{}.{}", map_name, field),
+                        VarType::Number(0),
+                    );
+                    self.ctx
+                        .variables
+                        .remove(&format!("map_null:{}.{}", map_name, field));
+                } else {
+                    self.ctx
+                        .variables
+                        .remove(&format!("map_null:{}.{}", map_name, field));
+                    self.ctx
+                        .variables
+                        .remove(&format!("map_int:{}.{}", map_name, field));
+                }
             }
             if is_map_expr(value, &self.ctx.variables) {
                 if let Expr::String(field) = index {

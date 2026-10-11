@@ -1720,6 +1720,25 @@ pub fn is_null_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
             !vars.contains_key(&format!("var_maybe_null:{}", name))
                 && matches!(vars.get(name), Some(VarType::Null(_)))
         }
+        Expr::Call { name, .. } => {
+            let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            vars.contains_key(&format!("fn_ret_null:{}", name))
+                || vars.contains_key(&format!("fn_ret_null:{}", bare))
+        }
+        Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+            if let Expr::String(field) = &**index {
+                if let Expr::Identifier(map_name) = &**array {
+                    if vars.contains_key(&format!("map_null:{}.{}", map_name, field)) {
+                        return true;
+                    }
+                }
+                if vars.contains_key(&format!("map_field_null:{}", field)) {
+                    return true;
+                }
+            }
+            false
+        }
         Expr::Ternary {
             then_branch,
             else_branch,
@@ -2105,6 +2124,20 @@ pub fn is_proven_int_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool 
             vars.contains_key(&format!("var_is_int:{}", name))
                 && !vars.contains_key(&format!("var_rebound_nonint:{}", name))
         }
+        Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+            if let Expr::String(field) = &**index {
+                if let Expr::Identifier(map_name) = &**array {
+                    if vars.contains_key(&format!("map_int:{}.{}", map_name, field)) {
+                        return true;
+                    }
+                }
+                if vars.contains_key(&format!("map_field_int:{}", field)) {
+                    return true;
+                }
+            }
+            false
+        }
+        Expr::Call { name, .. } => call_returns_known_int(name, vars),
         _ => is_number_expr(expr, vars) && !is_float_expr(expr, vars),
     }
 }

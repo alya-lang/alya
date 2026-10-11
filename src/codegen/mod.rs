@@ -1621,40 +1621,188 @@ impl CodeGen {
             }
             true
         }
-        /// True when a block cannot fall through: its last statement
-        /// returns, throws, or nests such blocks on every path. Loops
-        /// may exit and bare expressions fall through (conservative).
-        fn block_diverges_or_returns(stmts: &[Stmt]) -> bool {
-            let Some(last) = stmts.last() else {
-                return false;
-            };
-            match last.inner_stmt() {
-                Stmt::Return(_) | Stmt::Throw(_) => true,
-                Stmt::If {
-                    then_block,
-                    else_block: Some(eb),
-                    ..
-                } => block_diverges_or_returns(then_block) && block_diverges_or_returns(eb),
-                Stmt::If { .. } => false,
-                Stmt::TryCatch {
-                    try_block,
-                    catch_block,
-                    finally_block,
-                    ..
-                } => {
-                    block_diverges_or_returns(try_block)
-                        && block_diverges_or_returns(catch_block)
-                        && finally_block
-                            .as_ref()
-                            .map_or(true, |fb| block_diverges_or_returns(fb))
-                }
-                Stmt::Defer(inner) | Stmt::Pub(inner) => {
-                    block_diverges_or_returns(std::slice::from_ref(inner))
-                }
-                _ => false,
+        returns_ok(body, vars) && Self::block_diverges_or_returns(body)
+    }
+
+    /// True when a block cannot fall through: its last statement
+    /// returns, throws, or nests such blocks on every path.
+    fn block_diverges_or_returns(stmts: &[Stmt]) -> bool {
+        let Some(last) = stmts.last() else {
+            return false;
+        };
+        match last.inner_stmt() {
+            Stmt::Return(_) | Stmt::Throw(_) => true,
+            Stmt::If {
+                then_block,
+                else_block: Some(eb),
+                ..
+            } => Self::block_diverges_or_returns(then_block) && Self::block_diverges_or_returns(eb),
+            Stmt::If { .. } => false,
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                Self::block_diverges_or_returns(try_block)
+                    && Self::block_diverges_or_returns(catch_block)
+                    && finally_block
+                        .as_ref()
+                        .map_or(true, |fb| Self::block_diverges_or_returns(fb))
             }
+            Stmt::Defer(inner) | Stmt::Pub(inner) => {
+                Self::block_diverges_or_returns(std::slice::from_ref(inner))
+            }
+            _ => false,
         }
-        returns_ok(body, vars) && block_diverges_or_returns(body)
+    }
+
+    /// True when every return path in a function yields null.
+    fn fn_returns_all_null(
+        body: &[Stmt],
+        vars: &std::collections::HashMap<String, VarType>,
+    ) -> bool {
+        fn returns_all_null(
+            stmts: &[Stmt],
+            vars: &std::collections::HashMap<String, VarType>,
+            has_ret: &mut bool,
+        ) -> bool {
+            for s in stmts {
+                match s.inner_stmt() {
+                    Stmt::Return(None) => return false,
+                    Stmt::Return(Some(e)) => {
+                        *has_ret = true;
+                        if !crate::codegen::analysis::is_null_expr(e, vars) {
+                            return false;
+                        }
+                    }
+                    Stmt::Function { .. } => {}
+                    Stmt::If {
+                        then_block,
+                        else_block,
+                        ..
+                    } => {
+                        if !returns_all_null(then_block, vars, has_ret) {
+                            return false;
+                        }
+                        if let Some(eb) = else_block {
+                            if !returns_all_null(eb, vars, has_ret) {
+                                return false;
+                            }
+                        }
+                    }
+                    Stmt::While { body, .. }
+                    | Stmt::Repeat { body }
+                    | Stmt::For { body, .. }
+                    | Stmt::ForEach { body, .. } => {
+                        if !returns_all_null(body, vars, has_ret) {
+                            return false;
+                        }
+                    }
+                    Stmt::TryCatch {
+                        try_block,
+                        catch_block,
+                        finally_block,
+                        ..
+                    } => {
+                        if !returns_all_null(try_block, vars, has_ret)
+                            || !returns_all_null(catch_block, vars, has_ret)
+                            || finally_block
+                                .as_ref()
+                                .is_some_and(|fb| !returns_all_null(fb, vars, has_ret))
+                        {
+                            return false;
+                        }
+                    }
+                    Stmt::Defer(inner) | Stmt::Pub(inner)
+                        if !returns_all_null(std::slice::from_ref(inner), vars, has_ret) =>
+                    {
+                        return false;
+                    }
+                    _ => {}
+                }
+            }
+            true
+        }
+        let mut has_ret = false;
+        returns_all_null(body, vars, &mut has_ret)
+            && has_ret
+            && Self::block_diverges_or_returns(body)
+    }
+
+    /// True when every return path in a function yields an integer.
+    fn fn_returns_all_int(
+        body: &[Stmt],
+        vars: &std::collections::HashMap<String, VarType>,
+    ) -> bool {
+        fn returns_all_int(
+            stmts: &[Stmt],
+            vars: &std::collections::HashMap<String, VarType>,
+            has_ret: &mut bool,
+        ) -> bool {
+            for s in stmts {
+                match s.inner_stmt() {
+                    Stmt::Return(None) => return false,
+                    Stmt::Return(Some(e)) => {
+                        *has_ret = true;
+                        if !crate::codegen::analysis::is_proven_int_expr(e, vars)
+                            && !matches!(e, Expr::Number(_))
+                        {
+                            return false;
+                        }
+                    }
+                    Stmt::Function { .. } => {}
+                    Stmt::If {
+                        then_block,
+                        else_block,
+                        ..
+                    } => {
+                        if !returns_all_int(then_block, vars, has_ret) {
+                            return false;
+                        }
+                        if let Some(eb) = else_block {
+                            if !returns_all_int(eb, vars, has_ret) {
+                                return false;
+                            }
+                        }
+                    }
+                    Stmt::While { body, .. }
+                    | Stmt::Repeat { body }
+                    | Stmt::For { body, .. }
+                    | Stmt::ForEach { body, .. } => {
+                        if !returns_all_int(body, vars, has_ret) {
+                            return false;
+                        }
+                    }
+                    Stmt::TryCatch {
+                        try_block,
+                        catch_block,
+                        finally_block,
+                        ..
+                    } => {
+                        if !returns_all_int(try_block, vars, has_ret)
+                            || !returns_all_int(catch_block, vars, has_ret)
+                            || finally_block
+                                .as_ref()
+                                .is_some_and(|fb| !returns_all_int(fb, vars, has_ret))
+                        {
+                            return false;
+                        }
+                    }
+                    Stmt::Defer(inner) | Stmt::Pub(inner)
+                        if !returns_all_int(std::slice::from_ref(inner), vars, has_ret) =>
+                    {
+                        return false;
+                    }
+                    _ => {}
+                }
+            }
+            true
+        }
+        let mut has_ret = false;
+        returns_all_int(body, vars, &mut has_ret)
+            && has_ret
+            && Self::block_diverges_or_returns(body)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2157,6 +2305,34 @@ impl CodeGen {
             let mut keys = vec![format!("fn_ret_tagged:{}", name)];
             if crate::codegen::analysis::may_record_bare_vars(&self.ctx.variables, name, bare) {
                 keys.push(format!("fn_ret_tagged:{}", bare));
+            }
+            for key in keys {
+                self.ctx.variables.insert(key.clone(), VarType::Number(0));
+                saved.variables.insert(key, VarType::Number(0));
+            }
+        }
+
+        // alya-lang/alya#170: all-null and all-int function returns record static
+        // markers so callers and let-bindings maintain static kind discrimination.
+        if Self::fn_returns_all_null(body, &self.ctx.variables) {
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            let mut keys = vec![format!("fn_ret_null:{}", name)];
+            if crate::codegen::analysis::may_record_bare_vars(&self.ctx.variables, name, bare) {
+                keys.push(format!("fn_ret_null:{}", bare));
+            }
+            for key in keys {
+                self.ctx.variables.insert(key.clone(), VarType::Null(0));
+                saved.variables.insert(key, VarType::Null(0));
+            }
+        }
+
+        if Self::fn_returns_all_int(body, &self.ctx.variables) {
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            let mut keys = vec![format!("fn_ret_int:{}", name)];
+            if crate::codegen::analysis::may_record_bare_vars(&self.ctx.variables, name, bare) {
+                keys.push(format!("fn_ret_int:{}", bare));
             }
             for key in keys {
                 self.ctx.variables.insert(key.clone(), VarType::Number(0));
