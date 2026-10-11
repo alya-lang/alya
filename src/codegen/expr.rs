@@ -2724,6 +2724,13 @@ impl CodeGen {
                     Architecture::ARM64 => 16,
                     _ => 8,
                 };
+                // Hoisted for the arg loop below (strict extern float
+                // conversion) and reused at emission time.
+                let is_extern_call = self.ctx.extern_functions.contains_key(call_name)
+                    || self
+                        .ctx
+                        .extern_functions
+                        .contains_key(call_name.rsplit("::").next().unwrap_or(call_name));
                 for (param_idx, arg) in actual_args.iter().enumerate() {
                     let coerce_vtable = if self.get_expr_interface_name(arg).is_some() {
                         None
@@ -2787,7 +2794,15 @@ impl CodeGen {
                                 param_bare, param_idx
                             )))
                     {
-                        self.emit_implicit_float_convert(arg);
+                        // Extern float params convert strictly
+                        // (alya-lang/alya#160 follow-up): proven ints
+                        // convert, everything else rides its bits, so a
+                        // mistagged dynamic is never converted to garbage.
+                        if is_extern_call {
+                            self.emit_extern_float_convert(arg);
+                        } else {
+                            self.emit_implicit_float_convert(arg);
+                        }
                     }
                     if let Some(vtable_label) = coerce_vtable {
                         arch::emit_fat_ptr_new(
@@ -2801,13 +2816,8 @@ impl CodeGen {
                     arch::emit_push_temp(&mut self.output, self.arch);
                 }
                 self.ctx.stack_offset = initial_stack_offset;
-                let is_extern = self.ctx.extern_functions.contains_key(call_name)
-                    || self
-                        .ctx
-                        .extern_functions
-                        .contains_key(call_name.rsplit("::").next().unwrap_or(call_name));
 
-                let var_offset = if !self.ctx.functions.contains(call_name) && !is_extern {
+                let var_offset = if !self.ctx.functions.contains(call_name) && !is_extern_call {
                     match self.ctx.variables.get(call_name) {
                         Some(VarType::Number(off))
                         | Some(VarType::Float(off))
@@ -2838,7 +2848,7 @@ impl CodeGen {
                         &ro_label,
                         &call_label,
                     );
-                } else if is_extern {
+                } else if is_extern_call {
                     let extern_name = call_name.rsplit("::").next().unwrap_or(call_name);
                     let extern_name = extern_name.rsplit("__").next().unwrap_or(extern_name);
                     // alya-lang/alya#160: SysV/AAPCS64 pass ints and

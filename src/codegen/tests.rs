@@ -940,6 +940,98 @@ fn test_arm64_windows_extern_mirrors_to_fp() {
 }
 
 #[test]
+fn test_extern_float_dynamic_arg_rides_bits() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // alya-lang/alya#160 follow-up: a dynamic (unprovable) value passed
+    // to an f64 extern param must NOT be tag-guarded-converted — a
+    // mistagged dynamic (int tag, float bits) would convert live
+    // double bits into garbage. Declared type routes (xmm), bits ride.
+    // NOTE: the runtime prelude itself contains cvtsi2sdq/scvtf, so the
+    // asserts below scope to the call sequence (last `fn_h` body).
+    let code = "extern \"C\"\n    function take3(a: ptr, b: int, c: f64) -> i32\nend\nfunction h(buf, idx, v)\n    return take3(buf, idx, v)\nend\nfunction main()\n    let buf = alloc(32)\n    let m = { \"k\": 0 }\n    let w = m[\"k\"]\n    say h(buf, 1, w)\nend\n";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    for (arch, os) in [
+        (Architecture::X64, OperatingSystem::Linux),
+        (Architecture::ARM64, OperatingSystem::Linux),
+    ] {
+        let asm = generate(&ast, arch, os);
+        let call_insn = if matches!(arch, Architecture::ARM64) {
+            "bl take3"
+        } else {
+            "call take3"
+        };
+        let call_pos = asm.find(call_insn).expect("missing take3 call");
+        let seq_start = asm[..call_pos].rfind("fn_h:").expect("missing h body");
+        let seq = &asm[seq_start..call_pos];
+        let (cvt, ride) = if matches!(arch, Architecture::ARM64) {
+            ("scvtf d0, x0", "fmov d0, x9")
+        } else {
+            ("cvtsi2sdq", "movq %rax, %xmm0")
+        };
+        assert!(
+            !seq.contains(cvt),
+            "dynamic extern float arg must not convert on {:?}:\n{}",
+            arch,
+            seq
+        );
+        assert!(
+            seq.contains(ride),
+            "declared f64 still rides the FP register on {:?}:\n{}",
+            arch,
+            seq
+        );
+    }
+}
+
+#[test]
+fn test_extern_float_proven_int_arg_converts() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    // alya-lang/alya#160 follow-up: a PROVEN int to an f64 extern param
+    // keeps genuine C semantics (converts); only dynamics ride bits.
+    let code = "extern \"C\"\n    function take3(a: ptr, b: int, c: f64) -> i32\nend\nfunction main()\n    let buf = alloc(32)\n    say take3(buf, 1, 2)\nend\n";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    for (arch, os) in [
+        (Architecture::X64, OperatingSystem::Linux),
+        (Architecture::ARM64, OperatingSystem::Linux),
+    ] {
+        let asm = generate(&ast, arch, os);
+        let call_insn = if matches!(arch, Architecture::ARM64) {
+            "bl take3"
+        } else {
+            "call take3"
+        };
+        let call_pos = asm.find(call_insn).expect("missing take3 call");
+        let seq_start = asm[..call_pos]
+            .rfind("fn_main:")
+            .expect("missing main body");
+        let seq = &asm[seq_start..call_pos];
+        let cvt = if matches!(arch, Architecture::ARM64) {
+            "scvtf d0, x0"
+        } else {
+            "cvtsi2sdq"
+        };
+        assert!(
+            seq.contains(cvt),
+            "proven-int extern float arg must convert on {:?}:\n{}",
+            arch,
+            seq
+        );
+    }
+}
+
+#[test]
 fn test_map_method_receiver_binds_construction_type() {
     use crate::lexer::Lexer;
     use crate::parser::Parser;

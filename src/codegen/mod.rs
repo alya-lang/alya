@@ -3075,6 +3075,29 @@ impl CodeGen {
         }
     }
 
+    /// Strict int->float conversion for `extern` float params
+    /// (alya-lang/alya#160 follow-up): the declared parameter type
+    /// governs, so only PROVEN ints convert (genuine C semantics for
+    /// genuine ints). Anything else rides its current bits untouched —
+    /// in particular a mistagged dynamic (int tag, float bits) must
+    /// NOT take the tag-guarded path, which would convert live double
+    /// bits into garbage. Proven floats and definitely-non-numerics
+    /// no-op inside. Value stays in rax.
+    pub(crate) fn emit_extern_float_convert(&mut self, value: &crate::ast::Expr) {
+        use crate::codegen::analysis::{
+            is_definitely_not_numeric, is_float_expr, is_proven_int_expr,
+        };
+        if is_float_expr(value, &self.ctx.variables)
+            || is_definitely_not_numeric(value, &self.ctx.variables)
+        {
+            return;
+        }
+        if is_proven_int_expr(value, &self.ctx.variables) {
+            arch::emit_int_to_float(&mut self.output, self.arch);
+        }
+        // else: dynamic/unknown — pass the bits through (see above).
+    }
+
     /// marks the value in rax as FLOAT in the tag register. Used after an
     /// implicit conversion on tag-protocol positions (`return`), where the
     /// tag still describes the pre-conversion int.
