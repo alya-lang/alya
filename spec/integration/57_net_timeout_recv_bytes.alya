@@ -1,0 +1,48 @@
+# ==============================================================================
+# Alya Integration Fixture 57 (entry): net socket timeout on recv_bytes returns empty
+# Distilled from: alya-lang/alya#166 (Windows ARM64 recv/recv_bytes 32-bit sign extension abort 134)
+# Guards:
+#   1. tcp_recv_bytes on a timed-out / empty socket returns an empty array,
+#      not an abort 134 / 0xC0000005 access violation from unsigned 32-bit return.
+#   2. tcp_set_timeout safely sets timeout values without corrupting the stack frame.
+# ==============================================================================
+
+import "std/net"
+
+function test_net_timeout_empty()
+    let srv = tcp_listen(19895, 1)
+    if srv < 0
+        return
+    end
+
+    let client = tcp_connect("127.0.0.1", 19895)
+    if client < 0
+        tcp_close(srv)
+        return
+    end
+
+    let accepted = tcp_accept(srv)
+    if accepted < 0
+        tcp_close(client)
+        tcp_close(srv)
+        return
+    end
+
+    # Set 50ms timeout on accepted socket
+    tcp_set_timeout(accepted, 50)
+
+    # Client sends nothing; accepted socket should time out and return empty array
+    let chunk = tcp_recv_bytes(accepted, 4096)
+    assert len(chunk) == 0
+
+    tcp_close(accepted)
+    tcp_close(client)
+    tcp_close(srv)
+end
+
+function main()
+    test_net_timeout_empty()
+    say "integration 57_net_timeout_recv_bytes: OK"
+end
+
+main()

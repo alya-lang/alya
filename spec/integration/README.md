@@ -72,6 +72,7 @@
 # | `54_winarm64_extern_float.alya` | Windows ARM64 extern float calling convention | ABI compliance on Windows ARM64 for floating point parameters |
 # | `55_dynamic_is_not_and_throw.alya` | rebound dynamics `is not int`, untyped struct throw, 0 vs null idiom (alya-lang/alya#167) | null-rebound dynamic parameters preserve null kind in dynspec; runtime is/is-not checks classify correctly; untyped struct throws format message field; 0 vs null blessed idiom |
 # | `56_null_zero_distinction.alya` | complete distinction between integer 0 and null (alya-lang/alya#168) | literals, locals, and container reads distinguish 0 from null across all predicates, equality, and typeof; KIND_NULL tag |
+# | `57_net_timeout_recv_bytes.alya` | Windows ARM64 socket recv return value sign extension (alya-lang/alya#166) | 32-bit return values from Winsock/libc recv, send, recvfrom, sendto sign-extended to 64-bit on ARM64; timeouts return empty array without 0xC0000005 crash |
 #
 # ## Known collision (deliberate rename)
 #

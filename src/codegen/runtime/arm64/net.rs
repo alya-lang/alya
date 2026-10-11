@@ -75,6 +75,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x1, #1\n");
     out.push_str("    mov x2, #0\n");
     out.push_str(&format!("    bl {}socket\n", p));
+    out.push_str("    sxtw x0, w0\n");
     out.push_str("    cmp x0, #0\n");
     out.push_str("    blt .L_arm64_conn_fail\n");
     out.push_str("    mov x21, x0\n"); // socket
@@ -217,6 +218,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x2, x22\n");
     out.push_str("    mov x3, #0\n");
     out.push_str(&format!("    bl {}send\n", p));
+    out.push_str("    sxtw x0, w0\n");
     out.push_str("    b .L_arm64_send_ret\n");
     out.push_str(".L_arm64_send_zero:\n");
     out.push_str("    mov x0, #0\n");
@@ -259,6 +261,8 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x2, x20\n");
     out.push_str("    mov x3, #0\n");
     out.push_str(&format!("    bl {}recv\n", p));
+    // Winsock/libc recv returns 32-bit int (-1 on error); sign-extend w0 to x0 so cmp x0, #0 correctly detects negative errors.
+    out.push_str("    sxtw x0, w0\n");
     out.push_str("    cmp x0, #0\n");
     out.push_str("    ble .L_arm64_recv_empty\n");
     out.push_str("    strb wzr, [x21, x0]\n");
@@ -320,7 +324,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x2, x22\n");
     out.push_str("    mov x3, #0\n");
     out.push_str(&format!("    bl {}send\n", p));
-    out.push_str("    mov x24, x0\n"); // sent
+    out.push_str("    sxtw x24, w0\n"); // sent
     out.push_str("    mov x0, x23\n");
     out.push_str(&format!("    bl {}free\n", p));
     out.push_str("    mov x0, x24\n");
@@ -367,6 +371,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x2, x20\n");
     out.push_str("    mov x3, #0\n");
     out.push_str(&format!("    bl {}recv\n", p));
+    out.push_str("    sxtw x0, w0\n");
     out.push_str("    cmp x0, #0\n");
     out.push_str("    ble .L_arm64_recvb_empty\n");
     out.push_str("    mov x22, x0\n"); // n
@@ -474,7 +479,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x4, sp, #64\n");
     out.push_str("    mov x5, #16\n");
     out.push_str(&format!("    bl {}sendto\n", p));
-    out.push_str("    mov x24, x0\n"); // sent
+    out.push_str("    sxtw x24, w0\n"); // sent
     out.push_str("    ldr x0, [sp, #56]\n");
     out.push_str(&format!("    bl {}free\n", p));
     out.push_str("    mov x0, x24\n");
@@ -526,6 +531,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x4, #0\n");
     out.push_str("    mov x5, #0\n");
     out.push_str(&format!("    bl {}recvfrom\n", p));
+    out.push_str("    sxtw x0, w0\n");
     out.push_str("    cmp x0, #0\n");
     out.push_str("    ble .L_arm64_urecvb_empty\n");
     out.push_str("    mov x22, x0\n"); // n
@@ -585,13 +591,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x20, x1\n");
     if is_win {
         // Windows: SO_RCVTIMEO / SO_SNDTIMEO take a DWORD millisecond count.
-        // The extra sub keeps the 32-byte home area below the call free.
-        out.push_str("    sub sp, sp, #32\n");
-        out.push_str("    str w1, [sp, #64]\n");
+        out.push_str("    str w20, [sp, #32]\n");
         out.push_str("    mov x0, x19\n");
         out.push_str("    movz x1, #0xffff\n"); // SOL_SOCKET
         out.push_str("    movz x2, #0x1006\n"); // SO_RCVTIMEO
-        out.push_str("    add x3, sp, #64\n");
+        out.push_str("    add x3, sp, #32\n");
         out.push_str("    mov x4, #4\n");
         out.push_str("    bl setsockopt\n");
         out.push_str("    cmp w0, #0\n");
@@ -599,10 +603,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    mov x0, x19\n");
         out.push_str("    movz x1, #0xffff\n");
         out.push_str("    movz x2, #0x1005\n"); // SO_SNDTIMEO
-        out.push_str("    add x3, sp, #64\n");
+        out.push_str("    add x3, sp, #32\n");
         out.push_str("    mov x4, #4\n");
         out.push_str("    bl setsockopt\n");
-        out.push_str("    add sp, sp, #32\n");
         out.push_str("    cmp w0, #0\n");
         out.push_str("    blt .L_arm64_timeout_fail\n");
     } else {
@@ -817,6 +820,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x4, sp, #48\n");
     out.push_str("    mov x5, #16\n");
     out.push_str(&format!("    bl {}sendto\n", p));
+    out.push_str("    sxtw x0, w0\n");
     out.push_str("    b .L_arm64_usend_ret\n");
     out.push_str(".L_arm64_usend_fail:\n");
     out.push_str("    mvn x0, xzr\n");
@@ -859,6 +863,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x4, #0\n");
     out.push_str("    mov x5, #0\n");
     out.push_str(&format!("    bl {}recvfrom\n", p));
+    out.push_str("    sxtw x0, w0\n");
     out.push_str("    cmp x0, #0\n");
     out.push_str("    ble .L_arm64_urecv_empty\n");
     out.push_str("    strb wzr, [x21, x0]\n");
@@ -881,7 +886,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".align 2\n");
     out.push_str(".global fn_net_set_nonblocking\n");
     out.push_str("fn_net_set_nonblocking:\n");
-    out.push_str("    stp x29, x30, [sp, #-32]!\n");
+    out.push_str("    stp x29, x30, [sp, #-48]!\n");
     out.push_str("    mov x29, sp\n");
     out.push_str("    stp x19, x20, [sp, #16]\n");
     out.push_str("    mov x19, x0\n"); // sock
@@ -889,15 +894,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
 
     if is_win {
         // Windows: ioctlsocket(sock, FIONBIO, &mode) — no fcntl on Winsock.
-        // The mode slot sits outside the 32-byte home area ([sp, #32]).
-        out.push_str("    sub sp, sp, #48\n");
         out.push_str("    mov x0, x19\n");
         out.push_str("    movz x1, #0x667e\n");
         out.push_str("    movk x1, #0x8004, lsl #16\n"); // FIONBIO = 0x8004667E
+        out.push_str("    str w20, [sp, #32]\n");
         out.push_str("    add x2, sp, #32\n");
-        out.push_str("    str w20, [x2]\n");
         out.push_str("    bl ioctlsocket\n");
-        out.push_str("    add sp, sp, #48\n");
         out.push_str("    cmp w0, #0\n");
         out.push_str("    bne .L_arm64_snb_err\n");
         out.push_str("    mov x0, #0\n");
@@ -945,7 +947,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mvn x0, xzr\n"); // -1
     out.push_str(".L_arm64_snb_ret:\n");
     out.push_str("    ldp x19, x20, [sp, #16]\n");
-    out.push_str("    ldp x29, x30, [sp], #32\n");
+    out.push_str("    ldp x29, x30, [sp], #48\n");
     out.push_str("    ret\n\n");
 
     // fn_net_poll: net_poll(sock, timeout_ms) -> 1 (ready), 0 (timeout), -1 (error)
