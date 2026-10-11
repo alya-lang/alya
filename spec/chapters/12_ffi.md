@@ -48,7 +48,8 @@ An `extern` declaration and an Alya `function` must not share one name in the sa
 ### 1.6 Foreign Calling Conventions (Float Arguments)
 `extern` calls follow the target C ABI exactly; the internal Alya calling convention never leaks across the boundary:
 - **System V AMD64 (Linux/macOS x64):** integer/pointer arguments ride `rdi, rsi, rdx, rcx, r8, r9` while `f32`/`f64` arguments ride `xmm0-xmm7` — two independent sequences, each spilling its overflow to 8-byte stack slots. `AL` carries the number of XMM registers used (required by variadic callees, ignored by fixed ones).
-- **AAPCS64 (ARM64):** integer/pointer arguments ride `x0-x7`, floats ride `d0-d7`, same spill rule; `sp` stays 16-byte aligned.
+- **AAPCS64 (Linux/macOS ARM64):** integer/pointer arguments ride `x0-x7`, floats ride `d0-d7`, same spill rule; `sp` stays 16-byte aligned.
+- **Windows ARM64:** non-variadic calls follow the same AAPCS64 split (`x0-x7` / `d0-d7`); additionally, each float homes into its positional `x` slot when that slot is otherwise unclaimed, serving the MS variadic addendum (variadic callees read no FP registers — every argument rides `xN` positionally). Stack-spilled (>8) arguments ride the split frame only.
 - **Win64:** one sequence (`rcx, rdx, r8, r9`) mirrored into `xmm0-xmm3`.
 - An `int`-typed value passed to a float-typed extern parameter converts to double on the shared tag-guarded emission (the same conversion float-param call args use); dynamically-typed values ride their current bits. Declared parameter types are authoritative for register assignment; extra variadic arguments classify by their static kind.
 

@@ -22,7 +22,7 @@ end
 function main()
     let buf = alloc(64)
     let n = snprintf(buf, 64, "%f", 19.99)
-    assert_true(n > 0, "snprintf writes bytes")
+    assert_eq(n, 9, "snprintf writes 9 bytes")
     assert_eq(str_from_ptr(buf), "19.990000", "double routes intact through FFI")
     free(buf)
     say "integration 54_winarm64_extern_float: OK"
