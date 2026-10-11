@@ -7,6 +7,7 @@
 #   1. Map read passed as argument to untyped parameter preserves 0 vs null.
 #   2. Let-bound map read null retains null kind, equality, and typeof.
 #   3. Let-bound untyped all-null function return retains null kind, equality, and typeof.
+#   4. Dynamic key map reads (m[k]) and loop-variable reads preserve 0 vs null across let and equality.
 # ==============================================================================
 
 function c(v)
@@ -91,10 +92,80 @@ function test_let_bound_fn_returns()
     assert typeof(z) == "int"
 end
 
+function test_dynamic_key_map_reads()
+    let m = map()
+    m["id"] = 0
+    m["nil"] = null
+
+    let k = "id"
+    let kn = "nil"
+
+    assert not c(m[k])
+    assert c(m[kn])
+    assert not (m[k] is null)
+    assert m[kn] is null
+    assert not (m[k] == null)
+    assert m[kn] == null
+    assert typeof(m[k]) == "int"
+    assert typeof(m[kn]) == "null"
+
+    let u = m[k]
+    assert not c(u)
+    assert not (u is null)
+    assert u is not null
+    assert u == 0
+    assert not (u == null)
+    assert u != null
+    assert typeof(u) == "int"
+
+    let w = m[kn]
+    assert c(w)
+    assert w is null
+    assert not (w is not null)
+    assert w == null
+    assert not (w != null)
+    assert typeof(w) == "null"
+end
+
+function test_loop_key_map_reads()
+    let m = map()
+    m["id"] = 0
+    m["nil"] = null
+
+    let seen_id = 0
+    let seen_nil = 0
+
+    for k in keys(m)
+        let v = m[k]
+        if k == "id"
+            seen_id = seen_id + 1
+            assert not (v is null)
+            assert v is not null
+            assert not (v == null)
+            assert v != null
+            assert v == 0
+            assert typeof(v) == "int"
+        end
+        if k == "nil"
+            seen_nil = seen_nil + 1
+            assert v is null
+            assert not (v is not null)
+            assert v == null
+            assert not (v != null)
+            assert typeof(v) == "null"
+        end
+    end
+
+    assert seen_id == 1
+    assert seen_nil == 1
+end
+
 function main()
     test_map_read_arg_passing()
     test_let_bound_map_reads()
     test_let_bound_fn_returns()
+    test_dynamic_key_map_reads()
+    test_loop_key_map_reads()
     say "integration 58_kind_null_transport: OK"
 end
 

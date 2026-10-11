@@ -107,6 +107,12 @@ impl CodeGen {
                     self.ctx
                         .variables
                         .insert(name.clone(), VarType::StringOffset(0));
+                    if let Expr::String(s) = value {
+                        self.ctx.variables.insert(
+                            format!("var_str_val:{}", name),
+                            VarType::StringLabel(s.clone()),
+                        );
+                    }
                 } else if is_float_expr(value, &self.ctx.variables) {
                     self.ctx.variables.insert(name.clone(), VarType::Float(0));
                 } else {
@@ -278,6 +284,10 @@ impl CodeGen {
                 self.ctx
                     .variables
                     .insert(name.clone(), VarType::StringOffset(slot));
+                self.ctx.variables.insert(
+                    format!("var_str_val:{}", name),
+                    VarType::StringLabel(s.clone()),
+                );
             }
             Expr::Array(elements) => {
                 let is_str_arr = (!elements.is_empty()
@@ -688,6 +698,16 @@ impl CodeGen {
                 } else {
                     self.generate_expression(value);
                 }
+                // alya-lang/alya#170: preserve dynamic kind tag in a local spill slot across let-bindings
+                // so 0 is not confused with null at runtime.
+                let val_carries_tag = matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                    && is_tag_carrying_read(value, &self.ctx.variables)
+                    && !is_proven_int_expr(value, &self.ctx.variables)
+                    && !is_null_expr(value, &self.ctx.variables)
+                    && !is_str
+                    && !is_flt
+                    && !is_arr
+                    && !is_map;
                 // Implicit `: float` conversion for unknown-kind values
                 // (#83): the slot below is tracked Float, but an int
                 // arriving here keeps int bits and reads back as a
@@ -875,6 +895,31 @@ impl CodeGen {
                     self.ctx
                         .variables
                         .insert(name.clone(), VarType::Number(slot));
+                    if val_carries_tag {
+                        arch::emit_allocate_var(
+                            &mut self.output,
+                            self.arch,
+                            &mut self.ctx.stack_offset,
+                        );
+                        let tag_slot = self.ctx.stack_offset;
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output
+                                    .push_str(&format!("    movl %edx, -{}(%rbp)\n", tag_slot));
+                            }
+                            Architecture::ARM64 => {
+                                crate::codegen::arch::arm64::loads::emit_arm64_store_x29_offset(
+                                    &mut self.output,
+                                    "w1",
+                                    tag_slot,
+                                    "x9",
+                                );
+                            }
+                        }
+                        self.ctx
+                            .variables
+                            .insert(format!("var_tag_slot:{}", name), VarType::Number(tag_slot));
+                    }
                     if matches!(
                         type_ann,
                         Some("int")
@@ -1967,7 +2012,17 @@ impl CodeGen {
                     .variables
                     .insert(format!("map_nonstr_key:{}", field), VarType::Number(0));
             }
-            if let (Expr::Identifier(map_name), Expr::String(field)) = (array, index) {
+            let field_str = match index {
+                Expr::String(field) => Some(field.clone()),
+                Expr::Identifier(k) => {
+                    match self.ctx.variables.get(&format!("var_str_val:{}", k)) {
+                        Some(VarType::StringLabel(s)) => Some(s.clone()),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            if let (Expr::Identifier(map_name), Some(field)) = (array, field_str) {
                 if is_null_expr(value, &self.ctx.variables) {
                     self.ctx
                         .variables

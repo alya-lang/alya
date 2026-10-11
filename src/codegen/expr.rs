@@ -381,11 +381,15 @@ impl CodeGen {
                         return;
                     }
                     // Tag-carrying read vs null: route through type-check
-                    if right_null && is_tag_carrying_read(left, &self.ctx.variables) {
+                    let left_carries_tag = is_tag_carrying_read(left, &self.ctx.variables)
+                        || matches!(&**left, Expr::Identifier(id) if self.ctx.variables.contains_key(&format!("var_tag_slot:{}", id)));
+                    let right_carries_tag = is_tag_carrying_read(right, &self.ctx.variables)
+                        || matches!(&**right, Expr::Identifier(id) if self.ctx.variables.contains_key(&format!("var_tag_slot:{}", id)));
+                    if right_null && left_carries_tag {
                         self.generate_type_check(left, "null", *op == BinaryOp::NotEqual);
                         return;
                     }
-                    if left_null && is_tag_carrying_read(right, &self.ctx.variables) {
+                    if left_null && right_carries_tag {
                         self.generate_type_check(right, "null", *op == BinaryOp::NotEqual);
                         return;
                     }
@@ -4308,14 +4312,39 @@ impl CodeGen {
                     arch::emit_load_num(&mut self.output, self.arch, if negated { 1 } else { 0 });
                     return;
                 }
+                // alya-lang/alya#170: reload spilled runtime kind tag from var_tag_slot for dynamic type checking.
+                let has_tag_slot = if let Expr::Identifier(id) = expr {
+                    self.ctx
+                        .variables
+                        .get(&format!("var_tag_slot:{}", id))
+                        .cloned()
+                } else {
+                    None
+                };
                 if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
-                    && matches!(
+                    && ((matches!(
                         expr,
                         Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                    )
-                    && is_tag_carrying_read(expr, &self.ctx.variables)
+                    ) && is_tag_carrying_read(expr, &self.ctx.variables))
+                        || has_tag_slot.is_some())
                 {
                     self.generate_expression(expr);
+                    if let Some(VarType::Number(tag_slot)) = has_tag_slot {
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output
+                                    .push_str(&format!("    movl -{}(%rbp), %edx\n", tag_slot));
+                            }
+                            Architecture::ARM64 => {
+                                crate::codegen::arch::arm64::loads::emit_arm64_load_x29_offset(
+                                    &mut self.output,
+                                    "w1",
+                                    tag_slot,
+                                    "x9",
+                                );
+                            }
+                        }
+                    }
                     let l_true = self.ctx.next_label();
                     let l_end = self.ctx.next_label();
                     let l_no = self.ctx.next_label();

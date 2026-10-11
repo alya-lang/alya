@@ -15,7 +15,7 @@
 //! clones never double-run suites. Nested function definitions are not
 //! specialized (hoisting would break captures); generic templates are
 //! left to `resolve_generics`, which runs before this pass.
-use crate::ast::{Expr, Program, Stmt};
+use crate::ast::{BinaryOp, Expr, Program, Stmt};
 use std::collections::{HashMap, HashSet};
 
 const MAX_VERSIONS_PER_FN: usize = 8;
@@ -84,13 +84,35 @@ fn expr_tests_params(expr: &Expr, params: &HashSet<String>) -> bool {
             }
             expr_tests_params(inner, params)
         }
-        Expr::Binary { left, right, .. } => {
+        Expr::Binary { left, op, right } => {
+            if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual) {
+                if let (Expr::Identifier(name), Expr::Null) = (&**left, &**right) {
+                    if params.contains(name) {
+                        return true;
+                    }
+                }
+                if let (Expr::Null, Expr::Identifier(name)) = (&**left, &**right) {
+                    if params.contains(name) {
+                        return true;
+                    }
+                }
+            }
             expr_tests_params(left, params) || expr_tests_params(right, params)
         }
         Expr::Unary { expr: inner, .. } | Expr::ForceUnwrap(inner) => {
             expr_tests_params(inner, params)
         }
-        Expr::Call { args, .. } | Expr::Array(args) | Expr::InterpolatedString(args) => {
+        Expr::Call { name, args } => {
+            if name == "typeof" && args.len() == 1 {
+                if let Expr::Identifier(arg_name) = &args[0] {
+                    if params.contains(arg_name) {
+                        return true;
+                    }
+                }
+            }
+            args.iter().any(|a| expr_tests_params(a, params))
+        }
+        Expr::Array(args) | Expr::InterpolatedString(args) => {
             args.iter().any(|a| expr_tests_params(a, params))
         }
         Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
@@ -501,6 +523,7 @@ enum BindVal {
     Kind(char),
     LitArray(Vec<Expr>),
     LitMap(Vec<(String, Expr)>),
+    LitString(String),
 }
 
 fn count_assigns(stmts: &[Stmt], counts: &mut HashMap<String, usize>) {
@@ -566,6 +589,9 @@ fn literal_binds(stmts: &[Stmt], counts: &HashMap<String, usize>) -> HashMap<Str
                 continue;
             }
             match value {
+                Expr::String(s) => {
+                    out.insert(name.clone(), BindVal::LitString(s.clone()));
+                }
                 Expr::Array(elems) => {
                     out.insert(name.clone(), BindVal::LitArray(elems.clone()));
                 }
@@ -603,7 +629,7 @@ fn literal_binds(stmts: &[Stmt], counts: &HashMap<String, usize>) -> HashMap<Str
             }
         }
     }
-    // Pass 1b: single-assignment map writes (`m["key"] = val`).
+    // Pass 1b: single-assignment map writes (`m["key"] = val` or `m[k] = val`).
     for s in stmts {
         if let Stmt::IndexAssign {
             array,
@@ -611,13 +637,34 @@ fn literal_binds(stmts: &[Stmt], counts: &HashMap<String, usize>) -> HashMap<Str
             value,
         } = s.inner_stmt()
         {
-            if let (Expr::Identifier(map_name), Expr::String(key)) = (array, index) {
+            let key_str = match index {
+                Expr::String(k) => Some(k.clone()),
+                Expr::Identifier(kid) => match out.get(kid) {
+                    Some(BindVal::LitString(s)) => Some(s.clone()),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let (Expr::Identifier(map_name), Some(key)) = (array, key_str) {
                 if let Some(BindVal::LitMap(entries)) = out.get_mut(map_name) {
-                    if let Some(pos) = entries.iter().position(|(k, _)| k == key) {
+                    if let Some(pos) = entries.iter().position(|(k, _)| k == &key) {
                         entries[pos].1 = value.clone();
                     } else {
-                        entries.push((key.clone(), value.clone()));
+                        entries.push((key, value.clone()));
                     }
+                }
+            }
+        }
+    }
+    // Pass 1c: resolve let bindings whose value can be classified (e.g. `let u = m[k]` or `let u = m["id"]`).
+    for s in stmts {
+        if let Stmt::Let { name, value, .. } = s.inner_stmt() {
+            if counts.get(name).copied().unwrap_or(0) != 1 {
+                continue;
+            }
+            if !out.contains_key(name) {
+                if let Some(c) = classify_arg(value, Some(&out)) {
+                    out.insert(name.clone(), BindVal::Kind(c));
                 }
             }
         }
@@ -629,8 +676,8 @@ fn literal_binds(stmts: &[Stmt], counts: &HashMap<String, usize>) -> HashMap<Str
                 continue;
             }
             if let Expr::Identifier(src) = value {
-                if let Some(BindVal::Kind(c)) = out.get(src) {
-                    out.insert(name.clone(), BindVal::Kind(*c));
+                if let Some(val) = out.get(src).cloned() {
+                    out.insert(name.clone(), val);
                 }
             }
         }
@@ -649,6 +696,7 @@ fn classify_arg(arg: &Expr, binds: Option<&HashMap<String, BindVal>>) -> Option<
     match arg {
         Expr::Identifier(name) => match binds.get(name) {
             Some(BindVal::Kind(c)) => Some(*c),
+            Some(BindVal::LitString(_)) => Some('s'),
             _ => None,
         },
         Expr::Index { array, index } => {
@@ -659,12 +707,36 @@ fn classify_arg(arg: &Expr, binds: Option<&HashMap<String, BindVal>>) -> Option<
                     }
                 }
             }
-            // alya-lang/alya#170: specialize call sites taking map-read args (e.g. c(m["id"]))
+            // alya-lang/alya#170: specialize call sites taking map-read args (e.g. c(m["id"]) or c(m[k]))
             // through single-assignment bindings populated by map literals/constructors and index-assigns.
-            if let (Expr::Identifier(arr), Expr::String(key)) = (&**array, &**index) {
+            let key_str: Option<&str> = match &**index {
+                Expr::String(key) => Some(key.as_str()),
+                Expr::Identifier(kid) => match binds.get(kid) {
+                    Some(BindVal::LitString(s)) => Some(s.as_str()),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let (Expr::Identifier(arr), Some(key)) = (&**array, key_str) {
                 if let Some(BindVal::LitMap(entries)) = binds.get(arr) {
                     if let Some((_, val)) = entries.iter().rev().find(|(k, _)| k == key) {
                         return arg_kind_code(val).or_else(|| classify_arg(val, Some(binds)));
+                    }
+                }
+            }
+            if let Expr::Identifier(arr) = &**array {
+                if let Some(BindVal::LitMap(entries)) = binds.get(arr) {
+                    if !entries.is_empty() {
+                        let first_kind = arg_kind_code(&entries[0].1)
+                            .or_else(|| classify_arg(&entries[0].1, Some(binds)));
+                        if let Some(k) = first_kind {
+                            if entries.iter().all(|(_, val)| {
+                                arg_kind_code(val).or_else(|| classify_arg(val, Some(binds)))
+                                    == Some(k)
+                            }) {
+                                return Some(k);
+                            }
+                        }
                     }
                 }
             }

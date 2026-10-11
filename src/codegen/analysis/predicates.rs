@@ -1727,7 +1727,15 @@ pub fn is_null_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                 || vars.contains_key(&format!("fn_ret_null:{}", bare))
         }
         Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
-            if let Expr::String(field) = &**index {
+            let field_opt: Option<&str> = match &**index {
+                Expr::String(field) => Some(field.as_str()),
+                Expr::Identifier(k) => match vars.get(&format!("var_str_val:{}", k)) {
+                    Some(VarType::StringLabel(s)) => Some(s.as_str()),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(field) = field_opt {
                 if let Expr::Identifier(map_name) = &**array {
                     if vars.contains_key(&format!("map_null:{}.{}", map_name, field)) {
                         return true;
@@ -2132,7 +2140,15 @@ pub fn is_proven_int_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool 
 /// Returns true when `expr` is an index into a map slot statically known to hold an integer.
 pub fn is_map_entry_int(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     if let Expr::Index { array, index } | Expr::OptionalIndex { array, index } = expr {
-        if let Expr::String(field) = &**index {
+        let field_opt: Option<&str> = match &**index {
+            Expr::String(field) => Some(field.as_str()),
+            Expr::Identifier(k) => match vars.get(&format!("var_str_val:{}", k)) {
+                Some(VarType::StringLabel(s)) => Some(s.as_str()),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(field) = field_opt {
             if let Expr::Identifier(map_name) = &**array {
                 if vars.contains_key(&format!("map_int:{}.{}", map_name, field)) {
                     return true;
