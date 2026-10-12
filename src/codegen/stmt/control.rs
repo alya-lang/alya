@@ -692,18 +692,15 @@ impl CodeGen {
         if let Some(else_vars) = &else_variables {
             for (var_name, var_type) in else_vars.iter() {
                 if let Some(cur_type) = final_variables.get(var_name) {
-                    if matches!(cur_type, VarType::Null(_))
-                        && !matches!(var_type, VarType::Null(_))
+                    if matches!(cur_type, VarType::Null(_)) && !matches!(var_type, VarType::Null(_))
                     {
                         final_variables.insert(var_name.clone(), var_type.clone());
                         let then_assigned_non_null = then_variables
                             .get(var_name)
                             .is_some_and(|t| !matches!(t, VarType::Null(_)));
                         if !then_assigned_non_null {
-                            final_variables.insert(
-                                format!("var_maybe_null:{}", var_name),
-                                VarType::Number(0),
-                            );
+                            final_variables
+                                .insert(format!("var_maybe_null:{}", var_name), VarType::Number(0));
                         }
                     }
                 }
@@ -829,18 +826,15 @@ impl CodeGen {
         let mut names = Vec::new();
         collect_assigned(body, &mut names);
         for name in names {
-            if matches!(
-                self.ctx.variables.get(&name),
-                Some(VarType::Null(_))
-            ) && !self
-                .ctx
-                .variables
-                .contains_key(&format!("var_maybe_null:{}", name))
+            if matches!(self.ctx.variables.get(&name), Some(VarType::Null(_)))
+                && !self
+                    .ctx
+                    .variables
+                    .contains_key(&format!("var_maybe_null:{}", name))
             {
-                self.ctx.variables.insert(
-                    format!("var_maybe_null:{}", name),
-                    VarType::Number(0),
-                );
+                self.ctx
+                    .variables
+                    .insert(format!("var_maybe_null:{}", name), VarType::Number(0));
             }
         }
     }
@@ -1297,10 +1291,10 @@ impl CodeGen {
             let end_label = self.ctx.next_label();
             let loop_body_stack_offset = self.ctx.stack_offset;
             let loop_body_variables = self.ctx.variables.clone();
-        // alya-lang/alya#174: pre-mark null-typed locals assigned in the
-        // body so checks positioned before the assignment (later
-        // iterations included) use the runtime check, not a pre-loop fold.
-        self.pre_mark_loop_assigned_nulls(body);
+            // alya-lang/alya#174: pre-mark null-typed locals assigned in the
+            // body so checks positioned before the assignment (later
+            // iterations included) use the runtime check, not a pre-loop fold.
+            self.pre_mark_loop_assigned_nulls(body);
 
             self.ctx.push_loop(
                 step_label.clone(),
