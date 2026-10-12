@@ -3771,7 +3771,7 @@ impl CodeGen {
                         self.ctx.stack_offset,
                         self.os,
                     );
-                } else {
+                } else if is_array_expr(array, &self.ctx.variables) {
                     let initial_stack_offset = self.ctx.stack_offset;
                     let temp_offset: i32 = match self.arch {
                         Architecture::ARM64 => 16,
@@ -3784,6 +3784,30 @@ impl CodeGen {
                     self.generate_expression(index);
                     arch::emit_array_get(&mut self.output, self.arch);
                     self.ctx.stack_offset = initial_stack_offset;
+                } else {
+                    // Dynamic tag dispatch (alya-lang/alya#55 Phase 2):
+                    // unspecialized or untyped collections route at runtime between
+                    // array indexing, map get, and string char_at to prevent 0xC0000005.
+                    let actual_args = [array.as_ref(), index.as_ref()];
+                    let initial_stack_offset = self.ctx.stack_offset;
+                    let word_size: i32 = match self.arch {
+                        Architecture::ARM64 => 16,
+                        _ => 8,
+                    };
+                    for (idx, arg) in actual_args.iter().enumerate() {
+                        self.ctx.stack_offset = initial_stack_offset + (idx as i32 * word_size);
+                        self.generate_expression(arg);
+                        arch::emit_push_temp(&mut self.output, self.arch);
+                    }
+                    self.ctx.stack_offset = initial_stack_offset;
+                    arch::emit_function_call(
+                        &mut self.output,
+                        self.arch,
+                        "dynamic_index_get",
+                        2,
+                        self.ctx.stack_offset,
+                        self.os,
+                    );
                 }
             }
             Expr::InterpolatedString(parts) => {

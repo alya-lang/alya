@@ -2028,6 +2028,25 @@ impl CodeGen {
                 is_str_arr = false;
                 is_flt_arr = false;
                 is_map = kind == 'm';
+            } else if param_types.get(i).and_then(|t| t.as_deref()).is_none() && param != "self" {
+                // Multi-kind conflict safety net (alya-lang/alya#55 Phase 2):
+                // when dynspec does not specialize an untyped param (e.g. dynamic branch
+                // callers or version cap reached), multiple inferred may-facts must NOT pick
+                // an arbitrary winner. Treating an array as string causes char_at to fault
+                // (0xC0000005, #132); treating an int as float causes 64-bit truncation (#152).
+                // Clear conflicting facts so the param remains truly dynamic.
+                let inferred_kinds = (is_str as usize)
+                    + (is_flt as usize)
+                    + ((is_arr || is_str_arr || is_flt_arr) as usize)
+                    + (is_map as usize);
+                if inferred_kinds > 1 {
+                    is_str = false;
+                    is_flt = false;
+                    is_arr = false;
+                    is_str_arr = false;
+                    is_flt_arr = false;
+                    is_map = false;
+                }
             }
             // Strict (must-) facts for `is` folding (alya-lang/alya#70):
             // the may-facts above stay authoritative for retains/heap
@@ -2035,10 +2054,10 @@ impl CodeGen {
             // annotations and dynspec suffix codes are exact by contract.
             let is_arr_strict = annot_arr
                 || spec_kind == Some('a')
-                || inference.infer_param_is_array_strict(name, i, program);
+                || (is_arr && inference.infer_param_is_array_strict(name, i, program));
             let is_map_strict = annot_map
                 || spec_kind == Some('m')
-                || inference.infer_param_is_map_strict(name, i, program);
+                || (is_map && inference.infer_param_is_map_strict(name, i, program));
             // Strict string fact for `is string` folding
             // (alya-lang/alya#71): the may-fact also covers
             // merely-possible strings, so folding trusts only enforced

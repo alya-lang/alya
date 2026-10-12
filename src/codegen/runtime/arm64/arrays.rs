@@ -373,4 +373,75 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_arm64_fn_slice_null:\n");
     out.push_str("    mov x0, #0\n");
     out.push_str("    ret\n\n");
+
+    // fn_dynamic_index_get(collection, index)
+    // Dynamic index dispatch (alya-lang/alya#55 Phase 2):
+    // routes unspecialized/untyped collection reads dynamically between
+    // array indexing (with bounds checks and element tag loading), map get,
+    // and string char_at.
+    out.push_str(".global fn_dynamic_index_get\n");
+    out.push_str("fn_dynamic_index_get:\n");
+    out.push_str("    stp x29, x30, [sp, #-32]!\n");
+    out.push_str("    mov x29, sp\n");
+    out.push_str("    cbz x0, .L_arm64_dyn_idx_null\n");
+    out.push_str("    movz x9, #1, lsl #16\n");
+    out.push_str("    cmp x0, x9\n");
+    out.push_str("    b.lo .L_arm64_dyn_idx_null\n");
+    out.push_str("    tst x0, #7\n");
+    out.push_str("    b.ne .L_arm64_dyn_idx_str\n");
+    crate::codegen::arch::arm64::emit_adrp_add(out, "x9", "alya_rodata_start", os);
+    out.push_str("    cmp x0, x9\n");
+    out.push_str("    b.lo .L_arm64_dyn_idx_chk_buf\n");
+    crate::codegen::arch::arm64::emit_adrp_add(out, "x10", "alya_rodata_end", os);
+    out.push_str("    cmp x0, x10\n");
+    out.push_str("    b.lo .L_arm64_dyn_idx_str\n");
+    out.push_str(".L_arm64_dyn_idx_chk_buf:\n");
+    crate::codegen::arch::arm64::emit_adrp_add(out, "x9", "alya_str_buf", os);
+    out.push_str("    cmp x0, x9\n");
+    out.push_str("    b.lo .L_arm64_dyn_idx_chk_tag\n");
+    out.push_str("    movz x10, #1024, lsl #16\n");
+    out.push_str("    add x10, x9, x10\n");
+    out.push_str("    cmp x0, x10\n");
+    out.push_str("    b.lo .L_arm64_dyn_idx_str\n");
+    out.push_str(".L_arm64_dyn_idx_chk_tag:\n");
+    out.push_str("    ldur w9, [x0, #-16]\n");
+    out.push_str("    movz w10, #0x0001\n");
+    out.push_str("    movk w10, #0x5A11, lsl #16\n");
+    out.push_str("    cmp w9, w10\n");
+    out.push_str("    b.eq .L_arm64_dyn_idx_arr\n");
+    out.push_str("    movz w10, #0x0002\n");
+    out.push_str("    movk w10, #0x5A11, lsl #16\n");
+    out.push_str("    cmp w9, w10\n");
+    out.push_str("    b.eq .L_arm64_dyn_idx_map\n");
+    out.push_str(".L_arm64_dyn_idx_str:\n");
+    out.push_str("    bl fn_char_at\n");
+    out.push_str("    mov w1, #3\n");
+    out.push_str("    ldp x29, x30, [sp], #32\n");
+    out.push_str("    ret\n");
+    out.push_str(".L_arm64_dyn_idx_arr:\n");
+    out.push_str("    tst x1, x1\n");
+    out.push_str("    b.pl 1f\n");
+    out.push_str("    ldr x2, [x0]\n");
+    out.push_str("    add x1, x1, x2\n");
+    out.push_str("1:\n");
+    out.push_str("    ldr x2, [x0]\n");
+    out.push_str("    cmp x1, x2\n");
+    out.push_str("    b.hs alya_error_index_out_of_bounds\n");
+    out.push_str("    ldr x2, [x0, #16]\n");
+    out.push_str("    ldr x3, [x0, #24]\n");
+    out.push_str("    ldrb w9, [x3, x1]\n");
+    out.push_str("    ldr x0, [x2, x1, lsl #3]\n");
+    out.push_str("    mov w1, w9\n");
+    out.push_str("    ldp x29, x30, [sp], #32\n");
+    out.push_str("    ret\n");
+    out.push_str(".L_arm64_dyn_idx_map:\n");
+    out.push_str("    mov x2, #0\n");
+    out.push_str("    bl fn_get\n");
+    out.push_str("    ldp x29, x30, [sp], #32\n");
+    out.push_str("    ret\n");
+    out.push_str(".L_arm64_dyn_idx_null:\n");
+    out.push_str("    mov x0, #0\n");
+    out.push_str("    mov w1, #0\n");
+    out.push_str("    ldp x29, x30, [sp], #32\n");
+    out.push_str("    ret\n\n");
 }

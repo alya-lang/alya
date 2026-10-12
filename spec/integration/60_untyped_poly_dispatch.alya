@@ -8,6 +8,8 @@
 #   2. Untyped parameters passed to int(v) preserve 64-bit integer values
 #      >= 65536 without float-truncation heuristic corruption.
 #   3. Untyped parameters passed to float(v) preserve float values.
+#   4. Heterogeneous dynamic call sites route through dynamic_index_get
+#      without compile-time kind assumption poisoning.
 # ==============================================================================
 
 struct F
@@ -63,9 +65,27 @@ function test_untyped_number_casts()
     assert cast_flt(3.14159) == 3.14159
 end
 
+function choose_val(flag)
+    if flag
+        return "alya"
+    else
+        return [97, 108, 121, 97]
+    end
+end
+
+function test_dynamic_branch_indexing()
+    let s = choose_val(true)
+    let a = choose_val(false)
+    assert usame(s, "alya") == 1
+    assert usame(a, [97, 108, 121, 97]) == 1
+    assert usame(s, "alxb") == 0
+    assert usame(a, [97, 108, 121, 98]) == 0
+end
+
 function main()
     test_multi_kind_indexing()
     test_untyped_number_casts()
+    test_dynamic_branch_indexing()
     say "integration 60_untyped_poly_dispatch: OK"
 end
 
