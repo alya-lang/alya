@@ -1,0 +1,102 @@
+# ==============================================================================
+# Alya Integration Fixture 63 (entry): method `-> float` with a
+# loop-carried accumulator divided at return keeps its float kind.
+# Distilled from: alya-lang/alya#176 (`Tensor.variance` returned the
+# correct f64 bits mistagged as int: callers saw `4608308318706860032`
+# instead of `1.25`, while `sum`/`mean` over the same storage worked).
+# Root cause: `fn_returns_all_int` runs at function prologue, before
+# body locals are typed, so `return acc / self.size` with a
+# `let acc: float` accumulator misjudged as all-int (no float/string
+# evidence against it yet) and planted a bogus `fn_ret_int` that the
+# receiver-qualified call-site override trusts over the real float
+# evidence. Free functions dodged it only because the override looks
+# for struct-qualified int keys.
+# Guards:
+#   1. Method and free-function twins with identical bodies agree
+#      (value, `is float`, `is int`).
+#   2. Struct-field and local-int divisors both work.
+#   3. `let`-bound method results compare exactly (`==`).
+# ==============================================================================
+
+struct Mini
+    size: int,
+    vals: array
+end
+
+function mini_get(m: Mini, idx: int) -> float
+    return m.vals[idx]
+end
+
+function mini_sum(m: Mini) -> float
+    let s: float = 0.0
+    let i: int = 0
+    while i < m.size
+        s += mini_get(m, i)
+        i += 1
+    end
+    return s
+end
+
+function mini_mean(m: Mini) -> float
+    return mini_sum(m) / m.size
+end
+
+function Mini.variance(self: Mini) -> float
+    let mu: float = mini_mean(self)
+    let acc: float = 0.0
+    let total: int = self.size
+    let i: int = 0
+    while i < total
+        let d: float = mini_get(self, i) - mu
+        acc += d * d
+        i += 1
+    end
+    return acc / self.size
+end
+
+function free_variance(m: Mini) -> float
+    let mu: float = mini_mean(m)
+    let acc: float = 0.0
+    let total: int = m.size
+    let i: int = 0
+    while i < total
+        let d: float = mini_get(m, i) - mu
+        acc += d * d
+        i += 1
+    end
+    return acc / m.size
+end
+
+function Mini.mean_conf(self: Mini) -> float
+    let s: float = 0.0
+    let i: int = 0
+    while i < self.size
+        s += mini_get(self, i)
+        i += 1
+    end
+    return s / self.size
+end
+
+function test_method_free_agree()
+    let m = Mini { size: 4, vals: [1.0, 2.0, 3.0, 4.0] }
+    let v = m.variance()
+    assert v == 1.25
+    assert v is float
+    assert not (v is int)
+    assert not (v is null)
+    let f = free_variance(m)
+    assert f == 1.25
+    assert f is float
+    assert v == f
+    let mc = m.mean_conf()
+    assert mc == 2.5
+    assert mc is float
+    assert mini_mean(m) == 2.5
+end
+
+function main()
+    test_method_free_agree()
+    say "integration 63_float_method_accumulator_divide: OK"
+end
+
+main()

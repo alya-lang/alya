@@ -2153,6 +2153,62 @@ pub fn is_proven_int_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool 
     }
 }
 
+/// Closed-world proven-int for pre-body return classification
+/// (alya-lang/alya#176): like `is_proven_int_expr`, but unknown
+/// leaves veto instead of defaulting through the loose
+/// `is_number_expr` arm rule. `fn_returns_all_int` runs at function
+/// prologue, before body locals are typed, so `s / size` with a
+/// `let s: float` accumulator would otherwise misjudge as all-int
+/// (no float/string evidence against it yet) and plant a bogus
+/// `fn_ret_int` that callers trust over the real float evidence —
+/// e.g. `Tensor.variance` mistagged its `1.25` as an int word.
+/// Annotated int params (marked `var_is_int` before the check) and
+/// known-int calls still qualify; comparisons/logic yield 0/1 words
+/// exactly like the loose rule.
+pub fn is_proven_int_expr_closed(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    match expr {
+        Expr::Number(_) => true,
+        Expr::Identifier(name) => {
+            vars.contains_key(&format!("var_is_int:{}", name))
+                && !vars.contains_key(&format!("var_rebound_nonint:{}", name))
+        }
+        Expr::Call { name, .. } => call_returns_known_int(name, vars),
+        Expr::Binary { left, op, right } => match op {
+            BinaryOp::Add
+            | BinaryOp::Subtract
+            | BinaryOp::Multiply
+            | BinaryOp::Divide
+            | BinaryOp::Modulo
+            | BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
+            | BinaryOp::Shl
+            | BinaryOp::Shr => {
+                is_proven_int_expr_closed(left, vars) && is_proven_int_expr_closed(right, vars)
+            }
+            // Comparisons, logic, membership and ranges yield 0/1 words.
+            _ => true,
+        },
+        Expr::Unary { op, expr } => match op {
+            UnaryOp::Negate | UnaryOp::BitNot => is_proven_int_expr_closed(expr, vars),
+            UnaryOp::Not => true,
+        },
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            is_proven_int_expr_closed(then_branch, vars)
+                && is_proven_int_expr_closed(else_branch, vars)
+        }
+        Expr::NullCoalesce { value, default } => {
+            is_proven_int_expr_closed(value, vars) && is_proven_int_expr_closed(default, vars)
+        }
+        Expr::ForceUnwrap(inner) => is_proven_int_expr_closed(inner, vars),
+        _ => false,
+    }
+}
+
 /// Returns true when `expr` is an index into a map slot statically known to hold an integer.
 pub fn is_map_entry_int(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
     if let Expr::Index { array, index } | Expr::OptionalIndex { array, index } = expr {

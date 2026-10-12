@@ -86,6 +86,7 @@ fn entry_files() -> Vec<String> {
         "60_untyped_poly_dispatch.alya".to_string(),
         "61_null_tag_reassign.alya".to_string(),
         "62_heterogeneous_tuple_returns.alya".to_string(),
+        "63_float_method_accumulator_divide.alya".to_string(),
     ]
 }
 

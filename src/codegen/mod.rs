@@ -1947,9 +1947,12 @@ impl CodeGen {
                     Stmt::Return(None) => return false,
                     Stmt::Return(Some(e)) => {
                         *has_ret = true;
-                        if !crate::codegen::analysis::is_proven_int_expr(e, vars)
-                            && !matches!(e, Expr::Number(_))
-                        {
+                        // Closed-world check (alya-lang/alya#176): the
+                        // loose `is_proven_int_expr` arm rule would read
+                        // not-yet-typed body locals (e.g. a `let s: float`
+                        // accumulator in `s / size`) as int and plant a
+                        // bogus `fn_ret_int` over real float evidence.
+                        if !crate::codegen::analysis::is_proven_int_expr_closed(e, vars) {
                             return false;
                         }
                     }
