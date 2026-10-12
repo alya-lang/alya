@@ -748,7 +748,13 @@ fn resolve_in_chain(bare: &str, chain: &[Frame]) -> Option<String> {
         if frame.vars.contains(bare) || frame.vars.contains(probe) {
             return None;
         }
-        if let Some(d) = frame.defs.iter().find(|d| d.bare == probe) {
+        // Adopted defs may carry an import prefix
+        // (`__priv_m::__alya_spread_arr_0`) while the reference spells
+        // the same: match exact first, then trailing segment. Scoped
+        // defs are unique post-validation, so the suffix is exact.
+        if let Some(d) = frame.defs.iter().find(|d| {
+            d.bare == bare || (probe.starts_with("__alya_") && d.bare.ends_with(probe))
+        }) {
             return Some(d.qualified.clone());
         }
     }
