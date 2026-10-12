@@ -876,6 +876,8 @@ impl Parser {
             None
         };
 
+        // alya-lang/alya#100: nested lambdas record this lambda as parent.
+        let sid = self.push_lambda_scope();
         let body = if matches!(self.current_token().token_type, TokenType::FatArrow) {
             self.advance();
             let expr = self.parse_expression()?;
@@ -893,9 +895,11 @@ impl Parser {
             self.expect(TokenType::End)?;
             stmts
         };
+        self.pop_scope();
 
         let lambda_name = format!("__alya_lambda_{}", self.lambda_counter);
         self.lambda_counter += 1;
+        self.record_lambda_scope(sid, &lambda_name);
         self.lambda_functions.push(Stmt::Function {
             name: lambda_name.clone(),
             params,
@@ -922,6 +926,8 @@ impl Parser {
             None
         };
 
+        // alya-lang/alya#100: nested lambdas record this lambda as parent.
+        let sid = self.push_lambda_scope();
         let (body, defaults) = if matches!(self.current_token().token_type, TokenType::FatArrow) {
             self.advance();
             if matches!(self.current_token().token_type, TokenType::Newline) {
@@ -957,9 +963,11 @@ impl Parser {
             }
             (stmts, vec![None; params.len()])
         };
+        self.pop_scope();
 
         let lambda_name = format!("__alya_lambda_{}", self.lambda_counter);
         self.lambda_counter += 1;
+        self.record_lambda_scope(sid, &lambda_name);
         self.lambda_functions.push(Stmt::Function {
             name: lambda_name.clone(),
             params,
@@ -1343,6 +1351,9 @@ impl Parser {
                                 },
                                 Stmt::Return(Some(Expr::Identifier(tmp_res))),
                             ];
+                            // alya-lang/alya#100: record the lexical parent.
+                            let comp_sid = self.alloc_lambda_scope();
+                            self.record_lambda_scope(comp_sid, &lambda_name);
                             self.lambda_functions.push(Stmt::Function {
                                 name: lambda_name.clone(),
                                 params: vec![],
@@ -1437,6 +1448,9 @@ impl Parser {
 
                     body.push(Stmt::Return(Some(Expr::Identifier(tmp_res))));
 
+                    // alya-lang/alya#100: record the lexical parent.
+                    let comp_sid = self.alloc_lambda_scope();
+                    self.record_lambda_scope(comp_sid, &lambda_name);
                     self.lambda_functions.push(Stmt::Function {
                         name: lambda_name.clone(),
                         params,
@@ -1589,6 +1603,9 @@ impl Parser {
                         },
                         Stmt::Return(Some(Expr::Identifier(tmp_res))),
                     ];
+                    // alya-lang/alya#100: record the lexical parent.
+                    let comp_sid = self.alloc_lambda_scope();
+                    self.record_lambda_scope(comp_sid, &lambda_name);
                     self.lambda_functions.push(Stmt::Function {
                         name: lambda_name.clone(),
                         params: vec![],
@@ -1690,6 +1707,9 @@ impl Parser {
 
             body.push(Stmt::Return(Some(Expr::Identifier(tmp_res))));
 
+            // alya-lang/alya#100: record the lexical parent.
+            let comp_sid = self.alloc_lambda_scope();
+            self.record_lambda_scope(comp_sid, &lambda_name);
             self.lambda_functions.push(Stmt::Function {
                 name: lambda_name.clone(),
                 params,

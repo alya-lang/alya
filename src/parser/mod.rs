@@ -15,12 +15,32 @@ use crate::ast::{Expr, Program, Stmt};
 use crate::lexer::{Token, TokenType};
 use std::collections::BTreeSet;
 
+/// Lexical scope reference for closure enclosing-scope tracking
+/// (alya-lang/alya#100). Records WHERE a parse-desugared function
+/// (lambda/closure/comprehension helper) was written, so later passes
+/// can re-parent it for capture resolution. `LambdaScope` carries a
+/// scope id resolved to the creation index via `lambda_scope_name`.
+#[derive(Debug, Clone)]
+pub(super) enum ScopeRef {
+    Fn(String),
+    LambdaScope(usize),
+}
+
 pub struct Parser {
     tokens: Vec<Token>,
     position: usize,
     pub(super) lambda_functions: Vec<Stmt>,
     pub(super) lambda_counter: usize,
     pub(super) fn_depth: usize,
+    /// Lexical function-like scope stack (named functions + lambdas
+    /// whose bodies are being parsed). Top is the innermost scope.
+    pub(super) scope_stack: Vec<ScopeRef>,
+    pub(super) next_lambda_scope: usize,
+    /// Lambda scope id -> desugared function name.
+    pub(super) lambda_scope_name: std::collections::HashMap<usize, String>,
+    /// Lexical parent per `lambda_functions` entry (parallel vec,
+    /// creation order): stack top at creation time, `None` at top level.
+    pub(super) lambda_parents: Vec<Option<ScopeRef>>,
     pub(crate) struct_defs: std::collections::HashMap<String, Vec<String>>,
     /// Attributes (`@...`) parsed but not yet attached to a declaration.
     /// `parse_attribute` accumulates here; the following Function/StructDef
@@ -234,6 +254,10 @@ impl Parser {
             lambda_functions: Vec::new(),
             lambda_counter: 0,
             fn_depth: 0,
+            scope_stack: Vec::new(),
+            next_lambda_scope: 0,
+            lambda_scope_name: std::collections::HashMap::new(),
+            lambda_parents: Vec::new(),
             struct_defs: std::collections::HashMap::new(),
             pending_attributes: Vec::new(),
             cfg_context: CfgContext::host(),
@@ -248,10 +272,81 @@ impl Parser {
 
     pub fn parse(&mut self) -> Result<Program, String> {
         let mut program = self.parse_raw()?;
+        self.resolve_lambda_enclosing(&mut program);
         expand_default_args(&mut program);
         enums::resolve_enums(&mut program);
         constants::resolve_and_validate_constants(&mut program)?;
         Ok(program)
+    }
+
+    /// Enters a lambda body scope for enclosing-scope tracking
+    /// (alya-lang/alya#100). Returns the scope id; the matching
+    /// `pop_scope` runs after the body parses.
+    pub(super) fn push_lambda_scope(&mut self) -> usize {
+        let sid = self.next_lambda_scope;
+        self.next_lambda_scope += 1;
+        self.scope_stack.push(ScopeRef::LambdaScope(sid));
+        sid
+    }
+
+    /// Allocates a scope id without pushing (comprehension helpers:
+    /// nothing parses inside their synthesized bodies).
+    pub(super) fn alloc_lambda_scope(&mut self) -> usize {
+        let sid = self.next_lambda_scope;
+        self.next_lambda_scope += 1;
+        sid
+    }
+
+    pub(super) fn pop_scope(&mut self) {
+        self.scope_stack.pop();
+    }
+
+    /// Records the lexical parent and scope name of a desugared
+    /// function. Call immediately before pushing to `lambda_functions`
+    /// (the creation index is the pre-push length).
+    pub(super) fn record_lambda_scope(&mut self, sid: usize, name: &str) {
+        self.lambda_scope_name.insert(sid, name.to_string());
+        self.lambda_parents.push(self.scope_stack.last().cloned());
+    }
+
+    /// Resolves each desugared function's lexical parent to the nearest
+    /// enclosing function-like scope and records it as an
+    /// `alya::enclosing` attribute (alya-lang/alya#100). Global-scope
+    /// lambdas get no attribute. The trailing `lambda_parents.len()`
+    /// statements are exactly the appended `lambda_functions` in order.
+    /// Inert until the checker/codegen capture passes land.
+    fn resolve_lambda_enclosing(&mut self, program: &mut Program) {
+        let n = self.lambda_parents.len();
+        if n == 0 {
+            return;
+        }
+        let total = program.statements.len();
+        if total < n {
+            return;
+        }
+        let mut resolved = Vec::with_capacity(n);
+        for i in 0..n {
+            resolved.push(self.resolve_parent_name(self.lambda_parents[i].clone()));
+        }
+        for (j, name_opt) in resolved.into_iter().enumerate() {
+            if let Some(enc) = name_opt {
+                if let Stmt::Function { attributes, .. } = &mut program.statements[total - n + j] {
+                    attributes.push(crate::ast::Attribute {
+                        name: "alya::enclosing".to_string(),
+                        args: vec![(None, enc)],
+                    });
+                }
+            }
+        }
+    }
+
+    /// Reads a recorded parent link: the nearest function-like scope
+    /// (a named function, or a lambda by its desugared name).
+    fn resolve_parent_name(&self, parent: Option<ScopeRef>) -> Option<String> {
+        match parent? {
+            ScopeRef::Fn(name) => Some(name),
+            ScopeRef::LambdaScope(sid) => self.lambda_scope_name.get(&sid).cloned(),
+        }
     }
 
     /// Raw statement parse without post-pass expansion (default-arg

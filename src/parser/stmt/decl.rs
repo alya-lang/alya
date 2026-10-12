@@ -703,6 +703,10 @@ impl Parser {
 
         let mut body = Vec::new();
         self.fn_depth += 1;
+        // alya-lang/alya#100: track the lexical scope so desugared
+        // functions created inside this body record their enclosing scope.
+        self.scope_stack
+            .push(super::super::ScopeRef::Fn(name.clone()));
         while !matches!(
             self.current_token().token_type,
             TokenType::End | TokenType::Eof
@@ -711,6 +715,7 @@ impl Parser {
                 Ok(stmts) => body.extend(stmts),
                 Err(e) => {
                     self.fn_depth -= 1;
+                    self.pop_scope();
                     return Err(e);
                 }
             }
@@ -719,6 +724,7 @@ impl Parser {
 
         let end_res = self.expect(TokenType::End);
         self.fn_depth -= 1;
+        self.pop_scope();
         end_res?;
 
         Ok(Stmt::Function {
