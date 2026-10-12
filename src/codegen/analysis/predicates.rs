@@ -1242,7 +1242,23 @@ pub fn is_tag_carrying_read(expr: &Expr, vars: &HashMap<String, VarType>) -> boo
         return !is_float_expr(expr, vars)
             && (ternary_arm_carries(then_branch, vars) || ternary_arm_carries(else_branch, vars));
     }
-    if let Expr::Call { name, .. } = expr {
+    if let Expr::Call { name, args } = expr {
+        // alya-lang/alya#171: conversion builtins promise exact result
+        // tags (their result kind is static whatever the input holds):
+        // int() leaves INT, float() leaves FLOAT. Emission
+        // materializes them (see int()/float() in expr.rs), so chained
+        // producers (e.g. a JSON number parser returning int()/float()
+        // calls) carry exact tags instead of stalling the protocol.
+        if args.len() == 1 {
+            let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            if matches!(
+                bare,
+                "int" | "to_int" | "parse_int" | "float" | "to_float" | "parse_float"
+            ) {
+                return true;
+            }
+        }
         // Return-tag protocol (Phase 2b, #39): the callee guarantees
         // (value, tag) on every return path. Unqualified callees
         // (recursion, dynamics) keep legacy behavior; forward

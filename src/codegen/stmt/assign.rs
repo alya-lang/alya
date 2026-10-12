@@ -4,7 +4,8 @@ use crate::codegen::analysis::{
     escape_string, expr_mentions_var, is_array_expr, is_array_fold_true, is_definitely_not_numeric,
     is_float_array, is_float_expr, is_map_entry_int, is_map_expr, is_null_expr, is_number_expr,
     is_proven_int_expr, is_string_array, is_string_expr, is_tag_carrying_read, is_unsigned_expr,
-    string_store_needs_dup, struct_field_markers_mixed_vars, value_kind_tag,
+    string_store_needs_dup, struct_field_markers_mixed_vars, typeof_operand_is_repeatable,
+    value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -64,6 +65,10 @@ impl CodeGen {
         // claims (a stale claim would misdispatch a later method
         // call); map literals re-seed below.
         self.clear_map_struct_markers(&name);
+        // alya-lang/alya#171: a rebind voids any spilled kind tag (a
+        // stale tag would misread the new value: 0 shares null's zero
+        // word). Tag-carrying RHS re-spills below.
+        self.ctx.variables.remove(&format!("var_tag_slot:{}", name));
         if self.ctx.current_fn_name.is_empty() {
             if let Some((symbol, sname)) = self.ctx.globals.get(&name).cloned() {
                 self.generate_expression(value);
@@ -703,11 +708,29 @@ impl CodeGen {
                 let val_carries_tag = matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                     && is_tag_carrying_read(value, &self.ctx.variables)
                     && !is_proven_int_expr(value, &self.ctx.variables)
-                    && !is_null_expr(value, &self.ctx.variables)
-                    && !is_str
-                    && !is_flt
-                    && !is_arr
-                    && !is_map;
+                    && !is_null_expr(value, &self.ctx.variables);
+                // NOTE (alya-lang/alya#171): may-fact kind claims
+                // (`fn_ret_map`/`fn_ret_str`/..., e.g. a map-typed
+                // argument flowing to an untyped return) must not veto
+                // the spill: the tag is exact while may-facts are
+                // existential, and every tag consumer falls back
+                // safely on it.
+                // The spill below runs after retain/store calls (all
+                // clobber the tag register, e.g. nested-map reads keep
+                // their alias retain), so preserve the fresh tag across
+                // them exactly like the assignment twin below.
+                if val_carries_tag {
+                    match self.arch {
+                        Architecture::X64 => {
+                            self.output.push_str("    push %rdx\n");
+                            self.ctx.stack_offset += 8;
+                        }
+                        Architecture::ARM64 => {
+                            self.output.push_str("    str x1, [sp, #-16]!\n");
+                            self.ctx.stack_offset += 16;
+                        }
+                    }
+                }
                 // Implicit `: float` conversion for unknown-kind values
                 // (#83): the slot below is tracked Float, but an int
                 // arriving here keeps int bits and reads back as a
@@ -748,6 +771,25 @@ impl CodeGen {
                 self.emit_let_rebind_release(&name, old_heap_offset, is_flt);
                 // Reuse a rebound slot when safe (issue #80); otherwise
                 // allocate fresh. `slot` is the home offset from here on.
+                // alya-lang/alya#171: pop the tag pushed above BEFORE the
+                // home allocation (a fresh home pushes the value; popping
+                // after would take the value, not the tag). The tag stays
+                // live in %edx/w1 across the pure home/type bookkeeping
+                // below (no calls there); it is spilled after the type
+                // chain so `stack_offset`-reading homes (float) keep
+                // working.
+                if val_carries_tag {
+                    match self.arch {
+                        Architecture::X64 => {
+                            self.output.push_str("    pop %rdx\n");
+                            self.ctx.stack_offset -= 8;
+                        }
+                        Architecture::ARM64 => {
+                            self.output.push_str("    ldr x1, [sp], #16\n");
+                            self.ctx.stack_offset -= 16;
+                        }
+                    }
+                }
                 let slot = self.let_home_slot(old_heap_offset, is_flt);
 
                 if let Some(ename) = &is_enum {
@@ -980,6 +1022,45 @@ impl CodeGen {
                             .variables
                             .insert(format!("var_is_uint:{}", name), VarType::Number(0));
                     }
+                }
+
+                // alya-lang/alya#171: spill the exact runtime tag (still
+                // live in %edx/w1 from the pop above; only pure
+                // bookkeeping intervened) for any home kind. Runs after
+                // the type chain so `stack_offset`-reading homes (float)
+                // observe pristine state. Pinned memo slots (allocated at
+                // function entry) are reused without new allocs so every
+                // branch/iteration shares one offset; fresh mid-body allocs
+                // stay out of the memo (their offsets diverge per branch).
+                if val_carries_tag {
+                    let tag_slot = match self.ctx.tag_slot_memo.get(&name).cloned() {
+                        Some(off) => off,
+                        None => {
+                            arch::emit_allocate_var(
+                                &mut self.output,
+                                self.arch,
+                                &mut self.ctx.stack_offset,
+                            );
+                            self.ctx.stack_offset
+                        }
+                    };
+                    match self.arch {
+                        Architecture::X64 => {
+                            self.output
+                                .push_str(&format!("    movl %edx, -{}(%rbp)\n", tag_slot));
+                        }
+                        Architecture::ARM64 => {
+                            crate::codegen::arch::arm64::loads::emit_arm64_store_x29_offset(
+                                &mut self.output,
+                                "w1",
+                                tag_slot,
+                                "x9",
+                            );
+                        }
+                    }
+                    self.ctx
+                        .variables
+                        .insert(format!("var_tag_slot:{}", name), VarType::Number(tag_slot));
                 }
 
                 if let Expr::Identifier(target_fn) = value {
@@ -1320,6 +1401,10 @@ impl CodeGen {
         let name = name.to_string();
         // alya-lang/alya#163: rebinds void per-key value-struct claims.
         self.clear_map_struct_markers(&name);
+        // alya-lang/alya#171: a rebind voids any spilled kind tag (a
+        // stale tag would misread the new value: 0 shares null's zero
+        // word). Tag-carrying RHS re-spills below.
+        self.ctx.variables.remove(&format!("var_tag_slot:{}", name));
         // Target-aware floatness (#83): assigning an unknown-kind value
         // into an existing float slot must convert AND track float, or
         // the slot keeps int bits while every later read treats them as
@@ -1379,6 +1464,28 @@ impl CodeGen {
         }
         if !generated {
             self.generate_expression(value);
+        }
+        // alya-lang/alya#171: reassignments from tag-carrying reads
+        // (e.g. jsonpath `curr = curr[tok]`) keep the runtime kind tag
+        // across the retain/store calls below (all clobber the tag
+        // register), mirroring the let-bound spill. Without it a later
+        // `is null`/`== null` misreads 0 as null. May-fact kind claims
+        // never veto the spill: the tag is exact (see let twin above).
+        let assign_carries_tag = matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+            && is_tag_carrying_read(value, &self.ctx.variables)
+            && !is_proven_int_expr(value, &self.ctx.variables)
+            && !is_null_expr(value, &self.ctx.variables);
+        if assign_carries_tag {
+            match self.arch {
+                Architecture::X64 => {
+                    self.output.push_str("    push %rdx\n");
+                    self.ctx.stack_offset += 8;
+                }
+                Architecture::ARM64 => {
+                    self.output.push_str("    str x1, [sp, #-16]!\n");
+                    self.ctx.stack_offset += 16;
+                }
+            }
         }
         // Implicit conversion into an existing float slot (#83): the
         // slot reads back as float, but an unknown-kind int value keeps
@@ -1472,6 +1579,62 @@ impl CodeGen {
                     }
                 }
             }
+        }
+
+        // alya-lang/alya#171: restore the tag pushed above (every push
+        // below is paired, so it sits on top here) and record it for
+        // later `is null`/`== null` checks on this local. Pinned memo
+        // slots are reused without new allocs (see let twin above).
+        if assign_carries_tag {
+            match self.arch {
+                Architecture::X64 => {
+                    self.output.push_str("    pop %rdx\n");
+                    self.ctx.stack_offset -= 8;
+                }
+                Architecture::ARM64 => {
+                    self.output.push_str("    ldr x1, [sp], #16\n");
+                    self.ctx.stack_offset -= 16;
+                }
+            }
+            let tag_slot = match self.ctx.tag_slot_memo.get(&name).cloned() {
+                Some(off) => off,
+                None => match self
+                    .ctx
+                    .variables
+                    .get(&format!("var_tag_slot:{}", name))
+                    .cloned()
+                {
+                    Some(VarType::Number(off)) => off,
+                    _ => {
+                        arch::emit_allocate_var(
+                            &mut self.output,
+                            self.arch,
+                            &mut self.ctx.stack_offset,
+                        );
+                        self.ctx.stack_offset
+                    }
+                },
+            };
+            match self.arch {
+                Architecture::X64 => {
+                    self.output
+                        .push_str(&format!("    movl %edx, -{}(%rbp)\n", tag_slot));
+                }
+                Architecture::ARM64 => {
+                    crate::codegen::arch::arm64::loads::emit_arm64_store_x29_offset(
+                        &mut self.output,
+                        "w1",
+                        tag_slot,
+                        "x9",
+                    );
+                }
+            }
+            // The variables-level record drives `is null`/`== null`
+            // reloads; merges intersect it (divergent fresh offsets
+            // drop), loops restore memo-pinned ones (see control.rs).
+            self.ctx
+                .variables
+                .insert(format!("var_tag_slot:{}", name), VarType::Number(tag_slot));
         }
 
         if !is_local_var {
@@ -1914,6 +2077,43 @@ impl CodeGen {
             || is_string_expr(index, &self.ctx.variables)
             || matches!(index, Expr::String(_))
         {
+            // alya-lang/alya#171: dynamic writes record the value's exact
+            // runtime tag so later reads distinguish 0 from null (the
+            // `set` runtime itself clears unknown entries). The tag is
+            // fresh only for tag-carrying values (or slot-spilled
+            // locals); anything else keeps the legacy untagged write.
+            // Base/key are re-evaluated for the second call, so both must
+            // be side-effect free.
+            let set_repeatable =
+                typeof_operand_is_repeatable(array) && typeof_operand_is_repeatable(index);
+            let set_reg_tag = matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                && set_repeatable
+                && is_tag_carrying_read(value, &self.ctx.variables);
+            let set_slot_tag: Option<i32> = if set_reg_tag || !set_repeatable {
+                None
+            } else if let Expr::Identifier(id) = value {
+                match self.ctx.variables.get(&format!("var_tag_slot:{}", id)) {
+                    Some(VarType::Number(off)) => Some(*off),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            // Callee-saved spill for the fresh tag across the `set` call
+            // (arg pushes would misroute a stack spill; calls clobber the
+            // tag register). Slot-sourced tags re-read from memory later.
+            if set_reg_tag {
+                match self.arch {
+                    Architecture::X64 => {
+                        self.output.push_str("    push %rbx\n");
+                        self.ctx.stack_offset += 8;
+                    }
+                    Architecture::ARM64 => {
+                        self.output.push_str("    str x19, [sp, #-16]!\n");
+                        self.ctx.stack_offset += 16;
+                    }
+                }
+            }
             let actual_args = [array, index, value];
             for arg in actual_args.iter() {
                 self.generate_expression(arg);
@@ -1949,6 +2149,19 @@ impl CodeGen {
                         self.os,
                     );
                 }
+                // alya-lang/alya#171: stash the fresh value tag in the
+                // callee-saved scratch *after* the clobbering calls above
+                // and before the push below (pushes preserve registers).
+                if std::ptr::eq(*arg, value) && set_reg_tag {
+                    match self.arch {
+                        Architecture::X64 => {
+                            self.output.push_str("    movl %edx, %ebx\n");
+                        }
+                        Architecture::ARM64 => {
+                            self.output.push_str("    mov w19, w1\n");
+                        }
+                    }
+                }
                 arch::emit_push_temp(&mut self.output, self.arch);
             }
             arch::emit_function_call(
@@ -1959,27 +2172,98 @@ impl CodeGen {
                 self.ctx.stack_offset,
                 self.os,
             );
+            // alya-lang/alya#171: write the stashed tag with a second
+            // call. Slot-sourced tags reload from memory; reg-sourced
+            // ones restore from the callee-saved scratch. Static shapes
+            // below are skipped when this fired (the runtime tag agrees
+            // with — and outranks — static may-facts).
+            let mut set_tag_fired = false;
+            if set_reg_tag || set_slot_tag.is_some() {
+                match self.arch {
+                    Architecture::X64 => {
+                        if set_reg_tag {
+                            self.output.push_str("    movl %ebx, %edx\n");
+                        } else if let Some(off) = set_slot_tag {
+                            self.output
+                                .push_str(&format!("    movl -{}(%rbp), %edx\n", off));
+                        }
+                    }
+                    Architecture::ARM64 => {
+                        if set_reg_tag {
+                            self.output.push_str("    mov w1, w19\n");
+                        } else if let Some(off) = set_slot_tag {
+                            crate::codegen::arch::arm64::loads::emit_arm64_load_x29_offset(
+                                &mut self.output,
+                                "w1",
+                                off,
+                                "x9",
+                            );
+                        }
+                    }
+                }
+                self.generate_expression(array);
+                arch::emit_push_temp(&mut self.output, self.arch);
+                self.generate_expression(index);
+                arch::emit_push_temp(&mut self.output, self.arch);
+                match self.arch {
+                    Architecture::X64 => {
+                        self.output.push_str("    movl %edx, %eax\n");
+                        arch::emit_push_temp(&mut self.output, self.arch);
+                    }
+                    Architecture::ARM64 => {
+                        self.output.push_str("    str x1, [sp, #-16]!\n");
+                        self.ctx.stack_offset += 16;
+                    }
+                }
+                arch::emit_function_call(
+                    &mut self.output,
+                    self.arch,
+                    "map_set_tag",
+                    3,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+                if matches!(self.arch, Architecture::ARM64) {
+                    self.ctx.stack_offset -= 16;
+                }
+                if set_reg_tag {
+                    match self.arch {
+                        Architecture::X64 => {
+                            self.output.push_str("    pop %rbx\n");
+                            self.ctx.stack_offset -= 8;
+                        }
+                        Architecture::ARM64 => {
+                            self.output.push_str("    ldr x19, [sp], #16\n");
+                            self.ctx.stack_offset -= 16;
+                        }
+                    }
+                }
+                set_tag_fired = true;
+            }
             // Record a value-kind tag for literal writes so variable-key
             // reads can dispatch on it. Only fully static shapes qualify
             // (identifier map, literal key, literal value): re-evaluating
             // anything else could duplicate side effects. Dynamics leave
-            // the tag cleared by `set` itself (unknown = 0).
-            if let (Expr::Identifier(_), Expr::String(_)) = (array, index) {
-                let kind = crate::codegen::analysis::value_kind_tag(value, &self.ctx.variables);
-                if kind != crate::codegen::kinds::KIND_UNKNOWN {
-                    let tag_args = [array.clone(), index.clone(), Expr::Number(kind as i128)];
-                    for arg in tag_args.iter() {
-                        self.generate_expression(arg);
-                        arch::emit_push_temp(&mut self.output, self.arch);
+            // the tag cleared by `set` itself (unknown = 0), unless the
+            // dynamic write above already recorded the exact runtime tag.
+            if !set_tag_fired {
+                if let (Expr::Identifier(_), Expr::String(_)) = (array, index) {
+                    let kind = crate::codegen::analysis::value_kind_tag(value, &self.ctx.variables);
+                    if kind != crate::codegen::kinds::KIND_UNKNOWN {
+                        let tag_args = [array.clone(), index.clone(), Expr::Number(kind as i128)];
+                        for arg in tag_args.iter() {
+                            self.generate_expression(arg);
+                            arch::emit_push_temp(&mut self.output, self.arch);
+                        }
+                        arch::emit_function_call(
+                            &mut self.output,
+                            self.arch,
+                            "map_set_tag",
+                            3,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
                     }
-                    arch::emit_function_call(
-                        &mut self.output,
-                        self.arch,
-                        "map_set_tag",
-                        3,
-                        self.ctx.stack_offset,
-                        self.os,
-                    );
                 }
             }
             if is_string_expr(value, &self.ctx.variables) {

@@ -393,6 +393,115 @@ impl CodeGen {
                         self.generate_type_check(right, "null", *op == BinaryOp::NotEqual);
                         return;
                     }
+                    // alya-lang/alya#171: a tag-spilled local never
+                    // equals a numeric literal when its tag is NULL (0
+                    // shares null's zero word, so a bare word compare
+                    // lies). Check the spilled tag first; non-null tags
+                    // compare below exactly like untagged dynamics.
+                    // Skipped for float-typed sides: their dedicated
+                    // float paths already compare exactly (converting
+                    // float bits as int here would mangle them).
+                    let lit_left = matches!(&**left, Expr::Number(_) | Expr::Float(_));
+                    let lit_right = matches!(&**right, Expr::Number(_) | Expr::Float(_));
+                    let float_side = is_float_expr(left, &self.ctx.variables)
+                        || is_float_expr(right, &self.ctx.variables);
+                    let left_slot: Option<i32> = if let Expr::Identifier(id) = &**left {
+                        match self.ctx.variables.get(&format!("var_tag_slot:{}", id)) {
+                            Some(VarType::Number(off)) => Some(*off),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+                    let right_slot: Option<i32> = if let Expr::Identifier(id) = &**right {
+                        match self.ctx.variables.get(&format!("var_tag_slot:{}", id)) {
+                            Some(VarType::Number(off)) => Some(*off),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+                    let slot_cmp: Option<(bool, i32)> = if float_side {
+                        None
+                    } else if lit_left {
+                        right_slot.map(|s| (false, s))
+                    } else if lit_right {
+                        left_slot.map(|s| (true, s))
+                    } else {
+                        None
+                    };
+                    if let Some((is_left, tag_slot)) = slot_cmp {
+                        let target: Expr = if is_left {
+                            (**left).clone()
+                        } else {
+                            (**right).clone()
+                        };
+                        let lit: Expr = if is_left {
+                            (**right).clone()
+                        } else {
+                            (**left).clone()
+                        };
+                        self.generate_expression(&target);
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output
+                                    .push_str(&format!("    movl -{}(%rbp), %edx\n", tag_slot));
+                            }
+                            Architecture::ARM64 => {
+                                crate::codegen::arch::arm64::loads::emit_arm64_load_x29_offset(
+                                    &mut self.output,
+                                    "w1",
+                                    tag_slot,
+                                    "x9",
+                                );
+                            }
+                        }
+                        let l_not_null = self.ctx.next_label();
+                        let l_end = self.ctx.next_label();
+                        let is_eq = *op == BinaryOp::Equal;
+                        if matches!(self.arch, Architecture::X64) {
+                            self.output
+                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_NULL));
+                            self.output.push_str(&format!("    jne {}\n", l_not_null));
+                            if is_eq {
+                                self.output.push_str("    xor %eax, %eax\n");
+                            } else {
+                                self.output.push_str("    movq $1, %rax\n");
+                            }
+                            self.output.push_str(&format!("    jmp {}\n", l_end));
+                            self.output.push_str(&format!("{}:\n", l_not_null));
+                        } else {
+                            self.output
+                                .push_str(&format!("    cmp w1, #{}\n", KIND_NULL));
+                            self.output.push_str(&format!("    b.ne {}\n", l_not_null));
+                            if is_eq {
+                                self.output.push_str("    mov x0, #0\n");
+                            } else {
+                                self.output.push_str("    mov x0, #1\n");
+                            }
+                            self.output.push_str(&format!("    b {}\n", l_end));
+                            self.output.push_str(&format!("{}:\n", l_not_null));
+                        }
+                        match lit {
+                            Expr::Number(n) => {
+                                arch::emit_binary_op_imm(
+                                    &mut self.output,
+                                    self.arch,
+                                    *op,
+                                    n as i64,
+                                    is_unsigned_expr(left, &self.ctx.variables)
+                                        || is_unsigned_expr(right, &self.ctx.variables),
+                                );
+                            }
+                            Expr::Float(n) => {
+                                arch::emit_int_to_float(&mut self.output, self.arch);
+                                arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, n);
+                            }
+                            _ => unreachable!(),
+                        }
+                        self.output.push_str(&format!("{}:\n", l_end));
+                        return;
+                    }
                 }
 
                 if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
@@ -1680,11 +1789,13 @@ impl CodeGen {
                             self.ctx.stack_offset,
                             self.os,
                         );
+                        self.emit_materialize_kind(KIND_FLOAT);
                         return;
                     }
                     if is_float_expr(&args[0], &self.ctx.variables) {
                         // Already float bits: no conversion (cvt mangles).
                         self.generate_expression(&args[0]);
+                        self.emit_materialize_kind(KIND_FLOAT);
                         return;
                     }
                     // Proven ints convert exactly; never heuristic (which
@@ -1693,6 +1804,7 @@ impl CodeGen {
                     if is_proven_int_expr(&args[0], &self.ctx.variables) {
                         self.generate_expression(&args[0]);
                         arch::emit_int_to_float(&mut self.output, self.arch);
+                        self.emit_materialize_kind(KIND_FLOAT);
                         return;
                     }
                     // Tag-carrying reads (map Index via fn_get, Ternary,
@@ -1734,12 +1846,17 @@ impl CodeGen {
                         self.output.push_str(&format!("{}:\n", l_int));
                         arch::emit_int_to_float(&mut self.output, self.arch);
                         self.output.push_str(&format!("{}:\n", l_end));
+                        self.emit_materialize_kind(KIND_FLOAT);
                         return;
                     }
                     if is_definitely_not_numeric(&args[0], &self.ctx.variables) {
                         // Arrays, maps, struct values: legacy passthrough
-                        // (garbage but non-faulting, as before).
+                        // (garbage but non-faulting, as before). The tag
+                        // stays honestly unknown: callers fall back to
+                        // legacy classification instead of trusting a
+                        // float claim on non-float bits.
                         self.generate_expression(&args[0]);
+                        self.emit_materialize_kind(KIND_UNKNOWN);
                         return;
                     }
                     // Unknown dynamics ride the runtime heuristic, which is
@@ -1754,6 +1871,7 @@ impl CodeGen {
                         self.ctx.stack_offset,
                         self.os,
                     );
+                    self.emit_materialize_kind(KIND_FLOAT);
                     return;
                 }
 
@@ -1769,11 +1887,13 @@ impl CodeGen {
                         && !is_string_expr(&args[0], &self.ctx.variables)
                     {
                         self.generate_expression(&args[0]);
+                        self.emit_materialize_kind(KIND_INT);
                         return;
                     }
                     if is_float_expr(&args[0], &self.ctx.variables) {
                         self.generate_expression(&args[0]);
                         arch::emit_float_to_int(&mut self.output, self.arch);
+                        self.emit_materialize_kind(KIND_INT);
                         return;
                     }
                     if is_string_expr(&args[0], &self.ctx.variables) {
@@ -1784,6 +1904,7 @@ impl CodeGen {
                             self.ctx.stack_offset,
                             self.os,
                         );
+                        self.emit_materialize_kind(KIND_INT);
                         return;
                     }
                     // Tag-carrying reads (map Index via fn_get, Ternary, Call)
@@ -1829,6 +1950,7 @@ impl CodeGen {
                         arch::emit_jump(&mut self.output, self.arch, &l_end);
                         self.output.push_str(&format!("{}:\n", l_int));
                         self.output.push_str(&format!("{}:\n", l_end));
+                        self.emit_materialize_kind(KIND_INT);
                         return;
                     }
                     self.generate_expression(&args[0]);
@@ -1838,6 +1960,7 @@ impl CodeGen {
                         self.ctx.stack_offset,
                         self.os,
                     );
+                    self.emit_materialize_kind(KIND_INT);
                     return;
                 }
 
@@ -4313,6 +4436,16 @@ impl CodeGen {
                     self.ctx.variables.remove("__typeof_cell");
                 }
             }
+        }
+    }
+
+    /// Conversion builtins promise exact result tags (alya-lang/alya#171):
+    /// int() always yields an int, float() a float. Stamp the static
+    /// kind into the tag register so chained producers carry exact tags.
+    fn emit_materialize_kind(&mut self, kind: i64) {
+        match self.arch {
+            Architecture::X64 => self.output.push_str(&format!("    movl ${}, %edx\n", kind)),
+            Architecture::ARM64 => self.output.push_str(&format!("    mov w1, #{}\n", kind)),
         }
     }
 

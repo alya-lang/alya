@@ -30,6 +30,24 @@ impl CodeGen {
                 return;
             }
 
+            // alya-lang/alya#171: null/numeric comparisons against a
+            // tag-spilled local (0 shares null's zero word) must use the
+            // tag-aware value path, not the word-compare fast paths
+            // below.
+            if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual) {
+                let left_slot = matches!(&**left, Expr::Identifier(id) if self.ctx.variables.contains_key(&format!("var_tag_slot:{}", id)));
+                let right_slot = matches!(&**right, Expr::Identifier(id) if self.ctx.variables.contains_key(&format!("var_tag_slot:{}", id)));
+                let left_null_num =
+                    matches!(&**left, Expr::Null | Expr::Number(_) | Expr::Float(_));
+                let right_null_num =
+                    matches!(&**right, Expr::Null | Expr::Number(_) | Expr::Float(_));
+                if (left_slot && right_null_num) || (right_slot && left_null_num) {
+                    self.generate_expression(condition);
+                    arch::emit_jump_if_zero(&mut self.output, self.arch, target_label);
+                    return;
+                }
+            }
+
             let is_cmp = matches!(
                 op,
                 BinaryOp::Equal
@@ -282,6 +300,24 @@ impl CodeGen {
                 self.generate_condition_jump_if_true(right, target_label);
                 self.output.push_str(&format!("{}:\n", fail_label));
                 return;
+            }
+
+            // alya-lang/alya#171: null/numeric comparisons against a
+            // tag-spilled local (0 shares null's zero word) must use the
+            // tag-aware value path, not the word-compare fast paths
+            // below.
+            if matches!(op, BinaryOp::Equal | BinaryOp::NotEqual) {
+                let left_slot = matches!(&**left, Expr::Identifier(id) if self.ctx.variables.contains_key(&format!("var_tag_slot:{}", id)));
+                let right_slot = matches!(&**right, Expr::Identifier(id) if self.ctx.variables.contains_key(&format!("var_tag_slot:{}", id)));
+                let left_null_num =
+                    matches!(&**left, Expr::Null | Expr::Number(_) | Expr::Float(_));
+                let right_null_num =
+                    matches!(&**right, Expr::Null | Expr::Number(_) | Expr::Float(_));
+                if (left_slot && right_null_num) || (right_slot && left_null_num) {
+                    self.generate_expression(condition);
+                    arch::emit_jump_if_not_zero(&mut self.output, self.arch, target_label);
+                    return;
+                }
             }
 
             let is_cmp = matches!(
@@ -630,6 +666,7 @@ impl CodeGen {
         }
 
         let mut final_variables = initial_variables;
+        let initial_tag_view = final_variables.clone();
         for (var_name, var_type) in &then_variables {
             if let Some(orig_type) = final_variables.get(var_name) {
                 if matches!(orig_type, VarType::Null(_)) && !matches!(var_type, VarType::Null(_)) {
@@ -642,6 +679,56 @@ impl CodeGen {
                         final_variables
                             .insert(format!("var_maybe_null:{}", var_name), VarType::Number(0));
                     }
+                }
+            }
+        }
+
+        // alya-lang/alya#171: carry tag-spill slots from the
+        // fall-through sides only (a divergent `return`/`throw` branch
+        // contributes no fall-through state; intersecting with it would
+        // drop tags both live paths provide). A record survives only for
+        // pinned memo offsets (same address every path/iteration);
+        // divergent fresh allocs drop and fall back to legacy checks.
+        // Without an else block the else path is the entry state.
+        let then_falls = !Self::block_diverges_or_returns(then_block);
+        let else_falls = match else_block {
+            Some(eb) => !Self::block_diverges_or_returns(eb),
+            None => true,
+        };
+        {
+            let else_view: &std::collections::HashMap<String, VarType> = match &else_variables {
+                Some(ev) => ev,
+                None => &initial_tag_view,
+            };
+            let keep_from =
+                |view: &std::collections::HashMap<String, VarType>| -> Vec<(String, VarType)> {
+                    let mut out = Vec::new();
+                    for (k, v) in view {
+                        if !k.starts_with("var_tag_slot:") {
+                            continue;
+                        }
+                        if let VarType::Number(o1) = v {
+                            let name = &k["var_tag_slot:".len()..];
+                            if self.ctx.tag_slot_memo.get(name) == Some(o1) {
+                                out.push((k.clone(), VarType::Number(*o1)));
+                            }
+                        }
+                    }
+                    out
+                };
+            if then_falls && else_falls {
+                for (k, v) in keep_from(&then_variables) {
+                    if else_view.get(&k) == Some(&v) {
+                        final_variables.insert(k, v);
+                    }
+                }
+            } else if else_falls {
+                for (k, v) in keep_from(else_view) {
+                    final_variables.insert(k, v);
+                }
+            } else if then_falls {
+                for (k, v) in keep_from(&then_variables) {
+                    final_variables.insert(k, v);
                 }
             }
         }
@@ -800,7 +887,10 @@ impl CodeGen {
             arch::emit_stack_restore(&mut self.output, self.arch, body_delta);
         }
         self.ctx.stack_offset = loop_body_stack_offset;
-        self.ctx.variables = loop_body_variables;
+        let post_body_vars = std::mem::replace(&mut self.ctx.variables, loop_body_variables);
+        // alya-lang/alya#171: loop-carried tag slots survive the exit
+        // when pinned at function entry (same offset every iteration).
+        self.ctx.restore_pinned_tag_slots(&post_body_vars);
 
         arch::emit_jump(&mut self.output, self.arch, &start_label);
         self.output.push_str(&format!("{}:\n", end_label));
@@ -836,7 +926,10 @@ impl CodeGen {
             arch::emit_stack_restore(&mut self.output, self.arch, body_delta);
         }
         self.ctx.stack_offset = loop_body_stack_offset;
-        self.ctx.variables = loop_body_variables;
+        let post_body_vars = std::mem::replace(&mut self.ctx.variables, loop_body_variables);
+        // alya-lang/alya#171: loop-carried tag slots survive the exit
+        // when pinned at function entry (same offset every iteration).
+        self.ctx.restore_pinned_tag_slots(&post_body_vars);
 
         arch::emit_jump(&mut self.output, self.arch, &start_label);
         self.output.push_str(&format!("{}:\n", end_label));
@@ -929,7 +1022,9 @@ impl CodeGen {
             arch::emit_stack_restore(&mut self.output, self.arch, body_delta);
         }
         self.ctx.stack_offset = loop_body_stack_offset;
-        self.ctx.variables = loop_body_variables;
+        let post_body_vars = std::mem::replace(&mut self.ctx.variables, loop_body_variables);
+        // alya-lang/alya#171: loop-carried tag slots survive (see while).
+        self.ctx.restore_pinned_tag_slots(&post_body_vars);
 
         self.output.push_str(&format!("{}:\n", step_label));
         arch::emit_increment_var(
@@ -1391,7 +1486,9 @@ impl CodeGen {
             arch::emit_stack_restore(&mut self.output, self.arch, body_delta);
         }
         self.ctx.stack_offset = loop_body_stack_offset;
-        self.ctx.variables = loop_body_variables;
+        let post_body_vars = std::mem::replace(&mut self.ctx.variables, loop_body_variables);
+        // alya-lang/alya#171: loop-carried tag slots survive (see while).
+        self.ctx.restore_pinned_tag_slots(&post_body_vars);
 
         self.output.push_str(&format!("{}:\n", step_label));
         arch::emit_increment_var(

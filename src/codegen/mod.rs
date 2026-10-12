@@ -1234,6 +1234,10 @@ impl CodeGen {
         // before callers so forward references see their marker.
         // Layout-only: every function still emits exactly once.
         let functions = order_functions_callee_first(functions);
+        // alya-lang/alya#171: optimistic pre-marking for recursive
+        // producers (e.g. a JSON parser cycle) whose markers no
+        // generation order can supply. See `premark_recursive_tags`.
+        self.premark_recursive_tags(&functions);
 
         // Identify top-level variables used in functions/lambdas that need to be module globals
         let mut function_idents = std::collections::HashSet::new();
@@ -1550,7 +1554,7 @@ impl CodeGen {
     /// Return-tag protocol qualification (Phase 2b, alya-lang/alya#39):
     /// a function qualifies when every `return` leaves `(value, tag)` —
     /// a tag-carrying expression or an int/string/float/null literal
-    /// (literals materialize at return; null materializes KIND_UNKNOWN)
+    /// (literals materialize at return; null materializes KIND_NULL)
     /// — AND every path returns (a fallthrough exit would leave a
     /// stale tag). Nested function bodies own their returns and are
     /// skipped. Anything else disqualifies (conservative: callers keep
@@ -1559,17 +1563,60 @@ impl CodeGen {
         body: &[Stmt],
         vars: &std::collections::HashMap<String, VarType>,
     ) -> bool {
-        fn returns_ok(stmts: &[Stmt], vars: &std::collections::HashMap<String, VarType>) -> bool {
+        Self::fn_returns_all_tagged_inner(body, vars, false)
+    }
+
+    /// Optimistic pre-mark check (alya-lang/alya#171): same traversal as
+    /// fn_returns_all_tagged but restricted to parameter-independent
+    /// shapes, so recursive producers (e.g. a JSON parser cycle) can be
+    /// marked before generation. Sound: every accepted shape leaves an
+    /// exact tag (literals materialize, identifiers reload-or-UNKNOWN,
+    /// carrying calls preserve) regardless of parameter types.
+    fn fn_returns_all_tagged_restricted(
+        body: &[Stmt],
+        vars: &std::collections::HashMap<String, VarType>,
+    ) -> bool {
+        Self::fn_returns_all_tagged_inner(body, vars, true)
+    }
+
+    fn fn_returns_all_tagged_inner(
+        body: &[Stmt],
+        vars: &std::collections::HashMap<String, VarType>,
+        restricted: bool,
+    ) -> bool {
+        fn returns_ok(
+            stmts: &[Stmt],
+            vars: &std::collections::HashMap<String, VarType>,
+            restricted: bool,
+        ) -> bool {
             for s in stmts {
                 match s.inner_stmt() {
                     Stmt::Return(None) => return false,
                     Stmt::Return(Some(e)) => {
-                        if !(analysis::is_tag_carrying_read(e, vars)
-                            || matches!(
+                        // Restricted pre-mark mode accepts literals,
+                        // identifiers, and carrying calls only (see above).
+                        let shape_ok = if restricted {
+                            matches!(
                                 e,
-                                &Expr::Number(_) | &Expr::String(_) | &Expr::Float(_) | &Expr::Null
-                            ))
-                        {
+                                &Expr::Number(_)
+                                    | &Expr::String(_)
+                                    | &Expr::Float(_)
+                                    | &Expr::Null
+                                    | &Expr::Identifier(_)
+                            ) || matches!(e, &Expr::Call { .. }
+                                if analysis::is_tag_carrying_read(e, vars))
+                        } else {
+                            analysis::is_tag_carrying_read(e, vars)
+                                || matches!(
+                                    e,
+                                    &Expr::Number(_)
+                                        | &Expr::String(_)
+                                        | &Expr::Float(_)
+                                        | &Expr::Null
+                                        | &Expr::Identifier(_)
+                                )
+                        };
+                        if !shape_ok {
                             return false;
                         }
                     }
@@ -1579,11 +1626,11 @@ impl CodeGen {
                         else_block,
                         ..
                     } => {
-                        if !returns_ok(then_block, vars) {
+                        if !returns_ok(then_block, vars, restricted) {
                             return false;
                         }
                         if let Some(eb) = else_block {
-                            if !returns_ok(eb, vars) {
+                            if !returns_ok(eb, vars, restricted) {
                                 return false;
                             }
                         }
@@ -1592,7 +1639,7 @@ impl CodeGen {
                     | Stmt::Repeat { body }
                     | Stmt::For { body, .. }
                     | Stmt::ForEach { body, .. } => {
-                        if !returns_ok(body, vars) {
+                        if !returns_ok(body, vars, restricted) {
                             return false;
                         }
                     }
@@ -1602,17 +1649,17 @@ impl CodeGen {
                         finally_block,
                         ..
                     } => {
-                        if !returns_ok(try_block, vars)
-                            || !returns_ok(catch_block, vars)
+                        if !returns_ok(try_block, vars, restricted)
+                            || !returns_ok(catch_block, vars, restricted)
                             || finally_block
                                 .as_ref()
-                                .is_some_and(|fb| !returns_ok(fb, vars))
+                                .is_some_and(|fb| !returns_ok(fb, vars, restricted))
                         {
                             return false;
                         }
                     }
                     Stmt::Defer(inner) | Stmt::Pub(inner)
-                        if !returns_ok(std::slice::from_ref(inner), vars) =>
+                        if !returns_ok(std::slice::from_ref(inner), vars, restricted) =>
                     {
                         return false;
                     }
@@ -1621,7 +1668,162 @@ impl CodeGen {
             }
             true
         }
-        returns_ok(body, vars) && Self::block_diverges_or_returns(body)
+        returns_ok(body, vars, restricted) && Self::block_diverges_or_returns(body)
+    }
+
+    /// Optimistic pre-marking for recursive producers (alya-lang/alya#171):
+    /// seed every user function as return-tagged, verify with the
+    /// parameter-independent restricted rule, drop failures, and repeat
+    /// to the greatest fixpoint; commit survivors. Recursive cycles
+    /// (e.g. a JSON recursive-descent parser) then carry exact tags
+    /// instead of stalling on generation order. Sound: the restricted
+    /// rule accepts only literals, identifiers (reload-or-UNKNOWN at
+    /// return), and carrying calls, so every committed return leaves an
+    /// exact tag however deep the call chain goes; dropped members keep
+    /// legacy behavior, and generate-time full checks only add DAG marks.
+    fn premark_recursive_tags(&mut self, functions: &[&Stmt]) {
+        let mut names: Vec<String> = Vec::new();
+        for func in functions {
+            if let Stmt::Function { name, .. } = func.inner_stmt() {
+                if !names.contains(name) {
+                    names.push(name.clone());
+                }
+            }
+        }
+        if names.is_empty() {
+            return;
+        }
+        // Hypothetical marks live in a working copy; only fixpoint
+        // survivors are committed to the real scope below. Exact names
+        // only (no bare marks): a bare hypothetical could conflate a
+        // user function with a same-named builtin-style call (e.g. a
+        // `Stack.pop` wrapper vs the array `pop` primitive) and bless a
+        // stale tag. Generate-time full checks keep their own bare
+        // logic for DAGs.
+        let mut working = self.ctx.variables.clone();
+        let mut inserted: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for name in &names {
+            let keys = vec![format!("fn_ret_tagged:{}", name)];
+            for key in &keys {
+                working.insert(key.clone(), VarType::Number(0));
+            }
+            inserted.insert(name.clone(), keys);
+        }
+        let mut assumed: std::collections::HashSet<String> = names.iter().cloned().collect();
+        loop {
+            let mut dropped = false;
+            for func in functions {
+                if let Stmt::Function { name, body, .. } = func.inner_stmt() {
+                    if !assumed.contains(name) {
+                        continue;
+                    }
+                    // No self-assumption: a function must not satisfy its
+                    // own check via itself (vacuous for self-only cycles);
+                    // mutual partners stay assumed.
+                    let own_key = format!("fn_ret_tagged:{}", name);
+                    let own_mark = working.remove(&own_key);
+                    let ok = Self::fn_returns_all_tagged_restricted(body, &working);
+                    if let Some(v) = own_mark {
+                        working.insert(own_key, v);
+                    }
+                    if !ok {
+                        assumed.remove(name);
+                        if let Some(keys) = inserted.get(name) {
+                            for key in keys {
+                                working.remove(key);
+                            }
+                        }
+                        dropped = true;
+                    }
+                }
+            }
+            if !dropped {
+                break;
+            }
+        }
+        for name in &assumed {
+            if let Some(keys) = inserted.get(name) {
+                for key in keys {
+                    self.ctx.variables.insert(key.clone(), VarType::Number(0));
+                }
+            }
+        }
+    }
+
+    /// Locals ever assigned from tag-carrying reads anywhere in `body`
+    /// (alya-lang/alya#171): `let x = m[k]` / `x = m[k]` and aliases
+    /// thereof (`let y = x`), resolved to a fixpoint, sorted for
+    /// deterministic emission. `generate_function` pre-allocates one
+    /// pinned, UNKNOWN-initialized tag slot per name so every
+    /// branch/iteration spills to the same offset.
+    fn prescan_tag_slot_names(
+        body: &[Stmt],
+        vars: &std::collections::HashMap<String, VarType>,
+    ) -> Vec<String> {
+        fn walk(
+            stmts: &[Stmt],
+            vars: &std::collections::HashMap<String, VarType>,
+            set: &mut std::collections::HashSet<String>,
+        ) {
+            for s in stmts {
+                match s.inner_stmt() {
+                    Stmt::Let { name, value, .. } | Stmt::Assign { name, value } => {
+                        if analysis::is_tag_carrying_read(value, vars) {
+                            set.insert(name.clone());
+                        } else if let Expr::Identifier(src) = value {
+                            if set.contains(src) {
+                                set.insert(name.clone());
+                            }
+                        }
+                    }
+                    Stmt::Function { .. } => {}
+                    Stmt::If {
+                        then_block,
+                        else_block,
+                        ..
+                    } => {
+                        walk(then_block, vars, set);
+                        if let Some(eb) = else_block {
+                            walk(eb, vars, set);
+                        }
+                    }
+                    Stmt::While { body, .. }
+                    | Stmt::Repeat { body }
+                    | Stmt::For { body, .. }
+                    | Stmt::ForEach { body, .. } => {
+                        walk(body, vars, set);
+                    }
+                    Stmt::TryCatch {
+                        try_block,
+                        catch_block,
+                        finally_block,
+                        ..
+                    } => {
+                        walk(try_block, vars, set);
+                        walk(catch_block, vars, set);
+                        if let Some(fb) = finally_block {
+                            walk(fb, vars, set);
+                        }
+                    }
+                    Stmt::Defer(inner) | Stmt::Pub(inner) => {
+                        walk(std::slice::from_ref(inner), vars, set);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let mut set = std::collections::HashSet::new();
+        loop {
+            let len = set.len();
+            walk(body, vars, &mut set);
+            if set.len() == len {
+                break;
+            }
+        }
+        let mut names: Vec<String> = set.into_iter().collect();
+        names.sort();
+        names
     }
 
     /// True when a block cannot fall through: its last statement
@@ -2310,6 +2512,31 @@ impl CodeGen {
         // exit_function drops the current one. Emission is
         // callee-first (alya-lang/alya#55-C), so only recursion still
         // misses the marker and keeps legacy behavior.
+        // alya-lang/alya#171: pre-allocate pinned tag slots for locals
+        // ever assigned from tag-carrying reads (see
+        // `prescan_tag_slot_names`). Every branch/iteration then spills
+        // to the same offset, so if/loop merges stay exact instead of
+        // dropping the tag. Slots init to UNKNOWN: untaken paths fall
+        // back to legacy checks exactly like unmarked code.
+        for name in Self::prescan_tag_slot_names(body, &self.ctx.variables) {
+            arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+            let off = self.ctx.stack_offset;
+            match self.arch {
+                Architecture::X64 => {
+                    self.output
+                        .push_str(&format!("    movl $0, -{}(%rbp)\n", off));
+                }
+                Architecture::ARM64 => {
+                    crate::codegen::arch::arm64::loads::emit_arm64_store_x29_offset(
+                        &mut self.output,
+                        "wzr",
+                        off,
+                        "x9",
+                    );
+                }
+            }
+            self.ctx.tag_slot_memo.insert(name, off);
+        }
         if Self::fn_returns_all_tagged(body, &self.ctx.variables) {
             let bare = name.rsplit("::").next().unwrap_or(name);
             let bare = bare.rsplit("__").next().unwrap_or(bare);

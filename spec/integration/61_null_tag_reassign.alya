@@ -1,0 +1,168 @@
+# ==============================================================================
+# Alya Integration Fixture 61 (entry): KIND tag preserved across reassignments
+# and function-return boundaries (0 vs null).
+# Distilled from: alya-lang/alya#171 (follow-up: null vs 0 predicates in
+# library context blocked `json_path_exists`; `curr = curr[tok]` loop-carried
+# reassignments and `return <local>` dropped the runtime kind tag, so stored
+# integer 0 misread as null).
+# Guards:
+#   1. Reassigned locals (`x = m[k]`) keep 0 vs null across `is null`,
+#      `== null`, `is not null`, `== 0`, `!= 0`, and `if` conditions.
+#   2. Multi-step loop-carried descent (`curr = curr[tok]`) keeps the tag.
+#   3. `return <local>` carries the spilled tag to callers: entry `== null`,
+#      `== 0`, `is null`, `is not null`, `!= 0`, `typeof` all exact.
+#   4. Rebinding (`let w = m[k]` then `let w = "hi"`) clears stale tags.
+# ==============================================================================
+
+function walk(m, key)
+    let curr = m
+    curr = curr[key]
+    return curr
+end
+
+function walk_is_null(m, key)
+    let curr = m
+    curr = curr[key]
+    if curr is null
+        return 1
+    end
+    return 0
+end
+
+function walk_eq_null(m, key)
+    let curr = m
+    curr = curr[key]
+    if curr == null
+        return 1
+    end
+    return 0
+end
+
+function descend(m, k1, k2)
+    let curr = m
+    curr = curr[k1]
+    curr = curr[k2]
+    return curr
+end
+
+function rebind_str(m, key)
+    let w = m[key]
+    assert w is null
+    let w = "hi"
+    assert not (w is null)
+    assert not (w == null)
+    assert w is not null
+    assert w == "hi"
+end
+
+function rebind_int(m, key)
+    let v = m[key]
+    assert v is null
+    let v = 0
+    assert not (v is null)
+    assert v == 0
+    assert not (v == null)
+end
+
+function cond_check(m, key, expect_null)
+    let c = m[key]
+    if c == null
+        assert expect_null == 1
+    else
+        assert expect_null == 0
+    end
+    if c != null
+        assert expect_null == 0
+    else
+        assert expect_null == 1
+    end
+    if c is null
+        assert expect_null == 1
+    else
+        assert expect_null == 0
+    end
+    return c
+end
+
+function test_reassign_param_key()
+    let m = { "zc": 0, "nc": null }
+    let z = walk(m, "zc")
+    assert z == 0
+    assert not (z == null)
+    assert z != null
+    assert not (z is null)
+    assert z is not null
+    assert typeof(z) == "int"
+    let n = walk(m, "nc")
+    assert n == null
+    assert null == n
+    assert not (n == 0)
+    assert n != 0
+    assert n is null
+    assert not (n is not null)
+    assert typeof(n) == "null"
+    assert walk_is_null(m, "zc") == 0
+    assert walk_is_null(m, "nc") == 1
+    assert walk_eq_null(m, "zc") == 0
+    assert walk_eq_null(m, "nc") == 1
+end
+
+function litwalk(m)
+    let curr = m
+    curr = curr["zl"]
+    assert curr == 0
+    assert not (curr == null)
+    assert not (curr is null)
+    assert curr is not null
+    assert curr != null
+    curr = m["nl"]
+    assert curr == null
+    assert not (curr == 0)
+    assert curr is null
+    assert not (curr is not null)
+    assert curr != 0
+end
+
+function test_reassign_literal_key()
+    let m = { "zl": 0, "nl": null }
+    litwalk(m)
+end
+
+function test_loop_descent()
+    let m = { "outer": { "inner": 0 }, "nouter": { "ninner": null } }
+    let a = descend(m, "outer", "inner")
+    assert a == 0
+    assert not (a == null)
+    assert not (a is null)
+    assert typeof(a) == "int"
+    let b = descend(m, "nouter", "ninner")
+    assert b == null
+    assert not (b == 0)
+    assert b is null
+    assert typeof(b) == "null"
+end
+
+function test_rebind_clears()
+    let m = { "rc": null }
+    rebind_str(m, "rc")
+    rebind_int(m, "rc")
+end
+
+function test_if_conds()
+    let m = { "wc": 0, "wn": null }
+    let c = cond_check(m, "wc", 0)
+    assert c == 0
+    let d = cond_check(m, "wn", 1)
+    assert d == null
+end
+
+function main()
+    test_reassign_param_key()
+    test_reassign_literal_key()
+    test_loop_descent()
+    test_rebind_clears()
+    test_if_conds()
+    say "integration 61_null_tag_reassign: OK"
+end
+
+main()

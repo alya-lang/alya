@@ -49,6 +49,7 @@ pub struct ScopeState {
     pub current_fn_name: String,
     pub nullable_heap_vars: HashSet<String>,
     pub nonescaping_params: HashSet<String>,
+    pub tag_slot_memo: HashMap<String, i32>,
 }
 
 /// Counters for the return-tag protocol measurement
@@ -102,6 +103,11 @@ pub struct CodeGenContext {
     /// `nonescaping_params`): no entry retain and no scope release,
     /// skipped as a balanced pair. Recomputed per function body.
     pub nonescaping_params: HashSet<String>,
+    /// Pinned tag-spill slots per local (alya-lang/alya#171): allocated
+    /// once at function entry for names ever assigned from tag-carrying
+    /// reads, so every branch/iteration spills to the same offset and
+    /// merges stay exact. Frame-relative: cleared per function.
+    pub tag_slot_memo: HashMap<String, i32>,
 }
 
 impl CodeGenContext {
@@ -127,6 +133,7 @@ impl CodeGenContext {
             tag_stats: TagStats::default(),
             nullable_heap_vars: HashSet::new(),
             nonescaping_params: HashSet::new(),
+            tag_slot_memo: HashMap::new(),
         }
     }
 
@@ -224,6 +231,7 @@ impl CodeGenContext {
             current_fn_name: std::mem::take(&mut self.current_fn_name),
             nullable_heap_vars: std::mem::take(&mut self.nullable_heap_vars),
             nonescaping_params: std::mem::take(&mut self.nonescaping_params),
+            tag_slot_memo: std::mem::take(&mut self.tag_slot_memo),
         };
         self.stack_offset = 0;
         self.next_defer_idx = 0;
@@ -239,5 +247,25 @@ impl CodeGenContext {
         self.current_fn_name = saved.current_fn_name;
         self.nullable_heap_vars = saved.nullable_heap_vars;
         self.nonescaping_params = saved.nonescaping_params;
+        self.tag_slot_memo = saved.tag_slot_memo;
+    }
+
+    /// Re-adds tag-spill records after a loop exit for names whose
+    /// post-body record names a pinned memo slot (alya-lang/alya#171):
+    /// the same offset serves every iteration, so the surviving record
+    /// is exact (0-trip paths keep the UNKNOWN init and fall back).
+    /// Fresh mid-body allocs stay dropped (positional divergence).
+    pub fn restore_pinned_tag_slots(&mut self, post_body: &HashMap<String, VarType>) {
+        for (k, v) in post_body {
+            if !k.starts_with("var_tag_slot:") {
+                continue;
+            }
+            if let VarType::Number(off) = v {
+                let name = &k["var_tag_slot:".len()..];
+                if self.tag_slot_memo.get(name) == Some(off) {
+                    self.variables.insert(k.clone(), VarType::Number(*off));
+                }
+            }
+        }
     }
 }

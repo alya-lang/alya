@@ -153,6 +153,33 @@ impl CodeGen {
                         }
                     }
                     self.generate_expression(expr);
+                    // alya-lang/alya#171: returning a tag-spilled local
+                    // must reload its runtime kind so tagged callers read
+                    // the exact tag (0 and null share the zero word; a
+                    // stale register misreads 0 as null).
+                    if let Expr::Identifier(id) = expr {
+                        if let Some(VarType::Number(tag_slot)) = self
+                            .ctx
+                            .variables
+                            .get(&format!("var_tag_slot:{}", id))
+                            .cloned()
+                        {
+                            match self.arch {
+                                Architecture::X64 => {
+                                    self.output
+                                        .push_str(&format!("    movl -{}(%rbp), %edx\n", tag_slot));
+                                }
+                                Architecture::ARM64 => {
+                                    crate::codegen::arch::arm64::loads::emit_arm64_load_x29_offset(
+                                        &mut self.output,
+                                        "w1",
+                                        tag_slot,
+                                        "x9",
+                                    );
+                                }
+                            }
+                        }
+                    }
                     // Implicit int->float for the `-> float` promise (#83),
                     // limited to array-index reads: `return a[i]` with an
                     // unknown-kind int element means the numeric value.
@@ -185,6 +212,28 @@ impl CodeGen {
                                 "fn_ret_tagged:{}",
                                 bare
                             )));
+                    // alya-lang/alya#171: a marked function returning a
+                    // bare local without a spilled tag leaves UNKNOWN so
+                    // callers fall back to legacy checks instead of
+                    // trusting a stale register.
+                    if ret_tagged {
+                        if let Expr::Identifier(id) = expr {
+                            if !self
+                                .ctx
+                                .variables
+                                .contains_key(&format!("var_tag_slot:{}", id))
+                            {
+                                match self.arch {
+                                    Architecture::X64 => {
+                                        self.output.push_str("    movl $0, %edx\n");
+                                    }
+                                    Architecture::ARM64 => {
+                                        self.output.push_str("    mov w1, #0\n");
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // The conversion above leaves the value float while the
                     // tag still describes the pre-conversion int: refresh
                     // it before the retain spill below reads it.
