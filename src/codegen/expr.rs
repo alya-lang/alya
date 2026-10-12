@@ -482,6 +482,37 @@ impl CodeGen {
                             self.output.push_str(&format!("    b {}\n", l_end));
                             self.output.push_str(&format!("{}:\n", l_not_null));
                         }
+                        // alya-lang/alya#175: a FLOAT-tagged local holds f64
+                        // bits, not a machine word. Compare in the float
+                        // domain (integer literals convert to f64 first);
+                        // the int paths below would mangle the bits (e.g.
+                        // heterogeneous tuple float arm vs a literal).
+                        // Non-float tags keep the int paths.
+                        let l_tag_not_float = self.ctx.next_label();
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output
+                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                                self.output
+                                    .push_str(&format!("    jne {}\n", l_tag_not_float));
+                                self.output.push_str("    movq %rax, %xmm0\n");
+                            }
+                            Architecture::ARM64 => {
+                                self.output
+                                    .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                                self.output
+                                    .push_str(&format!("    b.ne {}\n", l_tag_not_float));
+                                self.output.push_str("    fmov d0, x0\n");
+                            }
+                        }
+                        let float_lit: f64 = match &lit {
+                            Expr::Number(n) => *n as f64,
+                            Expr::Float(n) => *n,
+                            _ => unreachable!(),
+                        };
+                        arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, float_lit);
+                        arch::emit_jump(&mut self.output, self.arch, &l_end);
+                        self.output.push_str(&format!("{}:\n", l_tag_not_float));
                         match lit {
                             Expr::Number(n) => {
                                 arch::emit_binary_op_imm(
@@ -557,32 +588,7 @@ impl CodeGen {
                     if let Expr::Float(n) = &**right {
                         self.generate_expression(left);
                         if !left_is_float && !is_definitely_not_numeric(left, &self.ctx.variables) {
-                            // Index carries kind tag alongside the value
-                            // (x64: %edx, arm64: w1): skip int->float
-                            // when the value is already a float.
-                            // Array loads carry slot kinds (Phase 1, #39).
-                            if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
-                                && matches!(
-                                    &**left,
-                                    Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                                )
-                                && is_tag_carrying_read(left, &self.ctx.variables)
-                            {
-                                let l_skip = self.ctx.next_label();
-                                if matches!(self.arch, Architecture::X64) {
-                                    self.output
-                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
-                                    self.output.push_str(&format!("    je {}\n", l_skip));
-                                } else {
-                                    self.output
-                                        .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
-                                    self.output.push_str(&format!("    b.eq {}\n", l_skip));
-                                }
-                                arch::emit_int_to_float(&mut self.output, self.arch);
-                                self.output.push_str(&format!("{}:\n", l_skip));
-                            } else {
-                                arch::emit_int_to_float(&mut self.output, self.arch);
-                            }
+                            self.emit_int_to_float_guarded(left);
                         }
                         arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n);
                         return;
@@ -590,30 +596,7 @@ impl CodeGen {
                     if let Expr::Number(n) = &**right {
                         self.generate_expression(left);
                         if !left_is_float && !is_definitely_not_numeric(left, &self.ctx.variables) {
-                            // Index carries kind tag (x64: %edx, arm64: w1).
-                            // Array loads carry slot kinds (Phase 1, #39).
-                            if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
-                                && matches!(
-                                    &**left,
-                                    Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
-                                )
-                                && is_tag_carrying_read(left, &self.ctx.variables)
-                            {
-                                let l_skip = self.ctx.next_label();
-                                if matches!(self.arch, Architecture::X64) {
-                                    self.output
-                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
-                                    self.output.push_str(&format!("    je {}\n", l_skip));
-                                } else {
-                                    self.output
-                                        .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
-                                    self.output.push_str(&format!("    b.eq {}\n", l_skip));
-                                }
-                                arch::emit_int_to_float(&mut self.output, self.arch);
-                                self.output.push_str(&format!("{}:\n", l_skip));
-                            } else {
-                                arch::emit_int_to_float(&mut self.output, self.arch);
-                            }
+                            self.emit_int_to_float_guarded(left);
                         }
                         arch::emit_float_binary_op_imm(&mut self.output, self.arch, *op, *n as f64);
                         return;
@@ -624,32 +607,7 @@ impl CodeGen {
                             if !left_is_float
                                 && !is_definitely_not_numeric(left, &self.ctx.variables)
                             {
-                                // Index carries kind tag (x64: %edx, arm64: w1).
-                                // Array loads carry slot kinds (Phase 1, #39).
-                                if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
-                                    && matches!(
-                                        &**left,
-                                        Expr::Index { .. }
-                                            | Expr::Ternary { .. }
-                                            | Expr::Call { .. }
-                                    )
-                                    && is_tag_carrying_read(left, &self.ctx.variables)
-                                {
-                                    let l_skip = self.ctx.next_label();
-                                    if matches!(self.arch, Architecture::X64) {
-                                        self.output
-                                            .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
-                                        self.output.push_str(&format!("    je {}\n", l_skip));
-                                    } else {
-                                        self.output
-                                            .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
-                                        self.output.push_str(&format!("    b.eq {}\n", l_skip));
-                                    }
-                                    arch::emit_int_to_float(&mut self.output, self.arch);
-                                    self.output.push_str(&format!("{}:\n", l_skip));
-                                } else {
-                                    arch::emit_int_to_float(&mut self.output, self.arch);
-                                }
+                                self.emit_int_to_float_guarded(left);
                             }
                             arch::emit_load_var_to_scratch(
                                 &mut self.output,
@@ -4449,6 +4407,61 @@ impl CodeGen {
         }
     }
 
+    /// Emits `int->float` conversion of the value in `%rax`/x0 unless
+    /// its runtime kind tag already says float (alya-lang/alya#175):
+    /// direct tag-carrying reads leave the tag live in the tag
+    /// register, while let-bound ones reload it from their spilled
+    /// slot. Converting f64 bits as int would mangle the value (e.g.
+    /// a heterogeneous tuple's float arm compared against a literal).
+    fn emit_int_to_float_guarded(&mut self, side: &Expr) {
+        let slot: Option<i32> = if let Expr::Identifier(id) = side {
+            match self.ctx.variables.get(&format!("var_tag_slot:{}", id)) {
+                Some(VarType::Number(off)) => Some(*off),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let reads_tag = matches!(
+            side,
+            Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+        ) && is_tag_carrying_read(side, &self.ctx.variables);
+        if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+            && (reads_tag || slot.is_some())
+        {
+            let l_skip = self.ctx.next_label();
+            if let Some(tag_slot) = slot {
+                match self.arch {
+                    Architecture::X64 => {
+                        self.output
+                            .push_str(&format!("    movl -{}(%rbp), %edx\n", tag_slot));
+                    }
+                    _ => {
+                        crate::codegen::arch::arm64::loads::emit_arm64_load_x29_offset(
+                            &mut self.output,
+                            "w1",
+                            tag_slot,
+                            "x9",
+                        );
+                    }
+                }
+            }
+            if matches!(self.arch, Architecture::X64) {
+                self.output
+                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                self.output.push_str(&format!("    je {}\n", l_skip));
+            } else {
+                self.output
+                    .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                self.output.push_str(&format!("    b.eq {}\n", l_skip));
+            }
+            arch::emit_int_to_float(&mut self.output, self.arch);
+            self.output.push_str(&format!("{}:\n", l_skip));
+        } else {
+            arch::emit_int_to_float(&mut self.output, self.arch);
+        }
+    }
+
     fn generate_type_check(&mut self, expr: &Expr, target: &str, negated: bool) {
         let t = target.to_lowercase();
         match t.as_str() {
@@ -4808,6 +4821,59 @@ impl CodeGen {
                     }
                     return;
                 }
+                // alya-lang/alya#175: a let-bound tag-carrying read keeps
+                // its runtime kind in a spilled slot (e.g. a float arm of
+                // a heterogeneous tuple: no static marker may serve both
+                // arms). Reload it so `is float` answers from the tag,
+                // not from the default-int static type.
+                let float_tag_slot: Option<i32> = if let Expr::Identifier(id) = expr {
+                    match self.ctx.variables.get(&format!("var_tag_slot:{}", id)) {
+                        Some(VarType::Number(off)) => Some(*off),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                    && float_tag_slot.is_some()
+                {
+                    self.generate_expression(expr);
+                    let tag_slot = float_tag_slot.unwrap_or(0);
+                    match self.arch {
+                        Architecture::X64 => {
+                            self.output
+                                .push_str(&format!("    movl -{}(%rbp), %edx\n", tag_slot));
+                            if negated {
+                                self.output
+                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                                self.output.push_str("    setne %al\n");
+                            } else {
+                                self.output
+                                    .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                                self.output.push_str("    sete %al\n");
+                            }
+                            self.output.push_str("    movzbq %al, %rax\n");
+                        }
+                        _ => {
+                            crate::codegen::arch::arm64::loads::emit_arm64_load_x29_offset(
+                                &mut self.output,
+                                "w1",
+                                tag_slot,
+                                "x9",
+                            );
+                            if negated {
+                                self.output
+                                    .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                                self.output.push_str("    cset x0, ne\n");
+                            } else {
+                                self.output
+                                    .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                                self.output.push_str("    cset x0, eq\n");
+                            }
+                        }
+                    }
+                    return;
+                }
                 let is_flt = is_float_expr(expr, &self.ctx.variables);
                 let result = if is_flt {
                     if negated {
@@ -4878,6 +4944,80 @@ impl CodeGen {
                             self.output.push_str("    mov x0, #1\n");
                         }
                         self.output.push_str(&format!("{}:\n", l_end));
+                    }
+                    return;
+                }
+                // alya-lang/alya#175: a let-bound tag-carrying read keeps
+                // its runtime kind in a spilled slot. Answer from the tag
+                // (INT or UNKNOWN-tagged words read as int; every other
+                // exact tag — float, string, array, map, null, struct —
+                // is not an int) instead of the default-int static type.
+                let int_tag_slot: Option<i32> = if let Expr::Identifier(id) = expr {
+                    match self.ctx.variables.get(&format!("var_tag_slot:{}", id)) {
+                        Some(VarType::Number(off)) => Some(*off),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                    && int_tag_slot.is_some()
+                {
+                    self.generate_expression(expr);
+                    let tag_slot = int_tag_slot.unwrap_or(0);
+                    let l_true = self.ctx.next_label();
+                    let l_end = self.ctx.next_label();
+                    match self.arch {
+                        Architecture::X64 => {
+                            self.output
+                                .push_str(&format!("    movl -{}(%rbp), %edx\n", tag_slot));
+                            self.output
+                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_INT));
+                            self.output.push_str(&format!("    je {}\n", l_true));
+                            self.output
+                                .push_str(&format!("    cmpl ${}, %edx\n", KIND_UNKNOWN));
+                            self.output.push_str(&format!("    je {}\n", l_true));
+                            if negated {
+                                self.output.push_str("    movq $1, %rax\n");
+                            } else {
+                                self.output.push_str("    xor %eax, %eax\n");
+                            }
+                            self.output.push_str(&format!("    jmp {}\n", l_end));
+                            self.output.push_str(&format!("{}:\n", l_true));
+                            if negated {
+                                self.output.push_str("    xor %eax, %eax\n");
+                            } else {
+                                self.output.push_str("    movq $1, %rax\n");
+                            }
+                            self.output.push_str(&format!("{}:\n", l_end));
+                        }
+                        _ => {
+                            crate::codegen::arch::arm64::loads::emit_arm64_load_x29_offset(
+                                &mut self.output,
+                                "w1",
+                                tag_slot,
+                                "x9",
+                            );
+                            self.output
+                                .push_str(&format!("    cmp w1, #{}\n", KIND_INT));
+                            self.output.push_str(&format!("    b.eq {}\n", l_true));
+                            self.output
+                                .push_str(&format!("    cmp w1, #{}\n", KIND_UNKNOWN));
+                            self.output.push_str(&format!("    b.eq {}\n", l_true));
+                            if negated {
+                                self.output.push_str("    mov x0, #1\n");
+                            } else {
+                                self.output.push_str("    mov x0, #0\n");
+                            }
+                            self.output.push_str(&format!("    b {}\n", l_end));
+                            self.output.push_str(&format!("{}:\n", l_true));
+                            if negated {
+                                self.output.push_str("    mov x0, #0\n");
+                            } else {
+                                self.output.push_str("    mov x0, #1\n");
+                            }
+                            self.output.push_str(&format!("{}:\n", l_end));
+                        }
                     }
                     return;
                 }

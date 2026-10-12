@@ -85,6 +85,7 @@ fn entry_files() -> Vec<String> {
         "59_dynamic_container_is.alya".to_string(),
         "60_untyped_poly_dispatch.alya".to_string(),
         "61_null_tag_reassign.alya".to_string(),
+        "62_heterogeneous_tuple_returns.alya".to_string(),
     ]
 }
 

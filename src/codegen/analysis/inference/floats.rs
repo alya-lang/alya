@@ -222,46 +222,92 @@ fn stmts_return_float(stmts: &[Stmt], known_floats: &HashSet<String>) -> bool {
     })
 }
 
-fn collect_tuple_returns_float(
-    stmts: &[Stmt],
-    known_floats: &HashSet<String>,
-    fn_name: &str,
-    target_floats: &mut HashSet<String>,
-) {
+/// Enumerates every multi-value (`return a, b, ...`, parsed as
+/// `Return(Array)`) arm of a function body. `has_non_tuple` records
+/// any other `return` shape (scalar, call, bare): such a function is
+/// dynamically-typed for tuple purposes, so no per-slot marker is
+/// sound. Nested functions own their returns and are not descended
+/// into (there are no block expressions, so `Return` only occurs at
+/// statement level).
+fn collect_tuple_return_arms(stmts: &[Stmt], arms: &mut Vec<Vec<Expr>>, has_non_tuple: &mut bool) {
     for s in stmts {
         match s {
-            Stmt::Return(Some(Expr::Array(elements))) => {
-                for (i, elem) in elements.iter().enumerate() {
-                    if expr_is_definitely_float(elem, known_floats) {
-                        target_floats.insert(format!("fn_ret_tuple_flt:{}:{}", fn_name, i));
-                    }
-                }
-            }
+            Stmt::Return(Some(Expr::Array(elements))) => arms.push(elements.clone()),
+            Stmt::Return(_) => *has_non_tuple = true,
             Stmt::If {
                 then_block,
                 else_block,
                 ..
             } => {
-                collect_tuple_returns_float(then_block, known_floats, fn_name, target_floats);
+                collect_tuple_return_arms(then_block, arms, has_non_tuple);
                 if let Some(eb) = else_block {
-                    collect_tuple_returns_float(eb, known_floats, fn_name, target_floats);
+                    collect_tuple_return_arms(eb, arms, has_non_tuple);
                 }
             }
             Stmt::While { body, .. }
             | Stmt::Repeat { body }
             | Stmt::For { body, .. }
             | Stmt::ForEach { body, .. } => {
-                collect_tuple_returns_float(body, known_floats, fn_name, target_floats);
+                collect_tuple_return_arms(body, arms, has_non_tuple);
+            }
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                collect_tuple_return_arms(try_block, arms, has_non_tuple);
+                collect_tuple_return_arms(catch_block, arms, has_non_tuple);
+                if let Some(fb) = finally_block {
+                    collect_tuple_return_arms(fb, arms, has_non_tuple);
+                }
             }
             Stmt::Pub(inner) | Stmt::Defer(inner) => {
-                collect_tuple_returns_float(
-                    std::slice::from_ref(inner),
-                    known_floats,
-                    fn_name,
-                    target_floats,
-                );
+                collect_tuple_return_arms(std::slice::from_ref(inner), arms, has_non_tuple);
             }
+            // Nested functions own their returns; do not descend.
+            Stmt::Function { .. } => {}
             _ => {}
+        }
+    }
+}
+
+fn collect_tuple_returns_float(
+    stmts: &[Stmt],
+    known_floats: &HashSet<String>,
+    fn_name: &str,
+    target_floats: &mut HashSet<String>,
+) {
+    // Universal per-slot rule (alya-lang/alya#175): a slot is marked
+    // float only when EVERY tuple arm proves float there. The old
+    // existential rule misread heterogeneous int arms as f64 bits
+    // (e.g. int 7 printed as `3.45846e-323`). Null arms are
+    // transparent (null shares 0.0's zero word); missing slots and
+    // unknown elements veto.
+    let mut arms = Vec::new();
+    let mut has_non_tuple = false;
+    collect_tuple_return_arms(stmts, &mut arms, &mut has_non_tuple);
+    if has_non_tuple || arms.is_empty() {
+        return;
+    }
+    let max_arity = arms.iter().map(|a| a.len()).max().unwrap_or(0);
+    for i in 0..max_arity {
+        let mut any_float = false;
+        let mut all_ok = true;
+        for arm in &arms {
+            match arm.get(i) {
+                Some(elem) if expr_is_definitely_float(elem, known_floats) => {
+                    any_float = true;
+                }
+                Some(Expr::Null) => {}
+                _ => {
+                    all_ok = false;
+                    break;
+                }
+            }
+        }
+        if any_float && all_ok {
+            target_floats.insert(format!("fn_ret_tuple_flt:{}:{}", fn_name, i));
         }
     }
 }

@@ -697,6 +697,52 @@ impl CodeGen {
                                 offset,
                                 self.ctx.stack_offset,
                             );
+                            // alya-lang/alya#175: tag-spilled dynamic (e.g.
+                            // a float arm of a heterogeneous tuple): the
+                            // value word alone cannot tell float from int,
+                            // so reload the spilled kind and print floats
+                            // exactly. Every other tag keeps the classify
+                            // path below.
+                            let tag_float_label = match self
+                                .ctx
+                                .variables
+                                .get(&format!("var_tag_slot:{}", name))
+                                .cloned()
+                            {
+                                Some(VarType::Number(tag_slot)) => {
+                                    let l_tag_flt = self.ctx.next_label();
+                                    match self.arch {
+                                        Architecture::X64 => {
+                                            self.output.push_str(&format!(
+                                                "    movl -{}(%rbp), %edx\n",
+                                                tag_slot
+                                            ));
+                                            self.output.push_str(&format!(
+                                                "    cmpl ${}, %edx\n",
+                                                KIND_FLOAT
+                                            ));
+                                            self.output
+                                                .push_str(&format!("    je {}\n", l_tag_flt));
+                                        }
+                                        Architecture::ARM64 => {
+                                            crate::codegen::arch::arm64::loads::emit_arm64_load_x29_offset(
+                                                &mut self.output,
+                                                "w1",
+                                                tag_slot,
+                                                "x9",
+                                            );
+                                            self.output.push_str(&format!(
+                                                "    cmp w1, #{}\n",
+                                                KIND_FLOAT
+                                            ));
+                                            self.output
+                                                .push_str(&format!("    b.eq {}\n", l_tag_flt));
+                                        }
+                                    }
+                                    Some(l_tag_flt)
+                                }
+                                _ => None,
+                            };
                             self.emit_runtime_classify(self.os);
                             arch::emit_cmp_imm(&mut self.output, self.arch, KIND_STRING);
                             arch::emit_cond_jump(
@@ -745,6 +791,28 @@ impl CodeGen {
                                 self.ctx.stack_offset,
                                 self.os,
                             );
+                            arch::emit_jump(&mut self.output, self.arch, &l_dyn_end);
+                            if let Some(l_tag_flt) = tag_float_label {
+                                self.output.push_str(&format!("{}:\n", l_tag_flt));
+                                let fmt_tag_flt_label = self.ctx.next_string_label();
+                                self.emit_rodata_section();
+                                self.output.push_str(&format!("{}:\n", fmt_tag_flt_label));
+                                self.emit_string_directive("%s\\n");
+                                self.output.push_str(".text\n");
+                                arch::emit_load_var(
+                                    &mut self.output,
+                                    self.arch,
+                                    offset,
+                                    self.ctx.stack_offset,
+                                );
+                                arch::emit_say_float(
+                                    &mut self.output,
+                                    self.arch,
+                                    &fmt_tag_flt_label,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
+                            }
                             self.output.push_str(&format!("{}:\n", l_dyn_end));
                             self.output.push('\n');
                         }

@@ -336,38 +336,34 @@ fn stmts_return_string(stmts: &[Stmt], known_strings: &HashSet<String>) -> bool 
     })
 }
 
-fn collect_tuple_returns_string(
-    stmts: &[Stmt],
-    known_strings: &HashSet<String>,
-    fn_name: &str,
-    target_strings: &mut HashSet<String>,
-) {
+/// Enumerates every multi-value (`return a, b, ...`, parsed as
+/// `Return(Array)`) arm of a function body, mirroring the statement
+/// recursion of the collectors below. `has_non_tuple` records any
+/// other `return` shape (scalar, call, bare): such a function is
+/// dynamically-typed for tuple purposes, so no per-slot marker is
+/// sound. Nested functions own their returns and are not descended
+/// into (there are no block expressions, so `Return` only occurs at
+/// statement level).
+fn collect_tuple_return_arms(stmts: &[Stmt], arms: &mut Vec<Vec<Expr>>, has_non_tuple: &mut bool) {
     for s in stmts {
         match s {
-            Stmt::Return(Some(Expr::Array(elements))) => {
-                for (i, elem) in elements.iter().enumerate() {
-                    if expr_is_definitely_string(elem, known_strings) {
-                        target_strings.insert(format!("fn_ret_tuple_str:{}:{}", fn_name, i));
-                        // Presence summary for the scan gate above.
-                        target_strings.insert(format!("fn_ret_tuple:{}", fn_name));
-                    }
-                }
-            }
+            Stmt::Return(Some(Expr::Array(elements))) => arms.push(elements.clone()),
+            Stmt::Return(_) => *has_non_tuple = true,
             Stmt::If {
                 then_block,
                 else_block,
                 ..
             } => {
-                collect_tuple_returns_string(then_block, known_strings, fn_name, target_strings);
+                collect_tuple_return_arms(then_block, arms, has_non_tuple);
                 if let Some(eb) = else_block {
-                    collect_tuple_returns_string(eb, known_strings, fn_name, target_strings);
+                    collect_tuple_return_arms(eb, arms, has_non_tuple);
                 }
             }
             Stmt::While { body, .. }
             | Stmt::Repeat { body }
             | Stmt::For { body, .. }
             | Stmt::ForEach { body, .. } => {
-                collect_tuple_returns_string(body, known_strings, fn_name, target_strings);
+                collect_tuple_return_arms(body, arms, has_non_tuple);
             }
             Stmt::TryCatch {
                 try_block,
@@ -375,13 +371,63 @@ fn collect_tuple_returns_string(
                 finally_block,
                 ..
             } => {
-                collect_tuple_returns_string(try_block, known_strings, fn_name, target_strings);
-                collect_tuple_returns_string(catch_block, known_strings, fn_name, target_strings);
+                collect_tuple_return_arms(try_block, arms, has_non_tuple);
+                collect_tuple_return_arms(catch_block, arms, has_non_tuple);
                 if let Some(fb) = finally_block {
-                    collect_tuple_returns_string(fb, known_strings, fn_name, target_strings);
+                    collect_tuple_return_arms(fb, arms, has_non_tuple);
                 }
             }
+            Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                collect_tuple_return_arms(std::slice::from_ref(inner), arms, has_non_tuple);
+            }
+            // Nested functions own their returns; do not descend.
+            Stmt::Function { .. } => {}
             _ => {}
+        }
+    }
+}
+
+fn collect_tuple_returns_string(
+    stmts: &[Stmt],
+    known_strings: &HashSet<String>,
+    fn_name: &str,
+    target_strings: &mut HashSet<String>,
+) {
+    // Universal per-slot rule (alya-lang/alya#175): a slot is marked
+    // string only when EVERY tuple arm proves string there. The old
+    // existential rule (any string arm marks the slot) miscompiled
+    // heterogeneous arms — e.g. `return "str", 10` beside
+    // `return to_int(s), 20` marked slot 0 string, so the int arm's
+    // value was stored/said as a heap string (`is int` false,
+    // `0xC0000005` on use). Null arms are transparent (null passes
+    // `str_store` unharmed, mirroring the scalar `fn_ret_nonstr`
+    // exemption); missing slots and unknown elements veto.
+    let mut arms = Vec::new();
+    let mut has_non_tuple = false;
+    collect_tuple_return_arms(stmts, &mut arms, &mut has_non_tuple);
+    if has_non_tuple || arms.is_empty() {
+        return;
+    }
+    let max_arity = arms.iter().map(|a| a.len()).max().unwrap_or(0);
+    for i in 0..max_arity {
+        let mut any_string = false;
+        let mut all_ok = true;
+        for arm in &arms {
+            match arm.get(i) {
+                Some(elem) if expr_is_definitely_string(elem, known_strings) => {
+                    any_string = true;
+                }
+                Some(Expr::Null) => {}
+                _ => {
+                    all_ok = false;
+                    break;
+                }
+            }
+        }
+        if any_string && all_ok {
+            target_strings.insert(format!("fn_ret_tuple_str:{}:{}", fn_name, i));
+            // Presence summary for the scan gate above.
+            target_strings.insert(format!("fn_ret_tuple:{}", fn_name));
         }
     }
 }

@@ -1,0 +1,152 @@
+# ==============================================================================
+# Alya Integration Fixture 62 (entry): heterogeneous multi-return arms keep
+# per-slot dynamic kinds.
+# Distilled from: alya-lang/alya#175 (heterogeneous multi-return arms
+# corrupted the int arm: `return "str", 10` beside `return to_int(s), 20`
+# planted a slot-0 string marker from the string arm alone, so the int
+# arm's value miscompiled as a heap string — `is int` false,
+# `0xC0000005` on use; the float-symmetric shape read int 7 as f64 bits).
+# Guards:
+#   1. String/int arms: the int arm destructures, indexes, `is`-checks,
+#      and prints exactly (and the string arm still does).
+#   2. Float/int arms: no f64-bit mistag of the int arm.
+#   3. Homogeneous and single-arm multi-returns keep working.
+#   4. Null/string arms stay sound (null transparent, string arm exact).
+#   5. Struct/int arms: the int arm is not misread as a struct.
+# ==============================================================================
+
+struct Box
+    val: int
+end
+
+function pick(s: string, which: int)
+    if which == 1
+        return "str", 10
+    else
+        return to_int(s), 20
+    end
+end
+
+function getnum(s)
+    return to_int(s)
+end
+
+function pick_helper(s: string, which: int)
+    if which == 1
+        return "str", 10
+    else
+        return getnum(s), 20
+    end
+end
+
+function fpick(which: int)
+    if which == 1
+        return 1.5, 10
+    else
+        return to_int("7"), 20
+    end
+end
+
+function spick(which: int)
+    if which == 1
+        return "a", 1
+    else
+        return "b", 2
+    end
+end
+
+function single(n)
+    return n, n + 1
+end
+
+function npick(which: int)
+    if which == 1
+        return null, 5
+    else
+        return "hi", 6
+    end
+end
+
+function boxpick(which: int)
+    if which == 1
+        return Box { val: 11 }, 30
+    else
+        return 12, 40
+    end
+end
+
+function test_string_int_arms()
+    let a, pa = pick("x", 1)
+    assert a == "str"
+    assert a is string
+    assert pa == 10
+    let b, pb = pick("1000", 2)
+    assert pb == 20
+    assert b == 1000
+    assert b is int
+    assert not (b is string)
+    assert not (b is null)
+    let t = pick("1000", 2)
+    assert t[0] == 1000
+    assert t[1] == 20
+    let h, ph = pick_helper("1000", 2)
+    assert h == 1000
+    assert h is int
+    assert ph == 20
+end
+
+function test_float_int_arms()
+    let f, q = fpick(2)
+    assert q == 20
+    assert f == 7
+    assert f is int
+    assert not (f is float)
+    let g, q2 = fpick(1)
+    assert g == 1.5
+    assert g is float
+end
+
+function test_homogeneous_and_single()
+    let s1, p1 = spick(1)
+    assert s1 == "a"
+    assert s1 is string
+    assert p1 == 1
+    let s2, p2 = spick(2)
+    assert s2 == "b"
+    assert p2 == 2
+    let m, n = single(41)
+    assert m == 41
+    assert n == 42
+end
+
+function test_null_string_arms()
+    let v1, w1 = npick(1)
+    assert v1 is null
+    assert v1 == null
+    assert w1 == 5
+    let v2, w2 = npick(2)
+    assert v2 == "hi"
+    assert v2 is string
+    assert w2 == 6
+end
+
+function test_struct_int_arms()
+    let bx, px = boxpick(1)
+    assert bx.val == 11
+    assert px == 30
+    let by, py = boxpick(2)
+    assert by == 12
+    assert by is int
+    assert py == 40
+end
+
+function main()
+    test_string_int_arms()
+    test_float_int_arms()
+    test_homogeneous_and_single()
+    test_null_string_arms()
+    test_struct_int_arms()
+    say "integration 62_heterogeneous_tuple_returns: OK"
+end
+
+main()
