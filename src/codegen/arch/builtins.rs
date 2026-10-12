@@ -115,6 +115,15 @@ pub fn emit_array_set(out: &mut String, arch: Architecture, kind: i64) {
     }
 }
 
+/// Captured-cell store (alya-lang/alya#100): value in the int register,
+/// kind in the tag register; holder array at `holder_off`.
+pub fn emit_cap_store(out: &mut String, arch: Architecture, holder_off: i32, vi: usize) {
+    match arch {
+        Architecture::ARM64 => arm64::emit_cap_store(out, holder_off, vi),
+        Architecture::X64 => x64::emit_cap_store(out, holder_off, vi),
+    }
+}
+
 pub fn emit_array_push(
     out: &mut String,
     arch: Architecture,

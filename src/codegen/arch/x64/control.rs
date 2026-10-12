@@ -382,7 +382,24 @@ pub fn emit_guarded_indirect_function_call(
     out.push_str("    cmp %rcx, %r11\n");
     out.push_str("    jb alya_error_not_callable\n");
     out.push_str(&format!("{}:\n", call_label));
+    // alya-lang/alya#100: closure dispatch. A slot holding a closure
+    // object (magic 0x5A110005) calls its code with the stored chain
+    // appended as the final argument (pushed first: `call_target`
+    // pops position N first, so the chain lands at index N).
+    out.push_str("    movl -16(%r11), %eax\n");
+    out.push_str("    cmpl $0x5A110005, %eax\n");
+    // NOTE: distinct label per site is unnecessary: the forward jump
+    // lands at the shared legacy call below, and the closure path
+    // never falls through into it.
+    out.push_str("    jne 1f\n");
+    out.push_str("    movq 8(%r11), %rax\n");
+    out.push_str("    push %rax\n");
+    out.push_str("    movq (%r11), %r11\n");
+    emit_call_target(out, "*%r11", args_count + 1, stack_offset, os);
+    out.push_str("    jmp 2f\n");
+    out.push_str("1:\n");
     emit_call_target(out, "*%r11", args_count, stack_offset, os);
+    out.push_str("2:\n");
 }
 
 pub fn emit_stack_restore(out: &mut String, delta: i32) {

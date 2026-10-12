@@ -16,6 +16,13 @@ pub const KIND_MAP: i64 = 5;
 pub const KIND_STRUCT: i64 = 6;
 pub const KIND_NULL: i64 = 7;
 
+/// Heap-object magic for closure values `{code, chain}`
+/// (alya-lang/alya#100). Distinct from array/map/struct/fat-ptr so the
+/// indirect-call dispatch and the release/GC paths recognize closures
+/// without consulting descriptors. Closure cells carry kind 6
+/// (`KIND_STRUCT`) so container cascades free them through this gate.
+pub const CLOSURE_MAGIC: i64 = 0x5A110005;
+
 /// Kind of a literal value for tag recording (map `set`, and Phase 1
 /// array `push`). Returns `None` for dynamic values, which keep the
 /// unknown tag (0) so readers fall back to inference.

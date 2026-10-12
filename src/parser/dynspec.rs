@@ -482,10 +482,17 @@ fn collect_candidates(program: &Program) -> HashMap<String, Candidate> {
             body,
             type_params,
             return_type,
+            attributes,
             ..
         } = stmt.inner_stmt()
         {
             if !type_params.is_empty() || name.contains("__spk__") {
+                continue;
+            }
+            // alya-lang/alya#100: capturing functions read via cells at
+            // emission; kind specialization by AST would desync from the
+            // capture plan (instance names miss the plan).
+            if attributes.iter().any(|a| a.name == "alya::capturing") {
                 continue;
             }
             let untyped: HashSet<String> = params

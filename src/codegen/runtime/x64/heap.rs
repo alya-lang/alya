@@ -574,6 +574,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    je .L_x64_rc_retain_ok\n");
     out.push_str("    cmp $0x5A110003, %rax\n");
     out.push_str("    je .L_x64_rc_retain_ok\n");
+    // alya-lang/alya#100: closure values retain (their chain is
+    // released by the closure free path). Fat pointers (004) stay
+    // excluded below, as before.
+    out.push_str("    cmp $0x5A110005, %rax\n");
+    out.push_str("    je .L_x64_rc_retain_ok\n");
     out.push_str("    cmp $0x5A110004, %rax\n");
     out.push_str("    jne .L_x64_rc_retain_done\n");
     out.push_str(".L_x64_rc_retain_ok:\n");
@@ -715,6 +720,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    je .L_x64_rc_rel_ok\n");
     out.push_str("    cmp $0x5A110003, %r12\n");
     out.push_str("    je .L_x64_rc_rel_ok\n");
+    // alya-lang/alya#100: closures release (fat pointers stay
+    // excluded below, as before).
+    out.push_str("    cmp $0x5A110005, %r12\n");
+    out.push_str("    je .L_x64_rc_rel_ok\n");
     out.push_str("    cmp $0x5A110004, %r12\n");
     out.push_str("    jne .L_x64_rc_rel_done\n");
     out.push_str(".L_x64_rc_rel_ok:\n");
@@ -734,6 +743,23 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    je .L_x64_rc_free_inner\n");
     out.push_str("    cmp $0x5A110002, %r12\n");
     out.push_str("    je .L_x64_rc_free_inner\n");
+    // alya-lang/alya#100: closures release their chain, then free.
+    out.push_str("    cmp $0x5A110005, %r12\n");
+    out.push_str("    je .L_x64_rc_free_closure\n");
+    out.push_str("    jmp .L_x64_rc_free_outer\n");
+    out.push_str(".L_x64_rc_free_closure:\n");
+    out.push_str("    movq 8(%rbx), %rax\n");
+    if is_win {
+        out.push_str("    mov %rax, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call fn_rc_release\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    sub $8, %rsp\n");
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str("    call fn_rc_release\n");
+        out.push_str("    add $8, %rsp\n");
+    }
     out.push_str("    jmp .L_x64_rc_free_outer\n");
     out.push_str(".L_x64_rc_free_inner:\n");
     out.push_str("    cmp $0x5A110001, %r12\n");

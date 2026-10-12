@@ -35,6 +35,23 @@ pub struct CodeGen {
     pub profile: PipelineProfile,
     pub no_std: bool,
     pub mem_trace: bool,
+    /// Fresh chain-array temp slot awaiting post-call release
+    /// (alya-lang/alya#100): set by chain-marker emission (a direct-call
+    /// argument), consumed by the enclosing direct call after it
+    /// returns. The callee's retain/release pair balances the shared
+    /// case; this drops the direct call's fresh reference.
+    pub(crate) pending_chain_release: Option<i32>,
+}
+
+/// A captured cell address (alya-lang/alya#100): the value lives at
+/// `vi` in an owner array. `chain_pos` is `None` when the holder
+/// slot directly holds the owner (owner frame), or `Some(pos)` when
+/// the holder slot holds the reader's chain (owner at `chain[pos]`).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CapLoc {
+    pub holder_off: i32,
+    pub chain_pos: Option<usize>,
+    pub vi: usize,
 }
 
 fn collect_expr_identifiers(expr: &Expr, idents: &mut std::collections::HashSet<String>) {
@@ -512,6 +529,7 @@ impl CodeGen {
             profile: PipelineProfile::default(),
             no_std: false,
             mem_trace: false,
+            pending_chain_release: None,
         }
     }
 
@@ -530,10 +548,14 @@ impl CodeGen {
         crate::parser::enums::resolve_enums(&mut resolved_prog);
         let _ = crate::parser::constants::resolve_and_validate_constants(&mut resolved_prog);
         crate::parser::generics::resolve_generics(&mut resolved_prog);
-        crate::parser::dynspec::resolve_dynspec(&mut resolved_prog);
         // Lexical nested functions become top-level qualified functions
         // (alya-lang/alya#99) before DCE/inference see the program.
-        crate::codegen::analysis::nested::hoist_nested_functions(&mut resolved_prog);
+        // Runs before dynspec so capture cells/plan cover the exact
+        // functions dynspec may specialize (alya-lang/alya#100).
+        let capture_plan =
+            crate::codegen::analysis::nested::hoist_nested_functions(&mut resolved_prog);
+        crate::parser::dynspec::resolve_dynspec(&mut resolved_prog);
+        self.ctx.capture_plan = capture_plan;
         let program = &resolved_prog;
 
         let original_stmts = program.statements.len();
@@ -2043,6 +2065,18 @@ impl CodeGen {
         // are skipped as a balanced pair.
         self.ctx.nonescaping_params =
             crate::codegen::analysis::nonescaping_params(&body_refs, params, &global_names);
+        // alya-lang/alya#100: captured params are stored into cells
+        // (outliving the frame) and the chain param is shared into
+        // closure objects: neither is a borrow, so force escaping.
+        // The AST analysis above cannot see emission-side stores.
+        self.ctx.nonescaping_params.remove("chain$clo");
+        if let Some(owned) = self.ctx.capture_plan.owners.get(name) {
+            for v in owned {
+                if params.contains(v) {
+                    self.ctx.nonescaping_params.remove(v);
+                }
+            }
+        }
 
         let bare = name.rsplit("::").next().unwrap_or(name);
         let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -2074,6 +2108,12 @@ impl CodeGen {
         }
 
         arch::emit_function_prologue(&mut self.output, self.arch, self.os, name);
+
+        // alya-lang/alya#100: the owner capture-struct is allocated
+        // AFTER intake below: allocating here would clobber the incoming
+        // argument registers before params are homed. Captured-param
+        // moves likewise run post-alloc (collected in `cap_moves`).
+        let mut cap_moves: Vec<(String, i32, i64)> = Vec::new();
 
         let mut heap_param_offsets = Vec::new();
         // Static call-site specialization (alya-lang/alya#39 Phase 2):
@@ -2330,6 +2370,54 @@ impl CodeGen {
                 &mut self.ctx.stack_offset,
                 self.os,
             );
+            // alya-lang/alya#100: the chain param is always an array.
+            // Entry-retain pairs the scope release (uniform borrow for
+            // shared chains; the direct caller drops its fresh reference
+            // after the call).
+            if param == "chain$clo" {
+                arch::emit_load_var(
+                    &mut self.output,
+                    self.arch,
+                    self.ctx.stack_offset,
+                    self.ctx.stack_offset,
+                );
+                arch::emit_rc_retain_direct(
+                    &mut self.output,
+                    self.arch,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+                self.ctx
+                    .variables
+                    .insert(param.clone(), VarType::Array(self.ctx.stack_offset));
+                continue;
+            }
+            // alya-lang/alya#100: captured params live in cells. The
+            // move runs after the owner alloc below (which must follow
+            // intake to preserve argument registers); collect it here.
+            if let Some(owned) = self.ctx.capture_plan.owners.get(name).cloned() {
+                if owned.contains(param) {
+                    let intake_off = self.ctx.stack_offset;
+                    // Struct/interface kinds read here: computed
+                    // above like the other static facts.
+                    let is_struct_param = struct_type.is_some() || interface_type.is_some();
+                    let kind = if is_str {
+                        kinds::KIND_STRING
+                    } else if is_flt {
+                        kinds::KIND_FLOAT
+                    } else if is_arr {
+                        kinds::KIND_ARRAY
+                    } else if is_map {
+                        kinds::KIND_MAP
+                    } else if is_struct_param {
+                        kinds::KIND_STRUCT
+                    } else {
+                        kinds::KIND_UNKNOWN
+                    };
+                    cap_moves.push((param.clone(), intake_off, kind));
+                    continue;
+                }
+            }
             if let Some(ref sname) = struct_type {
                 self.ctx.variables.insert(
                     param.clone(),
@@ -2508,6 +2596,30 @@ impl CodeGen {
             arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
         }
 
+        // alya-lang/alya#100: owner capture-struct allocation runs here
+        // (after intake, so argument registers survive) followed by the
+        // captured-param moves. Held in `cap$<fn>` (sanitized); scope
+        // exit releases it and the cascade frees retained cells.
+        if let Some(owned) = self.ctx.capture_plan.owners.get(name).cloned() {
+            let holder = Self::cap_holder_name(name);
+            arch::emit_array_new(
+                &mut self.output,
+                self.arch,
+                owned.len() * 2,
+                self.ctx.stack_offset,
+                self.os,
+            );
+            arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+            let off = self.ctx.stack_offset;
+            arch::emit_store_var(&mut self.output, self.arch, off, self.ctx.stack_offset);
+            self.ctx.variables.insert(holder, VarType::Array(off));
+            let holder_off = off;
+            for (param, intake_off, kind) in cap_moves {
+                let vi = owned.iter().position(|v| v == &param).unwrap_or(0) * 2;
+                self.emit_cap_param_store(&param, intake_off, holder_off, vi, kind);
+            }
+        }
+
         // Return-tag protocol (Phase 2b, alya-lang/alya#39): when every
         // return leaves (value, tag), record it so later callers can
         // dispatch on the tag. The marker must outlive this function,
@@ -2643,6 +2755,406 @@ impl CodeGen {
         arch::emit_function_endproc(&mut self.output, self.arch, self.os);
 
         self.ctx.exit_function(saved);
+    }
+
+    /// Owner capture-struct holder slot name (alya-lang/alya#100).
+    /// Sanitized: `:`/`.` are excluded from scope releases, and `$`
+    /// keeps the name unspellable (collision-free).
+    pub(crate) fn cap_holder_name(func: &str) -> String {
+        format!("cap${}", func.replace("::", "$").replace('.', "$"))
+    }
+
+    /// Resolves a captured read/write to its cell (alya-lang/alya#100).
+    /// `None` for plain locals.
+    pub(crate) fn capture_loc(&self, name: &str) -> Option<CapLoc> {
+        let func = self.ctx.current_fn_name.clone();
+        // Ancestor-owned cells (innermost owner wins for shadowing).
+        // `chains` only covers functions with captured reads; owners
+        // reading their own cells take the second branch below.
+        if let Some(chain) = self.ctx.capture_plan.chains.get(&func) {
+            for owner in chain.iter().rev() {
+                let Some(owned) = self.ctx.capture_plan.owners.get(owner) else {
+                    continue;
+                };
+                if let Some(i) = owned.iter().position(|v| v == name) {
+                    if owner == &func {
+                        let holder = Self::cap_holder_name(owner);
+                        match self.ctx.variables.get(&holder) {
+                            Some(VarType::Array(off)) => {
+                                return Some(CapLoc {
+                                    holder_off: *off,
+                                    chain_pos: None,
+                                    vi: 2 * i,
+                                });
+                            }
+                            _ => return None,
+                        }
+                    }
+                    let pos = chain.iter().position(|o| o == owner)?;
+                    match self.ctx.variables.get("chain$clo") {
+                        Some(VarType::Array(off)) => {
+                            return Some(CapLoc {
+                                holder_off: *off,
+                                chain_pos: Some(pos),
+                                vi: 2 * i,
+                            });
+                        }
+                        _ => return None,
+                    }
+                }
+            }
+        }
+        // Own frame's cells (owner reading its own var): the owner is
+        // not in its own chain (strict ancestors only).
+        if let Some(owned) = self.ctx.capture_plan.owners.get(&func) {
+            if let Some(i) = owned.iter().position(|v| v == name) {
+                let holder = Self::cap_holder_name(&func);
+                if let Some(VarType::Array(off)) = self.ctx.variables.get(&holder) {
+                    return Some(CapLoc {
+                        holder_off: *off,
+                        chain_pos: None,
+                        vi: 2 * i,
+                    });
+                }
+            }
+        }
+        None
+    }
+
+    /// Emits a captured-cell read (alya-lang/alya#100): array-get parity
+    /// with dynamic index reads — value in rax, kind in edx (x64) / w1
+    /// (arm64). Balanced stack (mirrors the `Index` fast path).
+    pub(crate) fn emit_cap_read(&mut self, loc: CapLoc) {
+        let initial = self.ctx.stack_offset;
+        let temp: i32 = match self.arch {
+            Architecture::ARM64 => 16,
+            _ => 8,
+        };
+        if let Some(pos) = loc.chain_pos {
+            // First hop: owner struct from the chain.
+            arch::emit_load_var(
+                &mut self.output,
+                self.arch,
+                loc.holder_off,
+                self.ctx.stack_offset,
+            );
+            arch::emit_push_temp(&mut self.output, self.arch);
+            self.ctx.stack_offset += temp;
+            arch::emit_load_num(&mut self.output, self.arch, pos as i64);
+            arch::emit_array_get(&mut self.output, self.arch);
+            self.ctx.stack_offset -= temp;
+        } else {
+            arch::emit_load_var(
+                &mut self.output,
+                self.arch,
+                loc.holder_off,
+                self.ctx.stack_offset,
+            );
+        }
+        arch::emit_push_temp(&mut self.output, self.arch);
+        self.ctx.stack_offset += temp;
+        arch::emit_load_num(&mut self.output, self.arch, loc.vi as i64);
+        arch::emit_array_get(&mut self.output, self.arch);
+        self.ctx.stack_offset = initial;
+    }
+
+    /// Resolves the owner array into a fresh temp slot (alya-lang/alya#100)
+    /// for stores (which address the holder by slot). Unregistered
+    /// borrow: the owner outlives the frame via chain/owner retains.
+    pub(crate) fn emit_cap_owner(&mut self, loc: CapLoc) -> i32 {
+        match loc.chain_pos {
+            None => loc.holder_off,
+            Some(pos) => {
+                let initial = self.ctx.stack_offset;
+                let temp: i32 = match self.arch {
+                    Architecture::ARM64 => 16,
+                    _ => 8,
+                };
+                arch::emit_load_var(
+                    &mut self.output,
+                    self.arch,
+                    loc.holder_off,
+                    self.ctx.stack_offset,
+                );
+                arch::emit_push_temp(&mut self.output, self.arch);
+                self.ctx.stack_offset += temp;
+                arch::emit_load_num(&mut self.output, self.arch, pos as i64);
+                arch::emit_array_get(&mut self.output, self.arch);
+                self.ctx.stack_offset = initial;
+                arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+                let off = self.ctx.stack_offset;
+                arch::emit_store_var(&mut self.output, self.arch, off, self.ctx.stack_offset);
+                off
+            }
+        }
+    }
+
+    /// Captured-param intake store (alya-lang/alya#100): moves the
+    /// intake slot value into its cell, then nulls the slot so scope
+    /// exit never double-releases the caller's share. Mirrors the
+    /// index-assign discipline (retain-new, dup strings). `kind` is the
+    /// single static fact (or UNKNOWN, with a header-magic probe for
+    /// closures, which are unclassifiable by word).
+    pub(crate) fn emit_cap_param_store(
+        &mut self,
+        param: &str,
+        intake_off: i32,
+        holder_off: i32,
+        value_idx: usize,
+        kind: i64,
+    ) {
+        let static_kind = kind;
+        let is_str = kind == kinds::KIND_STRING;
+        arch::emit_load_var(
+            &mut self.output,
+            self.arch,
+            intake_off,
+            self.ctx.stack_offset,
+        );
+        if is_str {
+            arch::emit_str_store(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+        }
+        arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+        if static_kind == kinds::KIND_UNKNOWN {
+            self.emit_cap_kind_probe();
+        } else {
+            match self.arch {
+                Architecture::X64 => {
+                    self.output
+                        .push_str(&format!("    movl ${}, %edx\n", static_kind));
+                }
+                Architecture::ARM64 => {
+                    self.output
+                        .push_str(&format!("    mov w1, #{}\n", static_kind));
+                }
+            }
+        }
+        arch::emit_cap_store(&mut self.output, self.arch, holder_off, value_idx);
+        // Null the intake slot (caller's share stays with the caller).
+        arch::emit_load_num(&mut self.output, self.arch, 0);
+        arch::emit_store_var(
+            &mut self.output,
+            self.arch,
+            intake_off,
+            self.ctx.stack_offset,
+        );
+        // Closure-ness marker for `value_kind_tag` (container cascades;
+        // never cleared: stale claims are release-safe). Only static-6:
+        // dynamic closures prove at runtime into the kindbyte, but a
+        // static marker would lie for other dynamic values sharing the
+        // slot shape (cell kinds, not this marker, drive reads).
+        if static_kind == kinds::KIND_STRUCT {
+            self.ctx
+                .variables
+                .insert(format!("closure_val:{}", param), VarType::Number(0));
+        }
+    }
+
+    /// Probes for a closure header when the static kind is UNKNOWN
+    /// (alya-lang/alya#100): sets edx/w1 to STRUCT on a magic hit, else
+    /// UNKNOWN. Value in rax/x0 on entry, preserved.
+    fn emit_cap_kind_probe(&mut self) {
+        let l_unknown = self.ctx.next_label();
+        let l_done = self.ctx.next_label();
+        match self.arch {
+            Architecture::X64 => {
+                arch::emit_push_temp(&mut self.output, self.arch);
+                let temp_adjust = self.ctx.stack_offset;
+                self.ctx.stack_offset += 8;
+                if matches!(self.os, OperatingSystem::Windows) {
+                    self.output.push_str("    mov %rax, %rcx\n");
+                    let padding = if self.ctx.stack_offset % 16 == 0 {
+                        32
+                    } else {
+                        40
+                    };
+                    self.output
+                        .push_str(&format!("    sub ${}, %rsp\n", padding));
+                    self.output.push_str("    call alya_mem_header_readable\n");
+                    self.output
+                        .push_str(&format!("    add ${}, %rsp\n", padding));
+                    self.output.push_str("    mov %eax, %ecx\n");
+                } else {
+                    self.output.push_str("    mov %rax, %rdi\n");
+                    if self.ctx.stack_offset % 16 != 0 {
+                        self.output.push_str("    sub $8, %rsp\n");
+                    }
+                    self.output.push_str("    call alya_mem_header_readable\n");
+                    if self.ctx.stack_offset % 16 != 0 {
+                        self.output.push_str("    add $8, %rsp\n");
+                    }
+                    self.output.push_str("    mov %eax, %ecx\n");
+                }
+                arch::emit_pop_temp(&mut self.output, self.arch);
+                self.ctx.stack_offset = temp_adjust;
+                self.output.push_str("    test %ecx, %ecx\n");
+                self.output.push_str(&format!("    jz {}\n", l_unknown));
+                self.output.push_str("    movl -16(%rax), %ecx\n");
+                self.output
+                    .push_str(&format!("    cmpl ${}, %ecx\n", kinds::CLOSURE_MAGIC));
+                self.output.push_str(&format!("    jne {}\n", l_unknown));
+                self.output
+                    .push_str(&format!("    movl ${}, %edx\n", kinds::KIND_STRUCT));
+                self.output.push_str(&format!("    jmp {}\n", l_done));
+                self.output.push_str(&format!("{}:\n", l_unknown));
+                self.output
+                    .push_str(&format!("    movl ${}, %edx\n", kinds::KIND_UNKNOWN));
+                self.output.push_str(&format!("{}:\n", l_done));
+            }
+            Architecture::ARM64 => {
+                self.output.push_str("    str x0, [sp, #-16]!\n");
+                self.output.push_str("    bl alya_mem_header_readable\n");
+                self.output.push_str("    mov w9, w0\n");
+                self.output.push_str("    ldr x0, [sp], #16\n");
+                self.output
+                    .push_str(&format!("    cbz w9, {}\n", l_unknown));
+                self.output.push_str("    ldr w9, [x0, #-16]\n");
+                self.output.push_str(&format!(
+                    "    movz w10, #{}, lsl #16\n",
+                    (kinds::CLOSURE_MAGIC >> 16) & 0xFFFF
+                ));
+                self.output.push_str(&format!(
+                    "    movk w10, #{}\n",
+                    kinds::CLOSURE_MAGIC & 0xFFFF
+                ));
+                self.output.push_str("    cmp w9, w10\n");
+                self.output.push_str(&format!("    b.ne {}\n", l_unknown));
+                self.output
+                    .push_str(&format!("    mov w1, #{}\n", kinds::KIND_STRUCT));
+                self.output.push_str(&format!("    b {}\n", l_done));
+                self.output.push_str(&format!("{}:\n", l_unknown));
+                self.output
+                    .push_str(&format!("    mov w1, #{}\n", kinds::KIND_UNKNOWN));
+                self.output.push_str(&format!("{}:\n", l_done));
+            }
+        }
+    }
+
+    /// Builds the chain array for `target` (alya-lang/alya#100): env
+    /// structs in `chains[target]` order, each retained (proven arrays).
+    /// Leaves rax = fresh array (rc=1, transferred to the consumer).
+    /// Balanced stack.
+    pub(crate) fn emit_closure_chain_array(&mut self, target: &str) {
+        let content = self
+            .ctx
+            .capture_plan
+            .chains
+            .get(target)
+            .cloned()
+            .unwrap_or_default();
+        let current = self.ctx.current_fn_name.clone();
+        let initial = self.ctx.stack_offset;
+        let temp: i32 = match self.arch {
+            Architecture::ARM64 => 16,
+            _ => 8,
+        };
+        arch::emit_array_new(
+            &mut self.output,
+            self.arch,
+            content.len(),
+            self.ctx.stack_offset,
+            self.os,
+        );
+        arch::emit_push_temp(&mut self.output, self.arch);
+        self.ctx.stack_offset += temp;
+        for (j, owner) in content.iter().enumerate() {
+            if owner == &current {
+                let holder = Self::cap_holder_name(owner);
+                let off = match self.ctx.variables.get(&holder) {
+                    Some(VarType::Array(off)) => *off,
+                    _ => panic!(
+                        "internal error: missing capture holder '{}' (alya-lang/alya#100)",
+                        holder
+                    ),
+                };
+                arch::emit_load_var(&mut self.output, self.arch, off, self.ctx.stack_offset);
+            } else {
+                // Env from the reader's own chain (position proves
+                // satisfiable: the target is visible here).
+                let chain_off = match self.ctx.variables.get("chain$clo") {
+                    Some(VarType::Array(off)) => *off,
+                    _ => panic!(
+                        "internal error: missing chain param calling '{}' (alya-lang/alya#100)",
+                        target
+                    ),
+                };
+                let pos = self
+                    .ctx
+                    .capture_plan
+                    .chains
+                    .get(&current)
+                    .and_then(|c| c.iter().position(|o| o == owner))
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "internal error: env '{}' not held calling '{}' (alya-lang/alya#100)",
+                            owner, target
+                        )
+                    });
+                // Array-get sequence inlined (same shape as
+                // `emit_cap_read`, without touching stack_offset twice).
+                arch::emit_load_var(
+                    &mut self.output,
+                    self.arch,
+                    chain_off,
+                    self.ctx.stack_offset,
+                );
+                arch::emit_push_temp(&mut self.output, self.arch);
+                self.ctx.stack_offset += temp;
+                arch::emit_load_num(&mut self.output, self.arch, pos as i64);
+                arch::emit_array_get(&mut self.output, self.arch);
+                self.ctx.stack_offset -= temp;
+            }
+            arch::emit_rc_retain_direct(
+                &mut self.output,
+                self.arch,
+                self.ctx.stack_offset,
+                self.os,
+            );
+            arch::emit_array_set_imm(
+                &mut self.output,
+                self.arch,
+                j,
+                crate::codegen::kinds::KIND_STRUCT,
+            );
+        }
+        arch::emit_pop_temp(&mut self.output, self.arch);
+        self.ctx.stack_offset = initial;
+    }
+
+    /// Chain-marker emission: builds the array, spills it for post-call
+    /// release, leaves rax = chain for the enclosing direct call.
+    pub(crate) fn emit_closure_chain(&mut self, target: &str) {
+        self.emit_closure_chain_array(target);
+        arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+        let off = self.ctx.stack_offset;
+        arch::emit_store_var(&mut self.output, self.arch, off, self.ctx.stack_offset);
+        self.pending_chain_release = Some(off);
+    }
+
+    /// Materialization emission (alya-lang/alya#100): `{code, chain}`
+    /// closure object in rax. The chain transfers (no retain); the
+    /// object takes ownership.
+    pub(crate) fn emit_closure_new(&mut self, target: &str) {
+        let initial = self.ctx.stack_offset;
+        let temp: i32 = match self.arch {
+            Architecture::ARM64 => 16,
+            _ => 8,
+        };
+        self.generate_expression(&Expr::Identifier(target.to_string()));
+        arch::emit_push_temp(&mut self.output, self.arch);
+        self.ctx.stack_offset += temp;
+        self.emit_closure_chain_array(target);
+        arch::emit_push_temp(&mut self.output, self.arch);
+        self.ctx.stack_offset += temp;
+        arch::emit_function_call(
+            &mut self.output,
+            self.arch,
+            "alya_closure_new",
+            2,
+            initial,
+            self.os,
+        );
+        self.ctx.stack_offset = initial;
     }
 
     pub(crate) fn get_scope_heap_offsets(&self, skip_offset: Option<i32>) -> Vec<i32> {

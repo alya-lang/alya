@@ -36,6 +36,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movz w2, #0x0003\n");
     out.push_str("    movk w2, #0x5A11, lsl #16\n");
     out.push_str("    cmp w1, w2\n");
+    out.push_str("    b.eq .L_arm64_gc_ap_valid\n");
+    // alya-lang/alya#100: closures participate in cycle collection.
+    out.push_str("    movz w2, #0x0005\n");
+    out.push_str("    movk w2, #0x5A11, lsl #16\n");
+    out.push_str("    cmp w1, w2\n");
+    out.push_str("    b.eq .L_arm64_gc_ap_valid\n");
     out.push_str("    b.ne .L_arm64_gc_ap_done\n");
 
     out.push_str(".L_arm64_gc_ap_valid:\n");
@@ -103,6 +109,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movz w2, #0x0003\n");
     out.push_str("    movk w2, #0x5A11, lsl #16\n");
     out.push_str("    cmp w20, w2\n");
+    out.push_str("    b.eq .L_arm64_mg_valid\n");
+    // alya-lang/alya#100: closures traverse (chain only).
+    out.push_str("    movz w2, #0x0005\n");
+    out.push_str("    movk w2, #0x5A11, lsl #16\n");
+    out.push_str("    cmp w20, w2\n");
+    out.push_str("    b.eq .L_arm64_mg_valid\n");
     out.push_str("    b.ne .L_arm64_mg_done\n");
 
     out.push_str(".L_arm64_mg_valid:\n");
@@ -113,6 +125,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    stur w1, [x19, #-12]\n"); // Color = GRAY (1)
 
     // Traverse Struct
+    // alya-lang/alya#100: closures traverse their chain only.
+    out.push_str("    movz w2, #0x0005\n");
+    out.push_str("    movk w2, #0x5A11, lsl #16\n");
+    out.push_str("    cmp w20, w2\n");
+    out.push_str("    b.eq .L_arm64_mg_closure\n");
     out.push_str("    movz w2, #0x0003\n");
     out.push_str("    movk w2, #0x5A11, lsl #16\n");
     out.push_str("    cmp w20, w2\n");
@@ -129,6 +146,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     emit_child_mark_gray(out);
     out.push_str("    add x23, x23, #1\n");
     out.push_str("    b .L_arm64_mg_struct_loop\n");
+    out.push_str(".L_arm64_mg_closure:\n");
+    out.push_str("    ldr x25, [x19, #8]\n");
+    emit_child_mark_gray(out);
+    out.push_str("    b .L_arm64_mg_done\n");
 
     // Traverse Array
     out.push_str(".L_arm64_mg_arr:\n");
@@ -220,6 +241,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldur w20, [x19, #-16]\n");
 
     // Struct children scan
+    // alya-lang/alya#100: closures scan their chain only.
+    out.push_str("    movz w2, #0x0005\n");
+    out.push_str("    movk w2, #0x5A11, lsl #16\n");
+    out.push_str("    cmp w20, w2\n");
+    out.push_str("    b.eq .L_arm64_s_closure\n");
     out.push_str("    movz w2, #0x0003\n");
     out.push_str("    movk w2, #0x5A11, lsl #16\n");
     out.push_str("    cmp w20, w2\n");
@@ -236,6 +262,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     emit_child_scan(out);
     out.push_str("    add x23, x23, #1\n");
     out.push_str("    b .L_arm64_s_struct_loop\n");
+    out.push_str(".L_arm64_s_closure:\n");
+    out.push_str("    ldr x25, [x19, #8]\n");
+    emit_child_scan(out);
+    out.push_str("    b .L_arm64_s_done\n");
 
     // Array children scan
     out.push_str(".L_arm64_s_arr:\n");
@@ -312,6 +342,11 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldur w20, [x19, #-16]\n");
 
     // Struct children scan black
+    // alya-lang/alya#100: closures scan their chain only.
+    out.push_str("    movz w2, #0x0005\n");
+    out.push_str("    movk w2, #0x5A11, lsl #16\n");
+    out.push_str("    cmp w20, w2\n");
+    out.push_str("    b.eq .L_arm64_sb_closure\n");
     out.push_str("    movz w2, #0x0003\n");
     out.push_str("    movk w2, #0x5A11, lsl #16\n");
     out.push_str("    cmp w20, w2\n");
@@ -328,6 +363,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     emit_child_scan_black(out);
     out.push_str("    add x23, x23, #1\n");
     out.push_str("    b .L_arm64_sb_struct_loop\n");
+    out.push_str(".L_arm64_sb_closure:\n");
+    out.push_str("    ldr x25, [x19, #8]\n");
+    emit_child_scan_black(out);
+    out.push_str("    b .L_arm64_sb_done\n");
 
     // Array children scan black
     out.push_str(".L_arm64_sb_arr:\n");
@@ -407,6 +446,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ldur w20, [x19, #-16]\n");
 
     // Struct children collection
+    // alya-lang/alya#100: closures collect their chain (no release:
+    // white means unreachable, like other children).
+    out.push_str("    movz w2, #0x0005\n");
+    out.push_str("    movk w2, #0x5A11, lsl #16\n");
+    out.push_str("    cmp w20, w2\n");
+    out.push_str("    b.eq .L_arm64_cw_closure\n");
     out.push_str("    movz w2, #0x0003\n");
     out.push_str("    movk w2, #0x5A11, lsl #16\n");
     out.push_str("    cmp w20, w2\n");
@@ -423,6 +468,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     emit_child_collect_white(out);
     out.push_str("    add x23, x23, #1\n");
     out.push_str("    b .L_arm64_cw_struct_loop\n");
+    out.push_str(".L_arm64_cw_closure:\n");
+    out.push_str("    ldr x25, [x19, #8]\n");
+    emit_child_collect_white(out);
+    out.push_str("    b .L_arm64_cw_free\n");
 
     // Array children collection
     out.push_str(".L_arm64_cw_arr:\n");

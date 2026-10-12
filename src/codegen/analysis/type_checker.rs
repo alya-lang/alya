@@ -1,4 +1,4 @@
-use crate::ast::{BinaryOp, Expr, Program, Stmt, UnaryOp};
+use crate::ast::{Attribute, BinaryOp, Expr, Program, Stmt, UnaryOp};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
@@ -18,6 +18,9 @@ fn is_bare_type_param(s: &str) -> bool {
     // Exclude concrete nominal types (PascalCase with lowercase tail).
     !s.chars().skip(1).any(|c| c.is_ascii_lowercase())
 }
+
+/// Creation-site scope snapshot: scopes plus assigned sets.
+type ScopeSnapshot = (Vec<HashMap<String, Type>>, Vec<HashSet<String>>);
 
 /// Represents types within Alya's static gradual type system.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -603,6 +606,22 @@ pub struct TypeChecker {
     /// out (alya-lang/alya#77).
     imported_symbols: HashSet<String>,
     fn_arities: HashMap<String, (usize, usize, bool)>,
+    /// Loop/catch-bound names per scope level (alya-lang/alya#100):
+    /// a nested body must not capture these (per-iteration/catch
+    /// bindings have no shared cell). Maintained alongside scopes.
+    binders: Vec<HashSet<String>>,
+    /// Top-level functions desugared from a lexical parent
+    /// (`alya::enclosing` attribute): potential closures.
+    closure_fns: HashSet<String>,
+    /// Cloned bodies of adopted lambdas, for on-demand checking of
+    /// lambda-in-lambda nests (inner completes before outer).
+    lambda_bodies: HashMap<String, Stmt>,
+    /// Creation-site scope snapshots per adopted lambda
+    /// (first creation wins): deferred bodies check with exactly the
+    /// scopes visible at their creation point.
+    lambda_snapshots: HashMap<String, ScopeSnapshot>,
+    /// Adopted lambdas already checked (memo for on-demand recursion).
+    checked_lambdas: HashSet<String>,
 }
 
 impl Default for TypeChecker {
@@ -629,6 +648,11 @@ impl TypeChecker {
             extern_fns: HashSet::new(),
             imported_symbols: HashSet::new(),
             fn_arities: HashMap::new(),
+            binders: vec![HashSet::new()],
+            closure_fns: HashSet::new(),
+            lambda_bodies: HashMap::new(),
+            lambda_snapshots: HashMap::new(),
+            checked_lambdas: HashSet::new(),
         };
         tc.register_builtins();
         tc
@@ -1089,11 +1113,534 @@ impl TypeChecker {
     fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
         self.assigned.push(HashSet::new());
+        self.binders.push(HashSet::new());
     }
 
     fn pop_scope(&mut self) {
         self.scopes.pop();
         self.assigned.pop();
+        self.binders.pop();
+    }
+
+    /// Marks a name as loop/catch-bound in the current scope level
+    /// (alya-lang/alya#100): nested bodies must not capture it, since
+    /// per-iteration and catch bindings have no shared cell.
+    fn mark_loop_bound(&mut self, name: &str) {
+        if let Some(set) = self.binders.last_mut() {
+            set.insert(name.to_string());
+        }
+    }
+
+    /// Checks an adopted lambda body with its creation-site snapshot
+    /// (alya-lang/alya#100). On demand: an inner lambda (checked before
+    /// its enclosing lambda, by completion order) first checks its
+    /// enclosing lambda so the creation snapshot exists. Named
+    /// enclosings need no on-demand pass: lexical same-file order
+    /// guarantees they precede all lambdas.
+    fn check_adopted_lambda(
+        &mut self,
+        name: &str,
+        params: &[String],
+        param_types: &[Option<String>],
+        body: &[Stmt],
+        defaults: &[Option<Expr>],
+        enclosing: &Option<String>,
+    ) -> Result<(), String> {
+        if self.checked_lambdas.contains(name) {
+            return Ok(());
+        }
+        if let Some(enc) = enclosing {
+            if self.closure_fns.contains(enc) && !self.checked_lambdas.contains(enc) {
+                if let Some(s) = self.lambda_bodies.get(enc).cloned() {
+                    self.check_stmt(&s)?;
+                }
+            }
+        }
+        match self.lambda_snapshots.get(name).cloned() {
+            Some((sc, asg)) => {
+                // The loop-cut pre-scan ran at creation (live binders).
+                // Keep the live global scope (index 0 may have grown
+                // since creation); the snapshot carries the rest.
+                let depth = self.scopes.len();
+                self.scopes.extend(sc.into_iter().skip(1));
+                self.assigned.extend(asg.into_iter().skip(1));
+                let result =
+                    self.check_lambda_body_inline(name, params, param_types, body, defaults);
+                self.scopes.truncate(depth);
+                self.assigned.truncate(depth);
+                result?;
+            }
+            None => {
+                // Dead lambda (no creation site): check with the live
+                // (= global) scopes, matching today's behavior.
+                self.check_lambda_body_inline(name, params, param_types, body, defaults)?;
+            }
+        }
+        self.checked_lambdas.insert(name.to_string());
+        Ok(())
+    }
+
+    /// Shared adopted-lambda body check (params + body under one scope).
+    /// Defaults evaluate in the enclosing scope: checked here against
+    /// the same (snapshot) scopes the body sees.
+    fn check_lambda_body_inline(
+        &mut self,
+        name: &str,
+        params: &[String],
+        param_types: &[Option<String>],
+        body: &[Stmt],
+        defaults: &[Option<Expr>],
+    ) -> Result<(), String> {
+        let struct_self_type = self.resolve_struct_for_method(name);
+        self.push_scope();
+        for (pname, ptype_opt) in params.iter().zip(param_types.iter()) {
+            let pty = ptype_opt
+                .as_ref()
+                .map(|s| self.resolve_type_str(s))
+                .unwrap_or_else(|| {
+                    if pname == "self" {
+                        if let Some(st) = &struct_self_type {
+                            return st.clone();
+                        }
+                    }
+                    Type::Any
+                });
+            self.define_var(pname, pty);
+        }
+        for s in body {
+            self.check_stmt(s)?;
+        }
+        for d in defaults.iter().flatten() {
+            self.check_expr(d)?;
+        }
+        self.pop_scope();
+        Ok(())
+    }
+
+    /// Reads the `alya::enclosing` attribute (lexical parent recorded
+    /// by the parser for desugared functions, alya-lang/alya#100).
+    fn enclosing_attr(attributes: &[Attribute]) -> Option<String> {
+        attributes
+            .iter()
+            .find(|a| a.name == "alya::enclosing")
+            .and_then(|a| {
+                a.args
+                    .iter()
+                    .find(|(k, _)| k.is_none())
+                    .map(|(_, v)| v.clone())
+            })
+    }
+
+    /// Detects a closure-creation right-hand side: an identifier naming
+    /// an adopted lambda. Such sites snapshot scopes (for the deferred
+    /// body check) and pre-bind the target (for self-recursion).
+    fn closure_creation_target(&self, value: &Expr) -> Option<String> {
+        if let Expr::Identifier(n) = value {
+            if self.closure_fns.contains(n) {
+                return Some(n.clone());
+            }
+        }
+        None
+    }
+
+    /// Pre-scans an adopted lambda body for loop/catch capture at a
+    /// creation site (live binders). Defaults evaluate in the enclosing
+    /// scope, so their references classify too. No-op when missing.
+    fn prescan_lambda_creation(&self, lambda: &str) -> Result<(), String> {
+        if let Some(body_stmt) = self.lambda_bodies.get(lambda).cloned() {
+            if let Stmt::Function {
+                body,
+                params,
+                defaults,
+                ..
+            } = body_stmt.inner_stmt()
+            {
+                let mut free = self.collect_body_refs(body, params);
+                let mut bound = vec![params.iter().cloned().collect::<HashSet<String>>()];
+                for d in defaults.iter().flatten() {
+                    self.collect_expr_refs(d, &mut bound, &mut free);
+                }
+                self.check_no_loop_capture(&free)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Pre-scans adopted references inside nested-default expressions
+    /// (they evaluate in the enclosing scope). Full checking stays as
+    /// lenient as today; only loop/catch capture is rejected.
+    fn prescan_default_creations(&mut self, defaults: &[Option<Expr>]) -> Result<(), String> {
+        for d in defaults.iter().flatten() {
+            self.prescan_expr_creations(d)?;
+        }
+        Ok(())
+    }
+
+    /// Walks an expression for adopted-lambda references, snapshotting
+    /// + pre-scanning each (default-expression positions).
+    fn prescan_expr_creations(&mut self, expr: &Expr) -> Result<(), String> {
+        match expr {
+            Expr::Identifier(n) if self.closure_fns.contains(n) => {
+                self.snapshot_creation(n);
+                self.prescan_lambda_creation(n)?;
+                Ok(())
+            }
+            Expr::Call { args, .. } | Expr::OptionalCall { args, .. } => {
+                for a in args {
+                    self.prescan_expr_creations(a)?;
+                }
+                Ok(())
+            }
+            Expr::Binary { left, right, .. } => {
+                self.prescan_expr_creations(left)?;
+                self.prescan_expr_creations(right)
+            }
+            Expr::Unary { expr: e, .. }
+            | Expr::ForceUnwrap(e)
+            | Expr::Cast { expr: e, .. }
+            | Expr::TypeCheck { expr: e, .. } => self.prescan_expr_creations(e),
+            Expr::InterpolatedString(parts) | Expr::Array(parts) => {
+                for p in parts {
+                    self.prescan_expr_creations(p)?;
+                }
+                Ok(())
+            }
+            Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+                self.prescan_expr_creations(array)?;
+                self.prescan_expr_creations(index)
+            }
+            Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+                self.prescan_expr_creations(object)
+            }
+            Expr::StructInit { fields, .. } => {
+                for (_, v) in fields {
+                    self.prescan_expr_creations(v)?;
+                }
+                Ok(())
+            }
+            Expr::Map(entries) => {
+                for (k, v) in entries {
+                    self.prescan_expr_creations(k)?;
+                    self.prescan_expr_creations(v)?;
+                }
+                Ok(())
+            }
+            Expr::Ternary {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.prescan_expr_creations(condition)?;
+                self.prescan_expr_creations(then_branch)?;
+                self.prescan_expr_creations(else_branch)
+            }
+            Expr::NullCoalesce { value, default } => {
+                self.prescan_expr_creations(value)?;
+                self.prescan_expr_creations(default)
+            }
+            Expr::Number(_)
+            | Expr::Float(_)
+            | Expr::String(_)
+            | Expr::Identifier(_)
+            | Expr::Null => Ok(()),
+        }
+    }
+
+    /// Clones the live scopes for a closure creation (first wins):
+    /// the deferred body check sees exactly the creation-point state.
+    fn snapshot_creation(&mut self, lambda: &str) {
+        self.lambda_snapshots
+            .entry(lambda.to_string())
+            .or_insert_with(|| (self.scopes.clone(), self.assigned.clone()));
+    }
+
+    /// Rejects capture of loop/catch-bound names referenced by a nested
+    /// body (alya-lang/alya#100 v1 cut). `free` comes from
+    /// [`Self::collect_body_refs`]; classification walks the live
+    /// binder stack, so shadowing resolves naturally.
+    fn check_no_loop_capture(&self, free_names: &[String]) -> Result<(), String> {
+        for n in free_names {
+            for set in self.binders.iter().rev() {
+                if set.contains(n) {
+                    return Err(format!(
+                        "TypeError: cannot capture '{}': loop and catch bindings have no shared cell (alya-lang/alya#100)",
+                        n
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Collects free value-names referenced in `body` for the loop-cut
+    /// pre-scan. Sequential and block-aware, mirroring check scope
+    /// discipline: params and lets bind as walked; nested bodies are
+    /// excluded (analyzed at their own definition); nested defaults
+    /// belong to the enclosing scope and are included. Map keys are
+    /// included (`check_expr` visits them).
+    fn collect_body_refs(&self, body: &[Stmt], params: &[String]) -> Vec<String> {
+        let mut bound = vec![params.iter().cloned().collect::<HashSet<String>>()];
+        let mut out = Vec::new();
+        for s in body {
+            self.collect_stmt_refs(s, &mut bound, &mut out);
+        }
+        out
+    }
+
+    fn collect_stmt_refs(
+        &self,
+        stmt: &Stmt,
+        bound: &mut Vec<HashSet<String>>,
+        out: &mut Vec<String>,
+    ) {
+        match stmt.inner_stmt() {
+            Stmt::Say(e) | Stmt::Expr(e) => self.collect_expr_refs(e, bound, out),
+            Stmt::Return(opt) | Stmt::Throw(opt) => {
+                if let Some(e) = opt {
+                    self.collect_expr_refs(e, bound, out);
+                }
+            }
+            Stmt::Break | Stmt::Continue => {}
+            Stmt::Let { name, value, .. } | Stmt::Const { name, value } => {
+                // Mirror the creation pre-bind: a closure right-hand side
+                // sees its own binding (self-recursion).
+                if self.closure_creation_target(value).is_some() {
+                    if let Some(top) = bound.last_mut() {
+                        top.insert(name.clone());
+                    }
+                }
+                self.collect_expr_refs(value, bound, out);
+                if let Some(top) = bound.last_mut() {
+                    top.insert(name.clone());
+                }
+            }
+            Stmt::Assign { name, value } => {
+                // Assignment to an outer binding is a capture-write.
+                if !bound.iter().any(|s| s.contains(name)) && !out.contains(name) {
+                    out.push(name.clone());
+                }
+                self.collect_expr_refs(value, bound, out);
+            }
+            Stmt::IndexAssign {
+                array,
+                index,
+                value,
+            } => {
+                self.collect_expr_refs(array, bound, out);
+                self.collect_expr_refs(index, bound, out);
+                self.collect_expr_refs(value, bound, out);
+            }
+            Stmt::FieldAssign { object, value, .. } => {
+                self.collect_expr_refs(object, bound, out);
+                self.collect_expr_refs(value, bound, out);
+            }
+            Stmt::If {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                self.collect_expr_refs(condition, bound, out);
+                bound.push(HashSet::new());
+                for s in then_block {
+                    self.collect_stmt_refs(s, bound, out);
+                }
+                bound.pop();
+                if let Some(eb) = else_block {
+                    bound.push(HashSet::new());
+                    for s in eb {
+                        self.collect_stmt_refs(s, bound, out);
+                    }
+                    bound.pop();
+                }
+            }
+            Stmt::While { condition, body } => {
+                self.collect_expr_refs(condition, bound, out);
+                bound.push(HashSet::new());
+                for s in body {
+                    self.collect_stmt_refs(s, bound, out);
+                }
+                bound.pop();
+            }
+            Stmt::Repeat { body } => {
+                bound.push(HashSet::new());
+                for s in body {
+                    self.collect_stmt_refs(s, bound, out);
+                }
+                bound.pop();
+            }
+            Stmt::For {
+                var,
+                start,
+                end,
+                body,
+                ..
+            } => {
+                self.collect_expr_refs(start, bound, out);
+                self.collect_expr_refs(end, bound, out);
+                bound.push(HashSet::new());
+                if let Some(top) = bound.last_mut() {
+                    top.insert(var.clone());
+                }
+                for s in body {
+                    self.collect_stmt_refs(s, bound, out);
+                }
+                bound.pop();
+            }
+            Stmt::ForEach {
+                var,
+                value_var,
+                iterable,
+                body,
+            } => {
+                self.collect_expr_refs(iterable, bound, out);
+                bound.push(HashSet::new());
+                if let Some(top) = bound.last_mut() {
+                    top.insert(var.clone());
+                    if let Some(vv) = value_var {
+                        top.insert(vv.clone());
+                    }
+                }
+                for s in body {
+                    self.collect_stmt_refs(s, bound, out);
+                }
+                bound.pop();
+            }
+            Stmt::TryCatch {
+                try_block,
+                catch_var,
+                catch_block,
+                finally_block,
+            } => {
+                bound.push(HashSet::new());
+                for s in try_block {
+                    self.collect_stmt_refs(s, bound, out);
+                }
+                bound.pop();
+                bound.push(HashSet::new());
+                if let Some(cv) = catch_var {
+                    if let Some(top) = bound.last_mut() {
+                        top.insert(cv.clone());
+                    }
+                }
+                for s in catch_block {
+                    self.collect_stmt_refs(s, bound, out);
+                }
+                bound.pop();
+                if let Some(fb) = finally_block {
+                    bound.push(HashSet::new());
+                    for s in fb {
+                        self.collect_stmt_refs(s, bound, out);
+                    }
+                    bound.pop();
+                }
+            }
+            Stmt::Defer(inner) | Stmt::Pub(inner) => {
+                // Defer contents execute (and pub wraps definitions):
+                // recurse so capture references inside classify. Full
+                // checking stays as lenient as today; only loop/catch
+                // capture is rejected.
+                self.collect_stmt_refs(inner, bound, out);
+            }
+            Stmt::Function {
+                name,
+                defaults,
+                body,
+                ..
+            } => {
+                // Own body analyzed at its definition; defaults belong
+                // to the enclosing scope. Multi-wrapped (`defer pub`)
+                // definitions keep today's behavior elsewhere, so only
+                // plain functions bind here.
+                for d in defaults.iter().flatten() {
+                    self.collect_expr_refs(d, bound, out);
+                }
+                let _ = body;
+                if let Some(top) = bound.last_mut() {
+                    top.insert(name.clone());
+                }
+            }
+            // No-ops in `check_stmt` (struct/enum/interface/import/extern):
+            // no value references to classify.
+            _ => {}
+        }
+    }
+
+    fn collect_expr_refs(
+        &self,
+        expr: &Expr,
+        bound: &mut Vec<HashSet<String>>,
+        out: &mut Vec<String>,
+    ) {
+        match expr {
+            Expr::Identifier(name) => {
+                if !bound.iter().any(|s| s.contains(name)) && !out.contains(name) {
+                    out.push(name.clone());
+                }
+            }
+            Expr::Call { name, args } => {
+                if !bound.iter().any(|s| s.contains(name)) && !out.contains(name) {
+                    out.push(name.clone());
+                }
+                for a in args {
+                    self.collect_expr_refs(a, bound, out);
+                }
+            }
+            Expr::OptionalCall { callee, args } => {
+                if !bound.iter().any(|s| s.contains(callee)) && !out.contains(callee) {
+                    out.push(callee.clone());
+                }
+                for a in args {
+                    self.collect_expr_refs(a, bound, out);
+                }
+            }
+            Expr::Binary { left, right, .. } => {
+                self.collect_expr_refs(left, bound, out);
+                self.collect_expr_refs(right, bound, out);
+            }
+            Expr::Unary { expr: e, .. }
+            | Expr::ForceUnwrap(e)
+            | Expr::Cast { expr: e, .. }
+            | Expr::TypeCheck { expr: e, .. } => {
+                self.collect_expr_refs(e, bound, out);
+            }
+            Expr::InterpolatedString(parts) | Expr::Array(parts) => {
+                for p in parts {
+                    self.collect_expr_refs(p, bound, out);
+                }
+            }
+            Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+                self.collect_expr_refs(array, bound, out);
+                self.collect_expr_refs(index, bound, out);
+            }
+            Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+                self.collect_expr_refs(object, bound, out);
+            }
+            Expr::StructInit { fields, .. } => {
+                for (_, v) in fields {
+                    self.collect_expr_refs(v, bound, out);
+                }
+            }
+            Expr::Map(entries) => {
+                for (k, v) in entries {
+                    self.collect_expr_refs(k, bound, out);
+                    self.collect_expr_refs(v, bound, out);
+                }
+            }
+            Expr::Ternary {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.collect_expr_refs(condition, bound, out);
+                self.collect_expr_refs(then_branch, bound, out);
+                self.collect_expr_refs(else_branch, bound, out);
+            }
+            Expr::NullCoalesce { value, default } => {
+                self.collect_expr_refs(value, bound, out);
+                self.collect_expr_refs(default, bound, out);
+            }
+            Expr::Number(_) | Expr::Float(_) | Expr::String(_) | Expr::Null => {}
+        }
     }
 
     fn define_var(&mut self, name: &str, ty: Type) {
@@ -1668,6 +2215,21 @@ impl TypeChecker {
     /// Recursively checks an expression and validates all sub-expressions.
     pub fn check_expr(&mut self, expr: &Expr) -> Result<(), String> {
         match expr {
+            Expr::Identifier(name) if self.closure_fns.contains(name) => {
+                // alya-lang/alya#100: creation hook (mirrors the two
+                // gates below so behavior is identical).
+                self.snapshot_creation(name);
+                self.prescan_lambda_creation(name)?;
+                if self.lookup_var(name).is_some() && !self.is_assigned(name) {
+                    return Err(format!(
+                        "TypeError: Variable '{}' is used before assignment",
+                        name
+                    ));
+                }
+                if !self.is_declared_name(name) {
+                    return Err(format!("TypeError: Unknown identifier '{}'", name));
+                }
+            }
             Expr::Identifier(name)
                 if self.lookup_var(name).is_some() && !self.is_assigned(name) =>
             {
@@ -2062,6 +2624,13 @@ impl TypeChecker {
                         return Ok(());
                     }
                 }
+                // alya-lang/alya#100: closure creation pre-binds for
+                // self-recursion. Snapshotting + pre-scan run in the
+                // `Identifier` hook while checking `value` below, so the
+                // snapshot includes this binding.
+                if self.closure_creation_target(value).is_some() {
+                    self.define_var(name, Type::Any);
+                }
                 self.check_expr(value)?;
                 let val_type = self.infer_expr(value)?;
 
@@ -2094,12 +2663,23 @@ impl TypeChecker {
             }
 
             Stmt::Const { name, value } => {
+                // alya-lang/alya#100: creation hook, mirroring `let`.
+                if self.closure_creation_target(value).is_some() {
+                    self.define_var(name, Type::Any);
+                }
                 self.check_expr(value)?;
                 let val_type = self.infer_expr(value)?;
                 self.define_var(name, val_type);
             }
 
             Stmt::Assign { name, value } => {
+                // alya-lang/alya#100: creation via assignment pre-binds
+                // only when the name is new (narrow: keep general
+                // assign-to-new semantics untouched otherwise).
+                if self.closure_creation_target(value).is_some() && self.lookup_var(name).is_none()
+                {
+                    self.define_var(name, Type::Any);
+                }
                 self.check_expr(value)?;
                 let val_type = self.infer_expr(value)?;
 
@@ -2170,6 +2750,8 @@ impl TypeChecker {
                 param_types,
                 return_type,
                 body,
+                attributes,
+                defaults,
                 ..
             } => {
                 let declared_ret = return_type
@@ -2180,15 +2762,42 @@ impl TypeChecker {
                 let prev_ret = self.current_fn_return_type.take();
                 self.current_fn_return_type = Some(declared_ret.clone());
                 let prev_name = self.current_fn_name.take();
-                // Nested definitions see only globals, matching
-                // parse-desugared lambdas (alya-lang/alya#99): outer
-                // locals stay invisible so capture fails loudly at
-                // check time instead of reading dead stack slots
-                // (real capture is tracked in alya-lang/alya#100).
-                // Save the enclosing scopes across the body.
-                let nested = prev_name.is_some();
-                let saved_scopes = nested.then(|| self.scopes.split_off(1));
-                let saved_assigned = nested.then(|| self.assigned.split_off(1));
+                // Closures see enclosing locals (alya-lang/alya#100):
+                // scopes stay on the stack so captured names resolve to
+                // their lexical bindings with real types. Capture of
+                // loop/catch bindings is rejected up front (no shared
+                // cell); anything else falls through to codegen cells.
+                let enclosing = Self::enclosing_attr(attributes);
+                if prev_name.is_none() && enclosing.is_some() {
+                    // Adopted lambda (parse-desugared): check on demand
+                    // with its creation-site snapshot (see creation
+                    // sites). The live scopes below are just the
+                    // globals; the snapshot carries the lexical parent.
+                    let lambda_name = name.clone();
+                    self.current_fn_name = Some(lambda_name.clone());
+                    let result = self.check_adopted_lambda(
+                        &lambda_name,
+                        params,
+                        param_types,
+                        body,
+                        defaults,
+                        &enclosing,
+                    );
+                    self.current_fn_return_type = prev_ret;
+                    self.current_fn_name = prev_name;
+                    result?;
+                    return Ok(());
+                }
+                if prev_name.is_some() {
+                    // Nested definition: pre-scan for loop/catch capture
+                    // against the live binder stack, then check inline.
+                    // Defaults evaluate in the enclosing scope: their
+                    // adopted references pre-scan too (full checking
+                    // stays as lenient as today).
+                    let free = self.collect_body_refs(body, params);
+                    self.check_no_loop_capture(&free)?;
+                    self.prescan_default_creations(defaults)?;
+                }
                 self.current_fn_name = Some(name.clone());
                 self.push_scope();
 
@@ -2214,12 +2823,6 @@ impl TypeChecker {
                 }
 
                 self.pop_scope();
-                if let Some(mut s) = saved_scopes {
-                    self.scopes.append(&mut s);
-                }
-                if let Some(mut a) = saved_assigned {
-                    self.assigned.append(&mut a);
-                }
                 self.current_fn_return_type = prev_ret;
                 self.current_fn_name = prev_name;
             }
@@ -2312,6 +2915,7 @@ impl TypeChecker {
                 self.check_expr(end)?;
                 self.push_scope();
                 self.define_var(var, Type::Int);
+                self.mark_loop_bound(var);
                 for s in body {
                     self.check_stmt(s)?;
                 }
@@ -2333,16 +2937,22 @@ impl TypeChecker {
                         if let Some(val_name) = value_var {
                             self.define_var(var, Type::Int);
                             self.define_var(val_name, *elem);
+                            self.mark_loop_bound(var);
+                            self.mark_loop_bound(val_name);
                         } else {
                             self.define_var(var, *elem);
+                            self.mark_loop_bound(var);
                         }
                     }
                     Type::Map(k, v) => {
                         if let Some(val_name) = value_var {
                             self.define_var(var, *k);
                             self.define_var(val_name, *v);
+                            self.mark_loop_bound(var);
+                            self.mark_loop_bound(val_name);
                         } else {
                             self.define_var(var, *k);
+                            self.mark_loop_bound(var);
                         }
                     }
                     // B2: string iteration yields rune codepoints (spec
@@ -2351,14 +2961,19 @@ impl TypeChecker {
                         if let Some(val_name) = value_var {
                             self.define_var(var, Type::Int);
                             self.define_var(val_name, Type::Rune);
+                            self.mark_loop_bound(var);
+                            self.mark_loop_bound(val_name);
                         } else {
                             self.define_var(var, Type::Rune);
+                            self.mark_loop_bound(var);
                         }
                     }
                     _ => {
                         self.define_var(var, Type::Any);
+                        self.mark_loop_bound(var);
                         if let Some(val_name) = value_var {
                             self.define_var(val_name, Type::Any);
+                            self.mark_loop_bound(val_name);
                         }
                     }
                 }
@@ -2384,6 +2999,7 @@ impl TypeChecker {
                 self.push_scope();
                 if let Some(cvar) = catch_var {
                     self.define_var(cvar, Type::String);
+                    self.mark_loop_bound(cvar);
                 }
                 for s in catch_block {
                     self.check_stmt(s)?;
@@ -2654,6 +3270,16 @@ impl TypeChecker {
                     }
                 }
                 let struct_self_type = self.resolve_struct_for_method(name);
+
+                // alya-lang/alya#100: index adopted lambdas (functions
+                // desugared from a lexical parent) for creation-site
+                // snapshots + on-demand checking.
+                if attributes.iter().any(|a| a.name == "alya::enclosing") {
+                    self.closure_fns.insert(name.clone());
+                    self.lambda_bodies
+                        .entry(name.clone())
+                        .or_insert_with(|| stmt.clone());
+                }
 
                 let p_types = params
                     .iter()

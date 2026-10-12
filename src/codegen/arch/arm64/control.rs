@@ -171,7 +171,23 @@ pub fn emit_guarded_indirect_function_call(
     out.push_str("    cmp x16, x10\n");
     out.push_str("    b.lo alya_error_not_callable\n");
     out.push_str(&format!("{}:\n", call_label));
+    // alya-lang/alya#100: closure dispatch (mirror of x64): a slot
+    // holding a closure object calls its code with the stored chain
+    // appended (pushed first so it lands at index N).
+    out.push_str("    ldur w9, [x16, #-16]\n");
+    out.push_str("    movz w10, #0x0005\n");
+    out.push_str("    movk w10, #0x5A11, lsl #16\n");
+    out.push_str("    cmp w9, w10\n");
+    out.push_str("    b.ne 1f\n");
+    out.push_str("    ldr x9, [x16]\n");
+    out.push_str("    ldr x10, [x16, #8]\n");
+    out.push_str("    str x10, [sp, #-16]!\n");
+    out.push_str("    mov x16, x9\n");
+    emit_call_target(out, "x16", args_count + 1);
+    out.push_str("    b 2f\n");
+    out.push_str("1:\n");
     emit_call_target(out, "x16", args_count);
+    out.push_str("2:\n");
 }
 
 pub fn emit_c_function_call(

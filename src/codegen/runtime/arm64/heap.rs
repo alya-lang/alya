@@ -394,6 +394,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movk x2, #0x5A11, lsl #16\n");
     out.push_str("    cmp x1, x2\n");
     out.push_str("    b.eq .L_arm64_rc_retain_ok\n");
+    // alya-lang/alya#100: closure values retain (fat pointers stay
+    // excluded below, as before).
+    out.push_str("    movz x2, #0x0005\n");
+    out.push_str("    movk x2, #0x5A11, lsl #16\n");
+    out.push_str("    cmp x1, x2\n");
+    out.push_str("    b.eq .L_arm64_rc_retain_ok\n");
     out.push_str("    movz x2, #0x0004\n");
     out.push_str("    movk x2, #0x5A11, lsl #16\n");
     out.push_str("    cmp x1, x2\n");
@@ -527,6 +533,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movk x2, #0x5A11, lsl #16\n");
     out.push_str("    cmp x20, x2\n");
     out.push_str("    b.eq .L_arm64_rc_rel_ok\n");
+    // alya-lang/alya#100: closures release (fat pointers stay excluded
+    // below, as before).
+    out.push_str("    movz x2, #0x0005\n");
+    out.push_str("    movk x2, #0x5A11, lsl #16\n");
+    out.push_str("    cmp x20, x2\n");
+    out.push_str("    b.eq .L_arm64_rc_rel_ok\n");
     out.push_str("    movz x2, #0x0004\n");
     out.push_str("    movk x2, #0x5A11, lsl #16\n");
     out.push_str("    cmp x20, x2\n");
@@ -548,6 +560,15 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movk x2, #0x5A11, lsl #16\n");
     out.push_str("    cmp x20, x2\n");
     out.push_str("    b.eq .L_arm64_rc_free_inner\n");
+    // alya-lang/alya#100: closures release their chain, then free.
+    out.push_str("    movz x2, #0x0005\n");
+    out.push_str("    movk x2, #0x5A11, lsl #16\n");
+    out.push_str("    cmp x20, x2\n");
+    out.push_str("    b.eq .L_arm64_rc_free_closure\n");
+    out.push_str("    b .L_arm64_rc_free_outer\n");
+    out.push_str(".L_arm64_rc_free_closure:\n");
+    out.push_str("    ldr x0, [x19, #8]\n");
+    out.push_str("    bl fn_rc_release\n");
     out.push_str("    b .L_arm64_rc_free_outer\n");
     out.push_str(".L_arm64_rc_free_inner:\n");
     out.push_str("    movz x2, #0x0001\n");

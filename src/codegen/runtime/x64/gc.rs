@@ -31,6 +31,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    cmp $0x5A110002, %rax\n");
     out.push_str("    je .L_x64_gc_ap_valid\n");
     out.push_str("    cmp $0x5A110003, %rax\n");
+    out.push_str("    je .L_x64_gc_ap_valid\n");
+    // alya-lang/alya#100: closures participate in cycle collection.
+    out.push_str("    cmp $0x5A110005, %rax\n");
+    out.push_str("    je .L_x64_gc_ap_valid\n");
     out.push_str("    jne .L_x64_gc_ap_done\n");
     out.push_str(".L_x64_gc_ap_valid:\n");
     out.push_str("    cmpq $0, alya_gc_in_progress(%rip)\n");
@@ -86,6 +90,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    cmp $0x5A110002, %rax\n");
     out.push_str("    je .L_x64_mg_valid\n");
     out.push_str("    cmp $0x5A110003, %rax\n");
+    out.push_str("    je .L_x64_mg_valid\n");
+    // alya-lang/alya#100: closures traverse (chain only).
+    out.push_str("    cmp $0x5A110005, %rax\n");
+    out.push_str("    je .L_x64_mg_valid\n");
     out.push_str("    jne .L_x64_mg_done\n");
     out.push_str(".L_x64_mg_valid:\n");
     out.push_str("    cmpl $1, -12(%rbx)\n");
@@ -93,6 +101,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movl $1, -12(%rbx)\n"); // Color = GREY
 
     // Traverse children: Struct
+    // alya-lang/alya#100: closures traverse their chain only (code is
+    // text, never heap).
+    out.push_str("    cmp $0x5A110005, %rax\n");
+    out.push_str("    je .L_x64_mg_closure\n");
     out.push_str("    cmp $0x5A110003, %rax\n");
     out.push_str("    jne .L_x64_mg_arr\n");
     out.push_str("    movq (%rbx), %r12\n");
@@ -107,10 +119,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     emit_child_mark_gray(out, is_win);
     out.push_str("    inc %r14\n");
     out.push_str("    jmp .L_x64_mg_struct_loop\n");
+    out.push_str(".L_x64_mg_closure:\n");
+    out.push_str("    movq 8(%rbx), %r15\n");
+    emit_child_mark_gray(out, is_win);
+    out.push_str("    jmp .L_x64_mg_done\n");
 
     // Traverse children: Array
-    out.push_str(".L_x64_mg_arr:\n");
-    out.push_str("    cmp $0x5A110001, %rax\n");
+    out.push_str(".L_x64_mg_arr:\n");    out.push_str("    cmp $0x5A110001, %rax\n");
     out.push_str("    jne .L_x64_mg_map\n");
     out.push_str("    movq (%rbx), %r13\n");
     out.push_str("    movq 16(%rbx), %r12\n");
@@ -210,6 +225,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movl -16(%rbx), %eax\n");
 
     // Struct children scan
+    // alya-lang/alya#100: closures scan their chain only.
+    out.push_str("    cmp $0x5A110005, %rax\n");
+    out.push_str("    je .L_x64_s_closure\n");
     out.push_str("    cmp $0x5A110003, %rax\n");
     out.push_str("    jne .L_x64_s_arr\n");
     out.push_str("    movq (%rbx), %r12\n");
@@ -224,6 +242,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     emit_child_scan(out, is_win);
     out.push_str("    inc %r14\n");
     out.push_str("    jmp .L_x64_s_struct_loop\n");
+    out.push_str(".L_x64_s_closure:\n");
+    out.push_str("    movq 8(%rbx), %r15\n");
+    emit_child_scan(out, is_win);
+    out.push_str("    jmp .L_x64_s_done\n");
 
     // Array children scan
     out.push_str(".L_x64_s_arr:\n");
@@ -312,6 +334,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movl -16(%rbx), %eax\n");
 
     // Struct children scan black
+    // alya-lang/alya#100: closures scan their chain only.
+    out.push_str("    cmp $0x5A110005, %rax\n");
+    out.push_str("    je .L_x64_sb_closure\n");
     out.push_str("    cmp $0x5A110003, %rax\n");
     out.push_str("    jne .L_x64_sb_arr\n");
     out.push_str("    movq (%rbx), %r12\n");
@@ -326,6 +351,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     emit_child_scan_black(out, is_win);
     out.push_str("    inc %r14\n");
     out.push_str("    jmp .L_x64_sb_struct_loop\n");
+    out.push_str(".L_x64_sb_closure:\n");
+    out.push_str("    movq 8(%rbx), %r15\n");
+    emit_child_scan_black(out, is_win);
+    out.push_str("    jmp .L_x64_sb_done\n");
 
     // Array children scan black
     out.push_str(".L_x64_sb_arr:\n");
@@ -416,6 +445,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    movl -16(%rbx), %eax\n");
 
     // Struct children collection
+    // alya-lang/alya#100: closures collect their chain (no release:
+    // white means unreachable, like other children).
+    out.push_str("    cmp $0x5A110005, %rax\n");
+    out.push_str("    je .L_x64_cw_closure\n");
     out.push_str("    cmp $0x5A110003, %rax\n");
     out.push_str("    jne .L_x64_cw_arr\n");
     out.push_str("    movq (%rbx), %r12\n");
@@ -430,6 +463,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     emit_child_collect_white(out, is_win);
     out.push_str("    inc %r14\n");
     out.push_str("    jmp .L_x64_cw_struct_loop\n");
+    out.push_str(".L_x64_cw_closure:\n");
+    out.push_str("    movq 8(%rbx), %r15\n");
+    emit_child_collect_white(out, is_win);
+    out.push_str("    jmp .L_x64_cw_free\n");
 
     // Array children collection
     out.push_str(".L_x64_cw_arr:\n");

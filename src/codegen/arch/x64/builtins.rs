@@ -109,6 +109,21 @@ pub fn emit_array_set(out: &mut String, kind: i64) {
     out.push_str("    movq %r8, (%rdx, %rax, 8)\n");
 }
 
+/// Captured-cell store (alya-lang/alya#100): value in rax, kind dword
+/// in edx; holder array at `holder_off`. Writes the value word and the
+/// kind byte at the plan-static index `vi` (in range by construction:
+/// the holder was allocated for exactly these cells, so no bounds
+/// check). Clobbers r8-r11 (scratch use matches `emit_array_set`).
+pub fn emit_cap_store(out: &mut String, holder_off: i32, vi: usize) {
+    out.push_str("    mov %rax, %r8\n");
+    out.push_str("    mov %edx, %r9d\n");
+    out.push_str(&format!("    mov -{}(%rbp), %r10\n", holder_off));
+    out.push_str("    mov 16(%r10), %r11\n");
+    out.push_str(&format!("    movq %r8, {}(%r11)\n", vi * 8));
+    out.push_str("    mov 24(%r10), %r11\n");
+    out.push_str(&format!("    movb %r9b, {}(%r11)\n", vi));
+}
+
 pub fn emit_array_push(out: &mut String, stack_offset: i32, os: OperatingSystem, kind: i64) {
     if matches!(os, OperatingSystem::Windows) {
         let padding = if stack_offset % 16 == 0 { 32 } else { 40 };

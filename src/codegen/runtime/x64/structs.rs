@@ -109,6 +109,62 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
+    // fn_alya_closure_new(code, chain): closure value `{code, chain}`
+    // (alya-lang/alya#100). Same header/shape discipline as fat
+    // pointers, but magic 0x5A110005 so dispatch, release and GC
+    // recognize closures. The chain transfers (no retain): the object
+    // takes the sole reference. Named `fn_*` for the internal call
+    // protocol (`emit_function_call` mangles).
+    out.push_str(".global fn_alya_closure_new\n");
+    out.push_str("fn_alya_closure_new:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    out.push_str("    push %r12\n");
+    out.push_str("    push %r13\n");
+    if is_win {
+        out.push_str("    mov %rcx, %r12\n");
+        out.push_str("    mov %rdx, %r13\n");
+        out.push_str("    mov $4, %rcx\n");
+        out.push_str("    mov $8, %rdx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call calloc\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %rdi, %r12\n");
+        out.push_str("    mov %rsi, %r13\n");
+        out.push_str("    mov $4, %rdi\n");
+        out.push_str("    mov $8, %rsi\n");
+        out.push_str(&format!("    call {}calloc\n", p));
+    }
+    out.push_str("    addq $32, alya_allocated_bytes(%rip)\n");
+    out.push_str("    movq $0x5A110005, (%rax)\n");
+    out.push_str("    movq $1, 8(%rax)\n");
+    out.push_str("    lea 16(%rax), %rax\n");
+    out.push_str("    mov %r12, (%rax)\n");
+    out.push_str("    mov %r13, 8(%rax)\n");
+    out.push_str("    push %rax\n");
+    if is_win {
+        out.push_str("    mov %rax, %rcx\n");
+        out.push_str("    mov $32, %rdx\n");
+        out.push_str("    mov $3, %r8\n");
+        out.push_str("    xor %r9, %r9\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call alya_mem_track_alloc\n");
+        out.push_str("    add $32, %rsp\n");
+    } else {
+        out.push_str("    mov %rax, %rdi\n");
+        out.push_str("    mov $32, %rsi\n");
+        out.push_str("    mov $3, %rdx\n");
+        out.push_str("    xor %rcx, %rcx\n");
+        out.push_str("    call alya_mem_track_alloc\n");
+    }
+    out.push_str("    pop %rax\n");
+    out.push_str("    pop %r13\n");
+    out.push_str("    pop %r12\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
     // alya_print_struct
     out.push_str("alya_print_struct:\n");
     out.push_str("    push %rbp\n");

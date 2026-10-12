@@ -272,7 +272,6 @@ impl Parser {
 
     pub fn parse(&mut self) -> Result<Program, String> {
         let mut program = self.parse_raw()?;
-        self.resolve_lambda_enclosing(&mut program);
         expand_default_args(&mut program);
         enums::resolve_enums(&mut program);
         constants::resolve_and_validate_constants(&mut program)?;
@@ -364,7 +363,14 @@ impl Parser {
 
         statements.append(&mut self.lambda_functions);
 
-        Ok(Program { statements })
+        let mut program = Program { statements };
+        // Lexical enclosing scopes for desugared functions
+        // (alya-lang/alya#100). Runs here (not in `parse`) so every
+        // `parse_raw` consumer (driver, imports, sexpr roundtrip) sees
+        // them; the `alya ast` dump shows raw syntax plus these
+        // compiler-recorded attributes.
+        self.resolve_lambda_enclosing(&mut program);
+        Ok(program)
     }
 
     pub(super) fn current_token(&self) -> &Token {
@@ -1453,10 +1459,24 @@ fn prefix_stmt(stmt: &mut Stmt, alias: &str, local_fns: &std::collections::HashS
             params,
             defaults,
             body,
+            attributes,
             ..
         } => {
             if local_fns.contains(name) {
                 *name = format!("{}::{}", alias, name);
+            }
+            // alya-lang/alya#100: keep `alya::enclosing` (lexical parent
+            // of desugared functions) in step with module renames,
+            // using the module-level set (attributes belong to the
+            // definition itself, before param/local stripping below).
+            for attr in attributes.iter_mut() {
+                if attr.name == "alya::enclosing" {
+                    for (_, v) in attr.args.iter_mut() {
+                        if local_fns.contains(v) {
+                            *v = format!("{}::{}", alias, v);
+                        }
+                    }
+                }
             }
             for def in defaults.iter_mut().flatten() {
                 prefix_expr(def, alias, local_fns);

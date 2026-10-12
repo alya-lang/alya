@@ -98,6 +98,20 @@ pub fn emit_array_set(out: &mut String, kind: i64) {
     out.push_str("    str x2, [x0, x1, lsl #3]\n");
 }
 
+/// Captured-cell store (alya-lang/alya#100): value in x0, kind in w1;
+/// holder array at `holder_off`. Writes the value word and the kind
+/// byte at the plan-static index `vi` (in range by construction).
+/// Clobbers x9-x12 (scratch).
+pub fn emit_cap_store(out: &mut String, holder_off: i32, vi: usize) {
+    out.push_str("    mov x9, x0\n");
+    out.push_str("    mov w10, w1\n");
+    crate::codegen::arch::arm64::loads::emit_arm64_load_x29_offset(out, "x11", holder_off, "x12");
+    out.push_str("    ldr x12, [x11, #16]\n");
+    out.push_str(&format!("    str x9, [x12, #{}]\n", vi * 8));
+    out.push_str("    ldr x12, [x11, #24]\n");
+    out.push_str(&format!("    strb w10, [x12, #{}]\n", vi));
+}
+
 pub fn emit_array_push(out: &mut String, kind: i64) {
     out.push_str(&format!("    mov x2, #{}\n", kind));
     out.push_str("    mov x1, x0\n");

@@ -1,0 +1,14 @@
+# EXPECT-FAIL: check: cannot capture 'x'
+# Chapter 07: loop variables have per-iteration bindings with no shared
+# cell, so nested bodies must not capture them (alya-lang/alya#100).
+function outer_loop_cap()
+    let fs = []
+    for x in [1, 2, 3]
+        fs.push(function()
+            return x
+        end)
+    end
+    return fs
+end
+
+say outer_loop_cap()

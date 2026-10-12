@@ -7,7 +7,9 @@ use crate::codegen::analysis::{
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
-use crate::codegen::kinds::{KIND_ARRAY, KIND_FLOAT, KIND_INT, KIND_MAP, KIND_STRING};
+use crate::codegen::kinds::{
+    KIND_ARRAY, KIND_FLOAT, KIND_INT, KIND_MAP, KIND_NULL, KIND_STRING, KIND_STRUCT,
+};
 use crate::codegen::target::Architecture;
 
 /// Display a string array as `[a, b]` via existing `join` + concat.
@@ -139,7 +141,161 @@ impl CodeGen {
         self.output.push_str(&format!("{}:\n", l_end));
     }
 
+    /// Prints a captured cell (alya-lang/alya#100): reads value+kind,
+    /// then dispatches on the exact kind. UNKNOWN falls back to the
+    /// legacy pointer-range classifier (int vs string), mirroring the
+    /// dynamic Number path. Value stays live in rax across the tag
+    /// compares (only the fallback classifier clobbers it, past a
+    /// spill/restore).
+    pub(crate) fn generate_say_cap(&mut self, loc: super::CapLoc) {
+        self.emit_cap_read(loc);
+        let l_flt = self.ctx.next_label();
+        let l_str = self.ctx.next_label();
+        let l_arr = self.ctx.next_label();
+        let l_map = self.ctx.next_label();
+        let l_struct = self.ctx.next_label();
+        let l_null = self.ctx.next_label();
+        let l_int = self.ctx.next_label();
+        let l_dyn = self.ctx.next_label();
+        let l_dyn_str = self.ctx.next_label();
+        let l_end = self.ctx.next_label();
+        // Tag compares read edx/w1 directly (the value register must
+        // survive for the print sequences below).
+        self.say_cap_tag(KIND_FLOAT, &l_flt);
+        self.say_cap_tag(KIND_STRING, &l_str);
+        self.say_cap_tag(KIND_ARRAY, &l_arr);
+        self.say_cap_tag(KIND_MAP, &l_map);
+        self.say_cap_tag(KIND_STRUCT, &l_struct);
+        self.say_cap_tag(KIND_NULL, &l_null);
+        self.say_cap_tag(KIND_INT, &l_int);
+        arch::emit_jump(&mut self.output, self.arch, &l_dyn);
+        // float
+        self.output.push_str(&format!("{}:\n", l_flt));
+        let fmt_flt = self.say_cap_fmt("%s\\n");
+        arch::emit_say_float(
+            &mut self.output,
+            self.arch,
+            &fmt_flt,
+            self.ctx.stack_offset,
+            self.os,
+        );
+        arch::emit_jump(&mut self.output, self.arch, &l_end);
+        // string
+        self.output.push_str(&format!("{}:\n", l_str));
+        let fmt_str = self.say_cap_fmt("%s\\n");
+        arch::emit_say_acc(
+            &mut self.output,
+            self.arch,
+            &fmt_str,
+            self.ctx.stack_offset,
+            self.os,
+        );
+        arch::emit_jump(&mut self.output, self.arch, &l_end);
+        // array
+        self.output.push_str(&format!("{}:\n", l_arr));
+        arch::emit_print_array(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+        arch::emit_jump(&mut self.output, self.arch, &l_end);
+        // map
+        self.output.push_str(&format!("{}:\n", l_map));
+        self.emit_guarded_map_print();
+        arch::emit_jump(&mut self.output, self.arch, &l_end);
+        // struct (closures print struct-shaped; `say` on functions was
+        // never specified beyond an address word).
+        self.output.push_str(&format!("{}:\n", l_struct));
+        arch::emit_print_struct(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+        arch::emit_jump(&mut self.output, self.arch, &l_end);
+        // null
+        self.output.push_str(&format!("{}:\n", l_null));
+        let fmt_null = self.say_cap_fmt("null\\n");
+        arch::emit_say_str_lit(
+            &mut self.output,
+            self.arch,
+            &fmt_null,
+            self.ctx.stack_offset,
+            self.os,
+        );
+        arch::emit_jump(&mut self.output, self.arch, &l_end);
+        // int
+        self.output.push_str(&format!("{}:\n", l_int));
+        let fmt_int = self.say_cap_fmt("%lld\\n");
+        arch::emit_say_acc(
+            &mut self.output,
+            self.arch,
+            &fmt_int,
+            self.ctx.stack_offset,
+            self.os,
+        );
+        arch::emit_jump(&mut self.output, self.arch, &l_end);
+        // unknown: legacy classifier (value spilled/restored).
+        self.output.push_str(&format!("{}:\n", l_dyn));
+        arch::emit_push_temp(&mut self.output, self.arch);
+        self.emit_runtime_classify(self.os);
+        arch::emit_cmp_imm(&mut self.output, self.arch, KIND_STRING);
+        arch::emit_cond_jump(
+            &mut self.output,
+            self.arch,
+            BinaryOp::Equal,
+            false,
+            &l_dyn_str,
+            false,
+        );
+        arch::emit_pop_temp(&mut self.output, self.arch);
+        let fmt_dyn_int = self.say_cap_fmt("%lld\\n");
+        arch::emit_say_acc(
+            &mut self.output,
+            self.arch,
+            &fmt_dyn_int,
+            self.ctx.stack_offset,
+            self.os,
+        );
+        arch::emit_jump(&mut self.output, self.arch, &l_end);
+        self.output.push_str(&format!("{}:\n", l_dyn_str));
+        arch::emit_pop_temp(&mut self.output, self.arch);
+        let fmt_dyn_str = self.say_cap_fmt("%s\\n");
+        arch::emit_say_acc(
+            &mut self.output,
+            self.arch,
+            &fmt_dyn_str,
+            self.ctx.stack_offset,
+            self.os,
+        );
+        self.output.push_str(&format!("{}:\n", l_end));
+        self.output.push('\n');
+    }
+
+    /// Formats a print label (`%s`, `%lld`, `null`) into rodata.
+    fn say_cap_fmt(&mut self, fmt: &str) -> String {
+        let label = self.ctx.next_string_label();
+        self.emit_rodata_section();
+        self.output.push_str(&format!("{}:\n", label));
+        self.emit_string_directive(fmt);
+        self.output.push_str(".text\n");
+        label
+    }
+
+    /// Emits one tag compare on edx/w1 (value register survives).
+    fn say_cap_tag(&mut self, kind: i64, label: &str) {
+        match self.arch {
+            Architecture::X64 => {
+                self.output.push_str(&format!("    cmpl ${}, %edx\n", kind));
+                self.output.push_str(&format!("    je {}\n", label));
+            }
+            Architecture::ARM64 => {
+                self.output.push_str(&format!("    cmp w1, #{}\n", kind));
+                self.output.push_str(&format!("    b.eq {}\n", label));
+            }
+        }
+    }
+
     pub(crate) fn generate_say(&mut self, expr: &Expr) {
+        if let Expr::Identifier(name) = expr {
+            // alya-lang/alya#100: captured reads dispatch on the exact
+            // cell kind (better than the legacy classifier).
+            if let Some(loc) = self.capture_loc(name) {
+                self.generate_say_cap(loc);
+                return;
+            }
+        }
         match expr {
             Expr::Null => {
                 let label = self.ctx.next_string_label();

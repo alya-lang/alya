@@ -108,6 +108,10 @@ pub struct CodeGenContext {
     /// reads, so every branch/iteration spills to the same offset and
     /// merges stay exact. Frame-relative: cleared per function.
     pub tag_slot_memo: HashMap<String, i32>,
+    /// Closure-capture plan (alya-lang/alya#100): owners, chains and
+    /// captured sets per function. Whole-program: survives
+    /// `enter_function` (emission consults it, never mutates it).
+    pub capture_plan: super::analysis::nested::CapturePlan,
 }
 
 impl CodeGenContext {
@@ -134,6 +138,7 @@ impl CodeGenContext {
             nullable_heap_vars: HashSet::new(),
             nonescaping_params: HashSet::new(),
             tag_slot_memo: HashMap::new(),
+            capture_plan: super::analysis::nested::CapturePlan::default(),
         }
     }
 

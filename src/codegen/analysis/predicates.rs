@@ -2303,6 +2303,21 @@ pub fn value_kind_tag(expr: &Expr, vars: &HashMap<String, VarType>) -> i64 {
         if call_returns_struct(name, vars) {
             return KIND_STRUCT;
         }
+        // alya-lang/alya#100: closure materialization always yields a
+        // closure object (released via the closure magic gate kind 6).
+        if name == "alya$closure_new" {
+            return KIND_STRUCT;
+        }
+    }
+    if let Expr::Identifier(name) = expr {
+        // alya-lang/alya#100: names proven to hold closure objects
+        // (materialization targets and copies) release as kind 6 so
+        // container cascades free them. Imprecision is safe: the
+        // release gate skips non-closures, and cell kinds (not this
+        // marker) drive reads.
+        if vars.contains_key(&format!("closure_val:{}", name)) {
+            return KIND_STRUCT;
+        }
     }
     KIND_UNKNOWN
 }

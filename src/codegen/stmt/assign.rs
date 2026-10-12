@@ -1,5 +1,6 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
+use crate::codegen::analysis::nested::CLOSURE_NEW;
 use crate::codegen::analysis::{
     escape_string, expr_mentions_var, is_array_expr, is_array_fold_true, is_definitely_not_numeric,
     is_float_array, is_float_expr, is_map_entry_int, is_map_expr, is_null_expr, is_number_expr,
@@ -69,6 +70,23 @@ impl CodeGen {
         // stale tag would misread the new value: 0 shares null's zero
         // word). Tag-carrying RHS re-spills below.
         self.ctx.variables.remove(&format!("var_tag_slot:{}", name));
+        // alya-lang/alya#100: track closure-valued locals for container
+        // cascades (`value_kind_tag` reads this). Never cleared: stale
+        // claims are safe (release gates skip non-heap; heap values
+        // release correctly under kind 6 either way).
+        if matches!(value, Expr::Call { name: c, .. } if c == CLOSURE_NEW)
+            || matches!(value, Expr::Identifier(n) if self.ctx.variables.contains_key(&format!("closure_val:{}", n)))
+        {
+            self.ctx
+                .variables
+                .insert(format!("closure_val:{}", name), VarType::Number(0));
+        }
+        // alya-lang/alya#100: captured locals live in cells (no stack
+        // slot, no `variables` entry: absence routes reads).
+        if let Some(loc) = self.capture_loc(&name) {
+            self.emit_cap_assign(&name, value, loc);
+            return;
+        }
         if self.ctx.current_fn_name.is_empty() {
             if let Some((symbol, sname)) = self.ctx.globals.get(&name).cloned() {
                 self.generate_expression(value);
@@ -1397,6 +1415,94 @@ impl CodeGen {
         true
     }
 
+    /// Captured-cell write (alya-lang/alya#100): `name` lives in the
+    /// cell at `loc`. Mirrors the index-assign discipline (generate,
+    /// retain-new, dup strings, release-old, store value+kind). No
+    /// `variables` entry is recorded: absence routes reads through the
+    /// cell.
+    pub(super) fn emit_cap_assign(&mut self, name: &str, value: &Expr, loc: super::super::CapLoc) {
+        // Resolve the owner array up front (stable, retained): stores
+        // address the holder by slot.
+        let owner_off = self.emit_cap_owner(loc);
+        self.generate_expression(value);
+        if self.store_value_needs_retain(value) {
+            if self.value_proven_heap(value) {
+                arch::emit_rc_retain_direct(
+                    &mut self.output,
+                    self.arch,
+                    self.ctx.stack_offset,
+                    self.os,
+                );
+            } else if is_tag_carrying_read(value, &self.ctx.variables) {
+                self.emit_tag_guarded_retain();
+            } else {
+                arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+            }
+        }
+        if string_store_needs_dup(value, &self.ctx.variables) {
+            arch::emit_str_store(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+        }
+        let temp: i32 = match self.arch {
+            Architecture::ARM64 => 16,
+            _ => 8,
+        };
+        arch::emit_push_temp(&mut self.output, self.arch);
+        self.ctx.stack_offset += temp;
+        // Read-old through the resolved owner slot (single hop: the
+        // owner array is already home).
+        arch::emit_load_var(
+            &mut self.output,
+            self.arch,
+            owner_off,
+            self.ctx.stack_offset,
+        );
+        arch::emit_push_temp(&mut self.output, self.arch);
+        self.ctx.stack_offset += temp;
+        arch::emit_load_num(&mut self.output, self.arch, loc.vi as i64);
+        arch::emit_array_get(&mut self.output, self.arch);
+        self.ctx.stack_offset -= temp;
+        arch::emit_rc_release(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+        arch::emit_pop_temp(&mut self.output, self.arch);
+        self.ctx.stack_offset -= temp;
+        // Kind is static-proven or UNKNOWN (array-element discipline).
+        // One correction: `+` on dynamic operands may concatenate
+        // (string result) while arithmetic claims int — without the
+        // operand markers cells never carry, readers would misdispatch.
+        // Downgrade such ints to UNKNOWN unless both sides are proven
+        // (classify-then-print handles both outcomes exactly).
+        let mut kind = value_kind_tag(value, &self.ctx.variables);
+        if kind == crate::codegen::kinds::KIND_INT {
+            if let Expr::Binary {
+                left,
+                op: crate::ast::BinaryOp::Add,
+                right,
+            } = value
+            {
+                if !(is_proven_int_expr(left, &self.ctx.variables)
+                    && is_proven_int_expr(right, &self.ctx.variables))
+                {
+                    kind = crate::codegen::kinds::KIND_UNKNOWN;
+                }
+            }
+        }
+        match self.arch {
+            Architecture::X64 => {
+                self.output.push_str(&format!("    movl ${}, %edx\n", kind));
+            }
+            Architecture::ARM64 => {
+                self.output.push_str(&format!("    mov w1, #{}\n", kind));
+            }
+        }
+        arch::emit_cap_store(&mut self.output, self.arch, owner_off, loc.vi);
+        // Closure-ness marker for `value_kind_tag` (container cascades;
+        // never cleared: stale claims are release-safe, see `let`).
+        if kind == crate::codegen::kinds::KIND_STRUCT {
+            self.ctx
+                .variables
+                .insert(format!("closure_val:{}", name), VarType::Number(0));
+        }
+    }
+
     pub(super) fn generate_assign(&mut self, name: &str, value: &Expr) {
         let name = name.to_string();
         // alya-lang/alya#163: rebinds void per-key value-struct claims.
@@ -1405,6 +1511,20 @@ impl CodeGen {
         // stale tag would misread the new value: 0 shares null's zero
         // word). Tag-carrying RHS re-spills below.
         self.ctx.variables.remove(&format!("var_tag_slot:{}", name));
+        // alya-lang/alya#100: closure-valued locals track for cascades
+        // (never cleared: stale claims are release-safe; see `let`).
+        if matches!(value, Expr::Call { name: c, .. } if c == CLOSURE_NEW)
+            || matches!(value, Expr::Identifier(n) if self.ctx.variables.contains_key(&format!("closure_val:{}", n)))
+        {
+            self.ctx
+                .variables
+                .insert(format!("closure_val:{}", name), VarType::Number(0));
+        }
+        // alya-lang/alya#100: captured writes route via cells.
+        if let Some(loc) = self.capture_loc(&name) {
+            self.emit_cap_assign(&name, value, loc);
+            return;
+        }
         // Target-aware floatness (#83): assigning an unknown-kind value
         // into an existing float slot must convert AND track float, or
         // the slot keeps int bits while every later read treats them as

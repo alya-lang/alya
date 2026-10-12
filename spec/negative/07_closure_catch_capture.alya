@@ -1,0 +1,15 @@
+# EXPECT-FAIL: check: cannot capture 'e'
+# Chapter 07: catch bindings have no shared cell, so nested bodies must
+# not capture them (alya-lang/alya#100).
+function outer_catch_cap()
+    try
+        throw "boom"
+    catch e
+        let f = function()
+            return e
+        end
+        return f()
+    end
+end
+
+say outer_catch_cap()

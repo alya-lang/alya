@@ -1,5 +1,6 @@
 use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
+use crate::codegen::analysis::nested::{CLOSURE_CHAIN, CLOSURE_NEW};
 use crate::codegen::analysis::{
     builtin_blocks_method_fallback, eq_operand_is_dynamic, escape_string, is_array_expr,
     is_array_fold_true, is_definitely_not_numeric, is_float_expr, is_map_expr, is_map_fold_true,
@@ -64,6 +65,12 @@ impl CodeGen {
                 arch::emit_load_str_label(&mut self.output, self.arch, &label, self.os);
             }
             Expr::Identifier(name) => {
+                // alya-lang/alya#100: captured reads route via cells
+                // (array-get parity: value in rax, kind in edx/w1).
+                if let Some(loc) = self.capture_loc(name) {
+                    self.emit_cap_read(loc);
+                    return;
+                }
                 if let Some(var_type) = self.ctx.variables.get(name).cloned() {
                     let has_local_offset = match var_type {
                         VarType::Number(offset)
@@ -2938,6 +2945,28 @@ impl CodeGen {
                 }
                 let call_name = call_name_str.as_str();
 
+                // alya-lang/alya#100: closure markers custom-emit (never
+                // spilled or linked). `$` is unspellable, so user code
+                // can never name these.
+                if call_name == CLOSURE_NEW {
+                    let target = match actual_args.first() {
+                        Some(Expr::Identifier(t)) => t.clone(),
+                        _ => panic!(
+                            "internal error: malformed closure materialization (alya-lang/alya#100)"
+                        ),
+                    };
+                    self.emit_closure_new(&target);
+                    return;
+                }
+                if call_name == CLOSURE_CHAIN {
+                    let target = match actual_args.first() {
+                        Some(Expr::Identifier(t)) => t.clone(),
+                        _ => panic!("internal error: malformed closure chain (alya-lang/alya#100)"),
+                    };
+                    self.emit_closure_chain(&target);
+                    return;
+                }
+
                 let initial_stack_offset = self.ctx.stack_offset;
                 let word_size: i32 = match self.arch {
                     Architecture::ARM64 => 16,
@@ -3035,6 +3064,39 @@ impl CodeGen {
                     arch::emit_push_temp(&mut self.output, self.arch);
                 }
                 self.ctx.stack_offset = initial_stack_offset;
+
+                // alya-lang/alya#100: captured callees (locals holding
+                // closures) load through the cell into a temp slot, then
+                // take the guarded indirect path (whose closure probe
+                // passes the stored chain).
+                if let Some(loc) = self.capture_loc(call_name) {
+                    self.emit_cap_read(loc);
+                    arch::emit_allocate_var(
+                        &mut self.output,
+                        self.arch,
+                        &mut self.ctx.stack_offset,
+                    );
+                    let tmp = self.ctx.stack_offset;
+                    arch::emit_store_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
+                    let ro_label = self.ctx.next_label();
+                    let call_label = self.ctx.next_label();
+                    arch::emit_guarded_indirect_function_call(
+                        &mut self.output,
+                        self.arch,
+                        tmp,
+                        actual_args.len(),
+                        initial_stack_offset,
+                        self.os,
+                        &ro_label,
+                        &call_label,
+                    );
+                    debug_assert!(
+                        self.pending_chain_release.is_none(),
+                        "chain markers only appear in direct-call args"
+                    );
+                    self.ctx.stack_offset = initial_stack_offset;
+                    return;
+                }
 
                 let var_offset = if !self.ctx.functions.contains(call_name) && !is_extern_call {
                     match self.ctx.variables.get(call_name) {
@@ -3158,6 +3220,23 @@ impl CodeGen {
                         initial_stack_offset,
                         self.os,
                     );
+                    // alya-lang/alya#100: drop the direct call's fresh
+                    // chain reference (the callee's retain/release pair
+                    // balanced the shared case).
+                    if let Some(off) = self.pending_chain_release.take() {
+                        arch::emit_load_var(
+                            &mut self.output,
+                            self.arch,
+                            off,
+                            self.ctx.stack_offset,
+                        );
+                        arch::emit_rc_release(
+                            &mut self.output,
+                            self.arch,
+                            self.ctx.stack_offset,
+                            self.os,
+                        );
+                    }
                 }
             }
             Expr::StructInit { name, fields } => {
