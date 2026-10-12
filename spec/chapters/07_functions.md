@@ -80,6 +80,39 @@ Anonymous functions (closures) capture variables from their enclosing lexical sc
       return true
   end
   ```
+- **Capture semantics (by-reference shared cells, alya-lang/alya#100)**:
+  A closure may read and write the parameters and `let`/`const` locals of
+  any lexically enclosing function, at any nesting depth. Captured variables
+  are shared cells, not snapshots: rebinding a captured variable inside the
+  closure is visible in the defining scope after the call, and rebinding it in
+  the defining scope is visible to later closure calls.
+  ```alya
+  function make_counter()
+      let n = 0
+      let bump = function()
+          n += 1
+          return n
+      end
+      return bump
+  end
+  let bump = make_counter()
+  say bump() # 1
+  say bump() # 2
+  ```
+- **Cell lifetime & cycles**: a captured variable's cell is heap-boxed when
+  its owner is entered and reference-counted. The closure value keeps the
+  cells it needs alive after the owner returns, so escaping closures (returned,
+  stored, passed as arguments) stay valid. Reference cycles passing through
+  closures are collected by the cycle collector.
+- **Recursion**: a closure may call itself through the binding being defined
+  (`let f = function() ... f() ... end`); the self-reference reads the same
+  shared cell, so it resolves once the binding is assigned.
+- **Not capturable (compile-time errors)**: loop variables (`for`/`foreach`
+  bind fresh per-iteration names that must not be shared), `catch` bindings,
+  and any capture inside a generic function. Capturing an undeclared name is a
+  compile-time `Unknown identifier` error, as for any other name.
+- No new syntax: capture is a property of name resolution, and closure values
+  use the existing indirect-call protocol.
 
 ### 1.7 The `defer` Statement
 The `defer` statement schedules a statement or block to execute immediately before the enclosing function returns or exits (even in the event of an uncaught error/throw).
