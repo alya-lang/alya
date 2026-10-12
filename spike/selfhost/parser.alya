@@ -48,6 +48,16 @@ struct Parser
     pending_attrs: array
     sd_names: array
     sd_fields: array
+    # Lexical scope stack for `alya::enclosing` on desugared functions
+    # (alya-lang/alya#100, mirrors src/parser scope_stack): scope_kind
+    # ("F"/"L"), scope_name (fn name, or lambda nm once assigned),
+    # scope_parent (enclosing sid, -1 at top), scope_stack (open sids),
+    # spill_parent (parent sid per marked spill).
+    scope_kind: array
+    scope_name: array
+    scope_parent: array
+    scope_stack: array
+    spill_parent: array
 end
 
 # Homogeneous-shape results only: mixed-type arrays ([bool, string],
@@ -898,7 +908,7 @@ function main()
         os.exit_process(1)
     end
     let toks_n = len(d.line)
-    let p = Parser { line: d.line, col: d.col, kind: d.kind, norm: d.norm, n: toks_n, pos: 0, out: [], spill: [], lam: 0, failed: 0, err_line: 1, err_col: 1, fn_depth: 0, pending_attrs: [], sd_names: [], sd_fields: [] }
+    let p = Parser { line: d.line, col: d.col, kind: d.kind, norm: d.norm, n: toks_n, pos: 0, out: [], spill: [], lam: 0, failed: 0, err_line: 1, err_col: 1, fn_depth: 0, pending_attrs: [], sd_names: [], sd_fields: [], scope_kind: [], scope_name: [], scope_parent: [], scope_stack: [], spill_parent: [] }
     p.parse_program()
     if p.failed == true
         p.out.push("0|0|error|" + int_to_dec(p.err_line) + ":" + int_to_dec(p.err_col))
@@ -2355,7 +2365,8 @@ function Parser.parse_array_literal(self) -> string
     end
     body = body + " (return (ident \"__arr_res\")))"
     let ptypes = self.spread_types(len(elems))
-    self.spill.push("(function " + qs(nm) + " (" + params + ") (" + ptypes + ") _ (" + ptypes + ") () () " + body + ")")
+    let spread_arr_ph = self.spill_mark()
+    self.spill.push("(function " + qs(nm) + " (" + params + ") (" + ptypes + ") _ (" + ptypes + ") () " + spread_arr_ph + " " + body + ")")
     self.lam += 1
     return "(call " + qs(nm) + " (" + args + "))"
 end
@@ -2420,7 +2431,8 @@ function Parser.parse_array_comprehension(self, body: string) -> string
         push = "(if " + filt + " (block " + push + ") _)"
     end
     let fnbody = "(block (let \"__comp_res\" _ (array ())) (foreach " + qs(var) + " " + vvar + " " + it + " (block " + push + ")) (return (ident \"__comp_res\")))"
-    self.spill.push("(function " + qs(nm) + " () () _ () () () " + fnbody + ")")
+    let comp_arr_ph = self.spill_mark()
+    self.spill.push("(function " + qs(nm) + " () () _ () () " + comp_arr_ph + " " + fnbody + ")")
     self.lam += 1
     return "(call " + qs(nm) + " ())"
 end
@@ -2559,7 +2571,7 @@ function Parser.parse_map_literal(self) -> string
         end
         q += 1
     end
-    self.spill.push("(function " + qs(nm) + " (" + params + ") (" + td + ") _ (" + td + ") () () " + body + ")")
+    self.spill.push("(function " + qs(nm) + " (" + params + ") (" + td + ") _ (" + td + ") () " + self.spill_mark() + " " + body + ")")
     self.lam += 1
     return "(call " + qs(nm) + " (" + args + "))"
 end
@@ -2614,7 +2626,7 @@ function Parser.parse_map_comprehension(self, key: string, val: string) -> strin
         assign = "(if " + filt + " (block " + assign + ") _)"
     end
     let fnbody = "(block (let \"__comp_map_res\" _ (call " + qs("map") + " ())) (foreach " + qs(var) + " " + vvar + " " + it + " (block " + assign + ")) (return (ident \"__comp_map_res\")))"
-    self.spill.push("(function " + qs(nm) + " () () _ () () () " + fnbody + ")")
+    self.spill.push("(function " + qs(nm) + " () () _ () () " + self.spill_mark() + " " + fnbody + ")")
     self.lam += 1
     return "(call " + qs(nm) + " ())"
 end
@@ -2650,6 +2662,20 @@ function expr_refs_name(s: string, name: string) -> int
     return false
 end
 
+# Single-occurrence splice for enclosing-attribute placeholders.
+function spill_replace_once(s: string, ph: string, rep: string) -> string
+    let n = len(s)
+    let m = len(ph)
+    let i = 0
+    while i + m <= n
+        if s[i..i + m] == ph
+            return s[0..i] + rep + s[i + m..n]
+        end
+        i += 1
+    end
+    return s
+end
+
 function Parser.parse_program(self)
     self.skip_nl()
     while self.cur_kind() != "eof"
@@ -2658,6 +2684,23 @@ function Parser.parse_program(self)
         end
         self.parse_statement()
         self.skip_nl()
+    end
+    # Resolve enclosing attributes (alya-lang/alya#100): each marked
+    # spill names its creation scope; top-level spills keep `()`.
+    let m = 0
+    while m < len(self.spill_parent)
+        let ph = "__ENCATTR_" + int_to_dec(m) + "__"
+        let enc = self.scope_resolve(self.spill_parent[m])
+        let rep = "()"
+        if enc != ""
+            rep = self.enclosing_attr(enc)
+        end
+        let k = 0
+        while k < len(self.spill)
+            self.spill[k] = spill_replace_once(self.spill[k], ph, rep)
+            k += 1
+        end
+        m += 1
     end
     let i = 0
     while i < len(self.spill)
@@ -2668,6 +2711,67 @@ end
 
 function Parser.emit_stmt(self, s: string)
     self.out.push(s)
+end
+
+# Lexical scope tracking for `alya::enclosing` (alya-lang/alya#100):
+# mirrors src/parser `scope_stack` + `resolve_lambda_enclosing`.
+# Named functions push F with their mangled name; lambdas push an
+# L placeholder before their body parses (the desugared name is
+# assigned after, so nested bodies resolve to the outer lambda).
+function Parser.scope_top(self) -> int
+    if len(self.scope_stack) == 0
+        return 0 - 1
+    end
+    return self.scope_stack[len(self.scope_stack) - 1]
+end
+
+function Parser.scope_enter_fn(self, name: string) -> int
+    let sid = len(self.scope_kind)
+    self.scope_kind.push("F")
+    self.scope_name.push(name)
+    self.scope_parent.push(self.scope_top())
+    self.scope_stack.push(sid)
+    return sid
+end
+
+function Parser.scope_enter_lambda(self) -> int
+    let sid = len(self.scope_kind)
+    self.scope_kind.push("L")
+    self.scope_name.push("")
+    self.scope_parent.push(self.scope_top())
+    self.scope_stack.push(sid)
+    return sid
+end
+
+function Parser.scope_set_name(self, sid: int, name: string)
+    self.scope_name[sid] = name
+end
+
+function Parser.scope_leave(self)
+    self.scope_stack.pop()
+end
+
+# Nearest enclosing function-like name for a parent sid ("" at top
+# level, matching the Rust resolver which emits no attribute there).
+function Parser.scope_resolve(self, sid: int) -> string
+    if sid == 0 - 1
+        return ""
+    end
+    return self.scope_name[sid]
+end
+
+function Parser.enclosing_attr(self, enc: string) -> string
+    return "((" + qs("alya::enclosing") + " ((_" + " " + qs(enc) + ")))" + ")"
+end
+
+# Records the current scope top as this spill's parent and returns a
+# placeholder that `parse_program` replaces with the resolved
+# attribute (or `()` at top level). Spawn thunks never mark (the
+# Rust frontend records no enclosing for them either).
+function Parser.spill_mark(self) -> string
+    let idx = len(self.spill_parent)
+    self.spill_parent.push(self.scope_top())
+    return "__ENCATTR_" + int_to_dec(idx) + "__"
 end
 
 function Parser.parse_statement(self)
@@ -4277,7 +4381,11 @@ function Parser.parse_function(self, is_pub: int)
     end
     self.skip_nl()
     self.fn_depth += 1
+    # alya-lang/alya#100: desugared functions created in this body
+    # record `name` (mangled above) as their enclosing scope.
+    let _fn_sid = self.scope_enter_fn(name)
     let body = self.parse_block_until("end")
+    self.scope_leave()
     self.fn_depth -= 1
     if self.failed == true
         return
@@ -7287,6 +7395,11 @@ function Parser.parse_closure_body(self, ps: string, ts: string) -> string
         end
         ret = qtype(ret)
     end
+    # alya::enclosing (alya-lang/alya#100): the lambda scope opens
+    # before the body parses so nested desugars record it; the name
+    # is assigned after (inner lambdas keep lower counters, as in
+    # the Rust frontend).
+    let lam_sid = self.scope_enter_lambda()
     if self.at("op:=>") == true
         self.advance()
         if self.cur_kind() == "newline"
@@ -7300,7 +7413,9 @@ function Parser.parse_closure_body(self, ps: string, ts: string) -> string
             end
             let nm = "__alya_lambda_" + int_to_dec(self.lam)
             let dd = self.closure_defaults(ps)
-            self.spill.push("(function " + qs(nm) + " (" + ps + ") (" + ts + ") " + ret + " (" + dd + ") () () " + body + ")")
+            self.scope_set_name(lam_sid, nm)
+            self.scope_leave()
+            self.spill.push("(function " + qs(nm) + " (" + ps + ") (" + ts + ") " + ret + " (" + dd + ") () " + self.spill_mark() + " " + body + ")")
             self.lam += 1
             return "(ident " + qs(nm) + ")"
         end
@@ -7310,7 +7425,9 @@ function Parser.parse_closure_body(self, ps: string, ts: string) -> string
         end
         let nm = "__alya_lambda_" + int_to_dec(self.lam)
         let dd = self.closure_defaults(ps)
-        self.spill.push("(function " + qs(nm) + " (" + ps + ") (" + ts + ") " + ret + " (" + dd + ") () () (block (return " + e + ")))")
+        self.scope_set_name(lam_sid, nm)
+        self.scope_leave()
+        self.spill.push("(function " + qs(nm) + " (" + ps + ") (" + ts + ") " + ret + " (" + dd + ") () " + self.spill_mark() + " (block (return " + e + ")))")
         self.lam += 1
         return "(ident " + qs(nm) + ")"
     end
@@ -7324,7 +7441,9 @@ function Parser.parse_closure_body(self, ps: string, ts: string) -> string
     end
     let nm = "__alya_lambda_" + int_to_dec(self.lam)
     let dd = self.closure_defaults(ps)
-    self.spill.push("(function " + qs(nm) + " (" + ps + ") (" + ts + ") " + ret + " (" + dd + ") () () " + body + ")")
+    self.scope_set_name(lam_sid, nm)
+    self.scope_leave()
+    self.spill.push("(function " + qs(nm) + " (" + ps + ") (" + ts + ") " + ret + " (" + dd + ") () " + self.spill_mark() + " " + body + ")")
     self.lam += 1
     return "(ident " + qs(nm) + ")"
 end
@@ -7425,6 +7544,10 @@ function Parser.parse_anonymous_function(self) -> string
     end
     self.skip_nl()
     let nm = "__alya_lambda_" + int_to_dec(self.lam)
+    # alya::enclosing (alya-lang/alya#100): like parse_closure_body,
+    # but `nm` is reserved up front here.
+    let anon_sid = self.scope_enter_lambda()
+    self.scope_set_name(anon_sid, nm)
     if self.at("op:=>") == true
         self.advance()
         if self.cur_kind() == "newline"
@@ -7436,7 +7559,8 @@ function Parser.parse_anonymous_function(self) -> string
             if self.at("keyword:end") == true
                 self.advance()
             end
-            self.spill.push("(function " + qs(nm) + " (" + params + ") (" + ptypes + ") " + ret + " (" + defaults + ") () () " + body + ")")
+            self.scope_leave()
+            self.spill.push("(function " + qs(nm) + " (" + params + ") (" + ptypes + ") " + ret + " (" + defaults + ") () " + self.spill_mark() + " " + body + ")")
             self.lam += 1
             return "(ident " + qs(nm) + ")"
         end
@@ -7444,7 +7568,8 @@ function Parser.parse_anonymous_function(self) -> string
         if self.failed == true
             return ""
         end
-        self.spill.push("(function " + qs(nm) + " (" + params + ") (" + ptypes + ") " + ret + " (" + defaults + ") () () (block (return " + e + ")))")
+        self.scope_leave()
+        self.spill.push("(function " + qs(nm) + " (" + params + ") (" + ptypes + ") " + ret + " (" + defaults + ") () " + self.spill_mark() + " (block (return " + e + ")))")
         self.lam += 1
         return "(ident " + qs(nm) + ")"
     end
@@ -7456,7 +7581,8 @@ function Parser.parse_anonymous_function(self) -> string
         self.fail_here()
         return ""
     end
-    self.spill.push("(function " + qs(nm) + " (" + params + ") (" + ptypes + ") " + ret + " (" + defaults + ") () () " + body + ")")
+    self.scope_leave()
+    self.spill.push("(function " + qs(nm) + " (" + params + ") (" + ptypes + ") " + ret + " (" + defaults + ") () " + self.spill_mark() + " " + body + ")")
     self.lam += 1
     return "(ident " + qs(nm) + ")"
 end

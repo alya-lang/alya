@@ -3128,6 +3128,19 @@ impl CodeGen {
         arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
         let off = self.ctx.stack_offset;
         arch::emit_store_var(&mut self.output, self.arch, off, self.ctx.stack_offset);
+        // Reserve the frame slot but forget the pushed copy: the slot
+        // stays rbp-addressable for the post-call release, while rsp
+        // must show only real argument spills — otherwise the call's
+        // pops land one word off (the arg below is read as the chain
+        // and vice versa). Tracking keeps the reservation.
+        match self.arch {
+            Architecture::X64 => {
+                self.output.push_str("    add $8, %rsp\n");
+            }
+            Architecture::ARM64 => {
+                self.output.push_str("    add sp, sp, #16\n");
+            }
+        }
         self.pending_chain_release = Some(off);
     }
 

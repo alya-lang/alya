@@ -1494,6 +1494,21 @@ impl CodeGen {
             }
         }
         arch::emit_cap_store(&mut self.output, self.arch, owner_off, loc.vi);
+        // Free the resolved-owner temp (two-hop readers only): it
+        // sits below every later spill, so leaking it shifts
+        // (%rsp)-relative consumers exactly like the callee-temp
+        // leak fixed at the captured-callee dispatch site.
+        if loc.chain_pos.is_some() {
+            match self.arch {
+                Architecture::X64 => {
+                    self.output.push_str("    add $8, %rsp\n");
+                }
+                Architecture::ARM64 => {
+                    self.output.push_str("    add sp, sp, #16\n");
+                }
+            }
+            self.ctx.stack_offset -= temp;
+        }
         // Closure-ness marker for `value_kind_tag` (container cascades;
         // never cleared: stale claims are release-safe, see `let`).
         if kind == crate::codegen::kinds::KIND_STRUCT {

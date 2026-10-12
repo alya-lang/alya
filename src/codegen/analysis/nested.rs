@@ -71,10 +71,13 @@ pub struct CapturePlan {
 }
 
 impl CapturePlan {
-    /// Functions whose body reads via chain (take the chain param and
-    /// receive chain args at direct calls).
+    /// Functions taking the hidden chain param: own captured reads
+    /// plus transitive forwarding (a function that captures nothing
+    /// itself still receives the chain when it directly calls a
+    /// capturing function whose envs it must pass along —
+    /// outer>mid>inner needs mid to forward outer's env).
     pub fn needs_chain(&self, name: &str) -> bool {
-        self.captured.get(name).is_some_and(|v| !v.is_empty())
+        self.chains.get(name).is_some_and(|v| !v.is_empty())
     }
 }
 
@@ -130,7 +133,10 @@ pub fn hoist_nested_functions(program: &mut Program) -> CapturePlan {
         }
     }
     program.statements.extend(hoisted);
-    finish_capture_plan(&mut plan, raw_caps, &qualmap);
+    // Direct-callee map (post-hoist qualified names) for transitive
+    // chain forwarding (alya-lang/alya#100).
+    let calls = collect_direct_calls(program);
+    finish_capture_plan(&mut plan, raw_caps, &qualmap, &calls);
     rewrite_captures(program, &plan);
     plan
 }
@@ -1512,12 +1518,213 @@ fn qualify_path(path: &[String], qualmap: &HashMap<(String, String), String>) ->
     Some(q)
 }
 
+/// Direct callees AND value references per top-level function
+/// (post-hoist qualified names), driving transitive chain
+/// forwarding. A caller must hold every env its callees' chains
+/// need — whether it calls them directly or merely materializes
+/// them (`let inner = <qualified>` still builds the chain at
+/// runtime). Exhaustive by construction: a missed shape would drop
+/// a forwarder and panic loudly at emission, so every
+/// `Expr`/`Stmt` variant is covered (the compiler rejects a missing
+/// arm). Over-approximation is sound (extra holders only widen
+/// arrays); under-approximation is not.
+fn collect_direct_calls(program: &Program) -> HashMap<String, Vec<String>> {
+    let mut calls: HashMap<String, HashSet<String>> = HashMap::new();
+    for stmt in &program.statements {
+        if let Stmt::Function { name, body, .. } = stmt.inner_stmt() {
+            let entry = calls.entry(name.clone()).or_default();
+            for s in body {
+                collect_stmt_calls(s, entry);
+            }
+        }
+    }
+    calls
+        .into_iter()
+        .map(|(k, v)| (k, v.into_iter().collect()))
+        .collect()
+}
+
+fn collect_stmt_calls(stmt: &Stmt, out: &mut HashSet<String>) {
+    match stmt.inner_stmt() {
+        Stmt::Say(e) | Stmt::Expr(e) => collect_expr_calls(e, out),
+        Stmt::Return(e) | Stmt::Throw(e) => {
+            if let Some(e) = e {
+                collect_expr_calls(e, out);
+            }
+        }
+        Stmt::Let { value, .. } | Stmt::Const { value, .. } | Stmt::Assign { value, .. } => {
+            collect_expr_calls(value, out)
+        }
+        Stmt::IndexAssign {
+            array,
+            index,
+            value,
+        } => {
+            collect_expr_calls(array, out);
+            collect_expr_calls(index, out);
+            collect_expr_calls(value, out);
+        }
+        Stmt::FieldAssign { object, value, .. } => {
+            collect_expr_calls(object, out);
+            collect_expr_calls(value, out);
+        }
+        Stmt::If {
+            condition,
+            then_block,
+            else_block,
+        } => {
+            collect_expr_calls(condition, out);
+            for s in then_block {
+                collect_stmt_calls(s, out);
+            }
+            if let Some(eb) = else_block {
+                for s in eb {
+                    collect_stmt_calls(s, out);
+                }
+            }
+        }
+        Stmt::While { condition, body } => {
+            collect_expr_calls(condition, out);
+            for s in body {
+                collect_stmt_calls(s, out);
+            }
+        }
+        Stmt::Repeat { body } => {
+            for s in body {
+                collect_stmt_calls(s, out);
+            }
+        }
+        Stmt::For {
+            start, end, body, ..
+        } => {
+            collect_expr_calls(start, out);
+            collect_expr_calls(end, out);
+            for s in body {
+                collect_stmt_calls(s, out);
+            }
+        }
+        Stmt::ForEach { iterable, body, .. } => {
+            collect_expr_calls(iterable, out);
+            for s in body {
+                collect_stmt_calls(s, out);
+            }
+        }
+        Stmt::TryCatch {
+            try_block,
+            catch_block,
+            finally_block,
+            ..
+        } => {
+            for s in try_block {
+                collect_stmt_calls(s, out);
+            }
+            for s in catch_block {
+                collect_stmt_calls(s, out);
+            }
+            if let Some(fb) = finally_block {
+                for s in fb {
+                    collect_stmt_calls(s, out);
+                }
+            }
+        }
+        Stmt::Defer(inner) | Stmt::Pub(inner) => collect_stmt_calls(inner, out),
+        Stmt::Function { body, defaults, .. } => {
+            // Post-hoist leftovers (defer-wrapped): attribute their
+            // calls to the outer function (sound over-approximation).
+            for s in body {
+                collect_stmt_calls(s, out);
+            }
+            for d in defaults.iter().flatten() {
+                collect_expr_calls(d, out);
+            }
+        }
+        Stmt::Import { .. }
+        | Stmt::ExternBlock { .. }
+        | Stmt::InterfaceDef { .. }
+        | Stmt::StructDef { .. }
+        | Stmt::EnumDef { .. }
+        | Stmt::Break
+        | Stmt::Continue => {}
+    }
+}
+
+fn collect_expr_calls(expr: &Expr, out: &mut HashSet<String>) {
+    match expr {
+        Expr::Number(_) | Expr::Float(_) | Expr::String(_) | Expr::Null => {}
+        // Value references materialize capturing functions
+        // (`CLOSURE_NEW`), which builds their chain from the
+        // holder's envs: they forward exactly like direct calls.
+        Expr::Identifier(n) => {
+            out.insert(n.clone());
+        }
+        Expr::Binary { left, right, .. } => {
+            collect_expr_calls(left, out);
+            collect_expr_calls(right, out);
+        }
+        Expr::Unary { expr: e, .. }
+        | Expr::ForceUnwrap(e)
+        | Expr::TypeCheck { expr: e, .. }
+        | Expr::Cast { expr: e, .. } => collect_expr_calls(e, out),
+        Expr::Call { name, args } => {
+            out.insert(name.clone());
+            for a in args {
+                collect_expr_calls(a, out);
+            }
+        }
+        Expr::OptionalCall { callee, args } => {
+            out.insert(callee.clone());
+            for a in args {
+                collect_expr_calls(a, out);
+            }
+        }
+        Expr::InterpolatedString(parts) | Expr::Array(parts) => {
+            for p in parts {
+                collect_expr_calls(p, out);
+            }
+        }
+        Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+            collect_expr_calls(array, out);
+            collect_expr_calls(index, out);
+        }
+        Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+            collect_expr_calls(object, out);
+        }
+        Expr::StructInit { fields, .. } => {
+            for (_, v) in fields {
+                collect_expr_calls(v, out);
+            }
+        }
+        Expr::Map(entries) => {
+            for (k, v) in entries {
+                collect_expr_calls(k, out);
+                collect_expr_calls(v, out);
+            }
+        }
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            collect_expr_calls(condition, out);
+            collect_expr_calls(then_branch, out);
+            collect_expr_calls(else_branch, out);
+        }
+        Expr::NullCoalesce { value, default } => {
+            collect_expr_calls(value, out);
+            collect_expr_calls(default, out);
+        }
+    }
+}
+
 // Folds raw capture records into the plan: stitch paths to qualified
-// names, then derive ancestor chains (outermost-first).
+// names, derive ancestor chains (outermost-first), then close over
+// transitive forwarding (a caller holds every env its direct callees
+// need, except its own).
 fn finish_capture_plan(
     plan: &mut CapturePlan,
     raw: Vec<CapRef>,
     qualmap: &HashMap<(String, String), String>,
+    calls: &HashMap<String, Vec<String>>,
 ) {
     // Pass 1: owners — strict descendant capture only. Self-hits (a
     // function reading its own bound names) are not captures.
@@ -1568,6 +1775,66 @@ fn finish_capture_plan(
         chain.reverse();
         plan.chains.insert(f, chain);
     }
+    // Transitive forwarding fixpoint (alya-lang/alya#100): a direct
+    // caller holds every env its callees' chains need (except its own
+    // holder). Chains only grow; each round adds at least one owner,
+    // so this terminates. Depth-ordered outermost-first afterwards.
+    loop {
+        let mut added = false;
+        // Snapshot callee chains: callers only ever read them.
+        let callee_chains: Vec<(String, Vec<String>)> = plan
+            .chains
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        for (caller, callees) in calls {
+            for callee in callees {
+                let Some(chain) = callee_chains
+                    .iter()
+                    .find(|(k, _)| k == callee)
+                    .map(|(_, v)| v.clone())
+                else {
+                    continue;
+                };
+                for owner in chain {
+                    if owner == *caller {
+                        continue;
+                    }
+                    let entry = plan.chains.entry(caller.clone()).or_default();
+                    if !entry.contains(&owner) {
+                        entry.push(owner);
+                        added = true;
+                    }
+                }
+            }
+        }
+        if !added {
+            break;
+        }
+    }
+    // Canonical order: outermost-first by ancestry depth (top-level
+    // depth 0), name tiebreak for determinism.
+    let depths: HashMap<String, usize> = plan
+        .chains
+        .keys()
+        .chain(plan.owners.keys())
+        .map(|f| {
+            let mut d = 0;
+            let mut cur = f.clone();
+            while let Some(p) = plan.parents.get(&cur) {
+                d += 1;
+                cur = p.clone();
+            }
+            (f.clone(), d)
+        })
+        .collect();
+    for chain in plan.chains.values_mut() {
+        chain.sort_by_key(|o| (depths.get(o).copied().unwrap_or(0), o.clone()));
+        chain.dedup();
+    }
+    // Prune holders that ended up empty (own-env-only callers):
+    // `needs_chain` keys on non-empty chains.
+    plan.chains.retain(|_, v| !v.is_empty());
 }
 
 // Marker callee for closure materialization (custom-emitted, never linked).
@@ -1599,68 +1866,232 @@ fn rewrite_captures(program: &mut Program, plan: &CapturePlan) {
                     args: vec![],
                 });
             }
-            rewrite_cap_body(body, plan);
+            // Bare-alias call resolution (alya-lang/alya#100): `let x`
+            // locals holding capturing functions call bare (`x()`),
+            // which takes the value/indirect path and never passes the
+            // hidden chain — leaving a forwarder's `chain$clo` param
+            // unfilled. Single-bound aliases route direct with a chain
+            // arg; anything rebound keeps today's indirect behavior.
+            let (aliases, bound) = collect_alias_info(params, body);
+            rewrite_cap_body(body, plan, &aliases, &bound);
         }
     }
 }
 
-fn rewrite_cap_body(body: &mut [Stmt], plan: &CapturePlan) {
-    for stmt in body.iter_mut() {
-        rewrite_cap_stmt(stmt, plan);
+/// Per-body alias map (`let x = <qualified>`) plus bind counts.
+/// Only `$`-qualified targets (hoist-renamed, unspellable by users)
+/// become aliases; a name bound more than once (rebind, loop/catch
+/// binder, shadowing param) is never routed direct.
+fn collect_alias_info(
+    params: &[String],
+    body: &[Stmt],
+) -> (HashMap<String, String>, HashMap<String, usize>) {
+    let mut aliases = HashMap::new();
+    let mut bound: HashMap<String, usize> = HashMap::new();
+    for p in params {
+        *bound.entry(p.clone()).or_default() += 1;
+    }
+    for s in body {
+        scan_stmt_binds(s, &mut aliases, &mut bound);
+    }
+    (aliases, bound)
+}
+
+fn scan_stmt_binds(
+    stmt: &Stmt,
+    aliases: &mut HashMap<String, String>,
+    bound: &mut HashMap<String, usize>,
+) {
+    match stmt.inner_stmt() {
+        Stmt::Let { name, value, .. } | Stmt::Const { name, value, .. } => {
+            *bound.entry(name.clone()).or_default() += 1;
+            if let Expr::Identifier(q) = value {
+                if q.contains('$') {
+                    aliases.entry(name.clone()).or_insert_with(|| q.clone());
+                }
+            }
+        }
+        Stmt::Assign { name, .. } => {
+            *bound.entry(name.clone()).or_default() += 1;
+        }
+        Stmt::For { var, body, .. } => {
+            *bound.entry(var.clone()).or_default() += 1;
+            for s in body {
+                scan_stmt_binds(s, aliases, bound);
+            }
+        }
+        Stmt::ForEach {
+            var,
+            value_var,
+            body,
+            ..
+        } => {
+            *bound.entry(var.clone()).or_default() += 1;
+            if let Some(vv) = value_var {
+                *bound.entry(vv.clone()).or_default() += 1;
+            }
+            for s in body {
+                scan_stmt_binds(s, aliases, bound);
+            }
+        }
+        Stmt::TryCatch {
+            try_block,
+            catch_var,
+            catch_block,
+            finally_block,
+            ..
+        } => {
+            if let Some(cv) = catch_var {
+                *bound.entry(cv.clone()).or_default() += 1;
+            }
+            for s in try_block {
+                scan_stmt_binds(s, aliases, bound);
+            }
+            for s in catch_block {
+                scan_stmt_binds(s, aliases, bound);
+            }
+            if let Some(fb) = finally_block {
+                for s in fb {
+                    scan_stmt_binds(s, aliases, bound);
+                }
+            }
+        }
+        Stmt::If {
+            then_block,
+            else_block,
+            ..
+        } => {
+            for s in then_block {
+                scan_stmt_binds(s, aliases, bound);
+            }
+            if let Some(eb) = else_block {
+                for s in eb {
+                    scan_stmt_binds(s, aliases, bound);
+                }
+            }
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body } => {
+            for s in body {
+                scan_stmt_binds(s, aliases, bound);
+            }
+        }
+        Stmt::Defer(inner) | Stmt::Pub(inner) => scan_stmt_binds(inner, aliases, bound),
+        Stmt::Function { params, body, .. } => {
+            // Post-hoist leftovers: bind params conservatively and
+            // keep scanning (sound direction is skipping direct).
+            for p in params {
+                *bound.entry(p.clone()).or_default() += 1;
+            }
+            for s in body {
+                scan_stmt_binds(s, aliases, bound);
+            }
+        }
+        Stmt::Say(_)
+        | Stmt::Expr(_)
+        | Stmt::Return(_)
+        | Stmt::Throw(_)
+        | Stmt::IndexAssign { .. }
+        | Stmt::FieldAssign { .. }
+        | Stmt::Import { .. }
+        | Stmt::ExternBlock { .. }
+        | Stmt::InterfaceDef { .. }
+        | Stmt::StructDef { .. }
+        | Stmt::EnumDef { .. }
+        | Stmt::Break
+        | Stmt::Continue => {}
     }
 }
 
-fn rewrite_cap_stmt(stmt: &mut Stmt, plan: &CapturePlan) {
+/// Resolves a bare callee through single-bound aliases to its
+/// capturing target (`Some`), or `None` to keep today's spelling.
+/// Renames only capturing targets: plain aliases keep the indirect
+/// path exactly as before.
+fn alias_target(
+    name: &str,
+    plan: &CapturePlan,
+    aliases: &HashMap<String, String>,
+    bound: &HashMap<String, usize>,
+) -> Option<String> {
+    if name.contains('$') {
+        return None;
+    }
+    let q = aliases.get(name)?;
+    if bound.get(name).copied().unwrap_or(0) != 1 {
+        return None;
+    }
+    if plan.needs_chain(q) {
+        return Some(q.clone());
+    }
+    None
+}
+
+fn rewrite_cap_body(
+    body: &mut [Stmt],
+    plan: &CapturePlan,
+    aliases: &HashMap<String, String>,
+    bound: &HashMap<String, usize>,
+) {
+    for stmt in body.iter_mut() {
+        rewrite_cap_stmt(stmt, plan, aliases, bound);
+    }
+}
+
+fn rewrite_cap_stmt(
+    stmt: &mut Stmt,
+    plan: &CapturePlan,
+    aliases: &HashMap<String, String>,
+    bound: &HashMap<String, usize>,
+) {
     match stmt.inner_stmt_mut() {
-        Stmt::Say(e) | Stmt::Expr(e) => rewrite_cap_expr(e, plan),
+        Stmt::Say(e) | Stmt::Expr(e) => rewrite_cap_expr(e, plan, aliases, bound),
         Stmt::Return(opt) | Stmt::Throw(opt) => {
             if let Some(e) = opt {
-                rewrite_cap_expr(e, plan);
+                rewrite_cap_expr(e, plan, aliases, bound);
             }
         }
         Stmt::Break | Stmt::Continue => {}
         Stmt::Let { value, .. } | Stmt::Const { value, .. } | Stmt::Assign { value, .. } => {
-            rewrite_cap_expr(value, plan)
+            rewrite_cap_expr(value, plan, aliases, bound)
         }
         Stmt::IndexAssign {
             array,
             index,
             value,
         } => {
-            rewrite_cap_expr(array, plan);
-            rewrite_cap_expr(index, plan);
-            rewrite_cap_expr(value, plan);
+            rewrite_cap_expr(array, plan, aliases, bound);
+            rewrite_cap_expr(index, plan, aliases, bound);
+            rewrite_cap_expr(value, plan, aliases, bound);
         }
         Stmt::FieldAssign { object, value, .. } => {
-            rewrite_cap_expr(object, plan);
-            rewrite_cap_expr(value, plan);
+            rewrite_cap_expr(object, plan, aliases, bound);
+            rewrite_cap_expr(value, plan, aliases, bound);
         }
         Stmt::If {
             condition,
             then_block,
             else_block,
         } => {
-            rewrite_cap_expr(condition, plan);
-            rewrite_cap_body(then_block, plan);
+            rewrite_cap_expr(condition, plan, aliases, bound);
+            rewrite_cap_body(then_block, plan, aliases, bound);
             if let Some(eb) = else_block {
-                rewrite_cap_body(eb, plan);
+                rewrite_cap_body(eb, plan, aliases, bound);
             }
         }
         Stmt::While { condition, body } => {
-            rewrite_cap_expr(condition, plan);
-            rewrite_cap_body(body, plan);
+            rewrite_cap_expr(condition, plan, aliases, bound);
+            rewrite_cap_body(body, plan, aliases, bound);
         }
-        Stmt::Repeat { body } => rewrite_cap_body(body, plan),
+        Stmt::Repeat { body } => rewrite_cap_body(body, plan, aliases, bound),
         Stmt::For {
             start, end, body, ..
         } => {
-            rewrite_cap_expr(start, plan);
-            rewrite_cap_expr(end, plan);
-            rewrite_cap_body(body, plan);
+            rewrite_cap_expr(start, plan, aliases, bound);
+            rewrite_cap_expr(end, plan, aliases, bound);
+            rewrite_cap_body(body, plan, aliases, bound);
         }
         Stmt::ForEach { iterable, body, .. } => {
-            rewrite_cap_expr(iterable, plan);
-            rewrite_cap_body(body, plan);
+            rewrite_cap_expr(iterable, plan, aliases, bound);
+            rewrite_cap_body(body, plan, aliases, bound);
         }
         Stmt::TryCatch {
             try_block,
@@ -1668,24 +2099,34 @@ fn rewrite_cap_stmt(stmt: &mut Stmt, plan: &CapturePlan) {
             finally_block,
             ..
         } => {
-            rewrite_cap_body(try_block, plan);
-            rewrite_cap_body(catch_block, plan);
+            rewrite_cap_body(try_block, plan, aliases, bound);
+            rewrite_cap_body(catch_block, plan, aliases, bound);
             if let Some(fb) = finally_block {
-                rewrite_cap_body(fb, plan);
+                rewrite_cap_body(fb, plan, aliases, bound);
             }
         }
-        Stmt::Defer(inner) | Stmt::Pub(inner) => rewrite_cap_stmt(inner, plan),
+        Stmt::Defer(inner) | Stmt::Pub(inner) => rewrite_cap_stmt(inner, plan, aliases, bound),
         // Unextracted (defer-wrapped) definitions and declarations:
         // nothing to rewrite.
         _ => {}
     }
 }
 
-fn rewrite_cap_expr(expr: &mut Expr, plan: &CapturePlan) {
+fn rewrite_cap_expr(
+    expr: &mut Expr,
+    plan: &CapturePlan,
+    aliases: &HashMap<String, String>,
+    bound: &HashMap<String, usize>,
+) {
     match expr {
         Expr::Call { name, args } => {
             for a in args.iter_mut() {
-                rewrite_cap_expr(a, plan);
+                rewrite_cap_expr(a, plan, aliases, bound);
+            }
+            // Bare aliases of capturing targets route direct so the
+            // hidden chain is passed (see `collect_alias_info`).
+            if let Some(q) = alias_target(name, plan, aliases, bound) {
+                *name = q;
             }
             if plan.needs_chain(name) {
                 args.push(Expr::Call {
@@ -1696,7 +2137,10 @@ fn rewrite_cap_expr(expr: &mut Expr, plan: &CapturePlan) {
         }
         Expr::OptionalCall { callee, args } => {
             for a in args.iter_mut() {
-                rewrite_cap_expr(a, plan);
+                rewrite_cap_expr(a, plan, aliases, bound);
+            }
+            if let Some(q) = alias_target(callee, plan, aliases, bound) {
+                *callee = q;
             }
             if plan.needs_chain(callee) {
                 args.push(Expr::Call {
@@ -1718,36 +2162,36 @@ fn rewrite_cap_expr(expr: &mut Expr, plan: &CapturePlan) {
             }
         }
         Expr::Binary { left, right, .. } => {
-            rewrite_cap_expr(left, plan);
-            rewrite_cap_expr(right, plan);
+            rewrite_cap_expr(left, plan, aliases, bound);
+            rewrite_cap_expr(right, plan, aliases, bound);
         }
         Expr::Unary { expr: e, .. }
         | Expr::ForceUnwrap(e)
         | Expr::Cast { expr: e, .. }
         | Expr::TypeCheck { expr: e, .. } => {
-            rewrite_cap_expr(e, plan);
+            rewrite_cap_expr(e, plan, aliases, bound);
         }
         Expr::InterpolatedString(parts) | Expr::Array(parts) => {
             for p in parts.iter_mut() {
-                rewrite_cap_expr(p, plan);
+                rewrite_cap_expr(p, plan, aliases, bound);
             }
         }
         Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
-            rewrite_cap_expr(array, plan);
-            rewrite_cap_expr(index, plan);
+            rewrite_cap_expr(array, plan, aliases, bound);
+            rewrite_cap_expr(index, plan, aliases, bound);
         }
         Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
-            rewrite_cap_expr(object, plan);
+            rewrite_cap_expr(object, plan, aliases, bound);
         }
         Expr::StructInit { fields, .. } => {
             for (_, v) in fields.iter_mut() {
-                rewrite_cap_expr(v, plan);
+                rewrite_cap_expr(v, plan, aliases, bound);
             }
         }
         Expr::Map(entries) => {
             // Keys stay data (consistent with `rewrite_expr`).
             for (_, v) in entries.iter_mut() {
-                rewrite_cap_expr(v, plan);
+                rewrite_cap_expr(v, plan, aliases, bound);
             }
         }
         Expr::Ternary {
@@ -1755,13 +2199,13 @@ fn rewrite_cap_expr(expr: &mut Expr, plan: &CapturePlan) {
             then_branch,
             else_branch,
         } => {
-            rewrite_cap_expr(condition, plan);
-            rewrite_cap_expr(then_branch, plan);
-            rewrite_cap_expr(else_branch, plan);
+            rewrite_cap_expr(condition, plan, aliases, bound);
+            rewrite_cap_expr(then_branch, plan, aliases, bound);
+            rewrite_cap_expr(else_branch, plan, aliases, bound);
         }
         Expr::NullCoalesce { value, default } => {
-            rewrite_cap_expr(value, plan);
-            rewrite_cap_expr(default, plan);
+            rewrite_cap_expr(value, plan, aliases, bound);
+            rewrite_cap_expr(default, plan, aliases, bound);
         }
         Expr::Number(_) | Expr::Float(_) | Expr::String(_) | Expr::Null => {}
     }

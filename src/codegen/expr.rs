@@ -2967,6 +2967,25 @@ impl CodeGen {
                     return;
                 }
 
+                // alya-lang/alya#100: captured callees (locals holding
+                // closures) load through the cell into a temp slot
+                // BEFORE spilling args: the temp sits below the spills
+                // so call_target pops land on arguments, and tracking
+                // (via `initial_stack_offset` below) keeps it.
+                let cap_callee_tmp = if let Some(loc) = self.capture_loc(call_name) {
+                    self.emit_cap_read(loc);
+                    arch::emit_allocate_var(
+                        &mut self.output,
+                        self.arch,
+                        &mut self.ctx.stack_offset,
+                    );
+                    let tmp = self.ctx.stack_offset;
+                    arch::emit_store_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
+                    Some(tmp)
+                } else {
+                    None
+                };
+
                 let initial_stack_offset = self.ctx.stack_offset;
                 let word_size: i32 = match self.arch {
                     Architecture::ARM64 => 16,
@@ -3065,19 +3084,9 @@ impl CodeGen {
                 }
                 self.ctx.stack_offset = initial_stack_offset;
 
-                // alya-lang/alya#100: captured callees (locals holding
-                // closures) load through the cell into a temp slot, then
-                // take the guarded indirect path (whose closure probe
-                // passes the stored chain).
-                if let Some(loc) = self.capture_loc(call_name) {
-                    self.emit_cap_read(loc);
-                    arch::emit_allocate_var(
-                        &mut self.output,
-                        self.arch,
-                        &mut self.ctx.stack_offset,
-                    );
-                    let tmp = self.ctx.stack_offset;
-                    arch::emit_store_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
+                // alya-lang/alya#100: captured-callee dispatch (temp was
+                // homed before the spills above, so pops land on args).
+                if let Some(tmp) = cap_callee_tmp {
                     let ro_label = self.ctx.next_label();
                     let call_label = self.ctx.next_label();
                     arch::emit_guarded_indirect_function_call(
@@ -3094,7 +3103,21 @@ impl CodeGen {
                         self.pending_chain_release.is_none(),
                         "chain markers only appear in direct-call args"
                     );
-                    self.ctx.stack_offset = initial_stack_offset;
+                    // Free the dead callee slot: it sits below every
+                    // spill the call popped, so leaving it leaks one
+                    // word of rsp per call and shifts (%rsp)-relative
+                    // consumers (dynamic add/equality read the wrong
+                    // operand — a live closure pointer int-adds into
+                    // garbage). rax (the result) survives: pure add.
+                    match self.arch {
+                        Architecture::X64 => {
+                            self.output.push_str("    add $8, %rsp\n");
+                        }
+                        Architecture::ARM64 => {
+                            self.output.push_str("    add sp, sp, #16\n");
+                        }
+                    }
+                    self.ctx.stack_offset = initial_stack_offset - self.temp_offset();
                     return;
                 }
 
@@ -3222,8 +3245,13 @@ impl CodeGen {
                     );
                     // alya-lang/alya#100: drop the direct call's fresh
                     // chain reference (the callee's retain/release pair
-                    // balanced the shared case).
+                    // balanced the shared case). The result spills
+                    // across: `load_var` targets rax and would destroy
+                    // it (observed: `say g(1)` printed the chain slot
+                    // instead of the result).
                     if let Some(off) = self.pending_chain_release.take() {
+                        arch::emit_push_temp(&mut self.output, self.arch);
+                        self.ctx.stack_offset += self.temp_offset();
                         arch::emit_load_var(
                             &mut self.output,
                             self.arch,
@@ -3236,6 +3264,11 @@ impl CodeGen {
                             self.ctx.stack_offset,
                             self.os,
                         );
+                        arch::emit_pop_temp(&mut self.output, self.arch);
+                        self.ctx.stack_offset -= self.temp_offset();
+                        // (The chain spill slot was already forgotten
+                        // pre-call in `emit_closure_chain`: nothing
+                        // remains pushed here.)
                     }
                 }
             }

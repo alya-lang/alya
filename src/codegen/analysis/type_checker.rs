@@ -1152,7 +1152,16 @@ impl TypeChecker {
         if let Some(enc) = enclosing {
             if self.closure_fns.contains(enc) && !self.checked_lambdas.contains(enc) {
                 if let Some(s) = self.lambda_bodies.get(enc).cloned() {
-                    self.check_stmt(&s)?;
+                    // Route the enclosing lambda through the adopted
+                    // path (snapshot scopes): a direct `check_stmt`
+                    // would misclassify it as a nested definition
+                    // (current_fn_name is set here) and check it with
+                    // live (= global-only) scopes, rejecting transitive
+                    // captures like `a` in outer>mid>inner.
+                    let saved_fn = self.current_fn_name.take();
+                    let result = self.check_stmt(&s);
+                    self.current_fn_name = saved_fn;
+                    result?;
                 }
             }
         }
