@@ -2557,9 +2557,66 @@ fn expand_defaults_in_expr(
                 let (param_count, _, has_rest) = def;
                 args.len() <= *param_count || *has_rest
             };
-            let target_def = fn_defs
-                .get(name)
-                .filter(arity_ok)
+            // UFCS method-first default filling (alya-lang/alya#174): a
+            // call whose first argument is a potential receiver
+            // (identifier or indexed identifier) may target a
+            // `Struct__name` method even when a same-named free function
+            // exists. The bare exact hit below would otherwise splice
+            // the free function's defaults into the method call (e.g.
+            // `ctx.command()` + free `command(name, desc="", ...)`
+            // became `command(ctx, "", [])` and failed check arity as
+            // `expects 1, found 3`). When exactly one method-shaped def
+            // (`*__{name}`) fits the supplied arity exactly (the
+            // receiver counts as `self`), fill from it (usually a
+            // no-op) and skip the free def — mirroring the checker's
+            // and codegen's method-first UFCS precedence. Zero or
+            // several fits fall through to the legacy path (counting
+            // keeps this deterministic regardless of map order).
+            // Qualified names (`mod::f`) already pin their module, so
+            // they keep the legacy path.
+            let method_def: Option<&(usize, Vec<Option<Expr>>, bool)> = if name.contains("::") {
+                None
+            } else {
+                let receiver_like = matches!(
+                    args.first(),
+                    Some(Expr::Identifier(_)) | Some(Expr::Index { .. })
+                );
+                if receiver_like {
+                    let suffix = format!("__{}", name);
+                    let mut fits = fn_defs
+                        .iter()
+                        .filter(|(k, (param_count, _, _))| {
+                            k.ends_with(&suffix) && args.len() == *param_count
+                        })
+                        .map(|(_, v)| v);
+                    // Imported definitions are recorded under several
+                    // spellings (`cli::CliContext__command` plus its bare
+                    // form); spellings of one definition share the exact
+                    // same defaults, so dedupe by value. Two genuinely
+                    // different fits stay ambiguous and fall through.
+                    let first = fits.next();
+                    let mut distinct = first.is_some();
+                    if let Some(f) = first {
+                        for other in fits.by_ref() {
+                            if other != f {
+                                distinct = false;
+                                break;
+                            }
+                        }
+                        if distinct {
+                            first
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+            let target_def = method_def
+                .or_else(|| fn_defs.get(name).filter(arity_ok))
                 .or_else(|| fn_defs.get(bare).filter(arity_ok))
                 .or_else(|| {
                     let suffix = format!("__{}", name);

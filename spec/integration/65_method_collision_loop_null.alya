@@ -1,0 +1,79 @@
+# ==============================================================================
+# Alya Integration Fixture 65 (entry): method/free-function name
+# collisions resolve UFCS-first at every stage.
+# Distilled from: alya-lang/alya#174 (a free `command` beside a
+# `S.command` method misresolved `s.command()` to a bogus arity
+# error: the parser's default-arg expansion spliced the free
+# function's defaults into the method call via the bare-name table,
+# and `is null` guards on loop-carried matches folded on pre-loop
+# types for later iterations).
+# Guards:
+#   1. Method call with a same-named free function present binds the
+#      receiver and runs the method (no arity error, no default fill).
+#   2. Free calls with defaults still fill from the free definition.
+#   3. Null-initialized search accumulators assigned in loops or
+#      else-branches check exactly afterwards (`is null`/`is not
+#      null`), including guards positioned before the assignment
+#      (later iterations).
+# ==============================================================================
+
+struct S
+    x: int
+end
+
+function command(name: string, description: string = "", aliases = [])
+    return name
+end
+
+function S.command(self: S) -> string
+    return "m"
+end
+
+function find_box(items, want: int)
+    let found = null
+    for it in items
+        if it.x == want
+            found = it
+        end
+    end
+    return found
+end
+
+function test_method_free_collision()
+    let s = S { x: 1 }
+    assert s.command() == "m"
+    assert command("a") == "a"
+    assert command("a", "b") == "a"
+    assert command("a", "b", ["c"]) == "a"
+end
+
+function test_loop_accumulator_null()
+    let items = [S { x: 1 }, S { x: 2 }]
+    let f = find_box(items, 2)
+    assert (f is not null)
+    assert not (f is null)
+    assert f.x == 2
+    let g = find_box(items, 9)
+    assert (g is null)
+    assert not (g is not null)
+end
+
+function test_else_branch_assign_null()
+    let found = null
+    if 1 == 2
+        say "then"
+    else
+        found = S { x: 3 }
+    end
+    assert not (found is null)
+    assert found.x == 3
+end
+
+function main()
+    test_method_free_collision()
+    test_loop_accumulator_null()
+    test_else_branch_assign_null()
+    say "integration 65_method_collision_loop_null: OK"
+end
+
+main()

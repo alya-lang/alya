@@ -268,4 +268,37 @@ impl CodeGenContext {
             }
         }
     }
+
+    /// Preserves null-possibility across loop exits
+    /// (alya-lang/alya#174). Exits revert to the pre-loop map (a
+    /// 0-trip path keeps every prior value), so a null-initialized
+    /// search accumulator assigned in the body (`let found = null;
+    /// for ... { found = x }`) would keep its `Null` type and fold
+    /// later `is null` checks to a lie even when the loop stored a
+    /// value. When the post-body map already flagged
+    /// `var_maybe_null`, or a pre-loop `Null` became non-`Null` in
+    /// the body, carry the marker so `is null` (and the `is_number`
+    /// gate) falls back to the runtime check on both paths. Types
+    /// themselves still revert (slot identity for releases).
+    pub fn preserve_maybe_null_across_loop(&mut self, post_body: &HashMap<String, VarType>) {
+        let mut mark = Vec::new();
+        for (name, pre_v) in &self.variables {
+            if !matches!(pre_v, VarType::Null(_)) {
+                continue;
+            }
+            if post_body.contains_key(&format!("var_maybe_null:{}", name)) {
+                mark.push(name.clone());
+                continue;
+            }
+            if let Some(post_v) = post_body.get(name) {
+                if !matches!(post_v, VarType::Null(_)) {
+                    mark.push(name.clone());
+                }
+            }
+        }
+        for name in mark {
+            self.variables
+                .insert(format!("var_maybe_null:{}", name), VarType::Number(0));
+        }
+    }
 }

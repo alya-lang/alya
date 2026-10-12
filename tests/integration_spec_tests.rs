@@ -88,6 +88,7 @@ fn entry_files() -> Vec<String> {
         "62_heterogeneous_tuple_returns.alya".to_string(),
         "63_float_method_accumulator_divide.alya".to_string(),
         "64_null_guard_float_twin.alya".to_string(),
+        "65_method_collision_loop_null.alya".to_string(),
     ]
 }
 

@@ -682,6 +682,33 @@ impl CodeGen {
                 }
             }
         }
+        // Mirror for the else branch (alya-lang/alya#174): assignments
+        // that only happen in `else` (e.g. desugared `when` arms, like
+        // cli's subcommand descent) must survive exactly like
+        // then-branch ones, or later `is null` checks fold on the stale
+        // pre-if type. Checked against the post-then map so a
+        // conflicting then-assignment keeps today's behavior.
+        // TEMP-DISABLED for isolation (&& false below).
+        if let Some(else_vars) = &else_variables {
+            for (var_name, var_type) in else_vars.iter() {
+                if let Some(cur_type) = final_variables.get(var_name) {
+                    if matches!(cur_type, VarType::Null(_))
+                        && !matches!(var_type, VarType::Null(_))
+                    {
+                        final_variables.insert(var_name.clone(), var_type.clone());
+                        let then_assigned_non_null = then_variables
+                            .get(var_name)
+                            .is_some_and(|t| !matches!(t, VarType::Null(_)));
+                        if !then_assigned_non_null {
+                            final_variables.insert(
+                                format!("var_maybe_null:{}", var_name),
+                                VarType::Number(0),
+                            );
+                        }
+                    }
+                }
+            }
+        }
 
         // alya-lang/alya#171: carry tag-spill slots from the
         // fall-through sides only (a divergent `return`/`throw` branch
@@ -736,6 +763,86 @@ impl CodeGen {
         self.output.push_str(&format!("{}:\n", end_label));
         self.ctx.stack_offset = initial_stack_offset;
         self.ctx.variables = final_variables;
+    }
+
+    /// Pre-marks null-typed locals assigned anywhere in a loop body
+    /// (alya-lang/alya#174): a check positioned before the assignment
+    /// still executes on later iterations with the stored value (e.g.
+    /// cli's `if active_cmd is null` at the top of the token loop,
+    /// with the match assigned below), so a pre-loop `Null` fold
+    /// would lie after the first iteration. Marking forces the
+    /// runtime check on every iteration (the first still answers
+    /// null). Runs before condition/body emission so loop conditions
+    /// benefit too. Skips nested functions (fresh frames); loop exit
+    /// merging covers whatever this misses.
+    pub(super) fn pre_mark_loop_assigned_nulls(&mut self, body: &[Stmt]) {
+        fn collect_assigned(stmts: &[Stmt], names: &mut Vec<String>) {
+            for s in stmts {
+                match s.inner_stmt() {
+                    Stmt::Assign { name, .. } => {
+                        if !names.contains(name) {
+                            names.push(name.clone());
+                        }
+                    }
+                    Stmt::Let { name, .. } => {
+                        if !names.contains(name) {
+                            names.push(name.clone());
+                        }
+                    }
+                    Stmt::If {
+                        then_block,
+                        else_block,
+                        ..
+                    } => {
+                        collect_assigned(then_block, names);
+                        if let Some(eb) = else_block {
+                            collect_assigned(eb, names);
+                        }
+                    }
+                    Stmt::While { body, .. }
+                    | Stmt::Repeat { body }
+                    | Stmt::For { body, .. }
+                    | Stmt::ForEach { body, .. } => {
+                        collect_assigned(body, names);
+                    }
+                    Stmt::TryCatch {
+                        try_block,
+                        catch_block,
+                        finally_block,
+                        ..
+                    } => {
+                        collect_assigned(try_block, names);
+                        collect_assigned(catch_block, names);
+                        if let Some(fb) = finally_block {
+                            collect_assigned(fb, names);
+                        }
+                    }
+                    Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                        collect_assigned(std::slice::from_ref(inner), names);
+                    }
+                    // Nested functions own their frames; do not descend.
+                    Stmt::Function { .. } => {}
+                    _ => {}
+                }
+            }
+        }
+        let mut names = Vec::new();
+        collect_assigned(body, &mut names);
+        for name in names {
+            if matches!(
+                self.ctx.variables.get(&name),
+                Some(VarType::Null(_))
+            ) && !self
+                .ctx
+                .variables
+                .contains_key(&format!("var_maybe_null:{}", name))
+            {
+                self.ctx.variables.insert(
+                    format!("var_maybe_null:{}", name),
+                    VarType::Number(0),
+                );
+            }
+        }
     }
 
     /// A `let` value shape safe to pre-null in a loop entry: literals,
@@ -859,6 +966,10 @@ impl CodeGen {
         let start_label = self.ctx.next_label();
         let end_label = self.ctx.next_label();
         let loop_body_variables = self.ctx.variables.clone();
+        // alya-lang/alya#174: pre-mark null-typed locals assigned in the
+        // body so checks positioned before the assignment (later
+        // iterations included) use the runtime check, not a pre-loop fold.
+        self.pre_mark_loop_assigned_nulls(body);
         // Pre-null loop-fresh heap `let` slots once, before iterations:
         // every rebinding then targets a null-or-valid slot, so the
         // release is always safe (issue #80). Tracking is inserted
@@ -891,6 +1002,10 @@ impl CodeGen {
         // alya-lang/alya#171: loop-carried tag slots survive the exit
         // when pinned at function entry (same offset every iteration).
         self.ctx.restore_pinned_tag_slots(&post_body_vars);
+        // alya-lang/alya#174: null-possibility survives the exit so
+        // null-initialized accumulators assigned in the body do not
+        // fold later `is null` checks.
+        self.ctx.preserve_maybe_null_across_loop(&post_body_vars);
 
         arch::emit_jump(&mut self.output, self.arch, &start_label);
         self.output.push_str(&format!("{}:\n", end_label));
@@ -903,6 +1018,10 @@ impl CodeGen {
         let start_label = self.ctx.next_label();
         let end_label = self.ctx.next_label();
         let loop_body_variables = self.ctx.variables.clone();
+        // alya-lang/alya#174: pre-mark null-typed locals assigned in the
+        // body so checks positioned before the assignment (later
+        // iterations included) use the runtime check, not a pre-loop fold.
+        self.pre_mark_loop_assigned_nulls(body);
         let mut prenull_names = Vec::new();
         self.collect_loop_heap_lets(body, &loop_body_variables, &mut prenull_names);
         let prenulled = self.pre_null_loop_vars(&prenull_names);
@@ -930,6 +1049,10 @@ impl CodeGen {
         // alya-lang/alya#171: loop-carried tag slots survive the exit
         // when pinned at function entry (same offset every iteration).
         self.ctx.restore_pinned_tag_slots(&post_body_vars);
+        // alya-lang/alya#174: null-possibility survives the exit so
+        // null-initialized accumulators assigned in the body do not
+        // fold later `is null` checks.
+        self.ctx.preserve_maybe_null_across_loop(&post_body_vars);
 
         arch::emit_jump(&mut self.output, self.arch, &start_label);
         self.output.push_str(&format!("{}:\n", end_label));
@@ -970,6 +1093,10 @@ impl CodeGen {
         let step_label = self.ctx.next_label();
         let end_label = self.ctx.next_label();
         let loop_body_variables = self.ctx.variables.clone();
+        // alya-lang/alya#174: pre-mark null-typed locals assigned in the
+        // body so checks positioned before the assignment (later
+        // iterations included) use the runtime check, not a pre-loop fold.
+        self.pre_mark_loop_assigned_nulls(body);
         let mut prenull_names = Vec::new();
         self.collect_loop_heap_lets(body, &loop_body_variables, &mut prenull_names);
         let prenulled = self.pre_null_loop_vars(&prenull_names);
@@ -1025,6 +1152,10 @@ impl CodeGen {
         let post_body_vars = std::mem::replace(&mut self.ctx.variables, loop_body_variables);
         // alya-lang/alya#171: loop-carried tag slots survive (see while).
         self.ctx.restore_pinned_tag_slots(&post_body_vars);
+        // alya-lang/alya#174: null-possibility survives the exit so
+        // null-initialized accumulators assigned in the body do not
+        // fold later `is null` checks.
+        self.ctx.preserve_maybe_null_across_loop(&post_body_vars);
 
         self.output.push_str(&format!("{}:\n", step_label));
         arch::emit_increment_var(
@@ -1166,6 +1297,10 @@ impl CodeGen {
             let end_label = self.ctx.next_label();
             let loop_body_stack_offset = self.ctx.stack_offset;
             let loop_body_variables = self.ctx.variables.clone();
+        // alya-lang/alya#174: pre-mark null-typed locals assigned in the
+        // body so checks positioned before the assignment (later
+        // iterations included) use the runtime check, not a pre-loop fold.
+        self.pre_mark_loop_assigned_nulls(body);
 
             self.ctx.push_loop(
                 step_label.clone(),
@@ -1436,6 +1571,10 @@ impl CodeGen {
         let map_label = self.ctx.next_label();
         let done_label = self.ctx.next_label();
         let loop_body_variables = self.ctx.variables.clone();
+        // alya-lang/alya#174: pre-mark null-typed locals assigned in the
+        // body so checks positioned before the assignment (later
+        // iterations included) use the runtime check, not a pre-loop fold.
+        self.pre_mark_loop_assigned_nulls(body);
         let mut prenull_names = Vec::new();
         self.collect_loop_heap_lets(body, &loop_body_variables, &mut prenull_names);
         let prenulled = self.pre_null_loop_vars(&prenull_names);
@@ -1489,6 +1628,10 @@ impl CodeGen {
         let post_body_vars = std::mem::replace(&mut self.ctx.variables, loop_body_variables);
         // alya-lang/alya#171: loop-carried tag slots survive (see while).
         self.ctx.restore_pinned_tag_slots(&post_body_vars);
+        // alya-lang/alya#174: null-possibility survives the exit so
+        // null-initialized accumulators assigned in the body do not
+        // fold later `is null` checks.
+        self.ctx.preserve_maybe_null_across_loop(&post_body_vars);
 
         self.output.push_str(&format!("{}:\n", step_label));
         arch::emit_increment_var(
