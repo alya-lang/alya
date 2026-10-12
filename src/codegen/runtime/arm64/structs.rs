@@ -135,10 +135,13 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     // fn_alya_closure_new(code, chain): closure value `{code, chain}`
     // (alya-lang/alya#100). Same header/shape discipline as fat
     // pointers, but magic 0x5A110005. The chain transfers (no retain).
-    // Named `fn_*` for the internal call protocol.
-    out.push_str(&format!(".global {}fn_alya_closure_new\n", p));
+    // Named `fn_*` for the internal call protocol. Like every other
+    // runtime symbol in this file, defined WITHOUT the Mach-O `_`
+    // prefix: callers `bl` the bare name (same object, no dynamic
+    // link), and a prefixed definition would not resolve.
+    out.push_str(".global fn_alya_closure_new\n");
     out.push_str(".align 2\n");
-    out.push_str(&format!("{}fn_alya_closure_new:\n", p));
+    out.push_str("fn_alya_closure_new:\n");
     out.push_str("    stp x29, x30, [sp, #-32]!\n");
     out.push_str("    mov x29, sp\n");
     out.push_str("    stp x19, x20, [sp, #16]\n");

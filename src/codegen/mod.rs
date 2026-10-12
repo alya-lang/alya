@@ -3008,7 +3008,7 @@ impl CodeGen {
                 self.output.push_str("    ldr x0, [sp], #16\n");
                 self.output
                     .push_str(&format!("    cbz w9, {}\n", l_unknown));
-                self.output.push_str("    ldr w9, [x0, #-16]\n");
+                self.output.push_str("    ldur w9, [x0, #-16]\n");
                 self.output.push_str(&format!(
                     "    movz w10, #{}, lsl #16\n",
                     (kinds::CLOSURE_MAGIC >> 16) & 0xFFFF
