@@ -1,0 +1,68 @@
+# ==============================================================================
+# Alya Integration Fixture 64 (entry): `is null` guards stay exact when a
+# later `float()` call exists in the same function.
+# Distilled from: alya-lang/alya#177 (textually identical null guards
+# diverged: with a later `return float(v)` the earlier `if v is null`
+# failed to recognize null and fell through to `float(null)`; the
+# `int(v)` twin worked. Broke `sqlite`'s `row_float`, shaped like the
+# working `row_int`).
+# Root cause: an existential `fn_ret_flt` (one float arm beside a
+# `return null` path) folded `is null` to false at callers, skipping
+# the runtime tag check that answers exactly. A spilled tag slot or a
+# tag-carrying read now always wins over may-fact kind markers.
+# Guards:
+#   1. int/float twin guards agree on null, int, and float inputs.
+#   2. `let`-bound call results check exactly (`is null`/`is float`/
+#      `is int`, including the null-tagged dynamic).
+#   3. Direct-literal null arg guards correctly.
+# ==============================================================================
+
+function ret_int_path(v)
+    if v is null
+        return null
+    end
+    return int(v)
+end
+
+function ret_float_path(v)
+    if v is null
+        return null
+    end
+    return float(v)
+end
+
+function test_twins_agree()
+    let row = { "note": null }
+    assert (ret_int_path(row["note"]) is null)
+    assert (ret_float_path(row["note"]) is null)
+    assert (ret_float_path(null) is null)
+    assert (ret_int_path(null) is null)
+    assert (ret_int_path(7) == 7)
+    assert (ret_float_path(7) == 7.0)
+    assert not (ret_int_path(7) is null)
+    assert not (ret_float_path(7) is null)
+    assert not (ret_float_path(0.5) is null)
+end
+
+function test_let_bound_checks()
+    let row = { "note": null }
+    let r = ret_float_path(row["note"])
+    assert (r is null)
+    assert not (r is float)
+    assert not (r is int)
+    let f = ret_float_path(1.5)
+    assert (f == 1.5)
+    assert (f is float)
+    assert not (f is null)
+    let n = ret_int_path(41)
+    assert (n == 41)
+    assert not (n is null)
+end
+
+function main()
+    test_twins_agree()
+    test_let_bound_checks()
+    say "integration 64_null_guard_float_twin: OK"
+end
+
+main()

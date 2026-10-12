@@ -87,6 +87,7 @@ fn entry_files() -> Vec<String> {
         "61_null_tag_reassign.alya".to_string(),
         "62_heterogeneous_tuple_returns.alya".to_string(),
         "63_float_method_accumulator_divide.alya".to_string(),
+        "64_null_guard_float_twin.alya".to_string(),
     ]
 }
 

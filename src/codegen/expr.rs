@@ -4469,11 +4469,31 @@ impl CodeGen {
                 let is_null = is_null_expr(expr, &self.ctx.variables);
                 // alya-lang/alya#170: folding `is null` to 0 requires proven integer; dynamic
                 // or rebound locals must run the runtime test so let-bound nulls are not dropped.
-                let is_non_null = is_proven_int_expr(expr, &self.ctx.variables)
+                // alya-lang/alya#177: may-fact kind markers (e.g. an existential
+                // fn_ret_flt beside a `return null` path) must not fold away the
+                // runtime check when the value can answer its kind at runtime:
+                // a spilled tag slot or a tag-carrying read reports exactly,
+                // while the fold would lie for the null path.
+                let has_tag_slot = if let Expr::Identifier(id) = expr {
+                    self.ctx
+                        .variables
+                        .get(&format!("var_tag_slot:{}", id))
+                        .cloned()
+                } else {
+                    None
+                };
+                let tag_answers = matches!(self.arch, Architecture::X64 | Architecture::ARM64)
+                    && ((matches!(
+                        expr,
+                        Expr::Index { .. } | Expr::Ternary { .. } | Expr::Call { .. }
+                    ) && is_tag_carrying_read(expr, &self.ctx.variables))
+                        || has_tag_slot.is_some());
+                let is_non_null = (is_proven_int_expr(expr, &self.ctx.variables)
                     || is_float_expr(expr, &self.ctx.variables)
                     || is_string_fold_true(expr, &self.ctx.variables)
                     || is_array_fold_true(expr, &self.ctx.variables)
-                    || is_map_fold_true(expr, &self.ctx.variables);
+                    || is_map_fold_true(expr, &self.ctx.variables))
+                    && !tag_answers;
                 if is_null {
                     arch::emit_load_num(&mut self.output, self.arch, if negated { 0 } else { 1 });
                     return;
@@ -4483,14 +4503,6 @@ impl CodeGen {
                     return;
                 }
                 // alya-lang/alya#170: reload spilled runtime kind tag from var_tag_slot for dynamic type checking.
-                let has_tag_slot = if let Expr::Identifier(id) = expr {
-                    self.ctx
-                        .variables
-                        .get(&format!("var_tag_slot:{}", id))
-                        .cloned()
-                } else {
-                    None
-                };
                 if matches!(self.arch, Architecture::X64 | Architecture::ARM64)
                     && ((matches!(
                         expr,
