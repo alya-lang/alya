@@ -1220,6 +1220,87 @@ main()
     }
 }
 
+// ---- L. #55 dynamic tag index dispatch and conflict safety net ----
+
+#[test]
+fn test_tags_dynamic_index_branch_heterogeneous() {
+    // alya-lang/alya#55 Phase 2: call sites returning heterogeneous kinds
+    // (dynamic branch returns) cannot be statically specialized by dynspec.
+    // They must route safely at runtime via dynamic_index_get without segfaulting.
+    let code = r#"
+function get_dyn(flag)
+    if flag
+        return "alya"
+    else
+        return [97, 108, 121, 97]
+    end
+end
+
+function usame(a, b)
+    if len(a) != len(b)
+        return 0
+    end
+    let i = 0
+    while i < len(a)
+        if a[i] != b[i]
+            return 0
+        end
+        i += 1
+    end
+    return 1
+end
+
+function main()
+    let s = get_dyn(true)
+    let a = get_dyn(false)
+    say usame(s, "alya")
+    say usame(a, [97, 108, 121, 97])
+    say usame(s, "other")
+    say usame(a, [1, 2, 3])
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "1\n1\n0\n0\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_tags_untyped_bigint_and_float_preservation() {
+    // alya-lang/alya#55, #152: large 64-bit integers and floats passed through
+    // untyped parameters to int(v) / float(v) must not suffer truncation or
+    // raw-bit coercion heuristics.
+    let code = r#"
+function cast_i(v)
+    return int(v)
+end
+
+function cast_f(v)
+    return float(v)
+end
+
+function main()
+    let m = { "big": 4636420632005836800, "small": 42, "flt": 19.99 }
+    say cast_i(m["big"])
+    say cast_i(m["small"])
+    say cast_f(m["flt"])
+    say cast_i(12345678901234)
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(
+            output, "4636420632005836800\n42\n19.99\n12345678901234\n",
+            "Got: {}",
+            output
+        );
+    }
+}
+
 // NOTE (structural, not locked in): `is float` on a truly opaque
 // value, unknown-tag writes, forward-reference/recursion misses, and
 // NaN-boxing/pointer-tags (rejected) stay out of this matrix.

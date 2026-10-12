@@ -1164,3 +1164,42 @@ say minner()
         assert_eq!(output, "42\n[1, 2]\n42\n{k: 1}\n", "Got: {}", output);
     }
 }
+
+#[test]
+fn test_e2e_untyped_polymorphic_callsite_specialization() {
+    // alya-lang/alya#55, #132: untyped parameters with multi-kind indexing
+    // specialize per call site, preventing string inference poisoning and
+    // 0xC0000005 access violations.
+    let code = r#"
+function usame(a, b)
+    if len(a) != len(b)
+        return 0
+    end
+    let i = 0
+    while i < len(a)
+        if a[i] != b[i]
+            return 0
+        end
+        i += 1
+    end
+    return 1
+end
+
+function main()
+    let s1 = "hello"
+    let s2 = "hello"
+    let a1 = [72, 101, 0]
+    let a2 = [72, 101, 0]
+    say usame(s1, s2)
+    say usame(a1, a2)
+    say usame("abc", "abd")
+    say usame([1, 2], [1, 3])
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "1\n1\n0\n0\n", "Got: {}", output);
+    }
+}

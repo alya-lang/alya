@@ -1656,4 +1656,73 @@ mod tests {
             "TcpS__write"
         );
     }
+
+    #[test]
+    fn collect_candidates_untyped_poly_indexing_and_casts() {
+        let program = Program {
+            statements: vec![
+                Stmt::Function {
+                    name: "usame".to_string(),
+                    params: vec!["a".to_string(), "b".to_string()],
+                    param_types: vec![None, None],
+                    return_type: None,
+                    defaults: vec![None, None],
+                    body: vec![Stmt::Return(Some(Expr::Binary {
+                        left: Box::new(Expr::Index {
+                            array: Box::new(Expr::Identifier("a".to_string())),
+                            index: Box::new(Expr::Number(0)),
+                        }),
+                        op: BinaryOp::Equal,
+                        right: Box::new(Expr::Index {
+                            array: Box::new(Expr::Identifier("b".to_string())),
+                            index: Box::new(Expr::Number(0)),
+                        }),
+                    }))],
+                    type_params: vec![],
+                    attributes: vec![],
+                },
+                Stmt::Function {
+                    name: "to_num".to_string(),
+                    params: vec!["v".to_string()],
+                    param_types: vec![None],
+                    return_type: None,
+                    defaults: vec![None],
+                    body: vec![Stmt::Return(Some(Expr::Call {
+                        name: "int".to_string(),
+                        args: vec![Expr::Identifier("v".to_string())],
+                    }))],
+                    type_params: vec![],
+                    attributes: vec![],
+                },
+                Stmt::Function {
+                    name: "annotated_geti".to_string(),
+                    params: vec!["arr".to_string()],
+                    param_types: vec![None],
+                    return_type: Some("int".to_string()),
+                    defaults: vec![None],
+                    body: vec![Stmt::Return(Some(Expr::Index {
+                        array: Box::new(Expr::Identifier("arr".to_string())),
+                        index: Box::new(Expr::Number(0)),
+                    }))],
+                    type_params: vec![],
+                    attributes: vec![],
+                },
+            ],
+        };
+        let candidates = collect_candidates(&program);
+        assert!(
+            candidates.contains_key("usame"),
+            "usame should be a candidate"
+        );
+        assert!(candidates.get("usame").unwrap().tests);
+        assert!(
+            candidates.contains_key("to_num"),
+            "to_num should be a candidate"
+        );
+        assert!(candidates.get("to_num").unwrap().tests);
+        assert!(
+            !candidates.contains_key("annotated_geti")
+                || !candidates.get("annotated_geti").unwrap().tests
+        );
+    }
 }
