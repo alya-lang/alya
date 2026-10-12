@@ -67,8 +67,8 @@ For low-level systems programming, memory-constrained buffers, and C interop, ex
 ### 1.4 Explicit Conversions
 - Conversions are explicit by convention: `int(expr)`, `float(expr)`, `str(expr)`, `bool(expr)`, or string interpolation `f"count: {25}"`.
 - The `+` operator stringifies its right operand when the left operand is a string (`"count: " + 25` evaluates to `"count: 25"`). Relying on this implicit stringification is discouraged; prefer interpolation (`f"count: {25}"`) or explicit `str(25)` for readability.
-- `int(expr)` dispatch: proven integers pass through with no conversion (routing them through the string parser misread any value `>= 65536` as a pointer); tag-carrying reads (map indexing, ternary, calls) dispatch on the runtime kind tag (`INT` passes through, `FLOAT` truncates, `STRING` parses); rebound-to-dynamic locals take the heuristic so stale markers never passthrough; untagged dynamics keep the pointer-range heuristic. Opaque dynamics that cross an untyped function boundary lose their tags and stay best-effort (see §1.7).
-- `float(expr)` dispatch mirrors `int()`: statically-known strings parse, floats pass through untouched, proven integers convert exactly, and tag-carrying reads dispatch on the kind tag (`FLOAT` passes through, `INT` converts, anything else parses). Unknown dynamics ride the same runtime heuristic (float bits pass through, strings parse); opaque `>= 65536` integers keep the `int()` mirror's faulting residual (see §1.7).
+- `int(expr)` dispatch: proven integers pass through with no conversion (routing them through the string parser misread any value `>= 65536` as a pointer); tag-carrying reads (map indexing, ternary, calls) dispatch on the runtime kind tag (`INT` passes through, `FLOAT` truncates, `STRING` parses); rebound-to-dynamic locals take the heuristic so stale markers never passthrough; untagged dynamics keep the pointer-range heuristic. Where untyped parameters are forwarded to `int()`, call sites monomorphize per caller kind (`dynspec`, Chapter 07 §1.1) so proven values retain concrete types across function boundaries without decaying into heuristics (alya-lang/alya#55).
+- `float(expr)` dispatch mirrors `int()`: statically-known strings parse, floats pass through untouched, proven integers convert exactly, and tag-carrying reads dispatch on the kind tag (`FLOAT` passes through, `INT` converts, anything else parses). Where untyped parameters are forwarded to `float()`, call sites monomorphize per caller kind (`dynspec`) so concrete floats and ints pass through cleanly (alya-lang/alya#55). Unknown untagged dynamics ride the runtime heuristic (float bits pass through, strings parse).
 
 ---
 
@@ -163,6 +163,7 @@ behavior marked "current engine" is netted by the existing test suite.
 | heap vs scalar | Heuristic only — address-range checks plus header-kind reads. Large-int and float dynamics can alias heap pointers and fault on the header read (known limitation). |
 | map entry kinds | Yes where the engine's packed entry tags exist (`KIND_NULL = 7`). |
 | array slot kinds | Yes — tagged container sidecar (Phase 1, `KIND_NULL = 7`). |
+| dynamic container index (`c[i]`) | Yes — polymorphic or untyped container index operations route through `fn_dynamic_index_get`, inspecting ARC object header kinds (`0x5A110001` array vs `0x5A110002` map vs string pointer) to prevent segmentation faults (alya-lang/alya#55). |
 
 ##### 0 vs null Discrimination
 Alya guarantees that integer `0` and `null` are distinct across all supported discriminators:

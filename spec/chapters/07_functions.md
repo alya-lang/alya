@@ -17,6 +17,8 @@ end
   - Returning an expression whose static type is incompatible with the declared return type is a **compile-time error** (`TypeError`).
   - Passing arguments with static types incompatible with declared parameter types at call sites is a **compile-time error**.
   - When an execution path reaches `end` in a void function, it returns implicitly. In non-void functions, missing a return statement on any control path is a **compile-time error**.
+- **Gradual Call-Site Monomorphization (`dynspec`, alya-lang/alya#55)**:
+  When an untyped function indexes an unannotated parameter (`x[i]`) or forwards it to type-sensitive operations (`int(x)`, `float(x)`, `len(x)`), the compiler generates monomorphic specializations for each distinct combination of caller argument kinds observed at call sites (e.g. `fn$s_s`, `fn$i_i`). This ensures concrete types and fast paths are preserved per call site without contaminating whole-program type inference. Call sites passing heterogeneous dynamic branch values safely fall back to runtime tag-checked operations (e.g. `fn_dynamic_index_get`) rather than invalid static assumptions.
 
 ### 1.2 Default Parameter Values
 Parameters may specify optional default values. Defaulted parameters must follow all required parameters in the signature:

@@ -83,6 +83,7 @@ fn entry_files() -> Vec<String> {
         "57_net_timeout_recv_bytes.alya".to_string(),
         "58_kind_null_transport.alya".to_string(),
         "59_dynamic_container_is.alya".to_string(),
+        "60_untyped_poly_dispatch.alya".to_string(),
     ]
 }
 
