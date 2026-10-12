@@ -1166,6 +1166,131 @@ say minner()
 }
 
 #[test]
+fn test_e2e_closure_capture_basic() {
+    // alya-lang/alya#100: by-reference shared cells — the closure
+    // reads the owner's cell (31 = 21 + 10).
+    let code = r#"
+function outer(a)
+    let x = 10
+    let adder = function(c)
+        return c + x
+    end
+    return adder(a)
+end
+
+say outer(21)
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "31\n");
+    }
+}
+
+#[test]
+fn test_e2e_closure_counter_shared_cell() {
+    // alya-lang/alya#100: mutation through the cell is shared across
+    // calls (1, 2, 3).
+    let code = r#"
+function make_counter()
+    let n = 0
+    let bump = function()
+        n += 1
+        return n
+    end
+    return bump
+end
+
+function main()
+    let b = make_counter()
+    say b()
+    say b()
+    say b()
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "1\n2\n3\n");
+    }
+}
+
+#[test]
+fn test_e2e_closure_recursion() {
+    // alya-lang/alya#100: self-reference through the binding being
+    // defined; two captured-callee calls as `+` operands share one
+    // rsp-balanced sequence (55, not a heap pointer).
+    let code = r#"
+function main()
+    let f = function(n)
+        if n <= 1
+            return n
+        end
+        return f(n - 1) + f(n - 2)
+    end
+    say f(10)
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "55\n");
+    }
+}
+
+#[test]
+fn test_e2e_closure_transitive_capture() {
+    // alya-lang/alya#100: inner captures across mid (which captures
+    // nothing itself but forwards outer's env): 1 + 2 = 3.
+    let code = r#"
+function outer()
+    let a = 1
+    let mid = function()
+        let b = 2
+        let inner = function()
+            return a + b
+        end
+        return inner()
+    end
+    return mid()
+end
+
+say outer()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "3\n");
+    }
+}
+
+#[test]
+fn test_e2e_closure_method_capture() {
+    // alya-lang/alya#100: a closure over a struct value calls through
+    // a method; the struct lives in the cell (105, 112).
+    let code = r#"
+struct Acc
+    total: int
+end
+
+function Acc.add(self: Acc, v: int) -> int
+    self.total += v
+    return self.total
+end
+
+function main()
+    let acc = Acc { total: 100 }
+    let adder = function(v)
+        return acc.add(v)
+    end
+    say adder(5)
+    say adder(7)
+end
+
+main()
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(output, "105\n112\n");
+    }
+}
+
+#[test]
 fn test_e2e_untyped_polymorphic_callsite_specialization() {
     // alya-lang/alya#55, #132: untyped parameters with multi-kind indexing
     // specialize per call site, preventing string inference poisoning and
