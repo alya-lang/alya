@@ -94,6 +94,7 @@ fn entry_files() -> Vec<String> {
         "68_cross_module_operators.alya".to_string(),
         "69_spawn_closure_capture.alya".to_string(),
         "70_catch_escape_roundtrip.alya".to_string(),
+        "71_volatile_access.alya".to_string(),
     ]
 }
 

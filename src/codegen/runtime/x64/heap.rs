@@ -277,6 +277,79 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n\n");
 
+    // Volatile accessors (alya-lang/alya#190): exact-width single
+    // memory instructions behind an opaque call boundary. Codegen
+    // performs no cross-call load/store elimination (the peephole O2
+    // redundant-load fold provably stops at calls), so each call
+    // performs exactly one access, in program order. This is
+    // compiler-level volatility only: NOT a hardware fence, no
+    // ordering against DMA or other agents.
+    // fn_mem_volatile_load_u32(ptr, offset) -> int (zero-extended)
+    out.push_str(".global fn_mem_volatile_load_u32\n");
+    out.push_str("fn_mem_volatile_load_u32:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    add %rdx, %rcx\n");
+        out.push_str("    movl (%rcx), %eax\n");
+    } else {
+        out.push_str("    add %rsi, %rdi\n");
+        out.push_str("    movl (%rdi), %eax\n");
+    }
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_mem_volatile_store_u32(ptr, offset, val) -> void
+    out.push_str(".global fn_mem_volatile_store_u32\n");
+    out.push_str("fn_mem_volatile_store_u32:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    add %rdx, %rcx\n");
+        out.push_str("    movl %r8d, (%rcx)\n");
+    } else {
+        out.push_str("    add %rsi, %rdi\n");
+        out.push_str("    movl %edx, (%rdi)\n");
+    }
+    out.push_str("    xor %rax, %rax\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_mem_volatile_load_u64(ptr, offset) -> int
+    out.push_str(".global fn_mem_volatile_load_u64\n");
+    out.push_str("fn_mem_volatile_load_u64:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    add %rdx, %rcx\n");
+        out.push_str("    movq (%rcx), %rax\n");
+    } else {
+        out.push_str("    add %rsi, %rdi\n");
+        out.push_str("    movq (%rdi), %rax\n");
+    }
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
+    // fn_mem_volatile_store_u64(ptr, offset, val) -> void
+    out.push_str(".global fn_mem_volatile_store_u64\n");
+    out.push_str("fn_mem_volatile_store_u64:\n");
+    out.push_str("    push %rbp\n");
+    out.push_str("    mov %rsp, %rbp\n");
+    if is_win {
+        out.push_str("    add %rdx, %rcx\n");
+        out.push_str("    movq %r8, (%rcx)\n");
+    } else {
+        out.push_str("    add %rsi, %rdi\n");
+        out.push_str("    movq %rdx, (%rdi)\n");
+    }
+    out.push_str("    xor %rax, %rax\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n\n");
+
     // fn_str_from_ptr
     out.push_str(".global fn_str_from_ptr\n");
     out.push_str("fn_str_from_ptr:\n");

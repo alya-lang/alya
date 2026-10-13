@@ -216,6 +216,10 @@ function mem.copy(dst: ptr, src: ptr, bytes: int)
 function mem.set(dst: ptr, byte_val: u8, count: int)
 function mem.aligned_alloc(bytes: int, alignment: int = 32) -> ptr
 function mem.aligned_free(p: ptr)
+function mem.volatile_load_u32(p: ptr, offset: int) -> int    # one 4B read, zero-extended
+function mem.volatile_store_u32(p: ptr, offset: int, val: int)
+function mem.volatile_load_u64(p: ptr, offset: int) -> int    # one 8B read
+function mem.volatile_store_u64(p: ptr, offset: int, val: int)
 ```
 
 #### 10. `std/math` (Math, Randomness & SIMD Primitives)

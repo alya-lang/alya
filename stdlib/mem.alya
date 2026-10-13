@@ -554,6 +554,69 @@ pub function write_i32(ptr, offset, val)
     mem_poke_i32(ptr, offset, val)
 end
 
+## Volatile 32-bit load with zero extension (alya-lang/alya#190).
+## Performs exactly one 4-byte read: unlike read_i32 (sign-extending),
+## values with the top bit set read back as large positives, and unlike
+## a cached local the access is never folded or reordered by the
+## compiler (opaque call boundary, program order). Compiler-level
+## volatility only: not a hardware fence, no ordering against DMA or
+## other agents. Intended for memory-mapped hardware registers.
+##
+## ### Parameters
+## - `ptr`: Base raw pointer.
+## - `offset`: Byte offset from `ptr`.
+##
+## ### Returns
+## The zero-extended 32-bit value at `ptr + offset`.
+pub function volatile_load_u32(ptr, offset)
+    return mem_volatile_load_u32(ptr, offset)
+end
+
+## Volatile 32-bit store (alya-lang/alya#190).
+## Performs exactly one 4-byte write with the same ordering guarantee
+## as volatile_load_u32. Same memory is observable through peek/read
+## immediately after the call returns.
+##
+## ### Parameters
+## - `ptr`: Base raw pointer.
+## - `offset`: Byte offset from `ptr`.
+## - `val`: Integer value whose low 32 bits are stored.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
+pub function volatile_store_u32(ptr, offset, val)
+    mem_volatile_store_u32(ptr, offset, val)
+end
+
+## Volatile 64-bit load (alya-lang/alya#190).
+## Performs exactly one 8-byte read with the same ordering guarantee
+## as volatile_load_u32.
+##
+## ### Parameters
+## - `ptr`: Base raw pointer.
+## - `offset`: Byte offset from `ptr`.
+##
+## ### Returns
+## The 64-bit value at `ptr + offset`.
+pub function volatile_load_u64(ptr, offset)
+    return mem_volatile_load_u64(ptr, offset)
+end
+
+## Volatile 64-bit store (alya-lang/alya#190).
+## Performs exactly one 8-byte write with the same ordering guarantee
+## as volatile_load_u32.
+##
+## ### Parameters
+## - `ptr`: Base raw pointer.
+## - `offset`: Byte offset from `ptr`.
+## - `val`: Integer value stored.
+##
+## ### Returns
+## 0 (implicit return; no meaningful value is produced).
+pub function volatile_store_u64(ptr, offset, val)
+    mem_volatile_store_u64(ptr, offset, val)
+end
+
 # --- Arena Allocator ---
 
 ## Allocates size bytes from the arena.

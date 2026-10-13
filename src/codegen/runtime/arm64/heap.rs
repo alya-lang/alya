@@ -159,6 +159,44 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    mov x0, #0\n");
     out.push_str("    ret\n\n");
 
+    // Volatile accessors (alya-lang/alya#190): exact-width single
+    // memory instructions behind an opaque call boundary (same
+    // guarantee as the x64 twins: no cross-call elimination, program
+    // order; compiler-level volatility only, not a hardware fence).
+    // fn_mem_volatile_load_u32(x0=ptr, x1=offset) -> w0 (zero-extended)
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_mem_volatile_load_u32\n");
+    out.push_str("fn_mem_volatile_load_u32:\n");
+    out.push_str("    add x0, x0, x1\n");
+    out.push_str("    ldr w0, [x0]\n");
+    out.push_str("    ret\n\n");
+
+    // fn_mem_volatile_store_u32(x0=ptr, x1=offset, x2=val) -> void
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_mem_volatile_store_u32\n");
+    out.push_str("fn_mem_volatile_store_u32:\n");
+    out.push_str("    add x0, x0, x1\n");
+    out.push_str("    str w2, [x0]\n");
+    out.push_str("    mov x0, #0\n");
+    out.push_str("    ret\n\n");
+
+    // fn_mem_volatile_load_u64(x0=ptr, x1=offset) -> x0
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_mem_volatile_load_u64\n");
+    out.push_str("fn_mem_volatile_load_u64:\n");
+    out.push_str("    add x0, x0, x1\n");
+    out.push_str("    ldr x0, [x0]\n");
+    out.push_str("    ret\n\n");
+
+    // fn_mem_volatile_store_u64(x0=ptr, x1=offset, x2=val) -> void
+    out.push_str(".align 2\n");
+    out.push_str(".global fn_mem_volatile_store_u64\n");
+    out.push_str("fn_mem_volatile_store_u64:\n");
+    out.push_str("    add x0, x0, x1\n");
+    out.push_str("    str x2, [x0]\n");
+    out.push_str("    mov x0, #0\n");
+    out.push_str("    ret\n\n");
+
     // fn_str_from_ptr
     out.push_str(".align 2\n");
     out.push_str(".global fn_str_from_ptr\n");

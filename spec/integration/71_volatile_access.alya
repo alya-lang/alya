@@ -1,0 +1,30 @@
+# ==============================================================================
+# Alya Integration Fixture 71 (entry): volatile exact-width memory access
+# Distilled from: alya-lang/alya#190 (no way to express "this access must
+#                 actually happen": peek/poke have no width-exactness for
+#                 u32 MMIO and no documented volatility guarantee).
+# Guards: volatile_load/store_u32 perform exactly one 4-byte access
+#         (0xFFFFFFFF reads back 4294967295, not -1: zero-extension, not
+#         the sign-extending read_i32 path), u64 twins round-trip, and
+#         sequential store/load pairs observe program order through
+#         aliased offsets. Same bytes are observable via read_byte.
+# ==============================================================================
+
+import "std/mem"
+
+function main()
+    let buf = mem.buffer_new(32)
+    mem.volatile_store_u32(buf.ptr, 0, 4294967295)
+    assert mem.volatile_load_u32(buf.ptr, 0) == 4294967295
+    assert mem.read_byte(buf.ptr, 0) == 255
+    mem.volatile_store_u64(buf.ptr, 8, 1234567890123)
+    assert mem.volatile_load_u64(buf.ptr, 8) == 1234567890123
+    mem.volatile_store_u32(buf.ptr, 16, 1)
+    assert mem.volatile_load_u32(buf.ptr, 16) == 1
+    mem.volatile_store_u32(buf.ptr, 16, 2)
+    assert mem.volatile_load_u32(buf.ptr, 16) == 2
+    mem.buffer_free(buf)
+    say "integration 71_volatile_access: OK"
+end
+
+main()

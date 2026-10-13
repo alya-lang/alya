@@ -82,6 +82,7 @@
 # | `68_cross_module_operators.alya` + `68_op_pair_helper.alya` | template `combine_stats` helper (alya-lang/alya#180) | cross-module operator overloads dispatch despite the bare-struct/qualified-method spelling split: unique type-qualified suffix match (exact/bare/normalized first); struct results readable, `==`/`!=`/conditions correct |
 # | `69_spawn_closure_capture.alya` | template concurrency demo (alya-lang/alya#181) | `spawn || =>` closures see captured enclosing locals (trampoline/thread-proc deliver the capture chain; fiber/thread own heap func/arg across spawner return); multi-arg `spawn f(a, b)` thunk path intact |
 # | `70_catch_escape_roundtrip.alya` | catch-escape container round-trip (alya-lang/alya#186) | struct AND string throws round-trip through push / map set / array index-assign / struct field / derived local / string global with exact values; guards the catch-entry tag spill + exact-kind dynamic stores |
+# | `71_volatile_access.alya` | volatile exact-width access (alya-lang/alya#190) | volatile_load/store_u32 perform exactly one 4-byte access (0xFFFFFFFF reads back 4294967295: zero-extension, not the sign-extending read_i32 path); u64 twins + program-order store/load pairs |
 #
 # ## Known collision (deliberate rename)
 #

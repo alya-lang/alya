@@ -48,6 +48,9 @@ For batch workloads (such as per-HTTP-request buffers or game loop frames), Alya
 - Individual allocations incur zero free/ARC overhead.
 - The entire arena is reclaimed in $O(1)$ constant time via `arena.reset()` or upon exiting scope via `defer arena.destroy()`.
 
+### 1.7 Volatile Access (`std/mem`, alya-lang/alya#190)
+`peek`/`poke` have no width-exactness for u32 hardware registers and no documented volatility, so memory-mapped register access needs dedicated intrinsics: `volatile_load_u32` / `volatile_store_u32` (exactly one 4-byte access; loads zero-extend, so `0xFFFFFFFF` reads back `4294967295`) and the `u64` twins. Guarantee: each call performs exactly one access of the declared width, in program order — codegen performs no cross-call load/store elimination (the peephole redundant-load fold provably stops at calls). This is compiler-level volatility only: NOT a hardware fence, with no ordering against DMA or other agents. There is no inline assembly, no `volatile` qualifier, and no interrupt support; anything beyond these intrinsics goes through `extern "C"` (see Chapter 12).
+
 ---
 
 ## 2. Formal Grammar (EBNF Snippet)
