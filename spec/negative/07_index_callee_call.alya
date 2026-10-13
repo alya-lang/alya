@@ -1,0 +1,8 @@
+# EXPECT-FAIL: parse: Cannot call the result of an index expression directly
+# Chapter 07: a call whose callee is an index expression must fail loudly (alya-lang/alya#185).
+function main()
+    let bag = [1, 2]
+    say bag[0](1, 2)
+end
+
+main()

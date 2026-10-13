@@ -1,0 +1,11 @@
+# EXPECT-FAIL: parse: Cannot call a call result directly
+# Chapter 07: a call whose callee is another call must fail loudly (alya-lang/alya#185).
+function getnum() -> int
+    return 7
+end
+
+function main()
+    say getnum()()
+end
+
+main()

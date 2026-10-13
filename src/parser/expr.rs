@@ -691,10 +691,40 @@ impl Parser {
                             args,
                         };
                     } else {
-                        break;
+                        // alya-lang/alya#185: an index callee that is not
+                        // a generic instantiation (`f[T](...)`) used to
+                        // silently drop the call (`bag[0](1, 2)`
+                        // evaluated to `bag[0]`). Fail loudly instead;
+                        // newlines already separate statements, so this
+                        // only fires for same-line parens.
+                        return Err(format!(
+                            "Cannot call the result of an index expression directly; bind it first ('let f = <expr>') then call 'f()'. If generic instantiation was intended, type arguments must be plain identifiers ('f[T](...)') at line {}, column {}",
+                            self.current_token().line,
+                            self.current_token().column
+                        ));
                     }
                 } else {
-                    break;
+                    // alya-lang/alya#185: same silent drop for any other
+                    // non-identifier callee (`f()()`, literals, unwraps):
+                    // the parens vanished and the callee value survived.
+                    // Fail loudly; the temporary workaround above applies.
+                    let shape = match &expr {
+                        Expr::Call { .. } => "call result",
+                        Expr::Number(_)
+                        | Expr::Float(_)
+                        | Expr::String(_)
+                        | Expr::InterpolatedString(_) => "literal",
+                        Expr::StructInit { .. } => "struct value",
+                        Expr::Array(_) | Expr::Map(_) => "collection literal",
+                        Expr::ForceUnwrap(_) => "force-unwrap",
+                        _ => "computed value",
+                    };
+                    return Err(format!(
+                        "Cannot call a {} directly; bind it first ('let f = <expr>') then call 'f()' at line {}, column {}",
+                        shape,
+                        self.current_token().line,
+                        self.current_token().column
+                    ));
                 }
             } else if matches!(self.current_token().token_type, TokenType::LeftBrace) {
                 if let Expr::Identifier(name) = &expr {
