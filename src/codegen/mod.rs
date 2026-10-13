@@ -3204,18 +3204,34 @@ impl CodeGen {
             // Non-escaping params hold a borrow, not a share: no entry
             // retain was emitted, so no scope release may be either.
             .filter(|(name, _)| !self.ctx.nonescaping_params.contains(*name))
-            .filter_map(|(_, vtype)| match vtype {
-                VarType::Array(off)
-                | VarType::Map(off)
-                | VarType::Struct { offset: off, .. }
-                | VarType::Interface { offset: off, .. } => {
-                    if *off > 0 && Some(*off) != skip_offset {
+            .filter_map(|(name, vtype)| {
+                let off = match vtype {
+                    VarType::Array(off)
+                    | VarType::Map(off)
+                    | VarType::Struct { offset: off, .. }
+                    | VarType::Interface { offset: off, .. } => Some(*off),
+                    // alya-lang/alya#183: closure-owned slots hold a
+                    // heap object under a plain tracking type. The
+                    // probed release skips stale markers over non-heap
+                    // values, and the dedup below folds double matches
+                    // with the typed arms above.
+                    VarType::Number(off)
+                    | VarType::Float(off)
+                    | VarType::StringOffset(off)
+                    | VarType::Null(off)
+                        if self
+                            .ctx
+                            .variables
+                            .contains_key(&format!("closure_owned:{}", name)) =>
+                    {
                         Some(*off)
-                    } else {
-                        None
                     }
+                    _ => None,
+                };
+                match off {
+                    Some(off) if off > 0 && Some(off) != skip_offset => Some(off),
+                    _ => None,
                 }
-                _ => None,
             })
             .collect();
         offsets.sort_unstable();
@@ -3873,10 +3889,24 @@ impl CodeGen {
     /// Retain-needed test: pre-two-tier `is_heap_expression` plus
     /// union-proven untyped locals. Extra retains are the safe
     /// direction (at worst a leak); missing ones are use-after-free.
+    /// Closure-valued identifiers count as maybe-heap
+    /// (alya-lang/alya#183): every caller below is an ownership-taking
+    /// store (let/assign slots, fields, array elements, struct
+    /// fields), and a new share is exactly what the slot needs. The
+    /// probed retain skips stale markers holding non-heap values.
     pub(crate) fn value_needs_heap_retain(&self, expr: &crate::ast::Expr) -> bool {
         use crate::ast::Expr as E;
         if self.is_heap_expression(expr) {
             return true;
+        }
+        if let E::Identifier(name) = expr {
+            if self
+                .ctx
+                .variables
+                .contains_key(&format!("closure_val:{}", name))
+            {
+                return true;
+            }
         }
         matches!(expr, E::Identifier(name) if self.ctx.nullable_heap_vars.contains(name))
     }

@@ -4204,6 +4204,57 @@ main()
 }
 
 #[test]
+fn test_e2e_mem_trace_closure_slots_freed() {
+    // alya-lang/alya#183: let-bound capturing closures used to leak
+    // every share (closure object, capture chain, holder cells): the
+    // slot was not heap-typed so scope cleanup skipped it. Closure
+    // slots now own a share (transfer for direct materializations,
+    // retain for copies) that scope cleanup drops, so a bound
+    // closure plus a param-passed closure both reach zero live
+    // objects. (Alias-forwarded *direct* calls keep a small bounded
+    // residual — holder plus one chain per call site — tracked in
+    // the issue; exit code and values are unaffected.)
+    let code = r#"
+function apply2(f)
+    return f()
+end
+
+function main()
+    let tag = 5
+    let c = || => tag
+    say apply2(c)
+    say "done"
+end
+
+main()
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("ALYA MEMORY TRACE & LEAK REPORT"),
+            "Expected trace header, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected clean execution status, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Structs         : 0 active"),
+            "Expected 0 live structs, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Arrays          : 0 active"),
+            "Expected 0 live arrays, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
 fn test_e2e_mem_trace_cyclic_leak() {
     let code = r#"
 struct Node

@@ -74,12 +74,29 @@ impl CodeGen {
         // cascades (`value_kind_tag` reads this). Never cleared: stale
         // claims are safe (release gates skip non-heap; heap values
         // release correctly under kind 6 either way).
+        // alya-lang/alya#183: `was_owned` snapshots pre-statement
+        // ownership for the old-value release below (same rationale
+        // as in `generate_assign`).
+        let previously_owned = self
+            .ctx
+            .variables
+            .contains_key(&format!("closure_owned:{}", name));
         if matches!(value, Expr::Call { name: c, .. } if c == CLOSURE_NEW)
             || matches!(value, Expr::Identifier(n) if self.ctx.variables.contains_key(&format!("closure_val:{}", n)))
         {
             self.ctx
                 .variables
                 .insert(format!("closure_val:{}", name), VarType::Number(0));
+            // alya-lang/alya#183: direct materializations transfer
+            // their creation share to this slot, and copies just
+            // retained one above (`is_alias_heap`); either way the
+            // slot owns a share that scope cleanup must drop. Never
+            // cleared either: a stale marker on a rebound slot
+            // releases a non-heap value, which the probed release
+            // skips, and offsets dedup against typed arms.
+            self.ctx
+                .variables
+                .insert(format!("closure_owned:{}", name), VarType::Number(0));
         }
         // alya-lang/alya#100: captured locals live in cells (no stack
         // slot, no `variables` entry: absence routes reads).
@@ -264,10 +281,25 @@ impl CodeGen {
         // Rebinding an existing heap variable (e.g. `let` redeclaration in
         // a loop body) must drop the previous value first; otherwise every
         // iteration leaks it (alya-lang/alya#79). Mirrors generate_assign.
+        // Closure-owned slots join through their marker, gated on
+        // pre-statement ownership (alya-lang/alya#183); the probed
+        // release skips a stale marker over a non-heap rebound value.
         let old_heap_offset = match self.ctx.variables.get(&name) {
             Some(VarType::Array(off))
             | Some(VarType::Map(off))
             | Some(VarType::Struct { offset: off, .. }) => {
+                if *off > 0 {
+                    Some(*off)
+                } else {
+                    None
+                }
+            }
+            Some(VarType::Number(off))
+            | Some(VarType::Float(off))
+            | Some(VarType::StringOffset(off))
+            | Some(VarType::Null(off))
+                if previously_owned =>
+            {
                 if *off > 0 {
                     Some(*off)
                 } else {
@@ -1528,12 +1560,26 @@ impl CodeGen {
         self.ctx.variables.remove(&format!("var_tag_slot:{}", name));
         // alya-lang/alya#100: closure-valued locals track for cascades
         // (never cleared: stale claims are release-safe; see `let`).
+        // alya-lang/alya#183: ownership twin of the line above — the
+        // assign path retains closure copies exactly like `let`, so
+        // the slot owns a share scope cleanup must drop. `was_owned`
+        // below snapshots pre-statement ownership: the old-value
+        // release must not see the marker this statement just added,
+        // or rebinding a borrowed slot (e.g. a param) would drop a
+        // share the borrower still owns.
+        let previously_owned = self
+            .ctx
+            .variables
+            .contains_key(&format!("closure_owned:{}", name));
         if matches!(value, Expr::Call { name: c, .. } if c == CLOSURE_NEW)
             || matches!(value, Expr::Identifier(n) if self.ctx.variables.contains_key(&format!("closure_val:{}", n)))
         {
             self.ctx
                 .variables
                 .insert(format!("closure_val:{}", name), VarType::Number(0));
+            self.ctx
+                .variables
+                .insert(format!("closure_owned:{}", name), VarType::Number(0));
         }
         // alya-lang/alya#100: captured writes route via cells.
         if let Some(loc) = self.capture_loc(&name) {
@@ -1554,6 +1600,23 @@ impl CodeGen {
             Some(VarType::Array(off))
             | Some(VarType::Map(off))
             | Some(VarType::Struct { offset: off, .. }) => {
+                if *off > 0 {
+                    Some(*off)
+                } else {
+                    None
+                }
+            }
+            // alya-lang/alya#183: closure-owned slots (see `let`
+            // above), gated on pre-statement ownership so a fresh
+            // marker never drops a borrowed old value; stale markers
+            // over rebound non-heap values are skipped by the probed
+            // release.
+            Some(VarType::Number(off))
+            | Some(VarType::Float(off))
+            | Some(VarType::StringOffset(off))
+            | Some(VarType::Null(off))
+                if previously_owned =>
+            {
                 if *off > 0 {
                     Some(*off)
                 } else {
