@@ -1,0 +1,26 @@
+# ==============================================================================
+# Alya Integration Fixture 68 (helper): struct with operator overloads
+# Distilled from: alya-lang/alya#180 (template `combine_stats` stayed a
+#                 plain function because cross-module `+` crashed).
+# NOT an entry point. Imported by `68_cross_module_operators.alya`
+# under an alias; the struct keeps its bare spelling while its
+# operator methods gain the alias prefix.
+# Guards: operator dispatch across the bare/qualified spelling split.
+# ==============================================================================
+
+pub struct Pair68
+    a: int,
+    b: int
+end
+
+pub function Pair68.operator+(self: Pair68, other: Pair68) -> Pair68
+    return Pair68 { a: self.a + other.a, b: self.b + other.b }
+end
+
+pub function Pair68.operator==(self: Pair68, other: Pair68) -> bool
+    return self.a == other.a and self.b == other.b
+end
+
+pub function make_pair68(a: int, b: int) -> Pair68
+    return Pair68 { a: a, b: b }
+end

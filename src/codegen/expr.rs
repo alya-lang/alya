@@ -2,11 +2,11 @@ use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::nested::{CLOSURE_CHAIN, CLOSURE_NEW};
 use crate::codegen::analysis::{
-    builtin_blocks_method_fallback, eq_operand_is_dynamic, escape_string, is_array_expr,
-    is_array_fold_true, is_definitely_not_numeric, is_float_expr, is_map_expr, is_map_fold_true,
-    is_null_expr, is_number_expr, is_proven_int_expr, is_simple_name, is_strict_dynamic_op,
-    is_string_expr, is_string_fold_true, is_tag_carrying_read, is_unsigned_expr,
-    string_store_needs_dup, struct_field_markers_mixed_vars, ternary_arm_carries,
+    builtin_blocks_method_fallback, eq_operand_is_dynamic, escape_string, find_operator_overload,
+    is_array_expr, is_array_fold_true, is_definitely_not_numeric, is_float_expr, is_map_expr,
+    is_map_fold_true, is_null_expr, is_number_expr, is_proven_int_expr, is_simple_name,
+    is_strict_dynamic_op, is_string_expr, is_string_fold_true, is_tag_carrying_read,
+    is_unsigned_expr, string_store_needs_dup, struct_field_markers_mixed_vars, ternary_arm_carries,
     typeof_operand_is_repeatable, value_kind_tag,
 };
 use crate::codegen::arch;
@@ -251,8 +251,6 @@ impl CodeGen {
                 let right_is_num = matches!(**right, Expr::Number(_) | Expr::Float(_));
 
                 if let Some(sname) = self.get_expr_struct_name(left) {
-                    let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
-                    let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
                     let op_str = match op {
                         BinaryOp::Add => Some("+"),
                         BinaryOp::Subtract => Some("-"),
@@ -268,39 +266,10 @@ impl CodeGen {
                         _ => None,
                     };
                     if let Some(op_sym) = op_str {
-                        let cand1 = format!("{}__{}{}", sname, "operator", op_sym);
-                        let cand2 = format!("{}__{}{}", bare_sname, "operator", op_sym);
-                        let matched = if self.ctx.functions.contains(&cand1) {
-                            Some(cand1.clone())
-                        } else if self.ctx.functions.contains(&cand2) {
-                            Some(cand2.clone())
-                        } else {
-                            // Struct-qualified fallback first: aliased imports
-                            // duplicate operator overloads under a namespace
-                            // prefix that may use either separator
-                            // (`tensor__f64x4__...` or `tensor::f64x4__...`).
-                            // Matching is separator-normalized but otherwise
-                            // EXACT: a bare suffix search would lottery-pick
-                            // another type's overload for this receiver.
-                            let want1 = format!("__{}__{}{}", sname, "operator", op_sym);
-                            let want2 = format!("__{}__{}{}", bare_sname, "operator", op_sym);
-                            // Normalized exact match only (alya-lang/alya#85):
-                            // a bare `__operator*` suffix search lottery-picks
-                            // ANOTHER type's overload for this receiver (e.g.
-                            // `Plain == null` calling `Box__operator==`),
-                            // and whether it fires depends on unrelated
-                            // code. Separator normalization (`::` vs `__`)
-                            // keeps the legitimate namespaced shapes working
-                            // without ever matching a foreign type.
-                            let norm_eq = |f: &String| {
-                                let n = f.replace("::", "__");
-                                n == want1.replace("::", "__")
-                                    || n == want2.replace("::", "__")
-                                    || n == cand1.replace("::", "__")
-                                    || n == cand2.replace("::", "__")
-                            };
-                            self.ctx.functions.iter().find(|f| norm_eq(f)).cloned()
-                        };
+                        // Cross-module lookup (alya-lang/alya#180): exact,
+                        // normalized-exact, then unique type-qualified
+                        // suffix spellings.
+                        let matched = find_operator_overload(&self.ctx.functions, &sname, op_sym);
                         if let Some(call_name) = matched {
                             self.generate_expression(&Expr::Call {
                                 name: call_name,
@@ -323,15 +292,11 @@ impl CodeGen {
                             _ => None,
                         };
                         if let Some((swap, base_sym, negate)) = derived {
-                            let base1 = format!("{}__{}{}", sname, "operator", base_sym);
-                            let base2 = format!("{}__{}{}", bare_sname, "operator", base_sym);
-                            let base_call = if self.ctx.functions.contains(&base1) {
-                                Some(base1)
-                            } else if self.ctx.functions.contains(&base2) {
-                                Some(base2)
-                            } else {
-                                None
-                            };
+                            // Same cross-module lookup for the base
+                            // overload (`!=` via `==`, `<=`/`>`/`>=` via
+                            // `<`; alya-lang/alya#180).
+                            let base_call =
+                                find_operator_overload(&self.ctx.functions, &sname, base_sym);
                             if let Some(base_name) = base_call {
                                 let (first, second) = if swap {
                                     ((**right).clone(), (**left).clone())
@@ -958,29 +923,8 @@ impl CodeGen {
             Expr::Unary { op, expr } => {
                 if *op == crate::ast::UnaryOp::Negate {
                     if let Some(sname) = self.get_expr_struct_name(expr) {
-                        let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
-                        let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
-                        let cand1 = format!("{}__{}", sname, "operator-neg");
-                        let cand2 = format!("{}__{}", bare_sname, "operator-neg");
-                        let matched = if self.ctx.functions.contains(&cand1) {
-                            Some(cand1)
-                        } else if self.ctx.functions.contains(&cand2) {
-                            Some(cand2)
-                        } else {
-                            // Normalized exact match only (#85): a bare
-                            // suffix search would call another type's
-                            // overload for this receiver.
-                            let cand1n = cand1.replace("::", "__");
-                            let cand2n = cand2.replace("::", "__");
-                            self.ctx
-                                .functions
-                                .iter()
-                                .find(|f| {
-                                    let n = f.replace("::", "__");
-                                    n == cand1n || n == cand2n
-                                })
-                                .cloned()
-                        };
+                        // Cross-module lookup (alya-lang/alya#180).
+                        let matched = find_operator_overload(&self.ctx.functions, &sname, "-neg");
                         if let Some(call_name) = matched {
                             self.generate_expression(&Expr::Call {
                                 name: call_name,
@@ -3843,28 +3787,8 @@ impl CodeGen {
             }
             Expr::Index { array, index } => {
                 if let Some(sname) = self.get_expr_struct_name(array) {
-                    let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
-                    let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
-                    let cand1 = format!("{}__{}", sname, "operator[]");
-                    let cand2 = format!("{}__{}", bare_sname, "operator[]");
-                    let matched = if self.ctx.functions.contains(&cand1) {
-                        Some(cand1)
-                    } else if self.ctx.functions.contains(&cand2) {
-                        Some(cand2)
-                    } else {
-                        // Normalized exact match only (#85): a bare suffix
-                        // search would call another type's overload here.
-                        let cand1n = cand1.replace("::", "__");
-                        let cand2n = cand2.replace("::", "__");
-                        self.ctx
-                            .functions
-                            .iter()
-                            .find(|f| {
-                                let n = f.replace("::", "__");
-                                n == cand1n || n == cand2n
-                            })
-                            .cloned()
-                    };
+                    // Cross-module lookup (alya-lang/alya#180).
+                    let matched = find_operator_overload(&self.ctx.functions, &sname, "[]");
                     if let Some(call_name) = matched {
                         self.generate_expression(&Expr::Call {
                             name: call_name,

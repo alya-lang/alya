@@ -91,6 +91,7 @@ fn entry_files() -> Vec<String> {
         "65_method_collision_loop_null.alya".to_string(),
         "66_catch_struct_through_call.alya".to_string(),
         "67_try_early_exit_unwind.alya".to_string(),
+        "68_cross_module_operators.alya".to_string(),
     ]
 }
 

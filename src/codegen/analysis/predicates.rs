@@ -111,6 +111,61 @@ fn receiver_struct_name(expr: &Expr, vars: &HashMap<String, VarType>) -> Option<
     }
 }
 
+/// Operator-overload lookup across module spellings
+/// (alya-lang/alya#180): struct definitions keep their bare spelling
+/// when imported under an alias, while their operator methods gain
+/// the `alias::` prefix, so neither the exact `sname` nor the bare
+/// candidate names the defined overload.
+///
+/// Resolution order: exact `sname`, then bare, then separator-
+/// normalized exact (alya-lang/alya#85), then a single DISTINCT
+/// normalized suffix match `__{bare}__operator{op}`. The suffix
+/// stays TYPE-qualified (never a bare `__operator*`), so another
+/// type's overload can never match (#85). Zero matches — or an
+/// ambiguous two-or-more DISTINCT matches — return `None` and the
+/// caller keeps its legacy path, exactly as before.
+/// Why the old code broke: a bare receiver (`Pair2`) with a
+/// qualified overload (`pplib::Pair2__operator+`) missed all three
+/// probes, so `x + y` compiled to an integer add of two heap
+/// pointers (crash on field read) and `x == y` fell to word compare
+/// (always unequal). What the new code protects: the unique
+/// same-type overload is found regardless of module prefixing.
+pub fn find_operator_overload(
+    functions: &HashSet<String>,
+    sname: &str,
+    op_sym: &str,
+) -> Option<String> {
+    let bare_sname = sname.rsplit("::").next().unwrap_or(sname);
+    let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
+    let cand1 = format!("{}__operator{}", sname, op_sym);
+    let cand2 = format!("{}__operator{}", bare_sname, op_sym);
+    if functions.contains(&cand1) {
+        return Some(cand1);
+    }
+    if functions.contains(&cand2) {
+        return Some(cand2);
+    }
+    let norm = |s: &str| s.replace("::", "__");
+    let (n1, n2) = (norm(&cand1), norm(&cand2));
+    if let Some(hit) = functions.iter().find(|f| norm(f) == n1 || norm(f) == n2) {
+        return Some(hit.clone());
+    }
+    let suffix = format!("__{}__operator{}", norm(bare_sname), op_sym);
+    let mut distinct: Vec<String> = Vec::new();
+    for f in functions {
+        let n = norm(f);
+        if n.ends_with(&suffix) && !distinct.contains(&n) {
+            distinct.push(n);
+        }
+    }
+    if distinct.len() == 1 {
+        let want = &distinct[0];
+        functions.iter().find(|f| norm(f) == *want).cloned()
+    } else {
+        None
+    }
+}
+
 /// Whether a function-name spelling is simple (no `::` or `__`
 /// qualification). Used by alya-lang/alya#101 consult gates: a
 /// qualified-spelled call must never consult bare markers (markers set

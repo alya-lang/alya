@@ -2,11 +2,11 @@ use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::nested::CLOSURE_NEW;
 use crate::codegen::analysis::{
-    escape_string, expr_mentions_var, is_array_expr, is_array_fold_true, is_definitely_not_numeric,
-    is_float_array, is_float_expr, is_map_entry_int, is_map_expr, is_null_expr, is_number_expr,
-    is_proven_int_expr, is_string_array, is_string_expr, is_tag_carrying_read, is_unsigned_expr,
-    string_store_needs_dup, struct_field_markers_mixed_vars, typeof_operand_is_repeatable,
-    value_kind_tag,
+    escape_string, expr_mentions_var, find_operator_overload, is_array_expr, is_array_fold_true,
+    is_definitely_not_numeric, is_float_array, is_float_expr, is_map_entry_int, is_map_expr,
+    is_null_expr, is_number_expr, is_proven_int_expr, is_string_array, is_string_expr,
+    is_tag_carrying_read, is_unsigned_expr, string_store_needs_dup,
+    struct_field_markers_mixed_vars, typeof_operand_is_repeatable, value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -2177,28 +2177,8 @@ impl CodeGen {
             }
         }
         if let Some(sname) = self.get_expr_struct_name(array) {
-            let bare_sname = sname.rsplit("::").next().unwrap_or(&sname);
-            let bare_sname = bare_sname.rsplit("__").next().unwrap_or(bare_sname);
-            let cand1 = format!("{}__{}", sname, "operator[]=");
-            let cand2 = format!("{}__{}", bare_sname, "operator[]=");
-            let matched = if self.ctx.functions.contains(&cand1) {
-                Some(cand1)
-            } else if self.ctx.functions.contains(&cand2) {
-                Some(cand2)
-            } else {
-                // Normalized exact match only (#85): a bare suffix search
-                // would call another type's overload for this receiver.
-                let cand1n = cand1.replace("::", "__");
-                let cand2n = cand2.replace("::", "__");
-                self.ctx
-                    .functions
-                    .iter()
-                    .find(|f| {
-                        let n = f.replace("::", "__");
-                        n == cand1n || n == cand2n
-                    })
-                    .cloned()
-            };
+            // Cross-module lookup (alya-lang/alya#180).
+            let matched = find_operator_overload(&self.ctx.functions, &sname, "[]=");
             if let Some(call_name) = matched {
                 self.generate_expression(&Expr::Call {
                     name: call_name,

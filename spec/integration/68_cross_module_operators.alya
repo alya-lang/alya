@@ -1,0 +1,31 @@
+# ==============================================================================
+# Alya Integration Fixture 68 (entry): cross-module operator overloads
+# Distilled from: alya-lang/alya#180 (template `combine_stats` stayed a
+#                 plain function because cross-module `+` crashed).
+# Guards: an overloaded `+` returning a struct must dispatch to the
+#         qualified overload (not integer-add two heap pointers, which
+#         crashed on field read), and an overloaded `==` must dispatch
+#         too (not fall to word compare, which reported identical
+#         structs unequal). Same-file behavior is unchanged.
+# ==============================================================================
+
+import "./68_op_pair_helper.alya" as pplib
+
+function main()
+    let x = pplib::make_pair68(1, 2)
+    let y = pplib::make_pair68(10, 20)
+    let z = x + y
+    assert z.a == 11
+    assert z.b == 22
+    let e1 = pplib::make_pair68(1, 2)
+    assert x == e1
+    assert not (x != e1)
+    if x == e1
+        say "cond-eq ok"
+    else
+        assert false
+    end
+    say "integration 68_cross_module_operators: OK"
+end
+
+main()
