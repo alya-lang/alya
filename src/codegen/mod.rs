@@ -2572,6 +2572,24 @@ impl CodeGen {
                 }
             }
 
+            // Catch-derived params hold whatever a `catch` binding held
+            // (string or struct, alya-lang/alya#178): home the sentinel
+            // so `.message` prefers the throw-recorded text instead of
+            // the string-identity shortcut (which returned the struct
+            // pointer for struct throws). Non-`message` fields keep
+            // their struct-typed path above.
+            // Why the old code broke: the caller's catch binding was
+            // string-poisoned, so this param homed `StringOffset` and
+            // `.message` returned the struct pointer (empty). What the
+            // new code protects: the sentinel routes `.message`
+            // through the thread block (+3088), valid for both struct
+            // and string throws until the next throw on this thread.
+            if inference.infer_param_is_catch_derived(name, i) {
+                self.ctx
+                    .variables
+                    .insert(format!("is_catch_var:{}", param), VarType::Number(0));
+            }
+
             let is_heap_param = struct_type.is_some()
                 || interface_type.is_some()
                 || is_arr

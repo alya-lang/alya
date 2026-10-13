@@ -385,6 +385,21 @@ impl ProgramInference {
             .cloned()
     }
 
+    /// True when the slot ever receives a `catch`-bound variable directly
+    /// (alya-lang/alya#178). Codegen homes the `is_catch_var:` sentinel
+    /// for these params so `.message` prefers the throw-recorded text.
+    #[inline]
+    pub fn infer_param_is_catch_derived(&self, func_name: &str, param_idx: usize) -> bool {
+        let bare = resolve_func_bare(func_name, &self.struct_inf.struct_names);
+        self.struct_inf
+            .catch_params
+            .contains(&(func_name.to_string(), param_idx))
+            || self
+                .struct_inf
+                .catch_params
+                .contains(&(bare.to_string(), param_idx))
+    }
+
     #[inline]
     pub fn infer_function_return_struct_type(&self, func_name: &str) -> Option<String> {
         let bare = resolve_func_bare(func_name, &self.struct_inf.struct_names);

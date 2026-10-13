@@ -19,6 +19,17 @@ pub struct StructInference {
     pub fn_param_names: HashSet<(String, String)>,
     pub struct_names: HashSet<String>,
     pub fn_names: HashSet<String>,
+    /// Catch-bound variable names, scoped as `func::var` (or bare `var`
+    /// at top level). A `catch err` binding holds any thrown value, so a
+    /// direct `show(err)` call must not be treated as a pure string
+    /// argument for `.message` purposes (alya-lang/alya#178).
+    pub catch_vars: HashSet<String>,
+    /// Tracks (function_name, param_idx) that ever receive a catch-bound
+    /// variable directly. Codegen marks these params with the
+    /// `is_catch_var:` sentinel so `.message` reads the throw-recorded
+    /// text (thread block +3088, valid for both struct and string
+    /// throws) instead of the string-identity shortcut.
+    pub catch_params: HashSet<(String, usize)>,
 }
 
 pub(crate) fn resolve_func_bare<'a>(name: &'a str, struct_names: &HashSet<String>) -> &'a str {
@@ -80,6 +91,91 @@ fn collect_tuple_return_arms(stmts: &[Stmt], arms: &mut Vec<Vec<Expr>>, has_non_
             Stmt::Function { .. } => {}
             _ => {}
         }
+    }
+}
+
+/// Collects the struct types of all `throw <expr>` values inside `stmts`
+/// (descending into `if`/`loops`, but not into nested functions, whose
+/// throws belong to their own catch sites). Returns the single agreed
+/// struct when every struct throw agrees, `None` when there are no
+/// struct throws or conflicting ones (dynamic catch value,
+/// alya-lang/alya#178).
+fn thrown_struct_type(
+    stmts: &[Stmt],
+    current_fn: Option<&str>,
+    struct_names: &HashSet<String>,
+    inf: &StructInference,
+) -> Option<String> {
+    fn walk(
+        stmts: &[Stmt],
+        current_fn: Option<&str>,
+        struct_names: &HashSet<String>,
+        inf: &StructInference,
+        out: &mut Vec<String>,
+    ) {
+        for s in stmts {
+            match s.inner_stmt() {
+                Stmt::Throw(Some(expr)) => {
+                    if let Some(st) = inf.expr_struct_type(expr, current_fn, struct_names) {
+                        out.push(st);
+                    }
+                }
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    walk(then_block, current_fn, struct_names, inf, out);
+                    if let Some(eb) = else_block {
+                        walk(eb, current_fn, struct_names, inf, out);
+                    }
+                }
+                Stmt::While { body, .. }
+                | Stmt::Repeat { body }
+                | Stmt::For { body, .. }
+                | Stmt::ForEach { body, .. } => {
+                    walk(body, current_fn, struct_names, inf, out);
+                }
+                Stmt::TryCatch {
+                    try_block,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    // Nested try's throws belong to its own catch site.
+                    // Its catch block runs in the same function scope,
+                    // so still walk it for outer throws? No: a throw
+                    // inside an inner try is caught by the inner catch,
+                    // never reaching the outer one unless rethrown
+                    // (bare `throw`), which carries no static type.
+                    // Skip both to stay sound.
+                    let _ = (try_block, catch_block, finally_block);
+                }
+                Stmt::Pub(inner) | Stmt::Defer(inner) => {
+                    walk(
+                        std::slice::from_ref(inner),
+                        current_fn,
+                        struct_names,
+                        inf,
+                        out,
+                    );
+                }
+                // Nested functions own their throws; do not descend.
+                Stmt::Function { .. } => {}
+                _ => {}
+            }
+        }
+    }
+    let mut found = Vec::new();
+    walk(stmts, current_fn, struct_names, inf, &mut found);
+    if found.is_empty() {
+        return None;
+    }
+    let first = found[0].clone();
+    if found.iter().all(|s| s == &first) {
+        Some(first)
+    } else {
+        None
     }
 }
 
@@ -636,11 +732,56 @@ impl StructInference {
                 }
                 Stmt::TryCatch {
                     try_block,
+                    catch_var,
                     catch_block,
                     finally_block,
                     ..
                 } => {
                     self.scan_stmts(try_block, current_fn, struct_names, fn_names);
+                    // A `catch err` binding holds whatever the try block
+                    // throws (alya-lang/alya#178). Record the name so
+                    // direct `show(err)` calls mark the callee param as
+                    // catch-derived, and when every struct throw agrees,
+                    // give the binding that struct type so field indexes
+                    // resolve exactly instead of via the string-poisoned
+                    // fallback.
+                    if let Some(cvar) = catch_var {
+                        let scoped = match current_fn {
+                            Some(fn_name) => format!("{}::{}", fn_name, cvar),
+                            None => cvar.clone(),
+                        };
+                        self.catch_vars.insert(scoped.clone());
+                        if let Some(fn_name) = current_fn {
+                            let bare_fn = resolve_func_bare(fn_name, struct_names);
+                            if bare_fn != fn_name {
+                                self.catch_vars.insert(format!("{}::{}", bare_fn, cvar));
+                            }
+                        } else {
+                            self.catch_vars.insert(cvar.clone());
+                        }
+                        // Why the old code broke: the binding had no
+                        // struct fact, so `show(err)` recorded no
+                        // `fn_params` struct and the callee param fell
+                        // back to the string-poisoned `StringOffset`
+                        // path, miscompiling `.message`. What the new
+                        // code protects: the agreed thrown struct flows
+                        // into `var_types`, so the call records the
+                        // struct and the callee homes a real `Struct`.
+                        if let Some(st) =
+                            thrown_struct_type(try_block, current_fn, struct_names, self)
+                        {
+                            if let Some(fn_name) = current_fn {
+                                self.var_types
+                                    .insert(format!("{}::{}", fn_name, cvar), st.clone());
+                                let bare = resolve_func_bare(fn_name, struct_names);
+                                if bare != fn_name {
+                                    self.var_types.insert(format!("{}::{}", bare, cvar), st);
+                                }
+                            } else {
+                                self.var_types.insert(cvar.clone(), st);
+                            }
+                        }
+                    }
                     self.scan_stmts(catch_block, current_fn, struct_names, fn_names);
                     if let Some(fb) = finally_block {
                         self.scan_stmts(fb, current_fn, struct_names, fn_names);
@@ -723,6 +864,30 @@ impl StructInference {
                 let effective_name = resolved_call_name.as_deref().unwrap_or(name);
                 let bare = resolve_func_bare(effective_name, struct_names);
                 for (i, arg) in args.iter().enumerate() {
+                    // A catch-bound variable flowing directly into a
+                    // callee marks that slot catch-derived
+                    // (alya-lang/alya#178): codegen homes the sentinel
+                    // so `.message` prefers the throw-recorded text,
+                    // which is valid for both struct and string throws.
+                    if let Expr::Identifier(arg_name) = arg {
+                        let is_catch_arg = match current_fn {
+                            Some(fn_name) => {
+                                let bare_fn = resolve_func_bare(fn_name, struct_names);
+                                self.catch_vars
+                                    .contains(&format!("{}::{}", fn_name, arg_name))
+                                    || self
+                                        .catch_vars
+                                        .contains(&format!("{}::{}", bare_fn, arg_name))
+                            }
+                            None => self.catch_vars.contains(arg_name),
+                        };
+                        if is_catch_arg {
+                            self.catch_params.insert((effective_name.to_string(), i));
+                            if bare != effective_name {
+                                self.catch_params.insert((bare.to_string(), i));
+                            }
+                        }
+                    }
                     if let Some(st) = self.expr_struct_type(arg, current_fn, struct_names) {
                         let key1 = (effective_name.to_string(), i);
                         let key2 = (bare.to_string(), i);

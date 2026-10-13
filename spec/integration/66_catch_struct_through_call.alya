@@ -1,0 +1,47 @@
+# ==============================================================================
+# Alya Integration Fixture 66 (entry): caught struct keeps fields through calls
+# Distilled from: alya-lang/alya#178 (template `src/core/errors.alya`
+# modernization: a `catch err` struct read fine inline but lost fields
+# beyond the first when passed to a helper).
+# Guards: the catch binding is string-poisoned (`StringOffset` + string
+#         inference), so an untyped helper param homed `StringOffset`
+#         and `.message` took the string-identity shortcut, returning
+#         the struct pointer (empty) instead of the field text. The
+#         struct type must flow from the try-block throws into the
+#         binding and on to callee params, and `.message` on
+#         catch-derived params must prefer the throw-recorded text
+#         (valid for both struct and string throws).
+# ==============================================================================
+
+struct MyErr
+    field: string,
+    message: string
+end
+
+function show(err) -> string
+    return f"show: {err.field} / {err.message}"
+end
+
+function show_msg(err) -> string
+    return f"msg: {err.message}"
+end
+
+function main()
+    try
+        throw MyErr { field: "label", message: "label must not be empty" }
+    catch err
+        assert err.field == "label"
+        assert err.message == "label must not be empty"
+        assert show(err) == "show: label / label must not be empty"
+        assert show_msg(err) == "msg: label must not be empty"
+    end
+    try
+        throw "boom"
+    catch err2
+        assert err2.message == "boom"
+        assert show_msg(err2) == "msg: boom"
+    end
+    say "integration 66_catch_struct_through_call: OK"
+end
+
+main()

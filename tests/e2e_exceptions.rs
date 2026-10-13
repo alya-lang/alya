@@ -195,6 +195,51 @@ end
 }
 
 #[test]
+fn test_e2e_catch_struct_through_call_keeps_fields() {
+    // alya-lang/alya#178: a struct value captured by `catch err` read
+    // correctly inline but lost fields beyond the first when passed to
+    // another function (the untyped callee param homed `StringOffset`
+    // via string-poisoned inference, so `.message` took the identity
+    // shortcut and returned the struct pointer). Passing the caught
+    // value must preserve all fields, for both struct and string
+    // throws.
+    let code = r#"
+struct MyErr
+    field: string,
+    message: string
+end
+function show(err) -> string
+    return f"show: {err.field} / {err.message}"
+end
+function show_msg(err) -> string
+    return f"msg: {err.message}"
+end
+function main()
+    try
+        throw MyErr { field: "label", message: "label must not be empty" }
+    catch err
+        say f"direct: {err.field} / {err.message}"
+        say show(err)
+        say show_msg(err)
+    end
+    try
+        throw "boom"
+    catch err2
+        say show_msg(err2)
+    end
+end
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(
+            output,
+            "direct: label / label must not be empty\nshow: label / label must not be empty\nmsg: label must not be empty\nmsg: boom\n"
+        );
+    }
+}
+
+#[test]
 fn test_e2e_throw_uncaught_in_worker_prints_message() {
     // Fatal path (printf + exit) on a pthread-created thread.
     let code = r#"

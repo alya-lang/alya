@@ -3007,7 +3007,11 @@ impl TypeChecker {
 
                 self.push_scope();
                 if let Some(cvar) = catch_var {
-                    self.define_var(cvar, Type::String);
+                    // Catch bindings hold any thrown value (string or struct,
+                    // alya-lang/alya#178): `Any` keeps struct-typed helpers
+                    // callable (`show(err: MyErr)`), matching the `Any`
+                    // binding in the second pass below.
+                    self.define_var(cvar, Type::Any);
                     self.mark_loop_bound(cvar);
                 }
                 for s in catch_block {

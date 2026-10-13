@@ -77,6 +77,7 @@
 # | `59_dynamic_container_is.alya` | dynamic container `is map` and `is array` checks (alya-lang/alya#171) | dynamic and untyped containers evaluate `is map` and `is array` via runtime tag checks; proven non-containers fold to false |
 # | `60_untyped_poly_dispatch.alya` | untyped polymorphic indexing and call-site monomorphization (alya-lang/alya#55) | untyped indexed parameters specialize per call site without string inference poisoning; unspecialized/dynamic collections fall back to runtime tag-checked index dispatch (no 0xC0000005); 64-bit ints and floats preserve representations across int()/float() casts |
 # | `61_null_tag_reassign.alya` | KIND tag across reassignments and return boundaries (alya-lang/alya#171) | loop-carried `curr = curr[tok]` reassignments and `return <local>` preserve the runtime kind tag; entry `== null`/`== 0`/`is null`/`typeof` exact; rebinds clear stale tags |
+# | `66_catch_struct_through_call.alya` | template `src/core/errors.alya` helper formatting (alya-lang/alya#178) | caught struct keeps all fields through untyped helper calls: thrown struct type flows into the binding and on to callee params, `.message` on catch-derived params prefers the throw-recorded text (both struct and string throws) |
 #
 # ## Known collision (deliberate rename)
 #
