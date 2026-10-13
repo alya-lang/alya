@@ -5,6 +5,24 @@
 //! `w1`), and the runtime classifier result. Array slots reuse these
 //! in Phase 1. Values are ABI: entries live in memory only, but every
 //! emitter and consumer in this crate must agree on them.
+//!
+//! Tag protocol (alya-lang/alya#186, centralized per #188):
+//!
+//! - Producers: catch entry (`emit_catch_entry_tag` classifies the
+//!   caught value and spills it to `var_tag_slot:<name>`), map `set`
+//!   (exact tag for literal writes, spilled tag for dynamic ones),
+//!   `push` and array index-assign (static `value_kind_tag`, or the
+//!   spilled slot tag for dynamically-tagged values), captured cells
+//!   (`emit_cap_assign` reloads the slot tag), and returns
+//!   (`fn_ret_tagged` + tag spill).
+//! - Consumers: element/field reads dispatch on the slot/entry tag
+//!   (`is_tag_carrying_read`, say/interp classify arms); scope and
+//!   catch-end releases are probed so stale tags cannot fault.
+//! - Spill discipline: `var_tag_slot:<name>` is written exactly where
+//!   the value is homed and cleared on rebind (alya-lang/alya#171); a
+//!   stale tag would misread the new value. Dynamically-tagged
+//!   bindings (today: catch bindings, see `catch_tag_slot`) must never
+//!   claim a static string kind from the shared predicates.
 use crate::ast::Expr;
 
 pub const KIND_UNKNOWN: i64 = 0;

@@ -300,10 +300,18 @@ pub fn may_record_bare_vars(vars: &HashMap<String, VarType>, name: &str, bare: &
 /// dynamic kinds instead of the static string claim.
 pub fn catch_tag_slot(expr: &Expr, vars: &HashMap<String, VarType>) -> Option<i32> {
     if let Expr::Identifier(name) = expr {
-        if vars.contains_key(&format!("is_catch_var:{}", name)) {
-            if let Some(VarType::Number(off)) = vars.get(&format!("var_tag_slot:{}", name)) {
-                return Some(*off);
-            }
+        catch_tag_slot_name(name, vars)
+    } else {
+        None
+    }
+}
+
+/// Name-keyed twin of [`catch_tag_slot`] for predicate arms that
+/// already hold the identifier (alya-lang/alya#188).
+pub fn catch_tag_slot_name(name: &str, vars: &HashMap<String, VarType>) -> Option<i32> {
+    if vars.contains_key(&format!("is_catch_var:{}", name)) {
+        if let Some(VarType::Number(off)) = vars.get(&format!("var_tag_slot:{}", name)) {
+            return Some(*off);
         }
     }
     None
@@ -639,6 +647,13 @@ pub fn is_string_expr(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
                         })))
         }
         Expr::Identifier(name) => {
+            // alya-lang/alya#188: tagged catch bindings are dynamically
+            // typed (string or struct per execution) — never claim a
+            // static string kind here, so future sites are safe by
+            // default instead of needing per-site gates.
+            if catch_tag_slot_name(name, vars).is_some() {
+                return false;
+            }
             if let Some(var_type) = vars.get(name) {
                 matches!(var_type, VarType::StringLabel(_) | VarType::StringOffset(_))
             } else {
@@ -2945,5 +2960,25 @@ mod tests {
                 name
             );
         }
+    }
+
+    /// Tagged catch bindings are dynamically typed (alya-lang/alya#188):
+    /// the shared predicates must never claim a static string kind for
+    /// them, so future store/seeder sites are safe by default.
+    #[test]
+    fn tagged_catch_binding_claims_no_static_string_kind() {
+        let mut vars = test_vars();
+        // A catch binding homes as StringOffset with a spilled runtime
+        // tag, exactly as `emit_catch_entry_tag` leaves it.
+        vars.insert("err".to_string(), VarType::StringOffset(8));
+        vars.insert("is_catch_var:err".to_string(), VarType::Number(0));
+        vars.insert("var_tag_slot:err".to_string(), VarType::Number(16));
+        let err = Expr::Identifier("err".into());
+        assert_eq!(catch_tag_slot(&err, &vars), Some(16));
+        assert!(!is_string_expr(&err, &vars));
+        assert_eq!(value_kind_tag(&err, &vars), KIND_UNKNOWN);
+        assert!(!string_store_needs_dup(&err, &vars));
+        // Untagged StringOffset locals keep the legacy claim.
+        assert!(is_string_expr(&Expr::Identifier("s".into()), &vars));
     }
 }
