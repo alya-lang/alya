@@ -1,0 +1,9 @@
+# EXPECT-FAIL: check: Unknown field '.k'
+# Chapter 13: map dot access is not a field read (alya-lang/alya#182).
+# No struct defines `.k`, so `m.k` used to read field index 0 garbage
+# instead of the entry. Use `m["k"]`.
+function main()
+    let m = { "k": 42 }
+    say m.k
+end
+main()

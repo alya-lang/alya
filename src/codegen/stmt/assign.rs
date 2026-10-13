@@ -2151,6 +2151,8 @@ impl CodeGen {
         let field_idx = self
             .resolve_struct_field_target(object, field)
             .map(|(_, idx)| idx)
+            // NOTE (alya-lang/alya#182): silent fallback, see
+            // FieldAccess (DCE-pruned structs).
             .unwrap_or(0);
         arch::emit_struct_field_set(&mut self.output, self.arch, field_idx);
     }

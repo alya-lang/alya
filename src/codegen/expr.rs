@@ -3514,6 +3514,16 @@ impl CodeGen {
                 let field_idx = self
                     .resolve_struct_field_target(object, field)
                     .map(|(_, idx)| idx)
+                    // NOTE (alya-lang/alya#182): this must stay a
+                    // silent fallback, not a panic. The checker
+                    // rejects undeclared fields on the FULL program,
+                    // but codegen runs on the DCE-pruned one: a struct
+                    // referenced only by untyped field access may be
+                    // pruned (e.g. `Box` in the null-field-trap test),
+                    // leaving no candidate here. The runtime null trap
+                    // above still fires for null bases; a panic would
+                    // be a false positive on pruned-but-referenced
+                    // structs. Loudness lives in the checker.
                     .unwrap_or(0);
 
                 let is_weak = self.is_struct_field_weak(object, field);
@@ -4008,6 +4018,8 @@ impl CodeGen {
                 let field_idx = self
                     .resolve_struct_field_target(object, field)
                     .map(|(_, idx)| idx)
+                    // NOTE (alya-lang/alya#182): silent fallback, see
+                    // FieldAccess above (DCE-pruned structs).
                     .unwrap_or(0);
 
                 let is_weak = self.is_struct_field_weak(object, field);

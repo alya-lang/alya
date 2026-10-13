@@ -2633,7 +2633,14 @@ impl CodeGen {
             self.ctx.variables.insert(holder, VarType::Array(off));
             let holder_off = off;
             for (param, intake_off, kind) in cap_moves {
-                let vi = owned.iter().position(|v| v == &param).unwrap_or(0) * 2;
+                // Every moved param is an owner by construction
+                // (alya-lang/alya#182): a missing index would store one
+                // captured variable over another's cell.
+                let vi = owned
+                    .iter()
+                    .position(|v| v == &param)
+                    .expect("internal error: capture owner missing moved param")
+                    * 2;
                 self.emit_cap_param_store(&param, intake_off, holder_off, vi, kind);
             }
         }

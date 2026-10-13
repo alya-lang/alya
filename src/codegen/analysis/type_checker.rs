@@ -2359,6 +2359,16 @@ impl TypeChecker {
                 if matches!(base_type, Type::Any) {
                     self.check_untyped_field_access(object, field)?;
                 }
+                // Statically-known structs validate their own fields
+                // (alya-lang/alya#182): without this a typo read field
+                // index 0 garbage.
+                if let Type::Struct(sname) = base_type {
+                    self.check_typed_struct_field(sname, object, field)?;
+                } else if !matches!(base_type, Type::Any) {
+                    // Arrays, maps, strings and scalars have no fields
+                    // (alya-lang/alya#182).
+                    self.check_nonstruct_field_access(base_type, object, field)?;
+                }
             }
             Expr::Ternary {
                 condition,
@@ -2512,8 +2522,21 @@ impl TypeChecker {
     }
 
     fn check_untyped_field_access(&self, object: &Expr, field: &str) -> Result<(), String> {
-        if field == "length" || field == "len" || field == "message" {
+        if field == "message" {
             return Ok(());
+        }
+        // Length/len are methods (`len(x)`, `.length()`), never fields:
+        // the old approval let `arr.length` read field index 0 garbage
+        // (alya-lang/alya#182).
+        if field == "length" || field == "len" {
+            let obj_desc = match object {
+                Expr::Identifier(id) => format!("'{}'", id),
+                _ => "object".to_string(),
+            };
+            return Err(format!(
+                "TypeError: Unknown field '.{}' on untyped {}. No struct defines a '.{}' field (use len({}) for arrays/strings or the .length() method).",
+                field, obj_desc, field, obj_desc
+            ));
         }
         let base_obj = match object {
             Expr::OptionalFieldAccess { object: inner, .. } => inner.as_ref(),
@@ -2609,7 +2632,136 @@ impl TypeChecker {
             }
         }
 
+        // No struct defines this field at all: the old approval let
+        // codegen read field index 0 garbage (`m.k` on maps,
+        // misspelled dynamic fields; alya-lang/alya#182). Fail here
+        // with guidance instead.
+        if candidates.is_empty() {
+            let obj_desc = match base_obj {
+                Expr::Identifier(id) => format!("'{}'", id),
+                _ => "object".to_string(),
+            };
+            let in_fn = match &self.current_fn_name {
+                Some(name) if !name.is_empty() => format!(" in function '{}'", name),
+                _ => String::new(),
+            };
+            return Err(format!(
+                "TypeError: Unknown field '.{}' on untyped {}{}. No struct defines a '.{}' field (for maps use {}[\"{}\"]; otherwise check the spelling).",
+                field, obj_desc, in_fn, field, obj_desc, field
+            ));
+        }
+
         Ok(())
+    }
+
+    /// Rejects reads of undeclared fields on statically-known structs
+    /// (alya-lang/alya#182): the old silence read field index 0, so a
+    /// typo like `s.c` on `S { a, b }` returned `a`'s value. Same-name
+    /// methods (`s.len` for `S.len`) keep the legacy path — bare
+    /// method values trap loudly at runtime already, and narrowing
+    /// that is out of scope here.
+    fn check_typed_struct_field(
+        &self,
+        sname: &str,
+        object: &Expr,
+        field: &str,
+    ) -> Result<(), String> {
+        let bare = sname.rsplit("::").next().unwrap_or(sname);
+        let bare = bare.rsplit("__").next().unwrap_or(bare);
+        let sdef = match self.structs.get(sname).or_else(|| self.structs.get(bare)) {
+            Some(sdef) => sdef,
+            None => return Ok(()),
+        };
+        if sdef.fields.contains_key(field) {
+            return Ok(());
+        }
+        if self
+            .struct_methods
+            .get(sname)
+            .or_else(|| self.struct_methods.get(bare))
+            .is_some_and(|m| m.contains(field))
+        {
+            return Ok(());
+        }
+        let mut known: Vec<&String> = sdef.field_order.iter().collect();
+        known.sort();
+        let known_list = known
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let obj_desc = match object {
+            Expr::Identifier(id) => format!("'{}'", id),
+            _ => "object".to_string(),
+        };
+        let in_fn = match &self.current_fn_name {
+            Some(name) if !name.is_empty() => format!(" in function '{}'", name),
+            _ => String::new(),
+        };
+        Err(format!(
+            "TypeError: Unknown field '.{}' on struct '{}'{}{}. Expected one of: {}.",
+            field,
+            sdef.name,
+            if obj_desc == "object" {
+                String::new()
+            } else {
+                format!(" ({})", obj_desc)
+            },
+            in_fn,
+            known_list
+        ))
+    }
+
+    /// Rejects field reads/stores on statically-typed non-struct
+    /// bases (alya-lang/alya#182): arrays, maps, strings and scalars
+    /// have no fields, but codegen read field index 0 garbage for
+    /// them (`arr.length` printed a header word, `m.k` printed
+    /// garbage). Tuples (parser-desugared to indexing), interfaces
+    /// (known-gap method area) and SIMD/enum values keep the legacy
+    /// path; `.message` stays allowed on strings (identity) since
+    /// error-protocol code reads it on dynamic values.
+    fn check_nonstruct_field_access(
+        &self,
+        base_type: &Type,
+        object: &Expr,
+        field: &str,
+    ) -> Result<(), String> {
+        if matches!(
+            base_type,
+            Type::Tuple(_) | Type::Enum(_) | Type::F64x4 | Type::F32x8 | Type::I32x8 | Type::I64x4
+        ) {
+            return Ok(());
+        }
+        if matches!(base_type, Type::String) && field == "message" {
+            return Ok(());
+        }
+        let obj_desc = match object {
+            Expr::Identifier(id) => format!("'{}'", id),
+            _ => "object".to_string(),
+        };
+        let in_fn = match &self.current_fn_name {
+            Some(name) if !name.is_empty() => format!(" in function '{}'", name),
+            _ => String::new(),
+        };
+        let hint: String = match base_type {
+            Type::Array(_) if field == "length" || field == "len" => {
+                format!(" (use len({}) for the element count)", obj_desc)
+            }
+            Type::Array(_) => format!(" (arrays have no fields; use {}[i] for elements)", obj_desc),
+            Type::Map(_, _) => format!(
+                " (maps have no fields; use {}[\"{}\"] for entries)",
+                obj_desc, field
+            ),
+            Type::String => format!(
+                " (strings have no fields; use the .length() method or len({}))",
+                obj_desc
+            ),
+            _ => String::new(),
+        };
+        Err(format!(
+            "TypeError: Unknown field '.{}' on {} {}{}{}",
+            field, base_type, obj_desc, in_fn, hint
+        ))
     }
 
     /// Checks a statement and validates all typing rules within it.
@@ -2714,6 +2866,17 @@ impl TypeChecker {
                 let obj_type = self.infer_expr(object)?;
                 let val_type = self.infer_expr(value)?;
 
+                // Undeclared field stores read back garbage, just like
+                // reads (alya-lang/alya#182).
+                let store_base = match &obj_type {
+                    Type::Nullable(inner) => inner.as_ref(),
+                    other => other,
+                };
+                if let Type::Struct(sname) = store_base {
+                    self.check_typed_struct_field(sname, object, field)?;
+                } else if !matches!(store_base, Type::Any) {
+                    self.check_nonstruct_field_access(store_base, object, field)?;
+                }
                 if let Type::Struct(sname) = obj_type {
                     let bare = sname.rsplit("::").next().unwrap_or(&sname);
                     let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -3474,6 +3637,11 @@ pub fn validate_untyped_field_access(program: &Program) -> Result<(), String> {
                 };
                 if matches!(base_type, Type::Any) {
                     checker.check_untyped_field_access(object, field)?;
+                }
+                if let Type::Struct(sname) = base_type {
+                    checker.check_typed_struct_field(sname, object, field)?;
+                } else if !matches!(base_type, Type::Any) {
+                    checker.check_nonstruct_field_access(base_type, object, field)?;
                 }
                 walk_expr(checker, object)?;
             }

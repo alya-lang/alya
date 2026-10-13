@@ -1,0 +1,9 @@
+# EXPECT-FAIL: check: Unknown field '.length'
+# Chapter 13: `.length` is a method (`len(x)`, `.length()`), never a
+# field (alya-lang/alya#182). `arr.length` used to read field index 0
+# garbage (the array header word).
+function main()
+    let arr = [10, 20, 30]
+    say arr.length
+end
+main()

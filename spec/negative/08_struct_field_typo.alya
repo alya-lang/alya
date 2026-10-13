@@ -1,0 +1,13 @@
+# EXPECT-FAIL: check: Unknown field '.c' on struct 'S182'
+# Chapter 08: reading an undeclared field of a statically-known struct
+# is a compile-time error (alya-lang/alya#182). It used to read field
+# index 0, so `s.c` silently returned `a`'s value.
+struct S182
+    a: int,
+    b: int
+end
+function main()
+    let s = S182 { a: 1, b: 2 }
+    say s.c
+end
+main()
