@@ -30,6 +30,13 @@ pub fn emit_try_end(out: &mut String, end_label: &str, stack_delta: i32, _os: Op
     out.push_str(&format!("    b {}\n", end_label));
 }
 
+/// Bare handler pop for early exits inside `try`/`catch`
+/// (alya-lang/alya#179): just the `alya_try_end` call, with no
+/// stack adjustment and no branch. See the x64 twin for rationale.
+pub fn emit_try_pop(out: &mut String) {
+    control::emit_call_target(out, "alya_try_end", 0);
+}
+
 pub fn emit_catch_begin(out: &mut String, catch_label: &str) {
     out.push_str(&format!("{}:\n", catch_label));
 }

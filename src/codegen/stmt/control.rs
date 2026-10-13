@@ -5,11 +5,41 @@ use crate::codegen::analysis::{
     is_string_array, is_string_expr, is_tag_carrying_read, is_unsigned_expr,
 };
 use crate::codegen::arch;
-use crate::codegen::context::VarType;
+use crate::codegen::context::{TryFrame, VarType};
 use crate::codegen::kinds::KIND_FLOAT;
 use crate::codegen::target::Architecture;
 
 impl CodeGen {
+    /// Unwinds active `try` handler registrations for early exits
+    /// (`return`/`break`/`continue`) inside `try`/`catch`
+    /// (alya-lang/alya#179). Only frames with `loop_depth >=
+    /// min_loop_depth` are unwound, innermost first: `return` passes
+    /// 0 (everything), `break`/`continue` pass the target loop's
+    /// depth so handlers pushed outside the loop survive the jump.
+    /// Each unwound frame emits a bare `alya_try_end` pop and then
+    /// inlines its `finally` block, matching the fall-through order
+    /// (pop, then finally). The compile-time stack is left intact:
+    /// enclosing `try` statements balance their own push/pop, and
+    /// any code after an early exit is unreachable at runtime.
+    pub(super) fn unwind_try_stack(&mut self, min_loop_depth: usize) {
+        let targets: Vec<TryFrame> = self
+            .ctx
+            .try_stack
+            .iter()
+            .filter(|f| f.loop_depth >= min_loop_depth)
+            .cloned()
+            .collect();
+        for frame in targets.iter().rev() {
+            arch::emit_try_pop(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+            if let Some(finally_stmts) = &frame.finally_block {
+                let stmts = finally_stmts.clone();
+                for s in &stmts {
+                    self.generate_statement(s);
+                }
+            }
+        }
+    }
+
     pub(crate) fn generate_condition_jump_if_false(
         &mut self,
         condition: &Expr,
@@ -1779,9 +1809,19 @@ impl CodeGen {
                     self.ctx.stack_offset,
                     self.os,
                 );
+                // Why the old code broke: `return`/`break`/`continue`
+                // inside this block jumped straight out, leaking one
+                // handler slot per execution (alya-lang/alya#179).
+                // What the new code protects: the frame lets early
+                // exits pop the handler (and inline `finally`).
+                self.ctx.try_stack.push(TryFrame {
+                    finally_block: Some(finally_stmts.to_vec()),
+                    loop_depth: self.ctx.loop_stack.len(),
+                });
                 for s in try_block {
                     self.generate_statement(s);
                 }
+                self.ctx.try_stack.pop();
                 let try_delta = self.ctx.stack_offset - saved_stack_offset;
                 arch::emit_try_end(
                     &mut self.output,
@@ -1805,6 +1845,10 @@ impl CodeGen {
                     self.ctx.stack_offset,
                     self.os,
                 );
+                self.ctx.try_stack.push(TryFrame {
+                    finally_block: Some(finally_stmts.to_vec()),
+                    loop_depth: self.ctx.loop_stack.len(),
+                });
 
                 if let Some(name) = catch_var {
                     let name = name.to_string();
@@ -1830,6 +1874,7 @@ impl CodeGen {
                 for s in catch_block {
                     self.generate_statement(s);
                 }
+                self.ctx.try_stack.pop();
                 let catch_delta = self.ctx.stack_offset - saved_stack_offset;
                 arch::emit_try_end(
                     &mut self.output,
@@ -1848,9 +1893,14 @@ impl CodeGen {
                     self.ctx.stack_offset,
                     self.os,
                 );
+                self.ctx.try_stack.push(TryFrame {
+                    finally_block: Some(finally_stmts.to_vec()),
+                    loop_depth: self.ctx.loop_stack.len(),
+                });
                 for s in try_block {
                     self.generate_statement(s);
                 }
+                self.ctx.try_stack.pop();
                 let try_delta = self.ctx.stack_offset - saved_stack_offset;
                 arch::emit_try_end(
                     &mut self.output,
@@ -1905,11 +1955,20 @@ impl CodeGen {
                 self.ctx.stack_offset,
                 self.os,
             );
+            // Try-frame for early exits (alya-lang/alya#179): see the
+            // finally+catch branch above. No `finally` to inline here,
+            // but the handler pop is still required on every
+            // `return`/`break`/`continue` inside the block.
+            self.ctx.try_stack.push(TryFrame {
+                finally_block: None,
+                loop_depth: self.ctx.loop_stack.len(),
+            });
 
             for s in try_block {
                 self.generate_statement(s);
             }
 
+            self.ctx.try_stack.pop();
             let try_delta = self.ctx.stack_offset - saved_stack_offset;
             arch::emit_try_end(
                 &mut self.output,

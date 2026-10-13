@@ -90,6 +90,7 @@ fn entry_files() -> Vec<String> {
         "64_null_guard_float_twin.alya".to_string(),
         "65_method_collision_loop_null.alya".to_string(),
         "66_catch_struct_through_call.alya".to_string(),
+        "67_try_early_exit_unwind.alya".to_string(),
     ]
 }
 

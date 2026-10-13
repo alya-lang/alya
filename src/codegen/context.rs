@@ -50,6 +50,26 @@ pub struct ScopeState {
     pub nullable_heap_vars: HashSet<String>,
     pub nonescaping_params: HashSet<String>,
     pub tag_slot_memo: HashMap<String, i32>,
+    pub try_stack: Vec<TryFrame>,
+}
+
+/// One active `try` handler registration (alya-lang/alya#179).
+/// Pushed when its `try_begin` is emitted, popped when the matching
+/// `try_end` is emitted on the fall-through path. Early exits
+/// (`return`/`break`/`continue`) consult this stack to emit the
+/// missing `alya_try_end` pops (and inline `finally` blocks);
+/// without it every early exit leaked one slot of the 128-deep
+/// per-thread handler table until the process died with a silent
+/// exit code 1.
+#[derive(Debug, Clone)]
+pub struct TryFrame {
+    /// Inlined `finally` block for early exits (pop, then finally,
+    /// matching the fall-through order). `None` for plain try/catch.
+    pub finally_block: Option<Vec<Stmt>>,
+    /// `loop_stack.len()` when pushed: `break`/`continue` unwind
+    /// only frames at or above the target loop's depth, so handlers
+    /// pushed outside the loop survive the jump.
+    pub loop_depth: usize,
 }
 
 /// Counters for the return-tag protocol measurement
@@ -108,6 +128,11 @@ pub struct CodeGenContext {
     /// reads, so every branch/iteration spills to the same offset and
     /// merges stay exact. Frame-relative: cleared per function.
     pub tag_slot_memo: HashMap<String, i32>,
+    /// Active `try` handler registrations (alya-lang/alya#179): early
+    /// exits consult this to pop handlers. Frame-relative: cleared
+    /// per function (a nested function's returns must not pop the
+    /// outer function's handlers).
+    pub try_stack: Vec<TryFrame>,
     /// Closure-capture plan (alya-lang/alya#100): owners, chains and
     /// captured sets per function. Whole-program: survives
     /// `enter_function` (emission consults it, never mutates it).
@@ -138,6 +163,7 @@ impl CodeGenContext {
             nullable_heap_vars: HashSet::new(),
             nonescaping_params: HashSet::new(),
             tag_slot_memo: HashMap::new(),
+            try_stack: Vec::new(),
             capture_plan: super::analysis::nested::CapturePlan::default(),
         }
     }
@@ -237,6 +263,7 @@ impl CodeGenContext {
             nullable_heap_vars: std::mem::take(&mut self.nullable_heap_vars),
             nonescaping_params: std::mem::take(&mut self.nonescaping_params),
             tag_slot_memo: std::mem::take(&mut self.tag_slot_memo),
+            try_stack: std::mem::take(&mut self.try_stack),
         };
         self.stack_offset = 0;
         self.next_defer_idx = 0;
@@ -253,6 +280,7 @@ impl CodeGenContext {
         self.nullable_heap_vars = saved.nullable_heap_vars;
         self.nonescaping_params = saved.nonescaping_params;
         self.tag_slot_memo = saved.tag_slot_memo;
+        self.try_stack = saved.try_stack;
     }
 
     /// Re-adds tag-spill records after a loop exit for names whose

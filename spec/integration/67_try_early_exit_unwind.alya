@@ -1,0 +1,81 @@
+# ==============================================================================
+# Alya Integration Fixture 67 (entry): early exits inside `try` unwind handlers
+# Distilled from: alya-lang/alya#179 (template `src/core/pipeline.alya`
+# `try_process()` benchmark: a try/return helper died silently after
+# ~128 calls).
+# Guards: the fall-through paths pair every `alya_try_begin` with
+#         `alya_try_end`, but `return`/`break`/`continue` inside a
+#         `try`/`catch` block jumped straight out, leaking one slot of
+#         the 128-deep per-thread handler table per execution until
+#         the process died with a silent exit code 1. Early exits must
+#         pop each active handler (and inline `finally` blocks,
+#         innermost first), while `break`/`continue` keep handlers
+#         pushed outside the target loop.
+# ==============================================================================
+
+function guarded(x: string?) -> string
+    try
+        return x ?? "fallback"
+    catch err
+        return "caught"
+    end
+end
+
+function return_in_catch(x: int) -> string
+    try
+        if x == 0
+            throw "zero!"
+        end
+        return "no-throw"
+    catch err
+        return f"caught:{err.message}"
+    end
+end
+
+function early_with_finally(x: int) -> string
+    try
+        if x == 0
+            return "early-zero"
+        end
+        return "normal"
+    catch err
+        return "caught"
+    finally
+        say "finally-ran"
+    end
+end
+
+function break_in_try() -> int
+    let total = 0
+    let i = 0
+    while i < 100
+        try
+            if i == 10
+                break
+            end
+            total += 1
+        catch err
+            total = -999
+        end
+        i += 1
+    end
+    return total
+end
+
+function main()
+    let t = 0
+    while t < 500
+        guarded("bench")
+        t += 1
+    end
+    assert guarded("hi") == "hi"
+    assert guarded(null) == "fallback"
+    assert return_in_catch(0) == "caught:zero!"
+    assert return_in_catch(5) == "no-throw"
+    assert early_with_finally(0) == "early-zero"
+    assert early_with_finally(3) == "normal"
+    assert break_in_try() == 10
+    say "integration 67_try_early_exit_unwind: OK"
+end
+
+main()

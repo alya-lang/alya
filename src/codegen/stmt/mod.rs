@@ -99,6 +99,11 @@ impl CodeGen {
             } => self.generate_for_each(var, value_var.as_deref(), iterable, body),
             Stmt::Break => {
                 if let Some((_, break_label, base_offset)) = self.ctx.current_loop().cloned() {
+                    // Pop handlers pushed inside the loop (and inline
+                    // their `finally` blocks); handlers from outside
+                    // survive the jump (alya-lang/alya#179).
+                    let depth = self.ctx.loop_stack.len();
+                    self.unwind_try_stack(depth);
                     let delta = self.ctx.stack_offset - base_offset;
                     if delta > 0 {
                         arch::emit_stack_restore(&mut self.output, self.arch, delta);
@@ -108,6 +113,8 @@ impl CodeGen {
             }
             Stmt::Continue => {
                 if let Some((continue_label, _, base_offset)) = self.ctx.current_loop().cloned() {
+                    let depth = self.ctx.loop_stack.len();
+                    self.unwind_try_stack(depth);
                     let delta = self.ctx.stack_offset - base_offset;
                     if delta > 0 {
                         arch::emit_stack_restore(&mut self.output, self.arch, delta);
@@ -381,6 +388,13 @@ impl CodeGen {
                         }
                     }
 
+                    // Pop active `try` handlers (and inline `finally`
+                    // blocks) before leaving the frame: the value and
+                    // tag are already spilled, so the `alya_try_end`
+                    // and `finally` calls cannot clobber them
+                    // (alya-lang/alya#179).
+                    self.unwind_try_stack(0);
+
                     self.emit_run_defers();
 
                     let heap_offsets = self.get_scope_heap_offsets(skip_offset);
@@ -414,6 +428,9 @@ impl CodeGen {
                         }
                     }
                 } else {
+                    // Bare `return` inside `try`/`catch` must pop the
+                    // handler too (alya-lang/alya#179).
+                    self.unwind_try_stack(0);
                     self.emit_run_defers();
                     self.emit_cleanup_scope(None);
                 }

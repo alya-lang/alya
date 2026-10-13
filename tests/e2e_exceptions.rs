@@ -240,6 +240,53 @@ main()
 }
 
 #[test]
+fn test_e2e_try_early_return_does_not_leak_handlers() {
+    // alya-lang/alya#179: `return` inside `try` jumped straight to the
+    // epilogue without `alya_try_end`, leaking one slot of the 128-deep
+    // handler table per call until the process died with a silent exit
+    // code 1 after ~128 iterations. Early exits must pop handlers (and
+    // run `finally`); repeated calls loop fine with correct values.
+    let code = r#"
+function guarded(x: string?) -> string
+    try
+        return x ?? "fallback"
+    catch err
+        return "caught"
+    end
+end
+function early_finally(x: int) -> string
+    try
+        if x == 0
+            return "early-zero"
+        end
+        return "normal"
+    catch err
+        return "caught"
+    finally
+        say "finally-ran"
+    end
+end
+function main()
+    let t = 0
+    while t < 500
+        guarded("bench")
+        t += 1
+    end
+    say "500 done"
+    assert guarded("hi") == "hi"
+    assert guarded(null) == "fallback"
+    assert early_finally(0) == "early-zero"
+    assert early_finally(3) == "normal"
+end
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0);
+        assert_eq!(output, "500 done\nfinally-ran\nfinally-ran\n");
+    }
+}
+
+#[test]
 fn test_e2e_throw_uncaught_in_worker_prints_message() {
     // Fatal path (printf + exit) on a pthread-created thread.
     let code = r#"

@@ -32,6 +32,15 @@ pub fn emit_try_end(
     out.push_str(&format!("    jmp {}\n", end_label));
 }
 
+/// Bare handler pop for early exits inside `try`/`catch`
+/// (alya-lang/alya#179): just the `alya_try_end` call, with no
+/// stack adjustment and no jump. `return`/`break`/`continue` bypass
+/// the fall-through `emit_try_end`, so without this each early exit
+/// leaks one slot of the 128-deep handler table.
+pub fn emit_try_pop(out: &mut String, stack_offset: i32, os: OperatingSystem) {
+    control::emit_call_target(out, "alya_try_end", 0, stack_offset, os);
+}
+
 pub fn emit_catch_begin(out: &mut String, catch_label: &str) {
     out.push_str(&format!("{}:\n", catch_label));
 }

@@ -55,6 +55,13 @@ pub fn emit_try_end(
     }
 }
 
+pub fn emit_try_pop(out: &mut String, arch: Architecture, stack_offset: i32, os: OperatingSystem) {
+    match arch {
+        Architecture::ARM64 => arm64::emit_try_pop(out),
+        Architecture::X64 => x64::emit_try_pop(out, stack_offset, os),
+    }
+}
+
 pub fn emit_catch_begin(out: &mut String, arch: Architecture, catch_label: &str) {
     match arch {
         Architecture::ARM64 => arm64::emit_catch_begin(out, catch_label),
