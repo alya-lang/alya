@@ -2525,6 +2525,16 @@ impl TypeChecker {
         if field == "message" {
             return Ok(());
         }
+        // Module-alias qualified paths (`mem.Arena`, `sync.Mutex`)
+        // parse as field access but are not reads: the head names an
+        // import, not a variable (codegen resolves them through the
+        // globals table instead). Only declared variables get field
+        // validation below (alya-lang/alya#182).
+        if let Expr::Identifier(obj_name) = object {
+            if self.lookup_var(obj_name).is_none() {
+                return Ok(());
+            }
+        }
         // Length/len are methods (`len(x)`, `.length()`), never fields:
         // the old approval let `arr.length` read field index 0 garbage
         // (alya-lang/alya#182).
