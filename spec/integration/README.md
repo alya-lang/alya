@@ -81,6 +81,7 @@
 # | `67_try_early_exit_unwind.alya` | template `src/core/pipeline.alya` `try_process()` benchmark (alya-lang/alya#179) | `return`/`break`/`continue` inside `try`/`catch` pop each active handler (inlining `finally`, innermost first); `break`/`continue` keep handlers pushed outside the target loop; repeated try/return calls never exhaust the 128-deep table |
 # | `68_cross_module_operators.alya` + `68_op_pair_helper.alya` | template `combine_stats` helper (alya-lang/alya#180) | cross-module operator overloads dispatch despite the bare-struct/qualified-method spelling split: unique type-qualified suffix match (exact/bare/normalized first); struct results readable, `==`/`!=`/conditions correct |
 # | `69_spawn_closure_capture.alya` | template concurrency demo (alya-lang/alya#181) | `spawn || =>` closures see captured enclosing locals (trampoline/thread-proc deliver the capture chain; fiber/thread own heap func/arg across spawner return); multi-arg `spawn f(a, b)` thunk path intact |
+# | `70_catch_escape_roundtrip.alya` | catch-escape container round-trip (alya-lang/alya#186) | struct AND string throws round-trip through push / map set / array index-assign / struct field / derived local / string global with exact values; guards the catch-entry tag spill + exact-kind dynamic stores |
 #
 # ## Known collision (deliberate rename)
 #

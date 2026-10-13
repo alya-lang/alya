@@ -63,6 +63,9 @@ When an exception occurs inside a block with `defer` statements:
 ### 1.6 Trapped Runtime Type Errors
 Dynamic type errors at call and builtin boundaries trap as catchable errors instead of crashing the process: calling a non-function value throws `"value is not callable"`, `keys()` on a non-container throws `"keys() requires a map or array"`, and a nonzero small integer reaching a declared `string` parameter throws `"type mismatch: expected 'string' argument"`. Only provably-foreign values trap (nonzero small integers, and managed strings for calls/`keys()`); null keeps the lenient-null contract and ambiguous heap values keep the legacy path (see Chapter 02 §1.7).
 
+### 1.7 Catch-Escape Round-Trip (Dynamic Kind)
+A `catch` binding is dynamically typed: each execution may deliver a `string` or a `struct` (or any other thrown shape). The binding's value round-trips through every escape path — `push` into arrays, map/array index-assign, struct fields, derived locals, and globals — with its exact runtime kind preserved, so struct fields read back structs and strings read back strings. String-throw handling is unchanged (type-driven, no behavioral delta). Net: `push(bag, err); bag[0].a` observes the thrown struct's fields, and `push(bag2, e2); bag2[0]` observes the thrown string (see `spec/integration/70_catch_escape_roundtrip.alya`).
+
 ---
 
 ## 2. Formal Grammar (EBNF Snippet)

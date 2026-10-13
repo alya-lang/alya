@@ -1,0 +1,60 @@
+# ==============================================================================
+# Alya Integration Fixture 70 (entry): catch-escape container round-trip
+# Distilled from: alya-lang/alya#186 (a `catch err` struct read back as
+#                 garbage through containers: the slot typed as string, so
+#                 stores dup'd the value as a C string and lost the pointer,
+#                 kinds mistagged, and nothing retained it).
+# Guards: catch entry classifies the value and spills its runtime tag, so
+#         dynamic stores (push, map/array set, struct fields, derived
+#         locals) record exact kinds; struct and string throws both
+#         round-trip with correct values. String-throw paths stay
+#         type-driven and bit-identical.
+# ==============================================================================
+
+struct EscErr
+    a: int,
+    b: int
+end
+
+struct EscBox
+    item: any
+end
+
+let esc_g = ""
+
+function main()
+    try
+        throw EscErr { a: 3, b: 4 }
+    catch err
+        assert err.a == 3
+        assert err.b == 4
+        let bag = []
+        push(bag, err)
+        assert bag[0].a == 3
+        assert bag[0].b == 4
+        let d = err
+        assert d.a == 3
+        assert d.b == 4
+        let m = {}
+        m["k"] = err
+        assert m["k"].a == 3
+        let arr = []
+        push(arr, 0)
+        arr[0] = err
+        assert arr[0].a == 4 - 1
+        let bx = EscBox { item: err }
+        assert bx.item.a == 3
+    end
+    try
+        throw "boom70"
+    catch e2
+        let bag2 = []
+        push(bag2, e2)
+        assert bag2[0] == "boom70"
+        esc_g = e2
+    end
+    assert esc_g == "boom70"
+    say "integration 70_catch_escape_roundtrip: OK"
+end
+
+main()

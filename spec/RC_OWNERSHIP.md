@@ -90,7 +90,8 @@ null-field-trap test during development of this rule).
 `--mem-trace` + `STATUS: [OK] Clean execution` family in
 `tests/e2e_system.rs` gates locals/params/returns/containers,
 closure slots and direct-call chains (#183), and catch bindings
-(#184). Bounded residuals outside the gate (fresh argument temps,
+(#184) plus catch-escape round-trips (#186, fixture
+`spec/integration/70_catch_escape_roundtrip.alya`). Bounded residuals outside the gate (fresh argument temps,
 var-less catches, returns inside `catch`); the crash fuzzer
 (`tests/fuzz_crash.rs`) covers all flows with an exit-code oracle
 instead.

@@ -93,6 +93,7 @@ fn entry_files() -> Vec<String> {
         "67_try_early_exit_unwind.alya".to_string(),
         "68_cross_module_operators.alya".to_string(),
         "69_spawn_closure_capture.alya".to_string(),
+        "70_catch_escape_roundtrip.alya".to_string(),
     ]
 }
 
