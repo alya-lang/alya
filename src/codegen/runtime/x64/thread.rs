@@ -24,9 +24,28 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    mov %rax, %gs:0x28\n");  // store in Windows TEB ArbitraryUserPointer
         out.push_str("    mov 8(%rcx), %r11\n");   // func
         out.push_str("    mov 16(%rcx), %rcx\n");  // arg
+        // alya-lang/alya#181: closure-aware dispatch, mirror of the
+        // fiber trampoline. Values below 65536 skip the header read
+        // (legacy faults on them exactly as before).
+        out.push_str("    cmp $65536, %r11\n");
+        out.push_str("    jb .L_x64_thr_proc_direct\n");
+        out.push_str("    movl -16(%r11), %eax\n");
+        out.push_str("    cmpl $0x5A110005, %eax\n");
+        out.push_str("    jne .L_x64_thr_proc_direct\n");
+        out.push_str("    movq 8(%r11), %rcx\n");    // chain
+        out.push_str("    movq (%r11), %r11\n");     // code
+        out.push_str(".L_x64_thr_proc_direct:\n");
         out.push_str("    call *%r11\n");
         out.push_str("    mov 32(%rsp), %r10\n");  // reload ctx
         out.push_str("    mov %rax, 24(%r10)\n");  // result
+        // The thread's ownership of func+arg ends here (the proc runs
+        // once). Balances the retains in `fn___native_thread_spawn`.
+        // Bare calls: same rsp parity as the `call *%r11` above.
+        out.push_str("    mov 8(%r10), %rcx\n");
+        out.push_str("    call fn_rc_release\n");
+        out.push_str("    mov 32(%rsp), %r10\n");  // reload ctx
+        out.push_str("    mov 16(%r10), %rcx\n");
+        out.push_str("    call fn_rc_release\n");
         out.push_str("    movq $0, %gs:0x28\n");   // clear ArbitraryUserPointer
         out.push_str("    xor %rax, %rax\n");
         out.push_str("    add $40, %rsp\n");
@@ -47,9 +66,24 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    mov %rdi, 8(%rsp)\n");   // save ctx
         out.push_str("    mov 8(%rdi), %r11\n");   // func
         out.push_str("    mov 16(%rdi), %rdi\n");  // arg
+        // Closure-aware dispatch, mirror of the Windows branch above
+        // (alya-lang/alya#181).
+        out.push_str("    cmp $65536, %r11\n");
+        out.push_str("    jb .L_x64_thr_proc_direct\n");
+        out.push_str("    movl -16(%r11), %eax\n");
+        out.push_str("    cmpl $0x5A110005, %eax\n");
+        out.push_str("    jne .L_x64_thr_proc_direct\n");
+        out.push_str("    movq 8(%r11), %rdi\n");    // chain
+        out.push_str("    movq (%r11), %r11\n");     // code
+        out.push_str(".L_x64_thr_proc_direct:\n");
         out.push_str("    call *%r11\n");
         out.push_str("    mov 8(%rsp), %r10\n");   // reload ctx
         out.push_str("    mov %rax, 24(%r10)\n");  // result
+        out.push_str("    mov 8(%r10), %rdi\n");
+        out.push_str("    call fn_rc_release\n");
+        out.push_str("    mov 8(%rsp), %r10\n");   // reload ctx
+        out.push_str("    mov 16(%r10), %rdi\n");
+        out.push_str("    call fn_rc_release\n");
         out.push_str("    xor %rax, %rax\n");
         out.push_str("    add $24, %rsp\n");
         out.push_str("    pop %r15\n");
@@ -74,6 +108,18 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    sub $56, %rsp\n");
         out.push_str("    mov %rcx, %r12\n");      // func
         out.push_str("    mov %rdx, %r13\n");      // arg
+        // The thread outlives this call, so it takes ownership of heap
+        // func/arg (alya-lang/alya#181). Probed retains: safe no-ops
+        // on code pointers, small ints and immortals; released once in
+        // the thread proc after the function completes.
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call fn_rc_retain\n");
+        out.push_str("    add $32, %rsp\n");
+        out.push_str("    mov %r13, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call fn_rc_retain\n");
+        out.push_str("    add $32, %rsp\n");
         out.push_str("    mov $40, %rcx\n");
         out.push_str("    call malloc\n");
         out.push_str("    mov %rax, %rbx\n");      // ctx
@@ -99,6 +145,12 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    sub $24, %rsp\n");
         out.push_str("    mov %rdi, %r12\n");      // func
         out.push_str("    mov %rsi, %r13\n");      // arg
+        // Ownership retains (rsp is 16-aligned: bare calls, like the
+        // `malloc` call below).
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str("    call fn_rc_retain\n");
+        out.push_str("    mov %r13, %rdi\n");
+        out.push_str("    call fn_rc_retain\n");
         out.push_str("    mov $32, %rdi\n");
         out.push_str(&format!("    call {}malloc\n", p));
         out.push_str("    mov %rax, %rbx\n");      // ctx

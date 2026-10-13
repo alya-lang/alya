@@ -77,12 +77,36 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    str x10, [x19, #8]\n");        // state = RUNNING (1)
     out.push_str("    ldr x8, [x19, #40]\n");        // fn_ptr
     out.push_str("    ldr x0, [x19, #48]\n");        // arg
+    // alya-lang/alya#181: closure-aware dispatch. A slot holding a
+    // closure object (magic 0x5A110005) calls its code with the stored
+    // chain as the single argument (zero-user-param closures home it
+    // into `chain$clo`); anything else keeps the legacy direct call.
+    // Values below 65536 skip the header read (legacy faults on them
+    // exactly as before).
+    out.push_str("    movz x9, #1, lsl #16\n");
+    out.push_str("    cmp x8, x9\n");
+    out.push_str("    b.lo .L_arm64_fib_tramp_direct\n");
+    out.push_str("    ldur w9, [x8, #-16]\n");
+    out.push_str("    movz w10, #0x0005\n");
+    out.push_str("    movk w10, #0x5A11, lsl #16\n");
+    out.push_str("    cmp w9, w10\n");
+    out.push_str("    b.ne .L_arm64_fib_tramp_direct\n");
+    out.push_str("    ldr x0, [x8, #8]\n");          // chain
+    out.push_str("    ldr x8, [x8]\n");              // code
+    out.push_str(".L_arm64_fib_tramp_direct:\n");
     out.push_str("    blr x8\n");                    // call func(arg)
     emit_adrp_add(out, "x8", "alya_fiber_current", os);
     out.push_str("    ldr x19, [x8]\n");
     out.push_str("    str x0, [x19, #56]\n");        // result
     out.push_str("    mov x10, #3\n");
     out.push_str("    str x10, [x19, #8]\n");        // state = COMPLETED (3)
+    // The fiber's ownership of func+arg ends here (exactly-once: the
+    // trampoline runs only on first entry). Balances the retains taken
+    // in `fn___native_fiber_spawn`.
+    out.push_str("    ldr x0, [x19, #40]\n");
+    out.push_str("    bl fn_rc_release\n");
+    out.push_str("    ldr x0, [x19, #48]\n");
+    out.push_str("    bl fn_rc_release\n");
     out.push_str("    bl fn_alya_fiber_exit\n");
     out.push_str("    ldp x29, x30, [sp], #16\n");
     out.push_str("    ret\n\n");
@@ -144,6 +168,16 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    stp x21, x22, [sp, #32]\n");
     out.push_str("    mov x19, x0\n");              // func
     out.push_str("    mov x20, x1\n");              // arg
+    // The fiber outlives this call (drain runs after the spawner frame
+    // is gone), so it takes ownership of heap func/arg
+    // (alya-lang/alya#181). Probed retains: safe no-ops on code
+    // pointers, small ints and immortal strings; released once in the
+    // trampoline after the fiber completes. x19/x20 survive the calls
+    // (callee-saved; retain touches x0-x5/x9 only).
+    out.push_str("    mov x0, x19\n");
+    out.push_str("    bl fn_rc_retain\n");
+    out.push_str("    mov x0, x20\n");
+    out.push_str("    bl fn_rc_retain\n");
     out.push_str("    bl fn_alya_fiber_init\n");
 
     // Stack allocation / pool check

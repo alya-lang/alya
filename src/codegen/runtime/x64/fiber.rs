@@ -112,10 +112,35 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    movq $1, 8(%rbx)\n");      // state = 1 (RUNNING)
         out.push_str("    mov 40(%rbx), %r11\n");    // fn_ptr
         out.push_str("    mov 48(%rbx), %rcx\n");    // arg
+        // alya-lang/alya#181: closure-aware dispatch. A slot holding
+        // a closure object (magic 0x5A110005) calls its code with the
+        // stored chain as the single argument (zero-user-param
+        // closures home it into `chain$clo`); anything else keeps the
+        // legacy direct call. Values below 65536 skip the header read
+        // (legacy faults on them exactly as before).
+        out.push_str("    cmp $65536, %r11\n");
+        out.push_str("    jb .L_x64_fib_tramp_direct\n");
+        out.push_str("    movl -16(%r11), %eax\n");
+        out.push_str("    cmpl $0x5A110005, %eax\n");
+        out.push_str("    jne .L_x64_fib_tramp_direct\n");
+        out.push_str("    movq 8(%r11), %rcx\n");    // chain
+        out.push_str("    movq (%r11), %r11\n");     // code
+        out.push_str(".L_x64_fib_tramp_direct:\n");
         out.push_str("    call *%r11\n");
         out.push_str("    mov alya_fiber_current(%rip), %rbx\n");
         out.push_str("    mov %rax, 56(%rbx)\n");    // result
         out.push_str("    movq $3, 8(%rbx)\n");      // state = 3 (COMPLETED)
+        // The fiber's ownership of func+arg ends here (exactly-once:
+        // the trampoline runs only on first entry). Balances the
+        // retains taken in `fn___native_fiber_spawn`.
+        out.push_str("    mov 40(%rbx), %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call fn_rc_release\n");
+        out.push_str("    add $32, %rsp\n");
+        out.push_str("    mov 48(%rbx), %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call fn_rc_release\n");
+        out.push_str("    add $32, %rsp\n");
         out.push_str("    add $32, %rsp\n");
         out.push_str("    sub $32, %rsp\n");
         out.push_str("    call fn_alya_fiber_exit\n");
@@ -127,10 +152,25 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    movq $1, 8(%rbx)\n");      // state = 1 (RUNNING)
         out.push_str("    mov 40(%rbx), %r11\n");    // fn_ptr
         out.push_str("    mov 48(%rbx), %rdi\n");    // arg
+        // Closure-aware dispatch, mirror of the Windows branch above
+        // (alya-lang/alya#181).
+        out.push_str("    cmp $65536, %r11\n");
+        out.push_str("    jb .L_x64_fib_tramp_direct\n");
+        out.push_str("    movl -16(%r11), %eax\n");
+        out.push_str("    cmpl $0x5A110005, %eax\n");
+        out.push_str("    jne .L_x64_fib_tramp_direct\n");
+        out.push_str("    movq 8(%r11), %rdi\n");    // chain
+        out.push_str("    movq (%r11), %r11\n");     // code
+        out.push_str(".L_x64_fib_tramp_direct:\n");
         out.push_str("    call *%r11\n");
         out.push_str("    mov alya_fiber_current(%rip), %rbx\n");
         out.push_str("    mov %rax, 56(%rbx)\n");    // result
         out.push_str("    movq $3, 8(%rbx)\n");      // state = 3 (COMPLETED)
+        // Ownership release (rsp is 16-aligned: bare calls).
+        out.push_str("    mov 40(%rbx), %rdi\n");
+        out.push_str("    call fn_rc_release\n");
+        out.push_str("    mov 48(%rbx), %rdi\n");
+        out.push_str("    call fn_rc_release\n");
         out.push_str("    add $16, %rsp\n");
         out.push_str("    call fn_alya_fiber_exit\n");
         out.push_str("    ret\n\n");
@@ -228,10 +268,30 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
         out.push_str("    sub $48, %rsp\n");
         out.push_str("    mov %rcx, %r12\n");        // func
         out.push_str("    mov %rdx, %r13\n");        // arg
+        // The fiber outlives this call (drain runs after the spawner
+        // frame is gone), so it takes ownership of heap func/arg
+        // (alya-lang/alya#181). Probed retains: safe no-ops on code
+        // pointers, small ints and immortal strings; released once in
+        // the trampoline after the fiber completes.
+        out.push_str("    mov %r12, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call fn_rc_retain\n");
+        out.push_str("    add $32, %rsp\n");
+        out.push_str("    mov %r13, %rcx\n");
+        out.push_str("    sub $32, %rsp\n");
+        out.push_str("    call fn_rc_retain\n");
+        out.push_str("    add $32, %rsp\n");
     } else {
         out.push_str("    sub $32, %rsp\n");
         out.push_str("    mov %rdi, %r12\n");        // func
         out.push_str("    mov %rsi, %r13\n");        // arg
+        // Ownership retains (alya-lang/alya#181); rsp is 16-aligned
+        // here so the calls go out bare, like `fn_alya_fiber_init`
+        // below.
+        out.push_str("    mov %r12, %rdi\n");
+        out.push_str("    call fn_rc_retain\n");
+        out.push_str("    mov %r13, %rdi\n");
+        out.push_str("    call fn_rc_retain\n");
     }
 
     out.push_str("    call fn_alya_fiber_init\n");

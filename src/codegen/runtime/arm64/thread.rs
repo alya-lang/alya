@@ -23,9 +23,31 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    str x0, [sp, #96]\n");        // save ctx
     out.push_str("    ldr x8, [x0, #8]\n");         // func
     out.push_str("    ldr x0, [x0, #16]\n");        // arg
+    // alya-lang/alya#181: closure-aware dispatch, mirror of the fiber
+    // trampoline. Values below 65536 skip the header read (legacy
+    // faults on them exactly as before).
+    out.push_str("    movz x9, #1, lsl #16\n");
+    out.push_str("    cmp x8, x9\n");
+    out.push_str("    b.lo .L_arm64_thr_proc_direct\n");
+    out.push_str("    ldur w9, [x8, #-16]\n");
+    out.push_str("    movz w10, #0x0005\n");
+    out.push_str("    movk w10, #0x5A11, lsl #16\n");
+    out.push_str("    cmp w9, w10\n");
+    out.push_str("    b.ne .L_arm64_thr_proc_direct\n");
+    out.push_str("    ldr x0, [x8, #8]\n");          // chain
+    out.push_str("    ldr x8, [x8]\n");              // code
+    out.push_str(".L_arm64_thr_proc_direct:\n");
     out.push_str("    blr x8\n");                   // call func(arg)
     out.push_str("    ldr x1, [sp, #96]\n");        // reload ctx
     out.push_str("    str x0, [x1, #24]\n");        // ctx->result = x0
+    // The thread's ownership of func+arg ends here (the proc runs
+    // once). Balances the retains in `fn___native_thread_spawn`.
+    out.push_str("    ldr x1, [sp, #96]\n");        // reload ctx
+    out.push_str("    ldr x0, [x1, #8]\n");
+    out.push_str("    bl fn_rc_release\n");
+    out.push_str("    ldr x1, [sp, #96]\n");        // reload ctx
+    out.push_str("    ldr x0, [x1, #16]\n");
+    out.push_str("    bl fn_rc_release\n");
     out.push_str("    mov x0, #0\n");               // exit code 0
     out.push_str("    ldp x19, x20, [sp, #16]\n");
     out.push_str("    ldp x21, x22, [sp, #32]\n");
@@ -45,6 +67,14 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    stp x21, x22, [sp, #32]\n");
     out.push_str("    mov x19, x0\n");              // func
     out.push_str("    mov x20, x1\n");              // arg
+    // The thread outlives this call, so it takes ownership of heap
+    // func/arg (alya-lang/alya#181). Probed retains: safe no-ops on
+    // code pointers, small ints and immortals; released once in the
+    // thread proc after the function completes.
+    out.push_str("    mov x0, x19\n");
+    out.push_str("    bl fn_rc_retain\n");
+    out.push_str("    mov x0, x20\n");
+    out.push_str("    bl fn_rc_retain\n");
     out.push_str("    sub sp, sp, #32\n");
     out.push_str("    mov x0, #32\n");              // 32 bytes
     out.push_str(&format!("    bl {}malloc\n", p));

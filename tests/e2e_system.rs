@@ -4467,6 +4467,36 @@ say "pipeline_verified: " + str(total)
 }
 
 #[test]
+fn test_e2e_spawn_closure_over_os_thread_captures_channel() {
+    // alya-lang/alya#181 (channel half): with `std/sync` imported, bare
+    // `spawn` routes to the `sync.spawn` OS-thread alias, whose entry
+    // point passed only the arg — a capturing closure crashed
+    // identically. A rendezvous roundtrip proves the thread saw the
+    // captured locals (send blocks till `recv` is ready, so ordering
+    // is deterministic; a dead thread surfaces as exit-code/assert
+    // failure, not a hang).
+    let code = r#"
+import "std/sync"
+
+function main()
+    let ch = channel_rendezvous()
+    let tag = 7
+    spawn || =>
+        ch.send(tag)
+    end
+    let got = ch.recv()
+    assert got == 7
+    say "thread closure ok"
+end
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(output.contains("thread closure ok"), "Got:\n{}", output);
+    }
+}
+
+#[test]
 fn test_e2e_cooperative_fibers_100k_stress() {
     let code = r#"
 import "std/sync"

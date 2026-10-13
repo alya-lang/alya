@@ -752,6 +752,30 @@ spawn w2(40, 2)
 }
 
 #[test]
+fn test_e2e_spawn_closure_captures_enclosing_local() {
+    // alya-lang/alya#181: a `spawn || =>` closure reading an enclosing
+    // local crashed with an access violation after "main done" (the
+    // fiber trampoline never delivered the capture chain, and the
+    // closure object was freed before drain ran). The fiber must see
+    // the cell value.
+    let code = r#"
+function main()
+    let tag = 99
+    spawn || =>
+        say f"fiber sees {tag}"
+    end
+    say "main done"
+end
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert!(output.contains("main done"), "Got: {}", output);
+        assert!(output.contains("fiber sees 99"), "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_e2e_kind_dispatch_specializes_per_callsite() {
     // alya-lang/alya#39 Phase 2: `when is` on an untyped param
     // dispatches per call-site kind via static specialization

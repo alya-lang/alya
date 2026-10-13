@@ -801,6 +801,18 @@ impl Parser {
                         type_params: vec![],
                         attributes: vec![],
                     };
+                    // Why the old code broke: every other desugared
+                    // function records its lexical parent, but the
+                    // thunk skipped it, so `resolve_lambda_enclosing`
+                    // attributed the WRONG enclosing scope to each
+                    // later lambda (positional mismatch) and a
+                    // capturing `spawn || =>` closure lost its
+                    // enclosing function (`Unknown identifier` at
+                    // check time). What the new code protects: the
+                    // parallel `lambda_functions`/`lambda_parents`
+                    // invariant the resolver documents.
+                    let thunk_sid = self.alloc_lambda_scope();
+                    self.record_lambda_scope(thunk_sid, &thunk_name);
                     self.lambda_functions.push(thunk_fn);
                     Ok(vec![Stmt::Expr(Expr::Call {
                         name: "spawn".to_string(),
@@ -808,10 +820,40 @@ impl Parser {
                     })])
                 }
             }
-            other => Ok(vec![Stmt::Expr(Expr::Call {
-                name: "spawn".to_string(),
-                args: vec![other, Expr::Null],
-            })]),
+            other => {
+                // alya-lang/alya#181: a directly-spawned closure with
+                // user parameters can never receive them (the fiber
+                // trampoline only delivers the capture chain, and there
+                // is no syntax to supply arguments). Fail loudly here
+                // instead of running with garbage bindings at runtime.
+                // (`chain$clo` is appended later at codegen, so every
+                // parameter listed here is a user parameter.)
+                if let Expr::Identifier(lambda_name) = &other {
+                    if lambda_name.starts_with("__alya_lambda_") {
+                        if let Some(arity) =
+                            self.lambda_functions
+                                .iter()
+                                .find_map(|s| match s.inner_stmt() {
+                                    Stmt::Function { name, params, .. } if name == lambda_name => {
+                                        Some(params.len())
+                                    }
+                                    _ => None,
+                                })
+                        {
+                            if arity > 0 {
+                                return Err(format!(
+                                    "spawn closures cannot declare parameters (found {}); pass values as spawn arguments instead",
+                                    arity
+                                ));
+                            }
+                        }
+                    }
+                }
+                Ok(vec![Stmt::Expr(Expr::Call {
+                    name: "spawn".to_string(),
+                    args: vec![other, Expr::Null],
+                })])
+            }
         }
     }
 

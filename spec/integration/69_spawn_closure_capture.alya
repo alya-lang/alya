@@ -1,0 +1,28 @@
+# ==============================================================================
+# Alya Integration Fixture 69 (entry): spawn closures capture enclosing locals
+# Distilled from: alya-lang/alya#181 (template concurrency demo used
+#                 argument-passing `spawn fiber_producer(ch, n)` because
+#                 capturing `spawn || =>` closures crashed).
+# Guards: a `spawn || =>` closure reading an enclosing local must see
+#         the cell value (trampoline delivers the capture chain; the
+#         fiber/thread takes ownership of heap func/arg so drain/join
+#         after the spawner frame is gone stays sound). Multi-arg
+#         `spawn f(a, b)` still routes through the pack thunk.
+# ==============================================================================
+
+function pair_sum(a, b)
+    return a + b
+end
+
+function main()
+    let tag = 99
+    spawn || =>
+        say f"fiber sees {tag}"
+    end
+    spawn pair_sum(40, 2)
+    say "main done"
+    assert tag == 99
+    say "integration 69_spawn_closure_capture: OK"
+end
+
+main()
