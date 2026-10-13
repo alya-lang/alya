@@ -6,16 +6,19 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/alya-lang/alya/releases/download/v0.0.20/alya-v0.0.20-x86_64-windows.zip",
-      "hash": "c14b83149e38eef88b9557350f79e7adc0f1470d0e42e707ab7a91885613371a",
+      "hash": "6c2ce1bc7893c3a3a1c7d88626f661cc70d884322668171fa34f162c37746079",
       "extract_dir": "alya-v0.0.20-x86_64-windows"
     },
     "arm64": {
       "url": "https://github.com/alya-lang/alya/releases/download/v0.0.20/alya-v0.0.20-arm64-windows.zip",
-      "hash": "61a0b9ba3bca1beb389202cb4652d9aec6ef764b321c33e444dde50c949bafdc",
+      "hash": "4a24620177947c3ea07bf7a01f084a4350989680634a7a121e0b02f56eb8fe88",
       "extract_dir": "alya-v0.0.20-arm64-windows"
     }
   },
-  "bin": ["alya.exe", "alya-lsp.exe"],
+  "bin": [
+    "alya.exe",
+    "alya-lsp.exe"
+  ],
   "suggest": {
     "MinGW-w64": "main/mingw"
   },
