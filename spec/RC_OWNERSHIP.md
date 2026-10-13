@@ -53,7 +53,7 @@ are safe to call on any value, including code pointers.
 7. **Containers.** Element/field stores retain; frees cascade
    (array/map/struct inner then outer). Cyclic references leak by
    design (no cycle collector); the trace report flags them.
-8. **Throw/catch (alya-lang/alya#184).** The thrown value travels
+8. **Throw/catch (alya-lang/alya#184, #186).** The thrown value travels
     creation → throw temp → thread-block record (raw) → catch-var
     slot, and the slot owns one share: fresh throws (literals,
     calls) transfer their creation share (abandoned on the handler
@@ -62,10 +62,18 @@ are safe to call on any value, including code pointers.
     catch-var rethrows transfer the share already in flight.
     Catch-end drops the slot once via probed release (strings and
     statics skipped). Rethrow/return paths jump away, so the drop
-    only runs when the exception is consumed. Slot escapes are all
-    borrows (catch vars type as `StringOffset`, so no store retains
-    them); var-less catches and returns inside `catch` keep a
-    bounded one-share residual.
+    only runs when the exception is consumed. Catch entry classifies
+    the value (struct/array/map/closure vs immortal string; ring
+    strings normalized to stable) and spills its runtime tag, so
+    dynamic stores (push, map/array set, captured cells) record exact
+    kinds and both string and struct throws round-trip through
+    containers. Catch-derived locals inherit the binding, the tag,
+    and an owned share; no static string claim is ever made for
+    tagged values. Catch-local heap slots are dropped at catch-end
+    (skipped when the block holds a `defer`). Var-less catches and
+    returns inside `catch` keep a bounded one-share residual; globals,
+    struct fields, and literal containers match fresh-value parity
+    (bounded, values correct).
 
 ## Checker/codegen view split (alya-lang/alya#182)
 
