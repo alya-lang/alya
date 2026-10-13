@@ -122,6 +122,14 @@ pub fn emit_array_set(out: &mut String, arch: Architecture, kind: i64) {
     }
 }
 
+/// Dynamic-kind twin of `emit_array_set` (alya-lang/alya#186).
+pub fn emit_array_set_dyn(out: &mut String, arch: Architecture, tag_slot: i32) {
+    match arch {
+        Architecture::ARM64 => arm64::emit_array_set_dyn(out, tag_slot),
+        Architecture::X64 => x64::emit_array_set_dyn(out, tag_slot),
+    }
+}
+
 /// Captured-cell store (alya-lang/alya#100): value in the int register,
 /// kind in the tag register; holder array at `holder_off`.
 pub fn emit_cap_store(out: &mut String, arch: Architecture, holder_off: i32, vi: usize) {

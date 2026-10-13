@@ -118,6 +118,29 @@ pub fn emit_array_set(out: &mut String, kind: i64) {
     out.push_str("    movq %r8, (%rdx, %rax, 8)\n");
 }
 
+/// Dynamic-kind twin of `emit_array_set` (alya-lang/alya#186): the
+/// kind byte comes from a spilled runtime tag slot (reloaded after
+/// the pops, so no save/restore is needed) instead of an immediate.
+/// Same stack discipline and clobbers (r8-r11), plus r10d.
+pub fn emit_array_set_dyn(out: &mut String, tag_slot: i32) {
+    out.push_str("    mov %rax, %r8\n");
+    out.push_str("    pop %rax\n");
+    out.push_str("    pop %rdx\n");
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jns 1f\n");
+    out.push_str("    add (%rdx), %rax\n");
+    out.push_str("1:\n");
+    out.push_str("    cmpq (%rdx), %rax\n");
+    out.push_str("    jae alya_error_index_out_of_bounds\n");
+    out.push_str("    push %r11\n");
+    out.push_str("    mov 24(%rdx), %r11\n");
+    out.push_str(&format!("    movl -{}(%rbp), %r10d\n", tag_slot));
+    out.push_str("    movb %r10b, (%r11, %rax)\n");
+    out.push_str("    pop %r11\n");
+    out.push_str("    mov 16(%rdx), %rdx\n");
+    out.push_str("    movq %r8, (%rdx, %rax, 8)\n");
+}
+
 /// Captured-cell store (alya-lang/alya#100): value in rax, kind dword
 /// in edx; holder array at `holder_off`. Writes the value word and the
 /// kind byte at the plan-static index `vi` (in range by construction:

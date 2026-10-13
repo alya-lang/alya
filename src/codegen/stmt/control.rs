@@ -6,7 +6,7 @@ use crate::codegen::analysis::{
 };
 use crate::codegen::arch;
 use crate::codegen::context::{TryFrame, VarType};
-use crate::codegen::kinds::KIND_FLOAT;
+use crate::codegen::kinds::{KIND_ARRAY, KIND_FLOAT, KIND_INT, KIND_MAP, KIND_STRING, KIND_STRUCT};
 use crate::codegen::target::Architecture;
 
 impl CodeGen {
@@ -1800,6 +1800,237 @@ impl CodeGen {
         );
     }
 
+    /// Classify the caught value in rax/x0 (preserved) into the tag
+    /// register (edx/w1) and spill it for dynamic stores
+    /// (alya-lang/alya#186). Ring-resident strings are normalized to
+    /// stable first so later raw stores cannot dangle on wrap.
+    /// Struct magic yields STRUCT (arrays/maps/closures likewise, if
+    /// they ever arrive — user scalars are str()'d at throw, so only
+    /// strings and structs flow in practice); null/small words yield
+    /// INT; everything else (immortal strings) yields STRING, which
+    /// safely skips cascades and prints bytes.
+    fn emit_catch_entry_tag(&mut self, name: &str) {
+        let l_class = self.ctx.next_label();
+        let l_int = self.ctx.next_label();
+        let l_arr = self.ctx.next_label();
+        let l_map = self.ctx.next_label();
+        let l_struct = self.ctx.next_label();
+        let l_str = self.ctx.next_label();
+        let l_done = self.ctx.next_label();
+        match self.arch {
+            Architecture::X64 => {
+                // Normalize ring strings to stable (same string back).
+                self.output.push_str("    lea alya_str_buf(%rip), %rcx\n");
+                self.output.push_str("    cmp %rcx, %rax\n");
+                self.output.push_str(&format!("    jb {}\n", l_class));
+                self.output.push_str("    lea 67108864(%rcx), %rdx\n");
+                self.output.push_str("    cmp %rdx, %rax\n");
+                self.output.push_str(&format!("    jae {}\n", l_class));
+                arch::emit_str_store(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+                self.output.push_str(&format!("{}:\n", l_class));
+                self.output.push_str("    test %rax, %rax\n");
+                self.output.push_str(&format!("    jz {}\n", l_int));
+                self.output.push_str("    cmp $65536, %rax\n");
+                self.output.push_str(&format!("    jbe {}\n", l_int));
+                self.output.push_str("    movl -16(%rax), %edx\n");
+                self.output.push_str("    cmpl $0x5A110001, %edx\n");
+                self.output.push_str(&format!("    je {}\n", l_arr));
+                self.output.push_str("    cmpl $0x5A110002, %edx\n");
+                self.output.push_str(&format!("    je {}\n", l_map));
+                self.output.push_str("    cmpl $0x5A110003, %edx\n");
+                self.output.push_str(&format!("    je {}\n", l_struct));
+                self.output.push_str("    cmpl $0x5A110005, %edx\n");
+                self.output.push_str(&format!("    je {}\n", l_struct));
+                self.output.push_str(&format!("    jmp {}\n", l_str));
+                self.output
+                    .push_str(&format!("{}:\n    movl ${}, %edx\n", l_int, KIND_INT));
+                self.output.push_str(&format!("    jmp {}\n", l_done));
+                self.output
+                    .push_str(&format!("{}:\n    movl ${}, %edx\n", l_arr, KIND_ARRAY));
+                self.output.push_str(&format!("    jmp {}\n", l_done));
+                self.output
+                    .push_str(&format!("{}:\n    movl ${}, %edx\n", l_map, KIND_MAP));
+                self.output.push_str(&format!("    jmp {}\n", l_done));
+                self.output
+                    .push_str(&format!("{}:\n    movl ${}, %edx\n", l_struct, KIND_STRUCT));
+                self.output.push_str(&format!("    jmp {}\n", l_done));
+                self.output
+                    .push_str(&format!("{}:\n    movl ${}, %edx\n", l_str, KIND_STRING));
+                self.output.push_str(&format!("{}:\n", l_done));
+                arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+                let tag_slot = self.ctx.stack_offset;
+                self.output
+                    .push_str(&format!("    movl %edx, -{}(%rbp)\n", tag_slot));
+                self.ctx
+                    .variables
+                    .insert(format!("var_tag_slot:{}", name), VarType::Number(tag_slot));
+            }
+            Architecture::ARM64 => {
+                crate::codegen::arch::arm64::emit_adrp_add(
+                    &mut self.output,
+                    "x9",
+                    "alya_str_buf",
+                    self.os,
+                );
+                self.output.push_str("    cmp x0, x9\n");
+                self.output.push_str(&format!("    b.lo {}\n", l_class));
+                self.output.push_str("    mov x10, #64\n");
+                // 67108864
+                self.output.push_str("    lsl x10, x10, #20\n");
+                self.output.push_str("    add x10, x9, x10\n");
+                self.output.push_str("    cmp x0, x10\n");
+                self.output.push_str(&format!("    b.hs {}\n", l_class));
+                arch::emit_str_store(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+                self.output.push_str(&format!("{}:\n", l_class));
+                self.output.push_str(&format!("    cbz x0, {}\n", l_int));
+                self.output.push_str("    movz x9, #1, lsl #16\n");
+                self.output.push_str("    cmp x0, x9\n");
+                self.output.push_str(&format!("    b.ls {}\n", l_int));
+                self.output.push_str("    ldr x9, [x0, #-16]\n");
+                // Mask to the low 32-bit tag (high word is GC state).
+                self.output.push_str("    uxtw x9, w9\n");
+                self.output.push_str("    movz x10, #0x0001\n");
+                self.output.push_str("    movk x10, #0x5A11, lsl #16\n");
+                self.output.push_str("    cmp x9, x10\n");
+                self.output.push_str(&format!("    b.eq {}\n", l_arr));
+                self.output.push_str("    movz x10, #0x0002\n");
+                self.output.push_str("    movk x10, #0x5A11, lsl #16\n");
+                self.output.push_str("    cmp x9, x10\n");
+                self.output.push_str(&format!("    b.eq {}\n", l_map));
+                self.output.push_str("    movz x10, #0x0003\n");
+                self.output.push_str("    movk x10, #0x5A11, lsl #16\n");
+                self.output.push_str("    cmp x9, x10\n");
+                self.output.push_str(&format!("    b.eq {}\n", l_struct));
+                self.output.push_str("    movz x10, #0x0005\n");
+                self.output.push_str("    movk x10, #0x5A11, lsl #16\n");
+                self.output.push_str("    cmp x9, x10\n");
+                self.output.push_str(&format!("    b.eq {}\n", l_struct));
+                self.output.push_str(&format!("    b {}\n", l_str));
+                self.output
+                    .push_str(&format!("{}:\n    mov w1, #{}\n", l_int, KIND_INT));
+                self.output.push_str(&format!("    b {}\n", l_done));
+                self.output
+                    .push_str(&format!("{}:\n    mov w1, #{}\n", l_arr, KIND_ARRAY));
+                self.output.push_str(&format!("    b {}\n", l_done));
+                self.output
+                    .push_str(&format!("{}:\n    mov w1, #{}\n", l_map, KIND_MAP));
+                self.output.push_str(&format!("    b {}\n", l_done));
+                self.output
+                    .push_str(&format!("{}:\n    mov w1, #{}\n", l_struct, KIND_STRUCT));
+                self.output.push_str(&format!("    b {}\n", l_done));
+                self.output
+                    .push_str(&format!("{}:\n    mov w1, #{}\n", l_str, KIND_STRING));
+                self.output.push_str(&format!("{}:\n", l_done));
+                arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
+                let tag_slot = self.ctx.stack_offset;
+                crate::codegen::arch::arm64::loads::emit_arm64_store_x29_offset(
+                    &mut self.output,
+                    "w1",
+                    tag_slot,
+                    "x9",
+                );
+                self.ctx
+                    .variables
+                    .insert(format!("var_tag_slot:{}", name), VarType::Number(tag_slot));
+            }
+        }
+    }
+
+    /// Release heap-typed locals declared in the catch block
+    /// (alya-lang/alya#186): catch-end only adjusts rsp, and the
+    /// function-end cleanup runs on the restored (pre-try) map, so
+    /// catch-local shares otherwise leak unconditionally (even
+    /// `let arr = [1, 2]` with no catch value involved). Only names
+    /// absent from the pre-try map are dropped (outer slots stay owned
+    /// by their scopes; slot reuse is folded by dedup); every release
+    /// is probed. Skipped wholesale when the block holds a `defer`
+    /// (deferred reads run past the drop — same rationale as the
+    /// return/rethrow residual: leak instead of dangling).
+    fn emit_catch_scope_drop(
+        &mut self,
+        saved: &std::collections::HashMap<String, VarType>,
+        catch_block: &[Stmt],
+    ) {
+        fn block_has_defer(stmts: &[Stmt]) -> bool {
+            stmts.iter().any(|s| match s.inner_stmt() {
+                Stmt::Defer(_) => true,
+                Stmt::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    block_has_defer(then_block)
+                        || else_block.as_ref().is_some_and(|b| block_has_defer(b))
+                }
+                Stmt::While { body, .. }
+                | Stmt::Repeat { body }
+                | Stmt::For { body, .. }
+                | Stmt::ForEach { body, .. } => block_has_defer(body),
+                Stmt::TryCatch {
+                    try_block,
+                    catch_block,
+                    finally_block,
+                    ..
+                } => {
+                    block_has_defer(try_block)
+                        || block_has_defer(catch_block)
+                        || finally_block.as_ref().is_some_and(|b| block_has_defer(b))
+                }
+                Stmt::Function { body, .. } => block_has_defer(body),
+                _ => false,
+            })
+        }
+        if block_has_defer(catch_block) {
+            return;
+        }
+        let mut offsets: Vec<i32> = self
+            .ctx
+            .variables
+            .iter()
+            .filter(|(name, _)| !name.contains(':') && !name.contains('.'))
+            .filter(|(name, _)| !saved.contains_key(*name))
+            .filter(|(name, _)| !self.ctx.nonescaping_params.contains(*name))
+            .filter_map(|(name, vtype)| {
+                let off = match vtype {
+                    VarType::Array(off)
+                    | VarType::Map(off)
+                    | VarType::Struct { offset: off, .. }
+                    | VarType::Interface { offset: off, .. } => Some(*off),
+                    // Owned shares under plain tracking types (closures
+                    // since #183, catch-derived locals since #186) join
+                    // exactly like scope cleanup does.
+                    VarType::Number(off)
+                    | VarType::Float(off)
+                    | VarType::StringOffset(off)
+                    | VarType::Null(off)
+                        if self
+                            .ctx
+                            .variables
+                            .contains_key(&format!("closure_owned:{}", name)) =>
+                    {
+                        Some(*off)
+                    }
+                    _ => None,
+                };
+                match off {
+                    Some(off) if off > 0 => Some(off),
+                    _ => None,
+                }
+            })
+            .collect();
+        offsets.sort_unstable();
+        offsets.dedup();
+        for off in offsets {
+            arch::emit_rc_release_stack(
+                &mut self.output,
+                self.arch,
+                off,
+                self.ctx.stack_offset,
+                self.os,
+            );
+        }
+    }
+
     pub(crate) fn generate_throw(&mut self, opt_expr: Option<&Expr>) {
         if let Some(expr) = opt_expr {
             // fn_throw(value, msg): msg carries struct `message` text
@@ -1962,6 +2193,9 @@ impl CodeGen {
                     self.ctx
                         .variables
                         .insert(format!("is_catch_var:{}", name), VarType::Number(0));
+                    // alya-lang/alya#186: classify the caught value and
+                    // spill its tag so dynamic stores record exact kinds.
+                    self.emit_catch_entry_tag(&name);
                 }
 
                 for s in catch_block {
@@ -1972,6 +2206,9 @@ impl CodeGen {
                 // and return paths jump away, so this only runs when the
                 // exception is consumed.
                 self.emit_catch_value_drop(catch_var);
+                // alya-lang/alya#186: drop catch-local shares too (the
+                // end-label restore would otherwise forget them).
+                self.emit_catch_scope_drop(&saved_variables, catch_block);
                 self.ctx.try_stack.pop();
                 let catch_delta = self.ctx.stack_offset - saved_stack_offset;
                 arch::emit_try_end(
@@ -2097,6 +2334,8 @@ impl CodeGen {
                 self.ctx
                     .variables
                     .insert(format!("is_catch_var:{}", name), VarType::Number(0));
+                // alya-lang/alya#186: see the finally+catch branch above.
+                self.emit_catch_entry_tag(&name);
             }
 
             for s in catch_block {
@@ -2105,6 +2344,8 @@ impl CodeGen {
 
             // alya-lang/alya#184: see the finally+catch branch above.
             self.emit_catch_value_drop(catch_var);
+            // alya-lang/alya#186: see the finally+catch branch above.
+            self.emit_catch_scope_drop(&saved_variables, catch_block);
 
             let catch_delta = self.ctx.stack_offset - saved_stack_offset;
             arch::emit_catch_end(&mut self.output, self.arch, catch_delta);

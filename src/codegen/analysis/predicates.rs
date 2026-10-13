@@ -294,6 +294,21 @@ pub fn may_record_bare_vars(vars: &HashMap<String, VarType>, name: &str, bare: &
     is_simple_name(name) || !vars.contains_key(&ambiguous_bare_key(bare))
 }
 
+/// Spilled runtime-kind slot of a catch binding (alya-lang/alya#186):
+/// the slot offset when `expr` names a catch variable whose value
+/// kind was classified at catch entry. Stores consult it for exact
+/// dynamic kinds instead of the static string claim.
+pub fn catch_tag_slot(expr: &Expr, vars: &HashMap<String, VarType>) -> Option<i32> {
+    if let Expr::Identifier(name) = expr {
+        if vars.contains_key(&format!("is_catch_var:{}", name)) {
+            if let Some(VarType::Number(off)) = vars.get(&format!("var_tag_slot:{}", name)) {
+                return Some(*off);
+            }
+        }
+    }
+    None
+}
+
 /// Whether a stored string value needs an immortal stable-region copy
 /// (`alya_str_store`) instead of the ring-buffer pointer as produced.
 /// String literals live in rodata (immortal already); every other string
@@ -304,6 +319,13 @@ pub fn may_record_bare_vars(vars: &HashMap<String, VarType>, name: &str, bare: &
 /// `str_free`) are excluded: duplicating them would break the free pairing
 /// (freeing a stable-region copy corrupts the heap).
 pub fn string_store_needs_dup(expr: &Expr, vars: &HashMap<String, VarType>) -> bool {
+    // alya-lang/alya#186: tagged catch values carry their runtime kind
+    // in the slot: dynamic stores dup strings selectively and keep
+    // structs raw, so the static dup (which would scan struct bytes as
+    // a C string and lose the pointer) must stay off.
+    if catch_tag_slot(expr, vars).is_some() {
+        return false;
+    }
     if let Expr::Call { name, .. } = expr {
         let bare = name.rsplit("::").next().unwrap_or(name.as_str());
         let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -2314,6 +2336,12 @@ pub fn is_definitely_not_numeric(expr: &Expr, vars: &HashMap<String, VarType>) -
 /// through their variable type. Unknowns return KIND_UNKNOWN so readers
 /// fall back to inference.
 pub fn value_kind_tag(expr: &Expr, vars: &HashMap<String, VarType>) -> i64 {
+    // alya-lang/alya#186: tagged catch values are dynamically typed
+    // (string or struct per execution): claim UNKNOWN so dynamic
+    // stores spill the runtime tag instead of the static string claim.
+    if catch_tag_slot(expr, vars).is_some() {
+        return KIND_UNKNOWN;
+    }
     if let Some(kind) = kind_of_literal(expr) {
         return kind;
     }

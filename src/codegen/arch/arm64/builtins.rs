@@ -105,6 +105,28 @@ pub fn emit_array_set(out: &mut String, kind: i64) {
     out.push_str("    str x2, [x0, x1, lsl #3]\n");
 }
 
+/// Dynamic-kind twin of `emit_array_set` (alya-lang/alya#186): the
+/// kind byte comes from a spilled runtime tag slot (reloaded after
+/// the pops) instead of an immediate. Same stack discipline;
+/// clobbers x2-x4/x9 like the static twin.
+pub fn emit_array_set_dyn(out: &mut String, tag_slot: i32) {
+    out.push_str("    mov x2, x0\n");
+    out.push_str("    ldr x1, [sp], #16\n");
+    out.push_str("    ldr x0, [sp], #16\n");
+    out.push_str("    ldr x3, [x0]\n");
+    out.push_str("    cmp x1, #0\n");
+    out.push_str("    b.ge 1f\n");
+    out.push_str("    add x1, x1, x3\n");
+    out.push_str("1:\n");
+    out.push_str("    cmp x1, x3\n");
+    out.push_str("    b.hs alya_error_index_out_of_bounds\n");
+    out.push_str("    ldr x3, [x0, #24]\n");
+    super::loads::emit_arm64_load_x29_offset(out, "w4", tag_slot, "x9");
+    out.push_str("    strb w4, [x3, x1]\n");
+    out.push_str("    ldr x0, [x0, #16]\n");
+    out.push_str("    str x2, [x0, x1, lsl #3]\n");
+}
+
 /// Captured-cell store (alya-lang/alya#100): value in x0, kind in w1;
 /// holder array at `holder_off`. Writes the value word and the kind
 /// byte at the plan-static index `vi` (in range by construction).

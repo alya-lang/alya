@@ -2,12 +2,13 @@ use super::CodeGen;
 use crate::ast::{BinaryOp, Expr};
 use crate::codegen::analysis::nested::{CLOSURE_CHAIN, CLOSURE_NEW};
 use crate::codegen::analysis::{
-    builtin_blocks_method_fallback, eq_operand_is_dynamic, escape_string, find_operator_overload,
-    is_array_expr, is_array_fold_true, is_definitely_not_numeric, is_float_expr, is_map_expr,
-    is_map_fold_true, is_null_expr, is_number_expr, is_proven_int_expr, is_simple_name,
-    is_strict_dynamic_op, is_string_expr, is_string_fold_true, is_tag_carrying_read,
-    is_unsigned_expr, string_store_needs_dup, struct_field_markers_mixed_vars, ternary_arm_carries,
-    typeof_operand_is_repeatable, value_kind_tag,
+    builtin_blocks_method_fallback, catch_tag_slot, eq_operand_is_dynamic, escape_string,
+    find_operator_overload, is_array_expr, is_array_fold_true, is_definitely_not_numeric,
+    is_float_expr, is_map_expr, is_map_fold_true, is_null_expr, is_number_expr, is_proven_int_expr,
+    is_simple_name, is_strict_dynamic_op, is_string_expr, is_string_fold_true,
+    is_tag_carrying_read, is_unsigned_expr, string_store_needs_dup,
+    struct_field_markers_mixed_vars, ternary_arm_carries, typeof_operand_is_repeatable,
+    value_kind_tag,
 };
 use crate::codegen::arch;
 use crate::codegen::context::VarType;
@@ -1232,8 +1233,10 @@ impl CodeGen {
                         // serves every instance, so skip global markers and
                         // let reads fall back to runtime classification plus
                         // per-variable keys. Code emission below is unaffected.
+                        // alya-lang/alya#186: no static string claims for
+                        // tagged catch values (dynamic kind).
                         if !struct_field_markers_mixed_vars(&self.ctx.variables, name, fname) {
-                            if is_str {
+                            if is_str && catch_tag_slot(arg, &self.ctx.variables).is_none() {
                                 self.ctx.variables.insert(
                                     format!("struct_field_str:{}.{}", name, fname),
                                     VarType::StringOffset(0),
@@ -1287,7 +1290,14 @@ impl CodeGen {
                         if field_wants_flt {
                             self.emit_implicit_float_convert(arg);
                         }
-                        if !is_weak && self.value_needs_heap_retain(arg) {
+                        // alya-lang/alya#186: tagged catch values own a
+                        // share per escape (probed: strings skip it;
+                        // struct fields don't cascade, same as fresh).
+                        // Weak fields stay unretained either way.
+                        if !is_weak
+                            && (self.value_needs_heap_retain(arg)
+                                || catch_tag_slot(arg, &self.ctx.variables).is_some())
+                        {
                             // Retain when maybe-heap (old condition plus
                             // union); direct only when proven.
                             if self.value_proven_heap(arg) {
@@ -1479,7 +1489,11 @@ impl CodeGen {
 
                 if name == "push" && args.len() == 2 && !is_struct_receiver {
                     if let Expr::Identifier(arr_name) = &args[0] {
-                        if is_string_expr(&args[1], &self.ctx.variables) {
+                        // alya-lang/alya#186: tagged catch values carry
+                        // their kind at runtime; a static all-strings
+                        // claim would misread struct elements.
+                        let catch_dyn = catch_tag_slot(&args[1], &self.ctx.variables).is_some();
+                        if is_string_expr(&args[1], &self.ctx.variables) && !catch_dyn {
                             self.ctx
                                 .variables
                                 .insert(format!("arr_is_str:{}", arr_name), VarType::Number(0));
@@ -1516,6 +1530,12 @@ impl CodeGen {
                     };
                     self.ctx.stack_offset += temp_offset;
                     self.generate_expression(&args[1]);
+                    // alya-lang/alya#186: a tagged catch value leaves no
+                    // fresh tag (plain load); reload it from the slot so
+                    // the spill below stores the exact runtime kind.
+                    if let Some(tag_off) = catch_tag_slot(&args[1], &self.ctx.variables) {
+                        self.emit_tag_slot_reload(tag_off);
+                    }
                     // Dynamic kind propagation (double-trim crash): when the
                     // pushed value is a tag-carrying read with a statically
                     // unknown kind, the runtime tag (x64 %edx, ARM64 w1) is
@@ -1526,7 +1546,12 @@ impl CodeGen {
                     // retain/str_store calls (both clobber the tag reg) and
                     // use it as the push kind so copies preserve exact kinds.
                     let push_is_dynamic_tag = is_tag_carrying_read(&args[1], &self.ctx.variables)
-                        && value_kind_tag(&args[1], &self.ctx.variables) == KIND_UNKNOWN;
+                        && value_kind_tag(&args[1], &self.ctx.variables) == KIND_UNKNOWN
+                        // alya-lang/alya#186: tagged catch values store
+                        // their spilled runtime tag (static kind is
+                        // UNKNOWN by design, and the reload above made
+                        // the tag fresh).
+                        || catch_tag_slot(&args[1], &self.ctx.variables).is_some();
                     if push_is_dynamic_tag {
                         match self.arch {
                             Architecture::X64 => {
@@ -1541,7 +1566,11 @@ impl CodeGen {
                             }
                         }
                     }
-                    if self.store_value_needs_retain(&args[1]) {
+                    if self.store_value_needs_retain(&args[1])
+                        // alya-lang/alya#186: tagged catch values own a
+                        // share per escape (probed: strings skip it).
+                        || catch_tag_slot(&args[1], &self.ctx.variables).is_some()
+                    {
                         if self.value_proven_heap(&args[1]) {
                             // Proven heap: skip the syscall probe.
                             arch::emit_rc_retain_direct(
@@ -3371,8 +3400,11 @@ impl CodeGen {
                         // serves every instance, so skip global markers and
                         // let reads fall back to runtime classification plus
                         // per-variable keys. Code emission below is unaffected.
+                        // alya-lang/alya#186: fields holding tagged catch
+                        // values are dynamically typed (see the `let` twin).
+                        let catch_dyn = catch_tag_slot(fval, &self.ctx.variables).is_some();
                         if !struct_field_markers_mixed_vars(&self.ctx.variables, name, fname) {
-                            if is_str {
+                            if is_str && !catch_dyn {
                                 self.ctx.variables.insert(
                                     format!("struct_field_str:{}.{}", name, fname),
                                     VarType::StringOffset(0),
@@ -3421,8 +3453,10 @@ impl CodeGen {
                         // serves every instance, so skip global markers and
                         // let reads fall back to runtime classification plus
                         // per-variable keys. Code emission below is unaffected.
+                        // alya-lang/alya#186: no static string claims for
+                        // tagged catch values (dynamic kind).
                         if !struct_field_markers_mixed_vars(&self.ctx.variables, name, fname) {
-                            if is_str {
+                            if is_str && catch_tag_slot(fval, &self.ctx.variables).is_none() {
                                 self.ctx.variables.insert(
                                     format!("struct_field_str:{}.{}", name, fname),
                                     VarType::StringOffset(0),
@@ -3501,7 +3535,14 @@ impl CodeGen {
                         if field_wants_flt {
                             self.emit_implicit_float_convert(arg_expr);
                         }
-                        if !is_weak && self.store_value_needs_retain(arg_expr) {
+                        // alya-lang/alya#186: tagged catch values own a
+                        // share per escape (probed: strings skip it;
+                        // struct fields don't cascade, same as fresh).
+                        // Weak fields stay unretained either way.
+                        if !is_weak
+                            && (self.store_value_needs_retain(arg_expr)
+                                || catch_tag_slot(arg_expr, &self.ctx.variables).is_some())
+                        {
                             if self.value_proven_heap(arg_expr) {
                                 // Proven heap: skip the syscall probe.
                                 arch::emit_rc_retain_direct(
@@ -3552,7 +3593,11 @@ impl CodeGen {
                             }
                         }
                         // B1: named stores outlive the wrapping ring buffer.
-                        if string_store_needs_dup(fval, &self.ctx.variables) {
+                        // alya-lang/alya#186: untyped literals keep the
+                        // legacy dup (see the array loop above).
+                        if string_store_needs_dup(fval, &self.ctx.variables)
+                            || catch_tag_slot(fval, &self.ctx.variables).is_some()
+                        {
                             arch::emit_str_store(
                                 &mut self.output,
                                 self.arch,
@@ -3718,7 +3763,13 @@ impl CodeGen {
                         }
                     }
                     // B1: named stores outlive the wrapping ring buffer.
-                    if string_store_needs_dup(elem, &self.ctx.variables) {
+                    // alya-lang/alya#186: literals keep the legacy dup
+                    // for tagged catch values too (immortal copy, same as
+                    // before the dup gate); dynamic kinds live only in
+                    // direct stores.
+                    if string_store_needs_dup(elem, &self.ctx.variables)
+                        || catch_tag_slot(elem, &self.ctx.variables).is_some()
+                    {
                         arch::emit_str_store(
                             &mut self.output,
                             self.arch,
@@ -3753,7 +3804,11 @@ impl CodeGen {
                     for (k, v) in entries {
                         self.generate_expression(k);
                         // B1: named stores outlive the wrapping ring buffer.
-                        if string_store_needs_dup(k, &self.ctx.variables) {
+                        // alya-lang/alya#186: literals keep the legacy dup
+                        // (see the array loop above).
+                        if string_store_needs_dup(k, &self.ctx.variables)
+                            || catch_tag_slot(k, &self.ctx.variables).is_some()
+                        {
                             arch::emit_str_store(
                                 &mut self.output,
                                 self.arch,
@@ -3770,7 +3825,11 @@ impl CodeGen {
 
                         self.generate_expression(v);
                         // B1: named stores outlive the wrapping ring buffer.
-                        if string_store_needs_dup(v, &self.ctx.variables) {
+                        // alya-lang/alya#186: literals keep the legacy dup
+                        // (see the array loop above).
+                        if string_store_needs_dup(v, &self.ctx.variables)
+                            || catch_tag_slot(v, &self.ctx.variables).is_some()
+                        {
                             arch::emit_str_store(
                                 &mut self.output,
                                 self.arch,

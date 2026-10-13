@@ -4332,6 +4332,82 @@ main()
 }
 
 #[test]
+fn test_e2e_mem_trace_catch_escapes_freed() {
+    // alya-lang/alya#186: catch bindings holding thrown structs used
+    // to read back as garbage through containers (the slot typed as
+    // string: dup replaced the pointer, kinds mistagged, no retain).
+    // Catch entry now classifies the value and spills its runtime tag;
+    // dynamic stores record exact kinds (struct elements cascade,
+    // strings keep the selective paths), so both struct and string
+    // throws round-trip with zero live objects.
+    let code = r#"
+struct CE9
+    a: int,
+    b: int
+end
+
+function show_ce9(err) -> string
+    return f"ce: {err.a} / {err.b}"
+end
+
+function main()
+    try
+        throw CE9 { a: 3, b: 4 }
+    catch err
+        say show_ce9(err)
+        let bag = []
+        push(bag, err)
+        say bag[0].a
+    end
+    try
+        throw "boom9"
+    catch e2
+        let bag2 = []
+        push(bag2, e2)
+        say bag2[0]
+    end
+    say "done"
+end
+
+main()
+"#;
+
+    if let Some((code, output)) = run_alya_code_with_trace(code) {
+        assert_eq!(code, 0, "Failed with code {}\nOutput:\n{}", code, output);
+        assert!(
+            output.contains("ce: 3 / 4"),
+            "Expected struct values, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("boom9"),
+            "Expected string round-trip, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("ALYA MEMORY TRACE & LEAK REPORT"),
+            "Expected trace header, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("STATUS: [OK] Clean execution, 0 memory leaks detected"),
+            "Expected clean execution status, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Structs         : 0 active"),
+            "Expected 0 live structs, got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("Arrays          : 0 active"),
+            "Expected 0 live arrays, got:\n{}",
+            output
+        );
+    }
+}
+
+#[test]
 fn test_e2e_mem_trace_cyclic_leak() {
     let code = r#"
 struct Node

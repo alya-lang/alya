@@ -1420,13 +1420,16 @@ fn collect_string_vars_from_stmts(
             }
             Stmt::TryCatch {
                 try_block,
-                catch_var,
+                catch_var: _,
                 catch_block,
                 finally_block,
             } => {
-                if let Some(err_var) = catch_var {
-                    known_strings.insert(err_var.clone());
-                }
+                // alya-lang/alya#186: catch bindings are dynamically
+                // typed (string or struct per execution since struct
+                // throws exist) — never claim them as strings here.
+                // String-typed codegen paths key off the slot type
+                // (unchanged), while container claims now fall back to
+                // slot-kind dispatch with the spilled runtime tag.
                 collect_string_vars_from_stmts(try_block, struct_defs, known_strings, conflicts);
                 collect_string_vars_from_stmts(catch_block, struct_defs, known_strings, conflicts);
                 if let Some(finally_block) = finally_block {

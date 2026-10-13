@@ -4143,6 +4143,26 @@ impl CodeGen {
         }
     }
 
+    /// Reload a spilled runtime-kind tag into edx/w1
+    /// (alya-lang/alya#186): dynamic stores of tagged values (catch
+    /// bindings) need the tag fresh, but plain loads leave it stale.
+    pub(crate) fn emit_tag_slot_reload(&mut self, off: i32) {
+        match self.arch {
+            crate::codegen::target::Architecture::X64 => {
+                self.output
+                    .push_str(&format!("    movl -{}(%rbp), %edx\n", off));
+            }
+            _ => {
+                crate::codegen::arch::arm64::loads::emit_arm64_load_x29_offset(
+                    &mut self.output,
+                    "w1",
+                    off,
+                    "x9",
+                );
+            }
+        }
+    }
+
     pub(crate) fn emit_tag_guarded_retain(&mut self) {
         let skip = self.ctx.next_label();
         // Int/float tags need no retain; every other tag (heap, string,
