@@ -2126,9 +2126,19 @@ fn rewrite_cap_expr(
             // Bare aliases of capturing targets route direct so the
             // hidden chain is passed (see `collect_alias_info`).
             if let Some(q) = alias_target(name, plan, aliases, bound) {
+                // alya-lang/alya#183: the chain marker carries the
+                // pre-routing closure variable FIRST so codegen can
+                // pass the object's own chain (the routed lambda name
+                // stays second for the legacy caller-built fallback).
+                let chain_src = name.clone();
                 *name = q;
-            }
-            if plan.needs_chain(name) {
+                if plan.needs_chain(name) {
+                    args.push(Expr::Call {
+                        name: CLOSURE_CHAIN.to_string(),
+                        args: vec![Expr::Identifier(chain_src), Expr::Identifier(name.clone())],
+                    });
+                }
+            } else if plan.needs_chain(name) {
                 args.push(Expr::Call {
                     name: CLOSURE_CHAIN.to_string(),
                     args: vec![Expr::Identifier(name.clone())],
@@ -2140,9 +2150,19 @@ fn rewrite_cap_expr(
                 rewrite_cap_expr(a, plan, aliases, bound);
             }
             if let Some(q) = alias_target(callee, plan, aliases, bound) {
+                // alya-lang/alya#183: same two-name marker as above.
+                let chain_src = callee.clone();
                 *callee = q;
-            }
-            if plan.needs_chain(callee) {
+                if plan.needs_chain(callee) {
+                    args.push(Expr::Call {
+                        name: CLOSURE_CHAIN.to_string(),
+                        args: vec![
+                            Expr::Identifier(chain_src),
+                            Expr::Identifier(callee.clone()),
+                        ],
+                    });
+                }
+            } else if plan.needs_chain(callee) {
                 args.push(Expr::Call {
                     name: CLOSURE_CHAIN.to_string(),
                     args: vec![Expr::Identifier(callee.clone())],

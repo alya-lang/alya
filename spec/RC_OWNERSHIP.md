@@ -17,10 +17,11 @@ are safe to call on any value, including code pointers.
 1. **Locals.** Creation owns (+1). Scope-end cleanup releases every
     heap-typed slot. `let`-bound closures additionally track a
     `closure_owned` share (transfer for direct materializations,
-    retain for copies) dropped by scope cleanup, and a direct call's
-    caller-built chain is released post-call (its home is the next
-    free stack word, so the chain loads before the result spills
-    over it) — all fully gated (alya-lang/alya#183).
+    retain for copies) dropped by scope cleanup. Alias-forwarded
+    direct calls pass the OBJECT's own chain (same holder cell, no
+    alloc/retain); other direct shapes keep a caller-built chain
+    released post-call with load-before-spill ordering — all fully
+    gated (alya-lang/alya#183).
 2. **Params.** Proven-heap params take an entry retain; scope release
    drops it as a balanced pair. `nonescaping_params` (borrowed for
    the whole call) skip both. Struct/interface params carry no

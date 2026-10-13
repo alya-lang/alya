@@ -2892,6 +2892,49 @@ impl CodeGen {
                 // alya-lang/alya#100: closure markers custom-emit (never
                 // spilled or linked). `$` is unspellable, so user code
                 // can never name these.
+                //
+                // alya-lang/alya#183: home slot of a closure-valued local
+                // for object-chain extraction (see CLOSURE_CHAIN below).
+                // The slot must OWN the object (`closure_owned`): this
+                // matches exactly the trust the alias-routed direct code
+                // jump already places in it (single-bound names only —
+                // rebinds route indirect, params borrow, captured cells
+                // have no home). Anything else falls back to the legacy
+                // caller-built chain.
+                fn closure_object_home(slf: &CodeGen, name: &str) -> Option<i32> {
+                    if !slf
+                        .ctx
+                        .variables
+                        .contains_key(&format!("closure_owned:{}", name))
+                    {
+                        return None;
+                    }
+                    match slf.ctx.variables.get(name) {
+                        Some(
+                            VarType::Number(off)
+                            | VarType::Float(off)
+                            | VarType::StringOffset(off)
+                            | VarType::Array(off)
+                            | VarType::Map(off)
+                            | VarType::Null(off),
+                        ) => {
+                            if *off > 0 {
+                                Some(*off)
+                            } else {
+                                None
+                            }
+                        }
+                        Some(VarType::Struct { offset: off, .. })
+                        | Some(VarType::Interface { offset: off, .. }) => {
+                            if *off > 0 {
+                                Some(*off)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
+                }
                 if call_name == CLOSURE_NEW {
                     let target = match actual_args.first() {
                         Some(Expr::Identifier(t)) => t.clone(),
@@ -2903,11 +2946,35 @@ impl CodeGen {
                     return;
                 }
                 if call_name == CLOSURE_CHAIN {
-                    let target = match actual_args.first() {
-                        Some(Expr::Identifier(t)) => t.clone(),
+                    // alya-lang/alya#183: args are [closure var, lambda]
+                    // (see rewrite_cap_expr). When the var is a plain
+                    // owned home, pass the OBJECT's own chain instead of
+                    // building a caller chain: same holder cell (equal
+                    // semantics), no alloc/retain, and no home whose
+                    // push was forgotten pre-call (that home died at the
+                    // call on shadow-less ABIs and at the result spill
+                    // on Windows — every direct call leaked its chain).
+                    // Anything else (borrowing params, captured cells
+                    // with no home, hoisted names) keeps the legacy
+                    // caller-built chain.
+                    let (var, lam) = match actual_args.as_slice() {
+                        [Expr::Identifier(v), Expr::Identifier(l)] => (v.clone(), l.clone()),
+                        [Expr::Identifier(t)] => (t.clone(), t.clone()),
                         _ => panic!("internal error: malformed closure chain (alya-lang/alya#100)"),
                     };
-                    self.emit_closure_chain(&target);
+                    if let Some(off) = closure_object_home(self, &var) {
+                        arch::emit_load_var(
+                            &mut self.output,
+                            self.arch,
+                            off,
+                            self.ctx.stack_offset,
+                        );
+                        // Closure layout is {code@0, chain@8} (not a
+                        // user struct): field 0 reads the chain word.
+                        arch::emit_struct_field_get(&mut self.output, self.arch, 0);
+                    } else {
+                        self.emit_closure_chain(&lam);
+                    }
                     return;
                 }
 
