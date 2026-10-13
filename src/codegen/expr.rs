@@ -3194,25 +3194,58 @@ impl CodeGen {
                     // it (observed: `say g(1)` printed the chain slot
                     // instead of the result).
                     if let Some(off) = self.pending_chain_release.take() {
-                        arch::emit_push_temp(&mut self.output, self.arch);
-                        self.ctx.stack_offset += self.temp_offset();
+                        // alya-lang/alya#183: the chain home cell is the
+                        // next free stack word (its push was forgotten
+                        // pre-call in `emit_closure_chain`), so spilling
+                        // the result FIRST overwrites the chain with the
+                        // result (observed: the home read back the integer
+                        // result, the probed release skipped it, and every
+                        // direct call leaked its chain). Load the chain
+                        // before any spill: the result rides r10/x10
+                        // across the load. rdx/x1 are NOT usable here:
+                        // they carry the tag-kind for say-dispatch past
+                        // the release, while r10/x10 are pure scratch
+                        // with no call in the move-to-spill window. The
+                        // result then spills — clobbering the home is
+                        // fine now — and is restored after the release.
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output.push_str("    mov %rax, %r10\n");
+                            }
+                            Architecture::ARM64 => {
+                                self.output.push_str("    mov x10, x0\n");
+                            }
+                        }
                         arch::emit_load_var(
                             &mut self.output,
                             self.arch,
                             off,
                             self.ctx.stack_offset,
                         );
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output.push_str("    push %r10\n");
+                            }
+                            Architecture::ARM64 => {
+                                self.output.push_str("    str x10, [sp, #-16]!\n");
+                            }
+                        }
+                        self.ctx.stack_offset += self.temp_offset();
                         arch::emit_rc_release(
                             &mut self.output,
                             self.arch,
                             self.ctx.stack_offset,
                             self.os,
                         );
-                        arch::emit_pop_temp(&mut self.output, self.arch);
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output.push_str("    pop %rax\n");
+                            }
+                            Architecture::ARM64 => {
+                                self.output.push_str("    ldr x0, [sp], #16\n");
+                            }
+                        }
                         self.ctx.stack_offset -= self.temp_offset();
-                        // (The chain spill slot was already forgotten
-                        // pre-call in `emit_closure_chain`: nothing
-                        // remains pushed here.)
                     }
                 }
             }

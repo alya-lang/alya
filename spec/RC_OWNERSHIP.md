@@ -15,11 +15,12 @@ are safe to call on any value, including code pointers.
 ## Rules by boundary
 
 1. **Locals.** Creation owns (+1). Scope-end cleanup releases every
-   heap-typed slot. `let`-bound closures additionally track a
-   `closure_owned` share (transfer for direct materializations,
-   retain for copies) dropped by scope cleanup
-   (alya-lang/alya#183); single-use alias-forwarded direct calls
-   keep a bounded holder-plus-chain residual.
+    heap-typed slot. `let`-bound closures additionally track a
+    `closure_owned` share (transfer for direct materializations,
+    retain for copies) dropped by scope cleanup, and a direct call's
+    caller-built chain is released post-call (its home is the next
+    free stack word, so the chain loads before the result spills
+    over it) — all fully gated (alya-lang/alya#183).
 2. **Params.** Proven-heap params take an entry retain; scope release
    drops it as a balanced pair. `nonescaping_params` (borrowed for
    the whole call) skip both. Struct/interface params carry no
@@ -79,8 +80,8 @@ null-field-trap test during development of this rule).
 
 `--mem-trace` + `STATUS: [OK] Clean execution` family in
 `tests/e2e_system.rs` gates locals/params/returns/containers,
-closure slots (#183), and catch bindings (#184). Bounded residuals
-outside the gate (fresh argument temps, alias-forwarded direct
-calls, var-less catches, returns inside `catch`); the crash fuzzer
+closure slots and direct-call chains (#183), and catch bindings
+(#184). Bounded residuals outside the gate (fresh argument temps,
+var-less catches, returns inside `catch`); the crash fuzzer
 (`tests/fuzz_crash.rs`) covers all flows with an exit-code oracle
 instead.

@@ -4209,11 +4209,11 @@ fn test_e2e_mem_trace_closure_slots_freed() {
     // every share (closure object, capture chain, holder cells): the
     // slot was not heap-typed so scope cleanup skipped it. Closure
     // slots now own a share (transfer for direct materializations,
-    // retain for copies) that scope cleanup drops, so a bound
-    // closure plus a param-passed closure both reach zero live
-    // objects. (Alias-forwarded *direct* calls keep a small bounded
-    // residual — holder plus one chain per call site — tracked in
-    // the issue; exit code and values are unaffected.)
+    // retain for copies) that scope cleanup drops, and the direct
+    // call's caller-built chain is released post-call (its home cell
+    // is the next free stack word, so the chain must be loaded before
+    // the result spills over it), so bound, param-passed, AND directly
+    // called closures all reach zero live objects.
     let code = r#"
 function apply2(f)
     return f()
@@ -4223,6 +4223,8 @@ function main()
     let tag = 5
     let c = || => tag
     say apply2(c)
+    say c()
+    say c()
     say "done"
 end
 
