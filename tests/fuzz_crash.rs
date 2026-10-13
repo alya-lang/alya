@@ -1,15 +1,19 @@
 //! Crash fuzzer (alya-lang/alya#182, P0).
 //!
 //! Generates random but well-typed Alya programs, compiles and runs
-//! each, and requires exit code 0. The oracle is deliberately weak:
-//! such crashes (access violations, silent early exits, link
-//! failures) need no expected output to detect, and the #178-#181
-//! class all crashed while producing plausible output or none.
+//! each, and requires exit code 0 plus the `done` marker line on
+//! stdout. The oracle is deliberately narrow but strict: such crashes
+//! (access violations, silent early exits, link failures) and
+//! truncated-output regressions (a missing `done` line means control
+//! never reached the end) need no per-case expected output to detect,
+//! and the #178-#181 class all crashed while producing plausible
+//! output or none.
 //!
 //! Every generated program is valid by construction (typed lets,
 //! declared fields, bounded loops, terminating fibers), so any
-//! nonzero exit, compiler panic, or gcc failure is a compiler bug:
-//! the harness panics with the full sources attached for repro.
+//! nonzero exit, missing `done` marker, compiler panic, or gcc
+//! failure is a compiler bug: the harness panics with the full
+//! sources attached for repro.
 //!
 //! Determinism: xorshift64* with a fixed seed — same seed, same
 //! programs, same verdict on every platform. Scale with
@@ -17,11 +21,13 @@
 //! Per-case watchdog (20 s, std only) keeps one hung binary from
 //! wedging CI; bounded loops mean hangs themselves are findings.
 //!
-//! Boundary mutations mirror the interaction axes behind #178-#181:
-//! plain, inside-a-function, cross-module (helper file + alias
-//! import), loop-wrapped try/return, spawn-capture, dynamic (`any`)
-//! holes. Extend by adding shapes to `emit_case`, never by weakening
-//! the oracle.
+//! Boundary mutations mirror the interaction axes behind #178-#181
+//! plus float and channel shapes (alya-lang/alya#189): plain,
+//! inside-a-function, cross-module (helper file + alias import),
+//! loop-wrapped try/return, spawn-capture, float arithmetic and
+//! float containers, buffered-channel send/recv round-trips,
+//! dynamic (`any`) holes. Extend by adding shapes to `emit_case`,
+//! never by weakening the oracle.
 
 mod common;
 
@@ -138,6 +144,13 @@ fn emit_case(rng: &mut Rng, idx: usize) -> Case {
         prelude.push_str("function show_msg(err) -> string\n    return f\"m: {err.a}\"\nend\n\n");
         // try/return helper for loop stress (the #179 shape).
         prelude.push_str("function guarded_fz(x: string?) -> string\n    try\n        return x ?? \"fallback\"\n    catch err\n        return \"caught\"\n    end\nend\n\n");
+        // Float helper (alya-lang/alya#189): exact float arithmetic
+        // through a typed boundary (int-bits-as-double guards).
+        prelude.push_str("function addf(x: float, y: float) -> float\n    return x + y\nend\n\n");
+        // Channel methods link against std/sync (see Chapter 17 and
+        // the syntax/concurrency.alya note); the import covers the
+        // whole file, same as the golden fixture.
+        prelude.insert_str(0, "import \"std/sync\"\n\n");
     }
 
     let mut body = String::new();
@@ -206,6 +219,27 @@ fn emit_case(rng: &mut Rng, idx: usize) -> Case {
     if rng.coin() {
         body.push_str("    let dynv: any = s.a\n");
         body.push_str("    assert dynv == s.a\n");
+    }
+    // Float shapes (alya-lang/alya#189): exact arithmetic through a
+    // typed helper plus a float container round-trip. Literals are
+    // exactly representable, so equality is deterministic.
+    body.push_str("    let fa = 1.5\n");
+    body.push_str("    let fb = 2.5\n");
+    body.push_str("    assert fa + fb == 4.0\n");
+    if !cross_module {
+        body.push_str("    assert addf(fa, fb) == 4.0\n");
+    }
+    body.push_str("    let farr = []\n");
+    body.push_str("    push(farr, fa)\n");
+    body.push_str("    assert farr[0] == fa\n");
+    // Buffered-channel round-trip (alya-lang/alya#189), same-file
+    // only: the std/sync import lives in the prelude there.
+    if !cross_module {
+        body.push_str("    let fzch = Channel[int].new(capacity: 4)\n");
+        body.push_str("    fzch.send(11)\n");
+        body.push_str("    fzch.send(22)\n");
+        body.push_str("    assert fzch.recv() == 11\n");
+        body.push_str("    assert fzch.recv() == 22\n");
     }
     // Interpolation with mixed holes.
     body.push_str(&format!(
@@ -299,7 +333,11 @@ fn run_case(case: &Case, idx: usize) -> Result<(), String> {
     });
 
     // Best-effort cleanup; keep the dir on failure for forensics.
-    let failed = !matches!(&r, Ok(Ok((0, _))));
+    // Oracle (alya-lang/alya#189): exit 0 AND the `done` marker on
+    // stdout. Every generated case prints one, so a missing marker
+    // means a silent early exit or truncated output — a finding, not
+    // a pass.
+    let failed = !matches!(&r, Ok(Ok((0, ref out))) if out.contains("done"));
     if !failed {
         let _ = fs::remove_dir_all(&dir);
         return Ok(());
@@ -355,5 +393,5 @@ fn test_fuzz_crash_seeded() {
         failures.len(),
         failures.join("\n")
     );
-    println!("  [FUZZ] all {} cases exited 0", n);
+    println!("  [FUZZ] all {} cases exited 0 with the done marker", n);
 }
