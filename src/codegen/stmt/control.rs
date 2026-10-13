@@ -1716,6 +1716,90 @@ impl CodeGen {
         Some(idx)
     }
 
+    /// Whether `throw <expr>` must retain the thrown value for the
+    /// in-flight record (alya-lang/alya#184). The thread block holds
+    /// the pointer raw, and the catch slot drops exactly one share at
+    /// catch-end — so an alias throw must add a share, while a fresh
+    /// value (literal/call temp, abandoned on the handler jump)
+    /// transfers its creation share. Catch-var rethrows transfer too
+    /// (the share is already in flight). Anything else defers to
+    /// `value_needs_heap_retain` (false for non-heap, so scalars and
+    /// strings never retain); ambiguous composites keep the retain —
+    /// extra retains are the safe direction (at worst a leak).
+    fn throw_value_needs_retain(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Array(_)
+            | Expr::Map(_)
+            | Expr::StructInit { .. }
+            | Expr::Call { .. }
+            | Expr::OptionalCall { .. } => false,
+            Expr::Identifier(name)
+                if self
+                    .ctx
+                    .variables
+                    .contains_key(&format!("is_catch_var:{}", name)) =>
+            {
+                false
+            }
+            _ => self.value_needs_heap_retain(expr),
+        }
+    }
+
+    /// Emit the in-flight retain above. rax holds the value and the
+    /// call preserves it (same contract as ownership-taking stores).
+    fn emit_throw_retain(&mut self, expr: &Expr) {
+        if !self.throw_value_needs_retain(expr) {
+            return;
+        }
+        if self.value_proven_heap(expr) {
+            arch::emit_rc_retain_direct(
+                &mut self.output,
+                self.arch,
+                self.ctx.stack_offset,
+                self.os,
+            );
+        } else {
+            arch::emit_rc_retain(&mut self.output, self.arch, self.ctx.stack_offset, self.os);
+        }
+    }
+
+    /// Release the catch-bound value at catch-end
+    /// (alya-lang/alya#184). The slot owns one share: fresh throws
+    /// transfer their creation share, alias throws retained one above.
+    /// The probed release skips string/static throws. Escapes of the
+    /// slot value are all borrows (catch vars type as StringOffset, so
+    /// no store site retains them and scope cleanup never owns them);
+    /// rethrows and returns jump away, so this never double-frees.
+    /// No-op when the binding is absent (var-less catch) or homed at
+    /// a dead offset: bounded residual, documented in the issue.
+    fn emit_catch_value_drop(&mut self, catch_var: Option<&str>) {
+        let Some(name) = catch_var else {
+            return;
+        };
+        let off = match self.ctx.variables.get(name) {
+            Some(
+                VarType::Array(o)
+                | VarType::Map(o)
+                | VarType::Number(o)
+                | VarType::Float(o)
+                | VarType::StringOffset(o)
+                | VarType::Null(o),
+            ) => *o,
+            Some(VarType::Struct { offset, .. } | VarType::Interface { offset, .. }) => *offset,
+            _ => 0,
+        };
+        if off <= 0 {
+            return;
+        }
+        arch::emit_rc_release_stack(
+            &mut self.output,
+            self.arch,
+            off,
+            self.ctx.stack_offset,
+            self.os,
+        );
+    }
+
     pub(crate) fn generate_throw(&mut self, opt_expr: Option<&Expr>) {
         if let Some(expr) = opt_expr {
             // fn_throw(value, msg): msg carries struct `message` text
@@ -1727,6 +1811,10 @@ impl CodeGen {
                 arch::emit_allocate_var(&mut self.output, self.arch, &mut self.ctx.stack_offset);
                 let tmp = self.ctx.stack_offset;
                 arch::emit_store_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
+                // alya-lang/alya#184: alias throws add the in-flight
+                // share here (rax still holds the value; the call
+                // preserves it, same contract as ownership stores).
+                self.emit_throw_retain(expr);
                 let msg_idx = self.struct_message_field_idx(expr).unwrap_or(0);
                 arch::emit_load_var(&mut self.output, self.arch, tmp, self.ctx.stack_offset);
                 arch::emit_push_temp(&mut self.output, self.arch);
@@ -1760,6 +1848,11 @@ impl CodeGen {
                         self.os,
                     );
                 }
+                // alya-lang/alya#184: alias throws add the in-flight
+                // share here (see above); the str()-converted path
+                // returns an immortal stable string, which the probed
+                // retain skips, so sharing one site is safe.
+                self.emit_throw_retain(expr);
                 arch::emit_push_temp(&mut self.output, self.arch);
                 arch::emit_load_num(&mut self.output, self.arch, 0);
                 arch::emit_push_temp(&mut self.output, self.arch);
@@ -1874,6 +1967,11 @@ impl CodeGen {
                 for s in catch_block {
                     self.generate_statement(s);
                 }
+                // alya-lang/alya#184: the catch slot owns one share
+                // (transfer or throw-site retain); drop it here. Rethrow
+                // and return paths jump away, so this only runs when the
+                // exception is consumed.
+                self.emit_catch_value_drop(catch_var);
                 self.ctx.try_stack.pop();
                 let catch_delta = self.ctx.stack_offset - saved_stack_offset;
                 arch::emit_try_end(
@@ -2004,6 +2102,9 @@ impl CodeGen {
             for s in catch_block {
                 self.generate_statement(s);
             }
+
+            // alya-lang/alya#184: see the finally+catch branch above.
+            self.emit_catch_value_drop(catch_var);
 
             let catch_delta = self.ctx.stack_offset - saved_stack_offset;
             arch::emit_catch_end(&mut self.output, self.arch, catch_delta);

@@ -15,8 +15,11 @@ are safe to call on any value, including code pointers.
 ## Rules by boundary
 
 1. **Locals.** Creation owns (+1). Scope-end cleanup releases every
-   heap-typed slot. Slots without a heap `VarType` are skipped —
-   including `let`-bound closures (known gap, alya-lang/alya#183).
+   heap-typed slot. `let`-bound closures additionally track a
+   `closure_owned` share (transfer for direct materializations,
+   retain for copies) dropped by scope cleanup
+   (alya-lang/alya#183); single-use alias-forwarded direct calls
+   keep a bounded holder-plus-chain residual.
 2. **Params.** Proven-heap params take an entry retain; scope release
    drops it as a balanced pair. `nonescaping_params` (borrowed for
    the whole call) skip both. Struct/interface params carry no
@@ -48,11 +51,19 @@ are safe to call on any value, including code pointers.
 7. **Containers.** Element/field stores retain; frees cascade
    (array/map/struct inner then outer). Cyclic references leak by
    design (no cycle collector); the trace report flags them.
-8. **Throw/catch.** The thrown value travels creation → throw temp →
-   thread-block record (raw) → catch-var slot. The catch slot is
-   forgotten at `end_label` and never scope-released: struct throws
-   leak one share each (known gap, alya-lang/alya#184). Strings are
-   unaffected (immortal).
+8. **Throw/catch (alya-lang/alya#184).** The thrown value travels
+    creation → throw temp → thread-block record (raw) → catch-var
+    slot, and the slot owns one share: fresh throws (literals,
+    calls) transfer their creation share (abandoned on the handler
+    jump), alias throws (`Identifier` of a live heap slot, field /
+    index reads, ambiguous composites) add a throw-site retain, and
+    catch-var rethrows transfer the share already in flight.
+    Catch-end drops the slot once via probed release (strings and
+    statics skipped). Rethrow/return paths jump away, so the drop
+    only runs when the exception is consumed. Slot escapes are all
+    borrows (catch vars type as `StringOffset`, so no store retains
+    them); var-less catches and returns inside `catch` keep a
+    bounded one-share residual.
 
 ## Checker/codegen view split (alya-lang/alya#182)
 
@@ -67,7 +78,9 @@ null-field-trap test during development of this rule).
 ## Leak gate status
 
 `--mem-trace` + `STATUS: [OK] Clean execution` family in
-`tests/e2e_system.rs` gates locals/params/returns/containers.
-Spawn/closure/catch flows cannot join the zero-leak gate until
-#183 and #184 land; the crash fuzzer (`tests/fuzz_crash.rs`)
-covers them with an exit-code oracle instead.
+`tests/e2e_system.rs` gates locals/params/returns/containers,
+closure slots (#183), and catch bindings (#184). Bounded residuals
+outside the gate (fresh argument temps, alias-forwarded direct
+calls, var-less catches, returns inside `catch`); the crash fuzzer
+(`tests/fuzz_crash.rs`) covers all flows with an exit-code oracle
+instead.
