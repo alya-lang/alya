@@ -1,0 +1,57 @@
+name: Crash fuzz
+
+# Seeded crash fuzzer (alya-lang/alya#182, P0): generates random
+# well-typed programs and requires exit code 0 for each. Catches the
+# crash class (#179 silent exit, #180 access violation, #181
+# use-after-free) without needing expected outputs. Deterministic
+# seed, so failures reproduce everywhere: rerun the exact case with
+# `cargo test --test fuzz_crash` after setting the same ALYA_FUZZ_N,
+# or lift the printed sources into a repro file.
+
+on:
+  schedule:
+    # Nightly, one hour after the ecosystem suite (different repo).
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: 'Number of fuzz cases'
+        required: false
+        type: string
+        default: '400'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  ALYA_FUZZ_N: ${{ inputs.cases || '400' }}
+
+jobs:
+  fuzz:
+    name: Fuzz (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: Linux x64
+          - os: windows-latest
+            label: Windows x64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Seeded crash fuzz
+        run: cargo test --verbose --test fuzz_crash
