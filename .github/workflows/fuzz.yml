@@ -41,8 +41,16 @@ jobs:
         include:
           - os: ubuntu-latest
             label: Linux x64
+          - os: ubuntu-24.04-arm
+            label: Linux ARM64
           - os: windows-latest
             label: Windows x64
+          - os: windows-11-arm
+            label: Windows ARM64
+          - os: macos-latest
+            label: macOS ARM64
+          - os: macos-15-intel
+            label: macOS Intel
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -52,6 +60,11 @@ jobs:
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
+
+      - name: Provision Windows ARM64 C toolchain
+        if: matrix.os == 'windows-11-arm'
+        shell: pwsh
+        run: .github/scripts/provision-windows-arm64-toolchain.ps1
 
       - name: Seeded crash fuzz
         run: cargo test --verbose --test fuzz_crash
