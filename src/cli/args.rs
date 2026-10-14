@@ -57,7 +57,7 @@ pub enum CommandKind {
         no_default_features: bool,
     },
     Bindgen {
-        header: String,
+        headers: Vec<String>,
         from: Option<String>,
         output: Option<String>,
     },
@@ -1255,7 +1255,7 @@ fn parse_lint_args(args: &[String]) -> Result<CommandKind, String> {
 }
 
 fn parse_bindgen_args(args: &[String]) -> Result<CommandKind, String> {
-    let mut header = None;
+    let mut headers: Vec<String> = Vec::new();
     let mut from = None;
     let mut output = None;
     let mut i = 0;
@@ -1303,11 +1303,7 @@ fn parse_bindgen_args(args: &[String]) -> Result<CommandKind, String> {
                 output = Some(value);
             }
             other if !other.starts_with('-') => {
-                if header.is_none() {
-                    header = Some(other.to_string());
-                } else {
-                    return Err(format!("Error: Unexpected argument '{}'", other));
-                }
+                headers.push(other.to_string());
             }
             other => {
                 return Err(format!("Error: Unknown bindgen option '{}'", other));
@@ -1315,14 +1311,14 @@ fn parse_bindgen_args(args: &[String]) -> Result<CommandKind, String> {
         }
         i += 1;
     }
-    match header {
-        Some(header) => Ok(CommandKind::Bindgen {
-            header,
-            from,
-            output,
-        }),
-        None => Err("Error: 'alya bindgen' requires a header file argument".to_string()),
+    if headers.is_empty() {
+        return Err("Error: 'alya bindgen' requires at least one header file argument".to_string());
     }
+    Ok(CommandKind::Bindgen {
+        headers,
+        from,
+        output,
+    })
 }
 
 fn parse_pkg_init_args(args: &[String]) -> Result<PkgCommand, String> {

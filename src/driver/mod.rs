@@ -408,12 +408,13 @@ pub fn run(args: CliArgs) -> Result<(), String> {
     }
 
     if let CommandKind::Bindgen {
-        ref header,
+        ref headers,
         ref from,
         ref output,
     } = args.command
     {
-        crate::tools::bindgen::run_bindgen(header, from.as_deref(), output.as_deref())?;
+        let paths: Vec<&str> = headers.iter().map(|s| s.as_str()).collect();
+        crate::tools::bindgen::run_bindgen(&paths, from.as_deref(), output.as_deref())?;
         return Ok(());
     }
 

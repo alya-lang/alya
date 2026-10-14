@@ -604,11 +604,15 @@ fn split_members(body: &str) -> Vec<String> {
 }
 
 /// Parse one top-level item, recording aliases along the way.
+/// With `defer_fns`, function prototypes are staged into `deferred`
+/// instead of parsing, so a later typedef pass resolves them.
 fn parse_item(
     item: &str,
     aliases: &mut HashMap<String, String>,
     consts: &mut HashMap<String, i128>,
     items: &mut Vec<Item>,
+    deferred: &mut Vec<String>,
+    defer_fns: bool,
 ) {
     let trimmed = item.trim();
     if trimmed.is_empty() {
@@ -660,6 +664,10 @@ fn parse_item(
                     consts.insert(name.clone(), v);
                 }
                 items.push(Item::Const { name, value });
+            } else if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
+                // String macro (`SQLITE_VERSION "3.54.0"`): Alya string
+                // consts carry the literal verbatim.
+                items.push(Item::Const { name, value });
             } else if let Some(evaluated) = eval_const_expr(&value, consts) {
                 // Constant expression (`(1 << 0)`): emit the value with
                 // the source expression kept as a comment for traceability.
@@ -691,7 +699,7 @@ fn parse_item(
             end = trimmed.len();
         }
         for inner in split_items(&trimmed[start..end]) {
-            parse_item(&inner, aliases, consts, items);
+            parse_item(&inner, aliases, consts, items, deferred, defer_fns);
         }
         return;
     }
@@ -723,7 +731,7 @@ fn parse_item(
     };
     // Typedefs.
     if body.starts_with("typedef") {
-        parse_typedef(&body, aliases, items, trimmed);
+        parse_typedef(&body, aliases, consts, items, trimmed);
         return;
     }
     // `struct Name { ... };` definitions (forward decls end without braces).
@@ -742,15 +750,21 @@ fn parse_item(
         return;
     }
     if body.starts_with("enum") {
-        parse_enum_def(&body, None, items, trimmed);
+        parse_enum_def(&body, None, aliases, consts, items, trimmed);
         return;
     }
-    // Otherwise: function prototype (must contain parens).
+    // Otherwise: function prototype (must contain parens). In the
+    // types phase these defer to phase two, so typedefs from later
+    // in the file (or other files) resolve.
     if !body.contains('(') {
         items.push(Item::Skipped {
             reason: "not a function prototype (globals cannot bind)".to_string(),
             source: trimmed.to_string(),
         });
+        return;
+    }
+    if defer_fns {
+        deferred.push(trimmed.to_string());
         return;
     }
     parse_function(&body, items, trimmed, aliases);
@@ -759,6 +773,7 @@ fn parse_item(
 fn parse_typedef(
     body: &str,
     aliases: &mut HashMap<String, String>,
+    consts: &mut HashMap<String, i128>,
     items: &mut Vec<Item>,
     source: &str,
 ) {
@@ -785,7 +800,7 @@ fn parse_typedef(
                     parse_struct_def(rest, Some(alias.clone()), aliases, items, source);
                     return;
                 }
-                parse_enum_def(rest, Some(alias.clone()), items, source);
+                parse_enum_def(rest, Some(alias.clone()), aliases, consts, items, source);
                 return;
             }
             // `typedef struct Name Alias;` (no body): transparent alias.
@@ -968,7 +983,14 @@ fn parse_struct_def(
     items.push(Item::Struct { name, fields });
 }
 
-fn parse_enum_def(body: &str, alias: Option<String>, items: &mut Vec<Item>, source: &str) {
+fn parse_enum_def(
+    body: &str,
+    alias: Option<String>,
+    aliases: &mut HashMap<String, String>,
+    consts: &mut HashMap<String, i128>,
+    items: &mut Vec<Item>,
+    source: &str,
+) {
     let head_end = body.find('{').unwrap_or(body.len());
     let head = body[..head_end].trim();
     let enum_kw = head.strip_prefix("enum").unwrap_or(head).trim();
@@ -1034,7 +1056,15 @@ fn parse_enum_def(body: &str, alias: Option<String>, items: &mut Vec<Item>, sour
             return;
         }
         next = value + 1;
-        variants.push((vname, value));
+        variants.push((vname.clone(), value));
+        // Variants are usable constants (dependent enumerators and
+        // macros referencing them resolve through the const table).
+        consts.insert(vname, value);
+    }
+    if let Some(ename) = &name {
+        // Enum-typed values travel as ints (C semantics); the alias
+        // resolves so later declarations name real types.
+        aliases.insert(ename.clone(), "i32".to_string());
     }
     items.push(Item::Enum { name, variants });
 }
@@ -1101,6 +1131,20 @@ fn parse_function(
     {
         items.push(Item::Skipped {
             reason: "invalid function name".to_string(),
+            source: source.to_string(),
+        });
+        return;
+    }
+    // An ALL-CAPS "function name" is a macro invocation in disguise
+    // (`BZ_API(BZ2_x)(...)`, `ZSTD_DEPRECATED("...") int f` residue):
+    // C functions are never spelled that way. Skip loudly instead of
+    // emitting (and duplicating) a phantom function.
+    if fname
+        .chars()
+        .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+    {
+        items.push(Item::Skipped {
+            reason: "macro-annotated declaration".to_string(),
             source: source.to_string(),
         });
         return;
@@ -1228,12 +1272,39 @@ fn parse_function(
 
 /// Generate Alya source from a C header.
 pub fn generate(header_src: &str, opts: &BindgenOptions) -> String {
-    let cleaned = strip_comments(header_src);
+    generate_many(std::slice::from_ref(&header_src), opts)
+}
+
+/// Generate Alya source from several C headers sharing one type
+/// table (later files see earlier typedefs; every file's functions
+/// parse after every file's types, so order never matters).
+pub fn generate_many(sources: &[&str], opts: &BindgenOptions) -> String {
     let mut aliases: HashMap<String, String> = HashMap::new();
     let mut consts: HashMap<String, i128> = HashMap::new();
     let mut items: Vec<Item> = Vec::new();
-    for item in split_items(&cleaned) {
-        parse_item(&item, &mut aliases, &mut consts, &mut items);
+    let mut deferred: Vec<String> = Vec::new();
+    for header_src in sources {
+        let cleaned = strip_comments(header_src);
+        for item in split_items(&cleaned) {
+            parse_item(
+                &item,
+                &mut aliases,
+                &mut consts,
+                &mut items,
+                &mut deferred,
+                true,
+            );
+        }
+    }
+    for item in deferred {
+        parse_item(
+            &item,
+            &mut aliases,
+            &mut consts,
+            &mut items,
+            &mut Vec::new(),
+            false,
+        );
     }
     // Platform `#if` branches both survive filtering, so the same
     // function can arrive twice: first wins, the rest are loud skips
@@ -1341,18 +1412,27 @@ pub fn generate(header_src: &str, opts: &BindgenOptions) -> String {
     out
 }
 
-/// CLI entry: read a header, write bindings to a file or stdout.
+/// CLI entry: read headers, write bindings to a file or stdout.
 pub fn run_bindgen(
-    header_path: &str,
+    header_paths: &[&str],
     from_lib: Option<&str>,
     out_path: Option<&str>,
 ) -> Result<(), String> {
-    let src = std::fs::read_to_string(header_path)
-        .map_err(|e| format!("Error: cannot read header '{}': {}", header_path, e))?;
+    if header_paths.is_empty() {
+        return Err("Error: 'alya bindgen' requires at least one header file".to_string());
+    }
+    let mut sources: Vec<String> = Vec::new();
+    for header_path in header_paths {
+        sources.push(
+            std::fs::read_to_string(header_path)
+                .map_err(|e| format!("Error: cannot read header '{}': {}", header_path, e))?,
+        );
+    }
+    let refs: Vec<&str> = sources.iter().map(|s| s.as_str()).collect();
     let opts = BindgenOptions {
         from_lib: from_lib.map(|s| s.to_string()),
     };
-    let generated = generate(&src, &opts);
+    let generated = generate_many(&refs, &opts);
     match out_path {
         Some(path) => std::fs::write(path, &generated)
             .map_err(|e| format!("Error: cannot write '{}': {}", path, e)),
@@ -1448,6 +1528,7 @@ mod tests {
              struct with_array { char name[32]; };\n\
              #define FN(x) ((x) + 1)\n\
              #define GREETING \"hi\"\n\
+             #define PASTED (\"v\" + \"1\")\n\
              #define FEATURE_X\n\
              extern int shared_counter;\n\
              int ok_after_skips(void);\n");
@@ -1459,7 +1540,7 @@ mod tests {
             "SKIPPED (struct 'with_bit': bitfield member)",
             "SKIPPED (struct 'with_array': fixed-size array fields have no Alya layout)",
             "SKIPPED (function-like macro)",
-            "SKIPPED (non-integer macro)",
+            "SKIPPED (non-integer macro): #define PASTED",
             "SKIPPED (valueless flag macro)",
             "SKIPPED (not a function prototype (globals cannot bind))",
             "function ok_after_skips()",
@@ -1498,6 +1579,44 @@ mod tests {
         ] {
             assert!(out.contains(line), "missing '{}'\n{}", line, out);
         }
+    }
+
+    #[test]
+    fn string_macros_and_macro_annotated_decls() {
+        let out = gen("#define APP_NAME \"demo\"\n\
+             #define API_VER 7\n\
+             int API(API_Init)(void);\n\
+             int real_fn(void);\n");
+        assert!(out.contains("const APP_NAME = \"demo\""), "{}", out);
+        assert!(out.contains("const API_VER = 7"), "{}", out);
+        assert!(out.contains("function real_fn() -> i32"), "{}", out);
+        assert!(out.contains("macro-annotated declaration"), "{}", out);
+        assert!(!out.contains("function API("), "{}", out);
+    }
+
+    #[test]
+    fn shares_types_across_files() {
+        let types = "typedef enum { MODE_A = 1, MODE_B = 2 } mode_t;\n";
+        let funcs = "mode_t open_mode(const char *name, mode_t m);\n";
+        let out = generate_many(&[types, funcs], &BindgenOptions { from_lib: None });
+        assert!(out.contains("enum mode_t"), "{}", out);
+        // Enum-typed values travel as ints (C semantics).
+        assert!(
+            out.contains("function open_mode(name: str, m: i32) -> i32"),
+            "{}",
+            out
+        );
+    }
+
+    #[test]
+    fn enum_values_feed_later_expressions() {
+        let out = gen("enum { BASE = 40 };\n#define LIMIT (BASE + 2)\n");
+        assert!(out.contains("const BASE = 40"), "{}", out);
+        assert!(
+            out.contains("const LIMIT = 42 # from: (BASE + 2)"),
+            "{}",
+            out
+        );
     }
 
     #[test]
