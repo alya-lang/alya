@@ -12,7 +12,34 @@ pub use say::*;
 
 use crate::codegen::target::OperatingSystem;
 
-pub fn emit_header(out: &mut String, os: OperatingSystem) {
+pub fn emit_header(out: &mut String, os: OperatingSystem, no_std: bool) {
+    // Minimal bare-metal entry (alya-lang/alya#191): just the global
+    // label and the frame. No extern decls, no argc/argv homes (their
+    // BSS lives in the skipped runtime), no console/socket init.
+    if no_std {
+        if matches!(os, OperatingSystem::MacOS) {
+            out.push_str(".globl _main\n");
+            out.push_str(".text\n");
+            out.push_str("_main:\n");
+        } else {
+            out.push_str(".global main\n");
+            out.push_str(".text\n");
+            if matches!(os, OperatingSystem::Windows) {
+                out.push_str("    .seh_proc main\n");
+            }
+            out.push_str("main:\n");
+        }
+        out.push_str("    push %rbp\n");
+        if matches!(os, OperatingSystem::Windows) {
+            out.push_str("    .seh_pushreg %rbp\n");
+        }
+        out.push_str("    mov %rsp, %rbp\n");
+        if matches!(os, OperatingSystem::Windows) {
+            out.push_str("    .seh_setframe %rbp, 0\n");
+            out.push_str("    .seh_endprologue\n");
+        }
+        return;
+    }
     if matches!(os, OperatingSystem::MacOS) {
         out.push_str(".globl _main\n");
         out.push_str(".extern _printf\n");
@@ -285,6 +312,14 @@ pub fn emit_header(out: &mut String, os: OperatingSystem) {
 
 pub fn emit_footer(out: &mut String) {
     out.push_str("    xor %rax, %rax\n");
+    out.push_str("    mov %rbp, %rsp\n");
+    out.push_str("    pop %rbp\n");
+    out.push_str("    ret\n");
+}
+
+/// Bare-metal twin (alya-lang/alya#191): preserves `%rax` so the
+/// user's `main` return value becomes the process exit code.
+pub fn emit_footer_nostd(out: &mut String) {
     out.push_str("    mov %rbp, %rsp\n");
     out.push_str("    pop %rbp\n");
     out.push_str("    ret\n");

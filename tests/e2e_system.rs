@@ -3266,6 +3266,80 @@ fn test_e2e_no_std_mode() {
         !asm_no_std.contains("fn_ask:"),
         "Bare-metal codegen must not include fn_ask runtime"
     );
+
+    // 3. A trivial --no-std binary links and runs: the user's main
+    // return becomes the process exit code (alya-lang/alya#191).
+    if let Some(reason) = execution_skip_reason() {
+        println!("SKIP no-std execution: {}", reason);
+        return;
+    }
+    {
+        use alya::codegen::{generate_full, Architecture, OperatingSystem};
+        use alya::lexer::Lexer;
+        use alya::parser::Parser;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NOSTD_ID: AtomicU64 = AtomicU64::new(0);
+        let exe_code =
+            "function main() -> int\n    let a = 40\n    let b = 2\n    return a + b\nend\n\nmain()\n";
+        let mut lexer = Lexer::new(exe_code);
+        let tokens = lexer.tokenize().expect("Lexer error");
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().expect("Parser error");
+        let host_os = if cfg!(target_os = "windows") {
+            OperatingSystem::Windows
+        } else if cfg!(target_os = "macos") {
+            OperatingSystem::MacOS
+        } else {
+            OperatingSystem::Linux
+        };
+        let host_arch = if cfg!(target_arch = "aarch64") {
+            Architecture::ARM64
+        } else {
+            Architecture::X64
+        };
+        let (asm, _) = generate_full(&ast, host_arch, host_os, true, false);
+        assert!(
+            !asm.contains("alya_crash_init"),
+            "Bare-metal entry must not call the runtime crash handler"
+        );
+        let id = NOSTD_ID.fetch_add(1, Ordering::SeqCst);
+        let asm_path = format!("temp_nostd_{}_{}.s", std::process::id(), id);
+        let exe_path = if cfg!(target_os = "windows") {
+            format!("temp_nostd_{}_{}.exe", std::process::id(), id)
+        } else {
+            format!("temp_nostd_{}_{}", std::process::id(), id)
+        };
+        fs::write(&asm_path, &asm).expect("Failed to write temp asm");
+        let mut gcc = Command::new(harness_gcc());
+        gcc.arg(&asm_path).arg("-o").arg(&exe_path);
+        if matches!(host_os, OperatingSystem::Linux) {
+            gcc.arg("-no-pie");
+        }
+        if matches!(host_os, OperatingSystem::Windows) {
+            gcc.arg("-lws2_32");
+        }
+        let gcc_out = gcc.output().expect("GCC invocation failed");
+        let _ = fs::remove_file(&asm_path);
+        assert!(
+            gcc_out.status.success(),
+            "no-std link failed:\n{}",
+            String::from_utf8_lossy(&gcc_out.stderr)
+        );
+        let run_cmd = if cfg!(target_os = "windows") {
+            format!(".\\{}", exe_path)
+        } else {
+            format!("./{}", exe_path)
+        };
+        let prog_out = Command::new(&run_cmd)
+            .output()
+            .expect("Program execution failed");
+        let _ = fs::remove_file(&exe_path);
+        assert_eq!(
+            prog_out.status.code().unwrap_or(-1),
+            42,
+            "no-std main return must become the exit code"
+        );
+    }
 }
 
 #[test]

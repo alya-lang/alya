@@ -22,7 +22,25 @@ pub fn emit_adrp_add(out: &mut String, reg: &str, label: &str, os: OperatingSyst
     }
 }
 
-pub fn emit_header(out: &mut String, os: OperatingSystem) {
+pub fn emit_header(out: &mut String, os: OperatingSystem, no_std: bool) {
+    // Minimal bare-metal entry (alya-lang/alya#191): see the x64 twin.
+    if no_std {
+        if matches!(os, OperatingSystem::MacOS) {
+            out.push_str(".globl _main\n");
+        } else {
+            out.push_str(".global main\n");
+        }
+        out.push_str(".text\n");
+        out.push_str(".align 2\n");
+        if matches!(os, OperatingSystem::MacOS) {
+            out.push_str("_main:\n");
+        } else {
+            out.push_str("main:\n");
+        }
+        out.push_str("    stp x29, x30, [sp, #-16]!\n");
+        out.push_str("    mov x29, sp\n");
+        return;
+    }
     if matches!(os, OperatingSystem::MacOS) {
         out.push_str(".globl _main\n");
         out.push_str(".extern _printf\n");
@@ -290,6 +308,14 @@ pub fn emit_header(out: &mut String, os: OperatingSystem) {
 
 pub fn emit_footer(out: &mut String) {
     out.push_str("    mov w0, #0\n");
+    out.push_str("    mov sp, x29\n");
+    out.push_str("    ldp x29, x30, [sp], #16\n");
+    out.push_str("    ret\n");
+}
+
+/// Bare-metal twin (alya-lang/alya#191): preserves `x0/w0` so the
+/// user's `main` return value becomes the process exit code.
+pub fn emit_footer_nostd(out: &mut String) {
     out.push_str("    mov sp, x29\n");
     out.push_str("    ldp x29, x30, [sp], #16\n");
     out.push_str("    ret\n");

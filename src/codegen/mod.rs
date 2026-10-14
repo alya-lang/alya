@@ -1316,20 +1316,24 @@ impl CodeGen {
         }
 
         let t_emit = std::time::Instant::now();
-        arch::emit_header(&mut self.output, self.arch, self.os);
+        arch::emit_header(&mut self.output, self.arch, self.os, self.no_std);
 
         // B3: install the crash handler first, before any user code runs.
-        if matches!(self.arch, Architecture::ARM64) {
-            self.output.push_str("    bl alya_crash_init\n");
-        } else if matches!(self.os, OperatingSystem::Windows) {
-            self.output.push_str("    sub $32, %rsp\n");
-            self.output.push_str("    call alya_crash_init\n");
-            self.output.push_str("    add $32, %rsp\n");
-        } else {
-            self.output.push_str("    call alya_crash_init\n");
+        // Skipped under --no-std: the handler lives in the runtime.
+        if !self.no_std {
+            if matches!(self.arch, Architecture::ARM64) {
+                self.output.push_str("    bl alya_crash_init\n");
+            } else if matches!(self.os, OperatingSystem::Windows) {
+                self.output.push_str("    sub $32, %rsp\n");
+                self.output.push_str("    call alya_crash_init\n");
+                self.output.push_str("    add $32, %rsp\n");
+            } else {
+                self.output.push_str("    call alya_crash_init\n");
+            }
         }
 
-        if self.mem_trace {
+        // Tracing needs the runtime symbols; --no-std drops them.
+        if self.mem_trace && !self.no_std {
             if matches!(self.arch, Architecture::ARM64) {
                 arch::arm64::emit_adrp_add(
                     &mut self.output,
@@ -1467,7 +1471,8 @@ impl CodeGen {
 
         self.emit_cleanup_scope(None);
 
-        if self.mem_trace {
+        // See the enable gate above: no tracing without the runtime.
+        if self.mem_trace && !self.no_std {
             if matches!(self.arch, Architecture::ARM64) {
                 self.output.push_str("    bl alya_mem_trace_report\n");
             } else if matches!(self.os, OperatingSystem::Windows) {
@@ -1503,7 +1508,11 @@ impl CodeGen {
             }
         }
 
-        arch::emit_footer(&mut self.output, self.arch);
+        if self.no_std {
+            arch::emit_footer_nostd(&mut self.output, self.arch);
+        } else {
+            arch::emit_footer(&mut self.output, self.arch);
+        }
         // Close the entry `main:` SEH scope (alya-lang/alya#109). The
         // footer ends with `ret`, so this is main's final position.
         arch::emit_function_endproc(&mut self.output, self.arch, self.os);
