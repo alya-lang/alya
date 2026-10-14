@@ -418,7 +418,11 @@ fn eval_const_expr(text: &str, consts: &HashMap<String, i128>) -> Option<i128> {
             return None;
         }
     }
-    let mut parser = Parser { tokens, pos: 0, consts };
+    let mut parser = Parser {
+        tokens,
+        pos: 0,
+        consts,
+    };
     let value = parser.parse_or()?;
     if parser.pos != parser.tokens.len() {
         return None;
@@ -600,7 +604,12 @@ fn split_members(body: &str) -> Vec<String> {
 }
 
 /// Parse one top-level item, recording aliases along the way.
-fn parse_item(item: &str, aliases: &mut HashMap<String, String>, consts: &mut HashMap<String, i128>, items: &mut Vec<Item>) {
+fn parse_item(
+    item: &str,
+    aliases: &mut HashMap<String, String>,
+    consts: &mut HashMap<String, i128>,
+    items: &mut Vec<Item>,
+) {
     let trimmed = item.trim();
     if trimmed.is_empty() {
         return;
@@ -1430,7 +1439,8 @@ mod tests {
     }
 
     #[test]
-    fn skips_loudly_never_guesses() {        let out = gen("long platform_word(void);\n\
+    fn skips_loudly_never_guesses() {
+        let out = gen("long platform_word(void);\n\
              char classify(int c);\n\
              int printf_like(const char *fmt, ...);\n\
              union word { int i; float f; };\n\
@@ -1476,12 +1486,10 @@ mod tests {
 
     #[test]
     fn evaluates_const_expressions() {
-        let out = gen(
-            "#define FLAG_A (1 << 0)\n\
+        let out = gen("#define FLAG_A (1 << 0)\n\
              #define FLAG_B (1 << 3)\n\
              #define MASK (0xFF | FLAG_A)\n\
-             #define HALF (10 / 4)\n",
-        );
+             #define HALF (10 / 4)\n");
         for line in [
             "const FLAG_A = 1 # from: (1 << 0)",
             "const FLAG_B = 8 # from: (1 << 3)",
