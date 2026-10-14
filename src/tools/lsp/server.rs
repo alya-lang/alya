@@ -134,14 +134,22 @@ impl ServerState {
                     "name".to_string(),
                     JsonValue::String("alya-lsp".to_string()),
                 );
+                // Real compiler version (not a hardcoded string), plus
+                // the protocol contract the extension checks
+                // (alya-lang/alya#192). Both additive: old clients
+                // ignore the extra field.
                 server_info.insert(
                     "version".to_string(),
-                    JsonValue::String("1.0.0".to_string()),
+                    JsonValue::String(env!("CARGO_PKG_VERSION").to_string()),
                 );
 
                 let mut result = BTreeMap::new();
                 result.insert("capabilities".to_string(), JsonValue::Object(capabilities));
                 result.insert("serverInfo".to_string(), JsonValue::Object(server_info));
+                result.insert(
+                    "alyaProtocolVersion".to_string(),
+                    JsonValue::Number(super::protocol::ALYA_LSP_PROTOCOL_VERSION as f64),
+                );
 
                 make_response(id, JsonValue::Object(result))
             }
@@ -731,4 +739,30 @@ pub fn run_server() -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::protocol::ALYA_LSP_PROTOCOL_VERSION;
+    use super::ServerState;
+    use crate::tools::lsp::json::JsonValue;
+
+    #[test]
+    fn initialize_advertises_protocol_version_and_compiler_version() {
+        // alya-lang/alya#192: the extension gates on these two fields.
+        let mut state = ServerState::new();
+        let resp = state.handle_request("initialize", &JsonValue::Number(1.0), None);
+        let result = resp.get("result").expect("initialize has a result");
+        let proto = result
+            .get("alyaProtocolVersion")
+            .and_then(|v| v.as_i64())
+            .expect("alyaProtocolVersion present");
+        assert_eq!(proto, ALYA_LSP_PROTOCOL_VERSION);
+        let info = result.get("serverInfo").expect("serverInfo present");
+        assert_eq!(info.get("name").and_then(|v| v.as_str()), Some("alya-lsp"));
+        assert_eq!(
+            info.get("version").and_then(|v| v.as_str()),
+            Some(env!("CARGO_PKG_VERSION"))
+        );
+    }
 }

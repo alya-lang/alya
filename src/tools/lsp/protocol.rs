@@ -1,6 +1,16 @@
 use super::json::JsonValue;
 use std::collections::{BTreeMap, HashMap};
 
+/// Alya LSP protocol version (alya-lang/alya#192).
+///
+/// Bump when a server message shape the VSCode extension consumes
+/// changes incompatibly (initialize result, diagnostics, code actions,
+/// ...). The extension compares this against its own constant after
+/// `initialize` and raises a loud error on mismatch instead of
+/// silently misbehaving. Additive changes (new capabilities, new
+/// optional fields) do NOT bump it.
+pub const ALYA_LSP_PROTOCOL_VERSION: i64 = 1;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Position {
     pub line: u32,
