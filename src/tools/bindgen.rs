@@ -226,13 +226,15 @@ fn is_c_type_keyword(word: &str) -> bool {
 /// Handles `const`, `struct`/`enum`/`union` tags, arrays (reported),
 /// and function pointers (reported). Returns `Err` with a reason.
 fn split_declarator(decl: &str) -> Result<(Vec<String>, usize, String, bool, bool), String> {
-    // Function pointer: `ret (*name)(args)` — a word, caller keeps ptr.
+    // Function pointer: `ret (*name)(args)` — a word whatever it is
+    // called, named or not (an anonymous `void(*)(void*)` destructor
+    // still rides one word; the caller synthesizes `argN` for it).
     if let Some(star) = decl.find("(*") {
         let after = &decl[star + 2..];
         if let Some(end) = after.find(')') {
             let name = after[..end].trim().to_string();
-            if name.is_empty() || name.contains(|c: char| !(c.is_alphanumeric() || c == '_')) {
-                return Err("anonymous function pointer".to_string());
+            if name.contains(|c: char| !(c.is_alphanumeric() || c == '_')) {
+                return Err("malformed function pointer".to_string());
             }
             return Ok((vec!["ptr".to_string()], 0, name, false, false));
         }
@@ -847,6 +849,18 @@ fn parse_function(
     // Head: `<ret> <name>` — strip storage qualifiers.
     let mut head_words: Vec<&str> = head.split_whitespace().collect();
     head_words.retain(|w| !matches!(*w, "extern" | "static" | "inline" | "_Noreturn"));
+    // Leading API-annotation macros (`SQLITE_API int f(...)`) are
+    // handled at the return-type mapping below (typedef-first retry),
+    // so this only drops the unambiguous 3+-word case up front.
+    // A real 2-word `TYPE name` head never strips.
+    if head_words.len() > 2
+        && head_words[0]
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+        && !aliases.contains_key(head_words[0])
+    {
+        head_words.remove(0);
+    }
     if head_words.is_empty() {
         items.push(Item::Skipped {
             reason: "missing return type".to_string(),
@@ -878,10 +892,30 @@ fn parse_function(
     if name_tok.starts_with('*') {
         ret_full.push_str(" *");
     }
+    // Typedef-first retry: map as-is (a real `DWORD` alias wins);
+    // on failure, drop ALL-CAPS non-alias words anywhere in the head
+    // (`SQLITE_API`, mid-head `SQLITE_CDECL`) and map again. Whatever
+    // still fails skips loudly below.
+    let mut ret = map_decl(&ret_full, aliases, false);
+    if ret.is_err() {
+        let filtered: Vec<&str> = ret_full
+            .split_whitespace()
+            .filter(|w| {
+                let bare = w.trim_matches('*');
+                !(bare
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+                    && !aliases.contains_key(bare))
+            })
+            .collect();
+        if filtered.len() != ret_full.split_whitespace().count() {
+            ret = map_decl(&filtered.join(" "), aliases, false);
+        }
+    }
     let ret = if ret_full == "void" {
         None
     } else {
-        match map_decl(&ret_full, aliases, false) {
+        match ret {
             Ok(mapped) => {
                 if mapped == "void" {
                     None
@@ -1232,6 +1266,19 @@ mod tests {
         let out = gen("int compare(const void *, const void *);\n");
         assert!(
             out.contains("function compare(arg0: ptr, arg1: ptr) -> i32"),
+            "{}",
+            out
+        );
+    }
+
+    #[test]
+    fn strips_api_annotation_macros() {
+        // `SQLITE_API`-style leading macros are not types; a real
+        // 2-word typedef head never strips.
+        let out =
+            gen("#define SQLITE_API\nint SQLITE_CDECL sqlite3_open(const char *name, int *db);\n");
+        assert!(
+            out.contains("function sqlite3_open(name: str, db: ptr) -> i32"),
             "{}",
             out
         );
