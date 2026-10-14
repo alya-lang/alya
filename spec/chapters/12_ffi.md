@@ -53,6 +53,9 @@ An `extern` declaration and an Alya `function` must not share one name in the sa
 - **Win64:** one sequence (`rcx, rdx, r8, r9`) mirrored into `xmm0-xmm3`.
 - An `int`-typed value passed to a float-typed extern parameter converts to double on the shared tag-guarded emission (the same conversion float-param call args use); dynamically-typed values ride their current bits. Declared parameter types are authoritative for register assignment; extra variadic arguments classify by their static kind.
 
+### 1.7 Generating Bindings (`alya bindgen`, alya-lang/alya#196)
+Hand-writing `extern` blocks from C headers is mechanical and error-prone, so `alya bindgen <header.h> [--from <lib>] [-o <out.alya>]` generates them. It parses a header subset — function prototypes, `@repr(C)` structs, enums, transparent typedefs, integer `#define`s — using only existing syntax (no grammar change, so no EBNF is required here). Type mapping is width-exact or refused: fixed-width integers map directly, `int`→`i32`, `size_t`→`usize`, pointers→`ptr` (`const char *`→`str`, matching package practice); platform-dependent widths (`long`, plain `char`), varargs, unions, and bitfields become `-- SKIPPED:` comments, never guesses. Preprocessor conditionals are transparent (both branches survive; duplicate names keep the first). Regenerate, never hand-edit, generated files.
+
 ---
 
 ## 2. Formal Grammar (EBNF Snippet)

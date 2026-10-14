@@ -664,6 +664,7 @@ fn test_per_command_help_returns_none() {
         "test",
         "bench",
         "lint",
+        "bindgen",
         "doc",
         "pkg",
         "toolchain",

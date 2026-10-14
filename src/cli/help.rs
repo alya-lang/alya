@@ -85,6 +85,9 @@ pub fn print_full_usage() {
         "  icons <cmd>           Register OS file icons for .alya (status, install, uninstall)"
     );
     println!("  lsp                   Start Language Server Protocol (LSP) over stdio");
+    println!(
+        "  bindgen <header.h>    Generate `extern \"C\"` bindings from a C header (--from, -o)"
+    );
     println!("  doc [path]            Generate HTML and Markdown API documentation");
     println!(
         "  lint [path]           Run static code linter (--fix to auto-refactor, --check for CI)"
@@ -382,6 +385,23 @@ pub fn print_lint_help() {
     println!("  alya lint . --check                  # CI gate: fail on warnings");
     println!("  alya lint . --check --no-default-features  # Gate the slim feature view");
     println!("  alya lint . --format sarif -o alya-lint.sarif  # SARIF for code scanning");
+}
+
+pub fn print_bindgen_help() {
+    println!("alya bindgen - Generate Alya `extern \"C\"` bindings from a C header\n");
+    println!("USAGE:");
+    println!("  alya bindgen <header.h> [OPTIONS]\n");
+    println!("ARGS:");
+    println!(
+        "  <header.h>          C header to parse (function/struct/enum/typedef/define subset)\n"
+    );
+    println!("OPTIONS:");
+    println!(
+        "  --from <lib>        Emit `extern \"C\" from \"<lib>\"` (default: plain `extern \"C\"`)"
+    );
+    println!("  -o, --output <file> Write bindings to <file> (default: stdout)\n");
+    println!("EXAMPLES:");
+    println!("  alya bindgen sqlite3.h --from sqlite3 -o src/ffi_gen.alya");
 }
 
 pub fn print_doc_help() {

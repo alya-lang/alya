@@ -56,6 +56,11 @@ pub enum CommandKind {
         features: Vec<String>,
         no_default_features: bool,
     },
+    Bindgen {
+        header: String,
+        from: Option<String>,
+        output: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -350,6 +355,15 @@ impl CliArgs {
             return Ok(Some(Self::create_simple_args(lint_cmd)));
         }
 
+        if first == "bindgen" {
+            if wants_help(&args[2..]) {
+                crate::cli::help::print_bindgen_help();
+                return Ok(None);
+            }
+            let bindgen_cmd = parse_bindgen_args(&args[2..])?;
+            return Ok(Some(Self::create_simple_args(bindgen_cmd)));
+        }
+
         if first == "repl" && wants_help(&args[2..]) {
             crate::cli::help::print_repl_help();
             return Ok(None);
@@ -493,6 +507,7 @@ impl CliArgs {
                         CommandKind::Repl => crate::cli::help::print_repl_help(),
                         CommandKind::Doc { .. } => crate::cli::help::print_doc_help(),
                         CommandKind::Lint { .. } => crate::cli::help::print_lint_help(),
+                        CommandKind::Bindgen { .. } => crate::cli::help::print_bindgen_help(),
                         CommandKind::Pkg(_) => crate::cli::help::print_pkg_help(),
                         CommandKind::Toolchain(_) => crate::cli::help::print_toolchain_help(),
                         CommandKind::Icons(_) => crate::cli::help::print_icons_help(),
@@ -1237,6 +1252,77 @@ fn parse_lint_args(args: &[String]) -> Result<CommandKind, String> {
         features,
         no_default_features,
     })
+}
+
+fn parse_bindgen_args(args: &[String]) -> Result<CommandKind, String> {
+    let mut header = None;
+    let mut from = None;
+    let mut output = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-h" | "--help" => {
+                println!("Usage: alya bindgen <header.h> [options]");
+                println!();
+                println!("Generate Alya `extern \"C\"` bindings from a C header (subset):");
+                println!(
+                    "function prototypes, @repr(C) structs, enums, typedefs, integer #defines."
+                );
+                println!("Unmappable declarations become `-- SKIPPED:` comments, never guesses.");
+                println!();
+                println!("Options:");
+                println!("  --from <lib>       Emit `extern \"C\" from \"<lib>\"` (default: plain `extern \"C\"`)");
+                println!("  -o, --output <file>  Write bindings to <file> (default: stdout)");
+                println!("  -h, --help           Show help");
+                process::exit(0);
+            }
+            "--from" => {
+                if i + 1 < args.len() {
+                    from = Some(args[i + 1].clone());
+                    i += 1;
+                } else {
+                    return Err("Error: Missing argument for '--from'".to_string());
+                }
+            }
+            "-o" | "--output" => {
+                if i + 1 < args.len() {
+                    output = Some(args[i + 1].clone());
+                    i += 1;
+                } else {
+                    return Err("Error: Missing argument for '-o/--output'".to_string());
+                }
+            }
+            other if other.starts_with("--from=") => {
+                from = Some(other["--from=".len()..].to_string());
+            }
+            other if other.starts_with("--output=") || other.starts_with("-o=") => {
+                let value = other.split_once('=').map(|x| x.1).unwrap_or("").to_string();
+                if value.is_empty() {
+                    return Err("Error: Missing argument for output flag".to_string());
+                }
+                output = Some(value);
+            }
+            other if !other.starts_with('-') => {
+                if header.is_none() {
+                    header = Some(other.to_string());
+                } else {
+                    return Err(format!("Error: Unexpected argument '{}'", other));
+                }
+            }
+            other => {
+                return Err(format!("Error: Unknown bindgen option '{}'", other));
+            }
+        }
+        i += 1;
+    }
+    match header {
+        Some(header) => Ok(CommandKind::Bindgen {
+            header,
+            from,
+            output,
+        }),
+        None => Err("Error: 'alya bindgen' requires a header file argument".to_string()),
+    }
 }
 
 fn parse_pkg_init_args(args: &[String]) -> Result<PkgCommand, String> {

@@ -407,6 +407,16 @@ pub fn run(args: CliArgs) -> Result<(), String> {
         return Ok(());
     }
 
+    if let CommandKind::Bindgen {
+        ref header,
+        ref from,
+        ref output,
+    } = args.command
+    {
+        crate::tools::bindgen::run_bindgen(header, from.as_deref(), output.as_deref())?;
+        return Ok(());
+    }
+
     if let CommandKind::Doc {
         ref input,
         ref output_dir,

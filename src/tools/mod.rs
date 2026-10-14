@@ -1,3 +1,4 @@
+pub mod bindgen;
 pub mod bundle;
 pub mod dap;
 pub mod doc;
