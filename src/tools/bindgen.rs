@@ -222,6 +222,210 @@ fn is_c_type_keyword(word: &str) -> bool {
     )
 }
 
+/// Integer literal with C suffixes/hex/octal; `None` when not one.
+fn parse_int_literal(text: &str) -> Option<i128> {
+    let clean = text.trim_end_matches(['u', 'U', 'l', 'L']).trim();
+    if let Some(hex) = clean
+        .strip_prefix("0x")
+        .or_else(|| clean.strip_prefix("0X"))
+    {
+        return i128::from_str_radix(hex, 16).ok();
+    }
+    if let Some(oct) = clean.strip_prefix('0') {
+        if oct.is_empty() {
+            return Some(0);
+        }
+        return i128::from_str_radix(oct, 8).ok();
+    }
+    clean.parse::<i128>().ok()
+}
+
+/// Constant-expression evaluator for `#define` values
+/// (`(1 << 0)`, `0xFF | 0x01`, `BASE + 4`): literals, previously
+/// defined constants, `| ^ & << >> + - * / % ~` and parens, all in
+/// i128 checked arithmetic. Anything else (calls, `?:`, stringizing)
+/// is `None` and the macro skips loudly.
+fn eval_const_expr(text: &str, consts: &HashMap<String, i128>) -> Option<i128> {
+    #[derive(Clone, PartialEq)]
+    enum Token {
+        Num(i128),
+        Ident(String),
+        Op(String),
+        LParen,
+        RParen,
+    }
+    struct Parser<'a> {
+        tokens: Vec<Token>,
+        pos: usize,
+        consts: &'a HashMap<String, i128>,
+    }
+    impl Parser<'_> {
+        fn peek(&self) -> Option<&Token> {
+            self.tokens.get(self.pos)
+        }
+        fn eat_op(&mut self, op: &str) -> bool {
+            if matches!(self.peek(), Some(Token::Op(o)) if o == op) {
+                self.pos += 1;
+                true
+            } else {
+                false
+            }
+        }
+        fn parse_or(&mut self) -> Option<i128> {
+            let mut lhs = self.parse_xor()?;
+            while self.eat_op("|") {
+                lhs |= self.parse_xor()?;
+            }
+            Some(lhs)
+        }
+        fn parse_xor(&mut self) -> Option<i128> {
+            let mut lhs = self.parse_and()?;
+            while self.eat_op("^") {
+                lhs ^= self.parse_and()?;
+            }
+            Some(lhs)
+        }
+        fn parse_and(&mut self) -> Option<i128> {
+            let mut lhs = self.parse_shift()?;
+            while self.eat_op("&") {
+                lhs &= self.parse_shift()?;
+            }
+            Some(lhs)
+        }
+        fn parse_shift(&mut self) -> Option<i128> {
+            let mut lhs = self.parse_add()?;
+            loop {
+                if self.eat_op("<<") {
+                    let rhs = self.parse_add()?;
+                    lhs = lhs.checked_shl(rhs.try_into().ok()?)?;
+                } else if self.eat_op(">>") {
+                    let rhs = self.parse_add()?;
+                    lhs = lhs.checked_shr(rhs.try_into().ok()?)?;
+                } else {
+                    break;
+                }
+            }
+            Some(lhs)
+        }
+        fn parse_add(&mut self) -> Option<i128> {
+            let mut lhs = self.parse_mul()?;
+            loop {
+                if self.eat_op("+") {
+                    lhs = lhs.checked_add(self.parse_mul()?)?;
+                } else if self.eat_op("-") {
+                    lhs = lhs.checked_sub(self.parse_mul()?)?;
+                } else {
+                    break;
+                }
+            }
+            Some(lhs)
+        }
+        fn parse_mul(&mut self) -> Option<i128> {
+            let mut lhs = self.parse_unary()?;
+            loop {
+                if self.eat_op("*") {
+                    lhs = lhs.checked_mul(self.parse_unary()?)?;
+                } else if self.eat_op("/") {
+                    lhs = lhs.checked_div(self.parse_unary()?)?;
+                } else if self.eat_op("%") {
+                    lhs = lhs.checked_rem(self.parse_unary()?)?;
+                } else {
+                    break;
+                }
+            }
+            Some(lhs)
+        }
+        fn parse_unary(&mut self) -> Option<i128> {
+            if self.eat_op("~") {
+                Some(!self.parse_unary()?)
+            } else if self.eat_op("-") {
+                Some(self.parse_unary()?.checked_neg()?)
+            } else if self.eat_op("+") {
+                self.parse_unary()
+            } else {
+                self.parse_primary()
+            }
+        }
+        fn parse_primary(&mut self) -> Option<i128> {
+            match self.peek()?.clone() {
+                Token::Num(n) => {
+                    self.pos += 1;
+                    Some(n)
+                }
+                Token::Ident(name) => {
+                    self.pos += 1;
+                    self.consts.get(&name).copied()
+                }
+                Token::LParen => {
+                    self.pos += 1;
+                    let value = self.parse_or()?;
+                    if !matches!(self.peek(), Some(Token::RParen)) {
+                        return None;
+                    }
+                    self.pos += 1;
+                    Some(value)
+                }
+                _ => None,
+            }
+        }
+    }
+    // Tokenize: numbers, identifiers, two-char shifts, single ops.
+    let mut tokens = Vec::new();
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c.is_whitespace() {
+            i += 1;
+        } else if c == '(' {
+            tokens.push(Token::LParen);
+            i += 1;
+        } else if c == ')' {
+            tokens.push(Token::RParen);
+            i += 1;
+        } else if c == '<' && chars.get(i + 1) == Some(&'<') {
+            tokens.push(Token::Op("<<".to_string()));
+            i += 2;
+        } else if c == '>' && chars.get(i + 1) == Some(&'>') {
+            tokens.push(Token::Op(">>".to_string()));
+            i += 2;
+        } else if "|^&+-*/%~".contains(c) {
+            tokens.push(Token::Op(c.to_string()));
+            i += 1;
+        } else if c.is_ascii_digit() {
+            let mut j = i;
+            if c == '0' && (chars.get(j + 1) == Some(&'x') || chars.get(j + 1) == Some(&'X')) {
+                j += 2;
+                while j < chars.len() && chars[j].is_ascii_hexdigit() {
+                    j += 1;
+                }
+            } else {
+                while j < chars.len() && chars[j].is_ascii_alphanumeric() {
+                    j += 1;
+                }
+            }
+            let word: String = chars[i..j].iter().collect();
+            tokens.push(Token::Num(parse_int_literal(&word)?));
+            i = j;
+        } else if c.is_alphabetic() || c == '_' {
+            let mut j = i;
+            while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') {
+                j += 1;
+            }
+            tokens.push(Token::Ident(chars[i..j].iter().collect()));
+            i = j;
+        } else {
+            return None;
+        }
+    }
+    let mut parser = Parser { tokens, pos: 0, consts };
+    let value = parser.parse_or()?;
+    if parser.pos != parser.tokens.len() {
+        return None;
+    }
+    Some(value)
+}
+
 /// Split a declarator into (base words, pointer depth, name).
 /// Handles `const`, `struct`/`enum`/`union` tags, arrays (reported),
 /// and function pointers (reported). Returns `Err` with a reason.
@@ -396,7 +600,7 @@ fn split_members(body: &str) -> Vec<String> {
 }
 
 /// Parse one top-level item, recording aliases along the way.
-fn parse_item(item: &str, aliases: &mut HashMap<String, String>, items: &mut Vec<Item>) {
+fn parse_item(item: &str, aliases: &mut HashMap<String, String>, consts: &mut HashMap<String, i128>, items: &mut Vec<Item>) {
     let trimmed = item.trim();
     if trimmed.is_empty() {
         return;
@@ -422,17 +626,12 @@ fn parse_item(item: &str, aliases: &mut HashMap<String, String>, items: &mut Vec
             let is_ident = !name.is_empty()
                 && name.chars().all(|c| c.is_alphanumeric() || c == '_')
                 && !name.chars().next().is_some_and(|c| c.is_numeric());
-            let is_int = !value.is_empty()
-                && (value.parse::<i128>().is_ok()
-                    || value
-                        .strip_prefix("0x")
-                        .is_some_and(|h| i128::from_str_radix(h, 16).is_ok())
-                    || value
-                        .strip_prefix("0X")
-                        .is_some_and(|h| i128::from_str_radix(h, 16).is_ok()));
-            if is_ident && is_int {
-                items.push(Item::Const { name, value });
-            } else if is_ident && value.is_empty() {
+            if !is_ident {
+                items.push(Item::Skipped {
+                    reason: "malformed macro".to_string(),
+                    source: trimmed.to_string(),
+                });
+            } else if value.is_empty() {
                 // Valueless flag macro. Include guards (`FOO_H`) are
                 // structural: skip silently. Anything else is loud —
                 // a flag with no value has no Alya mapping.
@@ -446,6 +645,20 @@ fn parse_item(item: &str, aliases: &mut HashMap<String, String>, items: &mut Vec
                         source: trimmed.to_string(),
                     });
                 }
+            } else if parse_int_literal(&value).is_some() {
+                // Plain literal: keep the source spelling (`0x5A11`).
+                if let Some(v) = parse_int_literal(&value) {
+                    consts.insert(name.clone(), v);
+                }
+                items.push(Item::Const { name, value });
+            } else if let Some(evaluated) = eval_const_expr(&value, consts) {
+                // Constant expression (`(1 << 0)`): emit the value with
+                // the source expression kept as a comment for traceability.
+                consts.insert(name.clone(), evaluated);
+                items.push(Item::Const {
+                    name,
+                    value: format!("{} # from: {}", evaluated, value),
+                });
             } else {
                 items.push(Item::Skipped {
                     reason: "non-integer macro".to_string(),
@@ -469,7 +682,7 @@ fn parse_item(item: &str, aliases: &mut HashMap<String, String>, items: &mut Vec
             end = trimmed.len();
         }
         for inner in split_items(&trimmed[start..end]) {
-            parse_item(&inner, aliases, items);
+            parse_item(&inner, aliases, consts, items);
         }
         return;
     }
@@ -1008,9 +1221,10 @@ fn parse_function(
 pub fn generate(header_src: &str, opts: &BindgenOptions) -> String {
     let cleaned = strip_comments(header_src);
     let mut aliases: HashMap<String, String> = HashMap::new();
+    let mut consts: HashMap<String, i128> = HashMap::new();
     let mut items: Vec<Item> = Vec::new();
     for item in split_items(&cleaned) {
-        parse_item(&item, &mut aliases, &mut items);
+        parse_item(&item, &mut aliases, &mut consts, &mut items);
     }
     // Platform `#if` branches both survive filtering, so the same
     // function can arrive twice: first wins, the rest are loud skips
@@ -1216,8 +1430,7 @@ mod tests {
     }
 
     #[test]
-    fn skips_loudly_never_guesses() {
-        let out = gen("long platform_word(void);\n\
+    fn skips_loudly_never_guesses() {        let out = gen("long platform_word(void);\n\
              char classify(int c);\n\
              int printf_like(const char *fmt, ...);\n\
              union word { int i; float f; };\n\
@@ -1259,6 +1472,24 @@ mod tests {
         // (The header comment mentions `-- SKIPPED:`; assert on markers.)
         assert!(!out.contains("# -- SKIPPED"), "{}", out);
         assert!(!out.contains("__cplusplus"), "{}", out);
+    }
+
+    #[test]
+    fn evaluates_const_expressions() {
+        let out = gen(
+            "#define FLAG_A (1 << 0)\n\
+             #define FLAG_B (1 << 3)\n\
+             #define MASK (0xFF | FLAG_A)\n\
+             #define HALF (10 / 4)\n",
+        );
+        for line in [
+            "const FLAG_A = 1 # from: (1 << 0)",
+            "const FLAG_B = 8 # from: (1 << 3)",
+            "const MASK = 255 # from: (0xFF | FLAG_A)",
+            "const HALF = 2 # from: (10 / 4)",
+        ] {
+            assert!(out.contains(line), "missing '{}'\n{}", line, out);
+        }
     }
 
     #[test]
