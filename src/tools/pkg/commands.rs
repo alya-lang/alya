@@ -1188,11 +1188,24 @@ fn install_resolved(
     }
 
     // Legacy shape for stages 2-3: one install source + owner per package.
+    // The base for a Path source is the DECLARING manifest's dir (the
+    // first requester's base), never the resolved location: re-resolving
+    // `crates/a` against `root/crates/a` doubles the path
+    // (`root/crates/a/crates/a`, alya-lang/alya#199).
     let mut resolved_requests: BTreeMap<(String, Option<u64>), (DependencySource, PathBuf)> =
         BTreeMap::new();
     for node in nodes.values() {
         if let (Some(name), Some(source)) = (node.pkg_name.clone(), node.source.clone()) {
-            resolved_requests.insert((name, node.pkg_major), (source, node.base_dir.clone()));
+            let base = if matches!(source, DependencySource::Path { .. }) {
+                node.incoming
+                    .first()
+                    .and_then(|(parent_id, _, _)| nodes.get(parent_id))
+                    .map(|parent| parent.base_dir.clone())
+                    .unwrap_or_else(|| node.base_dir.clone())
+            } else {
+                node.base_dir.clone()
+            };
+            resolved_requests.insert((name, node.pkg_major), (source, base));
         }
     }
 
@@ -2177,4 +2190,81 @@ fn collect_update_rows(
 
 pub fn print_pkg_help() {
     crate::cli::help::print_pkg_help();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static INSTALL_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn unique_dir(prefix: &str) -> PathBuf {
+        let n = INSTALL_COUNTER.fetch_add(1, Ordering::SeqCst);
+        std::env::temp_dir().join(format!(
+            "alya_install_{}_{}_{}",
+            prefix,
+            std::process::id(),
+            n
+        ))
+    }
+
+    fn write_manifest(dir: &Path, body: &str) {
+        fs::create_dir_all(dir).unwrap();
+        fs::write(dir.join("alya.toml"), body).unwrap();
+    }
+
+    fn write_pkg(dir: &Path, name: &str, deps: &str) {
+        write_manifest(
+            dir,
+            &format!(
+                "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nentry = \"src/lib.alya\"\n{}",
+                name, deps
+            ),
+        );
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(dir.join("src/lib.alya"), "say 1\n").unwrap();
+    }
+
+    #[test]
+    fn install_resolved_workspace_path_deps_use_declarer_base() {
+        // alya-lang/alya#199: root dep `a = { path = "crates/a" }` must
+        // resolve against the root manifest's dir. Re-resolving the
+        // stored Path source against the resolved member dir doubles
+        // it (`root/crates/a/crates/a`) and fails the install.
+        let root = unique_dir("ws199");
+        write_pkg(
+            &root,
+            "root-pkg",
+            "[dependencies]\na = { path = \"crates/a\" }\n",
+        );
+        write_pkg(
+            &root.join("crates/a"),
+            "a",
+            "[dependencies]\nb = { path = \"../b\" }\n",
+        );
+        write_pkg(&root.join("crates/b"), "b", "");
+        let load = |dir: &Path| {
+            parse_manifest(&fs::read_to_string(dir.join("alya.toml")).unwrap()).unwrap()
+        };
+        let entries = vec![
+            (load(&root), root.clone(), BTreeSet::new()),
+            (
+                load(&root.join("crates/a")),
+                root.join("crates/a"),
+                BTreeSet::new(),
+            ),
+            (
+                load(&root.join("crates/b")),
+                root.join("crates/b"),
+                BTreeSet::new(),
+            ),
+        ];
+        install_resolved(&root, entries, false).expect("workspace path install");
+        assert!(
+            root.join("alya.lock").exists() || root.join("Alya.lock").exists(),
+            "lockfile written"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
 }
