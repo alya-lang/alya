@@ -717,15 +717,16 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
 
     // fn_net_peer_port: net_peer_port(sock) -> port or -1
     // 28-byte scratch (alya-lang/alya#200; same reason as x64).
+    // Frame is 64 bytes: sockaddr at sp+24..52, namelen at sp+52.
     out.push_str(".align 2\n");
     out.push_str(".global fn_net_peer_port\n");
     out.push_str("fn_net_peer_port:\n");
-    out.push_str("    stp x29, x30, [sp, #-48]!\n");
+    out.push_str("    stp x29, x30, [sp, #-64]!\n");
     out.push_str("    mov x29, sp\n");
     out.push_str("    mov w1, #28\n");
-    out.push_str("    str w1, [sp, #40]\n");
+    out.push_str("    str w1, [sp, #52]\n");
     out.push_str("    add x1, sp, #24\n");
-    out.push_str("    add x2, sp, #40\n");
+    out.push_str("    add x2, sp, #52\n");
     out.push_str(&format!("    bl {}getpeername\n", p));
     out.push_str("    cmp w0, #0\n");
     out.push_str("    bne .L_arm64_peer_port_fail\n");
@@ -735,7 +736,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_arm64_peer_port_fail:\n");
     out.push_str("    mvn x0, xzr\n");
     out.push_str(".L_arm64_peer_port_ret:\n");
-    out.push_str("    ldp x29, x30, [sp], #48\n");
+    out.push_str("    ldp x29, x30, [sp], #64\n");
     out.push_str("    ret\n\n");
 
     // fn_net_udp_socket: creates a UDP socket (2, 2, 0)
