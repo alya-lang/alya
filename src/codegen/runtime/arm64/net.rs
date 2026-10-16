@@ -698,10 +698,10 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    add x20, x4, x2\n");
     out.push_str("    mov x5, x20\n");
     out.push_str("    mov x6, x19\n");
-    out.push_str(".L_arm64_peer_ip_copy:\n");
+    out.push_str(".L_arm64_peer_ip_copy_loop:\n");
     out.push_str("    ldrb w7, [x6], #1\n");
     out.push_str("    strb w7, [x5], #1\n");
-    out.push_str("    cbnz w7, .L_arm64_peer_ip_copy\n");
+    out.push_str("    cbnz w7, .L_arm64_peer_ip_copy_loop\n");
     out.push_str("    sub x7, x5, x4\n");
     out.push_str("    add x7, x7, #8\n");
     out.push_str("    and x7, x7, #-8\n");

@@ -1884,3 +1884,40 @@ end
         "expected the user label and the runtime label to collide"
     );
 }
+
+#[test]
+fn test_codegen_local_labels_are_unique_per_arch_os() {
+    // alya-lang/alya#200 follow-up: a duplicated `.L_*` label breaks
+    // the link on every program, but only surfaces where an assembler
+    // runs (ARM64 broke while x64 was green). This assembles nothing:
+    // it scans the emitted text for all six targets instead.
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+    use std::collections::HashSet;
+
+    let code = "say 42\n";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    for arch in [Architecture::X64, Architecture::ARM64] {
+        for os in [
+            OperatingSystem::Windows,
+            OperatingSystem::Linux,
+            OperatingSystem::MacOS,
+        ] {
+            let asm = generate(&ast, arch, os);
+            let mut seen = HashSet::new();
+            for line in asm.lines() {
+                let trimmed = line.trim();
+                // Local label definitions end with ':' and start with '.'.
+                if let Some(label) = trimmed.strip_suffix(':') {
+                    if label.starts_with('.') && !seen.insert(label.to_string()) {
+                        panic!("duplicate local label '{}' for {:?}/{:?}", label, arch, os);
+                    }
+                }
+            }
+        }
+    }
+}
