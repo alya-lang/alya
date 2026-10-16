@@ -2488,6 +2488,67 @@ main()
 }
 
 #[test]
+fn test_e2e_ipv4_extern_control() {
+    // Control for the IPv6 test above: same extern-socket technique
+    // over IPv4. If this passes where IPv6 fails, the v6 sockaddr
+    // bytes (not the extern machinery) are at fault.
+    use std::net::TcpListener;
+    let listener = match TcpListener::bind("127.0.0.1:0") {
+        Ok(listener) => listener,
+        Err(e) => {
+            println!("SKIP ipv4 control: no 127.0.0.1 listener ({})", e);
+            return;
+        }
+    };
+    let port = listener.local_addr().expect("listener addr").port();
+    let code = format!(
+        r#"
+import "std/mem"
+import "std/net"
+
+extern "C"
+    function socket(domain: i32, stype: i32, proto: i32) -> i32
+    function connect(sock: i32, addr: ptr, len: i32) -> i32
+end
+
+function main()
+    let sock = socket(2, 1, 0)
+    assert sock >= 0
+    let buf = mem.buffer_new(64)
+    mem.write_byte(buf.ptr, 0, 2)
+    mem.write_byte(buf.ptr, 1, 0)
+    mem.write_byte(buf.ptr, 2, ({port} / 256) as int)
+    mem.write_byte(buf.ptr, 3, ({port} % 256) as int)
+    mem.write_int(buf.ptr, 4, 0)
+    mem.write_int(buf.ptr, 8, 0)
+    mem.write_byte(buf.ptr, 4, 127)
+    mem.write_byte(buf.ptr, 5, 0)
+    mem.write_byte(buf.ptr, 6, 0)
+    mem.write_byte(buf.ptr, 7, 1)
+    let rc = connect(sock, buf.ptr, 16)
+    say f"v4rc:{{rc}}"
+    assert rc == 0
+    say f"v4port:{{net_peer_port(sock)}}"
+    say f"v4ip:{{net_peer_ip(sock)}}"
+end
+
+main()
+"#,
+        port = port
+    );
+    if let Some((code, output)) = run_alya_code_full(&code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert!(
+            output.contains(&format!("v4port:{}", port)),
+            "Got:\n{}",
+            output
+        );
+        assert!(output.contains("v4ip:127.0.0.1"), "Got:\n{}", output);
+    }
+    drop(listener);
+}
+
+#[test]
 fn test_e2e_udp_bytes_loopback() {
     // Binary-safe UDP round-trip (issue #42): datagrams with embedded
     // zeros cross intact via sendto/recvfrom.
