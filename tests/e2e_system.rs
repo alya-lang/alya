@@ -2462,6 +2462,13 @@ function main()
     mem.write_int(buf.ptr, 16, 0)
     mem.write_byte(buf.ptr, 23, 1)
     mem.write_int(buf.ptr, 24, 0)
+    let dump = ""
+    let di = 0
+    while di < 28
+        dump = dump + str(mem.read_byte(buf.ptr, di)) + ","
+        di += 1
+    end
+    say f"sabytes:{dump}"
     let rc = connect(sock, buf.ptr, 28)
     say f"connect_rc:{{rc}}"
     assert rc == 0
