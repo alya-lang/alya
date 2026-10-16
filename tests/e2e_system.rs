@@ -2414,6 +2414,76 @@ tcp_close(srv)
 }
 
 #[test]
+fn test_e2e_ipv6_peer_info() {
+    // alya-lang/alya#200: peer_port/peer_ip truncated IPv6 (16-byte
+    // scratch for a 28-byte sockaddr_in6). A Rust listener on [::1]
+    // plus an Alya client built from extern socket/connect syscalls
+    // (Alya TCP itself is AF_INET-only): connect() completes against
+    // the backlog, so no accept thread can hang the test. Skips where
+    // ::1 is unavailable.
+    use std::net::TcpListener;
+    let listener = match TcpListener::bind("[::1]:0") {
+        Ok(listener) => listener,
+        Err(e) => {
+            println!("SKIP ipv6 peer: no ::1 listener ({})", e);
+            return;
+        }
+    };
+    let port = listener.local_addr().expect("listener addr").port();
+    // AF_INET6 per OS: 23 Windows, 10 Linux, 30 macOS.
+    let family = if cfg!(target_os = "windows") {
+        23
+    } else if cfg!(target_os = "macos") {
+        30
+    } else {
+        10
+    };
+    let code = format!(
+        r#"
+import "std/mem"
+import "std/net"
+
+extern "C"
+    function socket(domain: i32, stype: i32, proto: i32) -> i32
+    function connect(sock: i32, addr: ptr, len: i32) -> i32
+end
+
+function main()
+    let sock = socket({family}, 1, 0)
+    assert sock >= 0
+    let buf = mem.buffer_new(64)
+    mem.write_byte(buf.ptr, 0, {family})
+    mem.write_byte(buf.ptr, 1, 0)
+    mem.write_byte(buf.ptr, 2, ({port} / 256) as int)
+    mem.write_byte(buf.ptr, 3, ({port} % 256) as int)
+    mem.write_int(buf.ptr, 4, 0)
+    mem.write_int(buf.ptr, 8, 0)
+    mem.write_int(buf.ptr, 16, 0)
+    mem.write_byte(buf.ptr, 23, 1)
+    mem.write_int(buf.ptr, 24, 0)
+    assert connect(sock, buf.ptr, 28) == 0
+    say f"peer_port:{{net_peer_port(sock)}}"
+    say f"peer_ip:{{net_peer_ip(sock)}}"
+end
+
+main()
+"#,
+        family = family,
+        port = port
+    );
+    if let Some((code, output)) = run_alya_code_full(&code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert!(
+            output.contains(&format!("peer_port:{}", port)),
+            "Got:\n{}",
+            output
+        );
+        assert!(output.contains("peer_ip:::1"), "Got:\n{}", output);
+    }
+    drop(listener);
+}
+
+#[test]
 fn test_e2e_udp_bytes_loopback() {
     // Binary-safe UDP round-trip (issue #42): datagrams with embedded
     // zeros cross intact via sendto/recvfrom.

@@ -745,35 +745,69 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ret\n\n");
 
     // fn_net_peer_ip: net_peer_ip(sock) -> ip_string or ""
+    // 28-byte scratch: fits sockaddr_in6 (alya-lang/alya#200; the old
+    // 16 bytes truncated IPv6 and getpeername failed). Layout in the
+    // 160-byte frame: dst[46] at 64, sockaddr[28] at 112, namelen at
+    // 140. Port offset (+2) is identical for v4/v6; family selects
+    // inet_ntoa (v4) vs inet_ntop (v6).
     out.push_str(".global fn_net_peer_ip\n");
     out.push_str("fn_net_peer_ip:\n");
     out.push_str("    push %rbp\n");
     out.push_str("    mov %rsp, %rbp\n");
     out.push_str("    push %rbx\n");
     out.push_str("    push %r12\n");
-    out.push_str("    sub $64, %rsp\n");
-    out.push_str("    movl $16, 56(%rsp)\n");
+    out.push_str("    sub $160, %rsp\n");
+    out.push_str("    movl $28, 140(%rsp)\n");
     if is_win {
-        out.push_str("    lea 40(%rsp), %rdx\n");
-        out.push_str("    lea 56(%rsp), %r8\n");
+        out.push_str("    lea 112(%rsp), %rdx\n");
+        out.push_str("    lea 140(%rsp), %r8\n");
         out.push_str("    call getpeername\n");
     } else {
-        out.push_str("    lea 40(%rsp), %rsi\n");
-        out.push_str("    lea 56(%rsp), %rdx\n");
+        out.push_str("    lea 112(%rsp), %rsi\n");
+        out.push_str("    lea 140(%rsp), %rdx\n");
         out.push_str(&format!("    call {}getpeername\n", p));
     }
     out.push_str("    cmp $0, %eax\n");
     out.push_str("    jne .L_x64_peer_ip_empty\n");
+    out.push_str("    movzwl 112(%rsp), %eax\n");
+    let af6 = if is_win {
+        23
+    } else if matches!(os, OperatingSystem::MacOS) {
+        30
+    } else {
+        10
+    };
+    out.push_str(&format!("    cmp ${}, %eax\n", af6));
+    out.push_str("    je .L_x64_peer_ip_v6\n");
     if is_win {
-        out.push_str("    movl 44(%rsp), %ecx\n");
+        out.push_str("    movl 116(%rsp), %ecx\n");
         out.push_str("    call inet_ntoa\n");
     } else {
-        out.push_str("    movl 44(%rsp), %edi\n");
+        out.push_str("    movl 116(%rsp), %edi\n");
         out.push_str(&format!("    call {}inet_ntoa\n", p));
     }
     out.push_str("    test %rax, %rax\n");
     out.push_str("    jz .L_x64_peer_ip_empty\n");
     out.push_str("    mov %rax, %r10\n");
+    out.push_str("    jmp .L_x64_peer_ip_copy\n");
+    out.push_str(".L_x64_peer_ip_v6:\n");
+    if is_win {
+        out.push_str(&format!("    mov ${}, %ecx\n", af6));
+        out.push_str("    lea 120(%rsp), %rdx\n");
+        out.push_str("    lea 64(%rsp), %r8\n");
+        out.push_str("    mov $46, %r9d\n");
+        out.push_str("    call inet_ntop\n");
+    } else {
+        out.push_str(&format!("    mov ${}, %edi\n", af6));
+        out.push_str("    lea 120(%rsp), %rsi\n");
+        out.push_str("    lea 64(%rsp), %rdx\n");
+        out.push_str("    mov $46, %ecx\n");
+        out.push_str(&format!("    call {}inet_ntop\n", p));
+    }
+    out.push_str("    test %rax, %rax\n");
+    out.push_str("    jz .L_x64_peer_ip_empty\n");
+    out.push_str("    mov %rax, %r10\n");
+    out.push_str(".L_x64_peer_ip_copy:\n");
     super::emit_str_buf_ctx(out, os);
     out.push_str("    mov (%r9), %rbx\n");
     out.push_str("    cmp $950000, %rbx\n");
@@ -782,14 +816,14 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_x64_peer_ip_buf_ok:\n");
     out.push_str("    lea (%r8, %rbx), %r11\n");
     out.push_str("    mov %r11, %r12\n");
-    out.push_str(".L_x64_peer_ip_copy:\n");
+    out.push_str(".L_x64_peer_ip_copy_loop:\n");
     out.push_str("    movb (%r10), %al\n");
     out.push_str("    movb %al, (%r11)\n");
     out.push_str("    test %al, %al\n");
     out.push_str("    jz .L_x64_peer_ip_copy_done\n");
     out.push_str("    inc %r10\n");
     out.push_str("    inc %r11\n");
-    out.push_str("    jmp .L_x64_peer_ip_copy\n");
+    out.push_str("    jmp .L_x64_peer_ip_copy_loop\n");
     out.push_str(".L_x64_peer_ip_copy_done:\n");
     out.push_str("    inc %r11\n");
     out.push_str("    sub %r8, %r11\n");
@@ -801,7 +835,7 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(".L_x64_peer_ip_empty:\n");
     out.push_str("    lea alya_str_empty(%rip), %rax\n");
     out.push_str(".L_x64_peer_ip_ret:\n");
-    out.push_str("    add $64, %rsp\n");
+    out.push_str("    add $160, %rsp\n");
     out.push_str("    pop %r12\n");
     out.push_str("    pop %rbx\n");
     out.push_str("    mov %rbp, %rsp\n");
@@ -809,12 +843,14 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ret\n\n");
 
     // fn_net_peer_port: net_peer_port(sock) -> port_int or -1
+    // 28-byte scratch (alya-lang/alya#200): the port sits at offset +2
+    // in both families, but a 16-byte buffer fails IPv6 getpeername.
     out.push_str(".global fn_net_peer_port\n");
     out.push_str("fn_net_peer_port:\n");
     out.push_str("    push %rbp\n");
     out.push_str("    mov %rsp, %rbp\n");
     out.push_str("    sub $64, %rsp\n");
-    out.push_str("    movl $16, 48(%rsp)\n");
+    out.push_str("    movl $28, 48(%rsp)\n");
     if is_win {
         out.push_str("    lea 32(%rsp), %rdx\n");
         out.push_str("    lea 48(%rsp), %r8\n");

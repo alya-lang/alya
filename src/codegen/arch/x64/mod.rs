@@ -78,6 +78,7 @@ pub fn emit_header(out: &mut String, os: OperatingSystem, no_std: bool) {
         out.push_str(".extern _setsockopt\n");
         out.push_str(".extern _getpeername\n");
         out.push_str(".extern _inet_ntoa\n");
+        out.push_str(".extern _inet_ntop\n");
         out.push_str(".extern _sendto\n");
         out.push_str(".extern _recvfrom\n");
         out.push_str(".extern _select\n");
@@ -173,6 +174,7 @@ pub fn emit_header(out: &mut String, os: OperatingSystem, no_std: bool) {
             out.push_str(".extern setsockopt\n");
             out.push_str(".extern getpeername\n");
             out.push_str(".extern inet_ntoa\n");
+            out.push_str(".extern inet_ntop\n");
             out.push_str(".extern sendto\n");
             out.push_str(".extern recvfrom\n");
             out.push_str(".extern select\n");
@@ -227,6 +229,7 @@ pub fn emit_header(out: &mut String, os: OperatingSystem, no_std: bool) {
             out.push_str(".extern setsockopt\n");
             out.push_str(".extern getpeername\n");
             out.push_str(".extern inet_ntoa\n");
+            out.push_str(".extern inet_ntop\n");
             out.push_str(".extern sendto\n");
             out.push_str(".extern recvfrom\n");
             out.push_str(".extern select\n");

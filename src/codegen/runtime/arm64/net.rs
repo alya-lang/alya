@@ -646,25 +646,49 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str("    ret\n\n");
 
     // fn_net_peer_ip: net_peer_ip(sock) -> ip_string or ""
+    // 28-byte scratch + family dispatch (alya-lang/alya#200): layout
+    // in the 128-byte frame is dst[46] at 64, sockaddr[28] at 32,
+    // namelen at 60. IPv4 keeps inet_ntoa, IPv6 uses inet_ntop.
     out.push_str(".align 2\n");
     out.push_str(".global fn_net_peer_ip\n");
     out.push_str("fn_net_peer_ip:\n");
-    out.push_str("    stp x29, x30, [sp, #-64]!\n");
+    out.push_str("    stp x29, x30, [sp, #-128]!\n");
     out.push_str("    mov x29, sp\n");
     out.push_str("    stp x19, x20, [sp, #16]\n");
     out.push_str("    mov x19, x0\n");
-    out.push_str("    mov w1, #16\n");
-    out.push_str("    str w1, [sp, #48]\n");
+    out.push_str("    mov w1, #28\n");
+    out.push_str("    str w1, [sp, #60]\n");
     out.push_str("    mov x0, x19\n");
     out.push_str("    add x1, sp, #32\n");
-    out.push_str("    add x2, sp, #48\n");
+    out.push_str("    add x2, sp, #60\n");
     out.push_str(&format!("    bl {}getpeername\n", p));
     out.push_str("    cmp w0, #0\n");
     out.push_str("    bne .L_arm64_peer_ip_empty\n");
+    out.push_str("    ldrh w9, [sp, #32]\n");
+    let af6 = if matches!(os, OperatingSystem::Windows) {
+        23
+    } else if matches!(os, OperatingSystem::MacOS) {
+        30
+    } else {
+        10
+    };
+    out.push_str(&format!("    movz w10, #{}\n", af6));
+    out.push_str("    cmp w9, w10\n");
+    out.push_str("    b.eq .L_arm64_peer_ip_v6\n");
     out.push_str("    ldr w0, [sp, #36]\n");
     out.push_str(&format!("    bl {}inet_ntoa\n", p));
     out.push_str("    cbz x0, .L_arm64_peer_ip_empty\n");
     out.push_str("    mov x19, x0\n");
+    out.push_str("    b .L_arm64_peer_ip_copy\n");
+    out.push_str(".L_arm64_peer_ip_v6:\n");
+    out.push_str(&format!("    mov x0, #{}\n", af6));
+    out.push_str("    add x1, sp, #40\n");
+    out.push_str("    add x2, sp, #64\n");
+    out.push_str("    mov x3, #46\n");
+    out.push_str(&format!("    bl {}inet_ntop\n", p));
+    out.push_str("    cbz x0, .L_arm64_peer_ip_empty\n");
+    out.push_str("    mov x19, x0\n");
+    out.push_str(".L_arm64_peer_ip_copy:\n");
     emit_str_buf_ctx(out, "x4", "x1", "x6", os);
     out.push_str("    ldr x2, [x1]\n");
     out.push_str("    movz x3, #16960\n");
@@ -688,16 +712,17 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     emit_adrp_add(out, "x0", "alya_str_empty", os);
     out.push_str(".L_arm64_peer_ip_ret:\n");
     out.push_str("    ldp x19, x20, [sp, #16]\n");
-    out.push_str("    ldp x29, x30, [sp], #64\n");
+    out.push_str("    ldp x29, x30, [sp], #128\n");
     out.push_str("    ret\n\n");
 
     // fn_net_peer_port: net_peer_port(sock) -> port or -1
+    // 28-byte scratch (alya-lang/alya#200; same reason as x64).
     out.push_str(".align 2\n");
     out.push_str(".global fn_net_peer_port\n");
     out.push_str("fn_net_peer_port:\n");
     out.push_str("    stp x29, x30, [sp, #-48]!\n");
     out.push_str("    mov x29, sp\n");
-    out.push_str("    mov w1, #16\n");
+    out.push_str("    mov w1, #28\n");
     out.push_str("    str w1, [sp, #40]\n");
     out.push_str("    add x1, sp, #24\n");
     out.push_str("    add x2, sp, #40\n");
