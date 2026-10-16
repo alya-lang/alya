@@ -2450,6 +2450,7 @@ end
 
 function main()
     let sock = socket({family}, 1, 0)
+    say f"sock:{{sock}}"
     assert sock >= 0
     let buf = mem.buffer_new(64)
     mem.write_byte(buf.ptr, 0, {family})
@@ -2462,6 +2463,7 @@ function main()
     mem.write_byte(buf.ptr, 23, 1)
     mem.write_int(buf.ptr, 24, 0)
     assert connect(sock, buf.ptr, 28) == 0
+    say f"connected"
     say f"peer_port:{{net_peer_port(sock)}}"
     say f"peer_ip:{{net_peer_ip(sock)}}"
 end
