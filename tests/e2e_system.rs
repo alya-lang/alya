@@ -2468,7 +2468,7 @@ function main()
         dump = dump + str(mem.read_byte(buf.ptr, di)) + ","
         di += 1
     end
-    say f"sabytes:{dump}"
+    say f"sabytes:{{dump}}"
     let rc = connect(sock, buf.ptr, 28)
     say f"connect_rc:{{rc}}"
     assert rc == 0
