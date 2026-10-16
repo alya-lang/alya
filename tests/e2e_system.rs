@@ -2438,6 +2438,13 @@ fn test_e2e_ipv6_peer_info() {
     } else {
         10
     };
+    // Darwin sockaddr_in6 requires sin6_len == 28 at byte 0 and sin6_family == 30 at byte 1;
+    // Linux/Windows puts 2-byte sa_family_t (little-endian uint16) at bytes 0..1.
+    let (b0, b1) = if cfg!(target_os = "macos") {
+        (28, 30)
+    } else {
+        (family, 0)
+    };
     let code = format!(
         r#"
 import "std/mem"
@@ -2450,11 +2457,10 @@ end
 
 function main()
     let sock = socket({family}, 1, 0)
-    say f"sock:{{sock}}"
     assert sock >= 0
     let buf = mem.buffer_new(64)
-    mem.write_byte(buf.ptr, 0, {family})
-    mem.write_byte(buf.ptr, 1, 0)
+    mem.write_byte(buf.ptr, 0, {b0})
+    mem.write_byte(buf.ptr, 1, {b1})
     mem.write_byte(buf.ptr, 2, ({port} / 256) as int)
     mem.write_byte(buf.ptr, 3, ({port} % 256) as int)
     mem.write_int(buf.ptr, 4, 0)
@@ -2462,17 +2468,7 @@ function main()
     mem.write_int(buf.ptr, 16, 0)
     mem.write_byte(buf.ptr, 23, 1)
     mem.write_int(buf.ptr, 24, 0)
-    let dump = ""
-    let di = 0
-    while di < 28
-        dump = dump + str(mem.read_byte(buf.ptr, di)) + ","
-        di += 1
-    end
-    say f"sabytes:{{dump}}"
-    let rc = connect(sock, buf.ptr, 28)
-    say f"connect_rc:{{rc}}"
-    assert rc == 0
-    say f"connected"
+    assert connect(sock, buf.ptr, 28) == 0
     say f"peer_port:{{net_peer_port(sock)}}"
     say f"peer_ip:{{net_peer_ip(sock)}}"
 end
@@ -2480,6 +2476,8 @@ end
 main()
 "#,
         family = family,
+        b0 = b0,
+        b1 = b1,
         port = port
     );
     if let Some((code, output)) = run_alya_code_full(&code) {
@@ -2508,6 +2506,11 @@ fn test_e2e_ipv4_extern_control() {
         }
     };
     let port = listener.local_addr().expect("listener addr").port();
+    let (b0, b1) = if cfg!(target_os = "macos") {
+        (16, 2)
+    } else {
+        (2, 0)
+    };
     let code = format!(
         r#"
 import "std/mem"
@@ -2522,8 +2525,8 @@ function main()
     let sock = socket(2, 1, 0)
     assert sock >= 0
     let buf = mem.buffer_new(64)
-    mem.write_byte(buf.ptr, 0, 2)
-    mem.write_byte(buf.ptr, 1, 0)
+    mem.write_byte(buf.ptr, 0, {b0})
+    mem.write_byte(buf.ptr, 1, {b1})
     mem.write_byte(buf.ptr, 2, ({port} / 256) as int)
     mem.write_byte(buf.ptr, 3, ({port} % 256) as int)
     mem.write_int(buf.ptr, 4, 0)
@@ -2532,15 +2535,15 @@ function main()
     mem.write_byte(buf.ptr, 5, 0)
     mem.write_byte(buf.ptr, 6, 0)
     mem.write_byte(buf.ptr, 7, 1)
-    let rc = connect(sock, buf.ptr, 16)
-    say f"v4rc:{{rc}}"
-    assert rc == 0
+    assert connect(sock, buf.ptr, 16) == 0
     say f"v4port:{{net_peer_port(sock)}}"
     say f"v4ip:{{net_peer_ip(sock)}}"
 end
 
 main()
 "#,
+        b0 = b0,
+        b1 = b1,
         port = port
     );
     if let Some((code, output)) = run_alya_code_full(&code) {

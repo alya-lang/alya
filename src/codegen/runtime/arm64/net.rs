@@ -664,14 +664,20 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     out.push_str(&format!("    bl {}getpeername\n", p));
     out.push_str("    cmp w0, #0\n");
     out.push_str("    bne .L_arm64_peer_ip_empty\n");
-    out.push_str("    ldrh w9, [sp, #32]\n");
-    let af6 = if matches!(os, OperatingSystem::Windows) {
+    let af6 = if is_win {
         23
-    } else if matches!(os, OperatingSystem::MacOS) {
+    } else if is_mac {
         30
     } else {
         10
     };
+    // Darwin sockaddr puts 1-byte sin_len at +0 and 1-byte sin_family at +1;
+    // Linux/Windows puts 2-byte sa_family_t at +0 (low byte at 0).
+    if is_mac {
+        out.push_str("    ldrb w9, [sp, #33]\n");
+    } else {
+        out.push_str("    ldrh w9, [sp, #32]\n");
+    }
     out.push_str(&format!("    movz w10, #{}\n", af6));
     out.push_str("    cmp w9, w10\n");
     out.push_str("    b.eq .L_arm64_peer_ip_v6\n");

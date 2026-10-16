@@ -769,14 +769,20 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     }
     out.push_str("    cmp $0, %eax\n");
     out.push_str("    jne .L_x64_peer_ip_empty\n");
-    out.push_str("    movzwl 112(%rsp), %eax\n");
     let af6 = if is_win {
         23
-    } else if matches!(os, OperatingSystem::MacOS) {
+    } else if is_mac {
         30
     } else {
         10
     };
+    // Darwin sockaddr puts 1-byte sin_len at +0 and 1-byte sin_family at +1;
+    // Linux/Windows puts 2-byte sa_family_t at +0 (low byte at 0).
+    if is_mac {
+        out.push_str("    movzbl 113(%rsp), %eax\n");
+    } else {
+        out.push_str("    movzwl 112(%rsp), %eax\n");
+    }
     out.push_str(&format!("    cmp ${}, %eax\n", af6));
     out.push_str("    je .L_x64_peer_ip_v6\n");
     if is_win {
