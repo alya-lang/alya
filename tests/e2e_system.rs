@@ -2462,7 +2462,9 @@ function main()
     mem.write_int(buf.ptr, 16, 0)
     mem.write_byte(buf.ptr, 23, 1)
     mem.write_int(buf.ptr, 24, 0)
-    assert connect(sock, buf.ptr, 28) == 0
+    let rc = connect(sock, buf.ptr, 28)
+    say f"connect_rc:{rc}"
+    assert rc == 0
     say f"connected"
     say f"peer_port:{{net_peer_port(sock)}}"
     say f"peer_ip:{{net_peer_ip(sock)}}"
