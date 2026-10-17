@@ -1,0 +1,26 @@
+# ==============================================================================
+# Alya Integration Fixture 72 (entry): say prints % in string literals
+# Distilled from: alya-lang/alya#201 (App/vpn benchmark printed
+#                 "100% integrity" as "100 <garbage>ntegrity" because the
+#                 literal was handed to printf as the format string).
+# Guards: literals, dynamic strings, f-strings (with and without holes) and
+#         null all compile to the argument-safe "%s\n" path on all four
+#         codegen targets; the runner asserts exit 0 and downstream e2e
+#         asserts byte-exact stdout.
+# ==============================================================================
+
+function main()
+    say "100% integrity"
+    say "x%sy"
+    let s = "a" + "%" + "b"
+    say s
+    let n = 5
+    say f"n={n} 12% ok"
+    say f"f100% done"
+    say null
+    assert len("100% integrity") == 14
+    assert len(f"f100% done") == 10
+    say "integration 72_say_percent_format: OK"
+end
+
+main()

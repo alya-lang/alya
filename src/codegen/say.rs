@@ -85,12 +85,13 @@ impl CodeGen {
         let fmt_null_label = self.ctx.next_string_label();
         self.emit_rodata_section();
         self.output.push_str(&format!("{}:\n", fmt_null_label));
-        self.emit_string_directive("null\\n");
+        self.emit_string_directive("null");
         self.output.push_str(".text\n");
-        arch::emit_say_str_lit(
+        arch::emit_say_str(
             &mut self.output,
             self.arch,
             &fmt_null_label,
+            "alya_fmt_say_str",
             self.ctx.stack_offset,
             self.os,
         );
@@ -206,11 +207,12 @@ impl CodeGen {
         arch::emit_jump(&mut self.output, self.arch, &l_end);
         // null
         self.output.push_str(&format!("{}:\n", l_null));
-        let fmt_null = self.say_cap_fmt("null\\n");
-        arch::emit_say_str_lit(
+        let fmt_null = self.say_cap_fmt("null");
+        arch::emit_say_str(
             &mut self.output,
             self.arch,
             &fmt_null,
+            "alya_fmt_say_str",
             self.ctx.stack_offset,
             self.os,
         );
@@ -301,29 +303,36 @@ impl CodeGen {
                 let label = self.ctx.next_string_label();
                 self.emit_rodata_section();
                 self.output.push_str(&format!("{}:\n", label));
-                self.emit_string_directive("null\\n");
+                self.emit_string_directive("null");
                 self.output.push_str(".text\n");
 
-                arch::emit_say_str_lit(
+                arch::emit_say_str(
                     &mut self.output,
                     self.arch,
                     &label,
+                    "alya_fmt_say_str",
                     self.ctx.stack_offset,
                     self.os,
                 );
                 self.output.push('\n');
             }
             Expr::String(s) => {
+                // Stored bare (the "%s\n" helper adds the newline) and
+                // printed via printf("%s\n", ptr): a literal must never be
+                // the printf format, or a '%' inside user text is read as a
+                // conversion directive against missing varargs
+                // (alya-lang/alya#201).
                 let label = self.ctx.next_string_label();
                 self.emit_rodata_section();
                 self.output.push_str(&format!("{}:\n", label));
-                self.emit_string_directive(&format!("{}\\n", escape_string(s)));
+                self.emit_string_directive(&escape_string(s));
                 self.output.push_str(".text\n");
 
-                arch::emit_say_str_lit(
+                arch::emit_say_str(
                     &mut self.output,
                     self.arch,
                     &label,
+                    "alya_fmt_say_str",
                     self.ctx.stack_offset,
                     self.os,
                 );
@@ -1077,13 +1086,14 @@ impl CodeGen {
                             let label = self.ctx.next_string_label();
                             self.emit_rodata_section();
                             self.output.push_str(&format!("{}:\n", label));
-                            self.emit_string_directive("null\\n");
+                            self.emit_string_directive("null");
                             self.output.push_str(".text\n");
 
-                            arch::emit_say_str_lit(
+                            arch::emit_say_str(
                                 &mut self.output,
                                 self.arch,
                                 &label,
+                                "alya_fmt_say_str",
                                 self.ctx.stack_offset,
                                 self.os,
                             );
@@ -1212,13 +1222,14 @@ impl CodeGen {
                     let label = self.ctx.next_string_label();
                     self.emit_rodata_section();
                     self.output.push_str(&format!("{}:\n", label));
-                    self.emit_string_directive("null\\n");
+                    self.emit_string_directive("null");
                     self.output.push_str(".text\n");
 
-                    arch::emit_say_str_lit(
+                    arch::emit_say_str(
                         &mut self.output,
                         self.arch,
                         &label,
+                        "alya_fmt_say_str",
                         self.ctx.stack_offset,
                         self.os,
                     );

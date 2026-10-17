@@ -15,19 +15,6 @@ pub fn emit_say_str(
     }
 }
 
-pub fn emit_say_str_lit(
-    out: &mut String,
-    arch: Architecture,
-    label: &str,
-    stack_offset: i32,
-    os: OperatingSystem,
-) {
-    match arch {
-        Architecture::ARM64 => arm64::emit_say_str_lit(out, label, os),
-        Architecture::X64 => x64::emit_say_str_lit(out, label, stack_offset, os),
-    }
-}
-
 pub fn emit_say_offset(
     out: &mut String,
     arch: Architecture,

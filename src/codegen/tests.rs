@@ -149,7 +149,11 @@ fn test_codegen_string_rodata() {
     let asm = generate(&program, Architecture::X64, OperatingSystem::Windows);
 
     assert!(asm.contains(".section .rodata"));
-    assert!(asm.contains(".string \"Test String\\n\""));
+    // alya-lang/alya#201: the literal is stored bare; the trailing newline
+    // comes from the "%s\n" say helper (the literal itself is never used
+    // as a printf format).
+    assert!(asm.contains(".string \"Test String\""));
+    assert!(asm.matches("alya_fmt_say_str").count() >= 2);
 }
 
 #[test]
@@ -202,7 +206,7 @@ fn test_codegen_macos_arm64_header_and_sections() {
     assert!(asm.contains(".globl _main"));
     assert!(asm.contains("_main:"));
     assert!(asm.contains(".section __TEXT,__cstring,cstring_literals"));
-    assert!(asm.contains(".asciz \"Hello Mac\\n\""));
+    assert!(asm.contains(".asciz \"Hello Mac\""));
     assert!(asm.contains("_printf"));
 }
 
@@ -214,7 +218,7 @@ fn test_codegen_macos_x64_header_and_sections() {
     assert!(asm.contains(".globl _main"));
     assert!(asm.contains("_main:"));
     assert!(asm.contains(".section __TEXT,__cstring,cstring_literals"));
-    assert!(asm.contains(".asciz \"Hello Mac\\n\""));
+    assert!(asm.contains(".asciz \"Hello Mac\""));
     assert!(asm.contains("_printf"));
 }
 
@@ -1883,6 +1887,41 @@ end
         2,
         "expected the user label and the runtime label to collide"
     );
+}
+
+// alya-lang/alya#201: `say "<literal>"` must print via the "%s\n" helper.
+// Before the fix the literal itself was the printf format, so a '%' inside
+// was read as a conversion directive against missing varargs. Shape gate:
+// the rodata keeps the text bare (no embedded \n) and the safe-format
+// label is referenced at least once beyond its data definition.
+#[test]
+fn test_codegen_say_literal_uses_safe_format() {
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = "say \"50%\"\n";
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let asm = generate(&ast, Architecture::X64, OperatingSystem::Linux);
+    assert!(
+        asm.contains(".string \"50%\"\n"),
+        "literal must be stored bare (newline comes from %s\\n)"
+    );
+    assert!(
+        asm.matches("alya_fmt_say_str").count() >= 2,
+        "say literal must load the safe \"%s\\n\" format label"
+    );
+
+    let asm_mac = generate(&ast, Architecture::X64, OperatingSystem::MacOS);
+    assert!(asm_mac.contains(".asciz \"50%\"\n"));
+    assert!(asm_mac.matches("alya_fmt_say_str").count() >= 2);
+
+    let asm_arm = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
+    assert!(asm_arm.contains(".string \"50%\"\n"));
+    assert!(asm_arm.matches("alya_fmt_say_str").count() >= 2);
 }
 
 #[test]

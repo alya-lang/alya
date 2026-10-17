@@ -30,11 +30,6 @@ pub fn emit_say_str(out: &mut String, label: &str, fmt_label: &str, os: Operatin
     }
 }
 
-pub fn emit_say_str_lit(out: &mut String, label: &str, os: OperatingSystem) {
-    emit_adrp_add(out, "x0", label, os);
-    emit_call_printf(out, os);
-}
-
 pub fn emit_say_offset(
     out: &mut String,
     offset: i32,

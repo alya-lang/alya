@@ -59,18 +59,6 @@ pub fn emit_say_str(
     }
 }
 
-pub fn emit_say_str_lit(out: &mut String, label: &str, stack_offset: i32, os: OperatingSystem) {
-    if matches!(os, OperatingSystem::Windows) {
-        out.push_str(&format!("    lea {}(%rip), %rcx\n", label));
-        out.push_str("    xor %rax, %rax\n");
-        emit_call_printf(out, stack_offset, os);
-    } else {
-        out.push_str(&format!("    lea {}(%rip), %rdi\n", label));
-        out.push_str("    xor %rax, %rax\n");
-        emit_call_printf(out, stack_offset, os);
-    }
-}
-
 pub fn emit_say_offset(
     out: &mut String,
     offset: i32,

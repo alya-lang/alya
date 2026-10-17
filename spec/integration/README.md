@@ -83,6 +83,7 @@
 # | `69_spawn_closure_capture.alya` | template concurrency demo (alya-lang/alya#181) | `spawn || =>` closures see captured enclosing locals (trampoline/thread-proc deliver the capture chain; fiber/thread own heap func/arg across spawner return); multi-arg `spawn f(a, b)` thunk path intact |
 # | `70_catch_escape_roundtrip.alya` | catch-escape container round-trip (alya-lang/alya#186) | struct AND string throws round-trip through push / map set / array index-assign / struct field / derived local / string global with exact values; guards the catch-entry tag spill + exact-kind dynamic stores |
 # | `71_volatile_access.alya` | volatile exact-width access (alya-lang/alya#190) | volatile_load/store_u32 perform exactly one 4-byte access (0xFFFFFFFF reads back 4294967295: zero-extension, not the sign-extending read_i32 path); u64 twins + program-order store/load pairs |
+# | `72_say_percent_format.alya` | App/vpn benchmark `"100% integrity"` output (alya-lang/alya#201) | `say` literals/dynamic strings/f-strings (with and without holes)/null all print via the argument-safe `%s\n` path; `%` in user text is never a printf conversion directive |
 #
 # ## Known collision (deliberate rename)
 #

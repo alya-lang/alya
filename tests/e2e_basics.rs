@@ -1362,6 +1362,31 @@ say m[key]
 }
 
 #[test]
+fn test_e2e_say_literal_percent_is_not_a_format() {
+    // alya-lang/alya#201: `say` on a string literal passed the literal to
+    // printf as the format string, so any '%' was read as a conversion
+    // directive consuming garbage varargs ("100% integrity" lost the text
+    // after the %; "%s"/"%n" dereference a stale register). Literals,
+    // dynamic strings, f-strings and null must print byte-for-byte.
+    let code = r#"
+say "100% integrity"
+say "x%sy"
+let s = "a" + "%" + "b"
+say s
+let n = 5
+say f"n={n} 12% ok"
+say f"f100% done"
+say null
+"#;
+    if let Some(output) = run_alya_code(code) {
+        assert_eq!(
+            output,
+            "100% integrity\nx%sy\na%b\nn=5 12% ok\nf100% done\nnull\n"
+        );
+    }
+}
+
+#[test]
 fn test_e2e_map_float_roundtrip() {
     // Float values stored under literal keys round-trip through reads,
     // equality, str() and `is float` via per-key kind markers.
