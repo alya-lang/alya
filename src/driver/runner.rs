@@ -72,6 +72,32 @@ fn gcc_timeout() -> (u64, std::time::Duration) {
     (secs, std::time::Duration::from_secs(secs))
 }
 
+/// Per-OS link arguments pushed after the compiled objects (and before
+/// user-supplied libs). Pure function so the flag contract is unit-testable.
+fn platform_link_args(os: OperatingSystem) -> Vec<String> {
+    let mut args: Vec<String> = Vec::new();
+    if matches!(os, OperatingSystem::Linux) {
+        args.push("-no-pie".to_string());
+        args.push("-lm".to_string());
+        args.push("-lpthread".to_string());
+    }
+    if matches!(os, OperatingSystem::Windows) {
+        args.push("-lws2_32".to_string());
+        // Ship-anywhere guard (alya-lang/vpn#9): gcc's own default link line
+        // ends with `-lpthread`, and a posix-thread-model MinGW (the first
+        // `gcc` in PATH on GitHub's Windows runners is one) resolves it
+        // against libwinpthread-1.dll — the exe then only starts where that
+        // build-machine DLL happens to sit in PATH (0xc000007b for users).
+        // Resolve the pthread references against the static archive first;
+        // a toolchain that only ships the import library fails loudly here
+        // instead of silently producing a non-portable executable.
+        args.push("-Wl,-Bstatic".to_string());
+        args.push("-lpthread".to_string());
+        args.push("-Wl,-Bdynamic".to_string());
+    }
+    args
+}
+
 pub fn compile_with_gcc(
     asm_file: &str,
     exe_file: &str,
@@ -97,15 +123,7 @@ pub fn compile_with_gcc(
         gcc_args.push(crate::driver::c_builder::path_to_gcc_arg(obj));
     }
 
-    if matches!(os, OperatingSystem::Linux) {
-        gcc_args.push("-no-pie".to_string());
-        gcc_args.push("-lm".to_string());
-        gcc_args.push("-lpthread".to_string());
-    }
-
-    if matches!(os, OperatingSystem::Windows) {
-        gcc_args.push("-lws2_32".to_string());
-    }
+    gcc_args.extend(platform_link_args(os));
 
     // Dead Code Elimination at linker level: discard unused sections
     if matches!(os, OperatingSystem::MacOS) {
@@ -324,7 +342,8 @@ fn signal_name(sig: i32) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::check_duplicate_symbols;
+    use super::{check_duplicate_symbols, platform_link_args};
+    use crate::codegen::OperatingSystem;
 
     #[test]
     fn user_runtime_symbol_collision_is_reported() {
@@ -349,5 +368,45 @@ mod tests {
         let asm = "_fn_get:\n    ret\nfn_get:\n    ret\n";
         let err = check_duplicate_symbols(asm).unwrap_err();
         assert!(err.contains("`fn_get`"), "got: {}", err);
+    }
+
+    #[test]
+    fn windows_link_prefers_static_pthreads() {
+        // alya-lang/vpn#9: gcc's default trailing -lpthread must not resolve
+        // against libwinpthread-1.dll on posix-thread MinGW builds; the exe
+        // would only start where that build-machine DLL is in PATH.
+        let args = platform_link_args(OperatingSystem::Windows);
+        assert!(args.iter().any(|a| a == "-lws2_32"), "got: {:?}", args);
+        let static_pos = args
+            .iter()
+            .position(|a| a == "-Wl,-Bstatic")
+            .expect("-Wl,-Bstatic");
+        let pthread_pos = args
+            .iter()
+            .position(|a| a == "-lpthread")
+            .expect("-lpthread");
+        let dynamic_pos = args
+            .iter()
+            .position(|a| a == "-Wl,-Bdynamic")
+            .expect("-Wl,-Bdynamic");
+        assert!(
+            static_pos < pthread_pos && pthread_pos < dynamic_pos,
+            "pthread must sit between the static/dynamic toggles: {:?}",
+            args
+        );
+    }
+
+    #[test]
+    fn linux_and_macos_link_flags_unchanged() {
+        let linux = platform_link_args(OperatingSystem::Linux);
+        for flag in ["-no-pie", "-lm", "-lpthread"] {
+            assert!(
+                linux.iter().any(|a| a == flag),
+                "missing {}: {:?}",
+                flag,
+                linux
+            );
+        }
+        assert!(platform_link_args(OperatingSystem::MacOS).is_empty());
     }
 }
