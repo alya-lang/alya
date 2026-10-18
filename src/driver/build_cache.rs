@@ -14,8 +14,9 @@
 //! - The fingerprint covers every byte that can reach the output: all
 //!   source files (main + transitive imports), the manifest, C sources for
 //!   the target, effective C/link flags, codegen toggles, arch/os, command
-//!   and output kinds, telling env vars, and the compiler identity itself
-//!   (version + binary mtime/len, so dev builds never alias releases).
+//!   and output kinds, telling env vars, the compiler identity itself
+//!   (version + binary mtime/len, so dev builds never alias releases), and
+//!   the resolved C toolchain that links the artifact (alya-lang/alya#203).
 //! - Dependency *graphs* are not tracked: anything reachable only through
 //!   content (extern libs derived from sources) is covered by source bytes.
 //! - mtime comparison is equality-based (cargo-style): clock skew fails
@@ -29,6 +30,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::codegen::{Architecture, OperatingSystem};
 use crate::tools::pkg::hash::sha256_hex;
 
 /// LRU cap for the global build-artifact store.
@@ -58,6 +60,19 @@ pub fn compiler_id() -> String {
         })
         .unwrap_or_else(|_| "unknown".to_string());
     format!("{}:{}", env!("CARGO_PKG_VERSION"), exe_sig)
+}
+
+/// Cache identity of the C toolchain that links this target's artifacts
+/// (alya-lang/alya#203: a rebuild after switching gcc once served the
+/// previous linker's artifact). Detection only — never prompts and never
+/// installs; a miss just relinks, and the compile path owns provisioning.
+/// An absent toolchain yields a stable marker: exe units cannot have been
+/// stored in that state (the link would have failed first), so the lookup
+/// misses and the compile path reports the real provisioning error.
+pub fn resolve_toolchain_id(arch: Architecture, os: OperatingSystem) -> String {
+    crate::driver::toolchain::detect_active_toolchain(arch, os)
+        .map(|tc| tc.cache_identity())
+        .unwrap_or_else(|| "unresolved".to_string())
 }
 
 /// Env vars that change build outputs, when set.
@@ -102,6 +117,9 @@ pub struct FingerprintInputs {
     /// "exe" | "asm".
     pub output_kind: String,
     pub compiler_id: String,
+    /// Resolved C toolchain identity ([`resolve_toolchain_id`]); switching
+    /// gcc must never serve the previous linker's artifact.
+    pub toolchain_id: String,
     pub env: Vec<(String, String)>,
 }
 
@@ -125,6 +143,9 @@ pub struct RawQueryInputs {
     pub mem_trace: bool,
     pub arch: String,
     pub os: String,
+    /// Pre-resolved C toolchain identity ([`resolve_toolchain_id`]): the
+    /// cache layer stays I/O- and detection-free over raw inputs.
+    pub toolchain_id: String,
     pub command: String,
     pub output_kind: String,
     pub custom_icon: Option<PathBuf>,
@@ -149,6 +170,7 @@ pub fn build_query_raw(raw: RawQueryInputs) -> Result<BuildQuery, String> {
         .and_then(|p| p.parent().map(display_path))
         .unwrap_or_else(|| "none".to_string());
     let compiler = compiler_id();
+    let toolchain_id = raw.toolchain_id;
     let unit = UnitInputs {
         main_path: display_path(&input_canon),
         manifest_dir,
@@ -163,6 +185,7 @@ pub fn build_query_raw(raw: RawQueryInputs) -> Result<BuildQuery, String> {
         },
         output_kind: raw.output_kind.clone(),
         compiler_id: compiler.clone(),
+        toolchain_id: toolchain_id.clone(),
     };
     let mut import_paths = raw.imports;
     import_paths.sort();
@@ -210,6 +233,7 @@ pub fn build_query_raw(raw: RawQueryInputs) -> Result<BuildQuery, String> {
         command: raw.command,
         output_kind: raw.output_kind,
         compiler_id: compiler,
+        toolchain_id,
         env: watched_env(),
     };
     Ok(BuildQuery {
@@ -289,6 +313,7 @@ pub fn fingerprint_hex(inputs: &FingerprintInputs) -> String {
     feed(&mut out, "command", &inputs.command);
     feed(&mut out, "output", &inputs.output_kind);
     feed(&mut out, "compiler", &inputs.compiler_id);
+    feed(&mut out, "toolchain", &inputs.toolchain_id);
     let mut env = inputs.env.clone();
     env.sort();
     for (k, v) in &env {
@@ -310,6 +335,10 @@ pub struct UnitInputs {
     pub features: Vec<String>,
     pub output_kind: String,
     pub compiler_id: String,
+    /// C toolchain identity: journals are per toolchain so a Tier-1 hit
+    /// can never serve an artifact another linker produced
+    /// (alya-lang/alya#203).
+    pub toolchain_id: String,
 }
 
 pub fn unit_id_hex(unit: &UnitInputs) -> String {
@@ -327,6 +356,7 @@ pub fn unit_id_hex(unit: &UnitInputs) -> String {
     }
     feed(&mut out, "output", &unit.output_kind);
     feed(&mut out, "compiler", &unit.compiler_id);
+    feed(&mut out, "toolchain", &unit.toolchain_id);
     sha256_hex(&out)
 }
 
@@ -751,6 +781,7 @@ mod tests {
             command: "build".to_string(),
             output_kind: "exe".to_string(),
             compiler_id: "test-compiler".to_string(),
+            toolchain_id: "test-toolchain".to_string(),
             env: Vec::new(),
         }
     }
@@ -767,6 +798,7 @@ mod tests {
             |i: &mut FingerprintInputs| i.command = "run".to_string(),
             |i: &mut FingerprintInputs| i.output_kind = "asm".to_string(),
             |i: &mut FingerprintInputs| i.compiler_id = "other".to_string(),
+            |i: &mut FingerprintInputs| i.toolchain_id = "other-toolchain".to_string(),
             |i: &mut FingerprintInputs| i.no_std = true,
             |i: &mut FingerprintInputs| i.mem_trace = true,
             |i: &mut FingerprintInputs| i.c_flags.push("-g".to_string()),
@@ -780,7 +812,7 @@ mod tests {
         }
     }
 
-    fn test_unit_id(command: &str, profile: &str, output_kind: &str) -> String {
+    fn test_unit_id(command: &str, profile: &str, output_kind: &str, toolchain: &str) -> String {
         unit_id_hex(&UnitInputs {
             main_path: "m".to_string(),
             manifest_dir: "d".to_string(),
@@ -791,17 +823,20 @@ mod tests {
             features: Vec::new(),
             output_kind: output_kind.to_string(),
             compiler_id: "c".to_string(),
+            toolchain_id: toolchain.to_string(),
         })
     }
 
     #[test]
     fn unit_id_separates_commands_profiles_and_kinds() {
-        let base = test_unit_id("build", "dev", "exe");
-        assert_ne!(base, test_unit_id("run", "dev", "exe"));
-        assert_ne!(base, test_unit_id("build", "release", "exe"));
+        let base = test_unit_id("build", "dev", "exe", "gcc-a");
+        assert_ne!(base, test_unit_id("run", "dev", "exe", "gcc-a"));
+        assert_ne!(base, test_unit_id("build", "release", "exe", "gcc-a"));
         // Exe and asm outputs of the same sources are different units:
         // a Tier-1 hit must never serve one kind as the other.
-        assert_ne!(base, test_unit_id("build", "dev", "asm"));
+        assert_ne!(base, test_unit_id("build", "dev", "asm", "gcc-a"));
+        // Switching the linker must not alias units (alya-lang/alya#203).
+        assert_ne!(base, test_unit_id("build", "dev", "exe", "gcc-b"));
     }
 
     #[test]
@@ -823,6 +858,7 @@ mod tests {
             features: Vec::new(),
             output_kind: "exe".to_string(),
             compiler_id: "comp".to_string(),
+            toolchain_id: "t".to_string(),
         };
         let fp = FingerprintInputs {
             main_path: "m".to_string(),
@@ -841,6 +877,7 @@ mod tests {
             command: "build".to_string(),
             output_kind: "exe".to_string(),
             compiler_id: "comp".to_string(),
+            toolchain_id: "t".to_string(),
             env: Vec::new(),
         };
         let paths = vec![probe.clone()];
@@ -863,6 +900,48 @@ mod tests {
         // ...so Tier 1 passes again afterwards.
         let journal2 = read_journal(&dir, &uh).unwrap();
         assert!(tier1_hit(&dir, &journal2, "comp"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn toolchain_switch_invalidates_both_tiers() {
+        // alya-lang/alya#203: an artifact linked by one gcc must never be
+        // served after the environment resolves a different one.
+        let dir = std::env::temp_dir().join(format!("alya_build_cache_tc_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let probe = dir.join("probe.txt");
+        fs::write(&probe, b"same-bytes").unwrap();
+        let mut unit = UnitInputs {
+            main_path: "m".to_string(),
+            manifest_dir: "none".to_string(),
+            command: "build".to_string(),
+            arch: "x64".to_string(),
+            os: "windows".to_string(),
+            profile: "dev".to_string(),
+            features: Vec::new(),
+            output_kind: "exe".to_string(),
+            compiler_id: "comp".to_string(),
+            toolchain_id: "gcc-a".to_string(),
+        };
+        let mut fp = sample_inputs();
+        fp.toolchain_id = "gcc-a".to_string();
+        let paths = vec![probe.clone()];
+        let files = journal_files(&paths).unwrap();
+        let uh = unit_id_hex(&unit);
+        store(&dir, &uh, &fingerprint_hex(&fp), &files, "comp", b"exe").unwrap();
+        // Same toolchain: both tiers hit.
+        assert!(tier1_lookup(&dir, &unit).is_some());
+        assert!(tier2_lookup(&dir, &unit, &fp, &paths)
+            .expect("tier2 io")
+            .is_some());
+        // Toolchain switch: both tiers must miss.
+        unit.toolchain_id = "gcc-b".to_string();
+        fp.toolchain_id = "gcc-b".to_string();
+        assert!(tier1_lookup(&dir, &unit).is_none());
+        assert!(tier2_lookup(&dir, &unit, &fp, &paths)
+            .expect("tier2 io")
+            .is_none());
         let _ = fs::remove_dir_all(&dir);
     }
 

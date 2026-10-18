@@ -54,6 +54,7 @@ pub fn build_query(
         mem_trace: args.mem_trace,
         arch: crate::tools::pkg::features::target_arch_name(args.arch).to_string(),
         os: crate::tools::pkg::features::target_os_name(args.os).to_string(),
+        toolchain_id: build_cache::resolve_toolchain_id(args.arch, args.os),
         command: command.to_string(),
         output_kind: output_kind.to_string(),
         custom_icon: custom_icon.map(|p| p.to_path_buf()),

@@ -34,6 +34,31 @@ pub struct ToolchainInfo {
     pub version_str: String,
 }
 
+impl ToolchainInfo {
+    /// Stable identity for build-cache keying: kind, source, path and the
+    /// reported version line. Two environments that would link with
+    /// different compilers must produce different ids — switching PATH
+    /// order or updating the toolchain then invalidates cached artifacts
+    /// that the previous linker produced (alya-lang/alya#203).
+    pub fn cache_identity(&self) -> String {
+        let kind = match self.kind {
+            ToolchainKind::Gcc => "gcc",
+            ToolchainKind::Clang => "clang",
+        };
+        let source = match self.source {
+            ToolchainSource::System(_) => "system",
+            ToolchainSource::Local(_) => "local",
+        };
+        format!(
+            "{}:{}:{}:{}",
+            kind,
+            source,
+            self.compiler_path.display(),
+            self.version_str
+        )
+    }
+}
+
 /// Live toolchain manifest: single source of truth for supported platforms.
 /// New toolchain platforms work without a compiler update; the baked-in
 /// table in `install_toolchain` is only an offline fallback.
@@ -266,28 +291,37 @@ pub fn detect_local_toolchain(os: OperatingSystem) -> Option<ToolchainInfo> {
     None
 }
 
-/// Resolves active toolchain. If absent, prompts user or automatically provisions.
-pub fn resolve_toolchain(
-    arch: Architecture,
-    os: OperatingSystem,
-    quiet: bool,
-) -> Result<ToolchainInfo, String> {
+/// Active toolchain detection without the absent-case fallback: the same
+/// system-PATH (arch-checked) then ~/.alya/toolchain order as
+/// [`resolve_toolchain`], but never prompts and never installs. The build
+/// cache keys on this without provisioning as a side effect
+/// (alya-lang/alya#203).
+pub fn detect_active_toolchain(arch: Architecture, os: OperatingSystem) -> Option<ToolchainInfo> {
     // 1. Check system PATH, but only when it targets the requested
     // architecture. A foreign-arch system compiler (e.g. x64 MinGW on a
     // Windows ARM64 runner) cannot assemble our output and must not shadow
     // the portable toolchain in ~/.alya/toolchain.
     if let Some(info) = detect_system_toolchain(os) {
         if compiler_matches_arch(&info.compiler_path, arch) {
-            return Ok(info);
+            return Some(info);
         }
     }
 
     // 2. Check ~/.alya/toolchain
-    if let Some(info) = detect_local_toolchain(os) {
+    detect_local_toolchain(os)
+}
+
+/// Resolves active toolchain. If absent, prompts user or automatically provisions.
+pub fn resolve_toolchain(
+    arch: Architecture,
+    os: OperatingSystem,
+    quiet: bool,
+) -> Result<ToolchainInfo, String> {
+    if let Some(info) = detect_active_toolchain(arch, os) {
         return Ok(info);
     }
 
-    // 3. Absent handling per OS
+    // Absent handling per OS
     match os {
         OperatingSystem::MacOS => {
             // Suggest xcode-select --install
@@ -745,5 +779,33 @@ mod tests {
             assert!(!toolchain.version_str.is_empty());
             assert!(toolchain.kind == ToolchainKind::Gcc || toolchain.kind == ToolchainKind::Clang);
         }
+    }
+
+    #[test]
+    fn test_cache_identity_distinguishes_toolchains() {
+        let base = ToolchainInfo {
+            kind: ToolchainKind::Gcc,
+            compiler_path: PathBuf::from("gcc"),
+            source: ToolchainSource::System(PathBuf::from("gcc")),
+            version_str: "gcc.exe (GCC) 16.2.0".to_string(),
+        };
+        let identity = base.cache_identity();
+        assert_eq!(identity, base.clone().cache_identity());
+
+        // Version drift (toolchain update) must change the identity.
+        let mut other = base.clone();
+        other.version_str = "gcc.exe (GCC) 15.2.0".to_string();
+        assert_ne!(identity, other.cache_identity());
+
+        // System vs portable toolchain at the same version must differ.
+        let mut other = base.clone();
+        other.compiler_path = PathBuf::from("/home/u/.alya/toolchain/bin/gcc");
+        other.source = ToolchainSource::Local(other.compiler_path.clone());
+        assert_ne!(identity, other.cache_identity());
+
+        // Compiler kind must differ.
+        let mut other = base.clone();
+        other.kind = ToolchainKind::Clang;
+        assert_ne!(identity, other.cache_identity());
     }
 }

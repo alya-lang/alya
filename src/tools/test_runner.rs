@@ -518,6 +518,7 @@ fn test_cache_query(
         mem_trace: false,
         arch: pf::target_arch_name(arch).to_string(),
         os: pf::target_os_name(os).to_string(),
+        toolchain_id: build_cache::resolve_toolchain_id(arch, os),
         command: kind_name.to_string(),
         output_kind: "exe".to_string(),
         custom_icon: None,
