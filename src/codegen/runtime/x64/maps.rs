@@ -486,7 +486,9 @@ pub fn emit(out: &mut String, os: OperatingSystem) {
     // 32 bits of the entry state word (low 32 bits stay the state code).
     // Tags: 0 = unknown, 1 = int, 2 = float, 3 = string, 4 = array,
     // 5 = map, 6 = struct. The compiler passes literal-grounded kinds
-    // only; misses are no-ops. Returns 1 when stored, 0 otherwise.
+    // or the reloaded spilled tag for dynamically-tagged values
+    // (index-assign, container literals); misses are no-ops. Returns 1
+    // when stored, 0 otherwise.
     out.push_str(".global fn_map_set_tag\n");
     out.push_str("fn_map_set_tag:\n");
     out.push_str("    push %rbp\n");

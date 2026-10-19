@@ -11,10 +11,14 @@
 //! - Producers: catch entry (`emit_catch_entry_tag` classifies the
 //!   caught value and spills it to `var_tag_slot:<name>`), map `set`
 //!   (exact tag for literal writes, spilled tag for dynamic ones),
-//!   `push` and array index-assign (static `value_kind_tag`, or the
-//!   spilled slot tag for dynamically-tagged values), captured cells
+//!   `push`, array index-assign and container literals (`[...]`,
+//!   `{...}`) — static `value_kind_tag`, or the spilled slot tag /
+//!   fresh register tag for dynamically-tagged values
+//!   (`emit_array_set_imm_dyn_slot` / `_dyn_stack`) — captured cells
 //!   (`emit_cap_assign` reloads the slot tag), and returns
-//!   (`fn_ret_tagged` + tag spill).
+//!   (`fn_ret_tagged` + tag spill; a float home materializes
+//!   KIND_FLOAT so callers' tag checks agree with say/str,
+//!   alya-lang/alya#204).
 //! - Consumers: element/field reads dispatch on the slot/entry tag
 //!   (`is_tag_carrying_read`, say/interp classify arms); scope and
 //!   catch-end releases are probed so stale tags cannot fault.
