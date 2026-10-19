@@ -1,0 +1,84 @@
+# ==============================================================================
+# Alya Integration Fixture 74 (entry): runtime-kind transport through untyped
+# passthroughs and container literals.
+# Distilled from: Lib/cache `get` facade -> engine forwarder -> stored map
+#                 read (alya-lang/alya#204); the float kind must survive the
+#                 whole round trip or `is float` and `str` misreport.
+# Guards:
+#   1. `return <float home>` from a return-tagged callee materializes
+#      KIND_FLOAT, so callers' `is float` / `is int` / `typeof` agree with
+#      say/str/arithmetic instead of reading UNKNOWN as int.
+#   2. A dynamically tagged local keeps its kind through a one-element array
+#      literal (spilled slot reload at store time) and a map literal.
+#   3. An inline tag-carrying read as an array element keeps its fresh tag
+#      (spilled across the retain calls).
+#   4. Int passthroughs keep reporting int (UNKNOWN stays the int default).
+# ==============================================================================
+
+function passthrough(v)
+    return v
+end
+
+function passthrough_int(v)
+    return v
+end
+
+function lookup(m: map, key: string)
+    let out = m[key]
+    return out
+end
+
+# Mirrors Lib/cache: box a dynamic read through a one-element array.
+function box_local(m: map, key: string)
+    let out = m[key]
+    let box = [out]
+    return box[0]
+end
+
+# Same transport through a map literal.
+function box_map(m: map, key: string)
+    let out = m[key]
+    let box = { "v": out }
+    return box["v"]
+end
+
+function main()
+    # 1: float home through an untyped passthrough.
+    let a = passthrough(2.5)
+    assert str(a) == "2.5"
+    assert a == 2.5
+    assert a + 0.5 == 3.0
+    assert a is float
+    assert not (a is int)
+    assert typeof(a) == "float"
+    assert passthrough(2.5) is float
+    say a
+
+    # 2: dynamic local through array and map literals.
+    let m = { "f": 2.5, "i": 7 }
+    let via_local = box_local(m, "f")
+    assert via_local == 2.5
+    assert str(via_local) == "2.5"
+    assert via_local is float
+    let via_map = box_map(m, "f")
+    assert via_map == 2.5
+    assert str(via_map) == "2.5"
+    assert via_map is float
+
+    # 3: inline tag-carrying read as the array element.
+    let inline_box = [lookup(m, "f")]
+    assert inline_box[0] == 2.5
+    assert inline_box[0] is float
+    assert str(inline_box[0]) == "2.5"
+
+    # 4: int passthrough keeps its default kind.
+    let n = passthrough_int(7)
+    assert n == 7
+    assert n is int
+    assert not (n is float)
+    assert typeof(n) == "int"
+
+    say "integration 74_container_kind_roundtrip: OK"
+end
+
+main()

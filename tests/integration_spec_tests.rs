@@ -97,6 +97,7 @@ fn entry_files() -> Vec<String> {
         "71_volatile_access.alya".to_string(),
         "72_say_percent_format.alya".to_string(),
         "73_cache_facade_chain.alya".to_string(),
+        "74_container_kind_roundtrip.alya".to_string(),
     ]
 }
 

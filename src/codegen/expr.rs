@@ -3803,6 +3803,45 @@ impl CodeGen {
                         _ => false,
                     };
                     self.generate_expression(elem);
+                    // alya-lang/alya#204: literal stores must carry the
+                    // element's runtime kind when the static kind is
+                    // UNKNOWN. A spilled tag slot reloads at store time;
+                    // a tag-carrying read's fresh tag does not survive
+                    // the retain/dup calls below, so spill it first
+                    // (same layout and stack bookkeeping as the push
+                    // path's dynamic-kind branch).
+                    let elem_kind = value_kind_tag(elem, &self.ctx.variables);
+                    let elem_tag_slot: Option<i32> =
+                        if elem_kind == crate::codegen::kinds::KIND_UNKNOWN {
+                            if let Expr::Identifier(id) = elem {
+                                match self.ctx.variables.get(&format!("var_tag_slot:{}", id)) {
+                                    Some(VarType::Number(off)) => Some(*off),
+                                    _ => None,
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                    let elem_reg_dyn = elem_kind == crate::codegen::kinds::KIND_UNKNOWN
+                        && elem_tag_slot.is_none()
+                        && crate::codegen::analysis::is_tag_carrying_read(
+                            elem,
+                            &self.ctx.variables,
+                        );
+                    if elem_reg_dyn {
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output.push_str("    push %rdx\n");
+                                self.ctx.stack_offset += 8;
+                            }
+                            Architecture::ARM64 => {
+                                self.output.push_str("    str x1, [sp, #-16]!\n");
+                                self.ctx.stack_offset += 16;
+                            }
+                        }
+                    }
                     if self.value_needs_heap_retain(elem) && !elem_moves {
                         // Retain when maybe-heap; direct only when proven.
                         if self.value_proven_heap(elem) {
@@ -3836,8 +3875,25 @@ impl CodeGen {
                             self.os,
                         );
                     }
-                    let elem_kind = value_kind_tag(elem, &self.ctx.variables);
-                    arch::emit_array_set_imm(&mut self.output, self.arch, i, elem_kind);
+                    if elem_kind != crate::codegen::kinds::KIND_UNKNOWN {
+                        arch::emit_array_set_imm(&mut self.output, self.arch, i, elem_kind);
+                    } else if let Some(slot) = elem_tag_slot {
+                        arch::emit_array_set_imm_dyn_slot(&mut self.output, self.arch, i, slot);
+                    } else if elem_reg_dyn {
+                        arch::emit_array_set_imm_dyn_stack(&mut self.output, self.arch, i);
+                        match self.arch {
+                            Architecture::X64 => {
+                                self.output.push_str("    add $8, %rsp\n");
+                                self.ctx.stack_offset -= 8;
+                            }
+                            Architecture::ARM64 => {
+                                self.output.push_str("    add sp, sp, #16\n");
+                                self.ctx.stack_offset -= 16;
+                            }
+                        }
+                    } else {
+                        arch::emit_array_set_imm(&mut self.output, self.arch, i, elem_kind);
+                    }
                 }
 
                 self.ctx.stack_offset -= temp_offset;
@@ -3969,9 +4025,23 @@ impl CodeGen {
                         // so literal-built maps would otherwise read back
                         // unknown (raw bits in loops, classify fallback in
                         // `say`). Slots reload without re-evaluating, so any
-                        // key shape is safe.
+                        // key shape is safe. alya-lang/alya#204: a dynamically
+                        // tagged local reloads from its spilled slot too, so
+                        // map literals keep runtime kinds like index-assign.
                         let kind = crate::codegen::analysis::value_kind_tag(v, &self.ctx.variables);
-                        if kind != crate::codegen::kinds::KIND_UNKNOWN {
+                        let dyn_slot: Option<i32> = if kind == crate::codegen::kinds::KIND_UNKNOWN {
+                            if let Expr::Identifier(id) = v {
+                                match self.ctx.variables.get(&format!("var_tag_slot:{}", id)) {
+                                    Some(VarType::Number(off)) => Some(*off),
+                                    _ => None,
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        if kind != crate::codegen::kinds::KIND_UNKNOWN || dyn_slot.is_some() {
                             arch::emit_load_var(
                                 &mut self.output,
                                 self.arch,
@@ -3986,7 +4056,15 @@ impl CodeGen {
                                 self.ctx.stack_offset,
                             );
                             arch::emit_push_temp(&mut self.output, self.arch);
-                            arch::emit_load_num(&mut self.output, self.arch, kind);
+                            match dyn_slot {
+                                Some(slot) => arch::emit_load_var(
+                                    &mut self.output,
+                                    self.arch,
+                                    slot,
+                                    self.ctx.stack_offset,
+                                ),
+                                None => arch::emit_load_num(&mut self.output, self.arch, kind),
+                            }
                             arch::emit_push_temp(&mut self.output, self.arch);
                             arch::emit_function_call(
                                 &mut self.output,

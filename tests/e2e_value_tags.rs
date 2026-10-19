@@ -62,6 +62,97 @@ main()
 }
 
 #[test]
+fn test_tags_float_passthrough_is_float() {
+    // alya-lang/alya#204: an untyped passthrough over a float must report
+    // FLOAT at the caller. The callee materializes KIND_FLOAT for a float
+    // home instead of leaving UNKNOWN, so `is float`, `is int` and
+    // `typeof` agree with say/str/arithmetic (UNKNOWN used to answer
+    // "int", contradicting the float home's actual contents).
+    let code = r#"
+function echo(v)
+    return v
+end
+
+function echo_int(v)
+    return v
+end
+
+function main()
+    let a = echo(2.5)
+    say a
+    assert a == 2.5
+    assert a is float
+    assert not (a is int)
+    assert typeof(a) == "float"
+    assert echo(2.5) is float
+    let n = echo_int(7)
+    assert n is int
+    assert not (n is float)
+    assert typeof(n) == "int"
+    say "ok"
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "2.5\nok\n", "Got: {}", output);
+    }
+}
+
+#[test]
+fn test_tags_container_literals_keep_dynamic_kind() {
+    // alya-lang/alya#204: array and map literals must store the runtime
+    // kind of dynamically tagged values. A spilled tag slot reloads at
+    // store time; a tag-carrying read's fresh tag is spilled across the
+    // retain calls (array literals). Without this the element tag fell to
+    // UNKNOWN and `say`/`is float` read raw IEEE-754 bits as an int.
+    let code = r#"
+function lookup(m: map, key: string)
+    return m[key]
+end
+
+function box_local(m: map, key: string)
+    let out = m[key]
+    let box = [out]
+    return box[0]
+end
+
+function box_map(m: map, key: string)
+    let out = m[key]
+    let box = { "v": out }
+    return box["v"]
+end
+
+function main()
+    let m = { "f": 2.5, "i": 7 }
+    let local = box_local(m, "f")
+    say local
+    assert local == 2.5
+    assert local is float
+    let inline_box = [lookup(m, "f")]
+    say inline_box[0]
+    assert inline_box[0] == 2.5
+    assert inline_box[0] is float
+    let mapped = box_map(m, "f")
+    say mapped
+    assert mapped == 2.5
+    assert mapped is float
+    let int_box = [lookup(m, "i")]
+    assert int_box[0] == 7
+    assert int_box[0] is int
+    say "ok"
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "2.5\n2.5\n2.5\nok\n", "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_tags_say_push_int_array() {
     let code = r#"
 function main()

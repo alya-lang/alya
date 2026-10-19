@@ -108,6 +108,29 @@ pub fn emit_array_set_imm(out: &mut String, arch: Architecture, index: usize, ki
     }
 }
 
+/// Dynamic-kind twin of `emit_array_set_imm` with the tag in a
+/// spilled tag slot (alya-lang/alya#204).
+pub fn emit_array_set_imm_dyn_slot(
+    out: &mut String,
+    arch: Architecture,
+    index: usize,
+    tag_slot: i32,
+) {
+    match arch {
+        Architecture::ARM64 => arm64::emit_array_set_imm_dyn_slot(out, index, tag_slot),
+        Architecture::X64 => x64::emit_array_set_imm_dyn_slot(out, index, tag_slot),
+    }
+}
+
+/// Dynamic-kind twin of `emit_array_set_imm` with the tag spilled at
+/// the stack top and the array temp below it (alya-lang/alya#204).
+pub fn emit_array_set_imm_dyn_stack(out: &mut String, arch: Architecture, index: usize) {
+    match arch {
+        Architecture::ARM64 => arm64::emit_array_set_imm_dyn_stack(out, index),
+        Architecture::X64 => x64::emit_array_set_imm_dyn_stack(out, index),
+    }
+}
+
 pub fn emit_array_get(out: &mut String, arch: Architecture) {
     match arch {
         Architecture::ARM64 => arm64::emit_array_get(out),

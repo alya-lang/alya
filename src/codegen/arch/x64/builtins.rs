@@ -83,6 +83,30 @@ pub fn emit_array_set_imm(out: &mut String, index: usize, kind: i64) {
     out.push_str(&format!("    movq %rax, {}(%rdx)\n", index * 8));
 }
 
+/// Dynamic-kind twin of `emit_array_set_imm` (alya-lang/alya#204):
+/// array-literal stores of dynamically tagged elements carry the
+/// element's runtime tag instead of the static UNKNOWN. `_dyn_slot`
+/// reloads it from a spilled tag slot; `_dyn_stack` reads the tag
+/// spilled at the stack top with the array temp below it (the push
+/// path's layout). Same clobbers as the static twin, plus r10.
+pub fn emit_array_set_imm_dyn_slot(out: &mut String, index: usize, tag_slot: i32) {
+    out.push_str("    mov (%rsp), %rdx\n");
+    out.push_str("    mov 24(%rdx), %rcx\n");
+    out.push_str(&format!("    movl -{}(%rbp), %r10d\n", tag_slot));
+    out.push_str(&format!("    movb %r10b, {}(%rcx)\n", index));
+    out.push_str("    mov 16(%rdx), %rdx\n");
+    out.push_str(&format!("    movq %rax, {}(%rdx)\n", index * 8));
+}
+
+pub fn emit_array_set_imm_dyn_stack(out: &mut String, index: usize) {
+    out.push_str("    mov 8(%rsp), %rdx\n");
+    out.push_str("    mov 24(%rdx), %rcx\n");
+    out.push_str("    movzbl (%rsp), %r10d\n");
+    out.push_str(&format!("    movb %r10b, {}(%rcx)\n", index));
+    out.push_str("    mov 16(%rdx), %rdx\n");
+    out.push_str(&format!("    movq %rax, {}(%rdx)\n", index * 8));
+}
+
 pub fn emit_array_get(out: &mut String) {
     out.push_str("    mov %rax, %rcx\n");
     out.push_str("    pop %rdx\n");

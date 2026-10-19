@@ -9,6 +9,105 @@ fn simple_program(stmt: Stmt) -> Program {
     }
 }
 
+/// Slice of one emitted function body (from its `fn_<name>:` label to the
+/// next top-level label), for shape assertions on a single function.
+fn fn_body<'a>(asm: &'a str, name: &str) -> &'a str {
+    let start = asm
+        .find(&format!("{}:", name))
+        .unwrap_or_else(|| panic!("missing function label {}", name));
+    let rest = &asm[start..];
+    let end = rest[1..].find("\nfn_").map(|i| i + 1).unwrap_or(rest.len());
+    &rest[..end]
+}
+
+#[test]
+fn test_codegen_kind_transport_passthrough_and_literals() {
+    // alya-lang/alya#204: a return-tagged callee materializes KIND_FLOAT for
+    // a float home (so callers' tag checks agree with say/str instead of
+    // reading UNKNOWN as int), and container literals store dynamic runtime
+    // kinds — a spilled tag slot reloads at store time; an inline
+    // tag-carrying read's fresh tag spills across the retain calls.
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    let code = r#"
+function passthrough(v)
+    return v
+end
+
+function use_passthrough()
+    let a = passthrough(2.5)
+    return a
+end
+
+function box_local(m: map, key: string)
+    let out = m[key]
+    let box = [out]
+    let mp = { "v": out }
+    return box[0]
+end
+
+function box_inline(m: map, key: string)
+    let box = [m[key]]
+    return box[0]
+end
+"#;
+    let mut lexer = Lexer::new(code);
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+    let ast = parser.parse().unwrap();
+
+    let x64 = generate(&ast, Architecture::X64, OperatingSystem::Windows);
+    let pass_x64 = fn_body(&x64, "fn_passthrough");
+    assert!(
+        pass_x64.contains("movl $2, %edx"),
+        "float home return must materialize KIND_FLOAT:\n{}",
+        pass_x64
+    );
+    let local_x64 = fn_body(&x64, "fn_box_local");
+    assert!(
+        local_x64.contains("movb %r10b,"),
+        "array literal must reload the spilled tag slot:\n{}",
+        local_x64
+    );
+    assert!(
+        local_x64.contains("map_set_tag"),
+        "map literal must record the spilled dynamic tag:\n{}",
+        local_x64
+    );
+    let inline_x64 = fn_body(&x64, "fn_box_inline");
+    assert!(
+        inline_x64.contains("movzbl (%rsp), %r10d"),
+        "array literal must store the spilled fresh tag:\n{}",
+        inline_x64
+    );
+
+    let arm64 = generate(&ast, Architecture::ARM64, OperatingSystem::Linux);
+    let pass_arm = fn_body(&arm64, "fn_passthrough");
+    assert!(
+        pass_arm.contains("mov w1, #2"),
+        "float home return must materialize KIND_FLOAT:\n{}",
+        pass_arm
+    );
+    let local_arm = fn_body(&arm64, "fn_box_local");
+    assert!(
+        local_arm.contains("ldr w4, [x29, #-"),
+        "array literal must reload the spilled tag slot:\n{}",
+        local_arm
+    );
+    assert!(
+        local_arm.contains("map_set_tag"),
+        "map literal must record the spilled dynamic tag:\n{}",
+        local_arm
+    );
+    let inline_arm = fn_body(&arm64, "fn_box_inline");
+    assert!(
+        inline_arm.contains("ldrb w4, [sp]"),
+        "array literal must store the spilled fresh tag:\n{}",
+        inline_arm
+    );
+}
+
 #[test]
 fn test_codegen_x64_windows_seh_unwind_info() {
     // alya-lang/alya#109: every Windows-x64 function (entry `main`

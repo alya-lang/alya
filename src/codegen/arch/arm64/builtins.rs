@@ -67,6 +67,33 @@ pub fn emit_array_set_imm(out: &mut String, index: usize, kind: i64) {
     out.push_str("    str x0, [x1, x2]\n");
 }
 
+/// Dynamic-kind twins of `emit_array_set_imm` (alya-lang/alya#204);
+/// see the x64 twins for the layout contract. `_dyn_slot` reloads the
+/// tag from a spilled tag slot; `_dyn_stack` reads the tag spilled at
+/// `[sp]` with the array temp at `[sp, #16]`. Same clobbers as the
+/// static twin, plus the x29-load scratch.
+pub fn emit_array_set_imm_dyn_slot(out: &mut String, index: usize, tag_slot: i32) {
+    out.push_str("    ldr x1, [sp]\n");
+    out.push_str("    ldr x3, [x1, #24]\n");
+    out.push_str(&format!("    mov x2, #{}\n", index));
+    emit_arm64_load_x29_offset(out, "w4", tag_slot, "x9");
+    out.push_str("    strb w4, [x3, x2]\n");
+    out.push_str("    ldr x1, [x1, #16]\n");
+    out.push_str(&format!("    mov x2, #{}\n", index * 8));
+    out.push_str("    str x0, [x1, x2]\n");
+}
+
+pub fn emit_array_set_imm_dyn_stack(out: &mut String, index: usize) {
+    out.push_str("    ldr x1, [sp, #16]\n");
+    out.push_str("    ldr x3, [x1, #24]\n");
+    out.push_str(&format!("    mov x2, #{}\n", index));
+    out.push_str("    ldrb w4, [sp]\n");
+    out.push_str("    strb w4, [x3, x2]\n");
+    out.push_str("    ldr x1, [x1, #16]\n");
+    out.push_str(&format!("    mov x2, #{}\n", index * 8));
+    out.push_str("    str x0, [x1, x2]\n");
+}
+
 pub fn emit_array_get(out: &mut String) {
     // Returns the slot kind in w1 alongside the value in x0 (Phase 1,
     // #39). The handle in x0 is consumed carefully: kindbuf first,

@@ -223,6 +223,11 @@ impl CodeGen {
                     // bare local without a spilled tag leaves UNKNOWN so
                     // callers fall back to legacy checks instead of
                     // trusting a stale register.
+                    // alya-lang/alya#204: a float home is exact — the slot
+                    // always holds converted floats — so materialize
+                    // KIND_FLOAT instead of UNKNOWN; callers' tag checks
+                    // (`is float`, `typeof`, container stores) otherwise
+                    // see 0 and answer int/null-style.
                     if ret_tagged {
                         if let Expr::Identifier(id) = expr {
                             if !self
@@ -230,12 +235,19 @@ impl CodeGen {
                                 .variables
                                 .contains_key(&format!("var_tag_slot:{}", id))
                             {
-                                match self.arch {
-                                    Architecture::X64 => {
-                                        self.output.push_str("    movl $0, %edx\n");
-                                    }
-                                    Architecture::ARM64 => {
-                                        self.output.push_str("    mov w1, #0\n");
+                                if crate::codegen::analysis::is_float_expr(
+                                    expr,
+                                    &self.ctx.variables,
+                                ) {
+                                    self.emit_materialize_float_tag();
+                                } else {
+                                    match self.arch {
+                                        Architecture::X64 => {
+                                            self.output.push_str("    movl $0, %edx\n");
+                                        }
+                                        Architecture::ARM64 => {
+                                            self.output.push_str("    mov w1, #0\n");
+                                        }
                                     }
                                 }
                             }
