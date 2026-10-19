@@ -15,7 +15,7 @@
 //! clones never double-run suites. Nested function definitions are not
 //! specialized (hoisting would break captures); generic templates are
 //! left to `resolve_generics`, which runs before this pass.
-use crate::ast::{BinaryOp, Expr, Program, Stmt};
+use crate::ast::{BinaryOp, Expr, Program, Stmt, UnaryOp};
 use std::collections::{HashMap, HashSet};
 
 const MAX_VERSIONS_PER_FN: usize = 8;
@@ -27,10 +27,46 @@ fn arg_kind_code(arg: &Expr) -> Option<char> {
     match arg {
         Expr::Number(_) => Some('i'),
         Expr::Float(_) => Some('f'),
-        Expr::String(_) => Some('s'),
+        Expr::String(_) | Expr::InterpolatedString(_) => Some('s'),
         Expr::Array(_) => Some('a'),
         Expr::Map(_) => Some('m'),
         Expr::Null => Some('n'),
+        // The sign never changes a literal's kind. Without this
+        // `set("x", -2.5)` stayed unclassifiable and ran the generic
+        // clone, whose runtime `is null` check rejected `0` payloads.
+        Expr::Unary {
+            op: UnaryOp::Negate,
+            expr,
+        } => match &**expr {
+            Expr::Float(_) => Some('f'),
+            Expr::Number(_) => Some('i'),
+            _ => None,
+        },
+        // `str(...)` always builds a string.
+        Expr::Call { name, .. } => {
+            let bare = name.rsplit("::").next().unwrap_or(name.as_str());
+            let bare = bare.rsplit("__").next().unwrap_or(bare);
+            if matches!(bare, "str" | "to_string") {
+                Some('s')
+            } else {
+                None
+            }
+        }
+        // String concatenation is always a string. A dynamic key
+        // (`"k" + str(i)`) previously made the whole call unclassifiable:
+        // the generic clone's runtime `value is null` then rejected a
+        // legitimate `0` payload (0 and null share the zero word).
+        Expr::Binary {
+            op: BinaryOp::Add,
+            left,
+            right,
+        } => {
+            if arg_kind_code(left) == Some('s') || arg_kind_code(right) == Some('s') {
+                Some('s')
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }
@@ -525,7 +561,184 @@ fn collect_candidates(program: &Program) -> HashMap<String, Candidate> {
             );
         }
     }
+    // Transitive forwarder fixpoint: a facade that passes one of its own
+    // open params into a candidate's open position is itself a candidate.
+    // Without this a typed chain (`Cache.set` → `store_set` →
+    // `stored_repr`) never specializes: the leaf's kind tests fold FALSE on
+    // the generic path and float/array payloads take the wrong branch at
+    // runtime (raw floats stored as ints, arrays persisted as scalars).
+    loop {
+        let mut newly: Vec<String> = Vec::new();
+        for (name, cand) in out.iter() {
+            if cand.tests || cand.open_idx.is_empty() {
+                continue;
+            }
+            let open: HashSet<String> = cand
+                .open_idx
+                .iter()
+                .filter_map(|&i| cand.params.get(i).cloned())
+                .collect();
+            let Stmt::Function { body, .. } = &cand.stmt else {
+                continue;
+            };
+            if stmts_forward_open(body, &open, &out) {
+                newly.push(name.clone());
+            }
+        }
+        if newly.is_empty() {
+            break;
+        }
+        for name in newly {
+            if let Some(cand) = out.get_mut(&name) {
+                cand.tests = true;
+            }
+        }
+    }
     out
+}
+
+/// True when `expr` forwards one of `open` into an open parameter position
+/// of a call to an already-known candidate.
+fn expr_forwards_open(
+    expr: &Expr,
+    open: &HashSet<String>,
+    candidates: &HashMap<String, Candidate>,
+) -> bool {
+    match expr {
+        Expr::Call { name, args } => {
+            if args.iter().any(|a| expr_forwards_open(a, open, candidates)) {
+                return true;
+            }
+            let Some(cand) = callee_def(candidates, name) else {
+                return false;
+            };
+            if !cand.tests || args.len() != cand.params.len() {
+                return false;
+            }
+            cand.open_idx
+                .iter()
+                .any(|&i| matches!(args.get(i), Some(Expr::Identifier(p)) if open.contains(p)))
+        }
+        Expr::Binary { left, right, .. } => {
+            expr_forwards_open(left, open, candidates)
+                || expr_forwards_open(right, open, candidates)
+        }
+        Expr::Unary { expr: inner, .. } | Expr::ForceUnwrap(inner) => {
+            expr_forwards_open(inner, open, candidates)
+        }
+        Expr::Array(items) | Expr::InterpolatedString(items) => items
+            .iter()
+            .any(|e| expr_forwards_open(e, open, candidates)),
+        Expr::Index { array, index } | Expr::OptionalIndex { array, index } => {
+            expr_forwards_open(array, open, candidates)
+                || expr_forwards_open(index, open, candidates)
+        }
+        Expr::FieldAccess { object, .. } | Expr::OptionalFieldAccess { object, .. } => {
+            expr_forwards_open(object, open, candidates)
+        }
+        Expr::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            expr_forwards_open(condition, open, candidates)
+                || expr_forwards_open(then_branch, open, candidates)
+                || expr_forwards_open(else_branch, open, candidates)
+        }
+        Expr::NullCoalesce { value, default } => {
+            expr_forwards_open(value, open, candidates)
+                || expr_forwards_open(default, open, candidates)
+        }
+        Expr::StructInit { fields, .. } => fields
+            .iter()
+            .any(|(_, v)| expr_forwards_open(v, open, candidates)),
+        Expr::Map(pairs) => pairs.iter().any(|(k, v)| {
+            expr_forwards_open(k, open, candidates) || expr_forwards_open(v, open, candidates)
+        }),
+        Expr::Cast { expr: inner, .. } => expr_forwards_open(inner, open, candidates),
+        Expr::OptionalCall { args, .. } => {
+            args.iter().any(|a| expr_forwards_open(a, open, candidates))
+        }
+        _ => false,
+    }
+}
+
+fn stmts_forward_open(
+    stmts: &[Stmt],
+    open: &HashSet<String>,
+    candidates: &HashMap<String, Candidate>,
+) -> bool {
+    for stmt in stmts {
+        let found = match stmt.inner_stmt() {
+            Stmt::Let { value, .. }
+            | Stmt::Assign { value, .. }
+            | Stmt::Say(value)
+            | Stmt::Expr(value)
+            | Stmt::Return(Some(value))
+            | Stmt::Throw(Some(value)) => expr_forwards_open(value, open, candidates),
+            Stmt::IndexAssign {
+                array,
+                index,
+                value,
+            } => {
+                expr_forwards_open(array, open, candidates)
+                    || expr_forwards_open(index, open, candidates)
+                    || expr_forwards_open(value, open, candidates)
+            }
+            Stmt::FieldAssign { object, value, .. } => {
+                expr_forwards_open(object, open, candidates)
+                    || expr_forwards_open(value, open, candidates)
+            }
+            Stmt::If {
+                condition,
+                then_block,
+                else_block,
+            } => {
+                expr_forwards_open(condition, open, candidates)
+                    || stmts_forward_open(then_block, open, candidates)
+                    || else_block
+                        .as_ref()
+                        .is_some_and(|eb| stmts_forward_open(eb, open, candidates))
+            }
+            Stmt::While { condition, body } => {
+                expr_forwards_open(condition, open, candidates)
+                    || stmts_forward_open(body, open, candidates)
+            }
+            Stmt::Repeat { body } => stmts_forward_open(body, open, candidates),
+            Stmt::For {
+                start, end, body, ..
+            } => {
+                expr_forwards_open(start, open, candidates)
+                    || expr_forwards_open(end, open, candidates)
+                    || stmts_forward_open(body, open, candidates)
+            }
+            Stmt::ForEach { iterable, body, .. } => {
+                expr_forwards_open(iterable, open, candidates)
+                    || stmts_forward_open(body, open, candidates)
+            }
+            Stmt::TryCatch {
+                try_block,
+                catch_block,
+                finally_block,
+                ..
+            } => {
+                stmts_forward_open(try_block, open, candidates)
+                    || stmts_forward_open(catch_block, open, candidates)
+                    || finally_block
+                        .as_ref()
+                        .is_some_and(|fb| stmts_forward_open(fb, open, candidates))
+            }
+            Stmt::Defer(inner) | Stmt::Pub(inner) => {
+                stmts_forward_open(std::slice::from_ref(inner), open, candidates)
+            }
+            // Nested functions own their bodies and scopes.
+            _ => false,
+        };
+        if found {
+            return true;
+        }
+    }
+    false
 }
 
 fn rewrite_calls(
@@ -878,9 +1091,29 @@ enum BindVal {
     NullableKind(char),
 }
 
+/// `x = x + n` / `x = x - n` (compound assignment lowers to this) keeps
+/// `x`'s kind: numeric arithmetic and string concatenation preserve the
+/// base operand's kind. Counting it as a rebind made loop counters
+/// unclassifiable, so `cache.set(key, i)` ran the generic clone whose
+/// runtime `is null` check rejected a legitimate `0` payload (0 and null
+/// share the zero word).
+fn is_self_update(name: &str, value: &Expr) -> bool {
+    let Expr::Binary { left, op, right } = value else {
+        return false;
+    };
+    if !matches!(op, BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Multiply) {
+        return false;
+    }
+    let Expr::Identifier(base) = &**left else {
+        return false;
+    };
+    base == name && arg_kind_code(right).is_some_and(|c| matches!(c, 'i' | 'f' | 's'))
+}
+
 fn count_assigns(stmts: &[Stmt], counts: &mut HashMap<String, usize>) {
     for s in stmts {
         match s.inner_stmt() {
+            Stmt::Assign { name, value } if is_self_update(name, value) => {}
             Stmt::Let { name, .. } | Stmt::Assign { name, .. } => {
                 *counts.entry(name.clone()).or_insert(0) += 1;
             }
@@ -1551,17 +1784,36 @@ pub fn resolve_dynspec(program: &mut Program) {
         if new_clones.is_empty() {
             break;
         }
-        // Visit nested calls inside the new clones before publishing,
-        // so chains resolve within the round budget.
-        for mut clone in new_clones {
-            walk_top_stmt(
-                &mut clone,
-                &candidates,
-                &binds,
-                &mut versions,
-                &mut Vec::new(),
-            );
-            program.statements.push(clone);
+        // Publish the round's clones plus every clone their bodies request:
+        // facade chains are deeper than one level (`Cache.set` →
+        // `store_set` → `stored_repr`). Each clone gets its parameter kind
+        // binds before its body is walked, so nested calls classify.
+        let mut pending = new_clones;
+        while !pending.is_empty() {
+            let mut next: Vec<Stmt> = Vec::new();
+            for mut clone in pending {
+                if let Stmt::Function { name, .. } = clone.inner_stmt() {
+                    if let Some((origin, codes)) = name.split_once("__spk__") {
+                        if let Some(cand) = candidates.get(origin) {
+                            let mut kind_binds = HashMap::new();
+                            for (code, idx) in codes.chars().zip(cand.open_idx.iter()) {
+                                if let Some(param) = cand.params.get(*idx) {
+                                    kind_binds.insert(param.clone(), BindVal::Kind(code));
+                                }
+                            }
+                            binds.insert(name.clone(), kind_binds);
+                        }
+                    }
+                    // A later round may request a version already published;
+                    // keep one definition (calls already point at it).
+                    if program_has(&program.statements, name) {
+                        continue;
+                    }
+                }
+                walk_top_stmt(&mut clone, &candidates, &binds, &mut versions, &mut next);
+                program.statements.push(clone);
+            }
+            pending = next;
         }
         round += 1;
         if round >= MAX_ROUNDS {
@@ -1731,5 +1983,70 @@ mod tests {
             !candidates.contains_key("annotated_geti")
                 || !candidates.get("annotated_geti").unwrap().tests
         );
+    }
+
+    #[test]
+    fn arg_kind_code_classifies_negated_literals() {
+        // `set("x", -2.5)` must specialize like `set("x", 2.5)`; without
+        // this the generic clone's runtime `is null` rejected zero payloads.
+        let neg_float = Expr::Unary {
+            op: UnaryOp::Negate,
+            expr: Box::new(Expr::Float(2.5)),
+        };
+        let neg_int = Expr::Unary {
+            op: UnaryOp::Negate,
+            expr: Box::new(Expr::Number(3)),
+        };
+        assert_eq!(arg_kind_code(&neg_float), Some('f'));
+        assert_eq!(arg_kind_code(&neg_int), Some('i'));
+    }
+
+    #[test]
+    fn arg_kind_code_classifies_string_concatenation() {
+        // `"k" + str(i)` is always a string, so the whole call site stays
+        // classifiable even with a dynamic key.
+        let concat = Expr::Binary {
+            left: Box::new(Expr::String("k".to_string())),
+            op: BinaryOp::Add,
+            right: Box::new(Expr::Call {
+                name: "str".to_string(),
+                args: vec![Expr::Identifier("i".to_string())],
+            }),
+        };
+        assert_eq!(arg_kind_code(&concat), Some('s'));
+        let numeric = Expr::Binary {
+            left: Box::new(Expr::Number(1)),
+            op: BinaryOp::Add,
+            right: Box::new(Expr::Number(2)),
+        };
+        assert_eq!(arg_kind_code(&numeric), None);
+    }
+
+    #[test]
+    fn self_update_preserves_numeric_and_string_kinds() {
+        // Loop counters (`i += 1`) keep the `let i = 0` kind: counting the
+        // update as a rebind made `set(key, i)` unclassifiable.
+        let inc = Expr::Binary {
+            left: Box::new(Expr::Identifier("i".to_string())),
+            op: BinaryOp::Add,
+            right: Box::new(Expr::Number(1)),
+        };
+        assert!(is_self_update("i", &inc));
+        assert!(!is_self_update("j", &inc));
+        let append = Expr::Binary {
+            left: Box::new(Expr::Identifier("s".to_string())),
+            op: BinaryOp::Add,
+            right: Box::new(Expr::String("x".to_string())),
+        };
+        assert!(is_self_update("s", &append));
+        let rebind = Expr::Binary {
+            left: Box::new(Expr::Identifier("i".to_string())),
+            op: BinaryOp::Add,
+            right: Box::new(Expr::Call {
+                name: "next".to_string(),
+                args: vec![],
+            }),
+        };
+        assert!(!is_self_update("i", &rebind));
     }
 }

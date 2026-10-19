@@ -1,5 +1,7 @@
 use crate::ast::*;
-use crate::codegen::analysis::inference::common::collect_function_defs;
+use crate::codegen::analysis::inference::common::{
+    collect_function_defs, collect_local_assignments, returns_passthrough_dynamic,
+};
 use crate::codegen::analysis::predicates::{is_simple_name, seed_ambiguity_markers};
 use crate::codegen::analysis::traversal::CallIndex;
 use crate::may_record_bare;
@@ -312,6 +314,84 @@ fn collect_tuple_returns_float(
     }
 }
 
+/// Names in one function scope that may hold a non-float at a `return`:
+/// parameters not proven float and locals whose assignments are not all
+/// definitely float (a local with an explicit `: float` annotation counts
+/// as proven). A `__spk__` clone's `f` code and a parameter proven
+/// float by every call site (`fn_param_flt`) count as proven; loop and
+/// catch bindings stay unknown (`opaque`).
+///
+/// Why: `let out = v; if v is float { out = encode(v) } return out`
+/// returns the encoded string on the float arm, so the function is
+/// dynamic. Without this veto the float arm plants an existential
+/// `fn_ret_flt` positive, callers record the result `Float` and read the
+/// string pointer with `movsd` (garbage doubles like 6.9e-310). Mirrors
+/// the string `fn_ret_nonstr` vetoes; only adds vetoes.
+fn maybe_nonfloat_names(
+    func_name: &str,
+    params: &[String],
+    param_types: &[Option<String>],
+    body: &[Stmt],
+    known_floats: &HashSet<String>,
+) -> HashSet<String> {
+    let bare = func_name.rsplit("::").next().unwrap_or(func_name);
+    let bare = bare.rsplit("__").next().unwrap_or(bare);
+    let bare_ok = is_simple_name(func_name);
+    let mut proven: HashSet<String> = HashSet::new();
+    for (idx, param) in params.iter().enumerate() {
+        let declared = param_types.get(idx).and_then(|t| t.as_deref());
+        let is_float = match declared {
+            Some(t) => {
+                t.eq_ignore_ascii_case("float")
+                    || t.eq_ignore_ascii_case("f64")
+                    || t.eq_ignore_ascii_case("f32")
+                    || t.eq_ignore_ascii_case("double")
+            }
+            None => {
+                crate::parser::dynspec::spec_open_param_kind(func_name, param, params, param_types)
+                    == Some('f')
+                    || known_floats.contains(&format!("fn_param_flt:{}:{}", func_name, idx))
+                    || (bare_ok && known_floats.contains(&format!("fn_param_flt:{}:{}", bare, idx)))
+            }
+        };
+        if is_float {
+            proven.insert(param.clone());
+        }
+    }
+    let mut exprs: HashMap<String, Vec<&Expr>> = HashMap::new();
+    let mut opaque: HashSet<String> = HashSet::new();
+    let mut typed_floats: HashSet<String> = HashSet::new();
+    collect_local_assignments(body, &mut exprs, &mut opaque, &mut typed_floats);
+    proven.extend(typed_floats);
+    // Fixpoint: a local is proven float only when every assignment is.
+    for _ in 0..4 {
+        let mut added = false;
+        for (name, values) in &exprs {
+            if proven.contains(name) || opaque.contains(name) || values.is_empty() {
+                continue;
+            }
+            if values.iter().all(|e| expr_is_definitely_float(e, &proven))
+                && proven.insert(name.clone())
+            {
+                added = true;
+            }
+        }
+        if !added {
+            break;
+        }
+    }
+    let mut maybe: HashSet<String> = opaque;
+    for name in exprs.keys() {
+        if !proven.contains(name) {
+            maybe.insert(name.clone());
+        }
+    }
+    // Veto only locals: a bare `return p` on a parameter is already gated
+    // by the all-call-sites `fn_param_flt` markers, and vetoing it here
+    // would permanently block every passthrough before those are seeded.
+    maybe
+}
+
 /// Return-position veto: a literal non-float, non-null `return`
 /// (number, string, array, map, struct) proves the function is dynamic
 /// no matter what float paths it also has. Null returns are exempt:
@@ -323,7 +403,13 @@ fn collect_tuple_returns_float(
 /// recorded `Float`, stores load them with `movsd` and tag them float,
 /// mangling heap/int results (e.g. json arrays read back as zeros).
 /// Mirrors the string `fn_ret_nonstr` vetoes; only adds vetoes.
-fn record_return_nonflt_vetoes(func_name: &str, body: &[Stmt], known_floats: &mut HashSet<String>) {
+fn record_return_nonflt_vetoes(
+    func_name: &str,
+    params: &[String],
+    param_types: &[Option<String>],
+    body: &[Stmt],
+    known_floats: &mut HashSet<String>,
+) {
     fn returns_non_float_lit(stmts: &[Stmt]) -> bool {
         for s in stmts {
             match s {
@@ -389,7 +475,10 @@ fn record_return_nonflt_vetoes(func_name: &str, body: &[Stmt], known_floats: &mu
         }
         false
     }
-    if returns_non_float_lit(body) {
+    let dynamic_names = maybe_nonfloat_names(func_name, params, param_types, body, known_floats);
+    let returns_dynamic =
+        !dynamic_names.is_empty() && returns_passthrough_dynamic(body, &dynamic_names);
+    if returns_non_float_lit(body) || returns_dynamic {
         let bare = func_name.rsplit("::").next().unwrap_or(func_name);
         let bare = bare.rsplit("__").next().unwrap_or(bare);
         known_floats.insert(format!("fn_ret_nonflt:{}", func_name));
@@ -607,6 +696,7 @@ fn collect_float_vars_from_stmts(
             Stmt::Function {
                 name,
                 params,
+                param_types,
                 body,
                 return_type,
                 ..
@@ -615,7 +705,7 @@ fn collect_float_vars_from_stmts(
                 let bare = bare.rsplit("__").next().unwrap_or(bare);
                 // Return-position vetoes: a literal non-float return
                 // proves the function dynamic (see above).
-                record_return_nonflt_vetoes(name, body, known_floats);
+                record_return_nonflt_vetoes(name, params, param_types, body, known_floats);
                 let mut fn_locals = scope.clone();
                 // #101: qualified-spelled functions consult exact
                 // markers only.
@@ -858,8 +948,8 @@ pub fn collect_known_float_vars_with_index(
     // `fn_param_nonstr` pre-seed): a positive derived early persists
     // monotonically, so vetoes must precede the fixpoint. Only
     // `fn_ret_nonflt:*` markers are merged here.
-    for (name, _, _, body) in &funcs {
-        record_return_nonflt_vetoes(name, body, &mut known_floats);
+    for (name, params, param_types, body) in &funcs {
+        record_return_nonflt_vetoes(name, params, param_types, body, &mut known_floats);
     }
     for _ in 0..5 {
         let prev_len = known_floats.len();

@@ -787,87 +787,13 @@ impl CodeGen {
                             self.output.push('\n');
                         }
                         VarType::Number(offset) => {
-                            if self
-                                .ctx
-                                .variables
-                                .contains_key(&format!("var_is_int:{}", name))
-                            {
-                                let fmt_int_label = self.ctx.next_string_label();
-                                self.emit_rodata_section();
-                                self.output.push_str(&format!("{}:\n", fmt_int_label));
-                                // B4: u64-annotated locals print unsigned.
-                                let fmt = if self
-                                    .ctx
-                                    .variables
-                                    .contains_key(&format!("var_is_uint:{}", name))
-                                {
-                                    "%llu\\n"
-                                } else {
-                                    "%lld\\n"
-                                };
-                                self.emit_string_directive(fmt);
-                                self.output.push_str(".text\n");
-                                arch::emit_load_var(
-                                    &mut self.output,
-                                    self.arch,
-                                    offset,
-                                    self.ctx.stack_offset,
-                                );
-                                arch::emit_say_acc(
-                                    &mut self.output,
-                                    self.arch,
-                                    &fmt_int_label,
-                                    self.ctx.stack_offset,
-                                    self.os,
-                                );
-                                self.output.push('\n');
-                                return;
-                            }
-                            // Statically-unknown dynamics are recorded as
-                            // Number. Call-bound ones (`let v = F(...)`
-                            // with a dynamically-typed call result, e.g.
-                            // json_parse which returns any JSON type) need
-                            // the same guarded print as Map-typed dynamics
-                            // (null/map/string/small-int dispatch); a
-                            // string-vs-int check alone prints null as 0
-                            // and maps as pointers. Other Number dynamics
-                            // (e.g. int loop vars, where 0 must print as
-                            // 0 not null) keep the string/int path.
-                            if self
-                                .ctx
-                                .variables
-                                .contains_key(&format!("call_bound:{}", name))
-                            {
-                                arch::emit_load_var(
-                                    &mut self.output,
-                                    self.arch,
-                                    offset,
-                                    self.ctx.stack_offset,
-                                );
-                                self.emit_guarded_map_print();
-                                self.output.push('\n');
-                                return;
-                            }
-                            // Map reads with variable keys would print
-                            // string pointers as integers. Classify at
-                            // runtime: real integers take the identical %lld
-                            // path, so behavior is unchanged for them, except
-                            // for integers that numerically fall inside the
-                            // rodata/str-buf windows (documented edge).
-                            let l_dyn_str = self.ctx.next_label();
-                            let l_dyn_end = self.ctx.next_label();
-                            arch::emit_load_var(
-                                &mut self.output,
-                                self.arch,
-                                offset,
-                                self.ctx.stack_offset,
-                            );
-                            // alya-lang/alya#175: tag-spilled dynamic (e.g.
-                            // a float arm of a heterogeneous tuple): the
-                            // value word alone cannot tell float from int,
-                            // so reload the spilled kind and print floats
-                            // exactly. Every other tag keeps the classify
-                            // path below.
+                            // Tag-spilled dynamic (e.g. a float arm of a
+                            // heterogeneous tuple): the value word alone
+                            // cannot tell float from int, so reload the
+                            // spilled kind and print floats exactly. The
+                            // check must run before the `var_is_int` fast path
+                            // below, which otherwise returns early and prints a
+                            // dynamic float local as its raw bit pattern.
                             let tag_float_label = match self
                                 .ctx
                                 .variables
@@ -908,6 +834,136 @@ impl CodeGen {
                                 }
                                 _ => None,
                             };
+                            if self
+                                .ctx
+                                .variables
+                                .contains_key(&format!("var_is_int:{}", name))
+                            {
+                                let fmt_int_label = self.ctx.next_string_label();
+                                self.emit_rodata_section();
+                                self.output.push_str(&format!("{}:\n", fmt_int_label));
+                                // B4: u64-annotated locals print unsigned.
+                                let fmt = if self
+                                    .ctx
+                                    .variables
+                                    .contains_key(&format!("var_is_uint:{}", name))
+                                {
+                                    "%llu\\n"
+                                } else {
+                                    "%lld\\n"
+                                };
+                                self.emit_string_directive(fmt);
+                                self.output.push_str(".text\n");
+                                arch::emit_load_var(
+                                    &mut self.output,
+                                    self.arch,
+                                    offset,
+                                    self.ctx.stack_offset,
+                                );
+                                arch::emit_say_acc(
+                                    &mut self.output,
+                                    self.arch,
+                                    &fmt_int_label,
+                                    self.ctx.stack_offset,
+                                    self.os,
+                                );
+                                if let Some(l_tag_flt) = tag_float_label {
+                                    let l_int_end = self.ctx.next_label();
+                                    arch::emit_jump(&mut self.output, self.arch, &l_int_end);
+                                    self.output.push_str(&format!("{}:\n", l_tag_flt));
+                                    let fmt_tag_flt_label = self.ctx.next_string_label();
+                                    self.emit_rodata_section();
+                                    self.output.push_str(&format!("{}:\n", fmt_tag_flt_label));
+                                    self.emit_string_directive("%s\\n");
+                                    self.output.push_str(".text\n");
+                                    arch::emit_load_var(
+                                        &mut self.output,
+                                        self.arch,
+                                        offset,
+                                        self.ctx.stack_offset,
+                                    );
+                                    arch::emit_say_float(
+                                        &mut self.output,
+                                        self.arch,
+                                        &fmt_tag_flt_label,
+                                        self.ctx.stack_offset,
+                                        self.os,
+                                    );
+                                    self.output.push_str(&format!("{}:\n", l_int_end));
+                                }
+                                self.output.push('\n');
+                                return;
+                            }
+                            // Statically-unknown dynamics are recorded as
+                            // Number. Call-bound ones (`let v = F(...)`
+                            // with a dynamically-typed call result, e.g.
+                            // json_parse which returns any JSON type) need
+                            // the same guarded print as Map-typed dynamics
+                            // (null/map/string/small-int dispatch); a
+                            // string-vs-int check alone prints null as 0
+                            // and maps as pointers. Other Number dynamics
+                            // (e.g. int loop vars, where 0 must print as
+                            // 0 not null) keep the string/int path.
+                            if self
+                                .ctx
+                                .variables
+                                .contains_key(&format!("call_bound:{}", name))
+                            {
+                                arch::emit_load_var(
+                                    &mut self.output,
+                                    self.arch,
+                                    offset,
+                                    self.ctx.stack_offset,
+                                );
+                                self.emit_guarded_map_print();
+                                // The hoisted tag check targets `l_tag_flt`
+                                // here too: print a spilled float exactly
+                                // instead of letting the guarded int path
+                                // print its raw bits.
+                                if let Some(l_tag_flt) = tag_float_label {
+                                    let l_cb_end = self.ctx.next_label();
+                                    arch::emit_jump(&mut self.output, self.arch, &l_cb_end);
+                                    self.output.push_str(&format!("{}:\n", l_tag_flt));
+                                    let fmt_tag_flt_label = self.ctx.next_string_label();
+                                    self.emit_rodata_section();
+                                    self.output.push_str(&format!("{}:\n", fmt_tag_flt_label));
+                                    self.emit_string_directive("%s\\n");
+                                    self.output.push_str(".text\n");
+                                    arch::emit_load_var(
+                                        &mut self.output,
+                                        self.arch,
+                                        offset,
+                                        self.ctx.stack_offset,
+                                    );
+                                    arch::emit_say_float(
+                                        &mut self.output,
+                                        self.arch,
+                                        &fmt_tag_flt_label,
+                                        self.ctx.stack_offset,
+                                        self.os,
+                                    );
+                                    self.output.push_str(&format!("{}:\n", l_cb_end));
+                                }
+                                self.output.push('\n');
+                                return;
+                            }
+                            // Map reads with variable keys would print
+                            // string pointers as integers. Classify at
+                            // runtime: real integers take the identical %lld
+                            // path, so behavior is unchanged for them, except
+                            // for integers that numerically fall inside the
+                            // rodata/str-buf windows (documented edge).
+                            let l_dyn_str = self.ctx.next_label();
+                            let l_dyn_end = self.ctx.next_label();
+                            arch::emit_load_var(
+                                &mut self.output,
+                                self.arch,
+                                offset,
+                                self.ctx.stack_offset,
+                            );
+                            // The tag-float check was hoisted to the top of
+                            // this arm so the `var_is_int` fast path also
+                            // honors it; `tag_float_label` is already set.
                             self.emit_runtime_classify(self.os);
                             arch::emit_cmp_imm(&mut self.output, self.arch, KIND_STRING);
                             arch::emit_cond_jump(

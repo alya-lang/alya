@@ -1,0 +1,158 @@
+# ==============================================================================
+# Alya Integration Fixture 73 (entry): cache-style facade -> engine -> forwarder
+# Distilled from: rewriting Lib/independent/cache as an autotyped cache
+#                 (set/get with no typed setter variants).
+# Guards:
+#   1. Transitive specialization: a facade method forwards an untyped payload
+#      to an engine that forwards it to `stored_repr`/`classify`. The clone
+#      chain must reach the leaf `is float` test; the struct-typed first
+#      parameter of the engine must not poison the forwarder's payload
+#      parameter through a shared bare-name key.
+#   2. Floats round-trip through the encoded representation and read back as
+#      floats (`==`, `is float`), including negative literals.
+#   3. Dynamic locals bound from a dynamic read keep their float tag for
+#      `say` / `str` (raw bit patterns must not leak).
+#   4. String-concatenation keys and int loop counters classify statically, so
+#      a legitimate `0` payload is stored rather than rejected as null.
+#   5. Literal null payloads are rejected at the facade.
+# ==============================================================================
+
+struct Meta
+    kind: string
+end
+
+struct Box
+    store: map
+    meta: map
+end
+
+function new_box() -> Box
+    return Box { store: {}, meta: {} }
+end
+
+# Portable fixed-point codec (3 decimals is enough for this fixture).
+function encode_float(v: float) -> string
+    return str(to_int(v * 1000.0))
+end
+
+function decode_float(s: string) -> float
+    return to_float(s) / 1000.0
+end
+
+# Leaf classifier: direct `is` tests on an untyped parameter.
+function classify(value) -> string
+    if value is float
+        return "f"
+    end
+    if value is string
+        return "s"
+    end
+    if value is int
+        return "i"
+    end
+    return ""
+end
+
+# Forwarder: must receive the same specialization as its caller, otherwise
+# `value is float` folds false and the read side decodes a raw payload.
+function stored_repr(value)
+    let out = value
+    if value is float
+        out = encode_float(value)
+    end
+    return out
+end
+
+# Read-side twin of `stored_repr`: single-exit dynamic shape, float decoded
+# through a one-element box so the value tag survives the assignment.
+function materialize(b: Box, key: string)
+    let out = b.store[key]
+    if key in b.meta
+        let meta = b.meta[key]
+        if meta.kind == "f"
+            let box = [decode_float(b.store[key])]
+            out = box[0]
+        end
+    end
+    return out
+end
+
+# Engine: raw insert of an already-encoded payload (nulls are rejected by
+# the facade, where the payload kind is still known from the call site).
+function box_put(b: Box, key: string, value, kind: string) -> bool
+    b.store[key] = value
+    b.meta[key] = Meta { kind: kind }
+    return true
+end
+
+function box_set(b: Box, key: string, value) -> bool
+    if value is null
+        return false
+    end
+    let repr = stored_repr(value)
+    let kind = classify(value)
+    return box_put(b, key, repr, kind)
+end
+
+function box_get(b: Box, key: string)
+    if key in b.store == false
+        return null
+    end
+    return materialize(b, key)
+end
+
+function Box.set(self: Box, key: string, value) -> bool
+    return box_set(self, key, value)
+end
+
+function Box.get(self: Box, key: string)
+    return box_get(self, key)
+end
+
+function Box.has(self: Box, key: string) -> bool
+    return key in self.store
+end
+
+function main()
+    let b = new_box()
+    assert b.set("f", 2.5)
+    assert b.set("neg", -2.25)
+    assert b.set("i", 42)
+    assert b.set("s", "hello")
+
+    # 1/2: encoded floats read back as floats, including negative literals.
+    assert b.meta["f"].kind == "f"
+    assert b.meta["neg"].kind == "f"
+    assert b.meta["i"].kind == "i"
+    assert b.meta["s"].kind == "s"
+    assert b.get("f") == 2.5
+    assert b.get("f") is float
+    assert b.get("neg") == -2.25
+    assert b.get("i") == 42
+    assert b.get("s") == "hello"
+
+    # 3: a dynamic local keeps its float tag for say/str.
+    let local = b.get("f")
+    assert local == 2.5
+    assert str(local) == "2.5"
+    say local
+
+    # 4: concatenated keys + int loop counters store a legitimate 0.
+    let i = 0
+    while i < 3
+        b.set("k" + str(i), i)
+        i += 1
+    end
+    assert b.get("k0") == 0
+    assert b.get("k0") is int
+    assert b.get("k1") == 1
+    assert b.get("k2") == 2
+
+    # 5: literal null payloads are rejected and never stored.
+    assert not b.set("nil", null)
+    assert not b.has("nil")
+
+    say "integration 73_cache_facade_chain: OK"
+end
+
+main()

@@ -1949,6 +1949,65 @@ impl CodeGen {
                         );
                         return;
                     }
+                    // Tag-spilled dynamic locals (e.g. a float returned by a
+                    // dynamic function and bound to a local) carry their kind
+                    // in `var_tag_slot`; the value word alone cannot tell
+                    // float from int, so dispatch on the tag before the
+                    // generic int formatter.
+                    if let Expr::Identifier(id) = &args[0] {
+                        if let Some(VarType::Number(tag_slot)) = self
+                            .ctx
+                            .variables
+                            .get(&format!("var_tag_slot:{}", id))
+                            .cloned()
+                        {
+                            let initial_stack_offset = self.ctx.stack_offset;
+                            self.generate_expression(&args[0]);
+                            arch::emit_push_temp(&mut self.output, self.arch);
+                            let l_flt = self.ctx.next_label();
+                            let l_end = self.ctx.next_label();
+                            match self.arch {
+                                Architecture::X64 => {
+                                    self.output
+                                        .push_str(&format!("    movl -{}(%rbp), %edx\n", tag_slot));
+                                    self.output
+                                        .push_str(&format!("    cmpl ${}, %edx\n", KIND_FLOAT));
+                                    self.output.push_str(&format!("    je {}\n", l_flt));
+                                }
+                                Architecture::ARM64 => {
+                                    crate::codegen::arch::arm64::loads::emit_arm64_load_x29_offset(
+                                        &mut self.output,
+                                        "w1",
+                                        tag_slot,
+                                        "x9",
+                                    );
+                                    self.output
+                                        .push_str(&format!("    cmp w1, #{}\n", KIND_FLOAT));
+                                    self.output.push_str(&format!("    b.eq {}\n", l_flt));
+                                }
+                            }
+                            arch::emit_function_call(
+                                &mut self.output,
+                                self.arch,
+                                "str",
+                                1,
+                                initial_stack_offset,
+                                self.os,
+                            );
+                            arch::emit_jump(&mut self.output, self.arch, &l_end);
+                            self.output.push_str(&format!("{}:\n", l_flt));
+                            arch::emit_function_call(
+                                &mut self.output,
+                                self.arch,
+                                "str_from_float",
+                                1,
+                                initial_stack_offset,
+                                self.os,
+                            );
+                            self.output.push_str(&format!("{}:\n", l_end));
+                            return;
+                        }
+                    }
                     // Variable-key map reads and (Phase 1, #39) plain
                     // array reads carry the entry kind tag
                     // (x64: %edx, arm64: w1; see fn_get). Floats must go

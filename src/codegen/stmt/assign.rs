@@ -1714,7 +1714,16 @@ impl CodeGen {
         // into an existing float slot must convert AND track float, or
         // the slot keeps int bits while every later read treats them as
         // a double. Value-proven floats behave as before.
-        let target_is_flt = matches!(self.ctx.variables.get(&name), Some(VarType::Float(_)));
+        //
+        // A definitely non-numeric RHS (string/array/map/struct) must NOT
+        // inherit the slot's floatness: the float store below only reads
+        // the float register, so the string pointer in %rax was dropped
+        // and the slot kept stale bits (mixed locals like
+        // `let out = v; if v is float { out = encode(v) }` returned the
+        // untouched payload instead of the encoded string). Demote the
+        // slot to the RHS kind instead.
+        let target_is_flt = !is_definitely_not_numeric(value, &self.ctx.variables)
+            && matches!(self.ctx.variables.get(&name), Some(VarType::Float(_)));
         let is_flt = target_is_flt || is_float_expr(value, &self.ctx.variables);
         let is_str = is_string_expr(value, &self.ctx.variables);
         let is_arr = is_array_expr(value, &self.ctx.variables);

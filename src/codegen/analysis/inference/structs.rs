@@ -34,15 +34,27 @@ pub struct StructInference {
 
 pub(crate) fn resolve_func_bare<'a>(name: &'a str, struct_names: &HashSet<String>) -> &'a str {
     let ns_bare = name.rsplit("::").next().unwrap_or(name);
-    if let Some((prefix, _)) = ns_bare.split_once("__") {
+    // Specialization clones (`{fn}__spk__{codes}`) are distinct functions:
+    // resolve the origin's bare name but keep the suffix. Without this a
+    // one-code name collapsed to `"f"`, so the `Cache` receiver recorded
+    // for `store_set__spk__f`'s first param poisoned every other
+    // `*__spk__f` clone's first param through the shared `("f", 0)` key
+    // (`stored_repr__spk__f`'s payload became a struct param and its
+    // `is float` folded false).
+    let (head, suffix) = match ns_bare.split_once("__spk__") {
+        Some((head, _)) => (&ns_bare[..head.len()], &ns_bare[head.len()..]),
+        None => (ns_bare, ""),
+    };
+    let bare_head = if let Some((prefix, _)) = head.split_once("__") {
         if struct_names.contains(prefix) {
-            ns_bare
+            head
         } else {
-            ns_bare.rsplit("__").next().unwrap_or(ns_bare)
+            head.rsplit("__").next().unwrap_or(head)
         }
     } else {
-        ns_bare
-    }
+        head
+    };
+    &ns_bare[head.len() - bare_head.len()..head.len() + suffix.len()]
 }
 
 /// Enumerates every multi-value (`return a, b, ...`, parsed as

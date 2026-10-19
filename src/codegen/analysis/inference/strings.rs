@@ -1,4 +1,6 @@
-use super::common::collect_function_defs;
+use super::common::{
+    collect_function_defs, collect_passthrough_names, returns_passthrough_dynamic,
+};
 use crate::ast::*;
 use crate::codegen::analysis::predicates::{is_simple_name, seed_ambiguity_markers};
 use crate::codegen::analysis::traversal::CallIndex;
@@ -760,6 +762,67 @@ fn scan_expr_for_strings(
     }
 }
 
+/// Names in one function scope whose value at a `return` may be a
+/// non-string: untyped parameters (a `__spk__` clone's `s` code is the
+/// only proven-string case) and locals that receive such a value through
+/// direct identifier passthrough, transitively.
+///
+/// Why: `let out = v; if v is float { out = encode(v) } return out`
+/// returns an encoded string on the float arm and the untouched payload
+/// on the other, so the function is dynamic. Without this veto the string
+/// arm plants an existential `fn_ret_str` positive, callers fold the
+/// result to constant-string, and an int payload is routed through
+/// `alya_str_store` (passes small ints through) and then `%s`
+/// (0xC0000005). Only direct passthroughs count (identifier and
+/// ternary/null-coalesce/force-unwrap arms): calls and computed values
+/// keep their existing markers, so functions that always return strings
+/// do not lose their stable-region dups.
+fn maybe_nonstring_names(
+    func_name: &str,
+    params: &[String],
+    param_types: &[Option<String>],
+    body: &[Stmt],
+    known_strings: &HashSet<String>,
+) -> HashSet<String> {
+    let bare = func_name.rsplit("::").next().unwrap_or(func_name);
+    let bare = bare.rsplit("__").next().unwrap_or(bare);
+    let bare_ok = is_simple_name(func_name);
+    let mut names: HashSet<String> = HashSet::new();
+    for (idx, param) in params.iter().enumerate() {
+        let declared = param_types.get(idx).and_then(|t| t.as_deref());
+        let proven_string = match declared {
+            Some(t) => t.eq_ignore_ascii_case("string") || t.eq_ignore_ascii_case("str"),
+            None => {
+                crate::parser::dynspec::spec_open_param_kind(func_name, param, params, param_types)
+                    == Some('s')
+                    || known_strings.contains(&format!("fn_param_str:{}:{}", func_name, idx))
+                    || (bare_ok
+                        && known_strings.contains(&format!("fn_param_str:{}:{}", bare, idx)))
+            }
+        };
+        if !proven_string {
+            names.insert(param.clone());
+        }
+    }
+    if names.is_empty() {
+        return names;
+    }
+    for _ in 0..4 {
+        let before = names.len();
+        collect_passthrough_names(body, &mut names);
+        if names.len() == before {
+            break;
+        }
+    }
+    // Veto only locals: a bare `return p` on a parameter is already gated
+    // by the all-call-sites `fn_param_str` markers, and vetoing it here
+    // would permanently block every passthrough before those are seeded.
+    for param in params {
+        names.remove(param);
+    }
+    names
+}
+
 /// Return-position veto: a literal non-string, non-null `return`
 /// (number, float, array, map, struct) proves the function is dynamic
 /// no matter what string paths it also has. Null returns are exempt:
@@ -773,6 +836,8 @@ fn scan_expr_for_strings(
 /// `fn_param_nonstr` argument vetoes; only adds vetoes.
 fn record_return_nonstr_vetoes(
     func_name: &str,
+    params: &[String],
+    param_types: &[Option<String>],
     body: &[Stmt],
     known_strings: &mut HashSet<String>,
 ) {
@@ -946,7 +1011,13 @@ fn record_return_nonstr_vetoes(
         }
         false
     }
-    if returns_non_string_lit(body) || returns_vetoed_call(body, known_strings) {
+    // A return that passes an untyped parameter (or a local holding one)
+    // straight through proves the function dynamic: the payload may be
+    // an int/float/array, never a string.
+    let dynamic_names = maybe_nonstring_names(func_name, params, param_types, body, known_strings);
+    let returns_dynamic =
+        !dynamic_names.is_empty() && returns_passthrough_dynamic(body, &dynamic_names);
+    if returns_non_string_lit(body) || returns_vetoed_call(body, known_strings) || returns_dynamic {
         let bare = func_name.rsplit("::").next().unwrap_or(func_name);
         let bare = bare.rsplit("__").next().unwrap_or(bare);
         known_strings.insert(format!("fn_ret_nonstr:{}", func_name));
@@ -1522,7 +1593,11 @@ fn collect_string_vars_from_stmts(
                 collect_string_vars_from_stmts(body, struct_defs, known_strings, conflicts);
             }
             Stmt::Function {
-                name, params, body, ..
+                name,
+                params,
+                param_types,
+                body,
+                ..
             } => {
                 let bare = name.rsplit("::").next().unwrap_or(name.as_str());
                 let bare = bare.rsplit("__").next().unwrap_or(bare);
@@ -1531,7 +1606,7 @@ fn collect_string_vars_from_stmts(
                 record_forwarding_param_vetoes(name, params, body, known_strings);
                 // Return-position vetoes: a literal non-string return
                 // proves the function dynamic (see above).
-                record_return_nonstr_vetoes(name, body, known_strings);
+                record_return_nonstr_vetoes(name, params, param_types, body, known_strings);
                 let mut fn_locals = known_strings.clone();
                 for (idx, param) in params.iter().enumerate() {
                     // Same veto as infer_param_is_string_with: a literal
@@ -2216,8 +2291,8 @@ pub fn collect_known_string_vars_with_index(
         collect_function_defs(&program.statements, &mut funcs);
         for _ in 0..10 {
             let prev_len = known_strings.len();
-            for (name, _, _, body) in &funcs {
-                record_return_nonstr_vetoes(name, body, &mut known_strings);
+            for (name, params, param_types, body) in &funcs {
+                record_return_nonstr_vetoes(name, params, param_types, body, &mut known_strings);
             }
             if known_strings.len() == prev_len {
                 break;

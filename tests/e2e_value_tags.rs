@@ -30,6 +30,38 @@ main()
 }
 
 #[test]
+fn test_tags_dynamic_float_local_formatting() {
+    // A dynamic float returned through a map read keeps its tag when bound
+    // to a local, so `say` and `str()` print the value instead of the raw
+    // IEEE-754 bit pattern.
+    let code = r#"
+function lookup(m: map, key: string)
+    let out = m[key]
+    return out
+end
+
+function main()
+    let m = { "f": 2.5, "i": 7 }
+    let f = lookup(m, "f")
+    say f
+    say str(f)
+    say "ratio=" + str(f)
+    assert f == 2.5
+    assert f is float
+    let i = lookup(m, "i")
+    say i
+    say str(i)
+end
+
+main()
+"#;
+    if let Some((code, output)) = run_alya_code_full(code) {
+        assert_eq!(code, 0, "Execution failed: {}", output);
+        assert_eq!(output, "2.5\n2.5\nratio=2.5\n7\n7\n", "Got: {}", output);
+    }
+}
+
+#[test]
 fn test_tags_say_push_int_array() {
     let code = r#"
 function main()
