@@ -4,6 +4,6 @@ version = 2
 [[package]]
 name = "term"
 version = "0.1.0"
-source = "git:https://github.com/alya-lang/term?branch=main#79f7ea24666dc4e98c0c503ef44bdd1f8c8bdd2a"
+source = "git:https://github.com/alya-lang/term?branch=main#48b17f5f5cbde6d02ad70677eeb334fc5ea5727b"
 entry = ".alya/packages/term/src/lib.alya"
-checksum = "sha256:c23f3833714350d491d820399f2b1fc1d01ae3b6954aa45d7435fe4513c03b7e"
+checksum = "sha256:ad2056405bfc1dd67821faa76de470e881a8f9dc72a9eb20b67f42eb3b7c9b45"
